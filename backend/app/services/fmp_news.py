@@ -23,6 +23,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -186,17 +187,16 @@ def _trimmed(value: Any) -> str | None:
 
 
 def _normalize_symbol(value: Any) -> str | None:
-    symbol = _trimmed(value)
-    return symbol.upper() if symbol else None
+    return normalize_symbol(str(value)) if value is not None else None
 
 
 def _normalize_symbols(value: Any) -> list[str]:
     symbols: list[str] = []
     if isinstance(value, str):
-        symbols = [chunk.strip().upper() for chunk in value.replace("|", ",").split(",")]
+        symbols = [symbol for chunk in value.replace("|", ",").split(",") if (symbol := normalize_symbol(chunk))]
     elif isinstance(value, (list, tuple)):
-        symbols = [str(chunk).strip().upper() for chunk in value]
-    return [symbol for symbol in symbols if symbol]
+        symbols = [symbol for chunk in value if (symbol := normalize_symbol(str(chunk)))]
+    return symbols
 
 
 def _normalize_timestamp(value: Any) -> str | None:

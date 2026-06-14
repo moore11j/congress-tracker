@@ -327,7 +327,7 @@ def _congress_baseline_map_for_symbols(
     baseline_days: int = 365,
     min_baseline_count: int = 3,
 ) -> dict[str, tuple[float, int]]:
-    normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()})
+    normalized_symbols = sorted({normalized for symbol in symbols if (normalized := normalize_symbol(symbol))})
     if not normalized_symbols:
         return {}
 
@@ -2756,7 +2756,11 @@ def feed(
             q = q.where(Transaction.report_date >= cutoff)
 
         if symbol:
-            q = q.where(Security.symbol == symbol.strip().upper())
+            normalized_symbol = normalize_symbol(symbol)
+            if normalized_symbol:
+                q = q.where(Security.symbol == normalized_symbol)
+            else:
+                q = q.where(literal(False))
         if chamber:
             q = q.where(Member.chamber == chamber.strip().lower())
         if transaction_type:
@@ -2866,7 +2870,11 @@ def feed(
     q = select(Event).where(Event.event_type.in_(event_types))
 
     if symbol:
-        q = q.where(func.upper(Event.symbol) == symbol.strip().upper())
+        normalized_symbol = normalize_symbol(symbol)
+        if normalized_symbol:
+            q = q.where(func.upper(Event.symbol) == normalized_symbol)
+        else:
+            q = q.where(literal(False))
     if transaction_type:
         q = q.where(func.lower(Event.transaction_type) == transaction_type.strip().lower())
     if recent_days is not None:
@@ -4022,7 +4030,9 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
 
 
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
+    if not sym:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
     cache_key = f"profile:{sym}"
     cached = _ticker_response_cache_get(_TICKER_PROFILE_RESPONSE_CACHE, cache_key)
     if cached is not None:
@@ -4672,7 +4682,9 @@ def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict
 
 
 def _quote_snapshot_from_fmp(symbol: str) -> dict:
-    normalized = symbol.strip().upper()
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {}
     cached = _TICKER_QUOTE_SNAPSHOT_CACHE.get(normalized)
     if cached and time.time() < cached[0]:
         record_cache_hit(category="ticker:quote-snapshot", symbol=normalized)
@@ -4744,7 +4756,9 @@ def _cached_fmp_symbol_row(
     log_name: str,
     ttl_seconds: int = 6 * 60 * 60,
 ) -> dict:
-    normalized = symbol.strip().upper()
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {}
     cached = cache.get(normalized)
     if cached and time.time() < cached[0]:
         record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
@@ -4909,7 +4923,7 @@ def _ticker_fundamentals_cache_ttl_seconds() -> int:
 
 
 def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
-    normalized = symbol.upper().strip()
+    normalized = normalize_symbol(symbol)
     if not normalized:
         return None
     try:
@@ -5031,7 +5045,7 @@ def _build_ticker_chart_quote(
 
 
 def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
@@ -5307,7 +5321,7 @@ def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "
 
 
 def _cached_ticker_chart_fallback(symbol: str, days: int, db: Session, *, status: str = "warming") -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol) or ""
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(days - 1, 0))
     start_key = start_date.isoformat()
@@ -5339,7 +5353,9 @@ def _cached_ticker_chart_fallback(symbol: str, days: int, db: Session, *, status
 
 
 def _coalesced_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
+    if not sym:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
     key = f"{sym}:{int(days)}"
     with _TICKER_CHART_INFLIGHT_LOCK:
         state = _TICKER_CHART_INFLIGHT.get(key)
@@ -5385,9 +5401,11 @@ def ticker_chart_bundle(
     db: Session = Depends(get_db),
 ):
     started_at = perf_counter()
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
+    if not sym:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
     try:
-        payload = _normalize_ticker_chart_payload(_coalesced_ticker_chart_bundle(symbol, days, db), requested_days=days)
+        payload = _normalize_ticker_chart_payload(_coalesced_ticker_chart_bundle(sym, days, db), requested_days=days)
     except HTTPException as exc:
         if exc.status_code == 503:
             logger.info("ticker_chart cached_fallback route=/api/tickers/{symbol}/chart-bundle symbol=%s reason=heavy_route_saturated", sym)
@@ -5439,7 +5457,7 @@ def ticker_price_history(
         except HTTPException:
             raise
         except Exception:
-            sym = symbol.upper().strip()
+            sym = normalize_symbol(symbol) or str(symbol or "").strip().upper()
             logger.info("ticker_price_history fallback symbol=%s reason=provider_error", sym, exc_info=True)
             record_fallback(category="ticker:price-history", symbol=sym, reason="provider_error")
             return {
@@ -5454,7 +5472,7 @@ def ticker_price_history(
 
 
 def _ticker_price_history_response(symbol: str, days: int, db: Session) -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
@@ -5472,7 +5490,7 @@ def _ticker_price_history_response(symbol: str, days: int, db: Session) -> dict:
 
 
 def _build_ticker_profile(symbol: str, db: Session) -> dict:
-    sym = symbol.upper().strip()
+    sym = normalize_symbol(symbol)
     if not sym:
         raise LookupError("Ticker not found")
 
@@ -5863,7 +5881,7 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
         .scalars()
         .all()
     )
-    return [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
+    return [normalized for symbol in symbols if (normalized := normalize_symbol(symbol))]
 
 
 @app.get("/api/insights/news", dependencies=[Depends(rate_limit_provider_backed)])

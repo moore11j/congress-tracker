@@ -39,7 +39,7 @@ _SYMBOL_LOCKS_GUARD = Lock()
 def ticker_hydration_status(db: Session, symbol: str) -> dict[str, Any]:
     normalized = normalize_symbol(symbol)
     if not normalized:
-        normalized = (symbol or "").strip().upper()
+        return _empty_hydration_status("")
     now = datetime.now(timezone.utc)
     active_jobs = _jobs_for_symbol(db, normalized, statuses=ACTIVE_JOB_STATUSES)
     final_jobs = _jobs_for_symbol(db, normalized, statuses=FINAL_JOB_STATUSES, limit=60)
@@ -87,7 +87,15 @@ def request_ticker_hydration(
 ) -> dict[str, Any]:
     normalized = normalize_symbol(symbol)
     if not normalized:
-        normalized = (symbol or "").strip().upper()
+        return {
+            **_empty_hydration_status(""),
+            "status": "skipped_invalid_symbol",
+            "enqueued_jobs": [],
+            "jobs_enqueued_by_type": {},
+            "already_pending_count": 0,
+            "skipped_invalid_count": 1,
+            "refreshed": {},
+        }
     before = ticker_hydration_status(db, normalized)
     enqueue_result = _enqueue_missing_jobs(normalized, before, reason=reason, priority=priority)
     refreshed = _bounded_refresh(db, normalized, before, reason=reason)
@@ -100,6 +108,33 @@ def request_ticker_hydration(
         "already_pending_count": enqueue_result["already_pending_count"],
         "skipped_invalid_count": enqueue_result["skipped_invalid_count"],
         "refreshed": refreshed,
+    }
+
+
+def _empty_hydration_status(symbol: str) -> dict[str, Any]:
+    critical = {
+        "profile": "missing",
+        "quote": "missing",
+        "chart_30d": "missing",
+        "chart_365d": "missing",
+        "fundamentals": "missing",
+        "technicals": "missing",
+    }
+    optional = {
+        "news": "missing",
+        "financials": "missing",
+        "press_releases": "missing",
+        "sec_filings": "missing",
+    }
+    return {
+        "symbol": symbol,
+        "critical": critical,
+        "optional": optional,
+        "missing_sections": [],
+        "should_request_hydration": False,
+        "queued_jobs_count": 0,
+        "queued_jobs": [],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

@@ -6,6 +6,7 @@ _VALID_SYMBOL_RE = re.compile(r"^[A-Z\^][A-Z0-9./-]{0,14}$")
 _MUTUAL_FUND_RE = re.compile(r"^[A-Z]{5}X$")
 _CUSIP_LIKE_RE = re.compile(r"^[A-Z0-9]{9}$")
 _SHARE_CLASS_RE = re.compile(r"^([A-Z]{1,6})[./-]([A-Z])$")
+_INVALID_SYMBOL_PLACEHOLDERS = {"[SYMBOL]", "SYMBOL", "UNKNOWN", "NULL", "NONE"}
 
 
 def canonical_symbol(raw: str | None) -> str | None:
@@ -31,7 +32,12 @@ def normalize_symbol(raw: str | None) -> str | None:
         symbol = symbol.split(":", 1)[1].strip()
 
     symbol = symbol.replace(" ", "")
-    return canonical_symbol(symbol)
+    normalized = canonical_symbol(symbol)
+    if not normalized:
+        return None
+    if normalized in _INVALID_SYMBOL_PLACEHOLDERS or "[" in normalized or "]" in normalized:
+        return None
+    return normalized
 
 
 def symbol_variants(raw: str | None) -> list[str]:

@@ -28,6 +28,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -867,7 +868,7 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
 
 
 def get_ticker_financials(symbol: str) -> dict[str, Any]:
-    normalized_symbol = (symbol or "").strip().upper()
+    normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         return _unavailable("")
     cache_key = f"financials:{normalized_symbol}"

@@ -20,6 +20,7 @@ import type {
   WatchlistSummary,
 } from "@/lib/types";
 import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
+import { normalizeTickerSymbol } from "@/lib/ticker";
 
 export const authTokenStorageKey = "ct:authToken";
 export const backendSessionCookieName = "ct_session";
@@ -144,6 +145,10 @@ function buildApiUrl(path: string, params?: QueryParams) {
     });
   }
   return url.toString();
+}
+
+function tickerPathSymbol(symbol: string) {
+  return encodeURIComponent(normalizeTickerSymbol(symbol) ?? symbol.trim());
 }
 
 function apiDebugEnabled() {
@@ -3465,7 +3470,7 @@ export async function getCongressTraderLeaderboard(params?: {
 }
 
 export async function getTickerProfile(symbol: string, options?: { source?: string; signal?: AbortSignal }): Promise<TickerProfile> {
-  const url = buildApiUrl(`/api/tickers/${symbol}`);
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}`);
   return clientCachedJson<TickerProfile>(
     `ticker-profile:${url}`,
     options?.signal,
@@ -3478,7 +3483,7 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
 
 export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
   return fetchJson<TickerGovernmentContractsResponse>(
-    buildApiUrl(`/api/tickers/${symbol}/government-contracts`, {
+    buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
       lookback_days: params?.lookback_days,
       min_amount: params?.min_amount,
       limit: params?.limit,
@@ -3489,14 +3494,14 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
 
 export async function getTickerHydrationStatus(symbol: string, params?: { signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
   return fetchPublicJson<TickerHydrationStatus>(
-    buildApiUrl(`/api/tickers/${symbol}/hydration-status`),
+    buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/hydration-status`),
     { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerHydrationStatus" },
   );
 }
 
 export async function requestTickerHydration(symbol: string, params?: { reason?: string; priority?: number; signal?: AbortSignal; source?: string }): Promise<TickerHydrationStatus> {
   return fetchPublicJson<TickerHydrationStatus>(
-    buildApiUrl(`/api/tickers/${symbol}/hydration-request`, {
+    buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/hydration-request`, {
       reason: params?.reason,
       priority: params?.priority,
     }),
@@ -3560,7 +3565,7 @@ export async function getTickerNews(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InsightsNewsResponse> {
-  const url = buildApiUrl(`/api/tickers/${symbol}/news`, { page: params?.page, limit: params?.limit });
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/news`, { page: params?.page, limit: params?.limit });
   return clientCachedJson<InsightsNewsResponse>(
     `ticker-news:${url}`,
     params?.signal,
@@ -3577,7 +3582,7 @@ export async function getTickerPressReleases(
   symbol: string,
   params?: { page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<PressReleasesResponse> {
-  const url = buildApiUrl(`/api/tickers/${symbol}/press-releases`, { page: params?.page, limit: params?.limit });
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/press-releases`, { page: params?.page, limit: params?.limit });
   return clientCachedJson<PressReleasesResponse>(
     `ticker-press:${url}`,
     params?.signal,
@@ -3594,7 +3599,7 @@ export async function getTickerSecFilings(
   symbol: string,
   params?: { from?: string; to?: string; page?: number; limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<SecFilingsResponse> {
-  const url = buildApiUrl(`/api/tickers/${symbol}/sec-filings`, {
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/sec-filings`, {
     from: params?.from,
     to: params?.to,
     page: params?.page,
@@ -3616,7 +3621,7 @@ export async function getTickerFinancials(
   symbol: string,
   params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<TickerFinancialsResponse> {
-  const url = buildApiUrl(`/api/tickers/${symbol}/financials`);
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/financials`);
   return clientCachedJson<TickerFinancialsResponse>(
     `ticker-financials:${url}`,
     params?.signal,
@@ -3630,11 +3635,11 @@ export async function getTickerFinancials(
 }
 
 export async function getTickerPriceHistory(symbol: string, days: number): Promise<TickerPriceHistoryResponse> {
-  return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${symbol}/price-history`, { days }));
+  return fetchJson<TickerPriceHistoryResponse>(buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/price-history`, { days }));
 }
 
 export async function getTickerChartBundle(symbol: string, days: number, options?: { signal?: AbortSignal; source?: string }): Promise<TickerChartBundle> {
-  const url = buildApiUrl(`/api/tickers/${symbol}/chart-bundle`, { days });
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/chart-bundle`, { days });
   return clientCachedJson<TickerChartBundle>(
     `ticker-chart:${url}`,
     options?.signal,
@@ -3670,8 +3675,8 @@ export async function getTickerProfiles(symbols: string[], options?: { source?: 
   const normalized = Array.from(
     new Set(
       symbols
-        .map((symbol) => symbol.trim().toUpperCase())
-        .filter(Boolean)
+        .map((symbol) => normalizeTickerSymbol(symbol))
+        .filter((symbol): symbol is string => Boolean(symbol))
     )
   );
 

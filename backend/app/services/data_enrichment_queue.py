@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {"queued", "running"}
 DEFAULT_PREWARM_SYMBOLS = ("MSTR", "NBIS", "BMNR", "IBIT", "AAPL", "MSFT", "NVDA", "TSLA")
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
-INVALID_SYMBOL_PLACEHOLDERS = {"[SYMBOL]", "SYMBOL", "UNKNOWN", "NULL", "NONE"}
 SYMBOL_REQUIRED_JOB_TYPES = {
     "quote",
     "price_eod",
@@ -46,9 +45,7 @@ class RetryableProviderTimeout(RuntimeError):
 
 def is_valid_enrichment_symbol(symbol: str | None) -> bool:
     normalized = normalize_symbol(symbol)
-    if not normalized:
-        return False
-    return normalized not in INVALID_SYMBOL_PLACEHOLDERS and "[" not in normalized and "]" not in normalized
+    return bool(normalized)
 
 
 def _normalized_prewarm_symbol(raw: str | None, *, source: str) -> str | None:
