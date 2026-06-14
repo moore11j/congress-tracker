@@ -14,29 +14,59 @@ type PricingActionsProps = {
   accountLoading?: boolean;
 };
 
-const tierRank: Record<"free" | "premium" | "pro", number> = { free: 0, premium: 10, pro: 20 };
+type PlanTier = "free" | "premium" | "pro";
+type PlanAction = "current" | "downgrade" | "upgrade";
+
+const tierRank: Record<PlanTier, number> = { free: 0, premium: 10, pro: 20 };
 const managedSubscriptionStatuses = new Set(["active", "trialing", "past_due"]);
 const billingLocationRequiredMessage = "Complete billing location before starting taxable checkout.";
+const planNames: Record<PlanTier, string> = { free: "Free", premium: "Premium", pro: "Pro" };
+
+function normalizedPlanTier(value?: string | null): PlanTier | null {
+  if (value === "admin") return "pro";
+  if (value === "free" || value === "premium" || value === "pro") return value;
+  return null;
+}
+
+function currentPlanTier(user: AccountUser | null, entitlements: Entitlements | null): PlanTier {
+  return (
+    normalizedPlanTier(entitlements?.tier) ??
+    normalizedPlanTier(user?.entitlement_tier) ??
+    normalizedPlanTier(user?.current_plan) ??
+    normalizedPlanTier(user?.subscription_plan) ??
+    normalizedPlanTier(user?.plan) ??
+    "free"
+  );
+}
+
+function actionForPlan(currentTier: PlanTier, targetTier: PlanTier): PlanAction {
+  if (currentTier === targetTier) return "current";
+  return tierRank[targetTier] < tierRank[currentTier] ? "downgrade" : "upgrade";
+}
+
+function labelForAction(action: PlanAction, targetTier: PlanTier) {
+  if (action === "current") return "Current plan";
+  return `${action === "downgrade" ? "Downgrade" : "Upgrade"} to ${planNames[targetTier]}`;
+}
 
 export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel, user, entitlements, accountLoading = false }: PricingActionsProps) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const currentTier = entitlements?.tier === "admin" ? "pro" : entitlements?.tier;
-  const targetRank = tierRank[tier];
-  const currentRank = currentTier === "premium" || currentTier === "pro" ? tierRank[currentTier] : 0;
-  const isCurrentPlan = currentTier === tier;
+  const currentTier = currentPlanTier(user, entitlements);
+  const planAction = actionForPlan(currentTier, tier);
+  const currentRank = tierRank[currentTier];
+  const isCurrentPlan = planAction === "current";
+  const isDowngrade = planAction === "downgrade";
   const subscriptionStatus = (user?.subscription_status || "").toLowerCase();
   const hasManagedSubscription = managedSubscriptionStatuses.has(subscriptionStatus) && currentRank > 0;
-  const opensBillingPortal = hasManagedSubscription && !isCurrentPlan;
+  const opensBillingPortal = !isCurrentPlan && (hasManagedSubscription || isDowngrade);
   const disabled = loading || accountLoading || isCurrentPlan;
   const buttonLabel = isCurrentPlan
     ? "Current plan"
     : accountLoading
       ? "Checking plan"
-    : opensBillingPortal
-      ? "Change plan"
-      : ctaLabel ?? (tier === "free" ? "Get started" : billingInterval === "annual" ? "Upgrade annually" : "Upgrade monthly");
+      : labelForAction(planAction, tier);
 
   const runAction = async () => {
     if (user?.email_verification_required || user?.email_verified === false) {
@@ -104,7 +134,9 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
         className={`inline-flex w-full items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${
           disabled
             ? "cursor-default border-white/10 bg-slate-900/70 text-slate-400"
-            : "border-emerald-300/40 bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/20"
+            : isDowngrade
+              ? "border-white/10 bg-slate-900/70 text-slate-200 hover:border-white/20 hover:text-white"
+              : "border-emerald-300/40 bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/20"
         }`}
       >
         {buttonLabel}

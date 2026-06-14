@@ -94,8 +94,39 @@ test("pricing actions render current plan states from fresh account entitlements
 
   assert.doesNotMatch(actions, /getMe\(/);
   assert.match(actions, /const buttonLabel = isCurrentPlan\s*\?\s*"Current plan"/);
-  assert.match(actions, /opensBillingPortal[\s\S]*\? "Change plan"/);
+  assert.match(actions, /function currentPlanTier\(user: AccountUser \| null, entitlements: Entitlements \| null\): PlanTier/);
+  assert.match(actions, /function actionForPlan\(currentTier: PlanTier, targetTier: PlanTier\): PlanAction/);
+  assert.match(actions, /function labelForAction\(action: PlanAction, targetTier: PlanTier\)/);
+  assert.match(actions, /return `\$\{action === "downgrade" \? "Downgrade" : "Upgrade"\} to \$\{planNames\[targetTier\]\}`;/);
+  assert.doesNotMatch(actions, /"Change plan"/);
   assert.match(actions, /managedSubscriptionStatuses = new Set\(\["active", "trialing", "past_due"\]\)/);
+  assert.match(actions, /const opensBillingPortal = !isCurrentPlan && \(hasManagedSubscription \|\| isDowngrade\);/);
+  assert.match(actions, /: isDowngrade\s*\?\s*"border-white\/10 bg-slate-900\/70 text-slate-200 hover:border-white\/20 hover:text-white"/);
   assert.match(actions, /createCustomerPortalSession/);
   assert.match(actions, /disabled=\{disabled\}/);
+});
+
+test("pricing CTA labels distinguish current, upgrade, and downgrade plans", () => {
+  const ranks = { free: 0, premium: 10, pro: 20 };
+  const names = { free: "Free", premium: "Premium", pro: "Pro" };
+  const label = (current, target) => {
+    if (current === target) return "Current plan";
+    return `${ranks[target] < ranks[current] ? "Downgrade" : "Upgrade"} to ${names[target]}`;
+  };
+
+  assert.deepEqual(["free", "premium", "pro"].map((target) => label("free", target)), [
+    "Current plan",
+    "Upgrade to Premium",
+    "Upgrade to Pro",
+  ]);
+  assert.deepEqual(["free", "premium", "pro"].map((target) => label("premium", target)), [
+    "Downgrade to Free",
+    "Current plan",
+    "Upgrade to Pro",
+  ]);
+  assert.deepEqual(["free", "premium", "pro"].map((target) => label("pro", target)), [
+    "Downgrade to Free",
+    "Downgrade to Premium",
+    "Current plan",
+  ]);
 });
