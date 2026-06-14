@@ -23,6 +23,7 @@ from app.services.provider_usage import (
     reason_from_exception,
     record_cache_hit,
     record_cache_miss,
+    record_content_write,
     record_fallback,
     record_provider_response,
 )
@@ -134,7 +135,7 @@ def clear_news_cache() -> None:
         _CACHE.clear()
 
 
-def _cache_get(key: str) -> dict[str, Any] | None:
+def _cache_get(key: str, *, category: str, symbol: str | None = None) -> dict[str, Any] | None:
     now = time.time()
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
@@ -145,7 +146,7 @@ def _cache_get(key: str) -> dict[str, Any] | None:
             if stale_until <= now:
                 _CACHE.pop(key, None)
             return None
-        record_cache_hit(category="news", cache_age_seconds=max(now - fetched_at, 0))
+        record_cache_hit(category=category, symbol=symbol, cache_age_seconds=max(now - fetched_at, 0))
         return payload
 
 
@@ -166,11 +167,35 @@ def _cache_get_stale(key: str, *, category: str, symbol: str | None = None) -> t
         return payload, age
 
 
-def _cache_set(key: str, payload: dict[str, Any], *, ttl_seconds: int) -> dict[str, Any]:
+def _cache_set(
+    key: str,
+    payload: dict[str, Any],
+    *,
+    ttl_seconds: int,
+    category: str | None = None,
+    symbol: str | None = None,
+) -> dict[str, Any]:
     now = time.time()
+    items = payload.get("items")
+    item_count = len(items) if isinstance(items, list) else int(payload.get("item_count") or 0)
+    normalized_payload = {
+        **payload,
+        "item_count": item_count,
+        "updated_at": payload.get("updated_at") or datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
     with _CACHE_LOCK:
-        _CACHE[key] = (now, now + ttl_seconds, now + NEWS_STALE_TTL_SECONDS, payload)
-    return payload
+        _CACHE[key] = (now, now + ttl_seconds, now + NEWS_STALE_TTL_SECONDS, normalized_payload)
+    if category is not None:
+        record_content_write(category=category, symbol=symbol, item_count=item_count)
+        logger.info(
+            "ticker_content_cache_write category=%s symbol=%s status=%s item_count=%s key=%s",
+            category,
+            symbol,
+            normalized_payload.get("status"),
+            item_count,
+            key,
+        )
+    return normalized_payload
 
 
 def _cache_key(prefix: str, params: dict[str, Any]) -> str:
@@ -914,7 +939,7 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
     bounded_page = max(int(page or 0), 0)
     bounded_limit = max(1, min(int(limit or 20), 50))
     cache_key = _cache_key("general", {"page": bounded_page, "limit": bounded_limit})
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, category="news:general")
     if cached is not None:
         return cached
     record_cache_miss(category="news:general")
@@ -942,12 +967,12 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
         if _is_public_request_context():
             return _warming_payload(page=bounded_page, limit=bounded_limit)
         payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=GENERAL_UNAVAILABLE_MESSAGE, reason=reason)
-        return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
+        return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS, category="news:general")
 
     items = _dedupe_by_url(list(filter(None, (_normalize_general_article(row) for row in rows))))
     items.sort(key=_sort_key, reverse=True)
     payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
-    return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS)
+    return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS, category="news:general")
 
 
 def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
@@ -958,7 +983,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
 
     cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, category="news:stock", symbol=normalized_symbol)
     if cached is not None:
         return cached
     record_cache_miss(category="news:stock", symbol=normalized_symbol)
@@ -992,7 +1017,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         if _is_public_request_context():
             return _warming_payload(page=bounded_page, limit=bounded_limit)
         payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, reason=reason)
-        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
 
     if error_payload is not None:
         reason = str(error_payload.get("reason") or "provider_unavailable")
@@ -1009,7 +1034,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
             return _stale_payload(stale_payload, reason=reason, message=TICKER_NEWS_UNAVAILABLE_MESSAGE, age_seconds=age)
         if _is_public_request_context():
             return _warming_payload(page=bounded_page, limit=bounded_limit)
-        return _cache_set(cache_key, error_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+        return _cache_set(cache_key, error_payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
 
     items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_stock_row, strict_symbol_filter=False)
     if not items:
@@ -1017,10 +1042,10 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
             **_payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False),
             "message": TICKER_NEWS_EMPTY_MESSAGE,
         }
-        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+        return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
 
     payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(rows) >= bounded_limit)
-    return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS)
+    return _cache_set(cache_key, payload, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
 
 
 def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:
@@ -1031,7 +1056,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
 
     cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, category="news:press-releases", symbol=normalized_symbol)
     if cached is not None:
         return cached
     record_cache_miss(category="news:press-releases", symbol=normalized_symbol)
@@ -1065,7 +1090,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         if _is_public_request_context():
             return _warming_payload(page=bounded_page, limit=bounded_limit)
         payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, reason=reason)
-        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
 
     if error_payload is not None:
         reason = str(error_payload.get("reason") or "provider_unavailable")
@@ -1082,7 +1107,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
             return _stale_payload(stale_payload, reason=reason, message=TICKER_PRESS_UNAVAILABLE_MESSAGE, age_seconds=age)
         if _is_public_request_context():
             return _warming_payload(page=bounded_page, limit=bounded_limit)
-        return _cache_set(cache_key, error_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+        return _cache_set(cache_key, error_payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
 
     items = _normalize_symbol_rows(rows, symbol=normalized_symbol, normalizer=_normalize_press_row, strict_symbol_filter=False)
     if not items:
@@ -1090,10 +1115,10 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
             **_payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False),
             "message": TICKER_PRESS_EMPTY_MESSAGE,
         }
-        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+        return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
 
     payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(rows) >= bounded_limit)
-    return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS)
+    return _cache_set(cache_key, payload, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
 
 
 def get_sec_filings(
@@ -1118,7 +1143,7 @@ def get_sec_filings(
         "sec-filings",
         {"symbol": normalized_symbol, "from": from_value, "to": to_value, "page": bounded_page, "limit": bounded_limit},
     )
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, category="news:sec-filings", symbol=normalized_symbol)
     if cached is not None:
         return cached
     record_cache_miss(category="news:sec-filings", symbol=normalized_symbol)
@@ -1147,7 +1172,7 @@ def get_sec_filings(
         empty_is_terminal=True,
     )
     if direct_payload is not None:
-        return _cache_set(cache_key, direct_payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
+        return _cache_set(cache_key, direct_payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS, category="news:sec-filings", symbol=normalized_symbol)
 
     if provider_failed:
         _enqueue_news_refresh(
@@ -1170,4 +1195,4 @@ def get_sec_filings(
         )
         return payload
     payload = _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
-    return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS)
+    return _cache_set(cache_key, payload, ttl_seconds=SEC_FILINGS_TTL_SECONDS, category="news:sec-filings", symbol=normalized_symbol)

@@ -1191,6 +1191,8 @@ export type AdminProviderUsageEvent = {
   throttled?: boolean;
   error?: string | null;
   reason?: string | null;
+  item_count?: number | null;
+  budget_tier?: string | null;
   created_at?: string | null;
   ts?: string | null;
 };
@@ -1201,6 +1203,26 @@ export type AdminEnrichmentQueueRow = {
   reason?: string | null;
   error?: string | null;
   count?: number;
+};
+
+export type AdminProviderBudget = {
+  plan_calls_per_minute?: number;
+  soft_limit_per_minute?: number;
+  hard_limit_per_minute?: number;
+  throttle_limit_per_minute?: number;
+  used_last_minute?: number;
+  remaining_last_minute?: number;
+  usage_pct?: number | null;
+  soft_exceeded?: boolean;
+  hard_exceeded?: boolean;
+};
+
+export type AdminProviderContentWrite = {
+  category: string;
+  symbol?: string | null;
+  writes: number;
+  items_written: number;
+  latest_at?: string | null;
 };
 
 export type AdminProviderUsageResponse = {
@@ -1219,6 +1241,7 @@ export type AdminProviderUsageResponse = {
     last_24_hours?: number;
   };
   cache_hit_rate?: number | null;
+  budget?: AdminProviderBudget;
   totals: {
     provider_calls: number;
     cache_hits: number;
@@ -1229,6 +1252,9 @@ export type AdminProviderUsageResponse = {
   };
   top_routes: AdminProviderUsageItem[];
   top_categories: AdminProviderUsageItem[];
+  reasons?: Array<{ reason: string; count: number }>;
+  fallback_reasons?: Array<{ reason: string; count: number }>;
+  content_writes?: AdminProviderContentWrite[];
   warnings: string[];
   recommendation: string;
   recent_throttles: AdminProviderUsageEvent[];
@@ -1236,6 +1262,17 @@ export type AdminProviderUsageResponse = {
   enrichment_queue?: {
     by_type_status: AdminEnrichmentQueueRow[];
     failed_by_reason: AdminEnrichmentQueueRow[];
+    oldest_pending_job?: {
+      id: number;
+      job_type: string;
+      symbol?: string | null;
+      status: string;
+      source?: string | null;
+      reason?: string | null;
+      created_at?: string | null;
+      updated_at?: string | null;
+    } | null;
+    recent_successes_by_type?: Array<{ job_type: string; count: number }>;
     recent: Array<{
       id: number;
       job_type: string;

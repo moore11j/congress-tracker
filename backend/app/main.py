@@ -4765,7 +4765,8 @@ def _cached_fmp_symbol_row(
         record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
         return dict(cached[1])
     if (get_request_context() or {}).get("path"):
-        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="cache_miss")
+        record_cache_miss(category=f"ticker:{endpoint}", symbol=normalized)
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="page_fetch_blocked")
         enqueue_data_enrichment_job(
             job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
             symbol=normalized,
@@ -4778,11 +4779,12 @@ def _cached_fmp_symbol_row(
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
-        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_disabled")
+        reason = "background_provider_disabled" if not (get_request_context() or {}).get("path") else "provider_disabled"
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason)
         enqueue_data_enrichment_job(
             job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
             symbol=normalized,
-            source="page_load",
+            source="background" if reason == "background_provider_disabled" else "page_load",
             reason="missing_api_key",
             priority=40,
             payload={"endpoint": endpoint},

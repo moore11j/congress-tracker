@@ -14,6 +14,8 @@ from app.services.data_enrichment_queue import (
     process_data_enrichment_jobs,
     skip_invalid_symbol_jobs,
 )
+from app.request_priority import get_request_context, reset_request_context, set_request_context
+from app.services.provider_usage import provider_usage_summary, reset_provider_usage
 
 
 def _session_factory():
@@ -128,3 +130,53 @@ def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
         assert row.attempts == 1
     finally:
         db.close()
+
+
+def test_profile_enrichment_runs_with_background_context_when_page_fetch_blocked(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    reset_provider_usage()
+    calls = {"count": 0}
+
+    def fake_profile(symbol):
+        calls["count"] += 1
+        assert symbol == "AAPL"
+        assert get_request_context().get("path") == "background"
+        return {"symbol": "AAPL", "companyName": "Apple Inc."}
+
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", fake_profile)
+
+    db = Session()
+    try:
+        db.add(
+            DataEnrichmentJob(
+                job_type="profile",
+                symbol="AAPL",
+                dedupe_key="profile|AAPL||",
+                priority=10,
+                status="queued",
+                attempts=0,
+                max_attempts=3,
+                source="test",
+                reason="test",
+                next_run_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    token = set_request_context({"path": "/api/tickers/AAPL", "priority": "heavy"})
+    try:
+        summary = process_data_enrichment_jobs(limit=1)
+    finally:
+        reset_request_context(token)
+
+    usage = provider_usage_summary()
+    assert summary == {"processed": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+    assert calls["count"] == 1
+    assert not any(row["reason"] == "page_fetch_blocked" for row in usage["fallback_reasons"])
+    reset_provider_usage()

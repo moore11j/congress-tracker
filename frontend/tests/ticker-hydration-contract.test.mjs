@@ -59,7 +59,7 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   const card = read("components/ticker/TickerContextCard.tsx");
   const api = read("lib/api.ts");
 
-  assert.match(card, /rawStatus === "warming" \? "loading" : rawStatus === "empty" \? "no_data" : rawStatus/);
+  assert.match(card, /rawStatus === "warming" \|\| rawStatus === "loading" && items\.length === 0 \? "no_data" : rawStatus === "empty" \? "no_data" : rawStatus/);
   assert.match(card, /NEWS_EMPTY_MESSAGE = "No recent news found\."/);
   assert.match(card, /FILINGS_EMPTY_MESSAGE = "No recent filings found\."/);
   assert.match(api, /function normalizeTickerItemsResponse/);
@@ -76,7 +76,10 @@ test("ticker events tab loads filings and activity independently", () => {
   assert.match(card, /const PRESS_LOADING_MESSAGE = "Loading press releases\."/);
   assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No recent activity found\."/);
   assert.match(card, /getTickerSecFilings\(symbol,/);
+  assert.doesNotMatch(card, /from: dateWindow\.from/);
+  assert.doesNotMatch(card, /to: dateWindow\.to/);
   assert.match(card, /getEvents\(\{ symbol, recent_days: 365, limit: 50/);
+  assert.match(card, /showSecSection/);
   assert.match(card, /<EventsSection title="SEC Filings" meta="Latest available">/);
   assert.match(card, /<EventsSection title="Disclosure Activity" meta="365D">/);
   assert.doesNotMatch(card, /title="Filings \/ Disclosures"/);

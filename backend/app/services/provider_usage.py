@@ -55,17 +55,63 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in _TRUE_VALUES
 
 
+def _int_env(*names: str, default: int) -> int:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is None or not str(raw).strip():
+            continue
+        try:
+            return max(int(str(raw).strip()), 1)
+        except ValueError:
+            logger.info("provider_usage invalid integer env name=%s value=%s", name, raw)
+    return max(int(default), 1)
+
+
+def _plan_calls_per_minute() -> int:
+    return _int_env("FMP_PLAN_CALLS_PER_MINUTE", "FMP_CALLS_PER_MINUTE", default=DEFAULT_CALLS_PER_MINUTE)
+
+
+def _legacy_soft_limit_configured() -> bool:
+    return bool(os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT"))
+
+
+def _soft_limit_per_minute() -> int:
+    plan = _plan_calls_per_minute()
+    return _int_env(
+        "FMP_SOFT_LIMIT_PER_MINUTE",
+        "FMP_CALLS_PER_MINUTE_SOFT_LIMIT",
+        default=max(1, min(plan, int(plan * 0.8))),
+    )
+
+
+def _hard_limit_per_minute() -> int:
+    plan = _plan_calls_per_minute()
+    default = _soft_limit_per_minute() if _legacy_soft_limit_configured() else plan
+    return _int_env("FMP_HARD_LIMIT_PER_MINUTE", "FMP_CALLS_PER_MINUTE_HARD_LIMIT", default=default)
+
+
 def _calls_per_minute() -> int:
+    return _hard_limit_per_minute()
+
+
+def _budget_limits() -> dict[str, int]:
     try:
-        raw = (
-            os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT")
-            or os.getenv("FMP_PLAN_CALLS_PER_MINUTE")
-            or os.getenv("FMP_CALLS_PER_MINUTE")
-            or str(DEFAULT_CALLS_PER_MINUTE)
-        )
-        return max(int(raw or DEFAULT_CALLS_PER_MINUTE), 1)
-    except ValueError:
-        return DEFAULT_CALLS_PER_MINUTE
+        plan = _plan_calls_per_minute()
+        soft = _soft_limit_per_minute()
+        hard = _hard_limit_per_minute()
+        return {
+            "plan_calls_per_minute": plan,
+            "soft_limit_per_minute": soft,
+            "hard_limit_per_minute": hard,
+            "throttle_limit_per_minute": hard,
+        }
+    except Exception:
+        return {
+            "plan_calls_per_minute": DEFAULT_CALLS_PER_MINUTE,
+            "soft_limit_per_minute": DEFAULT_CALLS_PER_MINUTE,
+            "hard_limit_per_minute": DEFAULT_CALLS_PER_MINUTE,
+            "throttle_limit_per_minute": DEFAULT_CALLS_PER_MINUTE,
+        }
 
 
 def _now_iso() -> str:
@@ -92,7 +138,17 @@ def _prune_calls(now: float) -> None:
         _STATE.provider_call_timestamps.popleft()
 
 
-def _record(kind: str, *, category: str, symbol: str | None = None, reason: str | None = None, cache_age_seconds: float | None = None, status_code: int | str | None = None) -> None:
+def _record(
+    kind: str,
+    *,
+    category: str,
+    symbol: str | None = None,
+    reason: str | None = None,
+    cache_age_seconds: float | None = None,
+    status_code: int | str | None = None,
+    item_count: int | None = None,
+    budget_tier: str | None = None,
+) -> None:
     route = _context_route()
     source = _source_context(route)
     event = {
@@ -106,6 +162,8 @@ def _record(kind: str, *, category: str, symbol: str | None = None, reason: str 
         "reason": reason,
         "cache_age_seconds": round(cache_age_seconds, 1) if cache_age_seconds is not None else None,
         "status_code": status_code,
+        "item_count": item_count,
+        "budget_tier": budget_tier,
     }
     with _LOCK:
         _STATE.events.appendleft(event)
@@ -146,9 +204,9 @@ def _persist_event(event: dict[str, Any]) -> None:
                 source=event.get("source"),
                 route=event.get("route"),
                 cache_status=kind if kind.startswith("cache_") else None,
-                status_code=str(event.get("status_code")) if event.get("status_code") is not None else None,
+                status_code=str(event.get("status_code") if event.get("status_code") is not None else event.get("item_count") if event.get("item_count") is not None else "") or None,
                 duration_ms=None,
-                success=kind in {"cache_hit", "provider_call"},
+                success=kind in {"cache_hit", "provider_call", "content_write"},
                 throttled=kind == "throttle",
                 error=str(event.get("reason") or "") or None,
             )
@@ -185,19 +243,22 @@ def live_fmp_user_routes_enabled() -> bool:
 
 def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None) -> None:
     if _env_bool("FMP_PROVIDER_DISABLED", False):
-        reason = "provider_disabled"
+        reason = "background_provider_disabled" if not _is_user_request() else "provider_disabled"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
 
     if _is_user_request() and not live_fmp_user_routes_enabled():
-        reason = "provider_disabled"
+        reason = "page_fetch_blocked"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
 
     now = time.time()
     with _LOCK:
         _prune_calls(now)
-        if len(_STATE.provider_call_timestamps) >= _calls_per_minute():
+        limits = _budget_limits()
+        call_limit = limits["throttle_limit_per_minute"]
+        if len(_STATE.provider_call_timestamps) >= call_limit:
+            budget_tier = "hard" if len(_STATE.provider_call_timestamps) >= limits["hard_limit_per_minute"] else "soft"
             _STATE.counters["throttle"] += 1
             _STATE.reason_counters["provider_budget_exceeded"] += 1
             _STATE.route_counters[f"{_context_route()}|throttle"] += 1
@@ -214,6 +275,10 @@ def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None) -> None
                     "reason": "provider_budget_exceeded",
                     "cache_age_seconds": None,
                     "status_code": None,
+                    "item_count": None,
+                    "budget_tier": budget_tier,
+                    "budget_used": len(_STATE.provider_call_timestamps),
+                    "budget_limit": call_limit,
                 }
             )
             _persist_event(_STATE.events[0])
@@ -267,6 +332,10 @@ def record_fallback(*, category: str, symbol: str | None = None, reason: str, ca
     _record("fallback", category=category, symbol=symbol, reason=reason, cache_age_seconds=cache_age_seconds)
 
 
+def record_content_write(*, category: str, symbol: str | None = None, item_count: int = 0) -> None:
+    _record("content_write", category=category, symbol=symbol, item_count=max(0, int(item_count or 0)))
+
+
 def fallback_payload(*, reason: str, message: str | None = None, stale: bool = True, cache_age_seconds: float | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "data": None,
@@ -293,6 +362,10 @@ def reason_from_exception(exc: BaseException) -> str:
         "provider_error",
         "provider_rate_limited",
         "provider_unavailable",
+        "page_fetch_blocked",
+        "background_provider_disabled",
+        "provider_timeout",
+        "provider_entitlement",
     }:
         return text
     return "provider_unavailable"
@@ -302,7 +375,7 @@ def _reason_for_status(status_code: int) -> str:
     if status_code == 429:
         return "provider_rate_limited"
     if status_code in {401, 402, 403}:
-        return "provider_disabled"
+        return "provider_entitlement"
     if status_code >= 500:
         return "provider_unavailable"
     return "provider_error"
@@ -331,7 +404,8 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
         cache_hits = counters.get("cache_hit", 0)
         cache_misses = counters.get("cache_miss", 0)
         cache_total = cache_hits + cache_misses
-        call_cap = _calls_per_minute()
+        limits = _budget_limits()
+        call_cap = limits["throttle_limit_per_minute"]
         warnings: list[str] = []
         if calls_last_minute >= call_cap * 0.8:
             warnings.append("FMP calls are above 80% of the configured per-minute budget.")
@@ -346,8 +420,16 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             "provider": PROVIDER,
             "generated_at": _now_iso(),
             "started_at": datetime.fromtimestamp(_STATE.started_at, tz=timezone.utc).isoformat(),
-            "configured_calls_per_minute": call_cap,
+            "configured_calls_per_minute": limits["plan_calls_per_minute"],
             "calls_last_minute": calls_last_minute,
+            "budget": {
+                **limits,
+                "used_last_minute": calls_last_minute,
+                "remaining_last_minute": max(call_cap - calls_last_minute, 0),
+                "usage_pct": round((calls_last_minute / call_cap) * 100, 1) if call_cap else None,
+                "soft_exceeded": calls_last_minute >= limits["soft_limit_per_minute"],
+                "hard_exceeded": calls_last_minute >= limits["hard_limit_per_minute"],
+            },
             "cache_hit_rate": round((cache_hits / cache_total) * 100, 1) if cache_total else None,
             "totals": {
                 "provider_calls": int(counters.get("provider_call", 0)),
@@ -360,6 +442,8 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             "top_routes": _top(_STATE.route_counters, limit=limit),
             "top_categories": _top(_STATE.category_counters, limit=limit),
             "reasons": [{"reason": key, "count": int(value)} for key, value in _STATE.reason_counters.most_common(limit)],
+            "fallback_reasons": [{"reason": key, "count": int(value)} for key, value in _STATE.reason_counters.most_common(limit)],
+            "content_writes": _content_write_summary(list(_STATE.events), limit=limit),
             "recent_events": list(_STATE.events)[:limit],
             "warnings": warnings,
             "guardrails": {
@@ -463,8 +547,8 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
         summary["recent_throttles"] = [event for event in summary["recent_events"] if event.get("kind") == "throttle"]
         summary["recent_errors"] = [event for event in summary["recent_events"] if event.get("reason")]
     status = "ok"
-    warn_limit = int(os.getenv("FMP_CALLS_PER_MINUTE_WARN_LIMIT", "500") or 500)
-    soft_limit = int(os.getenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT", "600") or 600)
+    warn_limit = _int_env("FMP_CALLS_PER_MINUTE_WARN_LIMIT", default=max(1, int(summary["budget"]["soft_limit_per_minute"] * 0.8)))
+    soft_limit = summary["budget"]["soft_limit_per_minute"]
     if summary["calls_last_minute"] >= soft_limit or summary["totals"]["throttles"]:
         status = "critical"
     elif summary["calls_last_minute"] >= warn_limit or summary["warnings"]:
@@ -478,6 +562,12 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
 
 
 def _event_row(row: Any) -> dict[str, Any]:
+    item_count = None
+    if row.cache_status == "content_write":
+        try:
+            item_count = int(row.status_code) if row.status_code is not None else None
+        except (TypeError, ValueError):
+            item_count = None
     return {
         "id": row.id,
         "provider": row.provider,
@@ -492,8 +582,25 @@ def _event_row(row: Any) -> dict[str, Any]:
         "success": bool(row.success),
         "throttled": bool(row.throttled),
         "error": row.error,
+        "item_count": item_count,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+def _content_write_summary(events: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    rows: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for event in events:
+        if event.get("kind") != "content_write":
+            continue
+        key = (str(event.get("category") or "unknown"), event.get("symbol"))
+        current = rows.setdefault(
+            key,
+            {"category": key[0], "symbol": key[1], "writes": 0, "items_written": 0, "latest_at": event.get("ts")},
+        )
+        current["writes"] += 1
+        current["items_written"] += int(event.get("item_count") or 0)
+        current["latest_at"] = max(str(current.get("latest_at") or ""), str(event.get("ts") or "")) or None
+    return sorted(rows.values(), key=lambda row: (row["writes"], row["items_written"]), reverse=True)[:limit]
 
 
 def _recommendation(summary: dict[str, Any]) -> str:

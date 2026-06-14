@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import DataEnrichmentJob, Event, PageViewEvent, Security, WatchlistItem
+from app.request_priority import reset_request_context, set_request_context
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -451,6 +452,10 @@ def enqueue_priority_ticker_prewarm_jobs(
 
 
 def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
+    if os.getenv("FMP_BACKGROUND_REFRESH_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+        logger.info("data_enrichment_queue_skipped reason=background_refresh_disabled")
+        return {"processed": 0, "succeeded": 0, "failed": 0, "skipped": 1}
+
     db = SessionLocal()
     processed = 0
     succeeded = 0
@@ -495,7 +500,18 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
             job.updated_at = datetime.now(timezone.utc)
             db.commit()
             try:
-                _process_one(db, job)
+                token = set_request_context(
+                    {
+                        "path": "background",
+                        "priority": "normal",
+                        "job_type": job.job_type,
+                        "source": job.source,
+                    }
+                )
+                try:
+                    _process_one(db, job)
+                finally:
+                    reset_request_context(token)
             except Exception as exc:
                 db.rollback()
                 failed += 1

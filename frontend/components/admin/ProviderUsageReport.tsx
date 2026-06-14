@@ -78,6 +78,13 @@ export function ProviderUsageReport() {
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Budget used" value={`${data.budget?.used_last_minute ?? data.calls_last_minute} / ${data.budget?.throttle_limit_per_minute ?? data.configured_calls_per_minute}`} />
+            <Metric label="Soft budget" value={String(data.budget?.soft_limit_per_minute ?? "n/a")} />
+            <Metric label="Hard budget" value={String(data.budget?.hard_limit_per_minute ?? "n/a")} />
+            <Metric label="Budget state" value={data.budget?.hard_exceeded ? "hard limit exceeded" : data.budget?.soft_exceeded ? "soft limit exceeded" : "within limits"} />
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Fundamentals rows" value={String(data.cache_coverage?.fundamentals_ok_rows ?? data.cache_coverage?.fundamentals_rows ?? "n/a")} />
             <Metric label="Avg volume coverage" value={String(data.cache_coverage?.fundamentals_avg_volume_rows ?? "n/a")} />
             <Metric label="Technical symbols" value={String(data.cache_coverage?.technical_price_history_symbols ?? "n/a")} />
@@ -93,8 +100,18 @@ export function ProviderUsageReport() {
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <ReasonList title="Fallback reasons" rows={data.fallback_reasons ?? data.reasons ?? []} />
+            <ContentWriteList title="Ticker content writes" rows={data.content_writes ?? []} />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <QueueList title="Enrichment queue" rows={data.enrichment_queue?.by_type_status ?? []} />
             <QueueList title="Failed enrichments" rows={data.enrichment_queue?.failed_by_reason ?? []} />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <QueueList title="Recent successful enrichments" rows={(data.enrichment_queue?.recent_successes_by_type ?? []).map((row) => ({ ...row, status: "done" }))} />
+            <OldestPending job={data.enrichment_queue?.oldest_pending_job ?? null} />
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -151,6 +168,53 @@ function QueueList({ title, rows }: { title: string; rows: Array<{ job_type: str
           </div>
         )) : <p className="text-sm text-slate-500">None recorded.</p>}
       </div>
+    </div>
+  );
+}
+
+function ReasonList({ title, rows }: { title: string; rows: Array<{ reason: string; count: number }> }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <h3 className="font-semibold text-white">{title}</h3>
+      <div className="mt-3 space-y-2">
+        {rows.length ? rows.slice(0, 8).map((row) => (
+          <div key={row.reason} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-slate-300">{row.reason}</span>
+            <span className="shrink-0 text-slate-500">{row.count}</span>
+          </div>
+        )) : <p className="text-sm text-slate-500">None recorded.</p>}
+      </div>
+    </div>
+  );
+}
+
+function ContentWriteList({ title, rows }: { title: string; rows: Array<{ category: string; symbol?: string | null; writes: number; items_written: number }> }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <h3 className="font-semibold text-white">{title}</h3>
+      <div className="mt-3 space-y-2">
+        {rows.length ? rows.slice(0, 8).map((row) => (
+          <div key={`${row.category}-${row.symbol ?? "all"}`} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-slate-300">{row.category}{row.symbol ? ` - ${row.symbol}` : ""}</span>
+            <span className="shrink-0 text-slate-500">{row.items_written} items / {row.writes} writes</span>
+          </div>
+        )) : <p className="text-sm text-slate-500">No content writes yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+function OldestPending({ job }: { job: { job_type: string; symbol?: string | null; reason?: string | null; created_at?: string | null } | null }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <h3 className="font-semibold text-white">Oldest pending enrichment</h3>
+      {job ? (
+        <div className="mt-3 rounded-md border border-white/10 bg-slate-900/60 p-2 text-xs text-slate-400">
+          <div className="font-medium text-slate-200">{job.job_type}{job.symbol ? ` - ${job.symbol}` : ""}</div>
+          <div className="mt-1">{job.reason || "queued"}</div>
+          <div className="mt-1 truncate">{job.created_at || "created time unavailable"}</div>
+        </div>
+      ) : <p className="mt-3 text-sm text-slate-500">No pending jobs.</p>}
     </div>
   );
 }

@@ -10,6 +10,7 @@ from app.db import Base
 from app.models import TickerMeta
 from app.request_priority import reset_request_context, set_request_context
 from app.services.fmp_news import clear_news_cache, get_general_news, get_press_releases, get_sec_filings, get_stock_news
+from app.services.provider_usage import provider_usage_summary, reset_provider_usage
 from app.services.ticker_financials import clear_financials_cache, get_ticker_financials
 from app.services.ticker_meta import get_ticker_meta
 
@@ -37,6 +38,7 @@ def _db():
 
 def test_news_public_cache_hit_makes_zero_fmp_calls(monkeypatch):
     clear_news_cache()
+    reset_provider_usage()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
 
@@ -69,6 +71,10 @@ def test_news_public_cache_hit_makes_zero_fmp_calls(monkeypatch):
 
     assert payload["status"] == "ok"
     assert payload["items"][0]["title"] == "Apple raises dividend"
+    usage = provider_usage_summary()
+    assert any(row["name"] == "news:stock" and row["kind"] == "cache_hit" for row in usage["top_categories"])
+    assert any(row["category"] == "news:stock" and row["items_written"] == 1 for row in usage["content_writes"])
+    reset_provider_usage()
 
 
 def test_news_public_cache_miss_enqueues_without_fmp_when_sync_disabled(monkeypatch):

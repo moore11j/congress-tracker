@@ -270,3 +270,31 @@ def test_provider_usage_summary_reports_warning_status(monkeypatch):
     assert summary["status"] == "critical"
     assert summary["totals"]["throttles"] >= 1
     reset_provider_usage()
+
+
+def test_provider_usage_honors_soft_and_hard_budget_aliases(monkeypatch):
+    reset_provider_usage()
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_PLAN_CALLS_PER_MINUTE", "300")
+    monkeypatch.setenv("FMP_SOFT_LIMIT_PER_MINUTE", "90")
+    monkeypatch.setenv("FMP_HARD_LIMIT_PER_MINUTE", "2")
+    token = set_request_context({"path": "background", "priority": "normal"})
+    try:
+        from app.services.provider_usage import ensure_fmp_live_allowed
+
+        ensure_fmp_live_allowed(category="test", symbol="AAPL")
+        ensure_fmp_live_allowed(category="test", symbol="MSFT")
+        try:
+            ensure_fmp_live_allowed(category="test", symbol="NVDA")
+        except Exception:
+            pass
+    finally:
+        reset_request_context(token)
+
+    summary = provider_usage_summary()
+    assert summary["configured_calls_per_minute"] == 300
+    assert summary["budget"]["soft_limit_per_minute"] == 90
+    assert summary["budget"]["hard_limit_per_minute"] == 2
+    assert summary["totals"]["throttles"] == 1
+    assert summary["recent_throttles"][0]["budget_tier"] == "hard"
+    reset_provider_usage()

@@ -88,10 +88,6 @@ const SCROLL_REGION_CLASS = [
   "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60]",
 ].join(" ");
 
-function isoDay(value: Date) {
-  return value.toISOString().slice(0, 10);
-}
-
 function normalizeSecForm(value: string | null | undefined) {
   return (value ?? "")
     .trim()
@@ -108,13 +104,6 @@ function getSecFormTitle(form: string | null | undefined, rawTitle: string | nul
   return "SEC Filing";
 }
 
-function defaultWindow() {
-  const today = new Date();
-  const from = new Date(today);
-  from.setDate(today.getDate() - 365);
-  return { from: isoDay(from), to: isoDay(today) };
-}
-
 function unavailableNewsPage(limit = 20): InsightsNewsResponse {
   return {
     items: [],
@@ -129,7 +118,7 @@ function unavailableNewsPage(limit = 20): InsightsNewsResponse {
 function normalizeNewsPage(response: InsightsNewsResponse, limit = 20): InsightsNewsResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
+  const status = rawStatus === "warming" || rawStatus === "loading" && items.length === 0 ? "no_data" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
@@ -246,7 +235,7 @@ function startRequestTimeout(controller: AbortController, timeoutMs: number) {
 function normalizePressPage(response: PressReleasesResponse, limit = 20): PressReleasesResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
+  const status = rawStatus === "warming" || rawStatus === "loading" && items.length === 0 ? "no_data" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
@@ -262,7 +251,7 @@ function normalizePressPage(response: PressReleasesResponse, limit = 20): PressR
 function normalizeSecPage(response: SecFilingsResponse, limit = 100): SecFilingsResponse {
   const items = Array.isArray(response.items) ? response.items : [];
   const rawStatus = response.status ?? (items.length > 0 ? "ok" : "empty");
-  const status = rawStatus === "warming" ? "loading" : rawStatus === "empty" ? "no_data" : rawStatus;
+  const status = rawStatus === "warming" || rawStatus === "loading" && items.length === 0 ? "no_data" : rawStatus === "empty" ? "no_data" : rawStatus;
   return {
     ...response,
     items,
@@ -368,7 +357,6 @@ function LoadMoreButton({
 
 export function TickerContextCard({ symbol, overview, className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
-  const [dateWindow] = useState(defaultWindow);
 
   const [newsPages, setNewsPages] = useState<InsightsNewsResponse[]>([]);
   const [loadingNews, setLoadingNews] = useState(false);
@@ -576,8 +564,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     async function loadFilings() {
       try {
         const response = normalizeSecPage(await getTickerSecFilings(symbol, {
-          from: dateWindow.from,
-          to: dateWindow.to,
           page: 0,
           limit: 100,
           signal: controller.signal,
@@ -604,7 +590,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       controller.abort();
       if (secAbortRef.current === controller) secAbortRef.current = null;
     };
-  }, [activeTab, dateWindow.from, dateWindow.to, secPages.length, symbol]);
+  }, [activeTab, secPages.length, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -673,6 +659,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
   const secResponse = secPages[secPages.length - 1] ?? null;
   const secItems = secPages.flatMap((page) => page.items);
+  const showSecSection = loadingSec || secItems.length > 0 || pressArticleItems.length === 0;
   const filingsMessage = userFacingMessage(
     secResponse?.message,
     secResponse?.status === "loading"
@@ -746,8 +733,6 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     setLoadingSec(true);
     try {
       const next = normalizeSecPage(await getTickerSecFilings(symbol, {
-        from: dateWindow.from,
-        to: dateWindow.to,
         page: secResponse.page + 1,
         limit: secResponse.limit,
         signal: controller.signal,
@@ -903,54 +888,56 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
                 )}
               </EventsSection>
 
-              <EventsSection title="SEC Filings" meta="Latest available">
-                {loadingSec && secPages.length === 0 ? (
-                  <TabSkeleton rows={3} />
-                ) : secItems.length > 0 ? (
-                  <>
-                    <div className="overflow-hidden rounded-xl border border-white/10">
-                      <div className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        <span>Date</span>
-                        <span>Form</span>
-                        <span>Title</span>
-                        <span>Link</span>
-                      </div>
-                      {secItems.map((item) => (
-                        <div
-                          key={`${item.form_type}-${item.filing_date}-${item.url ?? item.title ?? "row"}`}
-                          className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
-                        >
-                          <span>{formatDateShort(item.filing_date ?? null)}</span>
-                          <span className="font-semibold text-slate-100">{item.form_type}</span>
-                          <span className="truncate">{getSecFormTitle(item.form_type, item.title)}</span>
-                          <span>
-                            {item.url ? (
-                              <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
-                                Open
-                              </a>
-                            ) : (
-                              <span className="text-slate-500">-</span>
-                            )}
-                          </span>
+              {showSecSection ? (
+                <EventsSection title="SEC Filings" meta="Latest available">
+                  {loadingSec && secPages.length === 0 ? (
+                    <TabSkeleton rows={3} />
+                  ) : secItems.length > 0 ? (
+                    <>
+                      <div className="overflow-hidden rounded-xl border border-white/10">
+                        <div className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <span>Date</span>
+                          <span>Form</span>
+                          <span>Title</span>
+                          <span>Link</span>
                         </div>
-                      ))}
-                    </div>
-                    <div className="mt-3">
-                      <LoadMoreButton
-                        disabled={!secResponse?.has_next || loadingSec}
-                        label={loadingSec ? "Loading..." : "Load more filings"}
-                        onClick={loadMoreSec}
-                      />
-                    </div>
-                  </>
-                ) : secResponse?.status === "loading" ? (
-                  <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
-                ) : secResponse?.status === "unavailable" ? (
-                  <div className="text-sm text-slate-400">{filingsMessage}</div>
-                ) : (
-                  <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
-                )}
-              </EventsSection>
+                        {secItems.map((item) => (
+                          <div
+                            key={`${item.form_type}-${item.filing_date}-${item.url ?? item.title ?? "row"}`}
+                            className="grid grid-cols-[8rem_6rem_minmax(0,1fr)_5rem] gap-3 border-b border-white/10 px-3 py-2.5 text-sm text-slate-300 last:border-b-0"
+                          >
+                            <span>{formatDateShort(item.filing_date ?? null)}</span>
+                            <span className="font-semibold text-slate-100">{item.form_type}</span>
+                            <span className="truncate">{getSecFormTitle(item.form_type, item.title)}</span>
+                            <span>
+                              {item.url ? (
+                                <a href={item.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-200 hover:text-emerald-100">
+                                  Open
+                                </a>
+                              ) : (
+                                <span className="text-slate-500">-</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3">
+                        <LoadMoreButton
+                          disabled={!secResponse?.has_next || loadingSec}
+                          label={loadingSec ? "Loading..." : "Load more filings"}
+                          onClick={loadMoreSec}
+                        />
+                      </div>
+                    </>
+                  ) : secResponse?.status === "loading" ? (
+                    <div className="text-sm text-slate-400">{FILINGS_LOADING_MESSAGE}</div>
+                  ) : secResponse?.status === "unavailable" ? (
+                    <div className="text-sm text-slate-400">{filingsMessage}</div>
+                  ) : (
+                    <div className="text-sm text-slate-400">{FILINGS_EMPTY_MESSAGE}</div>
+                  )}
+                </EventsSection>
+              ) : null}
 
               <EventsSection title="Disclosure Activity" meta="365D">
                 {loadingEvents && !eventsStatus ? (
