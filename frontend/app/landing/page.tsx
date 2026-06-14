@@ -602,7 +602,7 @@ export default async function LandingPage() {
       <section className="relative border-b border-white/10">
         <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
           <div className="max-w-3xl">
-            <SectionEyebrow>Market Terminal</SectionEyebrow>
+            <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
               Crack the market.
             </h1>
@@ -632,7 +632,7 @@ export default async function LandingPage() {
             <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live signal board</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Market brief</p>
                   <p className="mt-1 text-sm font-semibold text-white">A snapshot of what Walnut is watching now.</p>
                 </div>
                 <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
@@ -710,7 +710,6 @@ export default async function LandingPage() {
           </div>
           <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
             <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live signal board</p>
               <div className="mt-5 divide-y divide-white/10">
                 {latestInsights.slice(0, 5).map((item) => (
                   <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
