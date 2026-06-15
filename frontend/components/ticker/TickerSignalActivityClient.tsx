@@ -142,12 +142,14 @@ function SignalActivitySkeleton() {
 export function TickerSignalActivityClient({
   symbol,
   side,
+  lookbackDays,
   lookbackStartKey,
   returnTo,
   className,
 }: {
   symbol: string;
   side: string;
+  lookbackDays: number;
   lookbackStartKey: string;
   returnTo: string;
   className: string;
@@ -164,6 +166,7 @@ export function TickerSignalActivityClient({
     getTickerSignalsSummary(symbol, {
       side,
       limit: 3,
+      lookback_days: lookbackDays,
       signal: controller.signal,
       source: "TickerSignalsSummary",
     })
@@ -184,7 +187,7 @@ export function TickerSignalActivityClient({
       alive = false;
       controller.abort();
     };
-  }, [side, symbol]);
+  }, [lookbackDays, side, symbol]);
 
   const visibleItems = useMemo(
     () => items.filter((item) => item.ts && item.ts.slice(0, 10) >= lookbackStartKey),

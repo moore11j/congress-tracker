@@ -138,6 +138,7 @@ from app.services.price_lookup import (
 from app.services.quote_lookup import get_current_prices, get_current_prices_db, quote_cache_get_many_with_age
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
+from app.services.government_contracts import get_government_contracts_summary
 from app.services.government_departments import get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import (
@@ -164,6 +165,7 @@ from app.services.profile_performance_curve import build_normalized_profile_curv
 from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION, latest_replicated_portfolio_payload
 from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
+from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
@@ -3886,8 +3888,7 @@ def congress_trader_leaderboard(
 
 @app.get("/api/tickers")
 def ticker_profiles(symbols: str | None = Query(None), db: Session = Depends(get_db)):
-    with _heavy_route_slot("ticker_profiles", _TICKER_WIDGET_SEMAPHORE):
-        return _ticker_profiles_response(symbols, db)
+    return _ticker_profiles_response(symbols, db)
 
 
 def _ticker_profiles_response(symbols: str | None, db: Session) -> dict:
@@ -3911,7 +3912,7 @@ def _ticker_profiles_response(symbols: str | None, db: Session) -> dict:
     profiles: dict[str, dict] = {}
     for sym in parsed_symbols:
         try:
-            profiles[sym] = _build_ticker_profile(sym, db)
+            profiles[sym] = _build_ticker_shell_profile(sym, db)
         except LookupError:
             event_exists = db.execute(
                 select(Event.id)
@@ -4143,6 +4144,8 @@ def _ticker_shell_identity_fields(
         (meta.industry if meta is not None else None, "ticker_meta"),
         (profile_snapshot.get("industry"), "profile_cache"),
         (fundamentals.industry if fundamentals is not None else None, "fundamentals_cache"),
+        (profile_snapshot.get("sicDescription"), "profile_cache"),
+        (profile_snapshot.get("sic_description"), "profile_cache"),
     )
     country, country_source = _ticker_identity_field(
         (meta.country if meta is not None else None, "ticker_meta"),
@@ -4166,6 +4169,23 @@ def _ticker_shell_identity_fields(
         "country_source": country_source,
         "exchange_source": exchange_source,
     }
+
+
+def _enqueue_ticker_identity_enrichment_if_sparse(symbol: str, *, sector: str | None, industry: str | None) -> None:
+    if sector and industry:
+        return
+    for job_type in ("ticker_meta", "profile"):
+        try:
+            enqueue_data_enrichment_job(
+                job_type=job_type,
+                symbol=symbol,
+                source="ticker_profile_shell",
+                reason="missing_sector_industry",
+                priority=35,
+                max_attempts=3,
+            )
+        except Exception:
+            logger.debug("ticker identity enrichment enqueue failed symbol=%s job_type=%s", symbol, job_type, exc_info=True)
 
 
 def _ticker_identity_status(
@@ -4214,6 +4234,7 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     industry = identity_fields["industry"]
     country = identity_fields["country"]
     exchange = identity_fields["exchange"]
+    _enqueue_ticker_identity_enrichment_if_sparse(sym, sector=sector, industry=industry)
     metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
     quote_available = quote_snapshot["current_price"] is not None
     identity_status = _ticker_identity_status(
@@ -4712,6 +4733,13 @@ def _ticker_response_cache_ttl_seconds() -> int:
         return 30
 
 
+def _ticker_signals_summary_cache_ttl_seconds() -> int:
+    try:
+        return max(30, min(120, int(os.getenv("TICKER_SIGNALS_SUMMARY_CACHE_TTL_SECONDS", "60") or 60)))
+    except ValueError:
+        return 60
+
+
 def _ticker_response_cache_get(cache: dict[str, tuple[float, dict[str, Any]]], key: str) -> dict[str, Any] | None:
     now = time.time()
     with _TICKER_RESPONSE_CACHE_LOCK:
@@ -4725,8 +4753,14 @@ def _ticker_response_cache_get(cache: dict[str, tuple[float, dict[str, Any]]], k
         return copy.deepcopy(payload)
 
 
-def _ticker_response_cache_set(cache: dict[str, tuple[float, dict[str, Any]]], key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    ttl = _ticker_response_cache_ttl_seconds()
+def _ticker_response_cache_set(
+    cache: dict[str, tuple[float, dict[str, Any]]],
+    key: str,
+    payload: dict[str, Any],
+    *,
+    ttl_seconds: int | None = None,
+) -> dict[str, Any]:
+    ttl = _ticker_response_cache_ttl_seconds() if ttl_seconds is None else ttl_seconds
     if ttl <= 0:
         return payload
     with _TICKER_RESPONSE_CACHE_LOCK:
@@ -4740,6 +4774,218 @@ def _public_signal_row(item: Any) -> dict:
     if hasattr(item, "dict"):
         return item.dict()
     return dict(item) if isinstance(item, dict) else {}
+
+
+def _ticker_summary_direction(buys: int, sells: int) -> str:
+    total = buys + sells
+    if total <= 0:
+        return "neutral"
+    if buys > 0 and sells > 0 and abs(buys - sells) / total < 0.34:
+        return "mixed"
+    if buys > sells:
+        return "bullish"
+    if sells > buys:
+        return "bearish"
+    return "mixed"
+
+
+def _ticker_summary_side(value: str | None) -> str | None:
+    normalized = normalize_trade_side(value)
+    if normalized == "purchase":
+        return "buy"
+    if normalized == "sale":
+        return "sell"
+    return None
+
+
+def _ticker_summary_net_flow(rows: list[Any]) -> float | None:
+    saw_amount = False
+    net_flow = 0.0
+    for row in rows:
+        side = _ticker_summary_side(row.trade_type)
+        amount = row.amount_max if row.amount_max is not None else row.amount_min
+        if side not in {"buy", "sell"} or amount is None:
+            continue
+        try:
+            parsed = float(amount)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(parsed) or parsed <= 0:
+            continue
+        saw_amount = True
+        net_flow += parsed if side == "buy" else -parsed
+    return round(net_flow, 2) if saw_amount else None
+
+
+def _ticker_trade_activity_summary(
+    db: Session,
+    symbol: str,
+    event_type: str,
+    *,
+    lookback_days: int,
+    side: str,
+) -> dict[str, Any]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(int(lookback_days or 30), 365)))
+    trade_ts = func.coalesce(Event.event_date, Event.ts)
+    query = (
+        select(
+            Event.trade_type,
+            Event.amount_min,
+            Event.amount_max,
+            Event.member_name,
+            Event.member_bioguide_id,
+            Event.payload_json,
+        )
+        .where(Event.symbol == symbol)
+        .where(Event.event_type == event_type)
+        .where(trade_ts >= cutoff)
+        .where(insider_visibility_clause())
+        .order_by(trade_ts.desc(), Event.id.desc())
+        .limit(200)
+    )
+    if side == "buy":
+        query = query.where(func.lower(func.trim(func.coalesce(Event.trade_type, ""))).in_(["purchase", "buy", "p-purchase"]))
+    elif side == "sell":
+        query = query.where(func.lower(func.trim(func.coalesce(Event.trade_type, ""))).in_(["sale", "sell", "s-sale"]))
+
+    rows = db.execute(query).all()
+    buy_count = sum(1 for row in rows if _ticker_summary_side(row.trade_type) == "buy")
+    sell_count = sum(1 for row in rows if _ticker_summary_side(row.trade_type) == "sell")
+    direction = _ticker_summary_direction(buy_count, sell_count)
+    net_flow = _ticker_summary_net_flow(rows)
+    active = buy_count + sell_count > 0
+    if event_type == "insider_trade":
+        active_title = "Insider activity active"
+        inactive_title = "No recent insider activity"
+        subtitle = f"{buy_count} buys / {sell_count} sells"
+    else:
+        active_title = "Congress trades active"
+        inactive_title = "No recent Congress trades"
+        subtitle = f"{buy_count} buys / {sell_count} sells"
+    return {
+        "status": "active" if active else "inactive",
+        "direction": direction,
+        "title": active_title if active else inactive_title,
+        "subtitle": subtitle if active else f"No matching trades in the last {lookback_days}D.",
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "net_flow": net_flow,
+    }
+
+
+def _ticker_signal_direction(rows: list[dict[str, Any]]) -> str:
+    buys = sum(1 for row in rows if _ticker_summary_side(str(row.get("trade_type") or "")) == "buy")
+    sells = sum(1 for row in rows if _ticker_summary_side(str(row.get("trade_type") or "")) == "sell")
+    return _ticker_summary_direction(buys, sells)
+
+
+def _normalize_price_volume_context(summary: dict[str, Any]) -> dict[str, Any]:
+    status = str(summary.get("status") or "unavailable")
+    if status not in {"active", "inactive", "loading", "limited", "unavailable"}:
+        status = "unavailable"
+    direction = str(summary.get("direction") or "neutral")
+    if direction not in {"bullish", "bearish", "neutral", "mixed"}:
+        direction = "neutral"
+    lines = summary.get("lines") if isinstance(summary.get("lines"), list) else []
+    title = _shell_text(summary.get("summary")) or (
+        "Price and volume active"
+        if status == "active"
+        else "No active tape confirmation"
+        if status == "inactive"
+        else "Limited price history"
+        if status == "limited"
+        else "Loading price and volume data"
+        if status == "loading"
+        else "Price and volume unavailable"
+    )
+    return {
+        **summary,
+        "status": status,
+        "direction": direction,
+        "title": title,
+        "summary": title,
+        "lines": [str(line) for line in lines] or [title],
+    }
+
+
+def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | float | None, lookback_days: int) -> dict[str, Any]:
+    recent_count = len(rows)
+    direction = _ticker_signal_direction(rows)
+    if recent_count <= 0:
+        return {
+            "status": "inactive",
+            "direction": "neutral",
+            "title": "No recent signal activity",
+            "subtitle": f"No signal conviction entries in the last {lookback_days}D.",
+            "recent_count": 0,
+            "latest_score": None,
+        }
+    return {
+        "status": "active",
+        "direction": direction,
+        "title": "Signal conviction active",
+        "subtitle": f"{recent_count} recent signal{'s' if recent_count != 1 else ''}.",
+        "recent_count": recent_count,
+        "latest_score": latest_score,
+    }
+
+
+def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str, Any]:
+    raw_count = summary.get("contract_count")
+    contract_count = int(raw_count or 0) if isinstance(raw_count, (int, float)) else 0
+    raw_value = summary.get("total_award_amount")
+    contract_value = float(raw_value) if isinstance(raw_value, (int, float)) else None
+    if summary.get("status") == "unavailable" and summary.get("active") is None:
+        return {
+            "status": "unavailable",
+            "direction": "neutral",
+            "title": "Government contracts unavailable",
+            "subtitle": "Government contract activity is not available.",
+            "contract_count": 0,
+            "contract_value": None,
+        }
+    if contract_count <= 0:
+        return {
+            "status": "inactive",
+            "direction": "neutral",
+            "title": "No major government contracts",
+            "subtitle": "No contracts above threshold in selected window.",
+            "contract_count": 0,
+            "contract_value": None,
+        }
+    return {
+        "status": "active",
+        "direction": "bullish",
+        "title": "Government contracts active",
+        "subtitle": _shell_text(summary.get("detail")) or _shell_text(summary.get("summary")) or f"{contract_count} contract awards.",
+        "contract_count": contract_count,
+        "contract_value": round(contract_value, 2) if contract_value is not None else None,
+    }
+
+
+def _log_ticker_signals_summary_response(
+    *,
+    symbol: str,
+    payload: dict[str, Any],
+    started_at: float,
+) -> None:
+    insiders = payload.get("insiders") if isinstance(payload.get("insiders"), dict) else {}
+    congress = payload.get("congress") if isinstance(payload.get("congress"), dict) else {}
+    signals = payload.get("signals") if isinstance(payload.get("signals"), dict) else {}
+    contracts = payload.get("government_contracts") if isinstance(payload.get("government_contracts"), dict) else {}
+    price_volume = payload.get("price_volume") if isinstance(payload.get("price_volume"), dict) else {}
+    logger.info(
+        "ticker_signals_summary_response symbol=%s duration_ms=%.1f has_price_volume=%s insider_buy_count=%s insider_sell_count=%s congress_buy_count=%s congress_sell_count=%s recent_signal_count=%s contract_count=%s",
+        symbol,
+        (perf_counter() - started_at) * 1000,
+        bool(price_volume and price_volume.get("status") not in {None, "loading", "unavailable"}),
+        int(insiders.get("buy_count") or 0),
+        int(insiders.get("sell_count") or 0),
+        int(congress.get("buy_count") or 0),
+        int(congress.get("sell_count") or 0),
+        int(signals.get("recent_count") or payload.get("recent_signal_count") or 0),
+        int(contracts.get("contract_count") or 0),
+    )
 
 
 def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
@@ -4804,6 +5050,7 @@ def ticker_signals_summary(
     symbol: str,
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     limit: int = Query(3, ge=1, le=3),
+    lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
     current_user(db, request, required=True)
@@ -4817,9 +5064,11 @@ def ticker_signals_summary(
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
     started_at = perf_counter()
-    cache_key = f"signals-summary:{normalized_symbol}:{side}:{limit}"
+    bounded_lookback_days = max(1, min(int(lookback_days or 30), 365))
+    cache_key = f"signals-summary:{normalized_symbol}:{bounded_lookback_days}:{side}:{limit}"
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
     if cached is not None:
+        _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=cached, started_at=started_at)
         _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=cached, started_at=started_at)
         return cached
     items = _query_unified_signals(
@@ -4829,8 +5078,8 @@ def ticker_signals_summary(
         limit=limit,
         offset=0,
         baseline_days=365,
-        congress_recent_days=CONGRESS_SIGNAL_DEFAULTS["recent_days"],
-        insider_recent_days=INSIDER_DEFAULTS["recent_days"],
+        congress_recent_days=bounded_lookback_days,
+        insider_recent_days=bounded_lookback_days,
         congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
         insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
         congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
@@ -4850,18 +5099,48 @@ def ticker_signals_summary(
         ),
         None,
     )
+    price_volume = _normalize_price_volume_context(_ticker_price_volume_summary(db, normalized_symbol))
+    insiders = _ticker_trade_activity_summary(
+        db,
+        normalized_symbol,
+        "insider_trade",
+        lookback_days=bounded_lookback_days,
+        side=side,
+    )
+    congress = _ticker_trade_activity_summary(
+        db,
+        normalized_symbol,
+        "congress_trade",
+        lookback_days=bounded_lookback_days,
+        side=side,
+    )
+    signals = _normalize_signals_context(rows, latest_score, bounded_lookback_days)
+    government_contracts = _normalize_government_contracts_context(
+        get_government_contracts_summary(db, normalized_symbol, lookback_days=365, min_amount=1_000_000)
+    )
     payload = {
         "symbol": normalized_symbol,
         "status": "ok" if rows else "no_data",
+        "updated_at": _dt_iso(datetime.now(timezone.utc)),
+        "price_volume": price_volume,
+        "insiders": insiders,
+        "congress": congress,
+        "signals": signals,
+        "government_contracts": government_contracts,
         "latest_signal_score": latest_score,
         "recent_count": len(rows),
         "recent_signal_count": len(rows),
         "rows": rows,
         "items": rows,
-        "price_volume": _ticker_price_volume_summary(db, normalized_symbol),
     }
+    _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=payload, started_at=started_at)
     _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=payload, started_at=started_at)
-    return _ticker_response_cache_set(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key, payload)
+    return _ticker_response_cache_set(
+        _TICKER_SIGNALS_SUMMARY_CACHE,
+        cache_key,
+        payload,
+        ttl_seconds=_ticker_signals_summary_cache_ttl_seconds(),
+    )
 
 
 @app.get("/api/tickers/{symbol}/government-contracts")

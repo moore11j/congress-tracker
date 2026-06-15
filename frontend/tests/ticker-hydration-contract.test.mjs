@@ -43,7 +43,12 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
 
   assert.match(api, /export async function getTickerSignalsSummary/);
   assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
+  assert.match(api, /lookback_days: params\?\.lookback_days/);
   assert.match(client, /getTickerSignalsSummary\(symbol,/);
+  assert.match(client, /lookback_days: lookbackDays/);
+  assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
+  assert.match(tickerPage, /sourceFromActivityCounts\(confirmationBundle\.sources\.insiders, insiderBuys, insiderSells\)/);
+  assert.match(tickerPage, /sourceFromActivityCounts\(confirmationBundle\.sources\.congress, congressBuys, congressSells\)/);
   assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
 });
@@ -105,7 +110,7 @@ test("ticker events tab loads filings and activity independently", () => {
   assert.match(card, /getTickerSecFilings\(symbol,/);
   assert.doesNotMatch(card, /from: dateWindow\.from/);
   assert.doesNotMatch(card, /to: dateWindow\.to/);
-  assert.match(card, /getEvents\(\{ symbol, recent_days: 365, limit: 50/);
+  assert.match(card, /getEvents\(\{[\s\S]*?symbol,[\s\S]*?recent_days: 365,[\s\S]*?limit: 50/);
   assert.match(card, /showSecSection/);
   assert.match(card, /allEventsSourcesEmpty/);
   assert.match(card, /<EventsSection title="SEC Filings" meta="Latest available">/);
@@ -125,4 +130,13 @@ test("ticker disclosure activity renders links from event url payload fields", (
   assert.match(card, /const sourceUrl = disclosureEventUrl\(event\)/);
   assert.match(card, /href=\{sourceUrl\}/);
   assert.match(card, /<span className="text-slate-500">-<\/span>/);
+});
+
+test("landing feed government contract profile lookup falls back without server error", () => {
+  const page = read("app/page.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /"tickers" in data/);
+  assert.match(page, /companyNames = \{\};/);
+  assert.doesNotMatch(page, /console\.error\("\[feed\] ticker profiles unavailable for government contracts/);
 });

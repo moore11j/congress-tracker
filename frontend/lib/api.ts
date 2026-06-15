@@ -2697,16 +2697,53 @@ type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown
 export type TickerSignalsSummaryResponse = {
   symbol: string;
   status: "ok" | "empty" | "loading" | "unavailable" | string;
+  updated_at?: string | null;
   latest_signal_score: number | null;
   recent_signal_count: number;
+  recent_count?: number;
   items: SignalItem[];
   price_volume?: {
     status?: string | null;
+    direction?: string | null;
+    title?: string | null;
     summary?: string | null;
     score?: number | null;
     lines?: string[];
     price_points?: number | null;
+  } | null;
+  insiders?: {
+    status?: string | null;
     direction?: string | null;
+    title?: string | null;
+    subtitle?: string | null;
+    buy_count?: number;
+    sell_count?: number;
+    net_flow?: number | null;
+  } | null;
+  congress?: {
+    status?: string | null;
+    direction?: string | null;
+    title?: string | null;
+    subtitle?: string | null;
+    buy_count?: number;
+    sell_count?: number;
+    net_flow?: number | null;
+  } | null;
+  signals?: {
+    status?: string | null;
+    direction?: string | null;
+    title?: string | null;
+    subtitle?: string | null;
+    recent_count?: number;
+    latest_score?: number | null;
+  } | null;
+  government_contracts?: {
+    status?: string | null;
+    direction?: string | null;
+    title?: string | null;
+    subtitle?: string | null;
+    contract_count?: number;
+    contract_value?: number | null;
   } | null;
 };
 
@@ -2759,6 +2796,7 @@ export async function getTickerSignalsSummary(
   params?: {
     side?: string;
     limit?: number;
+    lookback_days?: number;
     authToken?: string;
     signal?: AbortSignal;
     source?: string;
@@ -2767,6 +2805,7 @@ export async function getTickerSignalsSummary(
   const url = buildApiUrl(`/api/tickers/${symbol}/signals-summary`, {
     side: params?.side ?? "all",
     limit: params?.limit ?? 3,
+    lookback_days: params?.lookback_days,
   });
   const data = await fetchJson<TickerSignalsSummaryResponse>(url, {
     headers: authHeaders(params?.authToken),
@@ -3876,7 +3915,15 @@ export async function getTickerProfiles(symbols: string[], options?: { source?: 
 
   if (normalized.length === 0) return {};
 
-  return fetchJson<TickerProfilesMap>(buildApiUrl("/api/tickers", { symbols: normalized.join(",") }), { source: options?.source ?? "unknown" });
+  const data = await fetchJson<Record<string, unknown> | { tickers?: unknown }>(
+    buildApiUrl("/api/tickers", { symbols: normalized.join(",") }),
+    { source: options?.source ?? "unknown" },
+  );
+  const wrapped = data && typeof data === "object" && "tickers" in data ? data.tickers : null;
+  if (wrapped && typeof wrapped === "object" && !Array.isArray(wrapped)) {
+    return wrapped as TickerProfilesMap;
+  }
+  return data as TickerProfilesMap;
 }
 
 export async function listWatchlists(authToken?: string): Promise<WatchlistSummary[]> {

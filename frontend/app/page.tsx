@@ -701,8 +701,8 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
           .map(([symbol, profile]) => [symbol.toUpperCase(), asTrimmedString(profile?.ticker?.name)] as const)
           .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
       );
-    } catch (err) {
-      console.error("[feed] ticker profiles unavailable for government contracts:", err);
+    } catch {
+      companyNames = {};
     }
   }
 

@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, type SignalItem, type TickerGovernmentContractItem } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
@@ -1083,10 +1083,20 @@ function priceVolumeSummary(
     technicalIndicators.ema_trend.message,
   ];
   const indicatorsUnavailable = diagnostics.every((item) => item.toLowerCase().includes("unavailable"));
+  const hasTechnicalInputs = Number(technicalIndicators.price_points ?? 0) > 0;
   if (!source.present && indicatorsUnavailable) {
     const insufficientHistory = [technicalIndicators.rsi, technicalIndicators.macd, technicalIndicators.ema_trend].some(
       (item) => item.reason === "insufficient_price_history",
     );
+    if (hasTechnicalInputs) {
+      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : "No active tape confirmation";
+      return {
+        state: insufficientHistory || technicalIndicators.price_points < 35 ? "LIMITED" : "INACTIVE",
+        summary,
+        diagnostics: [summary],
+        tone: insufficientHistory || technicalIndicators.price_points < 35 ? "unavailable" : "inactive",
+      };
+    }
     const summary = insufficientHistory ? "Limited price history." : "Loading price and volume data.";
     return {
       state: "UNAVAILABLE",
@@ -1190,6 +1200,45 @@ function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals
     return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${lookbackDays}D`;
   }
   return `${lookbackDays}D`;
+}
+
+function activityDirectionFromCounts(buys: number, sells: number): ConfirmationScoreBundle["direction"] {
+  const total = buys + sells;
+  if (total <= 0) return "neutral";
+  if (buys > 0 && sells > 0 && Math.abs(buys - sells) / total < 0.34) return "mixed";
+  if (buys > sells) return "bullish";
+  if (sells > buys) return "bearish";
+  return "mixed";
+}
+
+function sourceFromActivityCounts<T extends ConfirmationScoreBundle["sources"][ConfirmationSourceKey]>(
+  source: T,
+  buys: number,
+  sells: number,
+): T {
+  if (buys + sells <= 0) return source;
+  const direction = activityDirectionFromCounts(buys, sells);
+  return {
+    ...source,
+    present: true,
+    direction,
+    label: direction === "bearish" ? "Active / sell-skewed" : direction === "bullish" ? "Active / buy-skewed" : "Active / mixed",
+  };
+}
+
+function sourceFromTopSignal(
+  source: ConfirmationScoreBundle["sources"]["signals"],
+  topSignal: TickerActivityData["topSignal"],
+): ConfirmationScoreBundle["sources"]["signals"] {
+  if (!topSignal) return source;
+  const side = normalizeTradeSide(topSignal.trade_type);
+  const direction = side === "buy" ? "bullish" : side === "sell" ? "bearish" : source.direction === "neutral" ? "mixed" : source.direction;
+  return {
+    ...source,
+    present: true,
+    direction,
+    label: topSignal.smart_band ? `${topSignal.smart_band} smart signal` : "Signal conviction active",
+  };
 }
 
 type IntelligenceIconKind =
@@ -1587,12 +1636,14 @@ function DeferredTickerSummarySkeleton() {
 async function resolveTickerActivityData({
   eventsPromise,
   governmentContractsPromise,
+  signalSummaryRequest,
   signalsUnavailable,
   lookbackStartKey,
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
+  signalSummaryRequest?: Promise<TickerSignalsSummaryResponse>;
   signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
@@ -1600,10 +1651,17 @@ async function resolveTickerActivityData({
   const [eventsRes, governmentContractsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve({ items: [] }),
     governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
-    Promise.resolve({
-      response: { items: [] as SignalItem[] },
-      unavailable: signalsUnavailable ?? null,
-    }),
+    signalSummaryRequest
+      ? signalSummaryRequest
+          .then((response) => ({ response, unavailable: null }))
+          .catch(() => ({
+            response: { items: [] as SignalItem[] },
+            unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
+          }))
+      : Promise.resolve({
+          response: { items: [] as SignalItem[] },
+          unavailable: signalsUnavailable ?? null,
+        }),
   ]);
   const signalsRes = signalsResult.response;
 
@@ -1791,6 +1849,9 @@ async function DeferredTickerContent({
     : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(confirmationBundle);
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals);
+  const insiderCardSource = sourceFromActivityCounts(confirmationBundle.sources.insiders, insiderBuys, insiderSells);
+  const congressCardSource = sourceFromActivityCounts(confirmationBundle.sources.congress, congressBuys, congressSells);
+  const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
   const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
   const selectedLookbackDays = Number(lookback);
   const confirmationLookbackDays = confirmationBundle.lookback_days;
@@ -1839,25 +1900,25 @@ async function DeferredTickerContent({
             <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">
               <SourceEvidenceCard
                 title="Insiders"
-                icon={confirmationBundle.sources.insiders.direction === "bearish" ? "insider-sell" : "insider-buy"}
-                source={confirmationBundle.sources.insiders}
-                body={insiderSourceBody(insiderBuys, insiderSells, confirmationBundle.sources.insiders)}
+                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                source={insiderCardSource}
+                body={insiderSourceBody(insiderBuys, insiderSells, insiderCardSource)}
                 support={insiderSourceSupport(insiderBuys, insiderSells, confirmationLookbackDays)}
               />
               <SourceEvidenceCard
                 title="Congress"
                 icon="congress"
-                source={confirmationBundle.sources.congress}
-                body={sourceCardBody("congress", confirmationBundle.sources.congress, topSignal)}
+                source={congressCardSource}
+                body={sourceCardBody("congress", congressCardSource, topSignal)}
                 support={congressSourceSupport(congressBuys, congressSells, confirmationLookbackDays)}
               />
               <InstitutionalPlaceholderCard />
               <SourceEvidenceCard
                 title="Signals"
                 icon="signals"
-                source={confirmationBundle.sources.signals}
-                body={sourceCardBody("signals", confirmationBundle.sources.signals, topSignal)}
-                support={signalSourceSupport(confirmationBundle.sources.signals, topSignal, confirmationLookbackDays)}
+                source={signalsCardSource}
+                body={sourceCardBody("signals", signalsCardSource, topSignal)}
+                support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
               />
               <OptionsFlowCard summary={optionsFlow} />
               <GovernmentContractsCard
@@ -2148,6 +2209,7 @@ async function DeferredTickerContent({
               <TickerSignalActivityClient
                 symbol={normalizedSymbol}
                 side={side}
+                lookbackDays={selectedLookbackDays}
                 lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
@@ -2481,9 +2543,20 @@ export default async function TickerPage({ params, searchParams }: Props) {
             return { symbol: normalizedSymbol, status: "unavailable", items: [] };
           })
         : undefined;
+    const signalSummaryRequest =
+      shouldLoadSignals && canViewSignalActivity && authToken
+        ? getTickerSignalsSummary(normalizedSymbol, {
+            side,
+            limit: 3,
+            lookback_days: lookbackDays,
+            authToken,
+            source: "TickerSignalsSummary",
+          })
+        : undefined;
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve(events),
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
+      signalSummaryRequest,
       signalsUnavailable: signalGateState,
       lookbackStartKey: lookbackStartDateKey(lookbackDays),
       side,
