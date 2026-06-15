@@ -153,9 +153,12 @@ export type ConfirmationScoreSource = {
   quality: number;
   freshness_days: number | null;
   label: string;
+  status?: string | null;
+  title?: string | null;
   score_contribution?: number;
   detail?: string | null;
   summary?: string | null;
+  lines?: string[];
 };
 
 export type ConfirmationScoreBundle = {

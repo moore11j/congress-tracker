@@ -229,14 +229,18 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None, str | None,
     api_key = _fmp_api_key()
     if not api_key:
         logger.warning("ticker_meta: missing FMP_API_KEY")
-        raise ProviderUnavailable("provider_disabled")
+        route = str((get_request_context() or {}).get("path") or "")
+        user_api_request = route.startswith("/api/") and not route.startswith("/api/admin/")
+        raise ProviderUnavailable("provider_disabled" if user_api_request else "background_provider_disabled")
 
     company_name, exchange, sector, industry, country = _fmp_stable_search_symbol(symbol, api_key)
-    if company_name:
-        return company_name, exchange, sector, industry, country
-
-    company_name, exchange, sector, industry, country = _fmp_profile(symbol, api_key)
-    if company_name:
+    profile_name, profile_exchange, profile_sector, profile_industry, profile_country = _fmp_profile(symbol, api_key)
+    company_name = company_name or profile_name
+    exchange = exchange or profile_exchange
+    sector = sector or profile_sector
+    industry = industry or profile_industry
+    country = country or profile_country
+    if company_name or sector or industry:
         return company_name, exchange, sector, industry, country
 
     return _fmp_search(symbol, api_key)
@@ -366,6 +370,15 @@ def get_ticker_meta(
             ]
 
             if rows:
+                for row in rows:
+                    logger.info(
+                        "ticker_meta_identity_upsert symbol=%s has_name=%s has_sector=%s has_industry=%s has_exchange=%s",
+                        row["symbol"],
+                        bool(row.get("company_name")),
+                        bool(row.get("sector")),
+                        bool(row.get("industry")),
+                        bool(row.get("exchange")),
+                    )
                 insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
                 stmt = insert_fn(TickerMeta.__table__).values(rows)
                 stmt = stmt.on_conflict_do_update(

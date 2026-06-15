@@ -6,6 +6,7 @@ import requests
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.main as main_module
 from app.db import Base
 from app.models import TickerMeta
 from app.request_priority import reset_request_context, set_request_context
@@ -318,6 +319,20 @@ def test_ticker_meta_background_context_can_fetch(monkeypatch):
         calls["count"] += 1
         if url.endswith("/stable/search-symbol"):
             return _FakeResponse(200, [{"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"}])
+        if "/profile/" in url:
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "symbol": "AAPL",
+                        "companyName": "Apple Inc.",
+                        "exchangeShortName": "NASDAQ",
+                        "sector": "Technology",
+                        "industry": "Consumer Electronics",
+                        "country": "US",
+                    }
+                ],
+            )
         return _FakeResponse(200, [])
 
     monkeypatch.setattr("app.services.ticker_meta.requests.get", fake_get)
@@ -329,11 +344,67 @@ def test_ticker_meta_background_context_can_fetch(monkeypatch):
     assert payload["AAPL"] == {
         "company_name": "Apple Inc.",
         "exchange": "NASDAQ",
-        "sector": None,
-        "industry": None,
-        "country": None,
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "country": "US",
     }
-    assert calls["count"] == 1
+    assert calls["count"] == 2
+
+
+def test_ticker_meta_background_upsert_does_not_overwrite_identity_with_nulls(monkeypatch):
+    db = _db()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    db.add(
+        TickerMeta(
+            symbol="MSTR",
+            company_name="Strategy Inc",
+            exchange="NASDAQ",
+            sector="Technology",
+            industry="Software - Application",
+            country="US",
+            updated_at=datetime.utcnow() - timedelta(days=30),
+        )
+    )
+    db.commit()
+
+    def fake_get(url, params=None, timeout=30):
+        if url.endswith("/stable/search-symbol"):
+            return _FakeResponse(200, [{"symbol": "MSTR", "name": "Strategy Inc", "exchange": "NASDAQ"}])
+        if "/profile/" in url:
+            return _FakeResponse(200, [{"symbol": "MSTR", "companyName": "Strategy Inc"}])
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.ticker_meta.requests.get", fake_get)
+    try:
+        payload = get_ticker_meta(db, ["MSTR"], allow_refresh=True)
+    finally:
+        db.close()
+
+    assert payload["MSTR"]["sector"] == "Technology"
+    assert payload["MSTR"]["industry"] == "Software - Application"
+    assert payload["MSTR"]["country"] == "US"
+
+
+def test_background_profile_snapshot_missing_key_uses_background_reason(monkeypatch):
+    reset_provider_usage()
+    main_module._TICKER_PROFILE_SNAPSHOT_CACHE.clear()
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr(main_module, "enqueue_data_enrichment_job", lambda **_kwargs: True)
+
+    token = set_request_context({"path": "background", "priority": "normal", "job_type": "profile"})
+    try:
+        payload = main_module._company_profile_snapshot_from_fmp("NBIS")
+    finally:
+        reset_request_context(token)
+
+    reasons = {row["reason"]: row["count"] for row in provider_usage_summary(limit=10)["fallback_reasons"]}
+    assert payload == {}
+    assert reasons.get("background_provider_disabled", 0) >= 1
+    assert reasons.get("provider_disabled", 0) == 0
+    assert reasons.get("page_fetch_blocked", 0) == 0
 
 
 def test_ticker_meta_public_stale_row_is_served_and_enqueued(monkeypatch):

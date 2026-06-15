@@ -172,6 +172,8 @@ from app.services.confirmation_score import (
 )
 from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
 from app.services.signal_freshness import build_signal_freshness_bundle
+from app.services.technical_indicators import _ema as _technical_ema
+from app.services.technical_indicators import _rsi as _technical_rsi
 from app.services.technical_indicators import build_ticker_technical_indicators
 from app.services.ticker_events import (
     GOVERNMENT_CONTRACT_EVENT_TYPES,
@@ -4988,9 +4990,156 @@ def _log_ticker_signals_summary_response(
     )
 
 
+def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int = 120) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol) or symbol.upper()
+    try:
+        rows = (
+            db.execute(
+                select(PriceCache)
+                .where(func.upper(PriceCache.symbol) == normalized)
+                .order_by(PriceCache.date.desc())
+                .limit(max(1, int(limit or 120)))
+            )
+            .scalars()
+            .all()
+        )
+    except Exception:
+        rows = []
+    rows = list(reversed(rows))
+    closes: list[float] = []
+    volumes: list[float] = []
+    for row in rows:
+        close = _parse_numeric(row.close)
+        if close is not None and close > 0:
+            closes.append(close)
+        volume = _parse_numeric(row.volume)
+        if volume is None:
+            volume = _parse_numeric(row.day_volume)
+        if volume is not None and volume > 0:
+            volumes.append(volume)
+    average_volume = sum(volumes[-30:]) / min(len(volumes), 30) if volumes else None
+    return {
+        "closes": closes,
+        "volumes": volumes,
+        "point_count": len(closes),
+        "volume_points": len(volumes),
+        "has_price_series": bool(closes),
+        "has_volume": bool(volumes),
+        "last_volume": volumes[-1] if volumes else None,
+        "average_volume": average_volume,
+    }
+
+
+def _ticker_price_volume_hydration_pending(db: Session, symbol: str) -> bool:
+    normalized = normalize_symbol(symbol) or symbol.upper()
+    try:
+        count = db.execute(
+            select(func.count(DataEnrichmentJob.id))
+            .where(DataEnrichmentJob.job_type.in_(("price_series", "technical_indicators")))
+            .where(DataEnrichmentJob.status.in_(("queued", "running")))
+            .where(func.upper(func.coalesce(DataEnrichmentJob.symbol, "")) == normalized)
+        ).scalar()
+    except Exception:
+        logger.info("ticker_price_volume_hydration_status_failed symbol=%s", normalized, exc_info=True)
+        return False
+    return bool(count and int(count) > 0)
+
+
+def _fallback_cached_technical_indicators(symbol: str, closes: list[float]) -> dict[str, Any]:
+    rsi_value = _technical_rsi(closes, 14)
+    if rsi_value is None:
+        rsi = {
+            "status": "unavailable",
+            "signal": "unavailable",
+            "message": "RSI unavailable - insufficient price history",
+            "reason": "insufficient_price_history",
+        }
+    elif rsi_value > 55:
+        rsi = {"status": "ok", "signal": "bullish", "message": "RSI above neutral", "value": round(rsi_value, 2)}
+    elif rsi_value < 45:
+        rsi = {"status": "ok", "signal": "bearish", "message": "RSI below neutral", "value": round(rsi_value, 2)}
+    else:
+        rsi = {"status": "ok", "signal": "neutral", "message": "RSI near neutral", "value": round(rsi_value, 2)}
+
+    if len(closes) >= 35:
+        ema12 = _technical_ema(closes, 12)
+        ema26 = _technical_ema(closes, 26)
+        macd_line = [short - long for short, long in zip(ema12, ema26)]
+        signal_series = _technical_ema(macd_line, 9)
+        macd_value = macd_line[-1]
+        signal_value = signal_series[-1]
+        if macd_value > signal_value:
+            macd = {"status": "ok", "signal": "bullish", "message": "MACD bullish crossover"}
+        elif macd_value < signal_value:
+            macd = {"status": "ok", "signal": "bearish", "message": "MACD bearish crossover"}
+        else:
+            macd = {"status": "ok", "signal": "neutral", "message": "MACD mixed"}
+    else:
+        macd = {
+            "status": "unavailable",
+            "signal": "unavailable",
+            "message": "MACD unavailable - insufficient price history",
+            "reason": "insufficient_price_history",
+        }
+
+    if len(closes) >= 26:
+        short_ema = _technical_ema(closes, 12)[-1]
+        medium_ema = _technical_ema(closes, 26)[-1]
+        if short_ema > medium_ema:
+            ema_trend = {"status": "ok", "signal": "bullish", "message": "Short EMA above medium EMA"}
+        elif short_ema < medium_ema:
+            ema_trend = {"status": "ok", "signal": "bearish", "message": "Short EMA below medium EMA"}
+        else:
+            ema_trend = {"status": "ok", "signal": "neutral", "message": "EMA trend mixed"}
+    else:
+        ema_trend = {
+            "status": "unavailable",
+            "signal": "unavailable",
+            "message": "EMA trend unavailable - insufficient price history",
+            "reason": "insufficient_price_history",
+        }
+
+    return {
+        "source": "cached_price_history",
+        "price_points": len(closes),
+        "rsi": rsi,
+        "macd": macd,
+        "ema_trend": ema_trend,
+    }
+
+
+def _log_ticker_price_volume_summary(
+    *,
+    symbol: str,
+    status: str,
+    direction: str,
+    has_price_series: bool,
+    has_volume: bool,
+    has_technicals: bool,
+    point_count: int,
+    reason: str,
+) -> None:
+    logger.info(
+        "ticker_price_volume_summary symbol=%s status=%s direction=%s has_price_series=%s has_volume=%s has_technicals=%s point_count=%s reason=%s",
+        symbol,
+        status,
+        direction,
+        has_price_series,
+        has_volume,
+        has_technicals,
+        point_count,
+        reason,
+    )
+
+
 def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
-    technicals = build_ticker_technical_indicators(db, symbol, lookback_days=90, hydrate_provider=False)
-    price_points = int(technicals.get("price_points") or 0)
+    normalized = normalize_symbol(symbol) or symbol.upper()
+    cached_inputs = _ticker_cached_price_volume_inputs(db, normalized)
+    technicals = build_ticker_technical_indicators(db, normalized, lookback_days=90, hydrate_provider=False)
+    technical_price_points = int(technicals.get("price_points") or 0)
+    price_points = max(technical_price_points, int(cached_inputs["point_count"] or 0))
+    if technical_price_points <= 0 and cached_inputs["point_count"]:
+        technicals = _fallback_cached_technical_indicators(normalized, cached_inputs["closes"])
     indicators = [
         ("RSI", technicals.get("rsi") or {}),
         ("MACD", technicals.get("macd") or {}),
@@ -5005,42 +5154,119 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         for _label, indicator in indicators
         if indicator.get("status") == "ok"
     ]
+    has_technicals = bool(available_signals)
+    has_price_series = bool(cached_inputs["has_price_series"] or price_points > 0)
+    has_volume = bool(cached_inputs["has_volume"])
+    inputs = {
+        "has_price_series": has_price_series,
+        "has_volume": has_volume,
+        "has_technicals": has_technicals,
+        "point_count": price_points,
+    }
+    volume_line = None
+    last_volume = _parse_numeric(cached_inputs.get("last_volume"))
+    average_volume = _parse_numeric(cached_inputs.get("average_volume"))
+    if last_volume is not None and average_volume is not None and average_volume > 0:
+        volume_ratio = last_volume / average_volume
+        if volume_ratio >= 1.2:
+            volume_line = "Volume above 30D average"
+        elif volume_ratio <= 0.8:
+            volume_line = "Volume below 30D average"
+        else:
+            volume_line = "Volume near 30D average"
+    if volume_line:
+        lines.append(volume_line)
 
     if price_points <= 0:
+        loading = _ticker_price_volume_hydration_pending(db, normalized)
+        status = "loading" if loading else "limited"
+        title = "Loading price and volume data" if loading else "Limited price history"
+        reason = "hydration_pending" if loading else "missing_price_history"
+        _log_ticker_price_volume_summary(
+            symbol=normalized,
+            status=status,
+            direction="neutral",
+            has_price_series=False,
+            has_volume=has_volume,
+            has_technicals=False,
+            point_count=price_points,
+            reason=reason,
+        )
         return {
-            "status": "loading",
-            "summary": "Loading price and volume data",
+            "status": status,
+            "direction": "neutral",
+            "title": title,
+            "summary": title,
             "score": None,
-            "lines": ["Loading price and volume data"],
+            "lines": [title],
             "price_points": price_points,
+            "inputs": inputs,
         }
     if price_points < 35 or not available_signals:
+        _log_ticker_price_volume_summary(
+            symbol=normalized,
+            status="limited",
+            direction="neutral",
+            has_price_series=has_price_series,
+            has_volume=has_volume,
+            has_technicals=has_technicals,
+            point_count=price_points,
+            reason="insufficient_price_history" if price_points < 35 else "insufficient_technical_history",
+        )
         return {
             "status": "limited",
+            "direction": "neutral",
+            "title": "Limited price history",
             "summary": "Limited price history",
             "score": None,
             "lines": lines,
             "price_points": price_points,
+            "inputs": inputs,
         }
     directional = [signal for signal in available_signals if signal in {"bullish", "bearish"}]
     if not directional:
+        _log_ticker_price_volume_summary(
+            symbol=normalized,
+            status="inactive",
+            direction="neutral",
+            has_price_series=has_price_series,
+            has_volume=has_volume,
+            has_technicals=has_technicals,
+            point_count=price_points,
+            reason="neutral_technicals",
+        )
         return {
             "status": "inactive",
+            "direction": "neutral",
+            "title": "No active tape confirmation",
             "summary": "No active tape confirmation",
             "score": 0,
             "lines": lines,
             "price_points": price_points,
+            "inputs": inputs,
         }
     bullish = directional.count("bullish")
     bearish = directional.count("bearish")
     direction = "bullish" if bullish > bearish else "bearish" if bearish > bullish else "mixed"
+    _log_ticker_price_volume_summary(
+        symbol=normalized,
+        status="active",
+        direction=direction,
+        has_price_series=has_price_series,
+        has_volume=has_volume,
+        has_technicals=has_technicals,
+        point_count=price_points,
+        reason="directional_technicals",
+    )
     return {
         "status": "active",
+        "title": f"{direction.title()} tape confirmation",
         "summary": f"{direction.title()} tape confirmation",
         "score": max(bullish, bearish) * 25,
         "lines": lines,
         "price_points": price_points,
         "direction": direction,
+        "inputs": inputs,
     }
 
 
@@ -5508,6 +5734,11 @@ def _first_payload_row(payload) -> dict:
     return {}
 
 
+def _is_public_api_request_context() -> bool:
+    route = str((get_request_context() or {}).get("path") or "")
+    return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
 def _cached_fmp_symbol_row(
     *,
     symbol: str,
@@ -5523,7 +5754,8 @@ def _cached_fmp_symbol_row(
     if cached and time.time() < cached[0]:
         record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
         return dict(cached[1])
-    if (get_request_context() or {}).get("path"):
+    user_api_request = _is_public_api_request_context()
+    if user_api_request:
         record_cache_miss(category=f"ticker:{endpoint}", symbol=normalized)
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="page_fetch_blocked")
         enqueue_data_enrichment_job(
@@ -5538,12 +5770,12 @@ def _cached_fmp_symbol_row(
 
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
-        reason = "background_provider_disabled" if not (get_request_context() or {}).get("path") else "provider_disabled"
+        reason = "provider_disabled" if user_api_request else "background_provider_disabled"
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason)
         enqueue_data_enrichment_job(
             job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
             symbol=normalized,
-            source="background" if reason == "background_provider_disabled" else "page_load",
+            source="page_load" if user_api_request else "background",
             reason="missing_api_key",
             priority=40,
             payload={"endpoint": endpoint},
@@ -5562,12 +5794,13 @@ def _cached_fmp_symbol_row(
             return {}
         row = _first_payload_row(response.json())
     except ProviderUnavailable as exc:
-        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason_from_exception(exc))
+        reason = reason_from_exception(exc)
+        record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason)
         enqueue_data_enrichment_job(
             job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
             symbol=normalized,
-            source="page_load",
-            reason=reason_from_exception(exc),
+            source="page_load" if user_api_request else "background",
+            reason=reason,
             priority=40,
             payload={"endpoint": endpoint},
         )
@@ -5575,7 +5808,7 @@ def _cached_fmp_symbol_row(
     except requests.Timeout:
         logger.info("ticker_chart %s snapshot timeout symbol=%s", log_name, normalized)
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="provider_timeout")
-        if not (get_request_context() or {}).get("path"):
+        if not user_api_request:
             from app.services.data_enrichment_queue import RetryableProviderTimeout
 
             raise RetryableProviderTimeout()

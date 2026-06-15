@@ -84,6 +84,7 @@ type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: SignalItem[];
+  priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
   signalsUnavailable: SignalGateState | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
@@ -1076,12 +1077,66 @@ function overviewCaveat(bundle: ConfirmationScoreBundle): string {
 function priceVolumeSummary(
   source: ConfirmationScoreBundle["sources"]["price_volume"],
   technicalIndicators: TechnicalIndicators,
+  context?: TickerSignalsSummaryResponse["price_volume"] | null,
 ): { state: string; summary: string; diagnostics: string[]; tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable" } {
   const diagnostics = [
     technicalIndicators.rsi.message,
     technicalIndicators.macd.message,
     technicalIndicators.ema_trend.message,
   ];
+  const contextStatus = typeof context?.status === "string" ? context.status.toLowerCase() : null;
+  const contextDirection = typeof context?.direction === "string" ? context.direction.toLowerCase() : null;
+  const contextDiagnostics = Array.isArray(context?.lines)
+    ? context.lines.map((line) => line.trim()).filter(Boolean).slice(0, 4)
+    : [];
+  const contextSummary = (context?.summary ?? context?.title ?? "").trim();
+  if (contextStatus === "active") {
+    const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
+      ? contextDirection
+      : "mixed";
+    return {
+      state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : "MIXED",
+      summary: contextSummary || "Tape confirmation is active",
+      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : diagnostics,
+      tone: direction,
+    };
+  }
+  if (contextStatus === "inactive") {
+    const summary = contextSummary || "No active tape confirmation";
+    return {
+      state: "INACTIVE",
+      summary,
+      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      tone: "inactive",
+    };
+  }
+  if (contextStatus === "limited") {
+    const summary = contextSummary || "Limited price history.";
+    return {
+      state: "LIMITED",
+      summary,
+      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      tone: "unavailable",
+    };
+  }
+  if (contextStatus === "loading") {
+    const summary = contextSummary || "Loading price and volume data.";
+    return {
+      state: "LOADING",
+      summary,
+      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      tone: "unavailable",
+    };
+  }
+  if (contextStatus === "unavailable") {
+    const summary = contextSummary || "Price and volume unavailable.";
+    return {
+      state: "UNAVAILABLE",
+      summary,
+      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      tone: "unavailable",
+    };
+  }
   const indicatorsUnavailable = diagnostics.every((item) => item.toLowerCase().includes("unavailable"));
   const hasTechnicalInputs = Number(technicalIndicators.price_points ?? 0) > 0;
   if (!source.present && indicatorsUnavailable) {
@@ -1663,7 +1718,7 @@ async function resolveTickerActivityData({
           unavailable: signalsUnavailable ?? null,
         }),
   ]);
-  const signalsRes = signalsResult.response;
+  const signalsRes = signalsResult.response as TickerSignalsSummaryResponse;
 
   const events = dedupeByKey(eventsRes.items ?? [], (event) => {
     const stableIdentity = stableEventIdentity(event);
@@ -1769,6 +1824,7 @@ async function resolveTickerActivityData({
     congressEvents,
     insiderEvents,
     governmentContracts,
+    priceVolumeContext: signalsRes.price_volume ?? null,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -1819,6 +1875,7 @@ async function DeferredTickerContent({
     insiderSells,
     netFlow,
     topSignal,
+    priceVolumeContext,
     congressParticipantCount,
     insiderParticipantCount,
     topCongressParticipants,
@@ -1848,7 +1905,7 @@ async function DeferredTickerContent({
     ? "Signal Activity is a premium feature."
     : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(confirmationBundle);
-  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals);
+  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext);
   const insiderCardSource = sourceFromActivityCounts(confirmationBundle.sources.insiders, insiderBuys, insiderSells);
   const congressCardSource = sourceFromActivityCounts(confirmationBundle.sources.congress, congressBuys, congressSells);
   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);

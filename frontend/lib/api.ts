@@ -2710,6 +2710,12 @@ export type TickerSignalsSummaryResponse = {
     score?: number | null;
     lines?: string[];
     price_points?: number | null;
+    inputs?: {
+      has_price_series?: boolean;
+      has_volume?: boolean;
+      has_technicals?: boolean;
+      point_count?: number | null;
+    } | null;
   } | null;
   insiders?: {
     status?: string | null;

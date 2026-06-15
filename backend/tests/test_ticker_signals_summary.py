@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import app.main as main_module
 from app.db import Base
 from app.main import _ticker_profiles_response, ticker_signals_summary
-from app.models import Event, GovernmentContract, TickerMeta
+from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
 
 
 def _engine():
@@ -218,8 +218,8 @@ def test_ticker_price_volume_summary_distinguishes_missing_and_inactive(monkeypa
         },
     )
     missing = main_module._ticker_price_volume_summary(object(), "NBIS")
-    assert missing["status"] == "loading"
-    assert missing["summary"] == "Loading price and volume data"
+    assert missing["status"] == "limited"
+    assert missing["summary"] == "Limited price history"
 
     monkeypatch.setattr(
         main_module,
@@ -234,3 +234,64 @@ def test_ticker_price_volume_summary_distinguishes_missing_and_inactive(monkeypa
     inactive = main_module._ticker_price_volume_summary(object(), "NBIS")
     assert inactive["status"] == "inactive"
     assert inactive["summary"] == "No active tape confirmation"
+
+
+def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(monkeypatch):
+    def fail_provider_loader(*_args, **_kwargs):
+        raise AssertionError("signals-summary price volume must not hydrate providers")
+
+    monkeypatch.setattr("app.services.technical_indicators.get_daily_close_series_with_fallback", fail_provider_loader)
+    engine = _engine()
+    today = date.today()
+    with Session(engine) as db:
+        for symbol in ("AAPL", "MSTR", "NBIS"):
+            for offset in range(70):
+                day = today - timedelta(days=69 - offset)
+                db.add(
+                    PriceCache(
+                        symbol=symbol,
+                        date=day.isoformat(),
+                        close=100 + offset,
+                        volume=1_000_000 + offset * 10_000,
+                        day_volume=1_000_000 + offset * 10_000,
+                    )
+                )
+        db.commit()
+
+        for symbol in ("AAPL", "MSTR", "NBIS"):
+            summary = main_module._ticker_price_volume_summary(db, symbol)
+            assert summary["status"] in {"active", "inactive"}
+            assert summary["status"] != "loading"
+            assert summary["status"] != "unavailable"
+            assert summary["inputs"]["has_price_series"] is True
+            assert summary["inputs"]["has_volume"] is True
+            assert summary["inputs"]["point_count"] >= 35
+
+
+def test_ticker_price_volume_summary_loading_only_when_hydration_pending(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_technical_indicators",
+        lambda *args, **kwargs: {
+            "price_points": 0,
+            "rsi": {"status": "unavailable", "signal": "unavailable", "message": "RSI temporarily unavailable"},
+            "macd": {"status": "unavailable", "signal": "unavailable", "message": "MACD temporarily unavailable"},
+            "ema_trend": {"status": "unavailable", "signal": "unavailable", "message": "EMA trend temporarily unavailable"},
+        },
+    )
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(
+            DataEnrichmentJob(
+                job_type="technical_indicators",
+                symbol="NBIS",
+                dedupe_key="technical_indicators|NBIS|technical:90d|",
+                status="queued",
+            )
+        )
+        db.commit()
+
+        summary = main_module._ticker_price_volume_summary(db, "NBIS")
+
+    assert summary["status"] == "loading"
+    assert summary["summary"] == "Loading price and volume data"
