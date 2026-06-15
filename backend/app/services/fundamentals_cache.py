@@ -69,6 +69,8 @@ CACHE_ROW_FIELDS = (
     *FUNDAMENTAL_FIELD_NAMES,
 )
 
+IDENTITY_CACHE_FIELDS = {"company_name", "sector", "industry", "country", "exchange"}
+
 
 @dataclass(frozen=True)
 class FundamentalsFetchResult:
@@ -326,6 +328,8 @@ def upsert_fundamentals_cache(db: Session, values: dict[str, Any]) -> bool:
         db.add(FundamentalsCache(**payload))
         return True
     for key, value in payload.items():
+        if key in IDENTITY_CACHE_FIELDS and value is None and getattr(row, key, None) is not None:
+            continue
         setattr(row, key, value)
     return True
 

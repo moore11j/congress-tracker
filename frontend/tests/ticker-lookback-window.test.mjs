@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const tickerPage = read("app/ticker/[symbol]/page.tsx");
 const chartLoader = read("components/ticker/TickerChartLoader.tsx");
+const tickerContextCard = read("components/ticker/TickerContextCard.tsx");
 const api = read("lib/api.ts");
 
 test("ticker page uses selected URL lookback for chart and activity windows", () => {
@@ -25,4 +26,9 @@ test("ticker chart helper forwards selected days to chart-bundle", () => {
   assert.match(chartLoader, /getTickerChartBundle\(symbol, days,/);
   assert.match(chartLoader, /\}, \[attempt, days, symbol\]\)/);
   assert.match(api, /buildApiUrl\(`\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/chart-bundle`, \{ days \}\)/);
+});
+
+test("ticker activity requests base disclosure rows without price enrichment", () => {
+  assert.match(tickerPage, /enrich_prices: 0/);
+  assert.match(tickerContextCard, /enrich_prices: 0/);
 });

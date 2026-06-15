@@ -326,7 +326,13 @@ def test_ticker_meta_background_context_can_fetch(monkeypatch):
     finally:
         db.close()
 
-    assert payload["AAPL"] == {"company_name": "Apple Inc.", "exchange": "NASDAQ"}
+    assert payload["AAPL"] == {
+        "company_name": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "sector": None,
+        "industry": None,
+        "country": None,
+    }
     assert calls["count"] == 1
 
 

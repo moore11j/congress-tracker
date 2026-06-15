@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base, ensure_fundamentals_cache_schema
 from app.models import FundamentalsCache, PriceCache
-from app.services.fundamentals_cache import FundamentalsFetchResult, normalize_fundamentals_payload
+from app.services.fundamentals_cache import FundamentalsFetchResult, normalize_fundamentals_payload, upsert_fundamentals_cache
 from app.services.screener import ScreenerParams, build_screener_response
 import app.populate_fundamentals_cache as populate_module
 
@@ -132,6 +132,31 @@ def test_fundamentals_cli_missing_provider_fields_stay_null(monkeypatch):
         row = db.execute(select(FundamentalsCache).where(FundamentalsCache.symbol == "AAPL")).scalar_one()
     assert row.trailing_pe is None
     assert row.gross_margin is None
+
+
+def test_fundamentals_update_does_not_clear_existing_identity_fields():
+    engine = _engine()
+    with Session(engine) as db:
+        _seed_cache(
+            db,
+            "MSTR",
+            company_name="Strategy Inc",
+            sector="Technology",
+            industry="Software - Application",
+        )
+        db.commit()
+
+        values = _values("MSTR", company_name=None, sector=None, industry=None)
+        values["country"] = None
+        values["exchange"] = None
+        assert upsert_fundamentals_cache(db, values)
+        db.commit()
+
+        row = db.execute(select(FundamentalsCache).where(FundamentalsCache.symbol == "MSTR")).scalar_one()
+
+    assert row.company_name == "Strategy Inc"
+    assert row.sector == "Technology"
+    assert row.industry == "Software - Application"
 
 
 def test_screener_reads_cached_fundamentals_without_provider_call(monkeypatch):

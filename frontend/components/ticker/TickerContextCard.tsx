@@ -611,7 +611,14 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
     async function loadEvents() {
       try {
-        const response = await getEvents({ symbol, recent_days: 365, limit: 50, signal: controller.signal, source: "TickerPage" });
+        const response = await getEvents({
+          symbol,
+          recent_days: 365,
+          limit: 50,
+          enrich_prices: 0,
+          signal: controller.signal,
+          source: "TickerPage",
+        });
         if (!active || controller.signal.aborted) return;
         const items = response.items
           .filter((item) => DISCLOSURE_EVENT_TYPES.has(item.event_type))

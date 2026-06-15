@@ -5750,10 +5750,8 @@ def _build_insider_stock_chart_bundle(
         enriched_payload = _enrich_event_payload_company_name(scoped[0][0], dict(scoped[0][1]), symbol_meta, cik_names)
         company_name = _insider_trade_row(scoped[0][0], enriched_payload).get("company_name")
 
-    db.close()
     quote = _build_ticker_chart_quote(db, resolved_symbol, price_points)
     if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
-        db.close()
         volume_by_day = get_daily_volume_series_from_provider(resolved_symbol, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
 

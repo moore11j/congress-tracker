@@ -22,3 +22,8 @@ def test_ticker_signals_summary_is_not_heavy_route_gated():
 def test_ticker_cache_first_section_routes_are_not_outer_heavy_gated():
     for suffix in ("chart-bundle", "financials", "news", "press-releases", "sec-filings"):
         assert classify_request(f"/api/tickers/NBIS/{suffix}", {}) == RoutePriority.NORMAL
+
+
+def test_symbol_scoped_events_with_legacy_enrich_param_are_not_heavy_route_gated():
+    assert classify_request("/api/events", {"symbol": "NBIS", "enrich_prices": "1"}) == RoutePriority.NORMAL
+    assert classify_request("/api/events", {"ticker": "NBIS", "enrich_prices": "true"}) == RoutePriority.NORMAL
