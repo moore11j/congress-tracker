@@ -49,6 +49,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Show audited backend requirement pins
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          audited_packages = ("fastapi", "starlette", "pypdf")
+          for line_number, line in enumerate(Path("backend/requirements.txt").read_text().splitlines(), 1):
+              if any(package in line.lower() for package in audited_packages):
+                  print(line_number, line)
+          PY
+
       - name: Install backend dependencies
         run: python -m pip install -r backend/requirements.txt
 

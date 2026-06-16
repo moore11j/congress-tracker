@@ -6,6 +6,6 @@ psycopg[binary]==3.2.3
 requests==2.33.0
 lxml
 python-dateutil
-pypdf==6.13.2
+pypdf==6.12.0
 pdf2image==1.17.0
 pytesseract==0.3.13
