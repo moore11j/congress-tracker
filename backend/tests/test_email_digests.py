@@ -383,7 +383,7 @@ def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
 
         row = db.execute(select(EmailDelivery)).scalar_one()
         assert result["status"] == "sent"
-        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert captured["From"] == "Walnut Alerts <alerts@walnutmarkets.com>"
         assert row.from_email == "alerts@walnutmarkets.com"
     finally:
         db.close()
@@ -472,7 +472,7 @@ def test_signal_digest_uses_template_sender_over_alerts_env(monkeypatch):
 
         row = db.execute(select(EmailDelivery)).scalar_one()
         assert result["status"] == "sent"
-        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert captured["From"] == "Walnut Alerts <alerts@walnutmarkets.com>"
         assert row.from_email == "alerts@walnutmarkets.com"
     finally:
         db.close()

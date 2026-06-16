@@ -47,7 +47,7 @@ gitleaks protect --staged --redact --no-banner
 
 CI runs gitleaks on pull requests, manual dispatches, and the weekly schedule. The workflow uses the `pull_request` event, does not reference repository secrets, disables scanner comments/artifact uploads, and requests redacted findings.
 
-The repository includes a narrow `.gitleaksignore` for historical `generic-api-key` false positives in generated dependency/build artifacts that are no longer tracked: `backend/.venv312/...sqlalchemy...` and `frontend/.next/...`. Do not add broad path or rule ignores; add a fingerprint only after confirming the value is not a secret.
+The repository includes a narrow `.gitleaks.toml` path allowlist for generated dependency/build artifacts that are never application source (`.codex_py314_deps/`, `backend/.venv*/`, and `frontend/.next/`). `.gitleaksignore` keeps exact historical fingerprints only where needed. Do not add broad application path or rule ignores; add a fingerprint only after confirming the value is not a secret.
 
 ## If A Secret Is Found
 

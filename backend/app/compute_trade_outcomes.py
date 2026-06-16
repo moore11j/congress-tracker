@@ -18,6 +18,7 @@ from app.services.member_performance import (
 )
 
 logger = logging.getLogger(__name__)
+TRADE_OUTCOME_LOOKUP_CHUNK_SIZE = 5000
 METHODOLOGY_BY_EVENT_TYPE = {
     "congress_trade": METHODOLOGY_VERSION,
     "insider_trade": INSIDER_METHODOLOGY_VERSION,
@@ -31,6 +32,36 @@ def _parse_date(value: str | None):
         return datetime.strptime(value[:10], "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _chunked(values: list[int], size: int = TRADE_OUTCOME_LOOKUP_CHUNK_SIZE):
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
+
+
+def _load_trade_outcomes_by_event_id(
+    db,
+    event_ids: list[int],
+    *,
+    chunk_size: int = TRADE_OUTCOME_LOOKUP_CHUNK_SIZE,
+) -> dict[int, TradeOutcome]:
+    if not event_ids:
+        return {}
+
+    unique_event_ids = list(dict.fromkeys(event_ids))
+    chunk_count = (len(unique_event_ids) + chunk_size - 1) // chunk_size
+    if chunk_count > 1:
+        logger.info(
+            "trade_outcome_lookup_chunked total_event_ids=%s chunks=%s chunk_size=%s",
+            len(unique_event_ids),
+            chunk_count,
+            chunk_size,
+        )
+
+    rows: list[TradeOutcome] = []
+    for chunk in _chunked(unique_event_ids, chunk_size):
+        rows.extend(db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(chunk))).scalars().all())
+    return {row.event_id: row for row in rows}
 
 
 
@@ -133,12 +164,19 @@ def run_compute(
             insider_skip_reasons["filtered_member_id"] += len(before - after)
 
         candidate_event_ids = [event.id for event in eligible_events]
-        existing_rows = (
-            db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(candidate_event_ids))).scalars().all()
-            if candidate_event_ids
-            else []
-        )
-        existing_by_event_id = {row.event_id: row for row in existing_rows}
+        try:
+            existing_by_event_id = _load_trade_outcomes_by_event_id(db, candidate_event_ids)
+        except Exception as exc:
+            logger.exception(
+                "trade_outcome_lookup_failed total_event_ids=%s chunk_size=%s",
+                len(candidate_event_ids),
+                TRADE_OUTCOME_LOOKUP_CHUNK_SIZE,
+            )
+            raise RuntimeError(
+                "Failed to load existing trade outcomes "
+                f"for {len(candidate_event_ids)} candidate events "
+                f"using chunks of {TRADE_OUTCOME_LOOKUP_CHUNK_SIZE}."
+            ) from exc
 
         retry_status_set = {s.strip() for s in (retry_failed_statuses or "").split(",") if s.strip()}
         if retry_failed_status:

@@ -1,5 +1,7 @@
+import logging
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import BigInteger, create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -20,6 +22,92 @@ def test_trade_outcome_amount_columns_are_bigint() -> None:
 def test_event_amount_columns_are_bigint() -> None:
     assert isinstance(Event.__table__.c.amount_min.type, BigInteger)
     assert isinstance(Event.__table__.c.amount_max.type, BigInteger)
+
+
+def test_existing_trade_outcome_lookup_chunks_large_event_sets(caplog) -> None:
+    class EmptyResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class RecordingDb:
+        def __init__(self) -> None:
+            self.batch_sizes: list[int] = []
+
+        def execute(self, statement):
+            event_ids = next(value for value in statement.compile().params.values() if isinstance(value, list))
+            self.batch_sizes.append(len(event_ids))
+            return EmptyResult()
+
+    db = RecordingDb()
+    caplog.set_level(logging.INFO, logger="app.compute_trade_outcomes")
+
+    rows = compute_module._load_trade_outcomes_by_event_id(db, list(range(70_001)), chunk_size=5000)
+
+    assert rows == {}
+    assert len(db.batch_sizes) == 15
+    assert max(db.batch_sizes) == 5000
+    assert sum(db.batch_sizes) == 70_001
+    assert "trade_outcome_lookup_chunked total_event_ids=70001 chunks=15 chunk_size=5000" in caplog.text
+
+
+def test_compute_trade_outcomes_wraps_existing_lookup_failures(monkeypatch, caplog) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine, tables=[Event.__table__, TradeOutcome.__table__])
+
+    event_ts = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    with SessionLocal() as db:
+        db.add(
+            Event(
+                id=9201,
+                event_type="congress_trade",
+                ts=event_ts,
+                event_date=event_ts,
+                symbol="FAIL",
+                source="test",
+                payload_json="{}",
+                member_name="Lookup Failure",
+                member_bioguide_id="F000001",
+                trade_type="purchase",
+                transaction_type="purchase",
+                amount_min=1,
+                amount_max=2,
+            )
+        )
+        db.commit()
+
+    def fail_lookup(_db, event_ids):
+        assert event_ids == [9201]
+        raise RuntimeError("database lookup failed")
+
+    monkeypatch.setattr(compute_module, "engine", engine)
+    monkeypatch.setattr(compute_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(compute_module, "ensure_event_columns", lambda: None)
+    monkeypatch.setattr(compute_module, "ensure_trade_outcomes_amount_bigint", lambda: None)
+    monkeypatch.setattr(compute_module, "_load_trade_outcomes_by_event_id", fail_lookup)
+    caplog.set_level(logging.ERROR, logger="app.compute_trade_outcomes")
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to load existing trade outcomes for 1 candidate events using chunks of 5000.",
+    ):
+        compute_module.run_compute(
+            replace=False,
+            limit=None,
+            member_id=None,
+            event_type="congress_trade",
+            benchmark_symbol="^GSPC",
+            lookback_days=None,
+            trade_date_after=None,
+            only_missing=True,
+            retry_failed_status=None,
+            retry_failed_statuses=None,
+        )
+
+    assert "trade_outcome_lookup_failed total_event_ids=1 chunk_size=5000" in caplog.text
 
 
 def test_compute_trade_outcomes_persists_amounts_above_postgres_int32(monkeypatch) -> None:

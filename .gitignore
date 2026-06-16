@@ -1,9 +1,11 @@
 # Python
-backend/.venv/
-backend/.venv312/
+.codex_py314_deps/
+backend/.venv*/
 backend/**/__pycache__/
 backend/**/*.pyc
+.mypy_cache/
 .pytest_cache/
+__pycache__/
 
 # Local migration/checkpoint artifacts
 backend/artifacts/

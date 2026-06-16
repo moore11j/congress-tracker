@@ -7,7 +7,13 @@ from starlette.requests import Request
 from app.auth import sign_session_payload
 from app.db import Base, ensure_email_notification_schema
 from app.models import EmailDelivery, EmailTemplate, UserAccount
-from app.routers.accounts import EmailTemplateBulkResetPayload, admin_reset_email_template_default, admin_reset_email_templates_defaults
+from app.routers.accounts import (
+    EmailTemplateBulkResetPayload,
+    EmailTemplatePreviewPayload,
+    admin_preview_email_template,
+    admin_reset_email_template_default,
+    admin_reset_email_templates_defaults,
+)
 from app.services.email_delivery import send_email
 from app.services.email_templates import DEFAULT_TEMPLATES, reset_email_template_to_default, seed_default_email_templates
 
@@ -60,8 +66,8 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
             select(EmailTemplate).where(EmailTemplate.template_key == "account.welcome")
         ).scalar_one()
         assert welcome.category == "account"
-        assert welcome.from_name == "Walnut Markets"
-        assert welcome.from_email == "no-reply@walnutmarkets.com"
+        assert welcome.from_name == "Walnut Support"
+        assert welcome.from_email == "support@walnutmarkets.com"
         assert welcome.subject == "Welcome to Walnut"
         assert "app_url" in welcome.variables_json
 
@@ -69,8 +75,8 @@ def test_default_templates_seed_password_changed_without_overwriting_existing():
             select(EmailTemplate).where(EmailTemplate.template_key == "account.password_changed")
         ).scalar_one()
         assert template.category == "account"
-        assert template.from_name == "Walnut Markets"
-        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.from_name == "Walnut Support"
+        assert template.from_email == "support@walnutmarkets.com"
         assert template.reply_to == "support@walnutmarkets.com"
         assert template.subject == "Your Walnut password was changed"
         assert "login_url" in template.variables_json
@@ -100,14 +106,14 @@ def test_seed_refreshes_legacy_template_branding_without_overwriting_subject():
 
         assert seed_default_email_templates(db) == 0
         db.refresh(template)
-        assert template.from_name == "Walnut Markets"
-        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.from_name == "Walnut Support"
+        assert template.from_email == "support@walnutmarkets.com"
         assert template.reply_to == "support@walnutmarkets.com"
         assert template.subject == "Admin edited reset subject"
         assert "walnut-intel.com" not in template.body_text
         assert "walnut-intel.com" not in template.body_html
-        assert "Walnut Support" not in template.body_text
-        assert "Walnut Support" not in template.body_html
+        assert "Walnut Support" in template.body_text
+        assert "Walnut Support" in template.body_html
     finally:
         db.close()
 
@@ -128,10 +134,10 @@ def test_seed_refreshes_walnut_intel_subject_and_sender_branding():
 
         assert seed_default_email_templates(db) == 0
         db.refresh(template)
-        assert template.from_name == "Walnut Markets"
-        assert template.from_email == "no-reply@walnutmarkets.com"
+        assert template.from_name == "Walnut Support"
+        assert template.from_email == "support@walnutmarkets.com"
         assert template.reply_to == "support@walnutmarkets.com"
-        assert template.subject == "Verify your Walnut Markets email"
+        assert template.subject == "Verify your Walnut email"
         assert "walnut-intel.com" not in template.body_text
         assert "Walnut Intel" not in template.body_text
         assert "Walnut Intelligence" not in template.body_html
@@ -150,14 +156,55 @@ def test_seed_legacy_refresh_preserves_legal_company_name():
         db.close()
 
 
+def test_seed_refreshes_legacy_branding_strings_without_overwriting_custom_body():
+    db = _session()
+    try:
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "billing.monthly_statement")).scalar_one()
+        template.from_name = "Walnut Markets"
+        template.subject = "Custom Walnut Markets statement"
+        template.body_text = (
+            "Unrelated custom body stays.\n"
+            "Walnut Markets\n"
+            "Walnut Market Terminal\n"
+            "Body copy can still mention Walnut Market Terminal."
+        )
+        template.body_html = """
+          <div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:20px;font-weight:800;color:#071114;">Walnut Markets</div>
+          <div style="margin-top:3px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;font-weight:700;color:#0f766e;">Walnut Market Terminal</div>
+          <td align="right" valign="middle" style="font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:15px;font-weight:700;text-transform:uppercase;color:#64748b;">Markets</td>
+          <p>Unrelated custom HTML stays.</p>
+          <div style="font-size:13px;line-height:18px;font-weight:800;color:#0f172a;">Walnut Markets</div>
+          <div style="font-size:12px;line-height:18px;color:#334155;">Walnut Market Terminal</div>
+          <p>Body copy can still mention Walnut Market Terminal.</p>
+        """
+        db.commit()
+
+        assert seed_default_email_templates(db) == 0
+        db.refresh(template)
+        assert template.from_name == "Walnut Billing"
+        assert template.subject == "Custom Walnut statement"
+        assert "Unrelated custom body stays." in template.body_text
+        assert "Walnut Billing\nMarket Terminal" in template.body_text
+        assert "Body copy can still mention Walnut Market Terminal." in template.body_text
+        assert ">Walnut</div>" in template.body_html
+        assert ">Market Terminal</div>" in template.body_html
+        assert ">Billing</td>" in template.body_html
+        assert ">Walnut Billing</div>" in template.body_html
+        assert "Unrelated custom HTML stays." in template.body_html
+        assert "Body copy can still mention Walnut Market Terminal." in template.body_html
+        assert "Walnut Markets" not in template.body_html
+    finally:
+        db.close()
+
+
 def test_default_templates_contain_branded_html_wrapper():
     for template in DEFAULT_TEMPLATES:
         body_html = template["body_html"]
         assert "<!doctype html>" in body_html
         assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in body_html
-        assert ">Walnut Markets</div>" in body_html
+        assert ">Walnut</div>" in body_html
         assert ">Market Terminal</div>" in body_html
-        assert "Walnut Market Terminal" in body_html
+        assert "Walnut Markets</div>" not in body_html
         assert "width:44px;height:44px" in body_html
         assert "border-left:4px solid #14d6a3" in body_html
         assert "background:#071114" in body_html
@@ -168,14 +215,18 @@ def test_default_templates_contain_branded_html_wrapper():
 
 def test_named_default_templates_use_walnut_product_hierarchy():
     expected = {
-        "account.password_reset": ("Walnut Markets", "Reset your Walnut Markets password"),
-        "account.password_changed": ("Walnut Markets", "Your Walnut password was changed"),
-        "account.verify_email": ("Walnut Markets", "Verify your Walnut Markets email"),
-        "alerts.monitoring_digest": ("Walnut Markets", "Walnut monitoring digest"),
-        "alerts.signal_alert": ("Walnut Markets", "Walnut signal digest"),
-        "alerts.watchlist_activity": ("Walnut Markets", "Watchlist activity from Walnut"),
-        "billing.monthly_statement": ("Walnut Markets", "Your Walnut monthly statement"),
-        "billing.subscription_expiry_reminder": ("Walnut Markets", "Your Walnut {{plan}} access ends soon"),
+        "account.password_reset": ("Walnut Support", "Reset your Walnut password"),
+        "account.password_changed": ("Walnut Support", "Your Walnut password was changed"),
+        "account.verify_email": ("Walnut Support", "Verify your Walnut email"),
+        "account.welcome": ("Walnut Support", "Welcome to Walnut"),
+        "account.account_deleted_reactivation": ("Walnut Support", "Sorry to see you go - reactivate your Walnut account"),
+        "alerts.monitoring_digest": ("Walnut Alerts", "Walnut monitoring digest"),
+        "alerts.signal_alert": ("Walnut Alerts", "Walnut signal digest"),
+        "alerts.signal_intraday": ("Walnut Alerts", "Walnut high-conviction signal: {{ticker}}"),
+        "alerts.watchlist_intraday": ("Walnut Alerts", "Walnut high-priority watchlist alert: {{ticker}}"),
+        "alerts.watchlist_activity": ("Walnut Alerts", "Watchlist activity from Walnut"),
+        "billing.monthly_statement": ("Walnut Billing", "Your Walnut monthly statement"),
+        "billing.subscription_expiry_reminder": ("Walnut Billing", "Your Walnut {{plan}} access ends soon"),
     }
     templates = {str(template["template_key"]): template for template in DEFAULT_TEMPLATES}
     for template_key, (from_name, subject) in expected.items():
@@ -183,8 +234,12 @@ def test_named_default_templates_use_walnut_product_hierarchy():
         body_html = template["body_html"]
         assert template["from_name"] == from_name
         assert template["subject"] == subject
-        assert ">Walnut Markets</div>" in body_html
+        assert ">Walnut</div>" in body_html
+        assert f">{from_name}</div>" in body_html
         assert ">Market Terminal</div>" in body_html
+        assert "Walnut Markets" not in template["subject"]
+        assert "Walnut Markets" not in template["body_text"]
+        assert "Walnut Markets" not in body_html
         assert "Walnut Intelligence</div>" not in body_html
         assert "Launch Terminal" in body_html
         assert "Walnut Intelligence Inc. operates Walnut Market Terminal" in body_html
@@ -221,10 +276,65 @@ def test_reset_default_replaces_existing_plain_template_without_changing_seeder_
         reset = reset_email_template_to_default(db, "account.password_reset")
 
         assert reset is not None
-        assert reset.subject == "Reset your Walnut Markets password"
+        assert reset.subject == "Reset your Walnut password"
         assert "<!doctype html>" in (reset.body_html or "")
         assert "Walnut Market Terminal" in (reset.body_html or "")
         assert "Reset password" in (reset.body_html or "")
+    finally:
+        db.close()
+
+
+def test_admin_preview_renders_new_header_and_role_specific_footers():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        billing = admin_preview_email_template(
+            "billing.monthly_statement",
+            EmailTemplatePreviewPayload(
+                context={
+                    "first_name": "Ada",
+                    "billing_period": "June 2026",
+                    "plan": "Premium",
+                    "amount_due": "$29.00",
+                    "currency": "USD",
+                    "payment_status": "paid",
+                    "statement_url": "https://app.walnutmarkets.com/account/billing",
+                }
+            ),
+            request,
+            db,
+        )
+        billing_html = billing["rendered"]["body_html"]
+        assert billing["template"]["from_name"] == "Walnut Billing"
+        assert ">Walnut</div>" in billing_html
+        assert ">Market Terminal</div>" in billing_html
+        assert ">Walnut Billing</div>" in billing_html
+        assert "Walnut Markets" not in billing_html
+
+        alerts = admin_preview_email_template(
+            "alerts.monitoring_digest",
+            EmailTemplatePreviewPayload(
+                context={
+                    "first_name": "Ada",
+                    "watchlist_name": "AI Infrastructure",
+                    "digest_date": "June 15, 2026",
+                    "summary": "One new item",
+                    "items_text": "- NVDA",
+                    "items_html": "<table><tr><td>NVDA</td></tr></table>",
+                    "digest_url": "https://app.walnutmarkets.com/watchlists/1",
+                }
+            ),
+            request,
+            db,
+        )
+        alerts_html = alerts["rendered"]["body_html"]
+        assert alerts["template"]["from_name"] == "Walnut Alerts"
+        assert ">Walnut</div>" in alerts_html
+        assert ">Market Terminal</div>" in alerts_html
+        assert ">Walnut Alerts</div>" in alerts_html
+        assert "Walnut Markets" not in alerts_html
     finally:
         db.close()
 
@@ -379,7 +489,7 @@ def test_postmark_success_marks_delivery_sent(monkeypatch):
         assert captured["url"] == "https://api.postmarkapp.com/email"
         assert captured["headers"]["X-Postmark-Server-Token"] == "server-token"
         assert captured["json"]["MessageStream"] == "outbound"
-        assert captured["json"]["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["json"]["From"] == "Walnut Support <support@walnutmarkets.com>"
         assert captured["json"]["ReplyTo"] == "support@walnutmarkets.com"
         assert captured["json"]["To"] == "reader@example.com"
         assert captured["json"]["TextBody"]
@@ -418,7 +528,7 @@ def test_template_sender_overrides_alerts_env_fallback(monkeypatch):
         )
 
         row = db.execute(select(EmailDelivery)).scalar_one()
-        assert captured["From"] == "Walnut Markets <alerts@walnutmarkets.com>"
+        assert captured["From"] == "Walnut Alerts <alerts@walnutmarkets.com>"
         assert row.from_email == "alerts@walnutmarkets.com"
     finally:
         db.close()
@@ -458,7 +568,7 @@ def test_blank_template_sender_uses_alerts_env_fallback(monkeypatch):
         )
 
         row = db.execute(select(EmailDelivery)).scalar_one()
-        assert captured["From"] == "Walnut Markets <alerts@walnut-intel.com>"
+        assert captured["From"] == "Walnut Alerts <alerts@walnut-intel.com>"
         assert row.from_email == "alerts@walnut-intel.com"
     finally:
         db.close()
@@ -470,7 +580,7 @@ def test_account_sender_prefers_expected_global_env_names(monkeypatch):
     monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
     monkeypatch.setenv("EMAIL_FROM_SUPPORT", "Walnut Intelligence Support <support@walnut-intel.com>")
     monkeypatch.setenv("EMAIL_REPLY_TO_SUPPORT", "support@walnut-intel.com")
-    monkeypatch.setenv("EMAIL_FROM", "Walnut Markets <no-reply@walnutmarkets.com>")
+    monkeypatch.setenv("EMAIL_FROM", "Walnut <no-reply@walnutmarkets.com>")
     monkeypatch.setenv("EMAIL_REPLY_TO", "support@walnutmarkets.com")
     captured = {}
 
@@ -493,9 +603,9 @@ def test_account_sender_prefers_expected_global_env_names(monkeypatch):
             category="account",
         )
 
-        assert captured["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["From"] == "Walnut Support <support@walnutmarkets.com>"
         assert captured["ReplyTo"] == "support@walnutmarkets.com"
-        assert captured["Subject"] == "Verify your Walnut Markets email"
+        assert captured["Subject"] == "Verify your Walnut email"
     finally:
         db.close()
 
@@ -504,8 +614,8 @@ def test_password_reset_sender_prefers_password_reset_from(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
     monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
-    monkeypatch.setenv("EMAIL_FROM", "Walnut Markets Support <support@walnutmarkets.com>")
-    monkeypatch.setenv("PASSWORD_RESET_FROM", "Walnut Markets <no-reply@walnutmarkets.com>")
+    monkeypatch.setenv("EMAIL_FROM", "Walnut Support <support@walnutmarkets.com>")
+    monkeypatch.setenv("PASSWORD_RESET_FROM", "Walnut <no-reply@walnutmarkets.com>")
     monkeypatch.setenv("EMAIL_REPLY_TO", "support@walnutmarkets.com")
     captured = {}
 
@@ -524,9 +634,9 @@ def test_password_reset_sender_prefers_password_reset_from(monkeypatch):
             category="account",
         )
 
-        assert captured["From"] == "Walnut Markets <no-reply@walnutmarkets.com>"
+        assert captured["From"] == "Walnut Support <support@walnutmarkets.com>"
         assert captured["ReplyTo"] == "support@walnutmarkets.com"
-        assert captured["Subject"] == "Reset your Walnut Markets password"
+        assert captured["Subject"] == "Reset your Walnut password"
     finally:
         db.close()
 

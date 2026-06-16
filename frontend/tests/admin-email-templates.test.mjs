@@ -23,6 +23,12 @@ test("admin email templates expose reset to branded default action", () => {
   assert.match(viewSource, /adminPreviewEmailTemplate\(next\.template_key, nextContext\)/);
 });
 
+test("admin email templates bind API sender fields without hardcoded legacy branding", () => {
+  assert.match(apiSource, /from_name: string/);
+  assert.match(viewSource, /TextInput label="From name" value=\{draft\.from_name\}/);
+  assert.doesNotMatch(viewSource, /Walnut Markets/);
+});
+
 test("admin email preview sample snippets use styled Walnut digest tables", () => {
   assert.match(viewSource, /sampleItemsHtml/);
   assert.match(viewSource, /sampleSignalsHtml/);
