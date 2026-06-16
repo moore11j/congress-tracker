@@ -3,7 +3,7 @@ title = "Congress Tracker gitleaks configuration"
 [extend]
 useDefault = true
 
-[[allowlists]]
+[allowlist]
 description = "Generated local dependency/build artifacts"
 paths = [
   '''^\.codex_py314_deps/''',
