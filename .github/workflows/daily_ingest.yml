@@ -59,5 +59,7 @@ jobs:
             exit 1
           fi
 
+          REMOTE_COMMAND="cd /app && python -m app.ingest_run --job $JOB_MODE"
           echo "Running ingest job: $JOB_MODE"
-          flyctl ssh console -a congress-tracker-api -C "bash scripts/run_ingest_job.sh $JOB_MODE"
+          echo "Remote command: $REMOTE_COMMAND"
+          flyctl ssh console -a congress-tracker-api -C "$REMOTE_COMMAND"

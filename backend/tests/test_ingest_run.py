@@ -2,11 +2,13 @@ import json
 import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.clients.fmp import FMPClientError
 from app.ingest_run import (
     _build_parser,
+    _payload_exit_code,
     _payload_json,
     _run_enrichment_queue_job,
     _run_institutional_ingest,
@@ -53,6 +55,26 @@ def test_payload_json_serializes_nested_non_json_values(monkeypatch) -> None:
     assert decoded["nested"]["amount"] == 12.5
     assert decoded["nested"]["symbols"] == ["AAPL", "MSFT"]
     assert "sk_test_should_not_appear" not in encoded
+
+
+def test_partial_daily_repair_payload_exits_successfully() -> None:
+    payload = {
+        "job": "daily-repair",
+        "status": "partial",
+        "partial_reason": "price_lookup_budget_exceeded",
+    }
+
+    assert _payload_exit_code(payload) == 0
+    assert _payload_exit_code({"job": "daily-repair", "status": "failed"}) == 1
+
+
+def test_scheduled_ingest_workflow_calls_ingest_module_directly() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
+    contents = workflow.read_text()
+
+    assert "scripts/run_ingest_job.sh" not in contents
+    assert "REMOTE_COMMAND=\"cd /app && python -m app.ingest_run --job $JOB_MODE\"" in contents
+    assert "Remote command: $REMOTE_COMMAND" in contents
 
 
 def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
