@@ -24,6 +24,7 @@ import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, 
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
 export const authTokenStorageKey = "ct:authToken";
+const serverSessionSyncStorageKey = "ct:serverSessionToken";
 export const backendSessionCookieName = "ct_session";
 export const authHintCookieName = "ct_auth_hint";
 export const entitlementHintCookieName = "ct_entitlement_hint";
@@ -220,6 +221,8 @@ function forgetAuthToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(authTokenStorageKey);
   window.localStorage.removeItem(entitlementTierStorageKey);
+  window.sessionStorage.removeItem(serverSessionSyncStorageKey);
+  void clearServerAuthSession();
   document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${entitlementHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
@@ -229,6 +232,36 @@ function forgetAuthToken() {
 
 function authHeaders(authToken?: string): Record<string, string> {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
+function serverSessionSyncMarker(token: string): string {
+  return `${token.length}:${token.slice(0, 12)}:${token.slice(-12)}`;
+}
+
+export async function syncServerAuthSession(token?: string | null): Promise<boolean> {
+  if (typeof window === "undefined" || !token) return false;
+  const marker = serverSessionSyncMarker(token);
+  if (window.sessionStorage.getItem(serverSessionSyncStorageKey) === marker) return false;
+
+  const response = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: authHeaders(token),
+    cache: "no-store",
+  });
+  if (!response.ok) return false;
+
+  window.sessionStorage.setItem(serverSessionSyncStorageKey, marker);
+  return true;
+}
+
+async function clearServerAuthSession(): Promise<void> {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(serverSessionSyncStorageKey);
+  try {
+    await fetch("/api/auth/session", { method: "DELETE", cache: "no-store" });
+  } catch {
+    // Best-effort cleanup; local auth state is still cleared below.
+  }
 }
 
 let meCache: { value: MeResponse; expiresAt: number } | null = null;
@@ -1549,6 +1582,7 @@ export async function login(payload: { email: string; password?: string; name?: 
   });
   rememberAuthToken(response.token);
   rememberEntitlements(response.entitlements);
+  await syncServerAuthSession(response.token);
   return response;
 }
 
@@ -1571,6 +1605,7 @@ export async function register(payload: {
   });
   rememberAuthToken(response.token);
   rememberEntitlements(response.entitlements);
+  await syncServerAuthSession(response.token);
   return response;
 }
 
@@ -1592,6 +1627,7 @@ export async function completeGoogleSignIn(payload: {
   });
   rememberAuthToken(response.token);
   rememberEntitlements(response.entitlements);
+  await syncServerAuthSession(response.token);
   return response;
 }
 

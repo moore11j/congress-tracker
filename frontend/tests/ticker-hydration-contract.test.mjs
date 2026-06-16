@@ -59,6 +59,18 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
 });
 
+test("ticker server context can refresh after client auth session bridge syncs", () => {
+  const accountNav = read("components/auth/AccountNav.tsx");
+  const api = read("lib/api.ts");
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(api, /export async function syncServerAuthSession/);
+  assert.match(accountNav, /syncServerAuthSession\(token\)/);
+  assert.match(accountNav, /router\.refresh\(\)/);
+  assert.match(tickerPage, /const authToken = authState\.token/);
+  assert.match(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+});
+
 test("ticker government contracts all-mode copy is final no-data copy", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
