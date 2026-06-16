@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -25,13 +26,14 @@ from app.ingest_senate import ingest_senate
 from app.models import Event, TradeOutcome
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import get_daily_close_series_with_fallback
+from app.services.provider_usage import log_provider_budget_summary
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 
 logger = logging.getLogger(__name__)
 
-SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,no_entry_price,no_execution_price"
+SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,provider_budget_exceeded,retry_later,no_entry_price,no_execution_price"
 
 
 def json_default(value: object) -> object:
@@ -258,6 +260,18 @@ def _optional_int_env(name: str) -> int | None:
     return value if value > 0 else None
 
 
+def _positive_int_env(name: str, *, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return max(1, int(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid integer env %s=%r", name, raw)
+        return max(1, int(default))
+    return max(1, value)
+
+
 def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
     since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
     with SessionLocal() as db:
@@ -300,7 +314,16 @@ def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
     missing_prices_remaining = sum(
         count
         for status, count in failed_statuses.items()
-        if status in {"no_data", "no_current_price", "no_entry_price", "no_execution_price", "provider_429"}
+        if status
+        in {
+            "no_data",
+            "no_current_price",
+            "no_entry_price",
+            "no_execution_price",
+            "provider_429",
+            "provider_budget_exceeded",
+            "retry_later",
+        }
     )
     unresolved_symbols_remaining = sum(
         int(count)
@@ -331,48 +354,104 @@ def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
 
 
 def _run_daily_outcome_repair() -> dict[str, object]:
+    started_monotonic = time.monotonic()
+    started_at = datetime.now(timezone.utc)
     lookback_days = int(os.getenv("OUTCOME_REPAIR_LOOKBACK_DAYS", "1095"))
     retry_statuses = os.getenv("OUTCOME_REPAIR_RETRY_STATUSES", SAFE_OUTCOME_RETRY_STATUSES)
-    limit = _optional_int_env("OUTCOME_REPAIR_LIMIT")
+    max_events = _positive_int_env("DAILY_REPAIR_MAX_EVENTS", default=500)
+    limit = _optional_int_env("OUTCOME_REPAIR_LIMIT") or max_events
+    max_seconds = _positive_int_env("DAILY_REPAIR_MAX_SECONDS", default=240)
+    price_lookup_budget = _positive_int_env("DAILY_REPAIR_PRICE_LOOKUP_BUDGET", default=200)
     benchmark = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    stages_run: list[str] = []
+    price_lookup_attempts_used = 0
 
     logger.info(
-        "Starting daily outcome repair lookback_days=%s limit=%s retry_statuses=%s",
+        "Starting daily outcome repair lookback_days=%s limit=%s retry_statuses=%s max_seconds=%s price_lookup_budget=%s",
         lookback_days,
         limit,
         retry_statuses,
+        max_seconds,
+        price_lookup_budget,
     )
-    congress = run_compute(
-        replace=False,
-        limit=limit,
-        member_id=None,
-        event_type="congress_trade",
-        benchmark_symbol=benchmark,
-        lookback_days=lookback_days,
-        trade_date_after=None,
-        only_missing=True,
-        retry_failed_status=None,
-        retry_failed_statuses=retry_statuses,
-    )
-    insider = run_compute(
-        replace=False,
-        limit=limit,
-        member_id=None,
-        event_type="insider_trade",
-        benchmark_symbol=benchmark,
-        lookback_days=lookback_days,
-        trade_date_after=None,
-        only_missing=True,
-        retry_failed_status=None,
-        retry_failed_statuses=retry_statuses,
-    )
+
+    def remaining_seconds() -> float:
+        return max(0.0, float(max_seconds) - (time.monotonic() - started_monotonic))
+
+    def remaining_price_lookup_budget() -> int:
+        return max(0, price_lookup_budget - price_lookup_attempts_used)
+
+    def partial_stage(event_type: str, reason: str) -> dict[str, object]:
+        return {
+            "event_type": event_type,
+            "status": "partial",
+            "partial_reason": reason,
+            "scanned": 0,
+            "eligible": 0,
+            "inserted": 0,
+            "updated": 0,
+            "skipped": 0,
+            "status_counts": {},
+            "skipped_budget": 0,
+            "retry_later": 0,
+            "price_lookup_attempts": 0,
+        }
+
+    def run_stage(event_type: str) -> dict[str, object]:
+        nonlocal price_lookup_attempts_used
+        if remaining_seconds() <= 0:
+            return partial_stage(event_type, "max_seconds_exceeded")
+        remaining_budget = remaining_price_lookup_budget()
+        if remaining_budget <= 0:
+            return partial_stage(event_type, "price_lookup_budget_exceeded")
+
+        stages_run.append(event_type)
+        stage = run_compute(
+            replace=False,
+            limit=limit,
+            member_id=None,
+            event_type=event_type,
+            benchmark_symbol=benchmark,
+            lookback_days=lookback_days,
+            trade_date_after=None,
+            only_missing=True,
+            retry_failed_status=None,
+            retry_failed_statuses=retry_statuses,
+            max_seconds=remaining_seconds(),
+            max_price_lookups=remaining_budget,
+        )
+        attempts = stage.get("price_lookup_attempts")
+        if isinstance(attempts, int):
+            price_lookup_attempts_used += attempts
+        return stage
+
+    congress = run_stage("congress_trade")
+    insider = run_stage("insider_trade")
     coverage = _daily_outcome_coverage_report(lookback_days=lookback_days)
+    provider_budget_summary = log_provider_budget_summary(reset=True)
+    duration_seconds = round(time.monotonic() - started_monotonic, 3)
+    stage_reports = [congress, insider]
+    skipped_budget = sum(int(stage.get("skipped_budget") or 0) for stage in stage_reports)
+    retry_later = sum(int(stage.get("retry_later") or 0) for stage in stage_reports)
+    status = "partial" if any(stage.get("status") == "partial" for stage in stage_reports) else "ok"
     report = {
         "job": "daily-repair",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": started_at.isoformat(),
+        "status": status,
+        "stages_run": stages_run,
+        "scanned": sum(int(stage.get("scanned") or 0) for stage in stage_reports),
+        "updated": sum(int(stage.get("updated") or 0) for stage in stage_reports),
+        "skipped_budget": skipped_budget,
+        "retry_later": retry_later,
+        "duration_seconds": duration_seconds,
+        "max_events": limit,
+        "max_seconds": max_seconds,
+        "price_lookup_budget": price_lookup_budget,
+        "price_lookup_attempts": price_lookup_attempts_used,
         "congress": congress,
         "insider": insider,
         "coverage": coverage,
+        "provider_budget_summary": provider_budget_summary,
     }
     logger.info("Daily outcome repair coverage report: %s", report)
     return report
@@ -651,42 +730,65 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
     return {"job": "priority-ticker-prewarm", **result}
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    args = _build_parser().parse_args()
-    _require_data_mount_writable()
-
-    if args.job == "core":
-        payload = _run_core_job()
-    elif args.job == "recent-congress":
-        payload = _run_recent_congress_job()
-    elif args.job == "government-contracts-daily":
-        payload = {
-            "job": args.job,
+def _run_job_payload(job: str) -> dict[str, object]:
+    if job == "core":
+        return _run_core_job()
+    if job == "recent-congress":
+        return _run_recent_congress_job()
+    if job == "government-contracts-daily":
+        return {
+            "job": job,
             "government_contracts": _run_government_contracts_job(lookback_days=30),
         }
-    elif args.job == "government-contracts-weekly":
-        payload = {
-            "job": args.job,
+    if job == "government-contracts-weekly":
+        return {
+            "job": job,
             "government_contracts": _run_government_contracts_job(lookback_days=365),
         }
-    elif args.job == "daily-repair":
-        payload = _run_daily_outcome_repair()
-    elif args.job == "fundamentals-cache-daily":
-        payload = {
-            "job": args.job,
+    if job == "daily-repair":
+        return _run_daily_outcome_repair()
+    if job == "fundamentals-cache-daily":
+        return {
+            "job": job,
             "fundamentals_cache": _run_fundamentals_cache_refresh(),
         }
-    elif args.job == "enrichment-queue":
-        payload = _run_enrichment_queue_job()
-    elif args.job == "priority-ticker-prewarm":
-        payload = _run_priority_ticker_prewarm_job()
-    else:
+    if job == "enrichment-queue":
+        return _run_enrichment_queue_job()
+    if job == "priority-ticker-prewarm":
+        return _run_priority_ticker_prewarm_job()
+    return {
+        "job": "all",
+        "core": _run_core_job(),
+        "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
+        "daily_repair": _run_daily_outcome_repair(),
+    }
+
+
+def _payload_exit_code(payload: dict[str, object]) -> int:
+    return 1 if payload.get("status") == "failed" else 0
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    args = _build_parser().parse_args()
+    started = time.monotonic()
+    try:
+        _require_data_mount_writable()
+        payload = _run_job_payload(args.job)
+    except Exception as exc:
+        logger.exception("ingest job failed job=%s", args.job)
         payload = {
-            "job": "all",
-            "core": _run_core_job(),
-            "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
-            "daily_repair": _run_daily_outcome_repair(),
+            "job": args.job,
+            "status": "failed",
+            "error": str(exc),
+            "duration_seconds": round(time.monotonic() - started, 3),
         }
+        print(_payload_json(payload))
+        sys.exit(1)
 
     print(_payload_json(payload))
+    sys.exit(_payload_exit_code(payload))
+
+
+if __name__ == "__main__":
+    main()

@@ -60,4 +60,4 @@ jobs:
           fi
 
           echo "Running ingest job: $JOB_MODE"
-          flyctl ssh console -a congress-tracker-api -C "python -m app.ingest_run --job $JOB_MODE"
+          flyctl ssh console -a congress-tracker-api -C "bash scripts/run_ingest_job.sh $JOB_MODE"

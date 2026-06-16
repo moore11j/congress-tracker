@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,9 @@ from app.models import Event, TradeOutcome
 from app.services.member_performance import (
     INSIDER_METHODOLOGY_VERSION,
     METHODOLOGY_VERSION,
+    PROVIDER_BUDGET_STATUS,
+    RETRY_LATER_STATUS,
+    TradeOutcomeBudgetState,
     compute_congress_trade_outcomes,
     compute_insider_trade_outcomes,
 )
@@ -106,6 +110,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only-missing", action="store_true", help="Only process events without a trade_outcomes row.")
     parser.add_argument("--retry-failed-status", type=str, default=None, help="Recompute only existing outcomes with this scoring_status.")
     parser.add_argument("--retry-failed-statuses", type=str, default=None, help="Comma-separated scoring_status values to recompute (e.g. no_current_price,provider_402,provider_429).")
+    parser.add_argument("--max-seconds", type=float, default=None, help="Stop cleanly after this many seconds and mark remaining selected outcomes retry_later.")
+    parser.add_argument("--max-price-lookups", type=int, default=None, help="Stop cleanly after this many scorer price lookup attempts.")
     parser.add_argument("--log-level", type=str, default="INFO", help="Python log level.")
     return parser
 
@@ -122,6 +128,8 @@ def run_compute(
     only_missing: bool,
     retry_failed_status: str | None,
     retry_failed_statuses: str | None,
+    max_seconds: float | None = None,
+    max_price_lookups: int | None = None,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_event_columns()
@@ -216,21 +224,32 @@ def run_compute(
         insider_events = [event for event in eligible_events if event.event_type == "insider_trade"]
         insider_entering_scoring = len(insider_events)
         insider_outcomes: list[dict] = []
+        budget_state: TradeOutcomeBudgetState | None = None
+        if (max_seconds is not None and max_seconds >= 0) or (max_price_lookups is not None and max_price_lookups > 0):
+            deadline = time.monotonic() + max(0.0, float(max_seconds)) if max_seconds is not None else None
+            budget_state = TradeOutcomeBudgetState(
+                max_price_lookups=max_price_lookups if max_price_lookups is not None and max_price_lookups > 0 else None,
+                deadline_monotonic=deadline,
+            )
 
         if congress_events:
-            outcomes.extend(
-                compute_congress_trade_outcomes(
-                    db=db,
-                    events=congress_events,
-                    benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
-                )
-            )
+            compute_kwargs = {
+                "db": db,
+                "events": congress_events,
+                "benchmark_symbol": (benchmark_symbol or "^GSPC").strip() or "^GSPC",
+            }
+            if budget_state is not None:
+                compute_kwargs["budget_state"] = budget_state
+            outcomes.extend(compute_congress_trade_outcomes(**compute_kwargs))
         if insider_events:
-            insider_outcomes = compute_insider_trade_outcomes(
-                db=db,
-                events=insider_events,
-                benchmark_symbol=(benchmark_symbol or "^GSPC").strip() or "^GSPC",
-            )
+            compute_kwargs = {
+                "db": db,
+                "events": insider_events,
+                "benchmark_symbol": (benchmark_symbol or "^GSPC").strip() or "^GSPC",
+            }
+            if budget_state is not None:
+                compute_kwargs["budget_state"] = budget_state
+            insider_outcomes = compute_insider_trade_outcomes(**compute_kwargs)
             outcomes.extend(insider_outcomes)
 
         outcome_by_event_id = {outcome["event_id"]: outcome for outcome in outcomes}
@@ -310,6 +329,25 @@ def run_compute(
         }
         logger.info("insider scoring debug=%s", insider_debug_report)
 
+        skipped_budget = int(status_counts.get(PROVIDER_BUDGET_STATUS, 0))
+        retry_later = int(status_counts.get(RETRY_LATER_STATUS, 0))
+        partial_reason = None
+        if budget_state is not None and budget_state.stop_reason:
+            partial_reason = budget_state.stop_reason
+        elif skipped_budget:
+            partial_reason = PROVIDER_BUDGET_STATUS
+        elif retry_later:
+            partial_reason = RETRY_LATER_STATUS
+
+        if partial_reason in {PROVIDER_BUDGET_STATUS, "price_lookup_budget_exceeded", "max_seconds_exceeded", RETRY_LATER_STATUS}:
+            logger.info(
+                "daily_repair_stage_budget_exhausted stage=trade_outcomes event_type=%s attempted=%s skipped_remaining=%s reason=%s",
+                requested_event_type,
+                budget_state.price_lookup_attempts if budget_state is not None else 0,
+                skipped_budget + retry_later,
+                partial_reason,
+            )
+
         report = {
             "scanned": scanned,
             "eligible": len(eligible_events),
@@ -328,6 +366,13 @@ def run_compute(
             "retry_failed_status": retry_failed_status,
             "retry_failed_statuses": sorted(retry_status_set),
             "insider_debug": insider_debug_report,
+            "status": "partial" if partial_reason else "ok",
+            "partial_reason": partial_reason,
+            "skipped_budget": skipped_budget,
+            "retry_later": retry_later,
+            "price_lookup_attempts": budget_state.price_lookup_attempts if budget_state is not None else None,
+            "max_price_lookups": max_price_lookups,
+            "max_seconds": max_seconds,
         }
         logger.info("compute_trade_outcomes report=%s", report)
         return report
@@ -348,6 +393,8 @@ def main() -> None:
         only_missing=args.only_missing,
         retry_failed_status=args.retry_failed_status,
         retry_failed_statuses=args.retry_failed_statuses,
+        max_seconds=args.max_seconds,
+        max_price_lookups=args.max_price_lookups,
     )
     print(report)
 

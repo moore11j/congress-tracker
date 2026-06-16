@@ -46,6 +46,9 @@ class _UsageState:
 _STATE = _UsageState()
 _LOCK = threading.Lock()
 _PERSIST_FAILURE_LOGGED = False
+_BUDGET_FALLBACK_LOG_COUNTERS: Counter[str] = Counter()
+_BUDGET_FALLBACK_LOG_SUPPRESSED: Counter[str] = Counter()
+_BUDGET_FALLBACK_LOG_SAMPLES: dict[str, list[str]] = {}
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -65,6 +68,10 @@ def _int_env(*names: str, default: int) -> int:
         except ValueError:
             logger.info("provider_usage invalid integer env name=%s value=%s", name, raw)
     return max(int(default), 1)
+
+
+def _budget_fallback_log_limit() -> int:
+    return _int_env("FMP_PROVIDER_BUDGET_LOG_LIMIT_PER_CATEGORY", default=5)
 
 
 def _plan_calls_per_minute() -> int:
@@ -229,6 +236,9 @@ def reset_provider_usage() -> None:
         _STATE.category_counters.clear()
         _STATE.reason_counters.clear()
         _STATE.started_at = time.time()
+        _BUDGET_FALLBACK_LOG_COUNTERS.clear()
+        _BUDGET_FALLBACK_LOG_SUPPRESSED.clear()
+        _BUDGET_FALLBACK_LOG_SAMPLES.clear()
 
 
 def live_fmp_user_routes_enabled() -> bool:
@@ -319,16 +329,77 @@ def record_provider_response(*, category: str, symbol: str | None = None, status
         _record("provider_error", category=category, symbol=symbol, reason=_reason_for_status(status_code), status_code=status_code)
 
 
+def _budget_log_key(*, route: str, category: str, reason: str) -> str:
+    return f"{route}|{category}|{reason}"
+
+
+def _record_budget_fallback_log(*, route: str, category: str, symbol: str | None, reason: str) -> bool:
+    key = _budget_log_key(route=route, category=category, reason=reason)
+    with _LOCK:
+        _BUDGET_FALLBACK_LOG_COUNTERS[key] += 1
+        samples = _BUDGET_FALLBACK_LOG_SAMPLES.setdefault(key, [])
+        if symbol and symbol not in samples and len(samples) < 5:
+            samples.append(symbol)
+        count = _BUDGET_FALLBACK_LOG_COUNTERS[key]
+        should_log = count <= _budget_fallback_log_limit()
+        if not should_log:
+            _BUDGET_FALLBACK_LOG_SUPPRESSED[key] += 1
+        return should_log
+
+
+def provider_budget_log_summary(*, reset: bool = False) -> list[dict[str, Any]]:
+    with _LOCK:
+        rows: list[dict[str, Any]] = []
+        for key, count in _BUDGET_FALLBACK_LOG_COUNTERS.items():
+            route, category, reason = key.split("|", 2)
+            rows.append(
+                {
+                    "route": route,
+                    "category": category,
+                    "reason": reason,
+                    "count": int(count),
+                    "suppressed": int(_BUDGET_FALLBACK_LOG_SUPPRESSED.get(key, 0)),
+                    "sample_symbols": list(_BUDGET_FALLBACK_LOG_SAMPLES.get(key, [])),
+                }
+            )
+        rows.sort(key=lambda row: (row["count"], row["category"]), reverse=True)
+        if reset:
+            _BUDGET_FALLBACK_LOG_COUNTERS.clear()
+            _BUDGET_FALLBACK_LOG_SUPPRESSED.clear()
+            _BUDGET_FALLBACK_LOG_SAMPLES.clear()
+        return rows
+
+
+def log_provider_budget_summary(*, reset: bool = False) -> list[dict[str, Any]]:
+    rows = provider_budget_log_summary(reset=reset)
+    for row in rows:
+        logger.info(
+            "provider_budget_summary category=%s route=%s reason=%s count=%s suppressed=%s sample_symbols=%s",
+            row["category"],
+            row["route"],
+            row["reason"],
+            row["count"],
+            row["suppressed"],
+            row["sample_symbols"],
+        )
+    return rows
+
+
 def record_fallback(*, category: str, symbol: str | None = None, reason: str, cache_age_seconds: float | None = None) -> None:
-    logger.info(
-        "provider_fallback provider=%s route=%s category=%s symbol=%s reason=%s cache_age_seconds=%s",
-        PROVIDER,
-        _context_route(),
-        category,
-        symbol,
-        reason,
-        round(cache_age_seconds, 1) if cache_age_seconds is not None else None,
-    )
+    route = _context_route()
+    should_log = True
+    if reason == "provider_budget_exceeded":
+        should_log = _record_budget_fallback_log(route=route, category=category, symbol=symbol, reason=reason)
+    if should_log:
+        logger.info(
+            "provider_fallback provider=%s route=%s category=%s symbol=%s reason=%s cache_age_seconds=%s",
+            PROVIDER,
+            route,
+            category,
+            symbol,
+            reason,
+            round(cache_age_seconds, 1) if cache_age_seconds is not None else None,
+        )
     _record("fallback", category=category, symbol=symbol, reason=reason, cache_age_seconds=cache_age_seconds)
 
 

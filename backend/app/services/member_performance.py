@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+from dataclasses import dataclass
 from statistics import mean, median
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +29,8 @@ from app.utils.symbols import classify_symbol
 
 METHODOLOGY_VERSION = "congress_v1"
 INSIDER_METHODOLOGY_VERSION = "insider_v1"
+PROVIDER_BUDGET_STATUS = "provider_budget_exceeded"
+RETRY_LATER_STATUS = "retry_later"
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +157,109 @@ def _read_only_eod_close_with_meta(db: Session, symbol: str, target_date: str) -
     return get_eod_close_with_meta(db, symbol, target_date)
 
 
+@dataclass
+class TradeOutcomeBudgetState:
+    max_price_lookups: int | None = None
+    deadline_monotonic: float | None = None
+    price_lookup_attempts: int = 0
+    stop_reason: str | None = None
+    stop_stage: str | None = None
+
+    def check_time(self, *, stage: str) -> bool:
+        if self.stop_reason:
+            return False
+        if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
+            self.stop_reason = "max_seconds_exceeded"
+            self.stop_stage = stage
+            return False
+        return True
+
+    def consume_price_lookup(self, *, stage: str, units: int = 1) -> bool:
+        if not self.check_time(stage=stage):
+            return False
+        units = max(1, int(units or 1))
+        if self.max_price_lookups is not None and self.price_lookup_attempts + units > self.max_price_lookups:
+            self.stop_reason = "price_lookup_budget_exceeded"
+            self.stop_stage = stage
+            return False
+        self.price_lookup_attempts += units
+        return True
+
+    def mark_provider_budget_exceeded(self, *, stage: str) -> None:
+        self.stop_reason = PROVIDER_BUDGET_STATUS
+        self.stop_stage = stage
+
+    def retry_status(self) -> str:
+        return PROVIDER_BUDGET_STATUS if self.stop_reason == PROVIDER_BUDGET_STATUS else RETRY_LATER_STATUS
+
+    def retry_error(self) -> str:
+        if self.stop_reason == PROVIDER_BUDGET_STATUS:
+            return "Provider budget exceeded during trade outcome repair; retry later"
+        if self.stop_reason == "price_lookup_budget_exceeded":
+            return "Daily repair price lookup budget exhausted; retry later"
+        if self.stop_reason == "max_seconds_exceeded":
+            return "Daily repair max seconds reached; retry later"
+        return "Trade outcome repair paused; retry later"
+
+
+def _is_provider_budget_status(status: object) -> bool:
+    return str(status or "") == PROVIDER_BUDGET_STATUS
+
+
+def _budget_retry_meta(budget_state: TradeOutcomeBudgetState, *, symbol: str | None = None) -> dict:
+    return {
+        "close": None,
+        "status": budget_state.retry_status(),
+        "error": budget_state.retry_error(),
+        "symbol": symbol,
+    }
+
+
+def _budget_retry_outcome(
+    event: Event,
+    *,
+    raw_symbol: str,
+    symbol: str,
+    trade_date: str | None,
+    member_id: str | None,
+    member_name: str | None,
+    methodology_version: str,
+    benchmark_symbol: str,
+    budget_state: TradeOutcomeBudgetState,
+) -> dict:
+    sort_ts_value = event.event_date or event.ts
+    holding_days = None
+    if sort_ts_value is not None:
+        holding_days = (datetime.now(timezone.utc).date() - sort_ts_value.date()).days
+    return {
+        "event_id": event.id,
+        "symbol": symbol or raw_symbol,
+        "trade_type": event.trade_type,
+        "asof_date": sort_ts_value.date().isoformat() if sort_ts_value else None,
+        "member_id": member_id,
+        "member_name": member_name,
+        "source": event.source,
+        "trade_date": trade_date,
+        "entry_price": None,
+        "entry_price_date": trade_date,
+        "current_price": None,
+        "current_price_date": None,
+        "benchmark_symbol": benchmark_symbol,
+        "benchmark_entry_price": None,
+        "benchmark_current_price": None,
+        "benchmark_current_price_date": None,
+        "return_pct": None,
+        "benchmark_return_pct": None,
+        "alpha_pct": None,
+        "holding_days": holding_days,
+        "amount_min": event.amount_min,
+        "amount_max": event.amount_max,
+        "scoring_status": budget_state.retry_status(),
+        "scoring_error": budget_state.retry_error(),
+        "methodology_version": methodology_version,
+    }
+
+
 def _event_member_identity(event: Event, payload: dict, event_type: str) -> tuple[str | None, str | None]:
     if event_type == "insider_trade":
         raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
@@ -199,6 +306,7 @@ def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7
     today = effective_lookup_max_date()
     saw_402 = False
     saw_429 = False
+    saw_budget = False
 
     for offset in range(max_days_back + 1):
         target_date = (today - timedelta(days=offset)).isoformat()
@@ -216,7 +324,12 @@ def _latest_eod_close_with_meta(db: Session, symbol: str, max_days_back: int = 7
             saw_402 = True
         elif status == "provider_429":
             saw_429 = True
+        elif status == PROVIDER_BUDGET_STATUS:
+            saw_budget = True
+            break
 
+    if saw_budget:
+        return {"close": None, "date": None, "status": PROVIDER_BUDGET_STATUS, "error": "Provider budget exceeded"}
     if saw_402:
         return {"close": None, "date": None, "status": "provider_402", "error": "Provider plan does not cover symbol"}
     if saw_429:
@@ -346,6 +459,7 @@ def compute_congress_trade_outcomes(
     events: list[Event],
     benchmark_symbol: str,
     max_symbols_per_request: int | None = None,
+    budget_state: TradeOutcomeBudgetState | None = None,
 ) -> list[dict]:
     """Canonical congress scoring methodology shared by APIs and persistence jobs."""
     return _compute_trade_outcomes(
@@ -355,6 +469,7 @@ def compute_congress_trade_outcomes(
         methodology_version=METHODOLOGY_VERSION,
         event_type="congress_trade",
         max_symbols_per_request=max_symbols_per_request,
+        budget_state=budget_state,
     )
 
 
@@ -363,6 +478,7 @@ def compute_insider_trade_outcomes(
     events: list[Event],
     benchmark_symbol: str,
     max_symbols_per_request: int | None = None,
+    budget_state: TradeOutcomeBudgetState | None = None,
 ) -> list[dict]:
     return _compute_trade_outcomes(
         db=db,
@@ -371,6 +487,7 @@ def compute_insider_trade_outcomes(
         methodology_version=INSIDER_METHODOLOGY_VERSION,
         event_type="insider_trade",
         max_symbols_per_request=max_symbols_per_request,
+        budget_state=budget_state,
     )
 
 
@@ -381,8 +498,10 @@ def _compute_trade_outcomes(
     methodology_version: str,
     event_type: str,
     max_symbols_per_request: int | None = None,
+    budget_state: TradeOutcomeBudgetState | None = None,
 ) -> list[dict]:
     """Canonical scoring methodology shared by APIs and persistence jobs."""
+    budget_state = budget_state or TradeOutcomeBudgetState()
 
     insider_debug_enabled = event_type == "insider_trade" and INSIDER_DEBUG_EVENT_ID is not None
     if insider_debug_enabled:
@@ -413,6 +532,24 @@ def _compute_trade_outcomes(
         trade_date = _event_trade_date(payload)
         member_id, member_name = _event_member_identity(event, payload, event_type)
         market_eligible = True
+        if not budget_state.check_time(stage="entry_lookup"):
+            entry_price_meta = _budget_retry_meta(budget_state, symbol=normalized_symbol)
+            parsed_events.append(
+                (
+                    event,
+                    raw_symbol,
+                    normalized_symbol,
+                    entry_price_meta,
+                    trade_date,
+                    eligibility_error,
+                    member_id,
+                    member_name,
+                    parsed_trade_type,
+                    is_market_trade,
+                    market_eligible,
+                )
+            )
+            continue
         if event_type == "congress_trade":
             congress_eligibility = congress_equity_outcome_eligibility(
                 event_type=event_type,
@@ -457,7 +594,12 @@ def _compute_trade_outcomes(
             else None
         )
         if market_eligible and eligibility_status == "eligible" and normalized_symbol and trade_date:
-            entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
+            if (normalized_symbol, trade_date) not in price_memo and not budget_state.consume_price_lookup(stage="entry_lookup"):
+                entry_price_meta = _budget_retry_meta(budget_state, symbol=normalized_symbol)
+            else:
+                entry_price_meta = _entry_price_for_congress_event(db, normalized_symbol, trade_date, price_memo)
+                if _is_provider_budget_status(entry_price_meta.get("status")):
+                    budget_state.mark_provider_budget_exceeded(stage="entry_lookup")
             if _should_log_insider_event(event.id, event_type):
                 logger.debug(
                     "[insider_outcomes] event_id=%s entry_lookup symbol=%s trade_date=%s status=%s close=%s error=%s",
@@ -471,7 +613,9 @@ def _compute_trade_outcomes(
             resolved_symbol = entry_price_meta.get("symbol")
             if isinstance(resolved_symbol, str) and resolved_symbol:
                 effective_symbol = resolved_symbol
-            if event_type == "insider_trade" and normalized_insider_price and normalized_insider_price.status == "normalized":
+            if _is_provider_budget_status(entry_price_meta.get("status")) or entry_price_meta.get("status") == RETRY_LATER_STATUS:
+                pass
+            elif event_type == "insider_trade" and normalized_insider_price and normalized_insider_price.status == "normalized":
                 entry_price_meta = {
                     "close": normalized_insider_price.display_price,
                     "status": "ok",
@@ -519,7 +663,13 @@ def _compute_trade_outcomes(
                         "source": "insider_transaction_no_market_close",
                     }
 
-        if market_eligible and eligibility_status == "eligible" and effective_symbol:
+        if (
+            market_eligible
+            and eligibility_status == "eligible"
+            and effective_symbol
+            and not budget_state.stop_reason
+            and entry_price_meta.get("status") not in {PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}
+        ):
             quote_symbols.add(effective_symbol)
         if _should_log_insider_event(event.id, event_type):
             logger.debug(
@@ -542,10 +692,36 @@ def _compute_trade_outcomes(
     if symbols_to_quote:
         for idx in range(0, len(symbols_to_quote), chunk_size):
             chunk = symbols_to_quote[idx: idx + chunk_size]
+            if not budget_state.consume_price_lookup(stage="current_quote_batch", units=len(chunk)):
+                break
             current_price_meta.update(get_current_prices_meta_db(db, chunk))
-    benchmark_current_meta = get_current_prices_meta_db(db, [benchmark_symbol])
+            if any(_is_provider_budget_status(payload.get("status")) for payload in current_price_meta.values() if isinstance(payload, dict)):
+                budget_state.mark_provider_budget_exceeded(stage="current_quote_batch")
+                break
+    if budget_state.stop_reason:
+        benchmark_current_meta = {
+            benchmark_symbol: {
+                "price": None,
+                "asof_ts": None,
+                "status": budget_state.retry_status(),
+            }
+        }
+    elif budget_state.consume_price_lookup(stage="benchmark_current_quote"):
+        benchmark_current_meta = get_current_prices_meta_db(db, [benchmark_symbol])
+        benchmark_payload = benchmark_current_meta.get(benchmark_symbol, {})
+        if isinstance(benchmark_payload, dict) and _is_provider_budget_status(benchmark_payload.get("status")):
+            budget_state.mark_provider_budget_exceeded(stage="benchmark_current_quote")
+    else:
+        benchmark_current_meta = {
+            benchmark_symbol: {
+                "price": None,
+                "asof_ts": None,
+                "status": budget_state.retry_status(),
+            }
+    }
     benchmark_current_payload = benchmark_current_meta.get(benchmark_symbol, {})
     benchmark_current = benchmark_current_payload.get("price") if isinstance(benchmark_current_payload, dict) else None
+    benchmark_current_status = benchmark_current_payload.get("status") if isinstance(benchmark_current_payload, dict) else None
     max_lookup_date = effective_lookup_max_date()
     benchmark_current_date = None
     benchmark_asof = benchmark_current_payload.get("asof_ts") if isinstance(benchmark_current_payload, dict) else None
@@ -559,6 +735,21 @@ def _compute_trade_outcomes(
     scored_rows: list[dict] = []
     for event, raw_symbol, normalized_symbol, entry_price_meta, trade_date, eligibility_error, member_id, member_name, parsed_trade_type, is_market_trade, market_eligible in parsed_events:
         symbol = normalized_symbol or raw_symbol
+        if entry_price_meta.get("status") in {PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}:
+            scored_rows.append(
+                _budget_retry_outcome(
+                    event,
+                    raw_symbol=raw_symbol,
+                    symbol=symbol,
+                    trade_date=trade_date,
+                    member_id=member_id,
+                    member_name=member_name,
+                    methodology_version=methodology_version,
+                    benchmark_symbol=benchmark_symbol,
+                    budget_state=budget_state,
+                )
+            )
+            continue
         current_payload = current_price_meta.get(symbol, {}) if symbol else {}
         current_price = current_payload.get("price") if isinstance(current_payload, dict) else None
         entry_price = entry_price_meta.get("close")
@@ -571,7 +762,15 @@ def _compute_trade_outcomes(
             current_price_date = max_lookup_date
 
         if market_eligible and (current_price is None or current_price <= 0) and symbol:
-            eod_fallback = _latest_eod_close_with_meta(db, symbol)
+            if _is_provider_budget_status(quote_status):
+                budget_state.mark_provider_budget_exceeded(stage="current_quote")
+                eod_fallback = _budget_retry_meta(budget_state, symbol=symbol)
+            elif not budget_state.consume_price_lookup(stage="current_eod_fallback"):
+                eod_fallback = _budget_retry_meta(budget_state, symbol=symbol)
+            else:
+                eod_fallback = _latest_eod_close_with_meta(db, symbol)
+                if _is_provider_budget_status(eod_fallback.get("status")):
+                    budget_state.mark_provider_budget_exceeded(stage="current_eod_fallback")
             fallback_close = eod_fallback.get("close")
             if fallback_close is not None and fallback_close > 0:
                 current_price = float(fallback_close)
@@ -583,7 +782,7 @@ def _compute_trade_outcomes(
                         current_price_date = max_lookup_date
                 else:
                     current_price_date = max_lookup_date
-            elif quote_status in {"provider_429", "provider_402"}:
+            elif quote_status in {"provider_429", "provider_402", PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}:
                 quote_status = quote_status
             else:
                 quote_status = eod_fallback.get("status")
@@ -615,6 +814,8 @@ def _compute_trade_outcomes(
             "non_equity_or_unpriced_asset",
             "provider_429",
             "provider_402",
+            PROVIDER_BUDGET_STATUS,
+            RETRY_LATER_STATUS,
             "provider_unavailable",
             "not_equity_outcome_eligible",
             "missing_trade_date",
@@ -624,7 +825,7 @@ def _compute_trade_outcomes(
             "unsupported_event_type",
         }:
             status = str(entry_price_meta.get("status"))
-            if status == "provider_429":
+            if status in {"provider_429", PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}:
                 error = entry_price_meta.get("error") or f"Provider rate-limited entry lookup symbol={symbol} trade_date={trade_date}"
             else:
                 error = entry_price_meta.get("error") or eligibility_error
@@ -635,7 +836,7 @@ def _compute_trade_outcomes(
             status = "no_entry_price"
             error = f"No entry close for symbol={symbol} trade_date={trade_date}"
         elif current_price is None or current_price <= 0:
-            if quote_status in {"provider_429", "provider_402"}:
+            if quote_status in {"provider_429", "provider_402", PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}:
                 status = quote_status
                 error = f"Provider quote lookup failed with status={quote_status} symbol={symbol}"
             else:
@@ -663,16 +864,21 @@ def _compute_trade_outcomes(
             return_pct = signed_return_pct(current_price, entry_price, parsed_trade_type or event.trade_type)
 
         if status == "ok" and benchmark_current is not None and benchmark_current > 0 and trade_date:
-            benchmark_entry = _benchmark_entry_close_for_trade_date(
-                db,
-                benchmark_symbol,
-                trade_date,
-                benchmark_entry_memo,
-                benchmark_series_memo,
-            )
+            if not budget_state.consume_price_lookup(stage="benchmark_entry"):
+                status = budget_state.retry_status()
+                error = budget_state.retry_error()
+            else:
+                benchmark_entry = _benchmark_entry_close_for_trade_date(
+                    db,
+                    benchmark_symbol,
+                    trade_date,
+                    benchmark_entry_memo,
+                    benchmark_series_memo,
+                )
             if benchmark_entry is None or benchmark_entry <= 0:
-                status = "no_benchmark_entry"
-                error = f"No benchmark entry for symbol={benchmark_symbol} trade_date={trade_date}"
+                if status == "ok":
+                    status = "no_benchmark_entry"
+                    error = f"No benchmark entry for symbol={benchmark_symbol} trade_date={trade_date}"
                 if _should_log_insider_event(event.id, event_type):
                     logger.debug(
                         "[insider_outcomes] event_id=%s benchmark_lookup success=false benchmark_current=%s benchmark_entry=%s trade_date=%s",
@@ -693,8 +899,12 @@ def _compute_trade_outcomes(
                         trade_date,
                     )
         elif status == "ok" and benchmark_current in (None, 0):
-            status = "no_benchmark_current"
-            error = f"No benchmark current quote for symbol={benchmark_symbol}"
+            if benchmark_current_status in {PROVIDER_BUDGET_STATUS, RETRY_LATER_STATUS}:
+                status = benchmark_current_status
+                error = budget_state.retry_error()
+            else:
+                status = "no_benchmark_current"
+                error = f"No benchmark current quote for symbol={benchmark_symbol}"
             if _should_log_insider_event(event.id, event_type):
                 logger.debug(
                     "[insider_outcomes] event_id=%s benchmark_lookup success=false benchmark_current=%s trade_date=%s",
