@@ -68,7 +68,28 @@ test("ticker server context can refresh after client auth session bridge syncs",
   assert.match(accountNav, /syncServerAuthSession\(token\)/);
   assert.match(accountNav, /router\.refresh\(\)/);
   assert.match(tickerPage, /const authToken = authState\.token/);
-  assert.match(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /const signalSummaryRequest =[\s\S]*?authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+});
+
+test("ticker context gates source cards instead of the whole context request", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /export type TickerSourceEntitlement/);
+  assert.match(api, /source_entitlements\?: TickerSourceEntitlements \| null/);
+  assert.match(tickerPage, /function tickerContextSourceEntitlements/);
+  assert.match(tickerPage, /function displayConfirmationBundleForEntitlements/);
+  assert.match(tickerPage, /const signalSummaryRequest =[\s\S]*?authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /sourceEntitlements: signalsRes\.source_entitlements \?\? null/);
+  assert.match(tickerPage, /const signalsCardLocked = sourceIsLocked\(sourceEntitlements, "signals"\)/);
+  assert.match(tickerPage, /const institutionalCardLocked = sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
+  assert.match(tickerPage, /const optionsFlowCardLocked = sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
+  assert.match(tickerPage, /requiredPlan="premium"/);
+  assert.match(tickerPage, /requiredPlan="pro"/);
+  assert.match(tickerPage, /Premium feature/);
+  assert.match(tickerPage, /Pro feature/);
 });
 
 test("ticker government contracts all-mode copy is final no-data copy", () => {

@@ -5504,6 +5504,50 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
     }
 
 
+def _ticker_context_tier_rank(entitlements: Any) -> int:
+    rank = getattr(entitlements, "rank", None)
+    if isinstance(rank, int):
+        return rank
+    tier = getattr(entitlements, "tier", None)
+    if tier is None and isinstance(entitlements, dict):
+        tier = entitlements.get("tier")
+    return {"free": 0, "premium": 10, "pro": 20, "admin": 100}.get(str(tier or "free"), 0)
+
+
+def _ticker_context_has_feature(entitlements: Any, feature: str) -> bool:
+    has_feature = getattr(entitlements, "has_feature", None)
+    if callable(has_feature):
+        return bool(has_feature(feature))
+    if isinstance(entitlements, dict):
+        features = entitlements.get("features")
+        return isinstance(features, (list, tuple, set, frozenset)) and feature in features
+    return False
+
+
+def _ticker_context_source_entitlements(entitlements: Any) -> dict[str, dict[str, Any]]:
+    rank = _ticker_context_tier_rank(entitlements)
+    can_view_signals = _ticker_context_has_feature(entitlements, "signals") or rank >= 10
+    can_view_pro_context = rank >= 20
+
+    def source_meta(source: str, required_plan: str | None, locked: bool) -> dict[str, Any]:
+        return {
+            "source": source,
+            "required_plan": required_plan,
+            "locked": locked,
+            "available": not locked,
+        }
+
+    return {
+        "price_volume": source_meta("price_volume", None, False),
+        "insiders": source_meta("insiders", None, False),
+        "congress": source_meta("congress", None, False),
+        "government_contracts": source_meta("government_contracts", None, False),
+        "signals": source_meta("signals", "premium", not can_view_signals),
+        "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context),
+        "options_flow": source_meta("options_flow", "pro", not can_view_pro_context),
+    }
+
+
 @app.get("/api/tickers/{symbol}/signals-summary")
 def ticker_signals_summary(
     request: Request,
@@ -5514,11 +5558,9 @@ def ticker_signals_summary(
     db: Session = Depends(get_db),
 ):
     current_user(db, request, required=True)
-    require_feature(
-        current_entitlements(request, db),
-        "signals",
-        message="Signals are included with Premium.",
-    )
+    entitlements = current_entitlements(request, db)
+    source_entitlements = _ticker_context_source_entitlements(entitlements)
+    can_view_signal_details = not bool(source_entitlements["signals"]["locked"])
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
@@ -5526,32 +5568,42 @@ def ticker_signals_summary(
     started_at = perf_counter()
     requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
     effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
-    cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}"
+    entitlement_variant = (
+        "pro"
+        if not source_entitlements["options_flow"]["locked"]
+        else "premium"
+        if can_view_signal_details
+        else "free"
+    )
+    cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}:{entitlement_variant}"
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
     if cached is not None:
         _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=cached, started_at=started_at)
         _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=cached, started_at=started_at)
         return cached
-    items = _query_unified_signals(
-        db=db,
-        mode="all",
-        sort="smart",
-        limit=limit,
-        offset=0,
-        baseline_days=365,
-        congress_recent_days=effective_window_days,
-        insider_recent_days=effective_window_days,
-        congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
-        insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
-        congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
-        insider_multiple=INSIDER_DEFAULTS["multiple"],
-        congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
-        insider_min_amount=INSIDER_DEFAULTS["min_amount"],
-        min_smart_score=None,
-        side=side,
-        symbol=normalized_symbol,
-    )
-    rows = [_public_signal_row(item) for item in items[:limit]]
+    if can_view_signal_details:
+        items = _query_unified_signals(
+            db=db,
+            mode="all",
+            sort="smart",
+            limit=limit,
+            offset=0,
+            baseline_days=365,
+            congress_recent_days=effective_window_days,
+            insider_recent_days=effective_window_days,
+            congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+            insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+            congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+            insider_multiple=INSIDER_DEFAULTS["multiple"],
+            congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+            insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+            min_smart_score=None,
+            side=side,
+            symbol=normalized_symbol,
+        )
+        rows = [_public_signal_row(item) for item in items[:limit]]
+    else:
+        rows = []
     latest_score = next(
         (
             row.get("smart_score")
@@ -5584,6 +5636,7 @@ def ticker_signals_summary(
         "congress": source_contexts["congress"],
         "signals": source_contexts["signals"],
         "government_contracts": source_contexts["government_contracts"],
+        "source_entitlements": source_entitlements,
         "confirmation_score_bundle": confirmation_score_bundle,
         "signal_freshness": signal_freshness,
         "latest_signal_score": latest_score,
