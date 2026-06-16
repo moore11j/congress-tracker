@@ -6,3 +6,9 @@
 2052c10ebe24a456afdf2135647a8a5e7950b69c:backend/.venv312/Lib/site-packages/sqlalchemy/orm/unitofwork.py:generic-api-key:246
 a6ce777b1169f46998f70bfe2e007991ee314c93:frontend/.next/cache/.rscinfo:generic-api-key:1
 a6ce777b1169f46998f70bfe2e007991ee314c93:frontend/.next/server/server-reference-manifest.json:generic-api-key:4
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/plugin.py:generic-api-key:158
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/plugin.py:generic-api-key:260
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/plugin.py:generic-api-key:268
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/ext/mypy/decl_class.py:generic-api-key:514
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/mapped_collection.py:generic-api-key:321
+f74d741b0900415035199df60dee77596a02b4e9:.codex_py314_deps/sqlalchemy/orm/unitofwork.py:generic-api-key:245
