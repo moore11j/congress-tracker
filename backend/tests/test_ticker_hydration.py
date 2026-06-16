@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 import app.services.ticker_hydration as hydration_module
 from app.db import Base
-from app.models import FundamentalsCache, PriceCache, Security
+from app.models import FundamentalsCache, PriceCache, Security, TickerMeta
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 
 
@@ -46,6 +46,8 @@ def test_ticker_hydration_status_reports_ok_and_missing_states():
                 market_cap=8_000_000_000,
                 volume=5_000_000,
                 avg_volume=4_500_000,
+                sector="Technology",
+                industry="Information Technology Services",
                 beta=1.4,
                 trailing_pe=22.5,
             )
@@ -83,13 +85,28 @@ def test_request_ticker_hydration_queues_missing_jobs(monkeypatch):
         result = request_ticker_hydration(db, "NBIS", reason="ticker_page_view", priority=20)
 
         job_types = {job["job_type"] for job in captured}
-        assert {"quote", "ticker_meta", "price_series", "fundamentals", "technical_indicators"} <= job_types
+        assert {"quote", "ticker_meta", "profile", "price_series", "fundamentals", "technical_indicators"} <= job_types
         assert {"news_stock", "ticker_financials", "press_releases", "sec_filings"} <= job_types
         assert any(job["job_type"] == "price_series" and ":" in (job.get("window_key") or "") for job in captured)
         assert result["jobs_enqueued_by_type"]["ticker_financials"] == 1
         assert result["already_pending_count"] == 0
         assert result["skipped_invalid_count"] == 0
         assert result["refreshed"]["attempted"] is False
+    finally:
+        db.close()
+
+
+def test_ticker_hydration_profile_missing_when_metadata_has_only_exchange():
+    db = _db()
+    try:
+        db.add(TickerMeta(symbol="MSTR", company_name="Strategy Inc", exchange="NASDAQ"))
+        db.commit()
+
+        status = ticker_hydration_status(db, "MSTR")
+
+        assert status["critical"]["profile"] == "missing"
+        assert "profile" in status["missing_sections"]
+        assert status["should_request_hydration"] is True
     finally:
         db.close()
 

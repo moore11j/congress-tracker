@@ -102,3 +102,23 @@ def test_priority_ticker_prewarm_skips_placeholder_symbols_before_selection(monk
         assert "prewarm_ticker_invalid_symbol_skipped source=landing symbol=SYMBOL" in caplog.text
     finally:
         db.close()
+
+
+def test_priority_ticker_prewarm_reports_enqueue_skip_reasons(monkeypatch):
+    db = _db()
+    try:
+        db.add(Event(event_type="insider_trade", ts=datetime.now(timezone.utc), symbol="MSTR", source="test", payload_json="{}"))
+        db.commit()
+
+        monkeypatch.setattr(queue_module, "enqueue_data_enrichment_job", lambda **kwargs: False)
+        monkeypatch.setattr(queue_module, "_enqueue_skip_reason", lambda **kwargs: "skipped_existing_pending")
+
+        result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=1, popular_limit=1)
+
+        assert result["attempted"] == 10
+        assert result["enqueued"] == 0
+        assert result["skipped_existing_pending"] == 10
+        assert result["skip_reasons"] == {"skipped_existing_pending": 10}
+        assert result["skip_reasons_by_type"]["price_series"]["skipped_existing_pending"] == 2
+    finally:
+        db.close()

@@ -199,21 +199,50 @@ def _profile_state(
     active_by_type: dict[str, list[DataEnrichmentJob]],
     final_by_type: dict[str, list[DataEnrichmentJob]],
 ) -> HydrationState:
-    has_profile = db.execute(
-        select(Security.id)
+    security = db.execute(
+        select(Security)
         .where(func.upper(Security.symbol) == symbol)
         .limit(1)
-    ).scalar_one_or_none() is not None
-    if not has_profile:
-        has_profile = db.execute(
-            select(TickerMeta.symbol)
-            .where(func.upper(TickerMeta.symbol) == symbol)
-            .where((TickerMeta.company_name.is_not(None)) | (TickerMeta.exchange.is_not(None)))
-            .limit(1)
-        ).scalar_one_or_none() is not None
-    if has_profile:
+    ).scalar_one_or_none()
+    meta = db.execute(
+        select(TickerMeta)
+        .where(func.upper(TickerMeta.symbol) == symbol)
+        .limit(1)
+    ).scalar_one_or_none()
+    fundamentals = _latest_fundamentals(db, symbol)
+
+    has_name = any(
+        _profile_text(value)
+        for value in (
+            security.name if security is not None else None,
+            meta.company_name if meta is not None else None,
+            fundamentals.company_name if fundamentals is not None else None,
+        )
+    )
+    has_classification = any(
+        _profile_text(value)
+        for value in (
+            security.sector if security is not None else None,
+            meta.sector if meta is not None else None,
+            meta.industry if meta is not None else None,
+            fundamentals.sector if fundamentals is not None else None,
+            fundamentals.industry if fundamentals is not None else None,
+        )
+    )
+    if has_name and has_classification:
         return "ok"
     return _state_from_jobs("profile", active_by_type, final_by_type)
+
+
+def _profile_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() in {"n/a", "na", "none", "null", "unknown", "-", "--"}:
+        return None
+    return cleaned
 
 
 def _quote_state(
@@ -351,6 +380,7 @@ def _enqueue_missing_jobs(
     }
     specs: list[tuple[str, str, int, str | None, dict[str, Any] | None]] = [
         ("profile", "ticker_meta", priority, None, None),
+        ("profile", "profile", priority + 1, None, None),
         ("quote", "quote", max(5, priority - 5), None, None),
         ("chart_30d", "price_series", priority, windows["chart_30d"], None),
         ("chart_365d", "price_series", priority + 10, windows["chart_365d"], None),

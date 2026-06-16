@@ -167,6 +167,7 @@ from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
+    confirmation_score_bundle_from_source_contexts,
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
 )
@@ -4055,7 +4056,11 @@ def _shell_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     cleaned = value.strip()
-    return cleaned or None
+    if not cleaned:
+        return None
+    if cleaned.lower() in {"n/a", "na", "none", "null", "unknown", "-", "--"}:
+        return None
+    return cleaned
 
 
 def _ticker_shell_meta_row(db: Session, symbol: str) -> TickerMeta | None:
@@ -4837,6 +4842,8 @@ def _ticker_trade_activity_summary(
             Event.member_name,
             Event.member_bioguide_id,
             Event.payload_json,
+            Event.event_date,
+            Event.ts,
         )
         .where(Event.symbol == symbol)
         .where(Event.event_type == event_type)
@@ -4856,6 +4863,18 @@ def _ticker_trade_activity_summary(
     direction = _ticker_summary_direction(buy_count, sell_count)
     net_flow = _ticker_summary_net_flow(rows)
     active = buy_count + sell_count > 0
+    now = datetime.now(timezone.utc)
+    activity_dates: list[datetime] = []
+    for row in rows:
+        value = row.event_date or row.ts
+        if value is None:
+            continue
+        if isinstance(value, datetime):
+            activity_dates.append(value if value.tzinfo else value.replace(tzinfo=timezone.utc))
+        else:
+            activity_dates.append(datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc))
+    latest_activity = max(activity_dates) if activity_dates else None
+    freshness_days = max((now - latest_activity.astimezone(timezone.utc)).days, 0) if latest_activity is not None else None
     if event_type == "insider_trade":
         active_title = "Insider activity active"
         inactive_title = "No recent insider activity"
@@ -4872,6 +4891,8 @@ def _ticker_trade_activity_summary(
         "buy_count": buy_count,
         "sell_count": sell_count,
         "net_flow": net_flow,
+        "latest_date": _dt_iso(latest_activity),
+        "freshness_days": freshness_days,
     }
 
 
@@ -4913,6 +4934,22 @@ def _normalize_price_volume_context(summary: dict[str, Any]) -> dict[str, Any]:
 def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | float | None, lookback_days: int) -> dict[str, Any]:
     recent_count = len(rows)
     direction = _ticker_signal_direction(rows)
+    latest_ts: datetime | None = None
+    for row in rows:
+        raw_ts = row.get("ts")
+        if not isinstance(raw_ts, str) or not raw_ts.strip():
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw_ts.strip().replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        parsed = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        latest_ts = parsed if latest_ts is None or parsed > latest_ts else latest_ts
+    freshness_days = (
+        max((datetime.now(timezone.utc) - latest_ts.astimezone(timezone.utc)).days, 0)
+        if latest_ts is not None
+        else None
+    )
     if recent_count <= 0:
         return {
             "status": "inactive",
@@ -4921,6 +4958,8 @@ def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | f
             "subtitle": f"No signal conviction entries in the last {lookback_days}D.",
             "recent_count": 0,
             "latest_score": None,
+            "latest_date": None,
+            "freshness_days": None,
         }
     return {
         "status": "active",
@@ -4929,6 +4968,8 @@ def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | f
         "subtitle": f"{recent_count} recent signal{'s' if recent_count != 1 else ''}.",
         "recent_count": recent_count,
         "latest_score": latest_score,
+        "latest_date": _dt_iso(latest_ts),
+        "freshness_days": freshness_days,
     }
 
 
@@ -4937,6 +4978,15 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
     contract_count = int(raw_count or 0) if isinstance(raw_count, (int, float)) else 0
     raw_value = summary.get("total_award_amount")
     contract_value = float(raw_value) if isinstance(raw_value, (int, float)) else None
+    latest_award_date = _shell_text(summary.get("latest_award_date"))
+    freshness_days = None
+    if latest_award_date:
+        try:
+            parsed = datetime.fromisoformat(latest_award_date.replace("Z", "+00:00"))
+            parsed = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            freshness_days = max((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).days, 0)
+        except ValueError:
+            freshness_days = None
     if summary.get("status") == "unavailable" and summary.get("active") is None:
         return {
             "status": "unavailable",
@@ -4945,6 +4995,8 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
             "subtitle": "Government contract activity is not available.",
             "contract_count": 0,
             "contract_value": None,
+            "latest_date": None,
+            "freshness_days": None,
         }
     if contract_count <= 0:
         return {
@@ -4954,6 +5006,8 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
             "subtitle": "No contracts above threshold in selected window.",
             "contract_count": 0,
             "contract_value": None,
+            "latest_date": None,
+            "freshness_days": None,
         }
     return {
         "status": "active",
@@ -4962,6 +5016,8 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
         "subtitle": _shell_text(summary.get("detail")) or _shell_text(summary.get("summary")) or f"{contract_count} contract awards.",
         "contract_count": contract_count,
         "contract_value": round(contract_value, 2) if contract_value is not None else None,
+        "latest_date": latest_award_date,
+        "freshness_days": freshness_days,
     }
 
 
@@ -5008,25 +5064,61 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
     rows = list(reversed(rows))
     closes: list[float] = []
     volumes: list[float] = []
+    points: list[dict[str, Any]] = []
     for row in rows:
         close = _parse_numeric(row.close)
-        if close is not None and close > 0:
-            closes.append(close)
         volume = _parse_numeric(row.volume)
         if volume is None:
             volume = _parse_numeric(row.day_volume)
+        if close is not None and close > 0:
+            closes.append(close)
+            points.append(
+                {
+                    "date": str(row.date) if row.date is not None else None,
+                    "close": close,
+                    "volume": volume if volume is not None and volume > 0 else None,
+                }
+            )
         if volume is not None and volume > 0:
             volumes.append(volume)
-    average_volume = sum(volumes[-30:]) / min(len(volumes), 30) if volumes else None
+    latest_point = points[-1] if points else None
+    previous_point = points[-2] if len(points) >= 2 else None
+    latest_close = _parse_numeric(latest_point.get("close")) if latest_point else None
+    previous_close = _parse_numeric(previous_point.get("close")) if previous_point else None
+    latest_volume = _parse_numeric(latest_point.get("volume")) if latest_point else None
+    recent_volumes = [
+        float(point["volume"])
+        for point in points[-20:]
+        if _parse_numeric(point.get("volume")) is not None and _parse_numeric(point.get("volume")) > 0
+    ]
+    average_volume_20d = sum(recent_volumes) / len(recent_volumes) if recent_volumes else None
+    change_pct_1d = (
+        round(((latest_close - previous_close) / previous_close) * 100, 4)
+        if latest_close is not None and previous_close is not None and previous_close > 0
+        else None
+    )
+    volume_vs_avg = (
+        round(latest_volume / average_volume_20d, 4)
+        if latest_volume is not None and average_volume_20d is not None and average_volume_20d > 0
+        else None
+    )
     return {
         "closes": closes,
         "volumes": volumes,
+        "points": points,
         "point_count": len(closes),
         "volume_points": len(volumes),
         "has_price_series": bool(closes),
         "has_volume": bool(volumes),
-        "last_volume": volumes[-1] if volumes else None,
-        "average_volume": average_volume,
+        "latest_close": latest_close,
+        "previous_close": previous_close,
+        "change_pct_1d": change_pct_1d,
+        "latest_volume": latest_volume,
+        "avg_volume_20d": average_volume_20d,
+        "volume_vs_avg": volume_vs_avg,
+        "latest_date": latest_point.get("date") if latest_point else None,
+        "last_volume": latest_volume,
+        "average_volume": average_volume_20d,
     }
 
 
@@ -5163,24 +5255,53 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         "has_technicals": has_technicals,
         "point_count": price_points,
     }
+    latest_close = _parse_numeric(cached_inputs.get("latest_close"))
+    previous_close = _parse_numeric(cached_inputs.get("previous_close"))
+    change_pct_1d = _parse_numeric(cached_inputs.get("change_pct_1d"))
+    latest_volume = _parse_numeric(cached_inputs.get("latest_volume"))
+    avg_volume_20d = _parse_numeric(cached_inputs.get("avg_volume_20d"))
+    volume_vs_avg = _parse_numeric(cached_inputs.get("volume_vs_avg"))
+    latest_date = cached_inputs.get("latest_date") if isinstance(cached_inputs.get("latest_date"), str) else None
+    market_fields = {
+        "latest_close": latest_close,
+        "previous_close": previous_close,
+        "change_pct_1d": change_pct_1d,
+        "latest_volume": latest_volume,
+        "avg_volume_20d": avg_volume_20d,
+        "volume_vs_avg": volume_vs_avg,
+        "latest_date": latest_date,
+    }
+    market_lines: list[str] = []
+    if latest_close is not None:
+        market_lines.append(f"Latest close: {latest_close:.2f}")
+    if change_pct_1d is not None:
+        market_lines.append(f"1D change: {change_pct_1d:+.2f}%")
+    if latest_volume is not None and avg_volume_20d is not None and avg_volume_20d > 0:
+        market_lines.append(f"Volume vs 20D avg: {latest_volume / avg_volume_20d:.2f}x")
     volume_line = None
     last_volume = _parse_numeric(cached_inputs.get("last_volume"))
     average_volume = _parse_numeric(cached_inputs.get("average_volume"))
     if last_volume is not None and average_volume is not None and average_volume > 0:
         volume_ratio = last_volume / average_volume
         if volume_ratio >= 1.2:
-            volume_line = "Volume above 30D average"
+            volume_line = "Volume above 20D average"
         elif volume_ratio <= 0.8:
-            volume_line = "Volume below 30D average"
+            volume_line = "Volume below 20D average"
         else:
-            volume_line = "Volume near 30D average"
+            volume_line = "Volume near 20D average"
     if volume_line:
         lines.append(volume_line)
 
-    if price_points <= 0:
+    directional = [signal for signal in available_signals if signal in {"bullish", "bearish"}]
+    bullish = directional.count("bullish")
+    bearish = directional.count("bearish")
+    direction = "bullish" if bullish > bearish else "bearish" if bearish > bullish else "mixed" if directional else "neutral"
+    score = max(bullish, bearish) * 25 if directional else 0
+
+    if latest_close is None:
         loading = _ticker_price_volume_hydration_pending(db, normalized)
-        status = "loading" if loading else "limited"
-        title = "Loading price and volume data" if loading else "Limited price history"
+        status = "unavailable"
+        title = "Updating price and volume data" if loading else "Price and volume unavailable"
         reason = "hydration_pending" if loading else "missing_price_history"
         _log_ticker_price_volume_summary(
             symbol=normalized,
@@ -5201,53 +5322,31 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
             "lines": [title],
             "price_points": price_points,
             "inputs": inputs,
+            **market_fields,
         }
-    if price_points < 35 or not available_signals:
+    if latest_volume is None or avg_volume_20d is None:
         _log_ticker_price_volume_summary(
             symbol=normalized,
             status="limited",
-            direction="neutral",
+            direction=direction,
             has_price_series=has_price_series,
             has_volume=has_volume,
             has_technicals=has_technicals,
             point_count=price_points,
-            reason="insufficient_price_history" if price_points < 35 else "insufficient_technical_history",
+            reason="missing_volume" if latest_volume is None else "missing_average_volume",
         )
+        title = "Limited price/volume history"
         return {
             "status": "limited",
-            "direction": "neutral",
-            "title": "Limited price history",
-            "summary": "Limited price history",
-            "score": None,
-            "lines": lines,
+            "direction": direction,
+            "title": title,
+            "summary": title,
+            "score": score if directional else None,
+            "lines": market_lines + lines,
             "price_points": price_points,
             "inputs": inputs,
+            **market_fields,
         }
-    directional = [signal for signal in available_signals if signal in {"bullish", "bearish"}]
-    if not directional:
-        _log_ticker_price_volume_summary(
-            symbol=normalized,
-            status="inactive",
-            direction="neutral",
-            has_price_series=has_price_series,
-            has_volume=has_volume,
-            has_technicals=has_technicals,
-            point_count=price_points,
-            reason="neutral_technicals",
-        )
-        return {
-            "status": "inactive",
-            "direction": "neutral",
-            "title": "No active tape confirmation",
-            "summary": "No active tape confirmation",
-            "score": 0,
-            "lines": lines,
-            "price_points": price_points,
-            "inputs": inputs,
-        }
-    bullish = directional.count("bullish")
-    bearish = directional.count("bearish")
-    direction = "bullish" if bullish > bearish else "bearish" if bearish > bullish else "mixed"
     _log_ticker_price_volume_summary(
         symbol=normalized,
         status="active",
@@ -5256,17 +5355,19 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         has_volume=has_volume,
         has_technicals=has_technicals,
         point_count=price_points,
-        reason="directional_technicals",
+        reason="cached_price_volume_available" if not directional else "directional_technicals",
     )
+    title = f"{direction.title()} tape confirmation" if directional else "Price and volume available"
     return {
         "status": "active",
-        "title": f"{direction.title()} tape confirmation",
-        "summary": f"{direction.title()} tape confirmation",
-        "score": max(bullish, bearish) * 25,
-        "lines": lines,
+        "title": title,
+        "summary": title,
+        "score": score,
+        "lines": market_lines + lines,
         "price_points": price_points,
         "direction": direction,
         "inputs": inputs,
+        **market_fields,
     }
 
 
@@ -5342,17 +5443,41 @@ def ticker_signals_summary(
     )
     signals = _normalize_signals_context(rows, latest_score, bounded_lookback_days)
     government_contracts = _normalize_government_contracts_context(
-        get_government_contracts_summary(db, normalized_symbol, lookback_days=365, min_amount=1_000_000)
+        get_government_contracts_summary(db, normalized_symbol, lookback_days=bounded_lookback_days, min_amount=1_000_000)
+    )
+    confirmation_score_bundle = confirmation_score_bundle_from_source_contexts(
+        normalized_symbol,
+        lookback_days=bounded_lookback_days,
+        source_contexts={
+            "price_volume": price_volume,
+            "insiders": insiders,
+            "congress": congress,
+            "signals": signals,
+            "government_contracts": government_contracts,
+        },
+    )
+    signal_freshness = build_signal_freshness_bundle(
+        normalized_symbol,
+        confirmation_score_bundle,
+        lookback_days=bounded_lookback_days,
+    )
+    has_context_activity = any(
+        isinstance(context, dict) and context.get("status") == "active"
+        for context in (price_volume, insiders, congress, signals, government_contracts)
     )
     payload = {
         "symbol": normalized_symbol,
-        "status": "ok" if rows else "no_data",
+        "status": "ok" if rows or has_context_activity else "no_data",
+        "lookback_days": bounded_lookback_days,
+        "effective_window_days": bounded_lookback_days,
         "updated_at": _dt_iso(datetime.now(timezone.utc)),
         "price_volume": price_volume,
         "insiders": insiders,
         "congress": congress,
         "signals": signals,
         "government_contracts": government_contracts,
+        "confirmation_score_bundle": confirmation_score_bundle,
+        "signal_freshness": signal_freshness,
         "latest_signal_score": latest_score,
         "recent_count": len(rows),
         "recent_signal_count": len(rows),
@@ -6660,10 +6785,7 @@ def _resolve_ticker_page_name(
 
 
 def _clean_ticker_metadata_text(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip()
-    return cleaned or None
+    return _shell_text(value)
 
 
 def _resolve_ticker_company_metadata(
@@ -6673,7 +6795,7 @@ def _resolve_ticker_company_metadata(
     security: Security | None = None,
 ) -> dict[str, str | None]:
     metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
-    profile_row = _company_profile_snapshot_from_fmp(sym)
+    profile_row = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
     fundamentals = _latest_fundamentals_row(db, sym)
 
     return {
@@ -6682,6 +6804,8 @@ def _resolve_ticker_company_metadata(
         or _clean_ticker_metadata_text(fundamentals.sector if fundamentals is not None else None),
         "industry": _clean_ticker_metadata_text(metadata.get("industry"))
         or _clean_ticker_metadata_text(profile_row.get("industry"))
+        or _clean_ticker_metadata_text(profile_row.get("sicDescription"))
+        or _clean_ticker_metadata_text(profile_row.get("sic_description"))
         or _clean_ticker_metadata_text(fundamentals.industry if fundamentals is not None else None),
         "country": _clean_ticker_metadata_text(metadata.get("country"))
         or _clean_ticker_metadata_text(profile_row.get("country"))

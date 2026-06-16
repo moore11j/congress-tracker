@@ -111,9 +111,12 @@ def test_ticker_signals_summary_uses_bounded_symbol_query(monkeypatch):
     assert response["symbol"] == "NBIS"
     assert response["latest_signal_score"] == 82
     assert response["recent_signal_count"] == 1
+    assert response["lookback_days"] == 30
+    assert response["effective_window_days"] == 30
     assert response["items"][0]["symbol"] == "NBIS"
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
+    assert response["confirmation_score_bundle"]["lookback_days"] == 30
 
 
 def test_ticker_signals_summary_returns_congress_activity_when_events_exist(monkeypatch):
@@ -139,6 +142,8 @@ def test_ticker_signals_summary_returns_congress_activity_when_events_exist(monk
     assert response["congress"]["sell_count"] == 1
     assert response["congress"]["title"] != "No recent Congress trades"
     assert response["insiders"]["status"] == "inactive"
+    assert response["confirmation_score_bundle"]["score"] > 0
+    assert response["confirmation_score_bundle"]["status"] != "Inactive"
 
 
 def test_ticker_signals_summary_returns_nbis_insider_sell_activity(monkeypatch):
@@ -163,6 +168,34 @@ def test_ticker_signals_summary_returns_nbis_insider_sell_activity(monkeypatch):
     assert response["insiders"]["sell_count"] == 1
     assert response["insiders"]["buy_count"] == 0
     assert response["insiders"]["net_flow"] == -125_000
+    assert response["confirmation_score_bundle"]["direction"] == "bearish"
+    assert response["confirmation_score_bundle"]["score"] > 0
+    assert response["signal_freshness"]["timing"]["active_source_count"] == 1
+
+
+def test_ticker_signals_summary_conflicting_sources_produce_mixed_confirmation(monkeypatch):
+    _mock_signal_auth(monkeypatch)
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_price_volume_summary",
+        lambda db, symbol: {"status": "unavailable", "summary": "Price and volume unavailable", "score": None, "lines": ["Price and volume unavailable"], "direction": "neutral"},
+    )
+
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(_event(20, symbol="MSTR", event_type="insider_trade", trade_type="sale", amount=125_000, member_name="MSTR Insider"))
+        db.add(_event(21, symbol="MSTR", event_type="congress_trade", trade_type="purchase", amount=125_000, member_name="Rep Buyer"))
+        db.commit()
+
+        response = ticker_signals_summary(object(), "MSTR", side="all", limit=3, lookback_days=365, db=db)
+
+    assert response["effective_window_days"] == 365
+    assert response["confirmation_score_bundle"]["lookback_days"] == 365
+    assert response["confirmation_score_bundle"]["direction"] == "mixed"
+    assert response["confirmation_score_bundle"]["status"] != "Inactive"
+    assert response["confirmation_score_bundle"]["score"] > 0
+    assert response["signal_freshness"]["timing"]["active_source_count"] == 2
 
 
 def test_ticker_signals_summary_inactive_government_contracts_when_dataset_has_no_symbol_rows(monkeypatch):
@@ -218,8 +251,8 @@ def test_ticker_price_volume_summary_distinguishes_missing_and_inactive(monkeypa
         },
     )
     missing = main_module._ticker_price_volume_summary(object(), "NBIS")
-    assert missing["status"] == "limited"
-    assert missing["summary"] == "Limited price history"
+    assert missing["status"] == "unavailable"
+    assert missing["summary"] == "Price and volume unavailable"
 
     monkeypatch.setattr(
         main_module,
@@ -231,9 +264,21 @@ def test_ticker_price_volume_summary_distinguishes_missing_and_inactive(monkeypa
             "ema_trend": {"status": "ok", "signal": "neutral", "message": "EMA trend mixed"},
         },
     )
-    inactive = main_module._ticker_price_volume_summary(object(), "NBIS")
-    assert inactive["status"] == "inactive"
-    assert inactive["summary"] == "No active tape confirmation"
+    engine = _engine()
+    today = date.today()
+    with Session(engine) as db:
+        for offset in range(40):
+            day = today - timedelta(days=39 - offset)
+            db.add(PriceCache(symbol="NBIS", date=day.isoformat(), close=100 + offset, volume=1_000_000 + offset))
+        db.commit()
+        inactive = main_module._ticker_price_volume_summary(db, "NBIS")
+
+    assert inactive["status"] == "active"
+    assert inactive["direction"] == "neutral"
+    assert inactive["summary"] == "Price and volume available"
+    assert inactive["latest_close"] is not None
+    assert inactive["latest_volume"] is not None
+    assert inactive["avg_volume_20d"] is not None
 
 
 def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(monkeypatch):
@@ -260,12 +305,15 @@ def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(mon
 
         for symbol in ("AAPL", "MSTR", "NBIS"):
             summary = main_module._ticker_price_volume_summary(db, symbol)
-            assert summary["status"] in {"active", "inactive"}
-            assert summary["status"] != "loading"
+            assert summary["status"] == "active"
             assert summary["status"] != "unavailable"
             assert summary["inputs"]["has_price_series"] is True
             assert summary["inputs"]["has_volume"] is True
             assert summary["inputs"]["point_count"] >= 35
+            assert summary["latest_close"] is not None
+            assert summary["latest_volume"] is not None
+            assert summary["avg_volume_20d"] is not None
+            assert summary["volume_vs_avg"] is not None
 
 
 def test_ticker_price_volume_summary_loading_only_when_hydration_pending(monkeypatch):
@@ -293,5 +341,5 @@ def test_ticker_price_volume_summary_loading_only_when_hydration_pending(monkeyp
 
         summary = main_module._ticker_price_volume_summary(db, "NBIS")
 
-    assert summary["status"] == "loading"
-    assert summary["summary"] == "Loading price and volume data"
+    assert summary["status"] == "unavailable"
+    assert summary["summary"] == "Updating price and volume data"

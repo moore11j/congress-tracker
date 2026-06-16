@@ -16,7 +16,11 @@ test("ticker page uses selected URL lookback for chart and activity windows", ()
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
   assert.match(tickerPage, /lookback_days: lookbackDays/);
+  assert.match(tickerPage, /effectiveWindowDays \?\? selectedLookbackDays/);
+  assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
+  assert.match(tickerPage, /normalizeOptionsFlowSummary\(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays\)/);
+  assert.match(tickerPage, /optionsFlow = \{ \.\.\.optionsFlow, lookback_days: effectiveLookbackDays \}/);
   assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} \/>/);
   assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(selectedLookbackDays\)\}/);
   assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\} \/>/);

@@ -271,6 +271,32 @@ def test_ticker_shell_identity_uses_fundamentals_for_mstr_sector_industry():
     assert profile["ticker"]["identity_status"] == "ok"
 
 
+def test_ticker_shell_identity_ignores_placeholder_sector_industry():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(TickerMeta(symbol="MSTR", company_name="Strategy Inc", exchange="NASDAQ", sector="N/A", industry="None"))
+        db.add(
+            FundamentalsCache(
+                symbol="MSTR",
+                provider="fmp",
+                fetched_at=datetime.now(timezone.utc),
+                status="ok",
+                company_name="Strategy Inc",
+                sector="Technology",
+                industry="Software - Application",
+                country="US",
+                exchange="NASDAQ",
+            )
+        )
+        db.commit()
+
+        profile = _build_ticker_shell_profile("mstr", db)
+
+    assert profile["ticker"]["sector"] == "Technology"
+    assert profile["ticker"]["industry"] == "Software - Application"
+
+
 def test_ticker_shell_identity_uses_nbis_cached_sector_industry():
     engine = _engine()
 

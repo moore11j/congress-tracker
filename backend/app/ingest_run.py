@@ -719,9 +719,10 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
         result.get("landing_symbol_count", 0),
     )
     logger.info(
-        "prewarm_ticker_cache_jobs jobs_enqueued_by_type=%s attempted_by_type=%s skipped_budget=%s attempted=%s enqueued=%s",
+        "prewarm_ticker_cache_jobs jobs_enqueued_by_type=%s attempted_by_type=%s skip_reasons=%s skipped_budget=%s attempted=%s enqueued=%s",
         result.get("enqueued_by_type", {}),
         result.get("attempted_by_type", {}),
+        result.get("skip_reasons", {}),
         result.get("skipped_budget", 0),
         result.get("attempted", 0),
         result.get("enqueued", 0),

@@ -85,6 +85,9 @@ type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: SignalItem[];
   priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
+  confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
+  signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
+  effectiveWindowDays: number | null;
   signalsUnavailable: SignalGateState | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
@@ -685,10 +688,10 @@ function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: st
   return { label: "Insider mixed", tone: "neutral" };
 }
 
-function inactiveConfirmationBundle(ticker: string): ConfirmationScoreBundle {
+function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): ConfirmationScoreBundle {
   return {
     ticker,
-    lookback_days: 30,
+    lookback_days: lookbackDays,
     score: 0,
     band: "inactive",
     direction: "neutral",
@@ -827,10 +830,10 @@ function inactiveOptionsFlowSummary(ticker: string): OptionsFlowSummary {
   };
 }
 
-function inactiveSignalFreshnessBundle(ticker: string): SignalFreshnessBundle {
+function inactiveSignalFreshnessBundle(ticker: string, lookbackDays = 30): SignalFreshnessBundle {
   return {
     ticker,
-    lookback_days: 30,
+    lookback_days: lookbackDays,
     freshness_score: 0,
     freshness_state: "inactive",
     freshness_label: "No active setup",
@@ -844,13 +847,15 @@ function inactiveSignalFreshnessBundle(ticker: string): SignalFreshnessBundle {
   };
 }
 
-function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | undefined, ticker: string): ConfirmationScoreBundle {
-  const fallback = inactiveConfirmationBundle(ticker);
+function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | undefined, ticker: string, lookbackDays = 30): ConfirmationScoreBundle {
+  const fallback = inactiveConfirmationBundle(ticker, lookbackDays);
   if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
   return {
     ...fallback,
     ...bundle,
     ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
     sources: {
       congress: { ...fallback.sources.congress, ...(bundle.sources?.congress ?? {}) },
       insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
@@ -864,13 +869,15 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
   };
 }
 
-function normalizeOptionsFlowSummary(bundle: OptionsFlowSummary | null | undefined, ticker: string): OptionsFlowSummary {
-  const fallback = inactiveOptionsFlowSummary(ticker);
+function normalizeOptionsFlowSummary(bundle: OptionsFlowSummary | null | undefined, ticker: string, lookbackDays = 30): OptionsFlowSummary {
+  const fallback = { ...inactiveOptionsFlowSummary(ticker), lookback_days: lookbackDays };
   if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
   return {
     ...fallback,
     ...bundle,
     ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
     signals: Array.isArray(bundle.signals) && bundle.signals.length > 0 ? bundle.signals.slice(0, 4) : fallback.signals,
     metrics: {
       ...fallback.metrics,
@@ -879,13 +886,15 @@ function normalizeOptionsFlowSummary(bundle: OptionsFlowSummary | null | undefin
   };
 }
 
-function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefined, ticker: string): SignalFreshnessBundle {
-  const fallback = inactiveSignalFreshnessBundle(ticker);
+function normalizeSignalFreshness(bundle: SignalFreshnessBundle | null | undefined, ticker: string, lookbackDays = 30): SignalFreshnessBundle {
+  const fallback = inactiveSignalFreshnessBundle(ticker, lookbackDays);
   if (!bundle) return fallback;
+  const effectiveLookback = Number.isFinite(bundle.lookback_days) ? bundle.lookback_days : lookbackDays;
   return {
     ...fallback,
     ...bundle,
     ticker: bundle.ticker || ticker,
+    lookback_days: effectiveLookback,
     timing: {
       ...fallback.timing,
       ...(bundle.timing ?? {}),
@@ -974,6 +983,7 @@ function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedS
 
 function setupTimingLabel(freshness: SignalFreshnessBundle): string {
   if (freshness.timing.active_source_count <= 0) return "Timing inactive";
+  if (freshness.timing.freshest_source_days === null && freshness.timing.stalest_active_source_days === null) return "Timing limited";
   if (freshness.freshness_state === "stale") return "Older setup";
   if (freshness.freshness_state === "maturing") return "Maturing setup";
   return "Fresh setup";
@@ -981,6 +991,9 @@ function setupTimingLabel(freshness: SignalFreshnessBundle): string {
 
 function timingDetailLine(freshness: SignalFreshnessBundle): string {
   const timing = freshness.timing;
+  if (timing.active_source_count > 0 && timing.freshest_source_days === null && timing.stalest_active_source_days === null) {
+    return `${timing.active_source_count} active source${timing.active_source_count === 1 ? "" : "s"} · dates limited`;
+  }
   const freshest = timing.freshest_source_days === null ? "--" : `${timing.freshest_source_days}d`;
   const oldest = timing.stalest_active_source_days === null ? "--" : `${timing.stalest_active_source_days}d`;
   const overlap = timing.overlap_window_days === null ? "--" : `${timing.overlap_window_days}d`;
@@ -1093,12 +1106,12 @@ function priceVolumeSummary(
   if (contextStatus === "active") {
     const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
       ? contextDirection
-      : "mixed";
+      : null;
     return {
-      state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : "MIXED",
+      state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : direction === "mixed" ? "MIXED" : "ACTIVE",
       summary: contextSummary || "Tape confirmation is active",
       diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : diagnostics,
-      tone: direction,
+      tone: direction ?? "mixed",
     };
   }
   if (contextStatus === "inactive") {
@@ -1825,6 +1838,13 @@ async function resolveTickerActivityData({
     insiderEvents,
     governmentContracts,
     priceVolumeContext: signalsRes.price_volume ?? null,
+    confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
+    signalFreshness: signalsRes.signal_freshness ?? null,
+    effectiveWindowDays: typeof signalsRes.effective_window_days === "number"
+      ? signalsRes.effective_window_days
+      : typeof signalsRes.lookback_days === "number"
+        ? signalsRes.lookback_days
+        : null,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -1876,14 +1896,33 @@ async function DeferredTickerContent({
     netFlow,
     topSignal,
     priceVolumeContext,
+    confirmationScoreBundle: activityConfirmationScoreBundle,
+    signalFreshness: activitySignalFreshness,
+    effectiveWindowDays,
     congressParticipantCount,
     insiderParticipantCount,
     topCongressParticipants,
     topInsiderParticipants,
   } = await activityPromise;
-  const confirmationBundle = normalizeConfirmationBundle(confirmationScoreBundle, normalizedSymbol);
-  const optionsFlow = normalizeOptionsFlowSummary(optionsFlowSummary, normalizedSymbol);
-  const freshnessBundle = normalizeSignalFreshness(signalFreshness, normalizedSymbol);
+  const selectedLookbackDays = Number(lookback);
+  const effectiveLookbackDays = effectiveWindowDays ?? selectedLookbackDays;
+  let confirmationBundle = normalizeConfirmationBundle(
+    activityConfirmationScoreBundle ?? confirmationScoreBundle,
+    normalizedSymbol,
+    effectiveLookbackDays,
+  );
+  if (!activityConfirmationScoreBundle && confirmationBundle.lookback_days !== effectiveLookbackDays) {
+    confirmationBundle = { ...confirmationBundle, lookback_days: effectiveLookbackDays };
+  }
+  let optionsFlow = normalizeOptionsFlowSummary(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays);
+  if (optionsFlow.lookback_days !== effectiveLookbackDays) {
+    optionsFlow = { ...optionsFlow, lookback_days: effectiveLookbackDays };
+  }
+  const freshnessBundle = normalizeSignalFreshness(
+    activitySignalFreshness ?? signalFreshness,
+    normalizedSymbol,
+    confirmationBundle.lookback_days || effectiveLookbackDays,
+  );
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
@@ -1910,7 +1949,6 @@ async function DeferredTickerContent({
   const congressCardSource = sourceFromActivityCounts(confirmationBundle.sources.congress, congressBuys, congressSells);
   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
   const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
-  const selectedLookbackDays = Number(lookback);
   const confirmationLookbackDays = confirmationBundle.lookback_days;
 
   return (

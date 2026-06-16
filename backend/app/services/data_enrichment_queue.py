@@ -387,6 +387,8 @@ def enqueue_priority_ticker_prewarm_jobs(
     attempted = 0
     enqueued_by_type: dict[str, int] = {}
     attempted_by_type: dict[str, int] = {}
+    skip_reasons: dict[str, int] = {}
+    skip_reasons_by_type: dict[str, dict[str, int]] = {}
 
     def _enqueue(**kwargs) -> None:
         nonlocal attempted, enqueued
@@ -396,6 +398,16 @@ def enqueue_priority_ticker_prewarm_jobs(
         if enqueue_data_enrichment_job(**kwargs):
             enqueued += 1
             enqueued_by_type[job_type] = enqueued_by_type.get(job_type, 0) + 1
+            return
+        reason = _enqueue_skip_reason(
+            job_type=job_type,
+            symbol=kwargs.get("symbol"),
+            date_key=kwargs.get("date_key"),
+            window_key=kwargs.get("window_key"),
+        )
+        skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+        by_type = skip_reasons_by_type.setdefault(job_type, {})
+        by_type[reason] = by_type.get(reason, 0) + 1
 
     for symbol in symbols:
         for job_type, priority, payload in (
@@ -411,7 +423,7 @@ def enqueue_priority_ticker_prewarm_jobs(
                 job_type=job_type,
                 symbol=symbol,
                 source=source,
-                reason="priority_ticker_prewarm",
+                reason="enqueued_missing_profile" if job_type == "ticker_meta" else "priority_ticker_prewarm",
                 priority=priority,
                 payload=payload,
                 max_attempts=3,
@@ -422,7 +434,7 @@ def enqueue_priority_ticker_prewarm_jobs(
                 symbol=symbol,
                 window_key=f"{start_key}:{end_key}",
                 source=source,
-                reason=f"priority_ticker_prewarm_{label}",
+                reason="enqueued_missing_price_volume",
                 priority=priority,
                 max_attempts=3,
             )
@@ -431,7 +443,7 @@ def enqueue_priority_ticker_prewarm_jobs(
             symbol=symbol,
             window_key="technical:90d",
             source=source,
-            reason="priority_ticker_prewarm_technical",
+            reason="enqueued_missing_price_volume",
             priority=60,
             max_attempts=3,
         )
@@ -443,12 +455,50 @@ def enqueue_priority_ticker_prewarm_jobs(
         "enqueued": enqueued,
         "attempted_by_type": attempted_by_type,
         "enqueued_by_type": enqueued_by_type,
+        "skip_reasons": skip_reasons,
+        "skip_reasons_by_type": skip_reasons_by_type,
         "watchlist_symbol_count": len(watchlist_symbols),
         "recently_viewed_symbol_count": len(recently_viewed_symbols),
         "popular_symbol_count": len(popular_symbols),
         "landing_symbol_count": len(landing_symbols),
         "skipped_budget": 0,
+        "skipped_fresh": skip_reasons.get("skipped_fresh", 0),
+        "skipped_existing_pending": skip_reasons.get("skipped_existing_pending", 0),
     }
+
+
+def _enqueue_skip_reason(
+    *,
+    job_type: str,
+    symbol: object = None,
+    date_key: object = None,
+    window_key: object = None,
+) -> str:
+    dedupe_key = build_dedupe_key(
+        job_type=job_type,
+        symbol=str(symbol) if symbol is not None else None,
+        date_key=str(date_key) if date_key is not None else None,
+        window_key=str(window_key) if window_key is not None else None,
+    )
+    if not dedupe_key.strip("|"):
+        return "skipped_invalid"
+    now = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        existing = db.execute(
+            select(DataEnrichmentJob).where(DataEnrichmentJob.dedupe_key == dedupe_key)
+        ).scalar_one_or_none()
+    except Exception:
+        return "skipped_enqueue_failed"
+    finally:
+        db.close()
+    if existing is None:
+        return "skipped_enqueue_failed"
+    if existing.status in ACTIVE_STATUSES:
+        return "skipped_existing_pending"
+    if existing.status == "done" and _job_completed_recently(existing, now):
+        return "skipped_fresh"
+    return "skipped_enqueue_failed"
 
 
 def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:

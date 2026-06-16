@@ -2,6 +2,7 @@ import type {
   ConfirmationMonitoringEventsResponse,
   ConfirmationMonitoringClearResponse,
   ConfirmationMonitoringRefreshResponse,
+  ConfirmationScoreBundle,
   FeedResponse,
   InsightsNewsResponse,
   MacroSnapshotResponse,
@@ -2697,6 +2698,8 @@ type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown
 export type TickerSignalsSummaryResponse = {
   symbol: string;
   status: "ok" | "empty" | "loading" | "unavailable" | string;
+  lookback_days?: number;
+  effective_window_days?: number;
   updated_at?: string | null;
   latest_signal_score: number | null;
   recent_signal_count: number;
@@ -2710,6 +2713,13 @@ export type TickerSignalsSummaryResponse = {
     score?: number | null;
     lines?: string[];
     price_points?: number | null;
+    latest_close?: number | null;
+    previous_close?: number | null;
+    change_pct_1d?: number | null;
+    latest_volume?: number | null;
+    avg_volume_20d?: number | null;
+    volume_vs_avg?: number | null;
+    latest_date?: string | null;
     inputs?: {
       has_price_series?: boolean;
       has_volume?: boolean;
@@ -2750,7 +2760,11 @@ export type TickerSignalsSummaryResponse = {
     subtitle?: string | null;
     contract_count?: number;
     contract_value?: number | null;
+    latest_date?: string | null;
+    freshness_days?: number | null;
   } | null;
+  confirmation_score_bundle?: ConfirmationScoreBundle | null;
+  signal_freshness?: SignalFreshnessBundle | null;
 };
 
 export async function getSignalsAll(params: {

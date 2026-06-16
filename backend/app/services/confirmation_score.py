@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -166,6 +166,28 @@ def confirmation_band_for_score(score: int) -> ConfirmationBand:
 
 def inactive_confirmation_score_bundle(ticker: str, *, lookback_days: int = 30) -> dict:
     return _empty_bundle(ticker.strip().upper(), lookback_days).as_dict()
+
+
+def confirmation_score_bundle_from_source_contexts(
+    ticker: str,
+    *,
+    lookback_days: int = 30,
+    source_contexts: dict[str, dict[str, Any] | None] | None = None,
+) -> dict:
+    """Build the canonical ticker overview from the bounded card source contexts."""
+    symbol = (ticker or "").strip().upper()
+    bounded_lookback = max(1, min(int(lookback_days or 30), 365))
+    contexts = source_contexts or {}
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary] = {
+        "congress": _activity_context_source(contexts.get("congress"), label="Congress"),
+        "insiders": _activity_context_source(contexts.get("insiders"), label="Insiders"),
+        "signals": _signals_context_source(contexts.get("signals")),
+        "price_volume": _price_volume_context_source(contexts.get("price_volume")),
+        "options_flow": _options_flow_context_source(contexts.get("options_flow")),
+        "government_contracts": _government_contracts_context_source(contexts.get("government_contracts")),
+        "institutional_activity": _institutional_context_source(contexts.get("institutional_activity")),
+    }
+    return _score_bundle(symbol, bounded_lookback, sources).as_dict()
 
 
 def confirmation_active_source_count(bundle: dict) -> int:
@@ -709,6 +731,181 @@ def _source_direction(buys: int, sells: int) -> ConfirmationDirection:
     if sells > buys:
         return "bearish"
     return "mixed"
+
+
+def _context_status(context: dict[str, Any] | None) -> str:
+    if not isinstance(context, dict):
+        return "unavailable"
+    return str(context.get("status") or "unavailable").strip().lower()
+
+
+def _context_direction(context: dict[str, Any] | None) -> ConfirmationDirection:
+    if not isinstance(context, dict):
+        return "neutral"
+    direction = context.get("direction")
+    return direction if direction in {"bullish", "bearish", "neutral", "mixed"} else "neutral"
+
+
+def _context_int(context: dict[str, Any] | None, key: str, default: int = 0) -> int:
+    if not isinstance(context, dict):
+        return default
+    try:
+        return int(round(float(context.get(key, default) or 0)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _context_float(context: dict[str, Any] | None, key: str) -> float | None:
+    if not isinstance(context, dict):
+        return None
+    try:
+        value = float(context.get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if isfinite(value) else None
+
+
+def _context_freshness_days(context: dict[str, Any] | None) -> int | None:
+    if not isinstance(context, dict):
+        return None
+    value = context.get("freshness_days")
+    if isinstance(value, int) and value >= 0:
+        return value
+    return _days_since_iso(context.get("latest_date") or context.get("latest_award_date"))
+
+
+def _context_text(context: dict[str, Any] | None, *keys: str) -> str | None:
+    if not isinstance(context, dict):
+        return None
+    for key in keys:
+        value = context.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _activity_context_source(context: dict[str, Any] | None, *, label: str) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("Inactive")
+    buys = _context_int(context, "buy_count")
+    sells = _context_int(context, "sell_count")
+    total = buys + sells
+    if total <= 0:
+        return _empty_source("Inactive")
+    direction = _context_direction(context)
+    if direction == "neutral":
+        direction = _source_direction(buys, sells)
+    net_flow = abs(_context_float(context, "net_flow") or 0)
+    skew = _skew_ratio(buys, sells)
+    strength = _clamp_int(26 + min(total, 8) * 6 + min(net_flow / 1_000_000, 3.0) * 5 + skew * 18)
+    quality = _clamp_int(40 + min(total, 6) * 7 + (10 if direction in {"bullish", "bearish"} else 4))
+    side_label = "buy-skewed" if direction == "bullish" else "sell-skewed" if direction == "bearish" else "mixed"
+    title = _context_text(context, "title") or f"{label} activity active"
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=strength,
+        quality=quality,
+        freshness_days=_context_freshness_days(context),
+        label=f"Active / {side_label}",
+        detail=title,
+        summary=_context_text(context, "subtitle"),
+    )
+
+
+def _signals_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("No current smart signal")
+    recent_count = _context_int(context, "recent_count")
+    if recent_count <= 0:
+        return _empty_source("No current smart signal")
+    latest_score = _context_float(context, "latest_score")
+    direction = _context_direction(context)
+    strength = _clamp_int(latest_score if latest_score is not None else 30 + min(recent_count, 5) * 10)
+    quality = _clamp_int(42 + min(recent_count, 5) * 8 + (10 if latest_score and latest_score >= 70 else 0))
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction if direction != "neutral" else "mixed",
+        strength=strength,
+        quality=quality,
+        freshness_days=_context_freshness_days(context),
+        label=_context_text(context, "title") or "Signal conviction active",
+        detail=_context_text(context, "subtitle"),
+    )
+
+
+def _price_volume_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("No price confirmation")
+    direction = _context_direction(context)
+    if direction == "neutral":
+        return _empty_source("No price confirmation")
+    score = _context_float(context, "score")
+    point_count = _context_int(context, "price_points")
+    has_volume = bool((context or {}).get("latest_volume") or (context or {}).get("latest_volume") == 0)
+    strength = _clamp_int(score if score is not None else 34 + min(point_count / 20, 3.0) * 8)
+    quality = _clamp_int(40 + min(point_count / 10, 4.0) * 8 + (10 if has_volume else 0))
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=strength,
+        quality=quality,
+        freshness_days=_context_freshness_days(context),
+        label=_context_text(context, "title", "summary") or f"{direction.title()} price confirmation",
+        summary=_context_text(context, "summary"),
+    )
+
+
+def _government_contracts_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("No recent government contracts")
+    contract_count = _context_int(context, "contract_count")
+    if contract_count <= 0:
+        return _empty_source("No recent government contracts")
+    contract_value = _context_float(context, "contract_value") or 0
+    score_contribution = _clamp_int(4 + min(contract_count, 5) * 2 + min(contract_value / 25_000_000, 4.0) * 2, maximum=20)
+    return ConfirmationSourceSummary(
+        present=True,
+        direction="bullish",
+        strength=_clamp_int(26 + score_contribution * 2),
+        quality=_clamp_int(34 + score_contribution * 2),
+        freshness_days=_context_freshness_days(context),
+        label=_context_text(context, "title") or "Government contracts active",
+        score_contribution=score_contribution,
+        detail=_context_text(context, "subtitle"),
+        summary=_context_text(context, "subtitle"),
+    )
+
+
+def _options_flow_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("Options flow not confirming")
+    direction = _context_direction(context)
+    if direction not in {"bullish", "bearish"}:
+        return _empty_source("Options flow not confirming")
+    score = _context_float(context, "score")
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=_clamp_int(score if score is not None else 45),
+        quality=55,
+        freshness_days=_context_freshness_days(context),
+        label=_context_text(context, "title", "summary") or "Options flow confirming",
+    )
+
+
+def _institutional_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if _context_status(context) != "active":
+        return _empty_source("Institutional activity not configured")
+    direction = _context_direction(context)
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=45,
+        quality=50,
+        freshness_days=_context_freshness_days(context),
+        label=_context_text(context, "title", "summary") or "Institutional activity active",
+    )
 
 
 def _skew_ratio(buys: int, sells: int) -> float:
