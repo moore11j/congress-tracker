@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
@@ -86,6 +86,7 @@ type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: SignalItem[];
   priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
+  sourceEntitlements: TickerSourceEntitlements | null;
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
   signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
   effectiveWindowDays: number | null;
@@ -684,6 +685,33 @@ function canUseSignalActivity(entitlements: Entitlements | null): boolean {
   return entitlements ? hasEntitlement(entitlements, "signals") : true;
 }
 
+function canUseProTickerContext(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  if (!entitlements) return true;
+  return entitlements.tier === "pro" || entitlements.tier === "admin" || Boolean(entitlements.user?.is_admin);
+}
+
+function tickerContextSourceEntitlements(entitlements: Entitlements | null): TickerSourceEntitlements {
+  const signalsLocked = !canUseSignalActivity(entitlements);
+  const proLocked = !canUseProTickerContext(entitlements);
+  const meta = (source: ConfirmationSourceKey, requiredPlan: TickerSourceEntitlement["required_plan"], locked: boolean): TickerSourceEntitlement => ({
+    source,
+    required_plan: requiredPlan,
+    locked,
+    available: !locked,
+  });
+
+  return {
+    price_volume: meta("price_volume", null, false),
+    insiders: meta("insiders", null, false),
+    congress: meta("congress", null, false),
+    government_contracts: meta("government_contracts", null, false),
+    signals: meta("signals", "premium", signalsLocked),
+    institutional_activity: meta("institutional_activity", "pro", proLocked),
+    options_flow: meta("options_flow", "pro", proLocked),
+  };
+}
+
 function insiderBiasLabel(confirmation: ConfirmationSummary | null): { label: string; tone: "pos" | "neg" | "neutral" } {
   if (!confirmation || !confirmation.insider_active_30d) return { label: "No insider side signal", tone: "neutral" };
   if (confirmation.insider_buy_count_30d > confirmation.insider_sell_count_30d) return { label: "Insider buy-skewed", tone: "pos" };
@@ -727,17 +755,19 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
 
 function TickerOverviewPanel({
   confirmationBundle,
+  sourceDisplayBundle = confirmationBundle,
   freshnessBundle,
   alignedSources,
   intelligenceBullets,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
+  sourceDisplayBundle?: ConfirmationScoreBundle;
   freshnessBundle: SignalFreshnessBundle;
   alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
 }) {
   const lookbackDays = confirmationBundle.lookback_days;
-  const mutedLine = overviewMutedLine(confirmationBundle);
+  const mutedLine = overviewMutedLine(sourceDisplayBundle);
 
   return (
     <div>
@@ -775,7 +805,7 @@ function TickerOverviewPanel({
       </div>
 
       {mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
-      <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(confirmationBundle)}</p>
+      <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>
     </div>
   );
 }
@@ -970,6 +1000,40 @@ function alignedConfirmationSources(bundle: ConfirmationScoreBundle): Confirmati
     const source = bundle.sources[key];
     return source.present && source.direction === bundle.direction;
   });
+}
+
+function sourceEntitlement(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): TickerSourceEntitlement | null {
+  return entitlements?.[source] ?? null;
+}
+
+function sourceIsLocked(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): boolean {
+  return Boolean(sourceEntitlement(entitlements, source)?.locked);
+}
+
+function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"]): string {
+  return requiredPlan === "pro" ? "Pro feature" : "Premium feature";
+}
+
+function displayConfirmationBundleForEntitlements(
+  bundle: ConfirmationScoreBundle,
+  entitlements: TickerSourceEntitlements | null | undefined,
+): ConfirmationScoreBundle {
+  const lockedSources = confirmationSourceOrder.filter((source) => sourceIsLocked(entitlements, source));
+  if (lockedSources.length === 0) return bundle;
+  const sources = { ...bundle.sources };
+  for (const source of lockedSources) {
+    const meta = sourceEntitlement(entitlements, source);
+    sources[source] = {
+      ...sources[source],
+      present: false,
+      direction: "neutral",
+      strength: 0,
+      quality: 0,
+      freshness_days: null,
+      label: lockFeatureLabel(meta?.required_plan),
+    };
+  }
+  return { ...bundle, sources };
 }
 
 function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedSources: ConfirmationSourceKey[]): string {
@@ -1407,6 +1471,35 @@ function SourceEvidenceCard({
   );
 }
 
+function LockedSourceEvidenceCard({
+  title,
+  icon,
+  requiredPlan,
+  support,
+}: {
+  title: string;
+  icon: IntelligenceIconKind;
+  requiredPlan: "premium" | "pro";
+  support: string;
+}) {
+  const label = lockFeatureLabel(requiredPlan);
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-slate-500">
+            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+        </div>
+        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">LOCKED</p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{label}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
+    </div>
+  );
+}
+
 function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   const contractCount = summary.metrics.observed_contracts ?? 0;
   const freshnessDays = summary.metrics.freshness_days;
@@ -1434,16 +1527,32 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   );
 }
 
-function InstitutionalPlaceholderCard() {
+function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["institutional_activity"]): string {
+  if (!source.present) return "No recent institutional activity";
+  if (source.direction === "bearish") return "Active / reducing";
+  if (source.direction === "bullish") return "Active / accumulating";
+  return "Active / mixed";
+}
+
+function institutionalSourceSupport(source: ConfirmationScoreBundle["sources"]["institutional_activity"], lookbackDays: number): string {
+  return source.detail ?? source.summary ?? (source.present ? `${lookbackDays}D` : "No activity in selected window");
+}
+
+function InstitutionalActivityCard({
+  source,
+  lookbackDays,
+}: {
+  source: ConfirmationScoreBundle["sources"]["institutional_activity"];
+  lookbackDays: number;
+}) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Institutional</p>
-        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">UNAVAILABLE</p>
-      </div>
-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Institutional activity unavailable</p>
-      <p className="mt-1 text-xs leading-snug text-slate-500">Not available yet</p>
-    </div>
+    <SourceEvidenceCard
+      title="Institutional"
+      icon="people"
+      source={source}
+      body={institutionalSourceBody(source)}
+      support={institutionalSourceSupport(source, lookbackDays)}
+    />
   );
 }
 
@@ -1705,7 +1814,12 @@ async function resolveTickerActivityData({
     governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
     signalSummaryRequest
       ? signalSummaryRequest
-          .then((response) => ({ response, unavailable: null }))
+          .then((response) => ({
+            response,
+            unavailable: response.source_entitlements?.signals?.locked
+              ? signalsUnavailable ?? signalGateForAuthenticatedFreeUser()
+              : null,
+          }))
           .catch(() => ({
             response: { items: [] as SignalItem[] },
             unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
@@ -1822,6 +1936,7 @@ async function resolveTickerActivityData({
     insiderEvents,
     governmentContracts,
     priceVolumeContext: signalsRes.price_volume ?? null,
+    sourceEntitlements: signalsRes.source_entitlements ?? null,
     confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
     signalFreshness: signalsRes.signal_freshness ?? null,
     effectiveWindowDays: typeof signalsRes.effective_window_days === "number"
@@ -1856,6 +1971,7 @@ async function DeferredTickerContent({
   optionsFlowSummary,
   signalFreshness,
   technicalIndicators,
+  fallbackSourceEntitlements,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -1868,6 +1984,7 @@ async function DeferredTickerContent({
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
   signalFreshness: SignalFreshnessBundle | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
+  fallbackSourceEntitlements: TickerSourceEntitlements;
 }) {
   const {
     signals,
@@ -1882,6 +1999,7 @@ async function DeferredTickerContent({
     netFlow,
     topSignal,
     priceVolumeContext,
+    sourceEntitlements: activitySourceEntitlements,
     confirmationScoreBundle: activityConfirmationScoreBundle,
     signalFreshness: activitySignalFreshness,
     effectiveWindowDays,
@@ -1912,6 +2030,11 @@ async function DeferredTickerContent({
     confirmationBundle.lookback_days || effectiveLookbackDays,
   );
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
+  const sourceEntitlements = activitySourceEntitlements ?? fallbackSourceEntitlements;
+  const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
+  const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
+  const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
+  const optionsFlowCardLocked = sourceIsLocked(sourceEntitlements, "options_flow");
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -1931,7 +2054,7 @@ async function DeferredTickerContent({
   const signalGateTitle = signalsUnavailable?.reason === "upgrade"
     ? "Signal Activity is a premium feature."
     : "Signals are gated for this view.";
-  const alignedSources = alignedConfirmationSources(confirmationBundle);
+  const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext);
   const insiderCardSource = confirmationBundle.sources.insiders;
   const congressCardSource = confirmationBundle.sources.congress;
@@ -1940,7 +2063,7 @@ async function DeferredTickerContent({
   const summaryInsiderSells = summaryCount(summaryInsiders, "sell_count");
   const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
   const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
-  const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
+  const intelligenceBullets = overviewBullets({ confirmationBundle: visibleConfirmationBundle, alignedSources });
   const confirmationLookbackDays = confirmationBundle.lookback_days;
 
   return (
@@ -1954,6 +2077,7 @@ async function DeferredTickerContent({
             overview={
               <TickerOverviewPanel
                 confirmationBundle={confirmationBundle}
+                sourceDisplayBundle={visibleConfirmationBundle}
                 freshnessBundle={freshnessBundle}
                 alignedSources={alignedSources}
                 intelligenceBullets={intelligenceBullets}
@@ -1999,15 +2123,45 @@ async function DeferredTickerContent({
                 body={sourceCardBody("congress", congressCardSource, topSignal)}
                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
               />
-              <InstitutionalPlaceholderCard />
-              <SourceEvidenceCard
-                title="Signals"
-                icon="signals"
-                source={signalsCardSource}
-                body={sourceCardBody("signals", signalsCardSource, topSignal)}
-                support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
-              />
-              <OptionsFlowCard summary={optionsFlow} />
+              {institutionalCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Institutional"
+                  icon="people"
+                  requiredPlan="pro"
+                  support="Institutional activity unlocks with Pro."
+                />
+              ) : (
+                <InstitutionalActivityCard
+                  source={confirmationBundle.sources.institutional_activity}
+                  lookbackDays={confirmationLookbackDays}
+                />
+              )}
+              {signalsCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Signals"
+                  icon="signals"
+                  requiredPlan="premium"
+                  support="Signal stack details unlock with Premium."
+                />
+              ) : (
+                <SourceEvidenceCard
+                  title="Signals"
+                  icon="signals"
+                  source={signalsCardSource}
+                  body={sourceCardBody("signals", signalsCardSource, topSignal)}
+                  support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
+                />
+              )}
+              {optionsFlowCardLocked ? (
+                <LockedSourceEvidenceCard
+                  title="Options Flow"
+                  icon="flow"
+                  requiredPlan="pro"
+                  support="Options flow unlocks with Pro."
+                />
+              ) : (
+                <OptionsFlowCard summary={optionsFlow} />
+              )}
               <GovernmentContractsCard
                 source={confirmationBundle.sources.government_contracts}
               />
@@ -2589,6 +2743,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const shouldLoadSignalActivity = source === "all" || source === "signals";
   const signalActivityAuthPending = shouldLoadSignalActivity && !authToken && authState.hasAuthHint;
   const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
+  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements);
   const signalGateState = !shouldLoadSignalActivity || signalActivityAuthPending
     ? null
     : !authToken
@@ -2631,7 +2786,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           })
         : undefined;
     const signalSummaryRequest =
-      canViewSignalActivity && authToken
+      authToken
         ? getTickerSignalsSummary(normalizedSymbol, {
             side,
             limit: 3,
@@ -2694,6 +2849,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           optionsFlowSummary={profile.options_flow_summary}
           signalFreshness={profile.signal_freshness}
           technicalIndicators={profile.technical_indicators}
+          fallbackSourceEntitlements={fallbackSourceEntitlements}
         />
       </Suspense>
     </div>

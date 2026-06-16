@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.main as main_module
 from app.db import Base
+from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
 from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
 from app.services.confirmation_context import build_confirmation_score_context
@@ -21,9 +22,9 @@ def _engine():
     return engine
 
 
-def _mock_signal_auth(monkeypatch):
+def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     monkeypatch.setattr(main_module, "current_user", lambda *args, **kwargs: object())
-    monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: {})
+    monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS[tier])
     monkeypatch.setattr(main_module, "require_feature", lambda *args, **kwargs: None)
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
 
@@ -173,6 +174,69 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_signals_summary_free_user_gets_public_context_with_locked_sources(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="free")
+    monkeypatch.setattr(
+        main_module,
+        "require_feature",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("ticker context must not be feature-gated as a whole")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("free context must not query premium signal rows")),
+    )
+
+    engine = _engine()
+    with Session(engine) as db:
+        _seed_score_contract_fixture(db)
+        db.commit()
+
+        responses = [
+            ticker_signals_summary(object(), symbol, side="all", limit=3, lookback_days=365, db=db)
+            for symbol in ("AAPL", "MSTR")
+        ]
+
+    for response in responses:
+        source_entitlements = response["source_entitlements"]
+        assert source_entitlements["price_volume"]["locked"] is False
+        assert source_entitlements["insiders"]["locked"] is False
+        assert source_entitlements["congress"]["locked"] is False
+        assert source_entitlements["government_contracts"]["locked"] is False
+        assert source_entitlements["signals"]["required_plan"] == "premium"
+        assert source_entitlements["signals"]["locked"] is True
+        assert source_entitlements["institutional_activity"]["required_plan"] == "pro"
+        assert source_entitlements["institutional_activity"]["locked"] is True
+        assert source_entitlements["options_flow"]["required_plan"] == "pro"
+        assert source_entitlements["options_flow"]["locked"] is True
+        assert response["items"] == []
+        assert response["recent_signal_count"] == 0
+        assert response["latest_signal_score"] is None
+        assert response["confirmation_score_bundle"]["score"] > 0
+        assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_context_source_entitlements_match_required_plan_model():
+    free = main_module._ticker_context_source_entitlements(ENTITLEMENTS["free"])
+    premium = main_module._ticker_context_source_entitlements(ENTITLEMENTS["premium"])
+    pro = main_module._ticker_context_source_entitlements(ENTITLEMENTS["pro"])
+
+    for public_source in ("price_volume", "insiders", "congress", "government_contracts"):
+        assert free[public_source]["locked"] is False
+        assert premium[public_source]["locked"] is False
+        assert pro[public_source]["locked"] is False
+
+    assert free["signals"]["locked"] is True
+    assert premium["signals"]["locked"] is False
+    assert pro["signals"]["locked"] is False
+    assert free["institutional_activity"]["locked"] is True
+    assert premium["institutional_activity"]["locked"] is True
+    assert pro["institutional_activity"]["locked"] is False
+    assert free["options_flow"]["locked"] is True
+    assert premium["options_flow"]["locked"] is True
+    assert pro["options_flow"]["locked"] is False
 
 
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):

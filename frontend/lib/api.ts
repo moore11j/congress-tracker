@@ -2731,6 +2731,15 @@ export type SignalItem = {
 
 type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown };
 
+export type TickerSourceEntitlement = {
+  source: string;
+  required_plan?: "premium" | "pro" | null;
+  locked: boolean;
+  available: boolean;
+};
+
+export type TickerSourceEntitlements = Record<string, TickerSourceEntitlement>;
+
 export type TickerSignalsSummaryResponse = {
   symbol: string;
   status: "ok" | "empty" | "loading" | "unavailable" | string;
@@ -2799,6 +2808,7 @@ export type TickerSignalsSummaryResponse = {
     latest_date?: string | null;
     freshness_days?: number | null;
   } | null;
+  source_entitlements?: TickerSourceEntitlements | null;
   confirmation_score_bundle?: ConfirmationScoreBundle | null;
   signal_freshness?: SignalFreshnessBundle | null;
 };
