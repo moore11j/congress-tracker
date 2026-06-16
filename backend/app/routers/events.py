@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.auth import current_user, is_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, PriceCache, QuoteCache, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -49,7 +49,7 @@ from app.services.government_departments import DEPARTMENT_ALIASES, canonical_de
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.services.search_suggest import search_suggestions
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
-from app.utils.symbols import normalize_symbol, symbol_variants
+from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 
 router = APIRouter(tags=["events"])
@@ -757,124 +757,6 @@ def _parse_numeric(value) -> float | None:
         except Exception:
             return None
     return None
-
-
-def _date_key(value: str | date | datetime | None) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    text = str(value).strip()[:10]
-    try:
-        date.fromisoformat(text)
-    except Exception:
-        return None
-    return text
-
-
-def _get_eod_close_cache_only(db: Session, symbol: str | None, date_value: str | date | datetime | None) -> float | None:
-    date_key = _date_key(date_value)
-    if not date_key:
-        return None
-    variants = symbol_variants(symbol)
-    if not variants:
-        return None
-    for candidate_symbol in variants:
-        cached = db.get(PriceCache, (candidate_symbol, date_key))
-        if cached is not None and cached.close is not None:
-            return float(cached.close)
-
-    target_date = date.fromisoformat(date_key)
-    rows = db.execute(
-        select(PriceCache.date, PriceCache.close)
-        .where(PriceCache.symbol.in_(variants))
-        .where(PriceCache.date <= date_key)
-        .order_by(PriceCache.date.desc())
-        .limit(1)
-    ).first()
-    if rows is None:
-        return None
-    cached_date, cached_close = rows
-    try:
-        fallback_days = (target_date - date.fromisoformat(str(cached_date)[:10])).days
-    except Exception:
-        return None
-    if 0 <= fallback_days <= 7 and cached_close is not None:
-        return float(cached_close)
-    return None
-
-
-def _get_current_prices_meta_cache_only(db: Session, symbols: list[str] | set[str]) -> dict[str, dict]:
-    normalized_symbols = sorted({symbol for raw in symbols for symbol in [normalize_symbol(raw)] if symbol})
-    if not normalized_symbols:
-        return {}
-
-    variants_by_symbol = {symbol: symbol_variants(symbol) for symbol in normalized_symbols}
-    lookup_symbols = sorted({variant for variants in variants_by_symbol.values() for variant in variants})
-    if not lookup_symbols:
-        return {}
-
-    rows = db.execute(
-        select(QuoteCache.symbol, QuoteCache.price, QuoteCache.asof_ts)
-        .where(QuoteCache.symbol.in_(lookup_symbols))
-    ).all()
-    row_by_symbol = {
-        normalize_symbol(symbol): (price, asof_ts)
-        for symbol, price, asof_ts in rows
-        if normalize_symbol(symbol) and price is not None
-    }
-
-    quote_meta: dict[str, dict] = {}
-    for symbol, variants in variants_by_symbol.items():
-        for variant in variants:
-            row = row_by_symbol.get(variant)
-            if row is None:
-                continue
-            price, asof_ts = row
-            quote_meta[symbol] = {
-                "price": float(price),
-                "asof_ts": asof_ts,
-                "is_stale": False,
-            }
-            break
-    return quote_meta
-
-
-def _enqueue_quote_enrichment(symbol: str | None, *, reason: str = "feed_pnl_quote_cache_miss") -> None:
-    normalized = normalize_symbol(symbol)
-    if not normalized:
-        return
-    enqueue_data_enrichment_job(
-        job_type="quote",
-        symbol=normalized,
-        source="feed_load",
-        reason=reason,
-        priority=35,
-        max_attempts=3,
-    )
-
-
-def _enqueue_eod_enrichment(
-    symbol: str | None,
-    date_value: str | date | datetime | None,
-    *,
-    reason: str = "feed_pnl_entry_cache_miss",
-) -> None:
-    normalized = normalize_symbol(symbol)
-    date_key = _date_key(date_value)
-    if not normalized or not date_key:
-        return
-    enqueue_data_enrichment_job(
-        job_type="price_eod",
-        symbol=normalized,
-        date_key=date_key,
-        source="feed_load",
-        reason=reason,
-        priority=35,
-        max_attempts=3,
-    )
 
 
 def _first_non_empty_text(*values) -> str | None:
@@ -1913,17 +1795,16 @@ def _insider_entry_price(
     normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
     if normalized.is_comparable:
         return normalized.display_price, "normalized_filing" if normalized.status == "normalized" else "filing"
+    if normalized.ordinary_shares_per_adr is not None:
+        return None, "normalization_unavailable"
 
     if sym and trade_date:
         key = (sym, trade_date)
         if key not in price_memo:
-            price_memo[key] = _get_eod_close_cache_only(db, sym, trade_date)
+            price_memo[key] = get_eod_close(db, sym, trade_date)
         fallback_price = price_memo[key]
         if fallback_price is not None and fallback_price > 0:
             return fallback_price, "eod"
-
-    if normalized.ordinary_shares_per_adr is not None:
-        return None, "normalization_unavailable"
 
     return None, "none"
 
@@ -2109,13 +1990,12 @@ def _event_payload(
         elif eligibility.eligible and sym and trade_date:
             key = (sym, trade_date)
             if key not in price_memo:
-                price_memo[key] = _get_eod_close_cache_only(db, sym, trade_date)
+                price_memo[key] = get_eod_close(db, sym, trade_date)
             estimated_price = price_memo[key]
             if estimated_price is not None and estimated_price > 0:
                 pnl_source = "eod"
             else:
                 outcome_skip_reason = "no_entry_price"
-                _enqueue_eod_enrichment(sym, trade_date)
         elif not eligibility.eligible:
             outcome_skip_reason = eligibility.skip_reason
 
@@ -2134,8 +2014,6 @@ def _event_payload(
                 or payload.get("transaction_type")
                 or payload.get("trade_type"),
             )
-        elif estimated_price is not None and estimated_price > 0:
-            _enqueue_quote_enrichment(sym)
     elif enrich_prices and event.event_type == "insider_trade":
         sym, trade_date = _insider_symbol_and_trade_date(event, payload)
         normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
@@ -2181,10 +2059,6 @@ def _event_payload(
             payload["outcomeHorizon"] = display_metrics.outcome_horizon
         elif current_price is not None and estimated_price is not None and estimated_price > 0:
             pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or payload.get("trade_type"))
-        elif estimated_price is not None and estimated_price > 0:
-            _enqueue_quote_enrichment(sym)
-        elif entry_source == "none" and sym and trade_date:
-            _enqueue_eod_enrichment(sym, trade_date)
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -2469,31 +2343,32 @@ def _fetch_events_page(
                     continue
                 key = (sym, trade_date)
                 if key not in price_memo:
-                    price_memo[key] = _get_eod_close_cache_only(db, sym, trade_date)
+                    price_memo[key] = get_eod_close(db, sym, trade_date)
                 if price_memo[key] is not None:
                     quote_symbols.add(sym)
-                else:
-                    _enqueue_eod_enrichment(sym, trade_date)
             elif event.event_type == "insider_trade":
-                sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+                sym, _ = _insider_symbol_and_trade_date(event, payload)
                 if not sym:
                     continue
                 entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
                 if entry_price is not None and entry_price > 0:
                     quote_symbols.add(sym)
-                elif trade_date:
-                    _enqueue_eod_enrichment(sym, trade_date)
 
-    current_quote_meta = _get_current_prices_meta_cache_only(db, quote_symbols) if enrich_prices and quote_symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(
+            db,
+            sorted(quote_symbols),
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
+        if enrich_prices and quote_symbols
+        else {}
+    )
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
         if isinstance(meta, dict) and "price" in meta
     }
-    if enrich_prices:
-        for sym in sorted(quote_symbols):
-            if sym not in current_price_memo:
-                _enqueue_quote_enrichment(sym)
 
     ticker_symbols = {
         symbol
@@ -3565,31 +3440,32 @@ def list_events(
                     continue
                 key = (sym, trade_date)
                 if key not in price_memo:
-                    price_memo[key] = _get_eod_close_cache_only(db, sym, trade_date)
+                    price_memo[key] = get_eod_close(db, sym, trade_date)
                 if price_memo[key] is not None:
                     quote_symbols.add(sym)
-                else:
-                    _enqueue_eod_enrichment(sym, trade_date)
             elif event.event_type == "insider_trade":
-                sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+                sym, _ = _insider_symbol_and_trade_date(event, payload)
                 if not sym:
                     continue
                 entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
                 if entry_price is not None and entry_price > 0:
                     quote_symbols.add(sym)
-                elif trade_date:
-                    _enqueue_eod_enrichment(sym, trade_date)
 
-    current_quote_meta = _get_current_prices_meta_cache_only(db, quote_symbols) if enrich_prices and quote_symbols else {}
+    current_quote_meta = (
+        get_current_prices_meta_db(
+            db,
+            sorted(quote_symbols),
+            allow_cache_write=False,
+            release_connection_before_fetch=True,
+        )
+        if enrich_prices and quote_symbols
+        else {}
+    )
     current_price_memo = {
         sym: meta["price"]
         for sym, meta in current_quote_meta.items()
         if isinstance(meta, dict) and "price" in meta
     }
-    if enrich_prices:
-        for sym in sorted(quote_symbols):
-            if sym not in current_price_memo:
-                _enqueue_quote_enrichment(sym)
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:

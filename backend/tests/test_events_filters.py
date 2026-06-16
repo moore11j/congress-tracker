@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, GovernmentContractAction, PriceCache, QuoteCache, Security, TradeOutcome
+from app.models import Event, GovernmentContractAction, Security, TradeOutcome
 from app.routers.events import list_events
 
 
@@ -111,84 +111,6 @@ def test_symbol_scoped_events_return_base_rows_when_price_enrichment_unavailable
         assert [item.id for item in page.items] == [101]
         assert page.items[0].price is None
         assert page.items[0].pnl_pct is None
-    finally:
-        db.close()
-
-
-def test_feed_uses_cached_prices_for_missing_congress_outcome(monkeypatch):
-    db = _db()
-    try:
-        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("network lookup should not run")))
-        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr("app.routers.events.enqueue_data_enrichment_job", lambda **_kwargs: True)
-
-        db.add(
-            _event(
-                201,
-                "congress_trade",
-                symbol="AAPL",
-                member_name="Member",
-                member_bioguide_id="M1",
-                trade_type="purchase",
-                amount_min=1_000,
-                amount_max=15_000,
-                payload={"symbol": "AAPL", "trade_date": "2026-05-01", "report_date": "2026-05-02"},
-            )
-        )
-        db.add(PriceCache(symbol="AAPL", date="2026-05-01", close=100.0))
-        db.add(QuoteCache(symbol="AAPL", price=110.0, asof_ts=datetime(2026, 5, 2, tzinfo=timezone.utc).replace(tzinfo=None)))
-        db.commit()
-
-        page = list_events(db=db, mode="all", recent_days=365, limit=10, enrich_prices=True)
-
-        assert [item.id for item in page.items] == [201]
-        assert page.items[0].estimated_price == 100.0
-        assert page.items[0].current_price == 110.0
-        assert round(page.items[0].pnl_pct or 0, 6) == 10.0
-        assert page.items[0].pnl_source == "eod"
-    finally:
-        db.close()
-
-
-def test_feed_queues_quote_enrichment_when_cached_pnl_quote_missing(monkeypatch):
-    db = _db()
-    jobs: list[dict] = []
-    try:
-        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
-        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr("app.routers.events.enqueue_data_enrichment_job", lambda **kwargs: jobs.append(kwargs) or True)
-
-        db.add(
-            _event(
-                202,
-                "insider_trade",
-                symbol="MSFT",
-                member_name="Test Insider",
-                trade_type="purchase",
-                amount_min=5_000,
-                amount_max=5_000,
-                payload={
-                    "symbol": "MSFT",
-                    "transaction_date": "2026-05-01",
-                    "reporting_cik": "0000000001",
-                    "insider_name": "Test Insider",
-                    "price": 50.0,
-                    "is_market_trade": True,
-                },
-            )
-        )
-        db.commit()
-
-        page = list_events(db=db, mode="all", recent_days=365, limit=10, enrich_prices=True)
-
-        assert [item.id for item in page.items] == [202]
-        assert page.items[0].pnl_pct is None
-        assert any(job["job_type"] == "quote" and job["symbol"] == "MSFT" for job in jobs)
     finally:
         db.close()
 

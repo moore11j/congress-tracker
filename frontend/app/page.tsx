@@ -287,10 +287,6 @@ function mapEventToFeedItem(
   current_price?: number | null;
   pnl_pct?: number | null;
   pnl_source?: string | null;
-  outcome_status?: string | null;
-  outcome_skip_reason?: string | null;
-  outcome_methodology?: string | null;
-  outcome_error?: string | null;
   quote_is_stale?: boolean | null;
   quote_asof_ts?: string | null;
   member_net_30d?: number | null;
@@ -383,10 +379,6 @@ function mapEventToFeedItem(
       current_price: currentPrice,
       pnl_pct: pnlPct,
       pnl_source: (event as any).pnl_source ?? null,
-      outcome_status: event.outcome_status ?? null,
-      outcome_skip_reason: event.outcome_skip_reason ?? null,
-      outcome_methodology: event.outcome_methodology ?? null,
-      outcome_error: event.outcome_error ?? null,
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
@@ -467,10 +459,6 @@ function mapEventToFeedItem(
       current_price: currentPrice,
       pnl_pct: pnlPct,
       pnl_source: (event as any).pnl_source ?? null,
-      outcome_status: event.outcome_status ?? null,
-      outcome_skip_reason: event.outcome_skip_reason ?? null,
-      outcome_methodology: event.outcome_methodology ?? null,
-      outcome_error: event.outcome_error ?? null,
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
       member_net_30d: memberNet30d,
@@ -743,10 +731,6 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
         smart_score: (event as any).smart_score ?? null,
         smart_band: (event as any).smart_band ?? null,
         pnl_source: (event as any).pnl_source ?? null,
-        outcome_status: (event as any).outcome_status ?? null,
-        outcome_skip_reason: (event as any).outcome_skip_reason ?? null,
-        outcome_methodology: (event as any).outcome_methodology ?? null,
-        outcome_error: (event as any).outcome_error ?? null,
         quote_is_stale: (event as any).quote_is_stale ?? null,
         quote_asof_ts: (event as any).quote_asof_ts ?? null,
       };
