@@ -11,10 +11,8 @@ import app.main as main_module
 from app.db import Base
 from app.main import _ticker_profiles_response, ticker_signals_summary
 from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
-from app.services.confirmation_score import (
-    get_slim_confirmation_score_bundles_for_tickers,
-    slim_confirmation_score_bundle,
-)
+from app.services.confirmation_context import build_confirmation_score_context
+from app.services.confirmation_score import slim_confirmation_score_bundle
 
 
 def _engine():
@@ -137,7 +135,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     )
     monkeypatch.setattr(
         main_module,
-        "get_confirmation_score_bundles_for_tickers",
+        "build_confirmation_score_context",
         lambda db, tickers, **kwargs: captured.update(
             {
                 "confirmation_tickers": list(tickers),
@@ -145,10 +143,15 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
             }
         )
         or {
-            "NBIS": main_module.inactive_confirmation_score_bundle(
-                "NBIS",
-                lookback_days=int(kwargs.get("lookback_days") or 30),
-            )
+            "bundles": {
+                "NBIS": main_module.inactive_confirmation_score_bundle(
+                    "NBIS",
+                    lookback_days=int(kwargs.get("lookback_days") or 30),
+                )
+            },
+            "options_flow_summaries": {},
+            "government_contracts_summaries": {},
+            "institutional_activity_summaries": {},
         },
     )
 
@@ -172,7 +175,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
 
 
-def test_ticker_signals_summary_matches_signals_score_contract_for_30d(monkeypatch):
+def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):
     _mock_signal_auth(monkeypatch)
     monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
 
@@ -182,11 +185,12 @@ def test_ticker_signals_summary_matches_signals_score_contract_for_30d(monkeypat
         _seed_score_contract_fixture(db)
         db.commit()
 
-        expected_by_symbol = get_slim_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=30)
+        expected_context = build_confirmation_score_context(db, symbols, lookback_days=30)
+        expected_by_symbol = expected_context["bundles"]
         for symbol in symbols:
             response = ticker_signals_summary(object(), symbol, side="all", limit=3, lookback_days=365, db=db)
             actual_slim = slim_confirmation_score_bundle(response["confirmation_score_bundle"])
-            expected = expected_by_symbol[symbol]
+            expected = slim_confirmation_score_bundle(expected_by_symbol[symbol])
 
             assert response["lookback_days"] == 30
             assert response["effective_window_days"] == 30

@@ -167,12 +167,11 @@ from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
-    get_confirmation_score_bundles_for_tickers,
-    get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
     slim_confirmation_score_bundle,
 )
-from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
+from app.services.options_flow import unavailable_options_flow_summary
+from app.services.confirmation_context import build_confirmation_score_context
 from app.services.signal_freshness import build_signal_freshness_bundle
 from app.services.technical_indicators import _ema as _technical_ema
 from app.services.technical_indicators import _rsi as _technical_rsi
@@ -5073,24 +5072,85 @@ def build_ticker_signals_summary_contexts_from_cache(
     }
 
 
-def _ticker_signals_summary_confirmation_bundle(db: Session, symbol: str) -> dict[str, Any]:
+def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
     try:
-        bundles = get_confirmation_score_bundles_for_tickers(
+        context = build_confirmation_score_context(
             db,
             [normalized_symbol],
             lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
         )
+        bundles = context.get("bundles") if isinstance(context.get("bundles"), dict) else {}
+        options_flow_summaries = (
+            context.get("options_flow_summaries")
+            if isinstance(context.get("options_flow_summaries"), dict)
+            else {}
+        )
+        government_contracts_summaries = (
+            context.get("government_contracts_summaries")
+            if isinstance(context.get("government_contracts_summaries"), dict)
+            else {}
+        )
+        institutional_activity_summaries = (
+            context.get("institutional_activity_summaries")
+            if isinstance(context.get("institutional_activity_summaries"), dict)
+            else {}
+        )
         bundle = bundles.get(normalized_symbol)
-        if isinstance(bundle, dict):
-            return bundle
+        if not isinstance(bundle, dict):
+            bundle = inactive_confirmation_score_bundle(
+                normalized_symbol,
+                lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+            )
+        return {
+            "confirmation_score_bundle": bundle,
+            "options_flow_summary": (
+                options_flow_summaries.get(normalized_symbol)
+                if isinstance(options_flow_summaries.get(normalized_symbol), dict)
+                else unavailable_options_flow_summary(
+                    normalized_symbol,
+                    CONFIRMATION_SIGNAL_WINDOW_DAYS,
+                    provider="massive",
+                    reason="unavailable",
+                )
+            ),
+            "government_contracts_summary": government_contracts_summaries.get(normalized_symbol)
+            if isinstance(government_contracts_summaries.get(normalized_symbol), dict)
+            else None,
+            "institutional_activity_summary": institutional_activity_summaries.get(normalized_symbol)
+            if isinstance(institutional_activity_summaries.get(normalized_symbol), dict)
+            else None,
+        }
     except Exception:
-        logger.exception("ticker_signals_summary_confirmation_bundle_failed symbol=%s", normalized_symbol)
-    return inactive_confirmation_score_bundle(
-        normalized_symbol,
-        lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        logger.exception("ticker_confirmation_context_failed symbol=%s", normalized_symbol)
+        return {
+            "confirmation_score_bundle": inactive_confirmation_score_bundle(
+                normalized_symbol,
+                lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+            ),
+            "options_flow_summary": unavailable_options_flow_summary(
+                normalized_symbol,
+                CONFIRMATION_SIGNAL_WINDOW_DAYS,
+                provider="massive",
+                reason="provider_error",
+            ),
+            "government_contracts_summary": None,
+            "institutional_activity_summary": None,
+        }
+
+
+def _ticker_confirmation_score_bundle(db: Session, sym: str, *, options_flow_summary: dict | None = None) -> dict:
+    return _ticker_confirmation_context(db, sym)["confirmation_score_bundle"]
+
+
+def _ticker_options_flow_summary(sym: str) -> dict:
+    return unavailable_options_flow_summary(
+        sym,
+        CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        provider="massive",
+        reason="loaded_via_confirmation_context",
     )
 
 
@@ -5507,8 +5567,9 @@ def ticker_signals_summary(
         signal_rows=rows,
         latest_signal_score=latest_score,
     )
-    # Keep ticker confirmation aligned with /signals, which uses the batch scorer.
-    confirmation_score_bundle = _ticker_signals_summary_confirmation_bundle(db, normalized_symbol)
+    # Keep ticker confirmation aligned with the screener's lower-level score context.
+    confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
+    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
     signal_freshness = slim_confirmation["signal_freshness"]
     has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
@@ -6720,8 +6781,9 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         reverse=True,
     )[:10]
 
-    options_flow_summary = _ticker_options_flow_summary(sym)
-    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
+    confirmation_context = _ticker_confirmation_context(db, sym)
+    options_flow_summary = confirmation_context["options_flow_summary"]
+    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     why_now = build_why_now_bundle(sym, confirmation_score_bundle, lookback_days=30)
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
@@ -6897,8 +6959,9 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         return None
 
     name = _resolve_ticker_page_name(db, sym, events=events)
-    options_flow_summary = _ticker_options_flow_summary(sym)
-    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
+    confirmation_context = _ticker_confirmation_context(db, sym)
+    options_flow_summary = confirmation_context["options_flow_summary"]
+    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
@@ -6938,8 +7001,9 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
     if not safe_company_identity_candidate(company_name, sym):
         return None
 
-    options_flow_summary = _ticker_options_flow_summary(sym)
-    confirmation_score_bundle = _ticker_confirmation_score_bundle(db, sym, options_flow_summary=options_flow_summary)
+    confirmation_context = _ticker_confirmation_context(db, sym)
+    options_flow_summary = confirmation_context["options_flow_summary"]
+    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_metadata = _resolve_ticker_company_metadata(db, sym)
@@ -6972,22 +7036,6 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
         "signal_freshness": signal_freshness,
         "technical_indicators": technical_indicators,
     }
-
-
-def _ticker_confirmation_score_bundle(db: Session, sym: str, *, options_flow_summary: dict | None = None) -> dict:
-    try:
-        return get_confirmation_score_bundle_for_ticker(db, sym, lookback_days=30, options_flow_summary=options_flow_summary)
-    except Exception:
-        logger.exception("confirmation_score_bundle failed symbol=%s", sym)
-        return inactive_confirmation_score_bundle(sym, lookback_days=30)
-
-
-def _ticker_options_flow_summary(sym: str) -> dict:
-    try:
-        return get_options_flow_summary(sym, lookback_days=30)
-    except Exception:
-        logger.exception("options_flow_summary failed symbol=%s", sym)
-        return unavailable_options_flow_summary(sym, 30, provider="massive", reason="provider_error")
 
 
 def _ticker_technical_indicators(db: Session, sym: str) -> dict:

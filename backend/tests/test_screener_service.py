@@ -966,7 +966,7 @@ def test_directional_confirmation_filters_reject_opposite_and_inactive_states(mo
         ],
     )
     monkeypatch.setattr(
-        "app.services.screener.get_confirmation_score_bundles_for_tickers",
+        "app.services.confirmation_context.get_confirmation_score_bundles_for_tickers",
         lambda *_args, **_kwargs: {
             "BULL": _confirmation_bundle("BULL", score=72, band="strong", direction="bullish"),
             "BEAR": _confirmation_bundle("BEAR", score=72, band="strong", direction="bearish"),

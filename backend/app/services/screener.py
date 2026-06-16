@@ -18,10 +18,10 @@ from app.clients.fmp import fetch_company_screener
 from app.entitlements import TierEntitlements, premium_required_error
 from app.models import PriceCache
 from app.services.confirmation_score import (
-    get_confirmation_score_bundles_for_tickers,
     normalize_confirmation_state,
     slim_confirmation_score_bundle,
 )
+from app.services.confirmation_context import build_confirmation_score_context
 from app.services.government_contracts import (
     DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
@@ -35,8 +35,6 @@ from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.intelligence_overlays import (
     DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
-    get_institutional_activity_summaries_for_symbols,
-    get_options_flow_summaries_for_symbols,
     load_intelligence_feature_flags,
 )
 from app.services.technical_indicators import _ema, _rsi
@@ -541,41 +539,23 @@ def _build_screener_dataset(
         )
 
     symbols = [row["symbol"] for row in normalized_rows]
-    if government_contracts_availability.get("status") == "ok":
-        government_contracts_summaries = {
-            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary())
-            for symbol in symbols
-        }
-    else:
-        government_contracts_summaries = {
-            symbol: unavailable_government_contracts_summary()
-            for symbol in symbols
-        }
-    options_flow_summaries, options_flow_availability = get_options_flow_summaries_for_symbols(
-        db,
-        symbols,
-        lookback_days=max(1, min(int(params.options_flow_lookback_days or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS), 365)),
-        feature_enabled=feature_flags["feature_options_flow_enabled"],
-    )
-    institutional_activity_summaries, institutional_availability = get_institutional_activity_summaries_for_symbols(
-        db,
-        symbols,
-        lookback_days=max(1, min(int(params.institutional_activity_lookback_days or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS), 365)),
-        feature_enabled=feature_flags["feature_institutional_activity_enabled"],
-    )
-    overlay_availability = {
-        "government_contracts": government_contracts_availability,
-        "options_flow": options_flow_availability,
-        "institutional_activity": institutional_availability,
-    }
-    bundles = get_confirmation_score_bundles_for_tickers(
+    confirmation_context = build_confirmation_score_context(
         db,
         symbols,
         lookback_days=lookback_days,
+        government_contracts_lookback_days=government_contracts_lookback_days,
+        government_contracts_min_amount=params.government_contracts_min_amount,
+        options_flow_lookback_days=params.options_flow_lookback_days or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
+        institutional_activity_lookback_days=params.institutional_activity_lookback_days or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
+        feature_flags=feature_flags,
+        government_contracts_availability=government_contracts_availability,
         government_contracts_summaries=government_contracts_summaries,
-        options_flow_summaries=options_flow_summaries,
-        institutional_activity_summaries=institutional_activity_summaries,
     )
+    bundles = confirmation_context["bundles"]
+    government_contracts_summaries = confirmation_context["government_contracts_summaries"]
+    options_flow_summaries = confirmation_context["options_flow_summaries"]
+    institutional_activity_summaries = confirmation_context["institutional_activity_summaries"]
+    overlay_availability = confirmation_context["overlay_availability"]
     rows = [
         _enrich_row(
             row,
