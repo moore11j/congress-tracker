@@ -11,19 +11,22 @@ const chartLoader = read("components/ticker/TickerChartLoader.tsx");
 const tickerContextCard = read("components/ticker/TickerContextCard.tsx");
 const api = read("lib/api.ts");
 
-test("ticker page uses selected URL lookback for chart and activity windows", () => {
+test("ticker page keeps confirmation on 30D while chart uses selected URL range", () => {
   assert.match(tickerPage, /const lookback = clampLookback\(one\(sp, "lookback"\)\)/);
+  assert.match(tickerPage, /const SIGNAL_WINDOW_DAYS = 30/);
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
-  assert.match(tickerPage, /lookback_days: lookbackDays/);
-  assert.match(tickerPage, /effectiveWindowDays \?\? selectedLookbackDays/);
+  assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: SIGNAL_WINDOW_DAYS/);
+  assert.match(tickerPage, /lookbackDays=\{SIGNAL_WINDOW_DAYS\}/);
+  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(SIGNAL_WINDOW_DAYS\)\}/);
+  assert.match(tickerPage, /effectiveWindowDays \?\? SIGNAL_WINDOW_DAYS/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /normalizeOptionsFlowSummary\(optionsFlowSummary, normalizedSymbol, effectiveLookbackDays\)/);
   assert.match(tickerPage, /optionsFlow = \{ \.\.\.optionsFlow, lookback_days: effectiveLookbackDays \}/);
   assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} \/>/);
-  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(selectedLookbackDays\)\}/);
   assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\} \/>/);
+  assert.doesNotMatch(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: lookbackDays/);
 });
 
 test("ticker chart helper forwards selected days to chart-bundle", () => {

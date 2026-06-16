@@ -48,6 +48,7 @@ type Props = {
 type Lookback = "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
+const SIGNAL_WINDOW_DAYS = 30;
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
 type ParticipantStats = {
   name: string;
@@ -88,6 +89,8 @@ type TickerActivityData = {
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
   signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
   effectiveWindowDays: number | null;
+  summaryInsiders: TickerSignalsSummaryResponse["insiders"] | null;
+  summaryCongress: TickerSignalsSummaryResponse["congress"] | null;
   signalsUnavailable: SignalGateState | null;
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
@@ -1270,35 +1273,16 @@ function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals
   return `${lookbackDays}D`;
 }
 
-function activityDirectionFromCounts(buys: number, sells: number): ConfirmationScoreBundle["direction"] {
-  const total = buys + sells;
-  if (total <= 0) return "neutral";
-  if (buys > 0 && sells > 0 && Math.abs(buys - sells) / total < 0.34) return "mixed";
-  if (buys > sells) return "bullish";
-  if (sells > buys) return "bearish";
-  return "mixed";
-}
-
-function sourceFromActivityCounts<T extends ConfirmationScoreBundle["sources"][ConfirmationSourceKey]>(
-  source: T,
-  buys: number,
-  sells: number,
-): T {
-  if (buys + sells <= 0) return source;
-  const direction = activityDirectionFromCounts(buys, sells);
-  return {
-    ...source,
-    present: true,
-    direction,
-    label: direction === "bearish" ? "Active / sell-skewed" : direction === "bullish" ? "Active / buy-skewed" : "Active / mixed",
-  };
+function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
+  const value = context?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function sourceFromTopSignal(
   source: ConfirmationScoreBundle["sources"]["signals"],
   topSignal: TickerActivityData["topSignal"],
 ): ConfirmationScoreBundle["sources"]["signals"] {
-  if (!topSignal) return source;
+  if (!source.present || !topSignal) return source;
   const side = normalizeTradeSide(topSignal.trade_type);
   const direction = side === "buy" ? "bullish" : side === "sell" ? "bearish" : source.direction === "neutral" ? "mixed" : source.direction;
   return {
@@ -1845,6 +1829,8 @@ async function resolveTickerActivityData({
       : typeof signalsRes.lookback_days === "number"
         ? signalsRes.lookback_days
         : null,
+    summaryInsiders: signalsRes.insiders ?? null,
+    summaryCongress: signalsRes.congress ?? null,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -1899,13 +1885,15 @@ async function DeferredTickerContent({
     confirmationScoreBundle: activityConfirmationScoreBundle,
     signalFreshness: activitySignalFreshness,
     effectiveWindowDays,
+    summaryInsiders,
+    summaryCongress,
     congressParticipantCount,
     insiderParticipantCount,
     topCongressParticipants,
     topInsiderParticipants,
   } = await activityPromise;
   const selectedLookbackDays = Number(lookback);
-  const effectiveLookbackDays = effectiveWindowDays ?? selectedLookbackDays;
+  const effectiveLookbackDays = effectiveWindowDays ?? SIGNAL_WINDOW_DAYS;
   let confirmationBundle = normalizeConfirmationBundle(
     activityConfirmationScoreBundle ?? confirmationScoreBundle,
     normalizedSymbol,
@@ -1945,9 +1933,13 @@ async function DeferredTickerContent({
     : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(confirmationBundle);
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext);
-  const insiderCardSource = sourceFromActivityCounts(confirmationBundle.sources.insiders, insiderBuys, insiderSells);
-  const congressCardSource = sourceFromActivityCounts(confirmationBundle.sources.congress, congressBuys, congressSells);
+  const insiderCardSource = confirmationBundle.sources.insiders;
+  const congressCardSource = confirmationBundle.sources.congress;
   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
+  const summaryInsiderBuys = summaryCount(summaryInsiders, "buy_count");
+  const summaryInsiderSells = summaryCount(summaryInsiders, "sell_count");
+  const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
+  const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
   const intelligenceBullets = overviewBullets({ confirmationBundle, alignedSources });
   const confirmationLookbackDays = confirmationBundle.lookback_days;
 
@@ -1997,15 +1989,15 @@ async function DeferredTickerContent({
                 title="Insiders"
                 icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
                 source={insiderCardSource}
-                body={insiderSourceBody(insiderBuys, insiderSells, insiderCardSource)}
-                support={insiderSourceSupport(insiderBuys, insiderSells, confirmationLookbackDays)}
+                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
+                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
               />
               <SourceEvidenceCard
                 title="Congress"
                 icon="congress"
                 source={congressCardSource}
                 body={sourceCardBody("congress", congressCardSource, topSignal)}
-                support={congressSourceSupport(congressBuys, congressSells, confirmationLookbackDays)}
+                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
               />
               <InstitutionalPlaceholderCard />
               <SourceEvidenceCard
@@ -2053,7 +2045,7 @@ async function DeferredTickerContent({
           </div>
         </div>
         <div className={`${cardClassName} p-4`}>
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Lookback</p>
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Chart range</p>
           <div className="flex flex-wrap gap-2">
             {(["30", "90", "180", "365"] as const).map((value) => (
               <Link
@@ -2304,8 +2296,8 @@ async function DeferredTickerContent({
               <TickerSignalActivityClient
                 symbol={normalizedSymbol}
                 side={side}
-                lookbackDays={selectedLookbackDays}
-                lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
+                lookbackDays={SIGNAL_WINDOW_DAYS}
+                lookbackStartKey={lookbackStartDateKey(SIGNAL_WINDOW_DAYS)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
               />
@@ -2594,10 +2586,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
   const shellFallbackMessage = profileResult.fallbackMessage;
 
-  const shouldLoadSignals = source === "all" || source === "signals";
-  const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
+  const shouldLoadSignalActivity = source === "all" || source === "signals";
+  const signalActivityAuthPending = shouldLoadSignalActivity && !authToken && authState.hasAuthHint;
   const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
-  const signalGateState = !shouldLoadSignals || signalActivityAuthPending
+  const signalGateState = !shouldLoadSignalActivity || signalActivityAuthPending
     ? null
     : !authToken
       ? signalGateForUnauthenticatedUser()
@@ -2639,11 +2631,11 @@ export default async function TickerPage({ params, searchParams }: Props) {
           })
         : undefined;
     const signalSummaryRequest =
-      shouldLoadSignals && canViewSignalActivity && authToken
+      canViewSignalActivity && authToken
         ? getTickerSignalsSummary(normalizedSymbol, {
             side,
             limit: 3,
-            lookback_days: lookbackDays,
+            lookback_days: SIGNAL_WINDOW_DAYS,
             authToken,
             source: "TickerSignalsSummary",
           })

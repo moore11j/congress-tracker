@@ -11,6 +11,10 @@ import app.main as main_module
 from app.db import Base
 from app.main import _ticker_profiles_response, ticker_signals_summary
 from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
+from app.services.confirmation_score import (
+    get_slim_confirmation_score_bundles_for_tickers,
+    slim_confirmation_score_bundle,
+)
 
 
 def _engine():
@@ -54,7 +58,38 @@ def _event(
     )
 
 
-def test_ticker_signals_summary_uses_bounded_symbol_query(monkeypatch):
+def _seed_score_contract_fixture(db: Session) -> None:
+    today = date.today()
+    price_points = {
+        "AAPL": (100, 108),
+        "MSTR": (100, 96),
+        "NBIS": (100, 99),
+        "^GSPC": (100, 102),
+    }
+    for symbol, (start_close, end_close) in price_points.items():
+        db.add(PriceCache(symbol=symbol, date=(today - timedelta(days=29)).isoformat(), close=start_close))
+        db.add(PriceCache(symbol=symbol, date=today.isoformat(), close=end_close))
+
+    db.add_all(
+        [
+            _event(101, symbol="AAPL", event_type="congress_trade", trade_type="purchase", days_ago=2, amount=220_000, member_name="Rep Apple"),
+            _event(102, symbol="AAPL", event_type="congress_trade", trade_type="purchase", days_ago=95, amount=20_000, member_name="Rep Apple"),
+            _event(103, symbol="AAPL", event_type="congress_trade", trade_type="purchase", days_ago=125, amount=20_000, member_name="Rep Apple"),
+            _event(104, symbol="AAPL", event_type="congress_trade", trade_type="purchase", days_ago=155, amount=20_000, member_name="Rep Apple"),
+            _event(201, symbol="MSTR", event_type="insider_trade", trade_type="sale", days_ago=1, amount=240_000, member_name="MSTR Insider"),
+            _event(202, symbol="MSTR", event_type="insider_trade", trade_type="sale", days_ago=90, amount=20_000, member_name="MSTR Insider"),
+            _event(203, symbol="MSTR", event_type="insider_trade", trade_type="sale", days_ago=120, amount=20_000, member_name="MSTR Insider"),
+            _event(204, symbol="MSTR", event_type="insider_trade", trade_type="sale", days_ago=150, amount=20_000, member_name="MSTR Insider"),
+            _event(205, symbol="MSTR", event_type="congress_trade", trade_type="purchase", days_ago=3, amount=180_000, member_name="Rep Buyer"),
+            _event(301, symbol="NBIS", event_type="insider_trade", trade_type="sale", days_ago=2, amount=180_000, member_name="NBIS Insider"),
+            _event(302, symbol="NBIS", event_type="insider_trade", trade_type="sale", days_ago=95, amount=15_000, member_name="NBIS Insider"),
+            _event(303, symbol="NBIS", event_type="insider_trade", trade_type="sale", days_ago=125, amount=15_000, member_name="NBIS Insider"),
+            _event(304, symbol="NBIS", event_type="insider_trade", trade_type="sale", days_ago=155, amount=15_000, member_name="NBIS Insider"),
+        ]
+    )
+
+
+def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     captured: dict[str, object] = {}
 
     def fake_query(**kwargs):
@@ -100,14 +135,32 @@ def test_ticker_signals_summary_uses_bounded_symbol_query(monkeypatch):
             "detail": "No contracts above threshold in selected window.",
         },
     )
+    monkeypatch.setattr(
+        main_module,
+        "get_confirmation_score_bundles_for_tickers",
+        lambda db, tickers, **kwargs: captured.update(
+            {
+                "confirmation_tickers": list(tickers),
+                "confirmation_lookback_days": kwargs.get("lookback_days"),
+            }
+        )
+        or {
+            "NBIS": main_module.inactive_confirmation_score_bundle(
+                "NBIS",
+                lookback_days=int(kwargs.get("lookback_days") or 30),
+            )
+        },
+    )
 
-    response = ticker_signals_summary(object(), "nbis", side="buy", limit=3, lookback_days=30, db=object())
+    response = ticker_signals_summary(object(), "nbis", side="buy", limit=3, lookback_days=365, db=object())
 
     assert captured["symbol"] == "NBIS"
     assert captured["limit"] == 3
     assert captured["side"] == "buy"
     assert captured["congress_recent_days"] == 30
     assert captured["insider_recent_days"] == 30
+    assert captured["confirmation_tickers"] == ["NBIS"]
+    assert captured["confirmation_lookback_days"] == 30
     assert response["symbol"] == "NBIS"
     assert response["latest_signal_score"] == 82
     assert response["recent_signal_count"] == 1
@@ -117,6 +170,33 @@ def test_ticker_signals_summary_uses_bounded_symbol_query(monkeypatch):
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_signals_summary_matches_signals_score_contract_for_30d(monkeypatch):
+    _mock_signal_auth(monkeypatch)
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+
+    engine = _engine()
+    symbols = ["AAPL", "MSTR", "NBIS"]
+    with Session(engine) as db:
+        _seed_score_contract_fixture(db)
+        db.commit()
+
+        expected_by_symbol = get_slim_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=30)
+        for symbol in symbols:
+            response = ticker_signals_summary(object(), symbol, side="all", limit=3, lookback_days=365, db=db)
+            actual_slim = slim_confirmation_score_bundle(response["confirmation_score_bundle"])
+            expected = expected_by_symbol[symbol]
+
+            assert response["lookback_days"] == 30
+            assert response["effective_window_days"] == 30
+            assert response["confirmation_score_bundle"]["lookback_days"] == 30
+            assert actual_slim["confirmation_score"] == expected["confirmation_score"]
+            assert actual_slim["confirmation_direction"] == expected["confirmation_direction"]
+            assert actual_slim["confirmation_status"] == expected["confirmation_status"]
+            assert actual_slim["confirmation_source_count"] == expected["confirmation_source_count"]
+            assert response["signal_freshness"]["freshness_score"] == expected["signal_freshness"]["freshness_score"]
+            assert response["signal_freshness"]["timing"]["active_source_count"] == expected["signal_freshness"]["timing"]["active_source_count"]
 
 
 def test_ticker_signals_summary_returns_congress_activity_when_events_exist(monkeypatch):
@@ -190,8 +270,9 @@ def test_ticker_signals_summary_conflicting_sources_produce_mixed_confirmation(m
 
         response = ticker_signals_summary(object(), "MSTR", side="all", limit=3, lookback_days=365, db=db)
 
-    assert response["effective_window_days"] == 365
-    assert response["confirmation_score_bundle"]["lookback_days"] == 365
+    assert response["lookback_days"] == 30
+    assert response["effective_window_days"] == 30
+    assert response["confirmation_score_bundle"]["lookback_days"] == 30
     assert response["confirmation_score_bundle"]["direction"] == "mixed"
     assert response["confirmation_score_bundle"]["status"] != "Inactive"
     assert response["confirmation_score_bundle"]["score"] > 0

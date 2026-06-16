@@ -167,9 +167,10 @@ from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
-    confirmation_score_bundle_from_source_contexts,
+    get_confirmation_score_bundles_for_tickers,
     get_confirmation_score_bundle_for_ticker,
     inactive_confirmation_score_bundle,
+    slim_confirmation_score_bundle,
 )
 from app.services.options_flow import get_options_flow_summary, unavailable_options_flow_summary
 from app.services.signal_freshness import build_signal_freshness_bundle
@@ -231,6 +232,7 @@ _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "^GSPC"
 _TICKER_BENCHMARK_LABEL = "S&P 500"
+CONFIRMATION_SIGNAL_WINDOW_DAYS = 30
 _TICKER_IDENTITY_MANUAL_ALIASES = {
     "INFQ": "Infleqtion Inc.",
     "NBIS": "Nebius Group N.V.",
@@ -5021,6 +5023,77 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
     }
 
 
+def build_ticker_signals_summary_contexts_from_cache(
+    symbol: str,
+    *,
+    window_days: int = CONFIRMATION_SIGNAL_WINDOW_DAYS,
+    db: Session,
+    signal_rows: list[dict[str, Any]] | None = None,
+    latest_signal_score: int | float | None = None,
+) -> dict[str, dict[str, Any]]:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
+    if window_days != CONFIRMATION_SIGNAL_WINDOW_DAYS:
+        logger.debug(
+            "ticker_signals_summary_window_forced symbol=%s requested_window_days=%s effective_window_days=%s",
+            normalized_symbol,
+            window_days,
+            effective_window_days,
+        )
+
+    rows = signal_rows if signal_rows is not None else []
+    return {
+        "price_volume": _normalize_price_volume_context(_ticker_price_volume_summary(db, normalized_symbol)),
+        "insiders": _ticker_trade_activity_summary(
+            db,
+            normalized_symbol,
+            "insider_trade",
+            lookback_days=effective_window_days,
+            side="all",
+        ),
+        "congress": _ticker_trade_activity_summary(
+            db,
+            normalized_symbol,
+            "congress_trade",
+            lookback_days=effective_window_days,
+            side="all",
+        ),
+        "signals": _normalize_signals_context(rows, latest_signal_score, effective_window_days),
+        "government_contracts": _normalize_government_contracts_context(
+            get_government_contracts_summary(
+                db,
+                normalized_symbol,
+                lookback_days=effective_window_days,
+                min_amount=1_000_000,
+            )
+        ),
+    }
+
+
+def _ticker_signals_summary_confirmation_bundle(db: Session, symbol: str) -> dict[str, Any]:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    try:
+        bundles = get_confirmation_score_bundles_for_tickers(
+            db,
+            [normalized_symbol],
+            lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        )
+        bundle = bundles.get(normalized_symbol)
+        if isinstance(bundle, dict):
+            return bundle
+    except Exception:
+        logger.exception("ticker_signals_summary_confirmation_bundle_failed symbol=%s", normalized_symbol)
+    return inactive_confirmation_score_bundle(
+        normalized_symbol,
+        lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+    )
+
+
 def _log_ticker_signals_summary_response(
     *,
     symbol: str,
@@ -5391,8 +5464,9 @@ def ticker_signals_summary(
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
     started_at = perf_counter()
-    bounded_lookback_days = max(1, min(int(lookback_days or 30), 365))
-    cache_key = f"signals-summary:{normalized_symbol}:{bounded_lookback_days}:{side}:{limit}"
+    requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
+    effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
+    cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}"
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
     if cached is not None:
         _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=cached, started_at=started_at)
@@ -5405,8 +5479,8 @@ def ticker_signals_summary(
         limit=limit,
         offset=0,
         baseline_days=365,
-        congress_recent_days=bounded_lookback_days,
-        insider_recent_days=bounded_lookback_days,
+        congress_recent_days=effective_window_days,
+        insider_recent_days=effective_window_days,
         congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
         insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
         congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
@@ -5426,56 +5500,29 @@ def ticker_signals_summary(
         ),
         None,
     )
-    price_volume = _normalize_price_volume_context(_ticker_price_volume_summary(db, normalized_symbol))
-    insiders = _ticker_trade_activity_summary(
-        db,
+    source_contexts = build_ticker_signals_summary_contexts_from_cache(
         normalized_symbol,
-        "insider_trade",
-        lookback_days=bounded_lookback_days,
-        side=side,
+        window_days=requested_lookback_days,
+        db=db,
+        signal_rows=rows,
+        latest_signal_score=latest_score,
     )
-    congress = _ticker_trade_activity_summary(
-        db,
-        normalized_symbol,
-        "congress_trade",
-        lookback_days=bounded_lookback_days,
-        side=side,
-    )
-    signals = _normalize_signals_context(rows, latest_score, bounded_lookback_days)
-    government_contracts = _normalize_government_contracts_context(
-        get_government_contracts_summary(db, normalized_symbol, lookback_days=bounded_lookback_days, min_amount=1_000_000)
-    )
-    confirmation_score_bundle = confirmation_score_bundle_from_source_contexts(
-        normalized_symbol,
-        lookback_days=bounded_lookback_days,
-        source_contexts={
-            "price_volume": price_volume,
-            "insiders": insiders,
-            "congress": congress,
-            "signals": signals,
-            "government_contracts": government_contracts,
-        },
-    )
-    signal_freshness = build_signal_freshness_bundle(
-        normalized_symbol,
-        confirmation_score_bundle,
-        lookback_days=bounded_lookback_days,
-    )
-    has_context_activity = any(
-        isinstance(context, dict) and context.get("status") == "active"
-        for context in (price_volume, insiders, congress, signals, government_contracts)
-    )
+    # Keep ticker confirmation aligned with /signals, which uses the batch scorer.
+    confirmation_score_bundle = _ticker_signals_summary_confirmation_bundle(db, normalized_symbol)
+    slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
+    signal_freshness = slim_confirmation["signal_freshness"]
+    has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
     payload = {
         "symbol": normalized_symbol,
-        "status": "ok" if rows or has_context_activity else "no_data",
-        "lookback_days": bounded_lookback_days,
-        "effective_window_days": bounded_lookback_days,
+        "status": "ok" if rows or has_canonical_activity else "no_data",
+        "lookback_days": effective_window_days,
+        "effective_window_days": effective_window_days,
         "updated_at": _dt_iso(datetime.now(timezone.utc)),
-        "price_volume": price_volume,
-        "insiders": insiders,
-        "congress": congress,
-        "signals": signals,
-        "government_contracts": government_contracts,
+        "price_volume": source_contexts["price_volume"],
+        "insiders": source_contexts["insiders"],
+        "congress": source_contexts["congress"],
+        "signals": source_contexts["signals"],
+        "government_contracts": source_contexts["government_contracts"],
         "confirmation_score_bundle": confirmation_score_bundle,
         "signal_freshness": signal_freshness,
         "latest_signal_score": latest_score,

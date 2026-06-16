@@ -47,8 +47,14 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.match(client, /getTickerSignalsSummary\(symbol,/);
   assert.match(client, /lookback_days: lookbackDays/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
-  assert.match(tickerPage, /sourceFromActivityCounts\(confirmationBundle\.sources\.insiders, insiderBuys, insiderSells\)/);
-  assert.match(tickerPage, /sourceFromActivityCounts\(confirmationBundle\.sources\.congress, congressBuys, congressSells\)/);
+  assert.match(tickerPage, /lookback_days: SIGNAL_WINDOW_DAYS/);
+  assert.match(tickerPage, /lookbackDays=\{SIGNAL_WINDOW_DAYS\}/);
+  assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
+  assert.match(tickerPage, /activitySignalFreshness \?\? signalFreshness/);
+  assert.match(tickerPage, /const insiderCardSource = confirmationBundle\.sources\.insiders/);
+  assert.match(tickerPage, /const congressCardSource = confirmationBundle\.sources\.congress/);
+  assert.match(tickerPage, /summaryCount\(summaryInsiders, "buy_count"\)/);
+  assert.doesNotMatch(tickerPage, /sourceFromActivityCounts/);
   assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
 });
