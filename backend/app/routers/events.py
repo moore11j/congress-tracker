@@ -48,7 +48,7 @@ from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.services.search_suggest import search_suggestions
-from app.services.data_enrichment_queue import enqueue_data_enrichment_job
+from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 
@@ -61,6 +61,17 @@ MAX_SUGGEST_LIMIT = 50
 DEFAULT_BASELINE_DAYS = 365
 DEFAULT_MIN_BASELINE_COUNT = 3
 FEED_OUTCOME_ENQUEUE_LIMIT = int(os.getenv("FEED_OUTCOME_ENQUEUE_LIMIT", "100") or 100)
+FEED_OUTCOME_RETRY_STATUSES = {
+    "no_current_price",
+    "no_data",
+    "no_entry_price",
+    "no_execution_price",
+    "price_unavailable",
+    "provider_402",
+    "provider_429",
+    "provider_unavailable",
+    "retry_later",
+}
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
@@ -1812,9 +1823,20 @@ def _insider_entry_price(
 def _safe_outcome_status(status: str | None) -> str | None:
     if not status:
         return None
-    if status.startswith("provider_"):
-        return "price_unavailable"
+    if status in FEED_OUTCOME_RETRY_STATUSES or status.startswith("provider_"):
+        return None
+    if status == "ok":
+        return "ok"
     return status
+
+
+def _outcome_needs_feed_pnl_refresh(outcome: TradeOutcome | None) -> bool:
+    if outcome is None:
+        return True
+    if outcome.return_pct is not None:
+        return False
+    status = outcome.scoring_status or ""
+    return status in FEED_OUTCOME_RETRY_STATUSES or status.startswith("provider_")
 
 
 def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[int, TradeOutcome]:
@@ -1832,45 +1854,19 @@ def _enqueue_missing_trade_outcomes(paged_rows: list[Event], outcome_by_event_id
     missing = [
         event
         for event in paged_rows
-        if event.event_type in {"congress_trade", "insider_trade"} and event.id not in outcome_by_event_id
+        if event.event_type in {"congress_trade", "insider_trade"}
+        and _outcome_needs_feed_pnl_refresh(outcome_by_event_id.get(event.id))
     ]
     if not missing:
         return
 
-    now = datetime.now(timezone.utc)
-    by_type: dict[str, list[Event]] = {}
     for event in missing[:FEED_OUTCOME_ENQUEUE_LIMIT]:
-        by_type.setdefault(event.event_type, []).append(event)
-
-    for event_type, events in by_type.items():
-        timestamps: list[datetime] = []
-        for event in events:
-            raw_ts = event.event_date or event.ts or now
-            if isinstance(raw_ts, datetime):
-                event_ts = raw_ts
-            elif isinstance(raw_ts, date):
-                event_ts = datetime.combine(raw_ts, datetime.min.time(), tzinfo=timezone.utc)
-            else:
-                event_ts = now
-            if event_ts.tzinfo is None:
-                event_ts = event_ts.replace(tzinfo=timezone.utc)
-            timestamps.append(event_ts)
-        oldest_ts = min(timestamps) if timestamps else now
-        lookback_days = max(30, min(1095, int((now - oldest_ts).days) + 3))
-        limit = max(25, min(FEED_OUTCOME_ENQUEUE_LIMIT, len(events) * 4))
-        enqueue_data_enrichment_job(
-            job_type="trade_outcomes",
-            window_key=f"feed:{event_type}:{lookback_days}d:{limit}",
+        enqueue_feed_pnl_enrichment_for_event(
+            None,
+            event,
             source="feed_load",
-            reason="missing_trade_outcomes",
+            reason="missing_trade_outcome",
             priority=30,
-            payload={
-                "event_type": event_type,
-                "lookback_days": lookback_days,
-                "limit": limit,
-                "retry_failed_statuses": "no_data,no_current_price,no_entry_price,no_execution_price,provider_429",
-            },
-            max_attempts=3,
         )
 
 
@@ -1965,15 +1961,6 @@ def _event_payload(
 
     if enrich_prices and event.event_type == "congress_trade":
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-        eligibility = congress_equity_outcome_eligibility(
-            event_type=event.event_type,
-            symbol=sym,
-            payload=payload,
-            trade_date=trade_date,
-            side=event.trade_type or event.transaction_type,
-            amount_min=event.amount_min,
-            amount_max=event.amount_max,
-        )
         if outcome is not None:
             display_metrics = trade_outcome_display_metrics(outcome)
             estimated_price = float(outcome.entry_price) if outcome.entry_price is not None else None
@@ -1987,33 +1974,23 @@ def _event_payload(
             outcome_status = _safe_outcome_status(outcome.scoring_status)
             if pnl_pct is None:
                 outcome_skip_reason = outcome_status
-        elif eligibility.eligible and sym and trade_date:
-            key = (sym, trade_date)
-            if key not in price_memo:
-                price_memo[key] = get_eod_close(db, sym, trade_date)
-            estimated_price = price_memo[key]
-            if estimated_price is not None and estimated_price > 0:
-                pnl_source = "eod"
-            else:
-                outcome_skip_reason = "no_entry_price"
-        elif not eligibility.eligible:
-            outcome_skip_reason = eligibility.skip_reason
+        else:
+            eligibility = congress_equity_outcome_eligibility(
+                event_type=event.event_type,
+                symbol=sym,
+                payload=payload,
+                trade_date=trade_date,
+                side=event.trade_type or event.transaction_type,
+                amount_min=event.amount_min,
+                amount_max=event.amount_max,
+            )
+            if not eligibility.eligible:
+                outcome_skip_reason = eligibility.skip_reason
 
         q = current_quote_meta.get(sym)
         if q:
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
-        if current_price is None:
-            current_price = current_price_memo.get(sym)
-        if pnl_pct is None and current_price is not None and estimated_price is not None and estimated_price > 0:
-            pnl_pct = signed_return_pct(
-                current_price,
-                estimated_price,
-                event.trade_type
-                or event.transaction_type
-                or payload.get("transaction_type")
-                or payload.get("trade_type"),
-            )
     elif enrich_prices and event.event_type == "insider_trade":
         sym, trade_date = _insider_symbol_and_trade_date(event, payload)
         normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
@@ -2024,9 +2001,10 @@ def _event_payload(
         payload["display_price_currency"] = normalized.display_currency
         payload["display_share_basis"] = normalized.display_share_basis
         payload["price_normalization"] = normalization_payload(normalized)
-        entry_price, entry_source = _insider_entry_price(event, payload, db, price_memo)
-        estimated_price = entry_price
         display_metrics = trade_outcome_display_metrics(outcome)
+        estimated_price = display_metrics.trade_price
+        if estimated_price is None and normalized.is_comparable:
+            estimated_price = normalized.display_price
         if display_metrics.trade_price is not None:
             estimated_price = display_metrics.trade_price
         shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
@@ -2036,12 +2014,14 @@ def _event_payload(
             display_amount_max = display_value
             payload["display_trade_value"] = display_value
             payload["displayTradeValue"] = display_value
-        pnl_source = entry_source
+        pnl_source = display_metrics.pnl_source or (
+            "normalized_filing" if normalized.status == "normalized" and estimated_price is not None else "none"
+        )
         q = current_quote_meta.get(sym)
         if q:
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
-        current_price = display_metrics.current_or_horizon_price or current_price_memo.get(sym)
+        current_price = display_metrics.current_or_horizon_price
         if display_metrics.return_pct is not None:
             pnl_pct = display_metrics.return_pct
             alpha_pct = display_metrics.alpha_pct
@@ -2057,8 +2037,6 @@ def _event_payload(
             payload["holdingPeriodDays"] = display_metrics.holding_period_days
             payload["outcome_horizon"] = display_metrics.outcome_horizon
             payload["outcomeHorizon"] = display_metrics.outcome_horizon
-        elif current_price is not None and estimated_price is not None and estimated_price > 0:
-            pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or payload.get("trade_type"))
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -2320,55 +2298,8 @@ def _fetch_events_page(
     _enqueue_missing_trade_outcomes(paged_rows, outcome_by_event_id)
 
     price_memo: dict[tuple[str, str], float | None] = {}
-    quote_symbols: set[str] = set()
-    if enrich_prices:
-        for event in paged_rows:
-            payload = _parse_event_payload(event)
-            if event.event_type == "congress_trade":
-                outcome = outcome_by_event_id.get(event.id)
-                if outcome is not None and outcome.symbol and outcome.entry_price is not None:
-                    quote_symbols.add(outcome.symbol)
-                    continue
-                sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-                eligibility = congress_equity_outcome_eligibility(
-                    event_type=event.event_type,
-                    symbol=sym,
-                    payload=payload,
-                    trade_date=trade_date,
-                    side=event.trade_type or event.transaction_type,
-                    amount_min=event.amount_min,
-                    amount_max=event.amount_max,
-                )
-                if not eligibility.eligible or not sym or not trade_date:
-                    continue
-                key = (sym, trade_date)
-                if key not in price_memo:
-                    price_memo[key] = get_eod_close(db, sym, trade_date)
-                if price_memo[key] is not None:
-                    quote_symbols.add(sym)
-            elif event.event_type == "insider_trade":
-                sym, _ = _insider_symbol_and_trade_date(event, payload)
-                if not sym:
-                    continue
-                entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
-                if entry_price is not None and entry_price > 0:
-                    quote_symbols.add(sym)
-
-    current_quote_meta = (
-        get_current_prices_meta_db(
-            db,
-            sorted(quote_symbols),
-            allow_cache_write=False,
-            release_connection_before_fetch=True,
-        )
-        if enrich_prices and quote_symbols
-        else {}
-    )
-    current_price_memo = {
-        sym: meta["price"]
-        for sym, meta in current_quote_meta.items()
-        if isinstance(meta, dict) and "price" in meta
-    }
+    current_quote_meta: dict[str, dict] = {}
+    current_price_memo: dict[str, float] = {}
 
     ticker_symbols = {
         symbol
@@ -3417,55 +3348,8 @@ def list_events(
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
     _enqueue_missing_trade_outcomes(rows, outcome_by_event_id)
     price_memo: dict[tuple[str, str], float | None] = {}
-    quote_symbols: set[str] = set()
-    if enrich_prices:
-        for event in rows:
-            payload = _parse_event_payload(event)
-            if event.event_type == "congress_trade":
-                outcome = outcome_by_event_id.get(event.id)
-                if outcome is not None and outcome.symbol and outcome.entry_price is not None:
-                    quote_symbols.add(outcome.symbol)
-                    continue
-                sym, trade_date = _congress_symbol_and_trade_date(event, payload)
-                eligibility = congress_equity_outcome_eligibility(
-                    event_type=event.event_type,
-                    symbol=sym,
-                    payload=payload,
-                    trade_date=trade_date,
-                    side=event.trade_type or event.transaction_type,
-                    amount_min=event.amount_min,
-                    amount_max=event.amount_max,
-                )
-                if not eligibility.eligible or not sym or not trade_date:
-                    continue
-                key = (sym, trade_date)
-                if key not in price_memo:
-                    price_memo[key] = get_eod_close(db, sym, trade_date)
-                if price_memo[key] is not None:
-                    quote_symbols.add(sym)
-            elif event.event_type == "insider_trade":
-                sym, _ = _insider_symbol_and_trade_date(event, payload)
-                if not sym:
-                    continue
-                entry_price, _ = _insider_entry_price(event, payload, db, price_memo)
-                if entry_price is not None and entry_price > 0:
-                    quote_symbols.add(sym)
-
-    current_quote_meta = (
-        get_current_prices_meta_db(
-            db,
-            sorted(quote_symbols),
-            allow_cache_write=False,
-            release_connection_before_fetch=True,
-        )
-        if enrich_prices and quote_symbols
-        else {}
-    )
-    current_price_memo = {
-        sym: meta["price"]
-        for sym, meta in current_quote_meta.items()
-        if isinstance(meta, dict) and "price" in meta
-    }
+    current_quote_meta: dict[str, dict] = {}
+    current_price_memo: dict[str, float] = {}
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:

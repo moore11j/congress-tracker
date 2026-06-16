@@ -21,6 +21,7 @@ from app.services.congress_assets import (
     canonical_asset_class_value,
     classify_congress_disclosure_asset,
 )
+from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -538,7 +539,17 @@ def insert_missing_congress_events_from_transactions(
         ):
             continue
         if not dry_run:
-            db.add(_congress_event_from_transaction(tx, filing, member, security))
+            event = _congress_event_from_transaction(tx, filing, member, security)
+            db.add(event)
+            db.flush()
+            enqueue_feed_pnl_enrichment_for_event(
+                db,
+                event,
+                source="congress_ingest",
+                reason="event_insert",
+                priority=15,
+                use_current_session=True,
+            )
         existing_external_ids.add(external_id)
         existing_transaction_ids.add(tx.id)
         existing_backfill_ids.add(backfill_id)

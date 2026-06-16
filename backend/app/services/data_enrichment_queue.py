@@ -25,6 +25,7 @@ DONE_JOB_COOLDOWN_SECONDS = 60 * 60
 SYMBOL_REQUIRED_JOB_TYPES = {
     "quote",
     "price_eod",
+    "pnl_refresh",
     "price_series",
     "fundamentals",
     "news_stock",
@@ -713,6 +714,20 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             retry_failed_status=None,
             retry_failed_statuses=retry_statuses,
         )
+        return
+    if job.job_type == "pnl_refresh":
+        from app.services.feed_pnl_enrichment import process_feed_pnl_refresh_job
+
+        payload = _payload_dict(job.payload_json)
+        event_id = _payload_int(payload, "event_id", 0)
+        if not event_id and isinstance(job.window_key, str) and job.window_key.startswith("event:"):
+            try:
+                event_id = int(job.window_key.split(":", 1)[1])
+            except (IndexError, ValueError):
+                event_id = 0
+        if not event_id:
+            raise RuntimeError("pnl_refresh_missing_event_id")
+        process_feed_pnl_refresh_job(db, event_id=event_id)
         return
     if job.job_type == "priority_ticker_prewarm":
         payload = _payload_dict(job.payload_json)
