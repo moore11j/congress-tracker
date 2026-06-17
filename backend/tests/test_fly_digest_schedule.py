@@ -16,6 +16,10 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "true"
     assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "50"
     assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "45"
+    assert fly_config["env"]["FEED_PNL_REPAIR_ENABLED"] == "true"
+    assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "3"
+    assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "500"
+    assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "60"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
@@ -33,6 +37,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity" in crontab
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
+    assert "*/5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
@@ -78,3 +83,15 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     assert "worker_already_running" in script
     assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
     assert "processed=%s succeeded=%s failed=%s skipped=%s" in script
+
+
+def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
+    script = (BACKEND_ROOT / "scripts" / "run_feed_pnl_repair.sh").read_text()
+
+    assert "FEED_PNL_REPAIR_ENABLED:-true" in script
+    assert "FEED_PNL_REPAIR_DAYS:-3" in script
+    assert "FEED_PNL_REPAIR_LIMIT:-500" in script
+    assert "FEED_PNL_REPAIR_MAX_SECONDS:-60" in script
+    assert "mkdir \"$lock_dir\"" in script
+    assert "repair_already_running" in script
+    assert "timeout \"$max_seconds\" python -m app.repair_recent_feed_pnl" in script

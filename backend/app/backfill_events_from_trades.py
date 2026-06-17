@@ -21,7 +21,7 @@ from app.services.congress_assets import (
     canonical_asset_class_value,
     classify_congress_disclosure_asset,
 )
-from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -547,7 +547,7 @@ def insert_missing_congress_events_from_transactions(
                 event,
                 source="congress_ingest",
                 reason="event_insert",
-                priority=15,
+                priority=FEED_PNL_PRIORITY_BASE,
                 use_current_session=True,
             )
         existing_external_ids.add(external_id)

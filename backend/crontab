@@ -6,6 +6,7 @@ CRON_TZ=America/Los_Angeles
 0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
 5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity
 10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals
+*/5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
 */5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
 */15 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
 */15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all

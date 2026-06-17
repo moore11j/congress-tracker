@@ -18,6 +18,10 @@ destination = "/data"
   DATA_ENRICHMENT_QUEUE_ENABLED = "true"
   DATA_ENRICHMENT_QUEUE_BATCH_SIZE = "50"
   DATA_ENRICHMENT_QUEUE_MAX_SECONDS = "45"
+  FEED_PNL_REPAIR_ENABLED = "true"
+  FEED_PNL_REPAIR_DAYS = "3"
+  FEED_PNL_REPAIR_LIMIT = "500"
+  FEED_PNL_REPAIR_MAX_SECONDS = "60"
 
 [processes]
   app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"

@@ -15,7 +15,7 @@ from app.clients.fmp import FMPClientError, fetch_insider_trades
 from app.db import SessionLocal
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
-from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -187,7 +187,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     event,
                     source="insider_ingest",
                     reason="event_insert",
-                    priority=15,
+                    priority=FEED_PNL_PRIORITY_BASE,
                     use_current_session=True,
                 )
                 inserted_events += 1

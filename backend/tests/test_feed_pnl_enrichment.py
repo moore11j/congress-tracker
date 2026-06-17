@@ -103,6 +103,74 @@ def test_new_congress_event_enqueues_targeted_feed_pnl_jobs() -> None:
         assert result["eligible"] is True
         assert {row.job_type for row in rows} == {"price_eod", "pnl_refresh", "quote"}
         assert {row.symbol for row in rows} == {"BLND"}
+        priorities = {row.job_type: row.priority for row in rows}
+        assert priorities == {"quote": 5, "price_eod": 6, "pnl_refresh": 7}
+    finally:
+        db.close()
+
+
+def test_congress_etf_fund_event_enqueues_targeted_feed_pnl_jobs() -> None:
+    SessionLocal = _session_factory()
+    db = SessionLocal()
+    try:
+        event = _event(
+            103,
+            "congress_trade",
+            symbol="IWM",
+            payload={
+                "symbol": "IWM",
+                "ticker": "IWM",
+                "trade_date": "2026-05-27",
+                "asset_class": "etf_fund",
+                "security_name": "iShares Trust - iShares Russell 2000 ETF",
+                "transaction_type": "sale",
+            },
+        )
+        db.add(event)
+        db.flush()
+
+        result = enqueue_feed_pnl_enrichment_for_event(db, event, use_current_session=True)
+        db.commit()
+
+        rows = db.execute(select(DataEnrichmentJob)).scalars().all()
+        assert result["eligible"] is True
+        assert result["skipped_reason"] is None
+        assert {row.job_type for row in rows} == {"price_eod", "pnl_refresh", "quote"}
+        assert {row.symbol for row in rows} == {"IWM"}
+        assert {row.date_key for row in rows if row.date_key} == {"2026-05-27"}
+    finally:
+        db.close()
+
+
+def test_structurally_unpriceable_event_writes_outcome_instead_of_updating() -> None:
+    SessionLocal = _session_factory()
+    db = SessionLocal()
+    try:
+        event = _event(
+            104,
+            "congress_trade",
+            symbol=None,
+            payload={
+                "trade_date": "2026-05-27",
+                "asset_class": "other",
+                "security_name": "Unresolved security",
+                "transaction_type": "purchase",
+            },
+        )
+        db.add(event)
+        db.flush()
+
+        result = enqueue_feed_pnl_enrichment_for_event(db, event, use_current_session=True)
+        db.commit()
+
+        outcome = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == 104)).scalar_one()
+        assert result["eligible"] is False
+        assert result["structural_outcome_written"] is True
+        assert result["skipped_reason"] == "no_symbol"
+        assert outcome.return_pct is None
+        assert outcome.scoring_status == "no_symbol"
+        assert outcome.methodology_version == "feed_pnl_cache_v1"
+        assert db.execute(select(DataEnrichmentJob)).scalars().all() == []
     finally:
         db.close()
 

@@ -24,13 +24,21 @@ GENERIC_SYMBOL_LABELS = {
 PUBLIC_EQUITY_ASSET_CLASSES = {
     "common stock",
     "common stocks",
+    "closed end fund",
+    "closed-end fund",
     "equity",
     "equities",
     "etf",
+    "etf fund",
+    "etf_fund",
     "exchange traded fund",
+    "exchange traded product",
     "exchange-traded fund",
+    "exchange-traded product",
     "fund",
+    "index fund",
     "mutual fund",
+    "public fund",
     "public equity",
     "stock",
     "stocks",
@@ -83,7 +91,7 @@ def _clean_text(value: object | None) -> str | None:
 
 
 def _normalized_text(value: object | None) -> str:
-    return (_clean_text(value) or "").lower().replace("-", " ")
+    return (_clean_text(value) or "").lower().replace("-", " ").replace("_", " ")
 
 
 def _first_text(*values: object | None) -> str | None:

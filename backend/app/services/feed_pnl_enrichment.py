@@ -10,6 +10,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import DataEnrichmentJob, Event, PriceCache, QuoteCache, TradeOutcome
 from app.services.congress_outcome_eligibility import congress_equity_outcome_eligibility
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 FEED_PNL_EVENT_TYPES = {"congress_trade", "insider_trade"}
 FEED_PNL_METHODOLOGY_VERSION = "feed_pnl_cache_v1"
+FEED_PNL_PRIORITY_BASE = 5
+FEED_PNL_QUOTE_PRIORITY = FEED_PNL_PRIORITY_BASE
+FEED_PNL_PRICE_EOD_PRIORITY = FEED_PNL_PRIORITY_BASE + 1
+FEED_PNL_REFRESH_PRIORITY = FEED_PNL_PRIORITY_BASE + 2
 
 
 class FeedPnlInputMissing(RuntimeError):
@@ -330,7 +335,7 @@ def enqueue_feed_pnl_enrichment_for_event(
     *,
     source: str = "event_ingest",
     reason: str = "feed_pnl_missing",
-    priority: int = 20,
+    priority: int = FEED_PNL_PRIORITY_BASE,
     use_current_session: bool = False,
 ) -> dict[str, Any]:
     inputs = feed_pnl_inputs_for_event(event)
@@ -342,9 +347,16 @@ def enqueue_feed_pnl_enrichment_for_event(
         "quote_enqueued": False,
         "price_eod_enqueued": False,
         "pnl_refresh_enqueued": False,
+        "structural_outcome_written": False,
         "skipped_reason": inputs.structural_status,
     }
     if inputs.structural_status is not None or not inputs.symbol or not inputs.trade_date or inputs.event_id is None:
+        result["structural_outcome_written"] = _write_structural_outcome_for_enqueue(
+            db,
+            event,
+            inputs,
+            use_current_session=use_current_session,
+        )
         return result
 
     payload = {
@@ -460,6 +472,41 @@ def _write_structural_outcome(db: Session, event: Event, inputs: FeedPnlInputs) 
         db.add(target)
 
 
+def _write_structural_outcome_for_enqueue(
+    db: Session | None,
+    event: Event,
+    inputs: FeedPnlInputs,
+    *,
+    use_current_session: bool,
+) -> bool:
+    if inputs.event_id is None:
+        return False
+    if inputs.structural_status is None and inputs.symbol and inputs.trade_date:
+        return False
+
+    if db is not None and use_current_session:
+        _write_structural_outcome(db, event, inputs)
+        return True
+
+    local_db = SessionLocal()
+    try:
+        persisted_event = local_db.get(Event, inputs.event_id)
+        if persisted_event is None:
+            return False
+        persisted_inputs = feed_pnl_inputs_for_event(persisted_event)
+        if persisted_inputs.structural_status is None and persisted_inputs.symbol and persisted_inputs.trade_date:
+            return False
+        _write_structural_outcome(local_db, persisted_event, persisted_inputs)
+        local_db.commit()
+        return True
+    except Exception:
+        local_db.rollback()
+        logger.exception("feed_pnl_structural_outcome_write_failed event_id=%s", inputs.event_id)
+        return False
+    finally:
+        local_db.close()
+
+
 def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
     event = db.get(Event, event_id)
     if event is None:
@@ -486,7 +533,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
             symbol=inputs.symbol,
             source="pnl_refresh",
             reason="missing_quote",
-            priority=10,
+            priority=FEED_PNL_QUOTE_PRIORITY,
             max_attempts=5,
         )
     if entry is None or entry.close is None or entry.close <= 0:
@@ -499,7 +546,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
             date_key=inputs.trade_date,
             source="pnl_refresh",
             reason="missing_entry_eod",
-            priority=11,
+            priority=FEED_PNL_PRICE_EOD_PRIORITY,
             max_attempts=5,
         )
     if missing:
@@ -617,7 +664,7 @@ def repair_recent_feed_pnl(
             event,
             source="repair_recent_feed_pnl",
             reason="missing_feed_pnl",
-            priority=15,
+            priority=FEED_PNL_PRIORITY_BASE,
             use_current_session=False,
         )
         if result.get("symbol"):

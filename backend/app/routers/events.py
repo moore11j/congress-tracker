@@ -48,7 +48,7 @@ from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.services.search_suggest import search_suggestions
-from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 
@@ -1866,7 +1866,7 @@ def _enqueue_missing_trade_outcomes(paged_rows: list[Event], outcome_by_event_id
             event,
             source="feed_load",
             reason="missing_trade_outcome",
-            priority=30,
+            priority=FEED_PNL_PRIORITY_BASE,
         )
 
 
