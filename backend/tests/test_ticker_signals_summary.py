@@ -209,26 +209,12 @@ def test_ticker_signals_summary_logged_out_returns_requires_login_metadata(monke
     monkeypatch.setattr(
         main_module,
         "_ticker_trade_activity_summary",
-        lambda *args, **kwargs: {
-            "status": "inactive",
-            "direction": "neutral",
-            "title": "No recent activity",
-            "subtitle": "No matching trades.",
-            "buy_count": 0,
-            "sell_count": 0,
-            "net_flow": None,
-        },
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not query trade activity")),
     )
     monkeypatch.setattr(
         main_module,
         "get_government_contracts_summary",
-        lambda *args, **kwargs: {
-            "status": "ok",
-            "active": False,
-            "contract_count": 0,
-            "total_award_amount": 0,
-            "detail": "No contracts above threshold in selected window.",
-        },
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not query government contracts")),
     )
 
     response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())

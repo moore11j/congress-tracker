@@ -5636,16 +5636,11 @@ def ticker_signals_summary(
         ),
         None,
     )
-    source_contexts = build_ticker_signals_summary_contexts_from_cache(
-        normalized_symbol,
-        window_days=requested_lookback_days,
-        db=db,
-        signal_rows=rows,
-        latest_signal_score=latest_score,
-    )
     if not is_authenticated:
         source_contexts = {
-            **source_contexts,
+            "price_volume": _normalize_price_volume_context(
+                _ticker_price_volume_summary(db, normalized_symbol)
+            ),
             "insiders": _ticker_requires_login_context("Create a free account", "Sign in to view insider activity."),
             "congress": _ticker_requires_login_context("Create a free account", "Sign in to view Congress activity."),
             "signals": {
@@ -5662,6 +5657,13 @@ def ticker_signals_summary(
         signal_freshness = None
         has_canonical_activity = False
     else:
+        source_contexts = build_ticker_signals_summary_contexts_from_cache(
+            normalized_symbol,
+            window_days=requested_lookback_days,
+            db=db,
+            signal_rows=rows,
+            latest_signal_score=latest_score,
+        )
         # Keep ticker confirmation aligned with the screener's lower-level score context.
         confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
         confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
