@@ -68,7 +68,7 @@ test("ticker server context can refresh after client auth session bridge syncs",
   assert.match(accountNav, /syncServerAuthSession\(token\)/);
   assert.match(accountNav, /router\.refresh\(\)/);
   assert.match(tickerPage, /const authToken = authState\.token/);
-  assert.match(tickerPage, /const signalSummaryRequest =[\s\S]*?authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
 });
 
@@ -77,10 +77,12 @@ test("ticker context gates source cards instead of the whole context request", (
   const api = read("lib/api.ts");
 
   assert.match(api, /export type TickerSourceEntitlement/);
+  assert.match(api, /lock_state\?: "available" \| "requires_login" \| "premium_locked" \| "pro_locked" \| null/);
   assert.match(api, /source_entitlements\?: TickerSourceEntitlements \| null/);
   assert.match(tickerPage, /function tickerContextSourceEntitlements/);
   assert.match(tickerPage, /function displayConfirmationBundleForEntitlements/);
-  assert.match(tickerPage, /const signalSummaryRequest =[\s\S]*?authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
+  assert.doesNotMatch(tickerPage, /const signalSummaryRequest =\s*authToken\s*\?/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
   assert.match(tickerPage, /sourceEntitlements: signalsRes\.source_entitlements \?\? null/);
   assert.match(tickerPage, /const signalsCardLocked = sourceIsLocked\(sourceEntitlements, "signals"\)/);
@@ -90,6 +92,20 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(tickerPage, /requiredPlan="pro"/);
   assert.match(tickerPage, /Premium feature/);
   assert.match(tickerPage, /Pro feature/);
+});
+
+test("logged out ticker context renders sign-in states instead of inactive source copy", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /tickerContextSourceEntitlements\(entitlements, Boolean\(authToken\)\)/);
+  assert.match(tickerPage, /function sourceRequiresLogin/);
+  assert.match(tickerPage, /function RequiresLoginSourceCard/);
+  assert.match(tickerPage, /Sign in to view 30D confirmation/);
+  assert.match(tickerPage, /Create a free account to view Congress, insider, and contract context\./);
+  assert.match(tickerPage, /support="Sign in to view insider activity\."/);
+  assert.match(tickerPage, /support="Sign in to view Congress activity\."/);
+  assert.match(tickerPage, /support="Sign in to view government contract context\."/);
+  assert.match(tickerPage, /lock_state: locked \? lockState/);
 });
 
 test("ticker government contracts all-mode copy is final no-data copy", () => {

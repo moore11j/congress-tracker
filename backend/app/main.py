@@ -5524,17 +5524,29 @@ def _ticker_context_has_feature(entitlements: Any, feature: str) -> bool:
     return False
 
 
-def _ticker_context_source_entitlements(entitlements: Any) -> dict[str, dict[str, Any]]:
+def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: bool = True) -> dict[str, dict[str, Any]]:
     rank = _ticker_context_tier_rank(entitlements)
     can_view_signals = _ticker_context_has_feature(entitlements, "signals") or rank >= 10
     can_view_pro_context = rank >= 20
 
-    def source_meta(source: str, required_plan: str | None, locked: bool) -> dict[str, Any]:
+    def source_meta(source: str, required_plan: str | None, locked: bool, lock_state: str | None = None) -> dict[str, Any]:
         return {
             "source": source,
             "required_plan": required_plan,
+            "lock_state": lock_state if locked else "available",
             "locked": locked,
             "available": not locked,
+        }
+
+    if not authenticated:
+        return {
+            "price_volume": source_meta("price_volume", None, False),
+            "insiders": source_meta("insiders", "free", True, "requires_login"),
+            "congress": source_meta("congress", "free", True, "requires_login"),
+            "government_contracts": source_meta("government_contracts", "free", True, "requires_login"),
+            "signals": source_meta("signals", "premium", True, "premium_locked"),
+            "institutional_activity": source_meta("institutional_activity", "pro", True, "pro_locked"),
+            "options_flow": source_meta("options_flow", "pro", True, "pro_locked"),
         }
 
     return {
@@ -5542,9 +5554,18 @@ def _ticker_context_source_entitlements(entitlements: Any) -> dict[str, dict[str
         "insiders": source_meta("insiders", None, False),
         "congress": source_meta("congress", None, False),
         "government_contracts": source_meta("government_contracts", None, False),
-        "signals": source_meta("signals", "premium", not can_view_signals),
-        "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context),
-        "options_flow": source_meta("options_flow", "pro", not can_view_pro_context),
+        "signals": source_meta("signals", "premium", not can_view_signals, "premium_locked"),
+        "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context, "pro_locked"),
+        "options_flow": source_meta("options_flow", "pro", not can_view_pro_context, "pro_locked"),
+    }
+
+
+def _ticker_requires_login_context(title: str, subtitle: str) -> dict[str, Any]:
+    return {
+        "status": "requires_login",
+        "direction": "neutral",
+        "title": title,
+        "subtitle": subtitle,
     }
 
 
@@ -5557,9 +5578,10 @@ def ticker_signals_summary(
     lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
-    current_user(db, request, required=True)
-    entitlements = current_entitlements(request, db)
-    source_entitlements = _ticker_context_source_entitlements(entitlements)
+    user = current_user(db, request, required=False)
+    is_authenticated = user is not None
+    entitlements = current_entitlements(request, db) if is_authenticated else None
+    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=is_authenticated)
     can_view_signal_details = not bool(source_entitlements["signals"]["locked"])
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
@@ -5574,6 +5596,8 @@ def ticker_signals_summary(
         else "premium"
         if can_view_signal_details
         else "free"
+        if is_authenticated
+        else "logged_out"
     )
     cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}:{entitlement_variant}"
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
@@ -5619,15 +5643,34 @@ def ticker_signals_summary(
         signal_rows=rows,
         latest_signal_score=latest_score,
     )
-    # Keep ticker confirmation aligned with the screener's lower-level score context.
-    confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
-    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
-    slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
-    signal_freshness = slim_confirmation["signal_freshness"]
-    has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
+    if not is_authenticated:
+        source_contexts = {
+            **source_contexts,
+            "insiders": _ticker_requires_login_context("Create a free account", "Sign in to view insider activity."),
+            "congress": _ticker_requires_login_context("Create a free account", "Sign in to view Congress activity."),
+            "signals": {
+                "status": "premium_locked",
+                "direction": "neutral",
+                "title": "Premium feature",
+                "subtitle": "Signal stack unlocks with Premium.",
+                "recent_count": 0,
+                "latest_score": None,
+            },
+            "government_contracts": _ticker_requires_login_context("Create a free account", "Sign in to view government contract context."),
+        }
+        confirmation_score_bundle = None
+        signal_freshness = None
+        has_canonical_activity = False
+    else:
+        # Keep ticker confirmation aligned with the screener's lower-level score context.
+        confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
+        confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+        slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
+        signal_freshness = slim_confirmation["signal_freshness"]
+        has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
     payload = {
         "symbol": normalized_symbol,
-        "status": "ok" if rows or has_canonical_activity else "no_data",
+        "status": "auth_required" if not is_authenticated else "ok" if rows or has_canonical_activity else "no_data",
         "lookback_days": effective_window_days,
         "effective_window_days": effective_window_days,
         "updated_at": _dt_iso(datetime.now(timezone.utc)),

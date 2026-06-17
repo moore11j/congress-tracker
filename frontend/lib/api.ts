@@ -2733,7 +2733,8 @@ type SignalsAllResponse = SignalItem[] | { items?: SignalItem[]; debug?: unknown
 
 export type TickerSourceEntitlement = {
   source: string;
-  required_plan?: "premium" | "pro" | null;
+  required_plan?: "free" | "premium" | "pro" | null;
+  lock_state?: "available" | "requires_login" | "premium_locked" | "pro_locked" | null;
   locked: boolean;
   available: boolean;
 };
