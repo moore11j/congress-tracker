@@ -52,12 +52,17 @@ const SIGNAL_WINDOW_DAYS = 30;
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
 type ParticipantStats = {
   name: string;
+  memberId?: string | null;
   trades: number;
   buys: number;
   sells: number;
   netFlow: number;
   href?: string;
   reportingCik?: string;
+  chamber?: string | null;
+  party?: string | null;
+  state?: string | null;
+  role?: string | null;
 };
 type SignalGateReason = "auth" | "upgrade" | "unavailable";
 type SignalGateState = {
@@ -1971,23 +1976,31 @@ async function resolveTickerActivityData({
 
   for (const event of congressEvents) {
     const who = (event.member_name ?? "Unknown Member").trim();
+    const memberId = asTrimmedString(event.member_bioguide_id);
+    const participantKey = memberId ? `member:${memberId}` : `name:${who.toLowerCase()}`;
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
-    const existing = congressParticipantMap.get(who) ?? { name: who, trades: 0, buys: 0, sells: 0, netFlow: 0 };
+    const existing = congressParticipantMap.get(participantKey) ?? { name: who, memberId, trades: 0, buys: 0, sells: 0, netFlow: 0 };
     existing.trades += 1;
     if (sideValue === "buy") existing.buys += 1;
     if (sideValue === "sell") existing.sells += 1;
     if (Number.isFinite(amount) && amount > 0) {
       existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
     }
+    if (!existing.memberId && memberId) existing.memberId = memberId;
+    if (!existing.chamber) existing.chamber = resolveCongressChamber(event);
+    if (!existing.party) existing.party = resolveCongressParty(event);
+    if (!existing.state) existing.state = resolveCongressState(event);
     const safeHref = memberHref({ name: event.member_name ?? undefined, memberId: event.member_bioguide_id ?? undefined });
     if (safeHref && safeHref !== "/member/UNKNOWN" && !existing.href) existing.href = safeHref;
-    congressParticipantMap.set(who, existing);
+    congressParticipantMap.set(participantKey, existing);
   }
 
   for (const event of insiderEvents) {
-    const who = resolveInsiderName(event);
-    const reportingCik = resolveInsiderReportingCik(event);
+    const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+    const who = display.insiderName || resolveInsiderName(event);
+    const reportingCik = display.reportingCik ?? resolveInsiderReportingCik(event);
+    const role = display.role ?? resolveInsiderRole(event);
     const participantKey = reportingCik ? `cik:${reportingCik}` : `name:${who.toLowerCase()}`;
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
@@ -1999,6 +2012,7 @@ async function resolveTickerActivityData({
       existing.netFlow += sideValue === "sell" ? -amount : sideValue === "buy" ? amount : 0;
     }
     if (reportingCik && !existing.reportingCik) existing.reportingCik = reportingCik;
+    if (!existing.role) existing.role = role;
     insiderParticipantMap.set(participantKey, existing);
   }
 
@@ -2672,12 +2686,17 @@ async function DeferredTickerContent({
             emptyState={<InlineEmptyState message="No Congress participants in current window." />}
           >
             {topCongressParticipants.map((participant) => {
-                  const match = topMembers.find((member) => member.name === participant.name);
+                  const match = topMembers.find((member) => {
+                    if (participant.memberId && (member.bioguide_id === participant.memberId || member.member_id === participant.memberId)) return true;
+                    return member.name === participant.name;
+                  });
                   const resolvedHref = participant.href ?? (match ? memberHref({ name: match.name, memberId: match.bioguide_id }) : undefined);
                   const bias = biasLabel(participant.buys, participant.sells);
-                  const chamber = chamberBadge(match?.chamber);
-                  const party = partyBadge(match?.party);
-                  const state = match?.state?.trim().toUpperCase() || "â€”";
+                  const chamberValue = participant.chamber ?? match?.chamber ?? null;
+                  const partyValue = participant.party ?? match?.party ?? null;
+                  const state = (participant.state ?? match?.state)?.trim().toUpperCase() ?? null;
+                  const chamber = chamberBadge(chamberValue);
+                  const party = partyBadge(partyValue);
                   const rowClassName = `${compactInteractiveSurfaceClassName} block px-3 py-2.5 text-sm`;
 
                   const content = (
@@ -2686,9 +2705,9 @@ async function DeferredTickerContent({
                         <div className="min-w-0">
                           <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                            <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                            <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                            {chamberValue ? <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge> : null}
+                            {partyValue ? <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge> : null}
+                            {state ? <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge> : null}
                           </div>
                         </div>
                         <div className="text-right">
@@ -2707,14 +2726,14 @@ async function DeferredTickerContent({
 
                   if (resolvedHref) {
                     return (
-                      <Link key={participant.name} href={resolvedHref} prefetch={false} className={rowClassName}>
+                      <Link key={participant.memberId ?? participant.name} href={resolvedHref} prefetch={false} className={rowClassName}>
                         {content}
                       </Link>
                     );
                   }
 
                   return (
-                    <div key={participant.name} className={rowClassName}>
+                    <div key={participant.memberId ?? participant.name} className={rowClassName}>
                       {content}
                     </div>
                   );
@@ -2730,10 +2749,17 @@ async function DeferredTickerContent({
             {topInsiderParticipants.map((participant) => {
                   const bias = biasLabel(participant.buys, participant.sells);
                   const href = insiderHref(participant.name, participant.reportingCik);
+                  const roleBadge = resolveInsiderRoleBadge(participant.role);
+                  const roleTone = insiderRoleBadgeTone(roleBadge);
                   const content = (
                     <>
                       <div className="flex items-start justify-between gap-3">
-                        <span className={`truncate font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
+                        <div className="min-w-0">
+                          <span className={`block truncate font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">{roleBadge}</Badge>
+                          </div>
+                        </div>
                         <div className="text-right">
                           <span className="text-sm font-semibold tabular-nums text-slate-200">{participant.trades}</span>
                           <p className="text-[11px] text-slate-500">Trades</p>
@@ -2751,7 +2777,7 @@ async function DeferredTickerContent({
                   if (href) {
                     return (
                       <Link
-                        key={participant.name}
+                        key={participant.reportingCik ?? participant.name}
                         href={href}
                         prefetch={false}
                         className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
@@ -2763,7 +2789,7 @@ async function DeferredTickerContent({
 
                   return (
                     <div
-                      key={participant.name}
+                      key={participant.reportingCik ?? participant.name}
                       className={`${compactInteractiveSurfaceClassName} block w-full px-3 py-2.5 text-sm`}
                     >
                       {content}
