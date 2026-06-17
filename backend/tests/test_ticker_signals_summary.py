@@ -29,6 +29,12 @@ def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
 
 
+def _mock_logged_out_signal_context(monkeypatch):
+    monkeypatch.setattr(main_module, "current_user", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS["free"])
+    main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
+
+
 def _event(
     event_id: int,
     *,
@@ -174,6 +180,75 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_signals_summary_logged_out_returns_requires_login_metadata(monkeypatch):
+    _mock_logged_out_signal_context(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not query premium signal rows")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not build canonical confirmation")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_price_volume_summary",
+        lambda db, symbol: {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Bullish tape confirmation",
+            "summary": "Bullish tape confirmation",
+            "score": 72,
+            "lines": ["Price / volume available"],
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_trade_activity_summary",
+        lambda *args, **kwargs: {
+            "status": "inactive",
+            "direction": "neutral",
+            "title": "No recent activity",
+            "subtitle": "No matching trades.",
+            "buy_count": 0,
+            "sell_count": 0,
+            "net_flow": None,
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_government_contracts_summary",
+        lambda *args, **kwargs: {
+            "status": "ok",
+            "active": False,
+            "contract_count": 0,
+            "total_award_amount": 0,
+            "detail": "No contracts above threshold in selected window.",
+        },
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+
+    assert response["status"] == "auth_required"
+    assert response["price_volume"]["status"] == "active"
+    assert response["source_entitlements"]["price_volume"]["lock_state"] == "available"
+    assert response["source_entitlements"]["insiders"]["lock_state"] == "requires_login"
+    assert response["source_entitlements"]["congress"]["lock_state"] == "requires_login"
+    assert response["source_entitlements"]["government_contracts"]["lock_state"] == "requires_login"
+    assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
+    assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
+    assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
+    assert response["insiders"]["status"] == "requires_login"
+    assert response["congress"]["status"] == "requires_login"
+    assert response["government_contracts"]["status"] == "requires_login"
+    assert response["confirmation_score_bundle"] is None
+    assert response["signal_freshness"] is None
+    assert response["items"] == []
+    assert response["recent_signal_count"] == 0
 
 
 def test_ticker_signals_summary_free_user_gets_public_context_with_locked_sources(monkeypatch):

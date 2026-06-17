@@ -691,24 +691,42 @@ function canUseProTickerContext(entitlements: Entitlements | null): boolean {
   return entitlements.tier === "pro" || entitlements.tier === "admin" || Boolean(entitlements.user?.is_admin);
 }
 
-function tickerContextSourceEntitlements(entitlements: Entitlements | null): TickerSourceEntitlements {
+function tickerContextSourceEntitlements(entitlements: Entitlements | null, authenticated: boolean): TickerSourceEntitlements {
   const signalsLocked = !canUseSignalActivity(entitlements);
   const proLocked = !canUseProTickerContext(entitlements);
-  const meta = (source: ConfirmationSourceKey, requiredPlan: TickerSourceEntitlement["required_plan"], locked: boolean): TickerSourceEntitlement => ({
+  const meta = (
+    source: ConfirmationSourceKey,
+    requiredPlan: TickerSourceEntitlement["required_plan"],
+    locked: boolean,
+    lockState?: TickerSourceEntitlement["lock_state"],
+  ): TickerSourceEntitlement => ({
     source,
     required_plan: requiredPlan,
+    lock_state: locked ? lockState ?? (requiredPlan === "pro" ? "pro_locked" : requiredPlan === "premium" ? "premium_locked" : "requires_login") : "available",
     locked,
     available: !locked,
   });
+
+  if (!authenticated) {
+    return {
+      price_volume: meta("price_volume", null, false),
+      insiders: meta("insiders", "free", true, "requires_login"),
+      congress: meta("congress", "free", true, "requires_login"),
+      government_contracts: meta("government_contracts", "free", true, "requires_login"),
+      signals: meta("signals", "premium", true, "premium_locked"),
+      institutional_activity: meta("institutional_activity", "pro", true, "pro_locked"),
+      options_flow: meta("options_flow", "pro", true, "pro_locked"),
+    };
+  }
 
   return {
     price_volume: meta("price_volume", null, false),
     insiders: meta("insiders", null, false),
     congress: meta("congress", null, false),
     government_contracts: meta("government_contracts", null, false),
-    signals: meta("signals", "premium", signalsLocked),
-    institutional_activity: meta("institutional_activity", "pro", proLocked),
-    options_flow: meta("options_flow", "pro", proLocked),
+    signals: meta("signals", "premium", signalsLocked, "premium_locked"),
+    institutional_activity: meta("institutional_activity", "pro", proLocked, "pro_locked"),
+    options_flow: meta("options_flow", "pro", proLocked, "pro_locked"),
   };
 }
 
@@ -759,15 +777,43 @@ function TickerOverviewPanel({
   freshnessBundle,
   alignedSources,
   intelligenceBullets,
+  requiresLogin,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
   freshnessBundle: SignalFreshnessBundle;
   alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
+  requiresLogin?: boolean;
 }) {
   const lookbackDays = confirmationBundle.lookback_days;
   const mutedLine = overviewMutedLine(sourceDisplayBundle);
+
+  if (requiresLogin) {
+    return (
+      <div>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
+            <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
+          </div>
+          <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Sign in</span>
+        </div>
+
+        <div className="mt-7">
+          <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
+            Sign in to view 30D confirmation
+          </p>
+          <p className="mt-3 text-sm text-slate-300">Create a free account to view Congress, insider, and contract context.</p>
+        </div>
+
+        <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+          <p className="text-sm font-semibold text-slate-200">Confirmation context locked</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Price and volume can still appear when public market data is available.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -1010,7 +1056,12 @@ function sourceIsLocked(entitlements: TickerSourceEntitlements | null | undefine
   return Boolean(sourceEntitlement(entitlements, source)?.locked);
 }
 
+function sourceRequiresLogin(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): boolean {
+  return sourceEntitlement(entitlements, source)?.lock_state === "requires_login";
+}
+
 function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"]): string {
+  if (requiredPlan === "free") return "Create a free account";
   return requiredPlan === "pro" ? "Pro feature" : "Premium feature";
 }
 
@@ -1495,6 +1546,32 @@ function LockedSourceEvidenceCard({
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">LOCKED</p>
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{label}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
+    </div>
+  );
+}
+
+function RequiresLoginSourceCard({
+  title,
+  icon,
+  support,
+}: {
+  title: string;
+  icon: IntelligenceIconKind;
+  support: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-slate-500">
+            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
+          </span>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
+        </div>
+        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">SIGN IN</p>
+      </div>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Create a free account</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
     </div>
   );
@@ -2032,6 +2109,12 @@ async function DeferredTickerContent({
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
   const sourceEntitlements = activitySourceEntitlements ?? fallbackSourceEntitlements;
   const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
+  const confirmationRequiresLogin = sourceRequiresLogin(sourceEntitlements, "insiders")
+    || sourceRequiresLogin(sourceEntitlements, "congress")
+    || sourceRequiresLogin(sourceEntitlements, "government_contracts");
+  const insidersRequireLogin = sourceRequiresLogin(sourceEntitlements, "insiders");
+  const congressRequiresLogin = sourceRequiresLogin(sourceEntitlements, "congress");
+  const governmentContractsRequireLogin = sourceRequiresLogin(sourceEntitlements, "government_contracts");
   const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
   const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
   const optionsFlowCardLocked = sourceIsLocked(sourceEntitlements, "options_flow");
@@ -2081,6 +2164,7 @@ async function DeferredTickerContent({
                 freshnessBundle={freshnessBundle}
                 alignedSources={alignedSources}
                 intelligenceBullets={intelligenceBullets}
+                requiresLogin={confirmationRequiresLogin}
               />
             }
           />
@@ -2109,20 +2193,36 @@ async function DeferredTickerContent({
             </div>
 
             <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">
-              <SourceEvidenceCard
-                title="Insiders"
-                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
-                source={insiderCardSource}
-                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
-                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
-              />
-              <SourceEvidenceCard
-                title="Congress"
-                icon="congress"
-                source={congressCardSource}
-                body={sourceCardBody("congress", congressCardSource, topSignal)}
-                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
-              />
+              {insidersRequireLogin ? (
+                <RequiresLoginSourceCard
+                  title="Insiders"
+                  icon="insider-buy"
+                  support="Sign in to view insider activity."
+                />
+              ) : (
+                <SourceEvidenceCard
+                  title="Insiders"
+                  icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                  source={insiderCardSource}
+                  body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
+                  support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+                />
+              )}
+              {congressRequiresLogin ? (
+                <RequiresLoginSourceCard
+                  title="Congress"
+                  icon="congress"
+                  support="Sign in to view Congress activity."
+                />
+              ) : (
+                <SourceEvidenceCard
+                  title="Congress"
+                  icon="congress"
+                  source={congressCardSource}
+                  body={sourceCardBody("congress", congressCardSource, topSignal)}
+                  support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+                />
+              )}
               {institutionalCardLocked ? (
                 <LockedSourceEvidenceCard
                   title="Institutional"
@@ -2162,9 +2262,17 @@ async function DeferredTickerContent({
               ) : (
                 <OptionsFlowCard summary={optionsFlow} />
               )}
-              <GovernmentContractsCard
-                source={confirmationBundle.sources.government_contracts}
-              />
+              {governmentContractsRequireLogin ? (
+                <RequiresLoginSourceCard
+                  title="Government Contracts"
+                  icon="government-contract"
+                  support="Sign in to view government contract context."
+                />
+              ) : (
+                <GovernmentContractsCard
+                  source={confirmationBundle.sources.government_contracts}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -2743,7 +2851,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const shouldLoadSignalActivity = source === "all" || source === "signals";
   const signalActivityAuthPending = shouldLoadSignalActivity && !authToken && authState.hasAuthHint;
   const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
-  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements);
+  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, Boolean(authToken));
   const signalGateState = !shouldLoadSignalActivity || signalActivityAuthPending
     ? null
     : !authToken
@@ -2786,15 +2894,13 @@ export default async function TickerPage({ params, searchParams }: Props) {
           })
         : undefined;
     const signalSummaryRequest =
-      authToken
-        ? getTickerSignalsSummary(normalizedSymbol, {
-            side,
-            limit: 3,
-            lookback_days: SIGNAL_WINDOW_DAYS,
-            authToken,
-            source: "TickerSignalsSummary",
-          })
-        : undefined;
+      getTickerSignalsSummary(normalizedSymbol, {
+        side,
+        limit: 3,
+        lookback_days: SIGNAL_WINDOW_DAYS,
+        authToken: authToken ?? undefined,
+        source: "TickerSignalsSummary",
+      });
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve(events),
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
