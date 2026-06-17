@@ -34,6 +34,7 @@ from app.services.confirmation_monitoring import refresh_all_monitored_watchlist
 logger = logging.getLogger(__name__)
 
 SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,provider_budget_exceeded,retry_later,no_entry_price,no_execution_price"
+UNRESOLVED_SYMBOL_LABEL = "<unresolved>"
 
 
 def json_default(value: object) -> object:
@@ -272,6 +273,34 @@ def _positive_int_env(name: str, *, default: int) -> int:
     return max(1, value)
 
 
+def _top_missing_symbols_statement(since: datetime):
+    return (
+        select(Event.symbol, func.count(Event.id))
+        .select_from(Event)
+        .join(TradeOutcome, TradeOutcome.event_id == Event.id, isouter=True)
+        .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
+        .where(func.coalesce(Event.event_date, Event.ts) >= since)
+        .where(TradeOutcome.id.is_(None))
+        .group_by(Event.symbol)
+        .order_by(func.count(Event.id).desc())
+    )
+
+
+def _normalize_symbol_bucket(symbol: object) -> str:
+    if symbol is None:
+        return UNRESOLVED_SYMBOL_LABEL
+    normalized = str(symbol).strip()
+    return normalized or UNRESOLVED_SYMBOL_LABEL
+
+
+def _normalize_top_missing_symbol_rows(rows: list[tuple[object, int]]) -> list[tuple[str, int]]:
+    totals: dict[str, int] = {}
+    for symbol, count in rows:
+        bucket = _normalize_symbol_bucket(symbol)
+        totals[bucket] = totals.get(bucket, 0) + int(count or 0)
+    return sorted(totals.items(), key=lambda item: item[1], reverse=True)[:10]
+
+
 def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
     since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
     with SessionLocal() as db:
@@ -298,19 +327,10 @@ def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
             .where(TradeOutcome.scoring_status != "ok")
             .group_by(TradeOutcome.scoring_status)
         ).all()
-        top_missing_symbols = db.execute(
-            select(func.coalesce(Event.symbol, "<unresolved>"), func.count(Event.id))
-            .select_from(Event)
-            .join(TradeOutcome, TradeOutcome.event_id == Event.id, isouter=True)
-            .where(Event.event_type.in_(["congress_trade", "insider_trade"]))
-            .where(func.coalesce(Event.event_date, Event.ts) >= since)
-            .where(TradeOutcome.id.is_(None))
-            .group_by(func.coalesce(Event.symbol, "<unresolved>"))
-            .order_by(func.count(Event.id).desc())
-            .limit(10)
-        ).all()
+        top_missing_symbol_rows = db.execute(_top_missing_symbols_statement(since)).all()
 
     failed_statuses = {str(status): int(count) for status, count in failed_rows if status}
+    top_missing_symbols = _normalize_top_missing_symbol_rows(top_missing_symbol_rows)
     missing_prices_remaining = sum(
         count
         for status, count in failed_statuses.items()
@@ -328,7 +348,7 @@ def _daily_outcome_coverage_report(*, lookback_days: int) -> dict[str, object]:
     unresolved_symbols_remaining = sum(
         int(count)
         for symbol, count in top_missing_symbols
-        if not symbol or str(symbol) == "<unresolved>"
+        if not symbol or str(symbol) == UNRESOLVED_SYMBOL_LABEL
     )
     provider_errors = {
         status: count
