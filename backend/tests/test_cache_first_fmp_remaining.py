@@ -319,6 +319,20 @@ def test_ticker_meta_background_context_can_fetch(monkeypatch):
         calls["count"] += 1
         if url.endswith("/stable/search-symbol"):
             return _FakeResponse(200, [{"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"}])
+        if url.endswith("/stable/profile"):
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "symbol": "AAPL",
+                        "companyName": "Apple Inc.",
+                        "exchangeShortName": "NASDAQ",
+                        "sector": "Technology",
+                        "industry": "Consumer Electronics",
+                        "country": "US",
+                    }
+                ],
+            )
         if "/profile/" in url:
             return _FakeResponse(
                 200,
@@ -372,6 +386,8 @@ def test_ticker_meta_background_upsert_does_not_overwrite_identity_with_nulls(mo
     def fake_get(url, params=None, timeout=30):
         if url.endswith("/stable/search-symbol"):
             return _FakeResponse(200, [{"symbol": "MSTR", "name": "Strategy Inc", "exchange": "NASDAQ"}])
+        if url.endswith("/stable/profile"):
+            return _FakeResponse(200, [{"symbol": "MSTR", "companyName": "Strategy Inc"}])
         if "/profile/" in url:
             return _FakeResponse(200, [{"symbol": "MSTR", "companyName": "Strategy Inc"}])
         return _FakeResponse(200, [])
@@ -444,3 +460,113 @@ def test_ticker_meta_public_stale_row_is_served_and_enqueued(monkeypatch):
     assert payload["AAPL"]["company_name"] == "Apple Inc."
     assert calls["count"] == 0
     assert jobs and jobs[0]["job_type"] == "ticker_meta"
+
+
+def test_ticker_meta_public_sparse_identity_row_is_served_and_enqueued(monkeypatch):
+    db = _db()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    jobs = []
+    calls = {"count": 0}
+    db.add(
+        TickerMeta(
+            symbol="NBIS",
+            company_name="Nebius Group N.V.",
+            exchange="NASDAQ",
+            updated_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+    def fail_get(*_args, **_kwargs):
+        calls["count"] += 1
+        raise AssertionError("FMP should not be called when sparse metadata can be served")
+
+    def fake_enqueue(**kwargs):
+        jobs.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.ticker_meta.requests.get", fail_get)
+    monkeypatch.setattr("app.services.ticker_meta.enqueue_data_enrichment_job", fake_enqueue)
+    token = set_request_context({"path": "/api/tickers/NBIS", "priority": "heavy"})
+    try:
+        payload = get_ticker_meta(db, ["NBIS"], allow_refresh=True)
+    finally:
+        reset_request_context(token)
+        db.close()
+
+    assert payload["NBIS"]["company_name"] == "Nebius Group N.V."
+    assert payload["NBIS"]["exchange"] == "NASDAQ"
+    assert calls["count"] == 0
+    assert jobs and jobs[0]["job_type"] == "ticker_meta"
+    assert jobs[0]["symbol"] == "NBIS"
+    assert jobs[0]["reason"] == "missing_profile_identity"
+
+
+def test_ticker_meta_background_sparse_identity_row_refreshes(monkeypatch):
+    db = _db()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    calls = {"count": 0}
+    db.add(
+        TickerMeta(
+            symbol="NBIS",
+            company_name="Nebius Group N.V.",
+            exchange="NASDAQ",
+            updated_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        if url.endswith("/stable/search-symbol"):
+            return _FakeResponse(200, [{"symbol": "NBIS", "name": "Nebius Group N.V.", "exchange": "NASDAQ"}])
+        if url.endswith("/stable/profile"):
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "symbol": "NBIS",
+                        "companyName": "Nebius Group N.V.",
+                        "exchangeShortName": "NASDAQ",
+                        "sector": "Technology",
+                        "industry": "Information Technology Services",
+                        "country": "NL",
+                    }
+                ],
+            )
+        if "/profile/" in url:
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "symbol": "NBIS",
+                        "companyName": "Nebius Group N.V.",
+                        "exchangeShortName": "NASDAQ",
+                        "sector": "Technology",
+                        "industry": "Information Technology Services",
+                        "country": "NL",
+                    }
+                ],
+            )
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.ticker_meta.requests.get", fake_get)
+    token = set_request_context({"path": "background", "priority": "normal", "job_type": "ticker_meta"})
+    try:
+        payload = get_ticker_meta(db, ["NBIS"], allow_refresh=True)
+    finally:
+        reset_request_context(token)
+        db.close()
+
+    assert payload["NBIS"] == {
+        "company_name": "Nebius Group N.V.",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "country": "NL",
+    }
+    assert calls["count"] == 2

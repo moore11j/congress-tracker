@@ -5874,6 +5874,7 @@ def ticker_government_contracts(
     lookback_days: int = Query(365, ge=1, le=1095),
     min_amount: float = Query(1_000_000, ge=0),
     limit: int = Query(10, ge=1, le=100),
+    page: int = Query(0, ge=0, le=1000),
     db: Session = Depends(get_db),
 ):
     with _heavy_route_slot("ticker_government_contracts", _TICKER_WIDGET_SEMAPHORE):
@@ -5883,6 +5884,7 @@ def ticker_government_contracts(
             lookback_days=lookback_days,
             min_amount=min_amount,
             limit=limit,
+            page=page,
         )
 
 

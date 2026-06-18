@@ -214,19 +214,28 @@ def get_government_contracts_for_symbol(
     lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     min_amount: float | int | None = DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
     limit: int = 10,
+    page: int = 0,
 ) -> dict[str, Any]:
     normalized_symbol = normalize_symbol(symbol)
     bounded_limit = max(1, min(int(limit or 10), 100))
+    bounded_page = max(0, int(page or 0))
+    offset = bounded_page * bounded_limit
     cutoff_date = _cutoff_date(lookback_days)
     minimum_amount = _non_negative_float(min_amount) or 0.0
+    bounded_lookback_days = max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
 
     if not normalized_symbol:
         return {
             "symbol": None,
             "status": "unavailable",
-            "lookback_days": max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3)),
+            "source_status": "unavailable",
+            "lookback_days": bounded_lookback_days,
             "cutoff_date": cutoff_date.isoformat(),
             "min_amount": minimum_amount,
+            "page": bounded_page,
+            "limit": bounded_limit,
+            "total": 0,
+            "has_next": False,
             "contract_count": 0,
             "total_award_amount": 0.0,
             "largest_award_amount": None,
@@ -247,9 +256,14 @@ def get_government_contracts_for_symbol(
         return {
             "symbol": normalized_symbol,
             "status": "unavailable",
-            "lookback_days": max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3)),
+            "source_status": availability.get("status") or "unavailable",
+            "lookback_days": bounded_lookback_days,
             "cutoff_date": cutoff_date.isoformat(),
             "min_amount": minimum_amount,
+            "page": bounded_page,
+            "limit": bounded_limit,
+            "total": 0,
+            "has_next": False,
             "contract_count": 0,
             "total_award_amount": 0.0,
             "largest_award_amount": None,
@@ -258,17 +272,30 @@ def get_government_contracts_for_symbol(
             "items": [],
         }
 
+    total_count = int(
+        db.execute(
+            select(func.count(GovernmentContract.id))
+            .where(func.upper(GovernmentContract.symbol) == normalized_symbol)
+            .where(GovernmentContract.award_date >= cutoff_date)
+            .where(GovernmentContract.award_amount >= minimum_amount)
+        ).scalar()
+        or 0
+    )
+
     rows = db.execute(
         select(GovernmentContract)
         .where(func.upper(GovernmentContract.symbol) == normalized_symbol)
         .where(GovernmentContract.award_date >= cutoff_date)
         .where(GovernmentContract.award_amount >= minimum_amount)
         .order_by(GovernmentContract.award_date.desc(), GovernmentContract.award_amount.desc(), GovernmentContract.id.desc())
+        .offset(offset)
         .limit(bounded_limit)
     ).scalars().all()
 
     items = [
         {
+            "symbol": normalize_symbol(row.symbol) or row.symbol,
+            "contract_id": row.award_id,
             "award_id": row.award_id,
             "award_date": row.award_date.isoformat() if row.award_date else None,
             "award_amount": round(float(row.award_amount), 2),
@@ -292,10 +319,15 @@ def get_government_contracts_for_symbol(
     return {
         "symbol": normalized_symbol,
         "status": summary.get("status") or "ok",
-        "lookback_days": max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3)),
+        "source_status": availability.get("status") or "ok",
+        "lookback_days": bounded_lookback_days,
         "cutoff_date": cutoff_date.isoformat(),
         "min_amount": minimum_amount,
-        "contract_count": int(summary.get("contract_count") or 0),
+        "page": bounded_page,
+        "limit": bounded_limit,
+        "total": total_count,
+        "has_next": offset + len(items) < total_count,
+        "contract_count": total_count,
         "total_award_amount": float(summary.get("total_award_amount") or 0.0),
         "largest_award_amount": summary.get("largest_award_amount"),
         "latest_award_date": summary.get("latest_award_date"),

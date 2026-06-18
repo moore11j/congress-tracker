@@ -2470,6 +2470,8 @@ export type TickerFinancialsResponse = {
 };
 
 export type TickerGovernmentContractItem = {
+  symbol?: string | null;
+  contract_id?: string | null;
   award_id?: string | null;
   award_date?: string | null;
   award_amount?: number | null;
@@ -2485,11 +2487,26 @@ export type TickerGovernmentContractItem = {
   contract_type?: string | null;
   source_url?: string | null;
   source?: string | null;
+  mapping_method?: string | null;
+  mapping_confidence?: number | null;
 };
 
 export type TickerGovernmentContractsResponse = {
   symbol: string | null;
   status: string;
+  source_status?: string | null;
+  lookback_days?: number;
+  cutoff_date?: string | null;
+  min_amount?: number;
+  page?: number;
+  limit?: number;
+  total?: number;
+  has_next?: boolean;
+  contract_count?: number;
+  total_award_amount?: number;
+  largest_award_amount?: number | null;
+  latest_award_date?: string | null;
+  top_agency?: string | null;
   items: TickerGovernmentContractItem[];
 };
 
@@ -3756,12 +3773,13 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
   );
 }
 
-export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
   return fetchJson<TickerGovernmentContractsResponse>(
     buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
       lookback_days: params?.lookback_days,
       min_amount: params?.min_amount,
       limit: params?.limit,
+      page: params?.page,
     }),
     { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerGovernmentContracts" },
   );

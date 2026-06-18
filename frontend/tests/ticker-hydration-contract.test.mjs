@@ -111,11 +111,21 @@ test("logged out ticker context keeps public sources visible and paid sources lo
   assert.match(tickerPage, /lock_state: locked \? lockState/);
 });
 
-test("ticker government contracts all-mode copy is final no-data copy", () => {
+test("ticker government contracts activity loads in all mode and paginates", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const api = read("lib/api.ts");
 
-  assert.match(tickerPage, /No major government contracts\. No contracts above threshold in selected window\./);
-  assert.doesNotMatch(tickerPage, /Government contracts load when the Gov Contracts filter is opened\./);
+  assert.match(tickerPage, /source === "all" \|\| source === "government_contract"/);
+  assert.match(tickerPage, /limit: GOVERNMENT_CONTRACTS_PAGE_SIZE/);
+  assert.match(tickerPage, /page: contractsPage/);
+  assert.match(tickerPage, /governmentContractsTotal\} contract\{governmentContractsTotal === 1 \? "" : "s"\}/);
+  assert.match(tickerPage, /No government contracts in selected window\./);
+  assert.match(tickerPage, /Government contract activity unavailable\./);
+  assert.match(tickerPage, /Loading government contract activity\./);
+  assert.match(tickerPage, /contracts_page: governmentContractsPage \+ 1/);
+  assert.match(api, /page: params\?\.page/);
+  assert.match(api, /total\?: number/);
+  assert.doesNotMatch(tickerPage, /governmentContractsDeferred/);
 });
 
 test("ticker tabs settle warming responses into public no-data copy", () => {

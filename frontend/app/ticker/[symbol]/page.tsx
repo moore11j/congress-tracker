@@ -49,6 +49,7 @@ type Lookback = "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
+const GOVERNMENT_CONTRACTS_PAGE_SIZE = 20;
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
 type ParticipantStats = {
   name: string;
@@ -101,6 +102,11 @@ type TickerActivityData = {
   congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
   governmentContracts: TickerGovernmentContractItem[];
+  governmentContractsTotal: number;
+  governmentContractsPage: number;
+  governmentContractsLimit: number;
+  governmentContractsHasNext: boolean;
+  governmentContractsStatus: string;
   congressBuys: number;
   congressSells: number;
   insiderBuys: number;
@@ -179,6 +185,11 @@ function clampSource(v: string): SourceFilter {
 
 function clampSide(v: string): SideFilter {
   return v === "buy" || v === "sell" || v === "all" ? v : "all";
+}
+
+function clampPage(v: string): number {
+  const parsed = Number(v);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
 function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
@@ -1725,11 +1736,21 @@ function MetricTile({
   );
 }
 
-function hrefWithFilters(symbol: string, lookback: Lookback, source: SourceFilter, side: SideFilter): string {
+function hrefWithFilters(
+  symbol: string,
+  lookback: Lookback,
+  source: SourceFilter,
+  side: SideFilter,
+  extra?: Record<string, string | number | null | undefined>,
+): string {
   const q = new URLSearchParams();
   q.set("lookback", lookback);
   q.set("source", source);
   q.set("side", side);
+  Object.entries(extra ?? {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) return;
+    q.set(key, String(value));
+  });
   const base = tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
   return `${base}?${q.toString()}`;
 }
@@ -1905,6 +1926,7 @@ function DeferredTickerSummarySkeleton() {
       </div>
       <section className={`${cardClassName} p-4`}>
         <SkeletonBlock className="h-3 w-40" />
+        <p className="mt-3 text-sm text-slate-400">Loading government contract activity.</p>
         <SkeletonBlock className="mt-3 h-64 w-full" />
       </section>
     </div>
@@ -1928,7 +1950,17 @@ async function resolveTickerActivityData({
 }): Promise<TickerActivityData> {
   const [eventsRes, governmentContractsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve({ items: [] }),
-    governmentContractsPromise ?? Promise.resolve({ items: [] as TickerGovernmentContractItem[] }),
+    governmentContractsPromise ?? Promise.resolve({
+      symbol: null,
+      status: "ok",
+      source_status: "ok",
+      items: [] as TickerGovernmentContractItem[],
+      total: 0,
+      contract_count: 0,
+      page: 0,
+      limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+      has_next: false,
+    }),
     signalSummaryRequest
       ? signalSummaryRequest
           .then((response) => ({
@@ -1993,6 +2025,15 @@ async function resolveTickerActivityData({
   const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
   const governmentContracts = governmentContractsRes.items ?? [];
+  const governmentContractsTotal = typeof governmentContractsRes.total === "number"
+    ? governmentContractsRes.total
+    : typeof governmentContractsRes.contract_count === "number"
+      ? governmentContractsRes.contract_count
+      : governmentContracts.length;
+  const governmentContractsPage = typeof governmentContractsRes.page === "number" ? governmentContractsRes.page : 0;
+  const governmentContractsLimit = typeof governmentContractsRes.limit === "number" ? governmentContractsRes.limit : GOVERNMENT_CONTRACTS_PAGE_SIZE;
+  const governmentContractsHasNext = Boolean(governmentContractsRes.has_next);
+  const governmentContractsStatus = governmentContractsRes.status ?? governmentContractsRes.source_status ?? "ok";
   const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
@@ -2061,6 +2102,11 @@ async function resolveTickerActivityData({
     congressEvents,
     insiderEvents,
     governmentContracts,
+    governmentContractsTotal,
+    governmentContractsPage,
+    governmentContractsLimit,
+    governmentContractsHasNext,
+    governmentContractsStatus,
     priceVolumeContext: signalsRes.price_volume ?? null,
     sourceEntitlements: signalsRes.source_entitlements ?? null,
     confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
@@ -2118,6 +2164,11 @@ async function DeferredTickerContent({
     congressEvents,
     insiderEvents,
     governmentContracts,
+    governmentContractsTotal,
+    governmentContractsPage,
+    governmentContractsLimit,
+    governmentContractsHasNext,
+    governmentContractsStatus,
     congressBuys,
     congressSells,
     insiderBuys,
@@ -2165,7 +2216,14 @@ async function DeferredTickerContent({
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
   const showGovernmentContracts = source === "all" || source === "government_contract";
-  const governmentContractsDeferred = source === "all";
+  const governmentContractsUnavailable = governmentContractsStatus === "unavailable";
+  const governmentContractsPreviousPage = Math.max(governmentContractsPage - 1, 0);
+  const governmentContractsShowingStart = governmentContractsTotal > 0
+    ? governmentContractsPage * governmentContractsLimit + 1
+    : 0;
+  const governmentContractsShowingEnd = governmentContractsTotal > 0
+    ? Math.min(governmentContractsShowingStart + governmentContracts.length - 1, governmentContractsTotal)
+    : 0;
   const activityPnlByEventId = new Map<number, number | null>(
     [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
   );
@@ -2661,21 +2719,48 @@ async function DeferredTickerContent({
             <section className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
-                <span className="text-xs text-slate-400">{governmentContracts.length} contracts</span>
+                <span className="text-xs text-slate-400">{governmentContractsTotal} contract{governmentContractsTotal === 1 ? "" : "s"}</span>
               </div>
               <div className="min-w-0 space-y-3">
-                {governmentContractsDeferred ? (
-                  <p className="text-sm text-slate-400">
-                    No major government contracts. No contracts above threshold in selected window.
-                  </p>
+                {governmentContractsUnavailable ? (
+                  <p className="text-sm text-slate-400">Government contract activity unavailable.</p>
                 ) : governmentContracts.length === 0 ? (
-                  <p className="text-sm text-slate-400">No major government contracts. No contracts above threshold in selected window.</p>
+                  <p className="text-sm text-slate-400">No government contracts in selected window.</p>
                 ) : (
-                  <ActivityScrollRegion>
-                    {governmentContracts.slice(0, 20).map((contract, index) => (
-                      <GovernmentContractActivityCard key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
-                    ))}
-                  </ActivityScrollRegion>
+                  <>
+                    <ActivityScrollRegion>
+                      {governmentContracts.map((contract, index) => (
+                        <GovernmentContractActivityCard key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
+                      ))}
+                    </ActivityScrollRegion>
+                    {governmentContractsTotal > governmentContractsLimit ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                        <span className="text-xs text-slate-500">
+                          Showing {governmentContractsShowingStart}-{governmentContractsShowingEnd} of {governmentContractsTotal}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {governmentContractsPage > 0 ? (
+                            <Link
+                              href={hrefWithFilters(normalizedSymbol, lookback, source, side, { contracts_page: governmentContractsPreviousPage })}
+                              prefetch={false}
+                              className="rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                            >
+                              Previous
+                            </Link>
+                          ) : null}
+                          {governmentContractsHasNext ? (
+                            <Link
+                              href={hrefWithFilters(normalizedSymbol, lookback, source, side, { contracts_page: governmentContractsPage + 1 })}
+                              prefetch={false}
+                              className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                            >
+                              Show more
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
               </div>
             </section>
@@ -2849,6 +2934,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const lookback = clampLookback(one(sp, "lookback"));
   const source = clampSource(one(sp, "source"));
   const side = clampSide(one(sp, "side"));
+  const contractsPage = clampPage(one(sp, "contracts_page"));
   const normalizedSymbol = symbol.trim().toUpperCase();
   const lookbackDays = Number(lookback);
   const authState = await optionalPageAuthState();
@@ -2894,6 +2980,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
   const activityPromise = (async () => {
+    const shouldFetchGovernmentContracts = source === "all" || source === "government_contract";
     const events = await getEvents({
       symbol: normalizedSymbol,
       recent_days: lookbackDays,
@@ -2912,15 +2999,26 @@ export default async function TickerPage({ params, searchParams }: Props) {
       return { items: [], status: "unavailable", item_count: 0 };
     });
     const governmentContracts =
-      source === "government_contract"
+      shouldFetchGovernmentContracts
         ? await getTickerGovernmentContracts(normalizedSymbol, {
             lookback_days: lookbackDays,
             min_amount: 1_000_000,
-            limit: 100,
+            limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+            page: contractsPage,
             source: "TickerGovernmentContracts",
           }).catch((error) => {
             console.error("[ticker-government-contracts] unavailable", error);
-            return { symbol: normalizedSymbol, status: "unavailable", items: [] };
+            return {
+              symbol: normalizedSymbol,
+              status: "unavailable",
+              source_status: "unavailable",
+              items: [],
+              total: 0,
+              contract_count: 0,
+              page: contractsPage,
+              limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
+              has_next: false,
+            };
           })
         : undefined;
     const signalSummaryRequest =

@@ -28,6 +28,7 @@ from app.utils.symbols import normalize_symbol
 
 TICKER_META_TTL_DAYS = int(os.getenv("TICKER_META_TTL_DAYS", "7"))
 TICKER_META_MISS_TTL_DAYS = int(os.getenv("TICKER_META_MISS_TTL_DAYS", "1"))
+TICKER_META_PLACEHOLDER_VALUES = {"n/a", "na", "none", "null", "unknown", "-", "--"}
 
 CIK_META_TTL_DAYS = int(os.getenv("CIK_META_TTL_DAYS", "30"))
 CIK_META_MISS_TTL_DAYS = int(os.getenv("CIK_META_MISS_TTL_DAYS", "7"))
@@ -64,6 +65,36 @@ def _fmp_profile(symbol: str, api_key: str) -> tuple[str | None, str | None, str
             first.get("country"),
         )
     return None, None, None, None, None
+
+
+def _fmp_stable_profile(symbol: str, api_key: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/stable/profile",
+            params={"symbol": symbol, "apikey": api_key},
+            timeout=10,
+        )
+        record_provider_response(category="ticker_meta:stable-profile", symbol=symbol, status_code=response.status_code)
+        if response.status_code != 200:
+            return None, None, None, None, None
+        payload = response.json()
+    except Exception:
+        return None, None, None, None, None
+
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        first = payload[0]
+    elif isinstance(payload, dict):
+        first = payload
+    else:
+        return None, None, None, None, None
+
+    return (
+        first.get("companyName") or first.get("name"),
+        first.get("exchangeShortName") or first.get("exchange") or first.get("stockExchange"),
+        first.get("sector"),
+        first.get("industry"),
+        first.get("country"),
+    )
 
 
 def _fmp_search(symbol: str, api_key: str) -> tuple[str | None, str | None, str | None, str | None, str | None]:
@@ -234,12 +265,22 @@ def _fetch_symbol_meta(symbol: str) -> tuple[str | None, str | None, str | None,
         raise ProviderUnavailable("provider_disabled" if user_api_request else "background_provider_disabled")
 
     company_name, exchange, sector, industry, country = _fmp_stable_search_symbol(symbol, api_key)
-    profile_name, profile_exchange, profile_sector, profile_industry, profile_country = _fmp_profile(symbol, api_key)
+
+    profile_name, profile_exchange, profile_sector, profile_industry, profile_country = _fmp_stable_profile(symbol, api_key)
     company_name = company_name or profile_name
     exchange = exchange or profile_exchange
     sector = sector or profile_sector
     industry = industry or profile_industry
     country = country or profile_country
+
+    if not (company_name and exchange and (sector or industry or country)):
+        profile_name, profile_exchange, profile_sector, profile_industry, profile_country = _fmp_profile(symbol, api_key)
+        company_name = company_name or profile_name
+        exchange = exchange or profile_exchange
+        sector = sector or profile_sector
+        industry = industry or profile_industry
+        country = country or profile_country
+
     if company_name or sector or industry:
         return company_name, exchange, sector, industry, country
 
@@ -259,6 +300,29 @@ def _is_public_request_context() -> bool:
     context = get_request_context() or {}
     route = str(context.get("path") or "")
     return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
+def _ticker_meta_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() in TICKER_META_PLACEHOLDER_VALUES:
+        return None
+    return cleaned
+
+
+def _has_ticker_profile_identity(row: TickerMeta) -> bool:
+    return bool(
+        _ticker_meta_text(row.company_name)
+        and _ticker_meta_text(row.exchange)
+        and (
+            _ticker_meta_text(row.sector)
+            or _ticker_meta_text(row.industry)
+            or _ticker_meta_text(row.country)
+        )
+    )
 
 
 def _enqueue_ticker_meta_refresh(symbol: str, *, reason: str) -> None:
@@ -324,7 +388,7 @@ def get_ticker_meta(
                 record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
                 continue
-            if not row.company_name:
+            if not _ticker_meta_text(row.company_name):
                 record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
                 continue
@@ -332,13 +396,18 @@ def get_ticker_meta(
                 record_cache_miss(category="ticker_meta", symbol=symbol)
                 stale_or_missing.append(symbol)
                 continue
+            if not _has_ticker_profile_identity(row):
+                record_cache_miss(category="ticker_meta", symbol=symbol)
+                stale_or_missing.append(symbol)
+                continue
             record_cache_hit(category="ticker_meta", symbol=symbol)
 
         if stale_or_missing and _is_public_request_context():
             for symbol in stale_or_missing:
-                _enqueue_ticker_meta_refresh(symbol, reason="cache_miss")
+                reason = "missing_profile_identity" if by_symbol.get(symbol) is not None else "cache_miss"
+                _enqueue_ticker_meta_refresh(symbol, reason=reason)
 
-        if stale_or_missing and allow_refresh:
+        if stale_or_missing and allow_refresh and not _is_public_request_context():
             resolved: dict[str, tuple[str | None, str | None, str | None, str | None, str | None]] = {}
             for symbol in stale_or_missing:
                 normalized_symbol = normalize_symbol(symbol)

@@ -1267,6 +1267,7 @@ def test_ticker_government_contracts_endpoint_returns_local_summary():
             lookback_days=365,
             min_amount=1_000_000,
             limit=10,
+            page=0,
             db=db,
         )
 
@@ -1275,6 +1276,98 @@ def test_ticker_government_contracts_endpoint_returns_local_summary():
     assert payload["total_award_amount"] == 15_000_000
     assert payload["top_agency"] == "Department of Defense"
     assert len(payload["items"]) == 2
+    assert payload["total"] == 2
+    assert payload["page"] == 0
+    assert payload["has_next"] is False
+
+
+def test_ticker_government_contracts_endpoint_paginates_detail_rows():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _government_contract(
+                    contract_id=51,
+                    symbol="PLTR",
+                    days_ago=4,
+                    award_amount=4_200_000,
+                    awarding_agency="Department of Health and Human Services",
+                    description="Software platform support",
+                ),
+                _government_contract(
+                    contract_id=52,
+                    symbol="PLTR",
+                    days_ago=12,
+                    award_amount=2_000_000,
+                    awarding_agency="Department of Defense",
+                    description="Mission system support",
+                ),
+            ]
+        )
+        db.commit()
+
+        first_page = ticker_government_contracts(
+            symbol="pltr",
+            lookback_days=30,
+            min_amount=1_000_000,
+            limit=1,
+            page=0,
+            db=db,
+        )
+        second_page = ticker_government_contracts(
+            symbol="PLTR",
+            lookback_days=30,
+            min_amount=1_000_000,
+            limit=1,
+            page=1,
+            db=db,
+        )
+
+    assert first_page["status"] == "ok"
+    assert first_page["symbol"] == "PLTR"
+    assert first_page["contract_count"] == 2
+    assert first_page["total"] == 2
+    assert first_page["page"] == 0
+    assert first_page["limit"] == 1
+    assert first_page["has_next"] is True
+    assert len(first_page["items"]) == 1
+    assert first_page["items"][0]["award_id"] == "AWD-51"
+    assert first_page["items"][0]["symbol"] == "PLTR"
+    assert second_page["total"] == 2
+    assert second_page["page"] == 1
+    assert second_page["has_next"] is False
+    assert len(second_page["items"]) == 1
+    assert second_page["items"][0]["award_id"] == "AWD-52"
+
+
+def test_ticker_government_contracts_endpoint_returns_true_empty_state():
+    engine = _engine()
+    with Session(engine) as db:
+        db.add(
+            _government_contract(
+                contract_id=61,
+                symbol="LMT",
+                days_ago=5,
+                award_amount=2_000_000,
+                awarding_agency="Department of Defense",
+            )
+        )
+        db.commit()
+
+        payload = ticker_government_contracts(
+            symbol="PLTR",
+            lookback_days=30,
+            min_amount=1_000_000,
+            limit=10,
+            page=0,
+            db=db,
+        )
+
+    assert payload["status"] == "ok"
+    assert payload["contract_count"] == 0
+    assert payload["total"] == 0
+    assert payload["items"] == []
+    assert payload["has_next"] is False
 
 
 def test_screener_options_flow_filters_degrade_gracefully_when_local_data_is_unavailable(monkeypatch):
