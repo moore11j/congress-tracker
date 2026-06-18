@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 from sqlalchemy import create_engine
@@ -13,7 +13,8 @@ def test_insider_trades_does_not_trigger_sync_outcome_backfill():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
-    ts = datetime(2026, 3, 20, tzinfo=timezone.utc)
+    ts = datetime.now(timezone.utc)
+    trade_date = ts.date().isoformat()
     with Session(engine) as db:
         db.add(
             Event(
@@ -27,7 +28,7 @@ def test_insider_trades_does_not_trigger_sync_outcome_backfill():
                 payload_json=json.dumps(
                     {
                         "symbol": "JPM",
-                        "transaction_date": "2026-03-18",
+                        "transaction_date": trade_date,
                         "reporting_cik": "0000019617",
                         "insider_name": "Test Insider",
                     }
@@ -46,15 +47,104 @@ def test_insider_trades_does_not_trigger_sync_outcome_backfill():
         )
 
     assert payload["reporting_cik"] == "0000019617"
+    assert payload["total"] == 1
+    assert payload["page"] == 0
+    assert payload["limit"] == 50
+    assert payload["has_next"] is False
     assert len(payload["items"]) == 1
     assert payload["items"][0]["symbol"] == "JPM"
+
+
+def test_insider_trades_returns_public_rows_with_pagination_metadata():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    ts = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        db.add_all(
+            [
+                Event(
+                    id=idx,
+                    event_type="insider_trade",
+                    ts=event_ts,
+                    event_date=event_ts,
+                    symbol="PLTR",
+                    source="fmp",
+                    trade_type="sale",
+                    payload_json=json.dumps(
+                        {
+                            "symbol": "PLTR",
+                            "transaction_date": event_ts.date().isoformat(),
+                            "reporting_cik": "0001824159",
+                            "insider_name": "Sankar Shyam",
+                            "company_name": "Palantir Technologies Inc",
+                        }
+                    ),
+                    amount_min=1000 * idx,
+                    amount_max=5000 * idx,
+                )
+                for idx in range(1, 4)
+                for event_ts in [ts - timedelta(days=idx)]
+            ]
+        )
+        db.commit()
+
+        first_page = events_router.insider_trades(
+            reporting_cik="0001824159",
+            db=db,
+            lookback_days=90,
+            limit=2,
+            page=0,
+        )
+        second_page = events_router.insider_trades(
+            reporting_cik="0001824159",
+            db=db,
+            lookback_days=90,
+            limit=2,
+            page=1,
+        )
+
+    assert first_page["total"] == 3
+    assert first_page["page"] == 0
+    assert first_page["limit"] == 2
+    assert first_page["has_next"] is True
+    assert [item["event_id"] for item in first_page["items"]] == [1, 2]
+    assert first_page["items"][0]["symbol"] == "PLTR"
+    assert first_page["items"][0]["company_name"] == "Palantir Technologies Inc"
+
+    assert second_page["total"] == 3
+    assert second_page["page"] == 1
+    assert second_page["limit"] == 2
+    assert second_page["has_next"] is False
+    assert [item["event_id"] for item in second_page["items"]] == [3]
+
+
+def test_insider_trades_empty_insider_returns_zero_total():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as db:
+        payload = events_router.insider_trades(
+            reporting_cik="0001824159",
+            db=db,
+            lookback_days=90,
+            limit=20,
+            page=0,
+        )
+
+    assert payload["reporting_cik"] == "0001824159"
+    assert payload["total"] == 0
+    assert payload["page"] == 0
+    assert payload["limit"] == 20
+    assert payload["has_next"] is False
+    assert payload["items"] == []
 
 
 def test_events_can_skip_price_enrichment_for_read_only_ticker_pages(monkeypatch):
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
-    ts = datetime(2026, 3, 20, tzinfo=timezone.utc)
+    ts = datetime.now(timezone.utc)
     with Session(engine) as db:
         db.add(
             Event(
@@ -125,7 +215,7 @@ def test_insider_alpha_summary_skips_sync_backfill_for_high_volume_insider():
                 amount_min=1000,
                 amount_max=5000,
             )
-        for idx in range(1, 206)
+            for idx in range(1, 206)
         ]
         db.add_all(bulk)
         db.commit()
@@ -232,7 +322,8 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
 
-    ts = datetime(2026, 3, 20, tzinfo=timezone.utc)
+    ts = datetime.now(timezone.utc)
+    trade_date = ts.date().isoformat()
     with Session(engine) as db:
         db.add(
             Event(
@@ -247,7 +338,7 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
                     {
                         "symbol": "JPM",
                         "security_name": "ASE Technology Holding Co., Ltd.",
-                        "transaction_date": "2026-03-18",
+                        "transaction_date": trade_date,
                         "reporting_cik": "0000019617",
                         "insider_name": "Jeffrey Chen",
                         "price": 12.34,
@@ -273,7 +364,7 @@ def test_insider_trades_uses_persisted_payload_detail_fallbacks():
     row = payload["items"][0]
     assert row["symbol"] == "JPM"
     assert row["company_name"] == "ASE Technology Holding Co., Ltd."
-    assert row["trade_date"] == "2026-03-18"
+    assert row["trade_date"] == trade_date
     assert row["price"] == 12.34
     assert row["trade_value"] == 123400
     assert row["pnl_pct"] == 4.2

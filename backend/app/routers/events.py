@@ -7,6 +7,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from time import perf_counter
 from types import SimpleNamespace
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, exists, func, or_, select, text
@@ -3858,13 +3859,16 @@ def insider_summary(
 def insider_trades(
     reporting_cik: str,
     db: Session = Depends(get_db),
-    lookback_days: int = Query(90),
-    limit: int = Query(50, ge=1, le=200),
+    lookback_days: Annotated[int, Query()] = 90,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    page: Annotated[int, Query(ge=0, le=1000)] = 0,
     issuer: str | None = None,
 ):
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
-    visible = matched[:limit]
+    offset = page * limit
+    total = len(matched)
+    visible = matched[offset:offset + limit]
 
     insider_symbols = sorted(
         {
@@ -3933,6 +3937,10 @@ def insider_trades(
     return {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_next": offset + len(items) < total,
         "items": items,
     }
 

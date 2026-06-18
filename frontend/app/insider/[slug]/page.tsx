@@ -28,6 +28,7 @@ import { tickerHref } from "@/lib/ticker";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
+import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
@@ -45,6 +46,7 @@ const LOOKBACK_OPTIONS = [
   { label: "1Y", value: "365" },
   { label: "3Y", value: "1095" },
 ] as const satisfies readonly { label: string; value: Lookback }[];
+const RECENT_TRADES_PAGE_SIZE = 20;
 
 type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
@@ -132,10 +134,14 @@ function fallbackInsiderAlphaSummary(reportingCik: string, lookbackDays: number)
   };
 }
 
-function fallbackInsiderTrades(reportingCik: string, lookbackDays: number): InsiderTradesData {
+function fallbackInsiderTrades(reportingCik: string, lookbackDays: number, page = 0, limit = RECENT_TRADES_PAGE_SIZE): InsiderTradesData {
   return {
     reporting_cik: reportingCik,
     lookback_days: lookbackDays,
+    total: 0,
+    page,
+    limit,
+    has_next: false,
     items: [],
   };
 }
@@ -155,6 +161,11 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
 
 function clampLookback(v: string): Lookback {
   return LOOKBACK_OPTIONS.some((option) => option.value === v) ? (v as Lookback) : "90";
+}
+
+function clampPage(v: string): number {
+  const parsed = Number(v);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
 function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
@@ -323,6 +334,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const chartMode = chartModeFromParams(sp);
   const issuer = one(sp, "issuer").trim().toUpperCase();
   const chartSymbol = one(sp, "symbol").trim().toUpperCase();
+  const recentTradesPage = clampPage(one(sp, "recent_trades_page"));
 
   const lookbackDays = Number(lookback);
   const normalizedIssuer = issuer || undefined;
@@ -350,6 +362,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     if (chartMetric !== "return") query.set("am", chartMetric);
     if (issuer) query.set("issuer", issuer);
     if (chartMode === "stock" && chartSymbol) query.set("symbol", chartSymbol);
+    if (recentTradesPage > 0) query.set("recent_trades_page", String(recentTradesPage));
     const suffix = query.toString();
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
   }
@@ -367,12 +380,23 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     ),
     loadInsiderSection(
       { ...sectionContext, section: "trades" },
-      () => getInsiderTrades(reportingCik, lookbackDays, 50, normalizedIssuer, { source: "InsiderTrades" }),
-      fallbackInsiderTrades(reportingCik, lookbackDays),
+      () =>
+        getInsiderTrades(reportingCik, lookbackDays, RECENT_TRADES_PAGE_SIZE, normalizedIssuer, {
+          page: recentTradesPage,
+          source: "InsiderTrades",
+        }),
+      fallbackInsiderTrades(reportingCik, lookbackDays, recentTradesPage, RECENT_TRADES_PAGE_SIZE),
     ),
   ]);
   const alphaSummary = alphaSummaryResult.data;
   const trades = tradesResult.data;
+  const recentTradesLimit = typeof trades.limit === "number" && trades.limit > 0 ? trades.limit : RECENT_TRADES_PAGE_SIZE;
+  const recentTradesPageValue = typeof trades.page === "number" && trades.page >= 0 ? trades.page : recentTradesPage;
+  const recentTradesTotal = typeof trades.total === "number" && trades.total >= 0 ? trades.total : trades.items.length;
+  const recentTradesHasNext =
+    typeof trades.has_next === "boolean"
+      ? trades.has_next
+      : recentTradesPageValue * recentTradesLimit + trades.items.length < recentTradesTotal;
   const topTickersPromise = loadInsiderSection(
     { ...sectionContext, section: "top-tickers" },
     () => getInsiderTopTickers(reportingCik, lookbackDays, 10, normalizedIssuer, { source: "InsiderTopTickers" }),
@@ -634,16 +658,18 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           </Suspense>
         </div>
 
-        <div className={`${cardClassName} w-full min-w-0`}>
+        <section id="recent-trades" className={`${cardClassName} w-full min-w-0 scroll-mt-6`}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
           <p className="mt-1 text-xs text-slate-500">
             Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized. Original reported prices remain shown below.
           </p>
-          <div className="mt-4 space-y-3">
+          <div data-activity-scroll-region className="mt-4 space-y-3">
             {tradesResult.unavailable ? (
+              <p className="text-sm text-slate-400">Recent trades unavailable.</p>
+            ) : recentTradesTotal === 0 ? (
               <p className="text-sm text-slate-400">No recent activity found.</p>
             ) : trades.items.length === 0 ? (
-              <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
+              <p className="text-sm text-slate-400">No trades on this page.</p>
             ) : (
               trades.items.map((trade) => {
                 const tradeRecord = trade as Record<string, unknown>;
@@ -717,7 +743,20 @@ export default async function InsiderPage({ params, searchParams }: Props) {
               })
             )}
           </div>
-        </div>
+          {!tradesResult.unavailable && recentTradesTotal > recentTradesLimit ? (
+            <div className="mt-4">
+              <TickerActivityPaginationFooter
+                sectionId="recent-trades"
+                pageParam="recent_trades_page"
+                page={recentTradesPageValue}
+                limit={recentTradesLimit}
+                total={recentTradesTotal}
+                itemCount={trades.items.length}
+                hasNext={recentTradesHasNext}
+              />
+            </div>
+          ) : null}
+        </section>
       </div>
     </div>
   );

@@ -3164,12 +3164,21 @@ export async function getInsiderTrades(
   lookbackDays: number,
   limit = 50,
   issuer?: string,
-  options?: { source?: string; signal?: AbortSignal },
-): Promise<{ reporting_cik: string; lookback_days: number; items: InsiderTrade[] }> {
+  options?: { page?: number; source?: string; signal?: AbortSignal },
+): Promise<{
+  reporting_cik: string;
+  lookback_days: number;
+  total?: number;
+  page?: number;
+  limit?: number;
+  has_next?: boolean;
+  items: InsiderTrade[];
+}> {
   return fetchJson(
     buildApiUrl(`/api/insiders/${encodeURIComponent(reportingCik)}/trades`, {
       lookback_days: lookbackDays,
       limit,
+      page: options?.page,
       issuer,
     }),
     {

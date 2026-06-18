@@ -76,7 +76,21 @@ test("insider profile optional sections fall back instead of throwing the route"
   assert.match(insiderPage, /section: "trades"/);
   assert.match(insiderPage, /section: "stock-chart"/);
   assert.match(insiderPage, /Trade outcomes unavailable/);
-  assert.match(insiderPage, /No recent activity found/);
+  assert.match(insiderPage, /Recent trades unavailable\./);
+});
+
+test("insider recent trades are public paginated rows with truthful empty and error states", () => {
+  assert.match(api, /getInsiderTrades\(/);
+  assert.match(api, /page: options\?\.page/);
+  assert.match(insiderPage, /RECENT_TRADES_PAGE_SIZE = 20/);
+  assert.match(insiderPage, /recentTradesPage = clampPage\(one\(sp, "recent_trades_page"\)\)/);
+  assert.match(insiderPage, /page: recentTradesPage/);
+  assert.match(insiderPage, /recentTradesTotal === 0/);
+  assert.match(insiderPage, /No recent activity found\./);
+  assert.match(insiderPage, /Recent trades unavailable\./);
+  assert.match(insiderPage, /pageParam="recent_trades_page"/);
+  assert.match(insiderPage, /sectionId="recent-trades"/);
+  assert.match(insiderPage, /TickerActivityPaginationFooter/);
 });
 
 test("insider route has a branded recovery boundary", () => {
