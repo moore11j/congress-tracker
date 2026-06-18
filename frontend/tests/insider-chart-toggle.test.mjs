@@ -9,6 +9,8 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const insiderPage = read("app/insider/[slug]/page.tsx");
 const insiderErrorBoundary = read("app/insider/[slug]/error.tsx");
 const api = read("lib/api.ts");
+const tradeDisplay = read("lib/tradeDisplay.ts");
+const addTickerToWatchlist = read("components/watchlists/AddTickerToWatchlist.tsx");
 const tickerChart = read("components/ticker/PremiumTickerChart.tsx");
 
 test("insider page renders chart toggle and defaults to performance curve", () => {
@@ -91,6 +93,17 @@ test("insider recent trades are public paginated rows with truthful empty and er
   assert.match(insiderPage, /pageParam="recent_trades_page"/);
   assert.match(insiderPage, /sectionId="recent-trades"/);
   assert.match(insiderPage, /TickerActivityPaginationFooter/);
+});
+
+test("insider recent trades expose watchlist add and pnl source badge", () => {
+  assert.match(insiderPage, /AddTickerToWatchlist/);
+  assert.match(insiderPage, /<AddTickerToWatchlist symbol=\{display\.displaySymbol\} variant="compact" align="left" \/>/);
+  assert.match(addTickerToWatchlist, /setAuthGateOpen\(true\)/);
+  assert.match(addTickerToWatchlist, /Create a free account/);
+  assert.match(tradeDisplay, /pnlSource = firstNestedText\(record, "pnl_source", "pnlSource"\)/);
+  assert.match(insiderPage, /pnlSourceBadgeLabel\(display\.pnlSource\)/);
+  assert.match(insiderPage, /if \(source === "eod"\) return "EOD"/);
+  assert.match(insiderPage, /\{pnlSourceLabel\}/);
 });
 
 test("insider route has a branded recovery boundary", () => {

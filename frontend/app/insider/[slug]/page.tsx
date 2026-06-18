@@ -29,6 +29,7 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
@@ -166,6 +167,14 @@ function clampLookback(v: string): Lookback {
 function clampPage(v: string): number {
   const parsed = Number(v);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function pnlSourceBadgeLabel(source: string | null | undefined): string | null {
+  if (source === "normalized_filing") return "NORMALIZED";
+  if (source === "filing") return "FILING";
+  if (source === "eod") return "EOD";
+  if (source === "trade_outcome") return "OUTCOME";
+  return null;
 }
 
 function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
@@ -677,6 +686,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 const tradeType = display.tradeType ?? "";
                 const sideLabel = formatTransactionLabel(tradeType) ?? "Trade";
                 const sideTone = transactionTone(tradeType);
+                const pnlSourceLabel = pnlSourceBadgeLabel(display.pnlSource);
 
                 return (
                   <div
@@ -685,7 +695,10 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                   >
                     <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(110px,.6fr)_minmax(90px,.5fr)_minmax(50px,.55fr)_minmax(100px,.65fr)_minmax(90px,.5fr)_minmax(120px,.5fr)] lg:items-center">
                       <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {trade.symbol ? (
+                            <AddTickerToWatchlist symbol={display.displaySymbol} variant="compact" align="left" />
+                          ) : null}
                           {trade.symbol ? (
                             <TickerPill symbol={display.displaySymbol} href={tickerHref(trade.symbol) ?? undefined} className="inline-flex shrink-0" />
                           ) : (
@@ -725,6 +738,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                       <div className="text-right text-xs text-slate-400">
                         <div>PnL</div>
                         <div className={`mt-1 text-sm font-semibold tabular-nums ${display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}`}>{display.pnl !== null ? formatPnl(display.pnl) : "—"}</div>
+                        {pnlSourceLabel ? (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                              {pnlSourceLabel}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="text-right text-xs text-slate-400">

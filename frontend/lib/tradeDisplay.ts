@@ -147,6 +147,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
     resolveInsiderDisplayValue(displayInput) ??
     readTradeNumber(record, "amount_max", "amount_min", "amountMax", "amountMin");
   const pnl = readTradeNumber(record, "pnl_pct", "pnlPct", "pnl");
+  const pnlSource = firstNestedText(record, "pnl_source", "pnlSource");
   const signal = resolveSmartSignalValue(record);
 
   return {
@@ -167,6 +168,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
     reportedLabel: reportedLabel && showReportedLabel ? reportedLabel : null,
     tradeValue,
     pnl,
+    pnlSource,
     signal,
     hasSignal: signal.score !== null || Boolean(signal.band),
   };
