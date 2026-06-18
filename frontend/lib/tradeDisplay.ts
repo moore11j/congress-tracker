@@ -139,6 +139,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
   const tradeType = firstNestedText(record, "trade_type", "tradeType", "transaction_type", "transactionType");
   const price = resolveInsiderDisplayPrice(displayInput);
   const reported = resolveInsiderReportedPrice(displayInput);
+  const displayPrice = reported.price ?? price;
   const reportedLabel = formatReportedInsiderPrice(reported.price, reported.currency);
   const showReportedLabel = shouldShowReportedPrice(record, reported.price, price, reported.currency);
   const tradeValue =
@@ -160,6 +161,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
     filingDate,
     tradeType,
     price,
+    displayPrice,
     reportedPrice: reported.price,
     reportedPriceCurrency: reported.currency,
     reportedLabel: reportedLabel && showReportedLabel ? reportedLabel : null,

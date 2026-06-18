@@ -122,7 +122,10 @@ test("ticker government contracts activity loads in all mode and paginates", () 
   assert.match(tickerPage, /No government contracts in selected window\./);
   assert.match(tickerPage, /Government contract activity unavailable\./);
   assert.match(tickerPage, /Loading government contract activity\./);
-  assert.match(tickerPage, /contracts_page: governmentContractsPage \+ 1/);
+  assert.match(tickerPage, /sectionId="government-contracts-activity"/);
+  assert.match(tickerPage, /pageParam="contracts_page"/);
+  assert.match(tickerPage, /page=\{governmentContractsPage\}/);
+  assert.match(tickerPage, /hasNext=\{governmentContractsHasNext\}/);
   assert.match(api, /page: params\?\.page/);
   assert.match(api, /total\?: number/);
   assert.doesNotMatch(tickerPage, /governmentContractsDeferred/);

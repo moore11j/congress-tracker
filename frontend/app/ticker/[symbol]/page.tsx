@@ -6,6 +6,7 @@ import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, get
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
+import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -49,8 +50,16 @@ type Lookback = "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
-const GOVERNMENT_CONTRACTS_PAGE_SIZE = 20;
+const ACTIVITY_PAGE_SIZE = 20;
+const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
+type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
+type ActivityPageMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  hasNext: boolean;
+};
 type ParticipantStats = {
   name: string;
   memberId?: string | null;
@@ -99,8 +108,16 @@ type TickerActivityData = {
   summaryInsiders: TickerSignalsSummaryResponse["insiders"] | null;
   summaryCongress: TickerSignalsSummaryResponse["congress"] | null;
   signalsUnavailable: SignalGateState | null;
-  congressEvents: Awaited<ReturnType<typeof getEvents>>["items"];
-  insiderEvents: Awaited<ReturnType<typeof getEvents>>["items"];
+  congressEvents: EventsResponse["items"];
+  congressEventsTotal: number;
+  congressEventsPage: number;
+  congressEventsLimit: number;
+  congressEventsHasNext: boolean;
+  insiderEvents: EventsResponse["items"];
+  insiderEventsTotal: number;
+  insiderEventsPage: number;
+  insiderEventsLimit: number;
+  insiderEventsHasNext: boolean;
   governmentContracts: TickerGovernmentContractItem[];
   governmentContractsTotal: number;
   governmentContractsPage: number;
@@ -190,6 +207,47 @@ function clampSide(v: string): SideFilter {
 function clampPage(v: string): number {
   const parsed = Number(v);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function sideToTradeType(side: SideFilter): "purchase" | "sale" | null {
+  if (side === "buy") return "purchase";
+  if (side === "sell") return "sale";
+  return null;
+}
+
+function emptyEventsResponse(page = 0, limit = ACTIVITY_PAGE_SIZE): EventsResponse {
+  return {
+    items: [],
+    total: 0,
+    limit,
+    offset: Math.max(page, 0) * Math.max(limit, 1),
+    item_count: 0,
+    status: "ok",
+  };
+}
+
+function activityPageMeta(response: EventsResponse, fallbackPage = 0, fallbackLimit = ACTIVITY_PAGE_SIZE): ActivityPageMeta {
+  const limit = typeof response.limit === "number" && response.limit > 0 ? response.limit : fallbackLimit;
+  const offset = typeof response.offset === "number" && response.offset >= 0 ? response.offset : fallbackPage * limit;
+  const page = Math.max(Math.floor(offset / Math.max(limit, 1)), 0);
+  const total = typeof response.total === "number" && response.total >= 0 ? response.total : response.items.length;
+  return {
+    page,
+    limit,
+    total,
+    hasNext: offset + response.items.length < total,
+  };
+}
+
+function formatActivityPrice(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "-";
+  const hasDecimals = !Number.isInteger(value);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0,
+  }).format(value);
 }
 
 function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
@@ -1780,6 +1838,7 @@ function ActivityCard({ children }: { children: ReactNode }) {
 function ActivityScrollRegion({ children }: { children: ReactNode }) {
   return (
     <div
+      data-activity-scroll-region
       className={[
         "min-w-0 max-w-full max-h-[35rem] space-y-3 overflow-y-auto pr-1",
         "[scrollbar-color:rgba(148,163,184,0.45)_rgba(15,23,42,0.28)] [scrollbar-width:thin]",
@@ -1935,6 +1994,8 @@ function DeferredTickerSummarySkeleton() {
 
 async function resolveTickerActivityData({
   eventsPromise,
+  congressEventsPromise,
+  insiderEventsPromise,
   governmentContractsPromise,
   signalSummaryRequest,
   signalsUnavailable,
@@ -1942,14 +2003,18 @@ async function resolveTickerActivityData({
   side,
 }: {
   eventsPromise?: ReturnType<typeof getEvents>;
+  congressEventsPromise?: ReturnType<typeof getEvents>;
+  insiderEventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
   signalSummaryRequest?: Promise<TickerSignalsSummaryResponse>;
   signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, governmentContractsRes, signalsResult] = await Promise.all([
-    eventsPromise ?? Promise.resolve({ items: [] }),
+  const [eventsRes, congressEventsRes, insiderEventsRes, governmentContractsRes, signalsResult] = await Promise.all([
+    eventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    congressEventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    insiderEventsPromise ?? Promise.resolve(emptyEventsResponse()),
     governmentContractsPromise ?? Promise.resolve({
       symbol: null,
       status: "ok",
@@ -2022,8 +2087,12 @@ async function resolveTickerActivityData({
     ? events
     : events.filter((event) => normalizeTradeSide(event.trade_type) === side);
 
-  const congressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
-  const insiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
+  const metricCongressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
+  const metricInsiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
+  const congressEvents = congressEventsRes.items ?? [];
+  const insiderEvents = insiderEventsRes.items ?? [];
+  const congressActivityPage = activityPageMeta(congressEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const insiderActivityPage = activityPageMeta(insiderEventsRes, 0, ACTIVITY_PAGE_SIZE);
   const governmentContracts = governmentContractsRes.items ?? [];
   const governmentContractsTotal = typeof governmentContractsRes.total === "number"
     ? governmentContractsRes.total
@@ -2034,10 +2103,10 @@ async function resolveTickerActivityData({
   const governmentContractsLimit = typeof governmentContractsRes.limit === "number" ? governmentContractsRes.limit : GOVERNMENT_CONTRACTS_PAGE_SIZE;
   const governmentContractsHasNext = Boolean(governmentContractsRes.has_next);
   const governmentContractsStatus = governmentContractsRes.status ?? governmentContractsRes.source_status ?? "ok";
-  const congressBuys = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
-  const congressSells = congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
-  const insiderBuys = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
-  const insiderSells = insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const congressBuys = metricCongressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const congressSells = metricCongressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
+  const insiderBuys = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
+  const insiderSells = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const netFlow = filteredEvents.reduce((acc, event) => {
     const sideValue = normalizeTradeSide(event.trade_type);
     const amount = Number(event.amount_max ?? event.amount_min ?? 0);
@@ -2050,7 +2119,7 @@ async function resolveTickerActivityData({
   const congressParticipantMap = new Map<string, ParticipantStats>();
   const insiderParticipantMap = new Map<string, ParticipantStats>();
 
-  for (const event of congressEvents) {
+  for (const event of metricCongressEvents) {
     const who = (event.member_name ?? "Unknown Member").trim();
     const memberId = asTrimmedString(event.member_bioguide_id);
     const participantKey = memberId ? `member:${memberId}` : `name:${who.toLowerCase()}`;
@@ -2072,7 +2141,7 @@ async function resolveTickerActivityData({
     congressParticipantMap.set(participantKey, existing);
   }
 
-  for (const event of insiderEvents) {
+  for (const event of metricInsiderEvents) {
     const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
     const who = display.insiderName || resolveInsiderName(event);
     const reportingCik = display.reportingCik ?? resolveInsiderReportingCik(event);
@@ -2096,11 +2165,19 @@ async function resolveTickerActivityData({
   const topInsiderParticipants = [...insiderParticipantMap.values()].sort((a, b) => b.trades - a.trades);
 
   return {
-    events,
+    events: filteredEvents,
     signals,
     signalsUnavailable: signalsResult.unavailable,
     congressEvents,
+    congressEventsTotal: congressActivityPage.total,
+    congressEventsPage: congressActivityPage.page,
+    congressEventsLimit: congressActivityPage.limit,
+    congressEventsHasNext: congressActivityPage.hasNext,
     insiderEvents,
+    insiderEventsTotal: insiderActivityPage.total,
+    insiderEventsPage: insiderActivityPage.page,
+    insiderEventsLimit: insiderActivityPage.limit,
+    insiderEventsHasNext: insiderActivityPage.hasNext,
     governmentContracts,
     governmentContractsTotal,
     governmentContractsPage,
@@ -2159,10 +2236,19 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements: TickerSourceEntitlements;
 }) {
   const {
+    events,
     signals,
     signalsUnavailable,
     congressEvents,
+    congressEventsTotal,
+    congressEventsPage,
+    congressEventsLimit,
+    congressEventsHasNext,
     insiderEvents,
+    insiderEventsTotal,
+    insiderEventsPage,
+    insiderEventsLimit,
+    insiderEventsHasNext,
     governmentContracts,
     governmentContractsTotal,
     governmentContractsPage,
@@ -2217,18 +2303,12 @@ async function DeferredTickerContent({
   const showSignals = source === "all" || source === "signals";
   const showGovernmentContracts = source === "all" || source === "government_contract";
   const governmentContractsUnavailable = governmentContractsStatus === "unavailable";
-  const governmentContractsPreviousPage = Math.max(governmentContractsPage - 1, 0);
-  const governmentContractsShowingStart = governmentContractsTotal > 0
-    ? governmentContractsPage * governmentContractsLimit + 1
-    : 0;
-  const governmentContractsShowingEnd = governmentContractsTotal > 0
-    ? Math.min(governmentContractsShowingStart + governmentContracts.length - 1, governmentContractsTotal)
-    : 0;
+  const signalSourceEvents = events.filter((event) => event.event_type === "congress_trade" || event.event_type === "insider_trade");
   const activityPnlByEventId = new Map<number, number | null>(
-    [...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
+    [...signalSourceEvents, ...congressEvents, ...insiderEvents].map((event) => [event.id, readNumeric(event.pnl_pct)]),
   );
   const activityEventById = new Map<number, (typeof congressEvents)[number] | (typeof insiderEvents)[number]>(
-    [...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
+    [...signalSourceEvents, ...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
   const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
   const signalGateHref = signalsUnavailable?.reason === "upgrade"
@@ -2518,56 +2598,67 @@ async function DeferredTickerContent({
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
-                <span className="text-xs text-slate-400">{congressEvents.length} events</span>
+                <span className="text-xs text-slate-400">{congressEventsTotal} events</span>
               </div>
               <div className="space-y-3">
-                {congressEvents.length === 0 ? (
+                {congressEventsTotal === 0 ? (
                   <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
                 ) : (
-                  <ActivityScrollRegion>
-                    {congressEvents.slice(0, 20).map((event) => {
-                      const memberName = event.member_name ?? "Unknown";
-                      const memberLink = event.member_bioguide_id
-                        ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
-                        : null;
-                      const chamber = chamberBadge(resolveCongressChamber(event));
-                      const party = partyBadge(resolveCongressParty(event));
-                      const state = resolveCongressState(event)?.toUpperCase() || "—";
-                      const signal = resolveSmartSignalValue(event as Record<string, unknown>);
-                      const displayPrice = resolveCongressTradePrice(event);
-                      const pnl = readNumeric(event.pnl_pct);
+                  <>
+                    <ActivityScrollRegion>
+                      {congressEvents.map((event) => {
+                        const memberName = event.member_name ?? "Unknown";
+                        const memberLink = event.member_bioguide_id
+                          ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                          : null;
+                        const chamber = chamberBadge(resolveCongressChamber(event));
+                        const party = partyBadge(resolveCongressParty(event));
+                        const state = resolveCongressState(event)?.toUpperCase() || "—";
+                        const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                        const displayPrice = resolveCongressTradePrice(event);
+                        const pnl = readNumeric(event.pnl_pct);
 
-                      return (
-                        <ActivityCard key={event.id}>
-                          <ActivityCardGrid
-                            identity={
-                              <div className="flex flex-wrap items-center gap-2">
-                                {memberLink ? (
-                                  <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                    {memberName}
-                                  </Link>
-                                ) : (
-                                  <span className="text-sm font-semibold text-slate-100">{memberName}</span>
-                                )}
-                                <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                                <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                                <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
-                              </div>
-                            }
-                            sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                            dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
-                            price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
-                            tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                            pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                            pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
-                            signal={
-                              <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
-                            }
-                          />
-                        </ActivityCard>
-                      );
-                    })}
-                  </ActivityScrollRegion>
+                        return (
+                          <ActivityCard key={event.id}>
+                            <ActivityCardGrid
+                              identity={
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {memberLink ? (
+                                    <Link href={memberLink} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                      {memberName}
+                                    </Link>
+                                  ) : (
+                                    <span className="text-sm font-semibold text-slate-100">{memberName}</span>
+                                  )}
+                                  <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
+                                  <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
+                                  <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                                </div>
+                              }
+                              sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                              dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
+                              price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
+                              tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                              pnl={pnl !== null ? formatPnl(pnl) : "-"}
+                              pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                              signal={
+                                <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                              }
+                            />
+                          </ActivityCard>
+                        );
+                      })}
+                    </ActivityScrollRegion>
+                    <TickerActivityPaginationFooter
+                      sectionId="congress-activity"
+                      pageParam="congress_page"
+                      page={congressEventsPage}
+                      limit={congressEventsLimit}
+                      total={congressEventsTotal}
+                      itemCount={congressEvents.length}
+                      hasNext={congressEventsHasNext}
+                    />
+                  </>
                 )}
               </div>
             </section>
@@ -2582,48 +2673,58 @@ async function DeferredTickerContent({
                     Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{insiderEvents.length} events</span>
+                <span className="text-xs text-slate-400">{insiderEventsTotal} events</span>
               </div>
               <div className="space-y-3">
-                {insiderEvents.length === 0 ? (
+                {insiderEventsTotal === 0 ? (
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
-                  <ActivityScrollRegion>
-                    {insiderEvents.slice(0, 20).map((event) => {
-                      const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
-                      const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
-                      const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
-                      const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
-                      const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
+                  <>
+                    <ActivityScrollRegion>
+                      {insiderEvents.map((event) => {
+                        const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
+                        const insiderProfileHref = insiderHref(display.insiderName, display.reportingCik ?? resolveInsiderReportingCik(event));
+                        const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
+                        const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
+                        const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
 
-                      return (
-                      <ActivityCard key={event.id}>
-                        <ActivityCardGrid
-                          identity={
-                            <div className="flex flex-wrap items-center gap-2">
-                              {insiderProfileHref ? (
-                                <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                  {display.insiderName}
-                                </Link>
-                              ) : (
-                                <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
-                              )}
-                              <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
-                            </div>
-                          }
-                          sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                          dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
-                          price={display.price !== null ? formatCurrency(display.price) : "-"}
-                          priceSubtext={display.reportedLabel}
-                          tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                          pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
-                          pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
-                          signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
-                        />
-                      </ActivityCard>
-                      );
-                    })}
-                  </ActivityScrollRegion>
+                        return (
+                        <ActivityCard key={event.id}>
+                          <ActivityCardGrid
+                            identity={
+                              <div className="flex flex-wrap items-center gap-2">
+                                {insiderProfileHref ? (
+                                  <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
+                                    {display.insiderName}
+                                  </Link>
+                                ) : (
+                                  <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
+                                )}
+                                <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                              </div>
+                            }
+                            sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                            dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
+                            price={formatActivityPrice(display.displayPrice)}
+                            tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                            pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
+                            pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
+                            signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
+                          />
+                        </ActivityCard>
+                        );
+                      })}
+                    </ActivityScrollRegion>
+                    <TickerActivityPaginationFooter
+                      sectionId="insider-activity"
+                      pageParam="insider_page"
+                      page={insiderEventsPage}
+                      limit={insiderEventsLimit}
+                      total={insiderEventsTotal}
+                      itemCount={insiderEvents.length}
+                      hasNext={insiderEventsHasNext}
+                    />
+                  </>
                 )}
               </div>
             </section>
@@ -2716,7 +2817,7 @@ async function DeferredTickerContent({
           ) : null}
 
           {showGovernmentContracts ? (
-            <section className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden`}>
+            <section id="government-contracts-activity" className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Government contracts activity</h2>
                 <span className="text-xs text-slate-400">{governmentContractsTotal} contract{governmentContractsTotal === 1 ? "" : "s"}</span>
@@ -2724,7 +2825,7 @@ async function DeferredTickerContent({
               <div className="min-w-0 space-y-3">
                 {governmentContractsUnavailable ? (
                   <p className="text-sm text-slate-400">Government contract activity unavailable.</p>
-                ) : governmentContracts.length === 0 ? (
+                ) : governmentContractsTotal === 0 ? (
                   <p className="text-sm text-slate-400">No government contracts in selected window.</p>
                 ) : (
                   <>
@@ -2733,33 +2834,15 @@ async function DeferredTickerContent({
                         <GovernmentContractActivityCard key={contract.award_id ?? `${contract.period_start}-${index}`} contract={contract} />
                       ))}
                     </ActivityScrollRegion>
-                    {governmentContractsTotal > governmentContractsLimit ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-                        <span className="text-xs text-slate-500">
-                          Showing {governmentContractsShowingStart}-{governmentContractsShowingEnd} of {governmentContractsTotal}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {governmentContractsPage > 0 ? (
-                            <Link
-                              href={hrefWithFilters(normalizedSymbol, lookback, source, side, { contracts_page: governmentContractsPreviousPage })}
-                              prefetch={false}
-                              className="rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-                            >
-                              Previous
-                            </Link>
-                          ) : null}
-                          {governmentContractsHasNext ? (
-                            <Link
-                              href={hrefWithFilters(normalizedSymbol, lookback, source, side, { contracts_page: governmentContractsPage + 1 })}
-                              prefetch={false}
-                              className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
-                            >
-                              Show more
-                            </Link>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
+                    <TickerActivityPaginationFooter
+                      sectionId="government-contracts-activity"
+                      pageParam="contracts_page"
+                      page={governmentContractsPage}
+                      limit={governmentContractsLimit}
+                      total={governmentContractsTotal}
+                      itemCount={governmentContracts.length}
+                      hasNext={governmentContractsHasNext}
+                    />
                   </>
                 )}
               </div>
@@ -2934,6 +3017,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const lookback = clampLookback(one(sp, "lookback"));
   const source = clampSource(one(sp, "source"));
   const side = clampSide(one(sp, "side"));
+  const congressPage = clampPage(one(sp, "congress_page"));
+  const insiderPage = clampPage(one(sp, "insider_page"));
   const contractsPage = clampPage(one(sp, "contracts_page"));
   const normalizedSymbol = symbol.trim().toUpperCase();
   const lookbackDays = Number(lookback);
@@ -2981,15 +3066,24 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
   const activityPromise = (async () => {
     const shouldFetchGovernmentContracts = source === "all" || source === "government_contract";
+    const shouldFetchCongressActivity = source === "all" || source === "congress";
+    const shouldFetchInsiderActivity = source === "all" || source === "insider";
+    const tradeType = sideToTradeType(side);
+    const eventTape =
+      source === "congress"
+        ? "congress"
+        : source === "insider"
+          ? "insider"
+          : source === "government_contract"
+            ? "government_contracts"
+            : undefined;
     const events = await getEvents({
       symbol: normalizedSymbol,
       recent_days: lookbackDays,
       limit: 100,
       enrich_prices: 0,
       source: "TickerEvents",
-      ...(source === "congress" ? { event_type: "congress_trade" } : {}),
-      ...(source === "insider" ? { event_type: "insider_trade" } : {}),
-      ...(source === "government_contract" ? { event_type: "government_contract,government_contract_award,contract_award,government_exposure" } : {}),
+      ...(eventTape ? { tape: eventTape } : {}),
     }).catch((error) => {
       console.error("[ticker-events] unavailable", {
         symbol: normalizedSymbol,
@@ -2998,6 +3092,48 @@ export default async function TickerPage({ params, searchParams }: Props) {
       });
       return { items: [], status: "unavailable", item_count: 0 };
     });
+    const congressActivity =
+      shouldFetchCongressActivity
+        ? await getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_PAGE_SIZE,
+            offset: congressPage * ACTIVITY_PAGE_SIZE,
+            include_total: 1,
+            enrich_prices: 0,
+            tape: "congress",
+            source: "TickerCongressActivity",
+            ...(tradeType ? { trade_type: tradeType } : {}),
+          }).catch((error) => {
+            console.error("[ticker-congress-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
+          })
+        : undefined;
+    const insiderActivity =
+      shouldFetchInsiderActivity
+        ? await getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_PAGE_SIZE,
+            offset: insiderPage * ACTIVITY_PAGE_SIZE,
+            include_total: 1,
+            enrich_prices: 0,
+            tape: "insider",
+            source: "TickerInsiderActivity",
+            ...(tradeType ? { trade_type: tradeType } : {}),
+          }).catch((error) => {
+            console.error("[ticker-insider-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
+          })
+        : undefined;
     const governmentContracts =
       shouldFetchGovernmentContracts
         ? await getTickerGovernmentContracts(normalizedSymbol, {
@@ -3031,6 +3167,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
       });
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve(events),
+      congressEventsPromise: congressActivity ? Promise.resolve(congressActivity) : undefined,
+      insiderEventsPromise: insiderActivity ? Promise.resolve(insiderActivity) : undefined,
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
       signalSummaryRequest,
       signalsUnavailable: signalGateState,
