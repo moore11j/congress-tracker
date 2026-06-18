@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 import app.services.ticker_hydration as hydration_module
 from app.db import Base
-from app.models import FundamentalsCache, PriceCache, Security, TickerMeta
+from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, Security, TickerMeta
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 
 
@@ -107,6 +107,86 @@ def test_ticker_hydration_profile_missing_when_metadata_has_only_exchange():
         assert status["critical"]["profile"] == "missing"
         assert "profile" in status["missing_sections"]
         assert status["should_request_hydration"] is True
+    finally:
+        db.close()
+
+
+def test_ticker_hydration_profile_ok_when_country_supplies_identity_detail():
+    db = _db()
+    try:
+        db.add(TickerMeta(symbol="NBIS", company_name="Nebius Group N.V.", exchange="NASDAQ", country="NL"))
+        db.commit()
+
+        status = ticker_hydration_status(db, "NBIS")
+
+        assert status["critical"]["profile"] == "ok"
+        assert "profile" not in status["missing_sections"]
+    finally:
+        db.close()
+
+
+def test_request_ticker_hydration_enqueues_profile_refresh_for_exchange_only_metadata(monkeypatch):
+    db = _db()
+    captured: list[dict] = []
+    monkeypatch.delenv("FMP_ALLOW_BOUNDED_TICKER_REFRESH", raising=False)
+    monkeypatch.setattr(hydration_module, "enqueue_data_enrichment_job", lambda **kwargs: captured.append(kwargs) or True)
+    try:
+        db.add(TickerMeta(symbol="NBIS", company_name="Nebius Group N.V.", exchange="NASDAQ"))
+        db.commit()
+
+        result = request_ticker_hydration(db, "NBIS", reason="ticker_page_view", priority=20)
+
+        profile_job_types = {job["job_type"] for job in captured if job.get("job_type") in {"ticker_meta", "profile"}}
+        assert profile_job_types == {"ticker_meta", "profile"}
+        assert result["jobs_enqueued_by_type"]["ticker_meta"] == 1
+        assert result["jobs_enqueued_by_type"]["profile"] == 1
+    finally:
+        db.close()
+
+
+def test_request_ticker_hydration_does_not_duplicate_pending_profile_jobs(monkeypatch):
+    db = _db()
+    captured: list[dict] = []
+    now = datetime.now(timezone.utc)
+    monkeypatch.delenv("FMP_ALLOW_BOUNDED_TICKER_REFRESH", raising=False)
+    monkeypatch.setattr(hydration_module, "enqueue_data_enrichment_job", lambda **kwargs: captured.append(kwargs) or True)
+    try:
+        db.add(TickerMeta(symbol="NBIS", company_name="Nebius Group N.V.", exchange="NASDAQ"))
+        db.add(
+            DataEnrichmentJob(
+                job_type="ticker_meta",
+                symbol="NBIS",
+                dedupe_key="ticker_meta|NBIS||",
+                priority=20,
+                status="queued",
+                source="ticker_hydration",
+                reason="ticker_page_view",
+                next_run_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            DataEnrichmentJob(
+                job_type="profile",
+                symbol="NBIS",
+                dedupe_key="profile|NBIS||",
+                priority=21,
+                status="queued",
+                source="ticker_hydration",
+                reason="ticker_page_view",
+                next_run_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        result = request_ticker_hydration(db, "NBIS", reason="ticker_page_view", priority=20)
+
+        assert "ticker_meta" not in {job["job_type"] for job in captured}
+        assert "profile" not in {job["job_type"] for job in captured}
+        assert result["critical"]["profile"] == "loading"
     finally:
         db.close()
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.main import _build_ticker_chart_bundle, _build_ticker_profile, _build_ticker_shell_profile, _event_security_fields_for_symbol
-from app.models import Event, FundamentalsCache, GovernmentContractAction, Security, TickerMeta
+from app.models import Event, FundamentalsCache, GovernmentContractAction, Security, TickerContentCache, TickerMeta
 from app.routers.events import _event_source_url, list_ticker_events
 from app.services.ticker_identity import resolve_ticker_identity
 
@@ -240,6 +240,8 @@ def test_ticker_shell_identity_keeps_aapl_sector_industry_from_ticker_meta():
     assert profile["ticker"]["industry"] == "Consumer Electronics"
     assert profile["ticker"]["country"] == "US"
     assert profile["ticker"]["exchange"] == "NASDAQ"
+    assert profile["ticker"]["exchange_short_name"] == "NASDAQ"
+    assert profile["ticker"]["display_market_chain"] == "Technology / Consumer Electronics / US / NASDAQ"
     assert profile["ticker"]["identity_status"] == "ok"
 
 
@@ -295,6 +297,45 @@ def test_ticker_shell_identity_ignores_placeholder_sector_industry():
 
     assert profile["ticker"]["sector"] == "Technology"
     assert profile["ticker"]["industry"] == "Software - Application"
+    assert profile["ticker"]["country"] == "US"
+
+
+def test_ticker_shell_identity_treats_placeholder_values_as_missing():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(
+            TickerMeta(
+                symbol="MSTR",
+                company_name="Strategy Inc",
+                exchange="N/A",
+                sector="unknown",
+                industry="-",
+                country="None",
+            )
+        )
+        db.add(
+            FundamentalsCache(
+                symbol="MSTR",
+                provider="fmp",
+                fetched_at=datetime.now(timezone.utc),
+                status="ok",
+                company_name="Strategy Inc",
+                sector="Technology",
+                industry="Software - Application",
+                country="US",
+                exchange="NASDAQ",
+            )
+        )
+        db.commit()
+
+        profile = _build_ticker_shell_profile("mstr", db)
+
+    assert profile["ticker"]["sector"] == "Technology"
+    assert profile["ticker"]["industry"] == "Software - Application"
+    assert profile["ticker"]["country"] == "US"
+    assert profile["ticker"]["exchange"] == "NASDAQ"
+    assert profile["ticker"]["display_market_chain"] == "Technology / Software - Application / US / NASDAQ"
 
 
 def test_ticker_shell_identity_uses_nbis_cached_sector_industry():
@@ -319,6 +360,44 @@ def test_ticker_shell_identity_uses_nbis_cached_sector_industry():
     assert profile["ticker"]["sector"] == "Technology"
     assert profile["ticker"]["industry"] == "Information Technology Services"
     assert profile["ticker"]["identity_status"] == "ok"
+
+
+def test_ticker_shell_identity_uses_nbis_profile_content_cache_fallback():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(TickerMeta(symbol="NBIS", company_name="Nebius Group N.V.", exchange="NASDAQ"))
+        db.add(
+            TickerContentCache(
+                content_type="profile",
+                symbol="NBIS",
+                window_key="latest",
+                cache_key="profile:NBIS:latest",
+                status="ok",
+                item_count=1,
+                payload_json=json.dumps(
+                    {
+                        "companyName": "Nebius Group N.V.",
+                        "sector": "Technology",
+                        "industry": "Information Technology Services",
+                        "country": "NL",
+                        "exchangeShortName": "NASDAQ",
+                    }
+                ),
+                source="fmp",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        profile = _build_ticker_shell_profile("nbis", db)
+
+    assert profile["ticker"]["sector"] == "Technology"
+    assert profile["ticker"]["industry"] == "Information Technology Services"
+    assert profile["ticker"]["country"] == "NL"
+    assert profile["ticker"]["exchange"] == "NASDAQ"
+    assert profile["ticker"]["exchange_short_name"] == "NASDAQ"
+    assert profile["ticker"]["display_market_chain"] == "Technology / Information Technology Services / NL / NASDAQ"
 
 
 def test_ticker_profile_uses_fund_profile_name_instead_of_symbol_echo(monkeypatch):

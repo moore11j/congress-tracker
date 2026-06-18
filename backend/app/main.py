@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal
+from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SATimeoutError
 from pydantic import BaseModel
@@ -95,6 +95,7 @@ from app.models import (
     SavedScreen,
     Security,
     DataEnrichmentJob,
+    TickerContentCache,
     TickerFinancialsCache,
     TickerMeta,
     TradeOutcome,
@@ -4065,16 +4066,40 @@ def _shell_text(value: object) -> str | None:
     return cleaned
 
 
+_TICKER_OPTIONAL_IDENTITY_TABLES = (
+    "company_profile",
+    "company_profiles",
+    "company_profile_cache",
+    "ticker_profile",
+    "ticker_profiles",
+    "ticker_profile_cache",
+    "ticker_snapshot",
+    "ticker_snapshots",
+    "ticker_snapshot_cache",
+)
+_TICKER_OPTIONAL_IDENTITY_COLUMNS_CACHE: dict[tuple[str, str], tuple[str, ...] | None] = {}
+
+
 def _ticker_shell_meta_row(db: Session, symbol: str) -> TickerMeta | None:
-    return db.execute(
-        select(TickerMeta)
-        .where(func.upper(TickerMeta.symbol) == symbol)
-        .limit(1)
-    ).scalar_one_or_none()
+    try:
+        return db.execute(
+            select(TickerMeta)
+            .where(func.upper(TickerMeta.symbol) == symbol)
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("ticker shell ticker_meta lookup failed symbol=%s", symbol, exc_info=True)
+        return None
 
 
 def _ticker_shell_quote_snapshot(db: Session, symbol: str, fundamentals: FundamentalsCache | None) -> dict[str, Any]:
-    quote = db.get(QuoteCache, symbol)
+    try:
+        quote = db.get(QuoteCache, symbol)
+    except Exception:
+        db.rollback()
+        logger.debug("ticker shell quote lookup failed symbol=%s", symbol, exc_info=True)
+        quote = None
     price = float(quote.price) if quote is not None and quote.price is not None else None
     price_as_of = _dt_iso(quote.asof_ts if quote is not None else None)
     if price is None and fundamentals is not None and fundamentals.price is not None:
@@ -4129,6 +4154,115 @@ def _cached_profile_snapshot_if_available(symbol: str) -> dict[str, Any]:
     return dict(payload)
 
 
+def _parse_identity_payload(value: object) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _flatten_identity_payload(row: dict[str, Any]) -> dict[str, Any]:
+    flattened = dict(row)
+    for key in ("payload_json", "profile_json", "raw_json", "data_json", "payload", "profile", "raw", "data"):
+        payload = _parse_identity_payload(row.get(key))
+        if not payload:
+            continue
+        flattened.update({k: v for k, v in payload.items() if k not in flattened or flattened.get(k) in (None, "")})
+        for nested_key in ("profile", "company_profile", "companyProfile", "ticker", "data"):
+            nested = payload.get(nested_key)
+            if isinstance(nested, dict):
+                flattened.update({k: v for k, v in nested.items() if k not in flattened or flattened.get(k) in (None, "")})
+    return flattened
+
+
+def _optional_identity_table_columns(db: Session, table_name: str) -> tuple[str, ...] | None:
+    cache_key = (db.get_bind().url.render_as_string(hide_password=True), table_name)
+    if cache_key in _TICKER_OPTIONAL_IDENTITY_COLUMNS_CACHE:
+        return _TICKER_OPTIONAL_IDENTITY_COLUMNS_CACHE[cache_key]
+    try:
+        inspector = inspect(db.get_bind())
+        if not inspector.has_table(table_name):
+            _TICKER_OPTIONAL_IDENTITY_COLUMNS_CACHE[cache_key] = None
+            return None
+        columns = tuple(column["name"] for column in inspector.get_columns(table_name))
+    except Exception:
+        logger.debug("ticker shell optional identity table inspection failed table=%s", table_name, exc_info=True)
+        columns = None
+    _TICKER_OPTIONAL_IDENTITY_COLUMNS_CACHE[cache_key] = columns
+    return columns
+
+
+def _quoted_identifier(db: Session, identifier: str) -> str:
+    return db.get_bind().dialect.identifier_preparer.quote(identifier)
+
+
+def _optional_identity_row(db: Session, table_name: str, symbol: str) -> dict[str, Any] | None:
+    columns = _optional_identity_table_columns(db, table_name)
+    if not columns:
+        return None
+    symbol_column = next((column for column in columns if column.lower() == "symbol"), None)
+    if not symbol_column:
+        return None
+    order_columns = [
+        column
+        for column in ("updated_at", "fetched_at", "as_of", "asof_ts", "created_at", "id")
+        if column in columns
+    ]
+    table_sql = _quoted_identifier(db, table_name)
+    symbol_sql = _quoted_identifier(db, symbol_column)
+    order_sql = ", ".join(f"{_quoted_identifier(db, column)} desc" for column in order_columns)
+    sql = f"select * from {table_sql} where upper({symbol_sql}) = :symbol"
+    if order_sql:
+        sql = f"{sql} order by {order_sql}"
+    sql = f"{sql} limit 1"
+    try:
+        row = db.execute(text(sql), {"symbol": symbol}).mappings().first()
+    except Exception:
+        db.rollback()
+        logger.debug("ticker shell optional identity lookup failed table=%s symbol=%s", table_name, symbol, exc_info=True)
+        return None
+    return _flatten_identity_payload(dict(row)) if row is not None else None
+
+
+def _ticker_content_profile_identity_row(db: Session, symbol: str) -> dict[str, Any] | None:
+    try:
+        row = db.execute(
+            select(TickerContentCache)
+            .where(func.upper(TickerContentCache.symbol) == symbol)
+            .where(TickerContentCache.status == "ok")
+            .where(TickerContentCache.content_type.in_(("profile", "ticker_profile", "company_profile")))
+            .order_by(TickerContentCache.fetched_at.desc(), TickerContentCache.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("ticker shell ticker_content profile lookup failed symbol=%s", symbol, exc_info=True)
+        return None
+    if row is None:
+        return None
+    payload = _parse_identity_payload(row.payload_json)
+    return _flatten_identity_payload(payload)
+
+
+def _identity_value(source: dict[str, Any] | None, *keys: str) -> object:
+    if not source:
+        return None
+    for key in keys:
+        if key in source:
+            return source.get(key)
+    lower = {str(k).lower(): v for k, v in source.items()}
+    for key in keys:
+        value = lower.get(key.lower())
+        if value is not None:
+            return value
+    return None
+
+
 def _ticker_identity_field(*candidates: tuple[object, str]) -> tuple[str | None, str | None]:
     for value, source in candidates:
         cleaned = _shell_text(value)
@@ -4139,49 +4273,93 @@ def _ticker_identity_field(*candidates: tuple[object, str]) -> tuple[str | None,
 
 def _ticker_shell_identity_fields(
     *,
+    db: Session,
+    symbol: str,
     security: Security | None,
     meta: TickerMeta | None,
     fundamentals: FundamentalsCache | None,
     profile_snapshot: dict[str, Any],
 ) -> dict[str, str | None]:
+    optional_sources = [
+        (table_name, row)
+        for table_name in _TICKER_OPTIONAL_IDENTITY_TABLES
+        for row in [_optional_identity_row(db, table_name, symbol)]
+        if row
+    ]
+    ticker_content_profile = _ticker_content_profile_identity_row(db, symbol)
+
+    def optional_candidates(*keys: str) -> list[tuple[object, str]]:
+        return [
+            (_identity_value(source, *keys), table_name)
+            for table_name, source in optional_sources
+        ]
+
     sector, sector_source = _ticker_identity_field(
         (meta.sector if meta is not None else None, "ticker_meta"),
         (profile_snapshot.get("sector"), "profile_cache"),
+        *optional_candidates("sector", "sectorName", "gicsSector", "companySector"),
         (fundamentals.sector if fundamentals is not None else None, "fundamentals_cache"),
+        (_identity_value(ticker_content_profile, "sector", "sectorName", "gicsSector", "companySector"), "ticker_content_profile"),
+        (security.sector if security is not None else None, "security_master"),
     )
     industry, industry_source = _ticker_identity_field(
         (meta.industry if meta is not None else None, "ticker_meta"),
         (profile_snapshot.get("industry"), "profile_cache"),
-        (fundamentals.industry if fundamentals is not None else None, "fundamentals_cache"),
         (profile_snapshot.get("sicDescription"), "profile_cache"),
         (profile_snapshot.get("sic_description"), "profile_cache"),
+        *optional_candidates("industry", "industryName", "gicsIndustry", "sicDescription", "sic_description"),
+        (fundamentals.industry if fundamentals is not None else None, "fundamentals_cache"),
+        (_identity_value(ticker_content_profile, "industry", "industryName", "gicsIndustry", "sicDescription", "sic_description"), "ticker_content_profile"),
     )
     country, country_source = _ticker_identity_field(
         (meta.country if meta is not None else None, "ticker_meta"),
         (profile_snapshot.get("country"), "profile_cache"),
+        *optional_candidates("country", "countryCode", "country_code"),
         (fundamentals.country if fundamentals is not None else None, "fundamentals_cache"),
+        (_identity_value(ticker_content_profile, "country", "countryCode", "country_code"), "ticker_content_profile"),
+    )
+    exchange_short_name, exchange_short_name_source = _ticker_identity_field(
+        (meta.exchange if meta is not None else None, "ticker_meta"),
+        (profile_snapshot.get("exchangeShortName"), "profile_cache"),
+        *optional_candidates("exchange_short_name", "exchangeShortName", "exchangeShort", "exchange"),
+        (fundamentals.exchange if fundamentals is not None else None, "fundamentals_cache"),
+        (_identity_value(ticker_content_profile, "exchange_short_name", "exchangeShortName", "exchangeShort", "exchange"), "ticker_content_profile"),
     )
     exchange, exchange_source = _ticker_identity_field(
         (meta.exchange if meta is not None else None, "ticker_meta"),
         (profile_snapshot.get("exchangeShortName"), "profile_cache"),
         (profile_snapshot.get("exchange"), "profile_cache"),
         (profile_snapshot.get("stockExchange"), "profile_cache"),
+        *optional_candidates("exchange", "exchange_short_name", "exchangeShortName", "stockExchange", "stock_exchange"),
         (fundamentals.exchange if fundamentals is not None else None, "fundamentals_cache"),
+        (_identity_value(ticker_content_profile, "exchange", "exchange_short_name", "exchangeShortName", "stockExchange", "stock_exchange"), "ticker_content_profile"),
     )
+    exchange_short_name = exchange_short_name or exchange
+    exchange = exchange or exchange_short_name
+    display_market_chain = " / ".join(value for value in (sector, industry, country, exchange_short_name or exchange) if value)
     return {
         "sector": sector,
         "industry": industry,
         "country": country,
         "exchange": exchange,
+        "exchange_short_name": exchange_short_name,
+        "display_market_chain": display_market_chain or None,
         "sector_source": sector_source,
         "industry_source": industry_source,
         "country_source": country_source,
         "exchange_source": exchange_source,
+        "exchange_short_name_source": exchange_short_name_source,
     }
 
 
-def _enqueue_ticker_identity_enrichment_if_sparse(symbol: str, *, sector: str | None, industry: str | None) -> None:
-    if sector and industry:
+def _enqueue_ticker_identity_enrichment_if_sparse(
+    symbol: str,
+    *,
+    sector: str | None,
+    industry: str | None,
+    country: str | None,
+) -> None:
+    if sector or industry or country:
         return
     for job_type in ("ticker_meta", "profile"):
         try:
@@ -4189,7 +4367,7 @@ def _enqueue_ticker_identity_enrichment_if_sparse(symbol: str, *, sector: str | 
                 job_type=job_type,
                 symbol=symbol,
                 source="ticker_profile_shell",
-                reason="missing_sector_industry",
+                reason="missing_profile_identity",
                 priority=35,
                 max_attempts=3,
             )
@@ -4209,7 +4387,7 @@ def _ticker_identity_status(
     quote_available: bool,
 ) -> str:
     has_name = bool(name and name.upper() != symbol)
-    if has_name and exchange and (sector or industry):
+    if has_name and exchange and (sector or industry or country):
         return "ok"
     if has_name or exchange or sector or industry or country or security is not None:
         return "partial"
@@ -4234,6 +4412,8 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     ticker_name = _ticker_shell_company_name(db, sym, security=security, meta=meta, fundamentals=fundamentals)
     asset_class = _shell_text(security.asset_class if security is not None else None) or "Equity"
     identity_fields = _ticker_shell_identity_fields(
+        db=db,
+        symbol=sym,
         security=security,
         meta=meta,
         fundamentals=fundamentals,
@@ -4243,7 +4423,8 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     industry = identity_fields["industry"]
     country = identity_fields["country"]
     exchange = identity_fields["exchange"]
-    _enqueue_ticker_identity_enrichment_if_sparse(sym, sector=sector, industry=industry)
+    exchange_short_name = identity_fields["exchange_short_name"]
+    _enqueue_ticker_identity_enrichment_if_sparse(sym, sector=sector, industry=industry, country=country)
     metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
     quote_available = quote_snapshot["current_price"] is not None
     identity_status = _ticker_identity_status(
@@ -4277,6 +4458,8 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
             "industry": industry,
             "country": country,
             "exchange": exchange,
+            "exchange_short_name": exchange_short_name,
+            "display_market_chain": identity_fields["display_market_chain"],
             **quote_snapshot,
             **limited_history_metadata,
             "profile_status": status,
@@ -4320,12 +4503,18 @@ def _dt_iso(value: Any) -> str | None:
 
 
 def _latest_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
-    return db.execute(
-        select(FundamentalsCache)
-        .where(FundamentalsCache.symbol == symbol)
-        .order_by(FundamentalsCache.fetched_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    try:
+        return db.execute(
+            select(FundamentalsCache)
+            .where(FundamentalsCache.symbol == symbol)
+            .where(FundamentalsCache.status == "ok")
+            .order_by(FundamentalsCache.fetched_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("ticker shell fundamentals lookup failed symbol=%s", symbol, exc_info=True)
+        return None
 
 
 def _ticker_debug_profile_status(db: Session, symbol: str) -> dict[str, Any]:

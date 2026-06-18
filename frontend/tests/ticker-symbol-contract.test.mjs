@@ -29,7 +29,9 @@ test("ticker page uses base event rows and filters missing header metadata", () 
   const page = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(page, /enrich_prices:\s*0/);
-  assert.match(page, /return \[ticker\.sector, ticker\.industry, ticker\.country, ticker\.exchange\]/);
+  assert.match(page, /function cleanTickerHeaderMetadata/);
+  assert.match(page, /\["n\/a", "na", "none", "null", "unknown", "-", "--"\]/);
+  assert.match(page, /return \[ticker\.sector, ticker\.industry, ticker\.country, ticker\.exchange_short_name \?\? ticker\.exchange\]/);
   assert.match(page, /\.filter\(\(value\): value is string => Boolean\(value\)\)/);
   assert.match(page, /headerMetadata\.join\(" \/ "\)/);
 });

@@ -246,6 +246,8 @@ export type TickerProfile = {
     industry?: string | null;
     country?: string | null;
     exchange?: string | null;
+    exchange_short_name?: string | null;
+    display_market_chain?: string | null;
     identity_status?: "ok" | "partial" | "loading" | "unknown" | string | null;
     price_history_points?: number | null;
     price_history_start?: string | null;

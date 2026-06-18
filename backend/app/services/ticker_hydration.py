@@ -219,17 +219,26 @@ def _profile_state(
             fundamentals.company_name if fundamentals is not None else None,
         )
     )
+    has_exchange = any(
+        _profile_text(value)
+        for value in (
+            meta.exchange if meta is not None else None,
+            fundamentals.exchange if fundamentals is not None else None,
+        )
+    )
     has_classification = any(
         _profile_text(value)
         for value in (
             security.sector if security is not None else None,
             meta.sector if meta is not None else None,
             meta.industry if meta is not None else None,
+            meta.country if meta is not None else None,
             fundamentals.sector if fundamentals is not None else None,
             fundamentals.industry if fundamentals is not None else None,
+            fundamentals.country if fundamentals is not None else None,
         )
     )
-    if has_name and has_classification:
+    if has_name and has_exchange and has_classification:
         return "ok"
     return _state_from_jobs("profile", active_by_type, final_by_type)
 

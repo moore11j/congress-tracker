@@ -214,6 +214,14 @@ function canonicalize(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function cleanTickerHeaderMetadata(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+  if (["n/a", "na", "none", "null", "unknown", "-", "--"].includes(cleaned.toLowerCase())) return null;
+  return cleaned;
+}
+
 function normalizedAmountLabel(min?: number | null, max?: number | null): string {
   const minValue = Number.isFinite(min) ? Number(min) : null;
   const maxValue = Number.isFinite(max) ? Number(max) : null;
@@ -221,8 +229,8 @@ function normalizedAmountLabel(min?: number | null, max?: number | null): string
 }
 
 function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"]): string[] {
-  return [ticker.sector, ticker.industry, ticker.country, ticker.exchange]
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
+  return [ticker.sector, ticker.industry, ticker.country, ticker.exchange_short_name ?? ticker.exchange]
+    .map(cleanTickerHeaderMetadata)
     .filter((value): value is string => Boolean(value));
 }
 
