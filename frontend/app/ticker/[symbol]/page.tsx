@@ -715,9 +715,9 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
   if (!authenticated) {
     return {
       price_volume: meta("price_volume", null, false),
-      insiders: meta("insiders", "free", true, "requires_login"),
-      congress: meta("congress", "free", true, "requires_login"),
-      government_contracts: meta("government_contracts", "free", true, "requires_login"),
+      insiders: meta("insiders", null, false),
+      congress: meta("congress", null, false),
+      government_contracts: meta("government_contracts", null, false),
       signals: meta("signals", "premium", true, "premium_locked"),
       institutional_activity: meta("institutional_activity", "pro", true, "pro_locked"),
       options_flow: meta("options_flow", "pro", true, "pro_locked"),
@@ -782,43 +782,18 @@ function TickerOverviewPanel({
   freshnessBundle,
   alignedSources,
   intelligenceBullets,
-  requiresLogin,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
   freshnessBundle: SignalFreshnessBundle;
   alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
-  requiresLogin?: boolean;
 }) {
-  const lookbackDays = confirmationBundle.lookback_days;
-  const mutedLine = overviewMutedLine(sourceDisplayBundle);
-
-  if (requiresLogin) {
-    return (
-      <div>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
-            <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
-          </div>
-          <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Sign in</span>
-        </div>
-
-        <div className="mt-7">
-          <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
-            Sign in to view 30D confirmation
-          </p>
-          <p className="mt-3 text-sm text-slate-300">Create a free account to view Congress, insider, and contract context.</p>
-        </div>
-
-        <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-          <p className="text-sm font-semibold text-slate-200">Confirmation context locked</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Price and volume can still appear when public market data is available.</p>
-        </div>
-      </div>
-    );
-  }
+  const displayBundle = sourceDisplayBundle;
+  const lookbackDays = displayBundle.lookback_days;
+  const lockedOnly = displayBundle.status === "Locked source context";
+  const hasHiddenLockedContext = lockedOnly || displayBundle.status === "Visible context";
+  const mutedLine = hasHiddenLockedContext ? null : overviewMutedLine(sourceDisplayBundle);
 
   return (
     <div>
@@ -832,31 +807,44 @@ function TickerOverviewPanel({
 
       <div className="mt-7">
         <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
-          {overviewHeadline(confirmationBundle)}
+          {overviewHeadline(displayBundle)}
         </p>
-        <p className="mt-3 text-sm text-slate-300">{overviewSubheadline(alignedSources)}</p>
-        <p className={`mt-4 text-base font-semibold ${sourceStateClass(confirmationBundle.direction)}`}>{overviewScoreLine(confirmationBundle)}</p>
+        <p className="mt-3 text-sm text-slate-300">
+          {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : overviewSubheadline(alignedSources)}
+        </p>
+        {lockedOnly ? null : (
+          <p className={`mt-4 text-base font-semibold ${sourceStateClass(displayBundle.direction)}`}>{overviewScoreLine(displayBundle)}</p>
+        )}
       </div>
 
-      <div className="mt-7 grid gap-3 text-sm text-slate-300">
+      {lockedOnly ? (
+        <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+          <p className="text-sm font-semibold text-slate-200">Locked source context</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Upgrade to inspect Premium and Pro-only context for this ticker.</p>
+        </div>
+      ) : (
+        <div className="mt-7 grid gap-3 text-sm text-slate-300">
         {intelligenceBullets.map((bullet) => (
           <div key={bullet} className="flex gap-3">
-            <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${confirmationBundle.direction === "bearish" ? "bg-rose-300" : confirmationBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
+            <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${displayBundle.direction === "bearish" ? "bg-rose-300" : displayBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
             <p className="leading-relaxed">{bullet}</p>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
-      <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+      {lockedOnly ? null : (
+        <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
           <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
         </div>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
-      </div>
+        </div>
+      )}
 
-      {mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
-      <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>
+      {!lockedOnly && mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
+      {lockedOnly ? null : <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>}
     </div>
   );
 }
@@ -1061,13 +1049,45 @@ function sourceIsLocked(entitlements: TickerSourceEntitlements | null | undefine
   return Boolean(sourceEntitlement(entitlements, source)?.locked);
 }
 
-function sourceRequiresLogin(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): boolean {
-  return sourceEntitlement(entitlements, source)?.lock_state === "requires_login";
-}
-
 function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"]): string {
   if (requiredPlan === "free") return "Create a free account";
   return requiredPlan === "pro" ? "Pro feature" : "Premium feature";
+}
+
+function confirmationBandForDisplayScore(score: number): ConfirmationScoreBundle["band"] {
+  if (score <= 19) return "inactive";
+  if (score <= 39) return "weak";
+  if (score <= 59) return "moderate";
+  if (score <= 79) return "strong";
+  return "exceptional";
+}
+
+function displayDirectionForSources(sources: ConfirmationScoreBundle["sources"]): ConfirmationScoreBundle["direction"] {
+  const directionalSources = confirmationSourceOrder.filter((source) => (
+    source !== "government_contracts"
+    && sources[source].present
+    && sources[source].direction !== "neutral"
+  ));
+  const directions = new Set(directionalSources.map((source) => sources[source].direction));
+  if (directions.has("mixed") || (directions.has("bullish") && directions.has("bearish"))) return "mixed";
+  if (directions.has("bullish")) return "bullish";
+  if (directions.has("bearish")) return "bearish";
+  return "neutral";
+}
+
+function displayScoreForSources(sources: ConfirmationScoreBundle["sources"]): number {
+  const directionalSources = confirmationSourceOrder.filter((source) => (
+    source !== "government_contracts"
+    && sources[source].present
+    && sources[source].direction !== "neutral"
+  ));
+  const directionalScore = directionalSources.length > 0
+    ? directionalSources.reduce((sum, source) => sum + Math.max(sources[source].strength, sources[source].quality), 0) / directionalSources.length
+    : 0;
+  const supportScore = sources.government_contracts.present
+    ? sources.government_contracts.score_contribution ?? Math.max(1, Math.min(sources.government_contracts.strength, 20))
+    : 0;
+  return Math.max(0, Math.min(100, Math.round(directionalScore + supportScore)));
 }
 
 function displayConfirmationBundleForEntitlements(
@@ -1077,6 +1097,7 @@ function displayConfirmationBundleForEntitlements(
   const lockedSources = confirmationSourceOrder.filter((source) => sourceIsLocked(entitlements, source));
   if (lockedSources.length === 0) return bundle;
   const sources = { ...bundle.sources };
+  const lockedActiveSources = lockedSources.filter((source) => bundle.sources[source].present);
   for (const source of lockedSources) {
     const meta = sourceEntitlement(entitlements, source);
     sources[source] = {
@@ -1089,7 +1110,36 @@ function displayConfirmationBundleForEntitlements(
       label: lockFeatureLabel(meta?.required_plan),
     };
   }
-  return { ...bundle, sources };
+  const visibleActiveSources = confirmationSourceOrder.filter((source) => sources[source].present);
+  if (visibleActiveSources.length === 0 && lockedActiveSources.length > 0) {
+    return {
+      ...bundle,
+      score: 0,
+      band: "inactive",
+      direction: "neutral",
+      status: "Locked source context",
+      explanation: "Additional Premium/Pro context is locked for this ticker.",
+      sources,
+      drivers: ["Additional Premium/Pro context locked"],
+      active_sources: [],
+      source_details: {},
+    };
+  }
+  if (lockedActiveSources.length === 0) return { ...bundle, sources };
+  const displayScore = displayScoreForSources(sources);
+  const displayDirection = displayDirectionForSources(sources);
+  return {
+    ...bundle,
+    score: displayScore,
+    band: confirmationBandForDisplayScore(displayScore),
+    direction: displayDirection,
+    status: visibleActiveSources.length > 0 ? "Visible context" : "Inactive",
+    explanation: visibleActiveSources.length > 0
+      ? "Visible confirmation context is based on unlocked sources."
+      : "No unlocked confirmation sources are active for this lookback.",
+    sources,
+    active_sources: visibleActiveSources,
+  };
 }
 
 function inactiveOrUnalignedSourceLine(bundle: ConfirmationScoreBundle, alignedSources: ConfirmationSourceKey[]): string {
@@ -1203,6 +1253,9 @@ function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
 }
 
 function overviewCaveat(bundle: ConfirmationScoreBundle): string {
+  if (bundle.status === "Visible context") {
+    return "Additional Premium/Pro context is available behind locked source cards.";
+  }
   if (bundle.direction === "bearish" && bundle.sources.government_contracts.present) {
     return "Government contracts add bullish support, but broader sources still lean bearish.";
   }
@@ -1551,32 +1604,6 @@ function LockedSourceEvidenceCard({
         <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">LOCKED</p>
       </div>
       <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{label}</p>
-      <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
-    </div>
-  );
-}
-
-function RequiresLoginSourceCard({
-  title,
-  icon,
-  support,
-}: {
-  title: string;
-  icon: IntelligenceIconKind;
-  support: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-slate-500">
-            <IntelligenceIcon kind={icon} className="h-3.5 w-3.5" />
-          </span>
-          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{title}</p>
-        </div>
-        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">SIGN IN</p>
-      </div>
-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">Create a free account</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{support}</p>
     </div>
   );
@@ -2123,12 +2150,6 @@ async function DeferredTickerContent({
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
   const sourceEntitlements = activitySourceEntitlements ?? fallbackSourceEntitlements;
   const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
-  const confirmationRequiresLogin = sourceRequiresLogin(sourceEntitlements, "insiders")
-    || sourceRequiresLogin(sourceEntitlements, "congress")
-    || sourceRequiresLogin(sourceEntitlements, "government_contracts");
-  const insidersRequireLogin = sourceRequiresLogin(sourceEntitlements, "insiders");
-  const congressRequiresLogin = sourceRequiresLogin(sourceEntitlements, "congress");
-  const governmentContractsRequireLogin = sourceRequiresLogin(sourceEntitlements, "government_contracts");
   const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
   const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
   const optionsFlowCardLocked = sourceIsLocked(sourceEntitlements, "options_flow");
@@ -2178,7 +2199,6 @@ async function DeferredTickerContent({
                 freshnessBundle={freshnessBundle}
                 alignedSources={alignedSources}
                 intelligenceBullets={intelligenceBullets}
-                requiresLogin={confirmationRequiresLogin}
               />
             }
           />
@@ -2207,36 +2227,20 @@ async function DeferredTickerContent({
             </div>
 
             <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">
-              {insidersRequireLogin ? (
-                <RequiresLoginSourceCard
-                  title="Insiders"
-                  icon="insider-buy"
-                  support="Sign in to view insider activity."
-                />
-              ) : (
-                <SourceEvidenceCard
-                  title="Insiders"
-                  icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
-                  source={insiderCardSource}
-                  body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
-                  support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
-                />
-              )}
-              {congressRequiresLogin ? (
-                <RequiresLoginSourceCard
-                  title="Congress"
-                  icon="congress"
-                  support="Sign in to view Congress activity."
-                />
-              ) : (
-                <SourceEvidenceCard
-                  title="Congress"
-                  icon="congress"
-                  source={congressCardSource}
-                  body={sourceCardBody("congress", congressCardSource, topSignal)}
-                  support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
-                />
-              )}
+              <SourceEvidenceCard
+                title="Insiders"
+                icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                source={insiderCardSource}
+                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
+                support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+              />
+              <SourceEvidenceCard
+                title="Congress"
+                icon="congress"
+                source={congressCardSource}
+                body={sourceCardBody("congress", congressCardSource, topSignal)}
+                support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+              />
               {institutionalCardLocked ? (
                 <LockedSourceEvidenceCard
                   title="Institutional"
@@ -2276,17 +2280,9 @@ async function DeferredTickerContent({
               ) : (
                 <OptionsFlowCard summary={optionsFlow} />
               )}
-              {governmentContractsRequireLogin ? (
-                <RequiresLoginSourceCard
-                  title="Government Contracts"
-                  icon="government-contract"
-                  support="Sign in to view government contract context."
-                />
-              ) : (
-                <GovernmentContractsCard
-                  source={confirmationBundle.sources.government_contracts}
-                />
-              )}
+              <GovernmentContractsCard
+                source={confirmationBundle.sources.government_contracts}
+              />
             </div>
           </div>
         </div>

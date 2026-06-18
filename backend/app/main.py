@@ -167,6 +167,7 @@ from app.services.signal_score import calculate_smart_score
 from app.services.confirmation_metrics import get_confirmation_metrics_for_symbols
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
+    confirmation_score_bundle_from_source_contexts,
     inactive_confirmation_score_bundle,
     slim_confirmation_score_bundle,
 )
@@ -5538,17 +5539,6 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
             "available": not locked,
         }
 
-    if not authenticated:
-        return {
-            "price_volume": source_meta("price_volume", None, False),
-            "insiders": source_meta("insiders", "free", True, "requires_login"),
-            "congress": source_meta("congress", "free", True, "requires_login"),
-            "government_contracts": source_meta("government_contracts", "free", True, "requires_login"),
-            "signals": source_meta("signals", "premium", True, "premium_locked"),
-            "institutional_activity": source_meta("institutional_activity", "pro", True, "pro_locked"),
-            "options_flow": source_meta("options_flow", "pro", True, "pro_locked"),
-        }
-
     return {
         "price_volume": source_meta("price_volume", None, False),
         "insiders": source_meta("insiders", None, False),
@@ -5557,15 +5547,6 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
         "signals": source_meta("signals", "premium", not can_view_signals, "premium_locked"),
         "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context, "pro_locked"),
         "options_flow": source_meta("options_flow", "pro", not can_view_pro_context, "pro_locked"),
-    }
-
-
-def _ticker_requires_login_context(title: str, subtitle: str) -> dict[str, Any]:
-    return {
-        "status": "requires_login",
-        "direction": "neutral",
-        "title": title,
-        "subtitle": subtitle,
     }
 
 
@@ -5636,34 +5617,32 @@ def ticker_signals_summary(
         ),
         None,
     )
-    if not is_authenticated:
-        source_contexts = {
-            "price_volume": _normalize_price_volume_context(
-                _ticker_price_volume_summary(db, normalized_symbol)
-            ),
-            "insiders": _ticker_requires_login_context("Create a free account", "Sign in to view insider activity."),
-            "congress": _ticker_requires_login_context("Create a free account", "Sign in to view Congress activity."),
-            "signals": {
-                "status": "premium_locked",
-                "direction": "neutral",
-                "title": "Premium feature",
-                "subtitle": "Signal stack unlocks with Premium.",
-                "recent_count": 0,
-                "latest_score": None,
-            },
-            "government_contracts": _ticker_requires_login_context("Create a free account", "Sign in to view government contract context."),
+    source_contexts = build_ticker_signals_summary_contexts_from_cache(
+        normalized_symbol,
+        window_days=requested_lookback_days,
+        db=db,
+        signal_rows=rows,
+        latest_signal_score=latest_score,
+    )
+    if not can_view_signal_details:
+        source_contexts["signals"] = {
+            "status": "premium_locked",
+            "direction": "neutral",
+            "title": "Premium feature",
+            "subtitle": "Signal stack unlocks with Premium.",
+            "recent_count": 0,
+            "latest_score": None,
         }
-        confirmation_score_bundle = None
-        signal_freshness = None
-        has_canonical_activity = False
-    else:
-        source_contexts = build_ticker_signals_summary_contexts_from_cache(
+    if not is_authenticated:
+        confirmation_score_bundle = confirmation_score_bundle_from_source_contexts(
             normalized_symbol,
-            window_days=requested_lookback_days,
-            db=db,
-            signal_rows=rows,
-            latest_signal_score=latest_score,
+            lookback_days=effective_window_days,
+            source_contexts=source_contexts,
         )
+        slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
+        signal_freshness = slim_confirmation["signal_freshness"]
+        has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
+    else:
         # Keep ticker confirmation aligned with the screener's lower-level score context.
         confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
         confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
@@ -5672,7 +5651,7 @@ def ticker_signals_summary(
         has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
     payload = {
         "symbol": normalized_symbol,
-        "status": "auth_required" if not is_authenticated else "ok" if rows or has_canonical_activity else "no_data",
+        "status": "ok" if rows or has_canonical_activity else "no_data",
         "lookback_days": effective_window_days,
         "effective_window_days": effective_window_days,
         "updated_at": _dt_iso(datetime.now(timezone.utc)),

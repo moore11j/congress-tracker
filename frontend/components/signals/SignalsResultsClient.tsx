@@ -196,7 +196,7 @@ export function SignalsResultsClient({
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 text-sm">
+      <div className="flex flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
         <p className="text-slate-400">
           {loading ? "Loading signals..." : items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
         </p>
@@ -205,24 +205,142 @@ export function SignalsResultsClient({
             <Link
               href={backtestingHref}
               prefetch={false}
-              className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-100 transition hover:border-emerald-200/40 hover:text-white"
+              className="inline-flex w-full items-center justify-center rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-center text-xs font-semibold text-emerald-100 transition hover:border-emerald-200/40 hover:text-white md:w-auto"
             >
               Backtest these signals
             </Link>
           ) : (
-            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-slate-500">No tickers to backtest</span>
+            <span className="inline-flex w-full items-center justify-center rounded-full border border-white/10 px-3 py-1 text-center text-xs font-semibold text-slate-500 md:w-auto">No tickers to backtest</span>
           )
         ) : (
           <Link
             href={upgradeUrl}
             prefetch={false}
-            className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white"
+            className="inline-flex w-full items-center justify-center rounded-full border border-white/10 px-3 py-1 text-center text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white md:w-auto"
           >
             Backtest Signals with Premium.
           </Link>
         )}
       </div>
-      <div className="w-full overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+      <div className="md:hidden">
+        {loading || items.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-slate-400">
+            {loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {items.map((item) => {
+              const sideLabelValue = sideLabel(item.kind, item.trade_type);
+              const smart = smartLabel(item.smart_band, item.smart_score);
+              const source = sourceBadge(item);
+              const isInsider = isInsiderSignalKind(item.kind);
+              const rawPosition = item.position ?? null;
+              const roleCode = normalizeInsiderRoleBadge(rawPosition);
+              const roleTone = insiderRoleBadgeTone(roleCode);
+              const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(item.who, rawPosition));
+              const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(item));
+              const freshness = item.signal_freshness;
+
+              return (
+                <article key={item.event_id} className="px-4 py-4">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        {item.symbol ? <AddTickerToWatchlist symbol={item.symbol} variant="compact" align="left" /> : null}
+                        {tickerHref(item.symbol) ? (
+                          <Link href={tickerHref(item.symbol)!} prefetch={false} className={`min-w-0 truncate text-sm ${tickerMonoLinkClassName}`}>
+                            {item.symbol}
+                          </Link>
+                        ) : (
+                          <span className="min-w-0 truncate font-mono text-sm font-semibold text-slate-300">{item.symbol}</span>
+                        )}
+                        <span className={`${pill} shrink-0 px-2.5 py-0.5 text-[11px] leading-none ${sideLabelValue.klass}`}>{sideLabelValue.label}</span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Amount</div>
+                      <div className="font-mono text-sm font-semibold text-slate-100" title={`${formatUSD(item.amount_min)} - ${formatUSD(item.amount_max)}`}>
+                        {formatUSD(item.amount_max)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 text-xs text-slate-400">
+                    <span className="font-mono text-[12px] text-slate-300" title={item.ts}>{formatSignalDate(item.ts)}</span>
+                    <div className="min-w-0">
+                      {isInsider ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex shrink-0" title={rawPosition ?? undefined}><Badge tone={roleTone} className="px-2 py-0.5 text-[10px]">{roleCode}</Badge></span>
+                          {insiderProfileHref ? (
+                            <Link href={insiderProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{insiderName ?? "--"}</Link>
+                          ) : (
+                            <span className="min-w-0 truncate text-slate-100">{insiderName ?? "--"}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex shrink-0"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
+                          {item.member_bioguide_id ? (
+                            <Link href={memberHref({ name: item.who, memberId: item.member_bioguide_id })} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{item.who ?? "--"}</Link>
+                          ) : (
+                            <span className="min-w-0 truncate text-slate-100">{item.who ?? "--"}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Baseline</div>
+                      <div className="truncate font-mono text-slate-200">{formatUSD(item.baseline_median_amount_max)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Multiple</div>
+                      <div className="truncate font-mono text-slate-200">{formatMultiple(item.unusual_multiple)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Conviction</div>
+                      <span className={`${pill} mt-1 min-w-0 max-w-full justify-center gap-1.5 px-2.5 py-1 text-[11px] leading-none ${smart.klass}`}>
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${smart.dotClass}`} />
+                        <span className="font-mono">{typeof item.smart_score === "number" && Number.isFinite(item.smart_score) ? item.smart_score : "--"}</span>
+                        <span className="min-w-0 truncate opacity-80">{smart.label}</span>
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source</div>
+                      <div className="mt-1">
+                        <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
+                      </div>
+                    </div>
+                    <div className="min-w-0" title={item.confirmation_explanation ?? item.confirmation_status ?? undefined}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confirm</div>
+                      <div className={`mt-1 truncate text-xs font-semibold ${confirmationClass(item.confirmation_direction)}`}>
+                        {titleCase(item.confirmation_band ?? "inactive")}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        {item.confirmation_source_count ?? 0} src
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Fresh</div>
+                      <div
+                        className="mt-1 min-w-0"
+                        title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
+                      >
+                        <span className={`block truncate text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
+                          {titleCase(freshness?.freshness_state ?? "inactive")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="hidden w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
         <table className="w-full min-w-[58rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[7.5rem]" />

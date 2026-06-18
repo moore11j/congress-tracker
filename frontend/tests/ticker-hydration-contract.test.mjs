@@ -94,17 +94,20 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(tickerPage, /Pro feature/);
 });
 
-test("logged out ticker context renders sign-in states instead of inactive source copy", () => {
+test("logged out ticker context keeps public sources visible and paid sources locked", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(tickerPage, /tickerContextSourceEntitlements\(entitlements, Boolean\(authToken\)\)/);
-  assert.match(tickerPage, /function sourceRequiresLogin/);
-  assert.match(tickerPage, /function RequiresLoginSourceCard/);
-  assert.match(tickerPage, /Sign in to view 30D confirmation/);
-  assert.match(tickerPage, /Create a free account to view Congress, insider, and contract context\./);
-  assert.match(tickerPage, /support="Sign in to view insider activity\."/);
-  assert.match(tickerPage, /support="Sign in to view Congress activity\."/);
-  assert.match(tickerPage, /support="Sign in to view government contract context\."/);
+  assert.match(tickerPage, /insiders: meta\("insiders", null, false\)/);
+  assert.match(tickerPage, /congress: meta\("congress", null, false\)/);
+  assert.match(tickerPage, /government_contracts: meta\("government_contracts", null, false\)/);
+  assert.match(tickerPage, /signals: meta\("signals", "premium", true, "premium_locked"\)/);
+  assert.match(tickerPage, /institutional_activity: meta\("institutional_activity", "pro", true, "pro_locked"\)/);
+  assert.match(tickerPage, /options_flow: meta\("options_flow", "pro", true, "pro_locked"\)/);
+  assert.match(tickerPage, /Locked source context/);
+  assert.match(tickerPage, /Additional Premium\/Pro context is available for this ticker\./);
+  assert.doesNotMatch(tickerPage, /function RequiresLoginSourceCard/);
+  assert.doesNotMatch(tickerPage, /Sign in to view 30D confirmation/);
   assert.match(tickerPage, /lock_state: locked \? lockState/);
 });
 

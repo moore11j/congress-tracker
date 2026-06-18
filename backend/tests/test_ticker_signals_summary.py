@@ -182,7 +182,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
 
 
-def test_ticker_signals_summary_logged_out_returns_requires_login_metadata(monkeypatch):
+def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_paid_sources(monkeypatch):
     _mock_logged_out_signal_context(monkeypatch)
     monkeypatch.setattr(
         main_module,
@@ -206,35 +206,75 @@ def test_ticker_signals_summary_logged_out_returns_requires_login_metadata(monke
             "lines": ["Price / volume available"],
         },
     )
+    trade_calls = []
+
+    def fake_trade_activity(db, symbol, event_type, **kwargs):
+        trade_calls.append((symbol, event_type, kwargs.get("lookback_days")))
+        if event_type == "insider_trade":
+            return {
+                "status": "active",
+                "direction": "bearish",
+                "title": "Insider selling active",
+                "subtitle": "1 sell in the last 30D.",
+                "buy_count": 0,
+                "sell_count": 1,
+                "net_flow": -125_000,
+            }
+        return {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Congress buying active",
+            "subtitle": "1 purchase in the last 30D.",
+            "buy_count": 1,
+            "sell_count": 0,
+            "net_flow": 50_000,
+        }
+
     monkeypatch.setattr(
         main_module,
         "_ticker_trade_activity_summary",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not query trade activity")),
+        fake_trade_activity,
     )
     monkeypatch.setattr(
         main_module,
         "get_government_contracts_summary",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-out context must not query government contracts")),
+        lambda *args, **kwargs: {
+            "status": "ok",
+            "active": True,
+            "contract_count": 2,
+            "total_award_amount": 25_000_000,
+            "latest_award_date": date.today().isoformat(),
+            "detail": "2 contracts above threshold.",
+        },
     )
 
     response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
 
-    assert response["status"] == "auth_required"
+    assert response["status"] == "ok"
     assert response["price_volume"]["status"] == "active"
     assert response["source_entitlements"]["price_volume"]["lock_state"] == "available"
-    assert response["source_entitlements"]["insiders"]["lock_state"] == "requires_login"
-    assert response["source_entitlements"]["congress"]["lock_state"] == "requires_login"
-    assert response["source_entitlements"]["government_contracts"]["lock_state"] == "requires_login"
+    assert response["source_entitlements"]["price_volume"]["required_plan"] is None
+    assert response["source_entitlements"]["insiders"]["locked"] is False
+    assert response["source_entitlements"]["insiders"]["required_plan"] is None
+    assert response["source_entitlements"]["congress"]["locked"] is False
+    assert response["source_entitlements"]["congress"]["required_plan"] is None
+    assert response["source_entitlements"]["government_contracts"]["locked"] is False
+    assert response["source_entitlements"]["government_contracts"]["required_plan"] is None
     assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
     assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
     assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
-    assert response["insiders"]["status"] == "requires_login"
-    assert response["congress"]["status"] == "requires_login"
-    assert response["government_contracts"]["status"] == "requires_login"
-    assert response["confirmation_score_bundle"] is None
-    assert response["signal_freshness"] is None
+    assert response["insiders"]["status"] == "active"
+    assert response["insiders"]["sell_count"] == 1
+    assert response["congress"]["status"] == "active"
+    assert response["congress"]["buy_count"] == 1
+    assert response["government_contracts"]["status"] == "active"
+    assert response["government_contracts"]["contract_count"] == 2
+    assert response["confirmation_score_bundle"]["score"] > 0
+    assert response["signal_freshness"] is not None
     assert response["items"] == []
     assert response["recent_signal_count"] == 0
+    assert ("AAPL", "insider_trade", 30) in trade_calls
+    assert ("AAPL", "congress_trade", 30) in trade_calls
 
 
 def test_ticker_signals_summary_free_user_gets_public_context_with_locked_sources(monkeypatch):
@@ -279,22 +319,80 @@ def test_ticker_signals_summary_free_user_gets_public_context_with_locked_source
         assert response["confirmation_score_bundle"]["lookback_days"] == 30
 
 
+def test_ticker_signals_summary_logged_out_seeded_tickers_keep_public_activity(monkeypatch):
+    _mock_logged_out_signal_context(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("guest context must not query premium signal rows")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("guest context must not build full authenticated confirmation")),
+    )
+
+    engine = _engine()
+    with Session(engine) as db:
+        _seed_score_contract_fixture(db)
+        db.commit()
+
+        responses = {
+            symbol: ticker_signals_summary(object(), symbol, side="all", limit=3, lookback_days=365, db=db)
+            for symbol in ("AAPL", "MSTR", "NBIS")
+        }
+
+    for response in responses.values():
+        source_entitlements = response["source_entitlements"]
+        for public_source in ("price_volume", "insiders", "congress", "government_contracts"):
+            assert source_entitlements[public_source]["locked"] is False
+            assert source_entitlements[public_source]["required_plan"] is None
+        assert source_entitlements["signals"]["locked"] is True
+        assert source_entitlements["signals"]["required_plan"] == "premium"
+        assert response["confirmation_score_bundle"] is not None
+        assert response["confirmation_score_bundle"]["lookback_days"] == 30
+        assert response["confirmation_score_bundle"]["score"] > 0
+        assert response["confirmation_score_bundle"]["status"] != "Inactive"
+        assert response["signal_freshness"] is not None
+
+    assert responses["AAPL"]["congress"]["status"] == "active"
+    assert responses["AAPL"]["confirmation_score_bundle"]["sources"]["congress"]["present"] is True
+    assert responses["MSTR"]["insiders"]["status"] == "active"
+    assert responses["MSTR"]["congress"]["status"] == "active"
+    assert responses["MSTR"]["confirmation_score_bundle"]["sources"]["insiders"]["present"] is True
+    assert responses["MSTR"]["confirmation_score_bundle"]["sources"]["congress"]["present"] is True
+    assert responses["NBIS"]["insiders"]["status"] == "active"
+    assert responses["NBIS"]["confirmation_score_bundle"]["sources"]["insiders"]["present"] is True
+
+
 def test_ticker_context_source_entitlements_match_required_plan_model():
+    logged_out = main_module._ticker_context_source_entitlements(None, authenticated=False)
     free = main_module._ticker_context_source_entitlements(ENTITLEMENTS["free"])
     premium = main_module._ticker_context_source_entitlements(ENTITLEMENTS["premium"])
     pro = main_module._ticker_context_source_entitlements(ENTITLEMENTS["pro"])
 
     for public_source in ("price_volume", "insiders", "congress", "government_contracts"):
+        assert logged_out[public_source]["locked"] is False
+        assert logged_out[public_source]["required_plan"] is None
         assert free[public_source]["locked"] is False
+        assert free[public_source]["required_plan"] is None
         assert premium[public_source]["locked"] is False
+        assert premium[public_source]["required_plan"] is None
         assert pro[public_source]["locked"] is False
+        assert pro[public_source]["required_plan"] is None
 
+    assert logged_out["signals"]["required_plan"] == "premium"
+    assert logged_out["signals"]["locked"] is True
     assert free["signals"]["locked"] is True
     assert premium["signals"]["locked"] is False
     assert pro["signals"]["locked"] is False
+    assert logged_out["institutional_activity"]["required_plan"] == "pro"
+    assert logged_out["institutional_activity"]["locked"] is True
     assert free["institutional_activity"]["locked"] is True
     assert premium["institutional_activity"]["locked"] is True
     assert pro["institutional_activity"]["locked"] is False
+    assert logged_out["options_flow"]["required_plan"] == "pro"
+    assert logged_out["options_flow"]["locked"] is True
     assert free["options_flow"]["locked"] is True
     assert premium["options_flow"]["locked"] is True
     assert pro["options_flow"]["locked"] is False
