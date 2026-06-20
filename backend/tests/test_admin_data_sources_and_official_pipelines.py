@@ -158,6 +158,88 @@ def test_data_sources_status_requires_admin():
         db.close()
 
 
+def test_provider_settings_domain_aware_validation_matrix():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        get_provider_settings_by_domain(db)
+        db.commit()
+
+        def patch(domain_key: str, **payload):
+            return admin_update_data_source_setting(
+                domain_key,
+                ProviderSettingPatchPayload(reason="matrix test", **payload),
+                request,
+                db,
+            )
+
+        def assert_bad(domain_key: str, expected: str, **payload):
+            with pytest.raises(HTTPException) as exc:
+                patch(domain_key, **payload)
+            assert exc.value.status_code == 400
+            assert expected in str(exc.value.detail)
+
+        assert_bad("prices_eod", "FRED cannot be used for EOD equity prices", active_provider="fred")
+        assert_bad("prices_eod", "SEC EDGAR cannot be used for EOD equity prices", active_provider="sec_edgar")
+        assert_bad("insights_macro", "FMP cannot be used for Insights: US Macro", active_provider="fmp")
+        assert_bad("insider_trades", "Official House Disclosures cannot be used for insider trades / Form 4", active_provider="official_house")
+        assert_bad("house_disclosures", "Official Senate Disclosures cannot be used for House disclosures", active_provider="official_senate")
+        assert_bad("prices_eod", "Shadow mode cannot be used for EOD equity prices", mode="shadow")
+
+        with pytest.raises(HTTPException) as exc:
+            patch("unknown_domain", active_provider="fmp")
+        assert exc.value.status_code == 404
+
+        assert patch("prices_eod", active_provider="fmp")["active_provider"] == "fmp"
+        assert patch("prices_eod", fallback_provider="walnut_cache")["fallback_provider"] == "walnut_cache"
+        congress = patch("congress_trades", active_provider="walnut_official", mode="shadow", is_enabled=True)
+        assert congress["active_provider"] == "walnut_official"
+        assert congress["mode"] == "shadow"
+        insider = patch("insider_trades", active_provider="sec_edgar", mode="shadow", is_enabled=True)
+        assert insider["active_provider"] == "sec_edgar"
+        assert insider["mode"] == "shadow"
+        macro = patch("insights_macro", active_provider="fred", mode="primary", is_enabled=True)
+        assert macro["active_provider"] == "fred"
+        screener = patch("screener_fundamentals", active_provider="walnut_cache", mode="primary", is_enabled=True)
+        assert screener["active_provider"] == "walnut_cache"
+
+        disabled = patch("prices_historical", active_provider="disabled")
+        assert disabled["active_provider"] == "disabled"
+        assert disabled["mode"] == "disabled"
+        assert disabled["is_enabled"] is False
+    finally:
+        db.close()
+
+
+def test_data_sources_status_exposes_domain_options_and_invalid_saved_warnings():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        settings = get_provider_settings_by_domain(db)
+        settings["house_disclosures"].fallback_provider = "fmp"
+        db.commit()
+
+        payload = admin_data_sources_status(_request_for_user(admin), db)
+        rows = {row["domain_key"]: row for row in payload["domains"]}
+
+        assert rows["prices_eod"]["allowed_providers"] == ["fmp", "walnut_cache", "disabled"]
+        assert "fred" not in rows["prices_eod"]["allowed_providers"]
+        assert "sec_edgar" not in rows["prices_eod"]["allowed_providers"]
+        assert rows["insights_macro"]["allowed_providers"] == ["fred", "walnut_cache", "disabled"]
+        assert "fmp" not in rows["insights_macro"]["allowed_providers"]
+        assert rows["congress_trades"]["allowed_providers"] == ["walnut_official", "fmp", "walnut_cache", "disabled"]
+        assert "fred" not in rows["congress_trades"]["allowed_providers"]
+        assert rows["insider_trades"]["allowed_providers"] == ["sec_edgar", "fmp", "walnut_cache", "disabled"]
+        assert "official_house" not in rows["insider_trades"]["allowed_providers"]
+        assert "official_senate" not in rows["insider_trades"]["allowed_providers"]
+        assert rows["house_disclosures"]["can_save"] is False
+        assert rows["house_disclosures"]["validation_warnings"]
+        assert "FMP cannot be used for House disclosures" in rows["house_disclosures"]["validation_warnings"][0]
+    finally:
+        db.close()
+
+
 def test_congress_normalization_symbol_resolution_and_stable_hash():
     raw = {
         "filing_id": "H-123",

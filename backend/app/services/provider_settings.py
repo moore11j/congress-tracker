@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,76 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ProviderSetting, ProviderSettingAuditLog
-
-ALLOWED_MODES = ("primary", "fallback", "shadow", "dry_run", "disabled")
-ALLOWED_PROVIDERS = (
-    "fmp",
-    "fred",
-    "treasury_gov",
-    "sec_edgar",
-    "official_house",
-    "official_senate",
-    "walnut_official",
-    "walnut_cache",
-    "internal_computed",
-    "disabled",
-    "manual_admin_override",
-    "future_vendor_fallback",
-    "none",
+from app.services.provider_registry import (
+    ALLOWED_MODES,
+    ALLOWED_PROVIDERS,
+    PROVIDER_DOMAIN_DEFAULTS,
+    ProviderDomainDefault,
+    provider_domain_catalog,
+    validate_provider_selection,
 )
-
-
-@dataclass(frozen=True)
-class ProviderDomainDefault:
-    domain_key: str
-    label: str
-    active_provider: str
-    fallback_provider: str | None
-    mode: str
-    source_type: str
-    builder_safe_status: str
-    endpoint_names: tuple[str, ...]
-    cache_table: str | None = None
-    is_enabled: bool = True
-    allow_external_live_fetch: bool = False
-    allow_user_route_sync_fetch: bool = False
-    builder_safe_required: bool = True
-    notes: str | None = None
-
-
-PROVIDER_DOMAIN_DEFAULTS: tuple[ProviderDomainDefault, ...] = (
-    ProviderDomainDefault("prices_eod", "EOD equity prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("price:eod", "data_enrichment_jobs:price"), "price_cache", notes="Licensed market data provider with cache-first reads."),
-    ProviderDomainDefault("prices_historical", "historical prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:price-history", "ticker:chart-bundle"), "price_cache"),
-    ProviderDomainDefault("prices_intraday", "current quote / delayed quote", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:quote-snapshot", "quote"), "quotes_cache"),
-    ProviderDomainDefault("fundamentals", "fundamentals", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:financials", "fundamentals_cache"), "fundamentals_cache"),
-    ProviderDomainDefault("ratios", "ratios / key metrics", "fmp", "walnut_cache", "primary", "external API", "warning", ("ratios-ttm", "key-metrics-ttm"), "ticker_financials_cache"),
-    ProviderDomainDefault("technicals", "technical indicators", "walnut_cache", "fmp", "primary", "local cache", "safe", ("technical_indicators",), "price_cache"),
-    ProviderDomainDefault("profiles", "company profile / ticker metadata", "fmp", "walnut_cache", "primary", "external API", "warning", ("profile", "ticker_meta"), "ticker_meta"),
-    ProviderDomainDefault("earnings", "earnings calendar", "fmp", "walnut_cache", "primary", "external API", "warning", ("earnings-calendar",), "ticker_content_cache"),
-    ProviderDomainDefault("analyst_estimates", "analyst estimates", "fmp", "walnut_cache", "primary", "external API", "warning", ("analyst-estimates",), "ticker_content_cache"),
-    ProviderDomainDefault("institutional_13f", "institutional ownership / 13F", "fmp", "walnut_cache", "primary", "external API", "warning", ("institutional-buys",), "institutional_transactions"),
-    ProviderDomainDefault("congress_trades", "Congress trades", "walnut_official", "fmp", "shadow", "public official source", "safe", ("official_congress_ingest", "run_recent_congress_ingest"), "congress_transactions_normalized", notes="Official-source pipeline is shadow-only until validated against current events."),
-    ProviderDomainDefault("insider_trades", "insider trades / Form 4", "sec_edgar", "fmp", "shadow", "public official source", "safe", ("sec_form4_ingest", "ingest_insider_trades"), "insider_transactions_normalized", notes="SEC EDGAR parser is shadow-only until validation."),
-    ProviderDomainDefault("senate_disclosures", "Senate disclosures", "official_senate", "fmp", "shadow", "public official source", "safe", ("official_senate_discovery", "ingest_senate"), "congress_disclosure_filings"),
-    ProviderDomainDefault("house_disclosures", "House disclosures", "official_house", "fmp", "shadow", "public official source", "safe", ("official_house_discovery", "ingest_house"), "congress_disclosure_filings"),
-    ProviderDomainDefault("pnl_enrichment", "PnL enrichment", "internal_computed", "walnut_cache", "primary", "internal computed", "safe", ("feed_pnl_enrichment", "trade_outcomes"), "trade_outcomes"),
-    ProviderDomainDefault("signal_inputs", "signal scoring inputs", "internal_computed", "walnut_cache", "primary", "internal computed", "safe", ("confirmation_score", "signal_score"), "events"),
-    ProviderDomainDefault("insights_macro", "Insights: US Macro", "fred", "walnut_cache", "primary", "local cache", "safe", ("refresh_fred_macro_cache", "insights_snapshots"), "fred_observations"),
-    ProviderDomainDefault("insights_treasury", "Insights: Treasury", "fred", "treasury_gov", "primary", "local cache", "safe", ("refresh_fred_macro_cache", "DGS*"), "fred_observations"),
-    ProviderDomainDefault("insights_us_market", "Insights: US market ETF proxies", "walnut_cache", "fmp", "primary", "local cache", "safe", ("SPY price_cache proxy",), "price_cache"),
-    ProviderDomainDefault("insights_us_sectors", "Insights: sector ETF proxies", "walnut_cache", "fmp", "primary", "local cache", "safe", ("sector ETF proxy price_cache",), "price_cache"),
-    ProviderDomainDefault("insights_global", "Insights: world/global proxies", "walnut_cache", "fmp", "primary", "local cache", "safe", ("global ETF proxy price_cache",), "price_cache"),
-    ProviderDomainDefault("insights_fx", "Insights: FX", "disabled", None, "disabled", "external API", "safe", ("disabled",), None, is_enabled=False, notes="Launch-disabled in Builder-safe mode."),
-    ProviderDomainDefault("insights_crypto", "Insights: crypto", "disabled", None, "disabled", "external API", "safe", ("disabled",), None, is_enabled=False, notes="Launch-disabled in Builder-safe mode."),
-    ProviderDomainDefault("insights_commodities", "Insights: commodities", "disabled", "fmp", "disabled", "external API", "safe", ("disabled",), None, is_enabled=False, notes="Disabled until licensed/cache strategy is explicit."),
-    ProviderDomainDefault("watchlist_alerts", "watchlist alerts / monitoring jobs", "internal_computed", "walnut_cache", "primary", "internal computed", "safe", ("confirmation_monitoring", "email_digest_jobs"), "monitoring_alerts"),
-    ProviderDomainDefault("screener_fundamentals", "screener fundamentals", "walnut_cache", "fmp", "primary", "local cache", "safe", ("screener", "fundamentals_cache"), "fundamentals_cache"),
-    ProviderDomainDefault("screener_technicals", "screener technicals", "walnut_cache", "fmp", "primary", "local cache", "safe", ("screener", "technical_indicators"), "price_cache"),
-)
-
-
-def provider_domain_catalog() -> dict[str, ProviderDomainDefault]:
-    return {item.domain_key: item for item in PROVIDER_DOMAIN_DEFAULTS}
 
 
 def seed_default_provider_settings(db: Session) -> None:
@@ -185,10 +122,22 @@ def update_provider_setting(
         notes = changes.get("notes")
         setting.notes = str(notes).strip() if notes is not None and str(notes).strip() else None
 
+    if setting.active_provider == "disabled":
+        setting.mode = "disabled"
+        setting.is_enabled = False
     if setting.mode == "disabled":
         setting.is_enabled = False
-    if setting.allow_user_route_sync_fetch:
-        raise ValueError("User-facing synchronous external fetches are not allowed from provider settings.")
+
+    validate_provider_selection(
+        domain_key,
+        active_provider=setting.active_provider,
+        fallback_provider=setting.fallback_provider,
+        mode=setting.mode,
+        is_enabled=bool(setting.is_enabled),
+        allow_external_live_fetch=bool(setting.allow_external_live_fetch),
+        allow_user_route_sync_fetch=bool(setting.allow_user_route_sync_fetch),
+        builder_safe_required=bool(setting.builder_safe_required),
+    )
 
     setting.updated_by = changed_by
     setting.updated_at = datetime.now(timezone.utc)

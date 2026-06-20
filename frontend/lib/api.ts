@@ -1411,6 +1411,17 @@ export type AdminDataSourceDomain = {
   queue_depth?: number | null;
   settings: AdminProviderSetting;
   badges: string[];
+  allowed_providers?: string[];
+  allowed_fallbacks?: string[];
+  allowed_modes?: string[];
+  default_provider?: string;
+  default_fallback?: string | null;
+  default_mode?: string;
+  provider_labels?: Record<string, string>;
+  provider_help_text?: Record<string, string>;
+  domain_help_text?: string | null;
+  validation_warnings?: string[];
+  can_save?: boolean;
   admin_actions: {
     can_run_dry_run: boolean;
     can_refresh_cache: boolean;
@@ -1423,6 +1434,7 @@ export type AdminDataSourcesStatusResponse = {
   generated_at: string;
   provider_options: string[];
   mode_options: string[];
+  provider_labels?: Record<string, string>;
   filters: string[];
   status_badges: string[];
   domains: AdminDataSourceDomain[];

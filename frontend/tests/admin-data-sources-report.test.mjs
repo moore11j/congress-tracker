@@ -46,3 +46,12 @@ test("admin data sources column headers include helper text", () => {
   assert.match(source, /Latest health\/risk state based on refresh jobs/);
   assert.match(source, /The local Walnut table or cache used by the app/);
 });
+
+test("admin data sources dropdowns use backend domain metadata", () => {
+  assert.match(source, /domain\.allowed_providers \?\? providerOptions/);
+  assert.match(source, /domain\.allowed_fallbacks \?\? \["none", \.\.\.providerOptions\]/);
+  assert.match(source, /domain\.allowed_modes \?\? modeOptions/);
+  assert.match(source, /Invalid saved value:/);
+  assert.match(source, /validation_warnings/);
+  assert.match(source, /Choose a valid provider, fallback, and mode before making other changes/);
+});

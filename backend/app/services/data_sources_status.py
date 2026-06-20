@@ -36,6 +36,12 @@ from app.services.provider_settings import (
     provider_domain_catalog,
     provider_setting_payload,
 )
+from app.services.provider_registry import (
+    PROVIDER_LABELS,
+    provider_help_for,
+    provider_labels_for,
+    provider_validation_warnings,
+)
 
 
 def _iso(value: Any) -> str | None:
@@ -132,7 +138,7 @@ def _latest_event_update(db: Session, event_types: tuple[str, ...]) -> datetime 
 
 
 def _cache_metrics(db: Session, domain_key: str) -> tuple[str | None, int | None, datetime | None, int]:
-    if domain_key in {"prices_eod", "prices_historical", "prices_intraday", "technicals", "insights_us_market", "insights_us_sectors", "insights_global", "screener_technicals"}:
+    if domain_key in {"prices_eod", "prices_historical", "prices_intraday", "technicals", "insights_us_market", "insights_us_sectors", "insights_global", "insights_world", "screener_technicals"}:
         return "price_cache", _safe_count(db, PriceCache), _latest_price_update(db), _queue_depth(db, ("price_eod", "price_series", "quote", "technical_indicators"))
     if domain_key in {"fundamentals", "screener_fundamentals"}:
         return "fundamentals_cache", _safe_count(db, FundamentalsCache), _latest_fundamentals_update(db), _queue_depth(db, ("fundamentals",))
@@ -158,6 +164,8 @@ def _cache_metrics(db: Session, domain_key: str) -> tuple[str | None, int | None
         return "congress_transactions_normalized", row_count, _latest_congress_official_update(db), _queue_depth(db, ("official_congress_ingest", "official_house_discovery", "official_senate_discovery"))
     if domain_key in {"insider_trades"}:
         return "insider_transactions_normalized", _safe_count(db, InsiderTransactionNormalized), _latest_sec_update(db), _queue_depth(db, ("sec_form4_ingest",))
+    if domain_key == "form4_filings":
+        return "sec_form4_filings", _safe_count(db, SecForm4Filing), _latest_sec_update(db), _queue_depth(db, ("sec_form4_ingest",))
     if domain_key == "pnl_enrichment":
         return "trade_outcomes", _safe_count(db, TradeOutcome), _safe_scalar(db, select(func.max(TradeOutcome.computed_at))), _queue_depth(db, ("pnl_refresh",))
     if domain_key == "signal_inputs":
@@ -213,6 +221,7 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
     for domain_key, default in catalog.items():
         setting = settings[domain_key]
         setting_payload = provider_setting_payload(setting)
+        validation_warnings = provider_validation_warnings(domain_key, setting_payload)
         cache_table, row_count, last_refresh, queue_depth = _cache_metrics(db, domain_key)
         last_error = _provider_error(db, setting.active_provider)
         stale_status = _freshness(last_refresh, stale_after_hours=4 if domain_key.startswith("insights_") else 24)
@@ -238,6 +247,19 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                 "queue_depth": queue_depth,
                 "settings": setting_payload,
                 "badges": _domain_status_badges(setting_payload, stale_status, last_error, builder_safe_status),
+                "allowed_providers": list(default.allowed_providers),
+                "allowed_fallbacks": list(default.allowed_fallbacks),
+                "allowed_modes": list(default.allowed_modes),
+                "default_provider": default.active_provider,
+                "default_fallback": default.fallback_provider,
+                "default_mode": default.mode,
+                "provider_labels": provider_labels_for(
+                    tuple(dict.fromkeys((*default.allowed_providers, *default.allowed_fallbacks, setting.active_provider, setting.fallback_provider or "none")))
+                ),
+                "provider_help_text": provider_help_for(tuple(dict.fromkeys((*default.allowed_providers, *default.allowed_fallbacks)))),
+                "domain_help_text": default.domain_help_text,
+                "validation_warnings": validation_warnings,
+                "can_save": not validation_warnings,
                 "admin_actions": {
                     "can_run_dry_run": domain_key in {"congress_trades", "house_disclosures", "senate_disclosures", "insider_trades", "insights_macro", "insights_treasury"},
                     "can_refresh_cache": domain_key in {"prices_eod", "fundamentals", "profiles", "insights_macro", "insights_treasury"},
@@ -353,6 +375,7 @@ def build_data_sources_status(db: Session) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "provider_options": list(ALLOWED_PROVIDERS),
         "mode_options": list(ALLOWED_MODES),
+        "provider_labels": PROVIDER_LABELS,
         "filters": ["All", "Safe", "Warning", "Unsafe", "External APIs", "Official Sources", "Cache-only", "Errors", "Stale", "Disabled"],
         "status_badges": ["Active", "Fallback", "Shadow", "Disabled", "Missing", "Stale", "Error", "Builder-safe", "Add-on risk"],
         "domains": rows,

@@ -92,8 +92,9 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function friendlyLabel(value?: string | null) {
+function friendlyLabel(value?: string | null, labels?: Record<string, string>) {
   if (!value) return "None";
+  if (labels?.[value]) return labels[value];
   return PROVIDER_LABELS[value] ?? value.replaceAll("_", " ");
 }
 
@@ -182,6 +183,17 @@ function getNestedNumber(source: unknown, path: string[]) {
     current = (current as Record<string, unknown>)[key];
   }
   return typeof current === "number" ? current : 0;
+}
+
+function optionsWithSavedValue(allowed: string[] | undefined, current: string | null | undefined, fallbackOptions: string[]) {
+  const base = allowed?.length ? allowed : fallbackOptions;
+  const saved = current || "none";
+  return saved && !base.includes(saved) ? [saved, ...base] : base;
+}
+
+function isInvalidSavedValue(allowed: string[] | undefined, current: string | null | undefined) {
+  const saved = current || "none";
+  return Boolean(allowed?.length && saved && !allowed.includes(saved));
 }
 
 export function DataSourcesReport() {
@@ -398,6 +410,14 @@ function DataSourceRow({
   const health = healthState(domain);
   const providerIsCache = domain.active_provider === "walnut_cache";
   const fallbackIsCache = domain.fallback_provider === "walnut_cache";
+  const allowedProviders = domain.allowed_providers ?? providerOptions;
+  const allowedFallbacks = domain.allowed_fallbacks ?? ["none", ...providerOptions];
+  const allowedModes = domain.allowed_modes ?? modeOptions;
+  const providerSelectOptions = optionsWithSavedValue(allowedProviders, domain.active_provider, providerOptions);
+  const fallbackSelectOptions = optionsWithSavedValue(allowedFallbacks, domain.fallback_provider ?? "none", ["none", ...providerOptions]);
+  const modeSelectOptions = optionsWithSavedValue(allowedModes, domain.settings.mode, modeOptions);
+  const providerLabels = domain.provider_labels;
+  const validationWarnings = domain.validation_warnings ?? [];
 
   return (
     <tr className="bg-slate-950/30 align-top text-slate-300">
@@ -405,28 +425,50 @@ function DataSourceRow({
         <div className="font-semibold text-slate-100">{domain.data_domain}</div>
         <div className="mt-1 text-[11px] text-slate-500">{domain.domain_key}</div>
         {domain.notes ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.notes}</div> : null}
+        {domain.domain_help_text && domain.domain_help_text !== domain.notes ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.domain_help_text}</div> : null}
+        {validationWarnings.length ? (
+          <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100">
+            <div className="font-semibold uppercase">Invalid saved value</div>
+            {validationWarnings.map((warning) => <div key={warning} className="mt-1">{warning}</div>)}
+            <div className="mt-1 text-amber-100/70">Choose a valid provider, fallback, and mode before making other changes.</div>
+          </div>
+        ) : null}
       </Td>
       <Td>
-        <ProviderDisplay provider={domain.active_provider} helper={providerIsCache ? CACHE_PROVIDER_HELP : undefined} />
+        <ProviderDisplay provider={domain.active_provider} labels={providerLabels} helper={domain.provider_help_text?.[domain.active_provider] ?? (providerIsCache ? CACHE_PROVIDER_HELP : undefined)} />
         <select
           value={domain.active_provider}
           disabled={busy}
-          onChange={(event) => updateDomain(domain, { active_provider: event.target.value })}
+          onChange={(event) =>
+            updateDomain(
+              domain,
+              event.target.value === "disabled"
+                ? { active_provider: event.target.value, mode: "disabled", is_enabled: false }
+                : { active_provider: event.target.value },
+            )
+          }
           className="mt-2 w-44 rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
         >
-          {providerOptions.map((provider) => <option key={provider} value={provider}>{optionLabel(provider)}</option>)}
+          {providerSelectOptions.map((provider) => (
+            <option key={provider} value={provider} disabled={isInvalidSavedValue(allowedProviders, provider)}>
+              {isInvalidSavedValue(allowedProviders, provider) ? `Invalid saved value: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
+            </option>
+          ))}
         </select>
       </Td>
       <Td>
-        <ProviderDisplay provider={domain.fallback_provider ?? "none"} helper={fallbackIsCache ? CACHE_PROVIDER_HELP : undefined} />
+        <ProviderDisplay provider={domain.fallback_provider ?? "none"} labels={providerLabels} helper={domain.provider_help_text?.[domain.fallback_provider ?? "none"] ?? (fallbackIsCache ? CACHE_PROVIDER_HELP : undefined)} />
         <select
           value={domain.fallback_provider ?? "none"}
           disabled={busy}
           onChange={(event) => updateDomain(domain, { fallback_provider: event.target.value === "none" ? null : event.target.value })}
           className="mt-2 w-44 rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
         >
-          <option value="none">None (none)</option>
-          {providerOptions.filter((provider) => provider !== "none").map((provider) => <option key={provider} value={provider}>{optionLabel(provider)}</option>)}
+          {fallbackSelectOptions.map((provider) => (
+            <option key={provider} value={provider} disabled={isInvalidSavedValue(allowedFallbacks, provider)}>
+              {isInvalidSavedValue(allowedFallbacks, provider) ? `Invalid saved value: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
+            </option>
+          ))}
         </select>
       </Td>
       <Td>
@@ -442,7 +484,11 @@ function DataSourceRow({
           onChange={(event) => updateDomain(domain, { mode: event.target.value, is_enabled: event.target.value !== "disabled" })}
           className="mt-2 w-32 rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 text-xs text-slate-100"
         >
-          {modeOptions.map((mode) => <option key={mode} value={mode}>{modeLabel(mode)}</option>)}
+          {modeSelectOptions.map((mode) => (
+            <option key={mode} value={mode} disabled={isInvalidSavedValue(allowedModes, mode)}>
+              {isInvalidSavedValue(allowedModes, mode) ? `Invalid saved value: ${modeLabel(mode)}` : modeLabel(mode)}
+            </option>
+          ))}
         </select>
         {isShadowExplainedDomain(domain) && domain.settings.mode === "shadow" ? (
           <p className="mt-2 max-w-44 text-[11px] leading-4 text-cyan-100">
@@ -569,18 +615,18 @@ function StatusLine({ label, badges }: { label: string; badges: string[] }) {
   );
 }
 
-function ProviderDisplay({ provider, helper }: { provider: string; helper?: string }) {
+function ProviderDisplay({ provider, labels, helper }: { provider: string; labels?: Record<string, string>; helper?: string }) {
   return (
     <div>
-      <div className="font-semibold text-slate-100">{friendlyLabel(provider)}</div>
+      <div className="font-semibold text-slate-100">{friendlyLabel(provider, labels)}</div>
       <code className="mt-0.5 block text-[11px] text-slate-500">{provider}</code>
       {helper ? <p className="mt-1 max-w-44 text-[11px] leading-4 text-slate-500">{helper}</p> : null}
     </div>
   );
 }
 
-function optionLabel(provider: string) {
-  return `${friendlyLabel(provider)} (${provider})`;
+function optionLabel(provider: string, labels?: Record<string, string>) {
+  return `${friendlyLabel(provider, labels)} (${provider})`;
 }
 
 function Metric({ label, value, helper }: { label: string; value: string; helper?: string }) {
@@ -704,7 +750,7 @@ function DataSourceMap({ rows, domains }: { rows: Record<string, string>; domain
                 return (
                   <div key={key} className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-3">
                     <div className="font-semibold text-slate-100">{domain?.data_domain ?? titleLabel(key)}</div>
-                    <div className="mt-1 text-sm text-slate-300">{friendlyLabel(provider)}</div>
+                    <div className="mt-1 text-sm text-slate-300">{friendlyLabel(provider, domain?.provider_labels)}</div>
                     <div className="mt-1 break-words text-[11px] text-slate-500">{key} / {provider}</div>
                     {domain ? (
                       <div className="mt-2 flex flex-wrap gap-1">
