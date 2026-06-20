@@ -1376,6 +1376,96 @@ export type AdminProviderUsageResponse = {
   };
 };
 
+export type AdminProviderSetting = {
+  id: number;
+  domain_key: string;
+  active_provider: string;
+  fallback_provider?: string | null;
+  mode: string;
+  is_enabled: boolean;
+  allow_external_live_fetch: boolean;
+  allow_user_route_sync_fetch: boolean;
+  builder_safe_required: boolean;
+  notes?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminDataSourceDomain = {
+  domain_key: string;
+  data_domain: string;
+  active_provider: string;
+  fallback_provider?: string | null;
+  source_type: string;
+  mode: string;
+  builder_safe_status: "safe" | "warning" | "unsafe" | string;
+  endpoint_names: string[];
+  last_successful_refresh?: string | null;
+  last_attempted_refresh?: string | null;
+  stale_status: "fresh" | "stale" | "missing" | string;
+  cache_table?: string | null;
+  row_count?: number | null;
+  coverage?: string | null;
+  last_error?: string | null;
+  call_count_24h?: number | null;
+  queue_depth?: number | null;
+  settings: AdminProviderSetting;
+  badges: string[];
+  admin_actions: {
+    can_run_dry_run: boolean;
+    can_refresh_cache: boolean;
+    can_view_diagnostics: boolean;
+  };
+  notes?: string | null;
+};
+
+export type AdminDataSourcesStatusResponse = {
+  generated_at: string;
+  provider_options: string[];
+  mode_options: string[];
+  filters: string[];
+  status_badges: string[];
+  domains: AdminDataSourceDomain[];
+  current_data_source_map: Record<string, string>;
+  endpoint_map: Record<string, string[]>;
+  tables: {
+    existing_core: string[];
+    official_shadow: string[];
+  };
+  diagnostics: {
+    congress: Record<string, unknown>;
+    insider: Record<string, unknown>;
+    production_source_counts: Record<string, number>;
+  };
+  dry_run_commands: Record<string, string>;
+  risks: string[];
+};
+
+export type AdminDataSourceSettingPatch = Partial<{
+  active_provider: string | null;
+  fallback_provider: string | null;
+  mode: string;
+  is_enabled: boolean;
+  allow_external_live_fetch: boolean;
+  allow_user_route_sync_fetch: boolean;
+  builder_safe_required: boolean;
+  notes: string | null;
+  reason: string | null;
+}>;
+
+export type AdminDataSourceRunResponse = {
+  status: string;
+  domain_key: string;
+  mode: string;
+  dry_run: boolean;
+  job?: {
+    id?: number;
+    job_type?: string;
+    dedupe_key?: string;
+    status?: string;
+  };
+};
+
 export type AdminEmailTemplate = {
   id: number;
   template_key: string;
@@ -1862,6 +1952,44 @@ export async function getAdminProviderUsageFmp(): Promise<AdminProviderUsageResp
   return fetchJson<AdminProviderUsageResponse>(buildApiUrl("/api/admin/provider-usage/fmp"));
 }
 
+export async function getAdminDataSourcesStatus(): Promise<AdminDataSourcesStatusResponse> {
+  return fetchJson<AdminDataSourcesStatusResponse>(buildApiUrl("/api/admin/data-sources/status"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminDataSources",
+  });
+}
+
+export async function updateAdminDataSourceSetting(
+  domainKey: string,
+  payload: AdminDataSourceSettingPatch,
+): Promise<AdminProviderSetting> {
+  return fetchJson<AdminProviderSetting>(
+    buildApiUrl(`/api/admin/data-sources/settings/${encodeURIComponent(domainKey)}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminDataSources",
+    },
+  );
+}
+
+export async function runAdminDataSource(
+  domainKey: string,
+  payload: { mode?: string; reason?: string | null } = {},
+): Promise<AdminDataSourceRunResponse> {
+  return fetchJson<AdminDataSourceRunResponse>(
+    buildApiUrl(`/api/admin/data-sources/run/${encodeURIComponent(domainKey)}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminDataSources",
+    },
+  );
+}
+
 export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
   return fetchJson<AdminUsersResponse>(buildApiUrl("/api/admin/users", params));
 }
@@ -2210,7 +2338,7 @@ export type SymbolSuggestResponse = {
   items: SymbolSuggestion[];
 };
 
-export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency";
+export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "event";
 
 export type SearchSuggestResult = {
   kind: SearchSuggestKind;
@@ -2250,7 +2378,7 @@ export type MemberInsiderSuggestResponse = {
 };
 
 export type GlobalSearchResult = {
-  type: "ticker" | "member" | "insider" | "government_agency";
+  type: "ticker" | "member" | "insider" | "government_agency" | "event";
   id: string;
   label: string;
   subtitle?: string | null;

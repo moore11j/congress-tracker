@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
+from app.models import Event, InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 
@@ -37,6 +37,184 @@ def test_search_suggest_exact_symbol_ranks_first_and_respects_limit():
         assert payload["items"][0]["symbol"] == "AAPL"
         assert payload["items"][0]["href"] == "/ticker/AAPL"
     finally:
+        db.close()
+
+
+def test_search_suggest_exact_lowercase_ticker_resolves_from_profile_cache_only():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"))
+        db.commit()
+
+        payload = search_suggestions(db, "msft", limit=5)
+
+        assert payload["items"] == [
+            {
+                "kind": "ticker",
+                "id": "MSFT",
+                "symbol": "MSFT",
+                "label": "Microsoft Corporation",
+                "subtitle": "Ticker - Microsoft Corporation - NASDAQ",
+                "href": "/ticker/MSFT",
+            }
+        ]
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_exact_uppercase_ticker_resolves_from_security_cache():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="stock", sector="Technology"))
+        db.commit()
+
+        item = search_suggestions(db, "NVDA", limit=5)["items"][0]
+
+        assert item["kind"] == "ticker"
+        assert item["symbol"] == "NVDA"
+        assert item["label"] == "NVIDIA Corporation"
+        assert item["href"] == "/ticker/NVDA"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_profile_cache_ticker_does_not_require_event_rows():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"))
+        db.commit()
+
+        item = search_suggestions(db, "aapl", limit=5)["items"][0]
+
+        assert item["kind"] == "ticker"
+        assert item["symbol"] == "AAPL"
+        assert item["label"] == "Apple Inc."
+        assert item["href"] == "/ticker/AAPL"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_exact_share_class_query_uses_cached_variant_symbol():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(TickerMeta(symbol="BRK-B", company_name="Berkshire Hathaway Inc.", exchange="NYSE"))
+        db.commit()
+
+        item = search_suggestions(db, "brk.b", limit=5)["items"][0]
+
+        assert item["kind"] == "ticker"
+        assert item["symbol"] == "BRK-B"
+        assert item["href"] == "/ticker/BRK-B"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_ticker_pattern_fallback_returns_route_and_queues_enrichment(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
+    try:
+        item = search_suggestions(db, "xqzz", limit=5)["items"][0]
+
+        assert item == {
+            "kind": "ticker",
+            "id": "XQZZ",
+            "symbol": "XQZZ",
+            "label": "Ticker: XQZZ",
+            "subtitle": "Ticker - XQZZ",
+            "href": "/ticker/XQZZ",
+        }
+        assert [call["job_type"] for call in calls] == ["ticker_meta", "profile"]
+        assert {call["symbol"] for call in calls} == {"XQZZ"}
+        assert all(call["source"] == "search" for call in calls)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_invalid_random_query_still_returns_no_matches(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
+    try:
+        payload = search_suggestions(db, "not a ticker", limit=5)
+
+        assert payload["items"] == []
+        assert calls == []
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_company_name_uses_profile_cache_without_security_rows():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"))
+        db.commit()
+
+        item = search_suggestions(db, "Microsoft", limit=5)["items"][0]
+
+        assert item["kind"] == "ticker"
+        assert item["symbol"] == "MSFT"
+        assert item["label"] == "Microsoft Corporation"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_member_name_beats_lightweight_ticker_fallback():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add(Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="house", party="D", state="CA"))
+        db.commit()
+
+        items = search_suggestions(db, "nancy", limit=5)["items"]
+
+        assert items[0]["kind"] == "member"
+        assert items[0]["label"] == "Nancy Pelosi"
+        assert all(item["href"] != "/ticker/NANCY" for item in items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_includes_low_priority_event_badge_result():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        now = datetime.now(timezone.utc)
+        db.add_all(
+            [
+                Security(symbol="ORBT", name="Orbital Systems Inc.", asset_class="stock", sector="Industrial"),
+                Event(
+                    event_type="government_contract",
+                    ts=now,
+                    event_date=now,
+                    symbol="ORBT",
+                    source="test",
+                    payload_json="{}",
+                ),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "Orbital", limit=8)["items"]
+
+        assert any(item["kind"] == "event" and item["symbol"] == "ORBT" and item["href"] == "/feed?symbol=ORBT" for item in items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()
 
 

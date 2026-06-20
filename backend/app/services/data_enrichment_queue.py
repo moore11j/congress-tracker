@@ -667,6 +667,14 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
 
         refresh_insights_snapshot(db)
         return
+    if job.job_type == "insights_refresh":
+        from app.services.insights_snapshots import refresh_insights_snapshot
+
+        refresh_insights_snapshot(db)
+        return
+    if job.job_type in {"official_congress_ingest", "official_house_discovery", "official_senate_discovery", "sec_form4_ingest"}:
+        _process_admin_data_source_shadow_job(db, job)
+        return
     if job.job_type == "ticker_financials":
         from app.services.ticker_financials import get_ticker_financials
 
@@ -744,6 +752,18 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         _company_profile_snapshot_from_fmp(job.symbol or "")
         return
     raise RuntimeError(f"unsupported_job_type:{job.job_type}")
+
+
+def _process_admin_data_source_shadow_job(db: Session, job: DataEnrichmentJob) -> None:
+    payload = _payload_dict(job.payload_json)
+    result = {
+        **payload,
+        "status": "dry_run_complete",
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "message": "Official-source shadow job acknowledged; no public feed promotion performed.",
+    }
+    job.payload_json = json.dumps(result, sort_keys=True)
+    db.flush()
 
 
 def _raise_for_retryable_provider_result(result: Any) -> None:

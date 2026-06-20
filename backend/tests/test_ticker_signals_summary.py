@@ -137,7 +137,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
             "active": False,
             "contract_count": 0,
             "total_award_amount": 0,
-            "detail": "No contracts above threshold in selected window.",
+            "detail": "No qualifying contracts found in the last 30 Days.",
         },
     )
     monkeypatch.setattr(
@@ -215,7 +215,7 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
                 "status": "active",
                 "direction": "bearish",
                 "title": "Insider selling active",
-                "subtitle": "1 sell in the last 30D.",
+                "subtitle": "1 sell in the last 30 Days.",
                 "buy_count": 0,
                 "sell_count": 1,
                 "net_flow": -125_000,
@@ -224,7 +224,7 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
             "status": "active",
             "direction": "bullish",
             "title": "Congress buying active",
-            "subtitle": "1 purchase in the last 30D.",
+            "subtitle": "1 purchase in the last 30 Days.",
             "buy_count": 1,
             "sell_count": 0,
             "net_flow": 50_000,

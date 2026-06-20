@@ -1,0 +1,2450 @@
+diff --git a/backend/app/db.py b/backend/app/db.py
+index e05fb584..3297a64c 100644
+--- a/backend/app/db.py
++++ b/backend/app/db.py
+@@ -677,6 +677,288 @@ def ensure_provider_usage_schema(bind=engine) -> None:
+             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events ((lower(member_name)))"))
+ 
+ 
++def ensure_provider_control_schema(bind=engine) -> None:
++    with bind.begin() as conn:
++        dialect_name = conn.dialect.name
++        created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
++        id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
++        bool_type = "BOOLEAN"
++        default_true = "true" if dialect_name != "sqlite" else "1"
++        default_false = "false" if dialect_name != "sqlite" else "0"
++        float_type = "DOUBLE PRECISION" if dialect_name != "sqlite" else "FLOAT"
++
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS provider_settings (
++                    id {id_type},
++                    domain_key TEXT NOT NULL,
++                    active_provider TEXT NOT NULL,
++                    fallback_provider TEXT,
++                    mode TEXT NOT NULL DEFAULT 'primary',
++                    is_enabled {bool_type} NOT NULL DEFAULT {default_true},
++                    allow_external_live_fetch {bool_type} NOT NULL DEFAULT {default_false},
++                    allow_user_route_sync_fetch {bool_type} NOT NULL DEFAULT {default_false},
++                    builder_safe_required {bool_type} NOT NULL DEFAULT {default_true},
++                    notes TEXT,
++                    updated_by TEXT,
++                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS provider_setting_audit_log (
++                    id {id_type},
++                    domain_key TEXT NOT NULL,
++                    previous_provider TEXT,
++                    new_provider TEXT,
++                    previous_mode TEXT,
++                    new_mode TEXT,
++                    changed_by TEXT,
++                    changed_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    reason TEXT
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS symbol_resolution_overrides (
++                    id {id_type},
++                    domain_key TEXT NOT NULL,
++                    raw_symbol TEXT,
++                    issuer_name TEXT,
++                    normalized_symbol TEXT,
++                    asset_type TEXT,
++                    reason TEXT,
++                    updated_by TEXT,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS congress_disclosure_filings (
++                    id {id_type},
++                    source_provider TEXT NOT NULL,
++                    chamber TEXT,
++                    filing_id TEXT NOT NULL,
++                    source_url TEXT,
++                    document_url TEXT,
++                    document_hash TEXT,
++                    member_name_raw TEXT,
++                    member_id TEXT,
++                    filing_date DATE,
++                    report_type TEXT,
++                    amendment_flag {bool_type} NOT NULL DEFAULT {default_false},
++                    raw_metadata_json TEXT NOT NULL DEFAULT '{{}}',
++                    raw_text_path TEXT,
++                    raw_blob_ref TEXT,
++                    parser_status TEXT NOT NULL DEFAULT 'pending',
++                    parser_version TEXT,
++                    parser_confidence {float_type},
++                    last_parse_error TEXT,
++                    discovered_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    parsed_at {created_at_type},
++                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS congress_transactions_normalized (
++                    id {id_type},
++                    filing_id TEXT,
++                    disclosure_filing_id INTEGER,
++                    source_provider TEXT NOT NULL,
++                    chamber TEXT,
++                    member_name_raw TEXT,
++                    member_id TEXT,
++                    owner_raw TEXT,
++                    owner_normalized TEXT NOT NULL DEFAULT 'unknown',
++                    transaction_date DATE,
++                    disclosure_date DATE,
++                    ticker_raw TEXT,
++                    ticker_normalized TEXT,
++                    issuer_name_raw TEXT,
++                    security_name_raw TEXT,
++                    asset_type_raw TEXT,
++                    asset_type_normalized TEXT,
++                    transaction_type_raw TEXT,
++                    transaction_type_normalized TEXT,
++                    amount_range_raw TEXT,
++                    amount_low {float_type},
++                    amount_high {float_type},
++                    source_url TEXT,
++                    document_url TEXT,
++                    source_line_ref TEXT,
++                    normalized_hash TEXT NOT NULL,
++                    is_duplicate {bool_type} NOT NULL DEFAULT {default_false},
++                    duplicate_of_id INTEGER,
++                    symbol_resolution_status TEXT NOT NULL DEFAULT 'unresolved',
++                    parser_confidence {float_type},
++                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS sec_form4_filings (
++                    id {id_type},
++                    accession_number TEXT NOT NULL,
++                    issuer_cik TEXT,
++                    issuer_name TEXT,
++                    issuer_trading_symbol TEXT,
++                    reporting_owner_cik TEXT,
++                    reporting_owner_name TEXT,
++                    filing_date DATE,
++                    source_url TEXT,
++                    xml_url TEXT,
++                    document_hash TEXT,
++                    raw_metadata_json TEXT NOT NULL DEFAULT '{{}}',
++                    raw_xml_path TEXT,
++                    raw_xml_text TEXT,
++                    parser_status TEXT NOT NULL DEFAULT 'pending',
++                    parser_version TEXT,
++                    parser_confidence {float_type},
++                    last_parse_error TEXT,
++                    discovered_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    parsed_at {created_at_type},
++                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++        conn.execute(
++            text(
++                f"""
++                CREATE TABLE IF NOT EXISTS insider_transactions_normalized (
++                    id {id_type},
++                    form4_filing_id INTEGER,
++                    accession_number TEXT NOT NULL,
++                    issuer_cik TEXT,
++                    issuer_name TEXT,
++                    ticker_raw TEXT,
++                    ticker_normalized TEXT,
++                    reporting_owner_cik TEXT,
++                    reporting_owner_name TEXT,
++                    owner_relationship_json TEXT NOT NULL DEFAULT '{{}}',
++                    officer_title TEXT,
++                    is_director {bool_type} NOT NULL DEFAULT {default_false},
++                    is_officer {bool_type} NOT NULL DEFAULT {default_false},
++                    is_ten_percent_owner {bool_type} NOT NULL DEFAULT {default_false},
++                    transaction_date DATE,
++                    filing_date DATE,
++                    security_title TEXT,
++                    transaction_code TEXT,
++                    transaction_code_description TEXT,
++                    transaction_type_normalized TEXT,
++                    shares {float_type},
++                    price {float_type},
++                    value {float_type},
++                    acquired_disposed TEXT,
++                    shares_owned_following {float_type},
++                    direct_or_indirect TEXT,
++                    ownership_nature TEXT,
++                    is_derivative {bool_type} NOT NULL DEFAULT {default_false},
++                    footnotes_json TEXT NOT NULL DEFAULT '[]',
++                    ten_b5_1_flag {bool_type} NOT NULL DEFAULT {default_false},
++                    normalized_hash TEXT NOT NULL,
++                    is_duplicate {bool_type} NOT NULL DEFAULT {default_false},
++                    duplicate_of_id INTEGER,
++                    parser_confidence {float_type},
++                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
++                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
++                )
++                """
++            )
++        )
++
++        if dialect_name != "sqlite":
++            table_columns = {
++                "provider_settings": {
++                    "fallback_provider": "TEXT",
++                    "mode": "TEXT NOT NULL DEFAULT 'primary'",
++                    "is_enabled": "BOOLEAN NOT NULL DEFAULT true",
++                    "allow_external_live_fetch": "BOOLEAN NOT NULL DEFAULT false",
++                    "allow_user_route_sync_fetch": "BOOLEAN NOT NULL DEFAULT false",
++                    "builder_safe_required": "BOOLEAN NOT NULL DEFAULT true",
++                    "notes": "TEXT",
++                    "updated_by": "TEXT",
++                    "created_at": "TIMESTAMPTZ DEFAULT now()",
++                    "updated_at": "TIMESTAMPTZ DEFAULT now()",
++                },
++                "events": {
++                    "data_source": "TEXT",
++                    "source_provider": "TEXT",
++                    "source_filing_id": "TEXT",
++                    "source_document_url": "TEXT",
++                    "parser_version": "TEXT",
++                    "provider_priority": "INTEGER",
++                },
++            }
++            for table_name, columns in table_columns.items():
++                for column, spec in columns.items():
++                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column} {spec}"))
++        else:
++            table_exists = conn.execute(
++                text("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
++            ).fetchone()
++            if table_exists:
++                existing = {
++                    row[1]
++                    for row in conn.execute(text("PRAGMA table_info(events)")).fetchall()
++                    if len(row) > 1
++                }
++                for name, column_type in {
++                    "data_source": "TEXT",
++                    "source_provider": "TEXT",
++                    "source_filing_id": "TEXT",
++                    "source_document_url": "TEXT",
++                    "parser_version": "TEXT",
++                    "provider_priority": "INTEGER",
++                }.items():
++                    if name not in existing:
++                        conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {column_type}"))
++
++        indexes = (
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_provider_settings_domain_key ON provider_settings (domain_key)",
++            "CREATE INDEX IF NOT EXISTS ix_provider_settings_mode ON provider_settings (mode)",
++            "CREATE INDEX IF NOT EXISTS ix_provider_setting_audit_domain_changed ON provider_setting_audit_log (domain_key, changed_at)",
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_symbol_resolution_override_lookup ON symbol_resolution_overrides (domain_key, raw_symbol, issuer_name)",
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_congress_disclosure_source_filing ON congress_disclosure_filings (source_provider, filing_id)",
++            "CREATE INDEX IF NOT EXISTS ix_congress_disclosure_chamber_date ON congress_disclosure_filings (chamber, filing_date)",
++            "CREATE INDEX IF NOT EXISTS ix_congress_disclosure_parser_status ON congress_disclosure_filings (parser_status)",
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_congress_txn_normalized_hash ON congress_transactions_normalized (normalized_hash)",
++            "CREATE INDEX IF NOT EXISTS ix_congress_txn_symbol_date ON congress_transactions_normalized (ticker_normalized, transaction_date)",
++            "CREATE INDEX IF NOT EXISTS ix_congress_txn_member_date ON congress_transactions_normalized (member_id, transaction_date)",
++            "CREATE INDEX IF NOT EXISTS ix_congress_txn_duplicate ON congress_transactions_normalized (is_duplicate)",
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_sec_form4_accession ON sec_form4_filings (accession_number)",
++            "CREATE INDEX IF NOT EXISTS ix_sec_form4_issuer_filing_date ON sec_form4_filings (issuer_cik, filing_date)",
++            "CREATE INDEX IF NOT EXISTS ix_sec_form4_parser_status ON sec_form4_filings (parser_status)",
++            "CREATE UNIQUE INDEX IF NOT EXISTS ix_insider_txn_normalized_hash ON insider_transactions_normalized (normalized_hash)",
++            "CREATE INDEX IF NOT EXISTS ix_insider_txn_symbol_date ON insider_transactions_normalized (ticker_normalized, transaction_date)",
++            "CREATE INDEX IF NOT EXISTS ix_insider_txn_owner_date ON insider_transactions_normalized (reporting_owner_cik, transaction_date)",
++            "CREATE INDEX IF NOT EXISTS ix_insider_txn_duplicate ON insider_transactions_normalized (is_duplicate)",
++        )
++        for statement in indexes:
++            conn.execute(text(statement))
++
++
+ def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
+     with bind.begin() as conn:
+         dialect_name = conn.dialect.name
+diff --git a/backend/app/main.py b/backend/app/main.py
+index f40884a5..516b34ca 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -37,6 +37,7 @@ from app.db import (
+     ensure_house_annual_disclosure_schema,
+     ensure_monitoring_alert_columns,
+     ensure_page_analytics_schema,
++    ensure_provider_control_schema,
+     ensure_provider_usage_schema,
+     ensure_price_cache_volume_columns,
+     ensure_search_and_insights_schema,
+@@ -110,6 +111,7 @@ from app.routers.accounts import router as accounts_router
+ from app.routers.backtests import router as backtests_router
+ from app.routers.debug import router as debug_router
+ from app.routers.notifications import router as notifications_router
++from app.routers.admin_data_sources import router as admin_data_sources_router
+ from app.routers.saved_screens import router as saved_screens_router
+ from app.routers.screener import router as screener_router
+ from app.routers.events import (
+@@ -223,6 +225,7 @@ from app.services.provider_usage import (
+     record_fallback,
+     record_provider_response,
+ )
++from app.services.provider_settings import seed_default_provider_settings
+ from app.utils.symbols import normalize_symbol
+ 
+ logger = logging.getLogger(__name__)
+@@ -2561,6 +2564,7 @@ def _startup_create_tables():
+     ensure_user_account_billing_schema(engine)
+     ensure_page_analytics_schema(engine)
+     ensure_provider_usage_schema(engine)
++    ensure_provider_control_schema(engine)
+     ensure_data_enrichment_jobs_schema(engine)
+     ensure_event_columns()
+     ensure_monitoring_alert_columns()
+@@ -2570,6 +2574,8 @@ def _startup_create_tables():
+     db = SessionLocal()
+     try:
+         seed_plan_config(db)
++        seed_default_provider_settings(db)
++        db.commit()
+     finally:
+         db.close()
+ 
+@@ -4352,6 +4358,193 @@ def _ticker_shell_identity_fields(
+     }
+ 
+ 
++_OPTION_CONTRACT_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
++_STANDARD_LISTED_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:[./-][A-Z])?$")
++_ETF_PROFILE_NAME_RE = re.compile(
++    r"\b(etf|exchange[-\s]+traded fund|mutual fund|index fund|closed[-\s]+end fund)\b",
++    re.IGNORECASE,
++)
++
++_TICKER_HEADER_EQUITY_ASSET_VALUES = {
++    "common_equity",
++    "common_stock",
++    "common_shares",
++    "equity",
++    "equities",
++    "ordinary_shares",
++    "public_equity",
++    "public_stock",
++    "share",
++    "shares",
++    "stock",
++    "stocks",
++}
++_TICKER_HEADER_ETF_ASSET_VALUES = {
++    "closed_end_fund",
++    "etf",
++    "etf_fund",
++    "exchange_traded_fund",
++    "fund",
++    "index_fund",
++    "mutual_fund",
++}
++_TICKER_HEADER_OPTION_ASSET_VALUES = {
++    "option",
++    "options",
++    "stock_option",
++    "stock_options",
++}
++
++
++def _ticker_asset_value_token(value: object) -> str | None:
++    cleaned = _shell_text(value)
++    if not cleaned:
++        return None
++    token = re.sub(r"[^a-z0-9]+", "_", cleaned.lower()).strip("_")
++    return token or None
++
++
++def _ticker_header_asset_label_from_value(value: object) -> str | None:
++    token = _ticker_asset_value_token(value)
++    if not token:
++        return None
++    if token in _TICKER_HEADER_OPTION_ASSET_VALUES or "option" in token:
++        return "OPTION"
++    if (
++        token in _TICKER_HEADER_ETF_ASSET_VALUES
++        or "exchange_traded_fund" in token
++        or token.endswith("_etf")
++        or "_etf_" in f"_{token}_"
++    ):
++        return "ETF"
++    if (
++        token in _TICKER_HEADER_EQUITY_ASSET_VALUES
++        or "common_stock" in token
++        or "common_equity" in token
++        or token.endswith("_stock")
++        or token.endswith("_equity")
++    ):
++        return "STOCK"
++    return None
++
++
++def _ticker_profile_bool(source: dict[str, Any] | None, *keys: str) -> bool:
++    value = _identity_value(source, *keys)
++    if isinstance(value, bool):
++        return value
++    if isinstance(value, (int, float)):
++        return value != 0
++    if isinstance(value, str):
++        return value.strip().lower() in {"1", "true", "yes", "y"}
++    return False
++
++
++def _ticker_profile_source_exists(source: dict[str, Any] | None) -> bool:
++    if not source:
++        return False
++    return any(
++        _shell_text(_identity_value(source, *keys))
++        for keys in (
++            ("company_name", "companyName", "name"),
++            ("exchange", "exchangeShortName", "stockExchange"),
++            ("sector", "industry", "country"),
++        )
++    )
++
++
++def _ticker_header_asset_label_from_profile_source(source: dict[str, Any] | None) -> str | None:
++    if not source:
++        return None
++    if _ticker_profile_bool(source, "isEtf", "isETF", "is_etf", "etf", "isFund", "is_fund"):
++        return "ETF"
++    for keys in (
++        ("asset_class", "assetClass"),
++        ("asset_type", "assetType"),
++        ("security_type", "securityType"),
++        ("instrument_type", "instrumentType"),
++        ("quoteType", "quote_type"),
++        ("type",),
++    ):
++        label = _ticker_header_asset_label_from_value(_identity_value(source, *keys))
++        if label:
++            return label
++    for keys in (("company_name", "companyName", "name"),):
++        name = _shell_text(_identity_value(source, *keys))
++        if name and _ETF_PROFILE_NAME_RE.search(name):
++            return "ETF"
++    return None
++
++
++def _is_option_contract_symbol(symbol: str | None) -> bool:
++    return bool(symbol and _OPTION_CONTRACT_SYMBOL_RE.match(symbol))
++
++
++def _is_standard_listed_ticker(symbol: str | None) -> bool:
++    return bool(symbol and not symbol.startswith("^") and _STANDARD_LISTED_TICKER_RE.match(symbol))
++
++
++def _ticker_fundamentals_identity_source(fundamentals: FundamentalsCache | None) -> dict[str, Any] | None:
++    if fundamentals is None:
++        return None
++    return {
++        "company_name": fundamentals.company_name,
++        "exchange": fundamentals.exchange,
++        "sector": fundamentals.sector,
++        "industry": fundamentals.industry,
++        "country": fundamentals.country,
++    }
++
++
++def _resolve_ticker_header_asset_class(
++    db: Session,
++    symbol: str,
++    *,
++    security: Security | None = None,
++    metadata: dict[str, Any] | None = None,
++    profile_snapshot: dict[str, Any] | None = None,
++    fundamentals: FundamentalsCache | None = None,
++) -> str:
++    sym = normalize_symbol(symbol) or ""
++    option_symbol = _is_option_contract_symbol(sym)
++    security_label = _ticker_header_asset_label_from_value(security.asset_class if security is not None else None)
++    if security_label == "OPTION" and option_symbol:
++        return "OPTION"
++
++    profile_sources = [
++        profile_snapshot or {},
++        metadata or {},
++        _ticker_fundamentals_identity_source(fundamentals),
++        _ticker_content_profile_identity_row(db, sym),
++        *(
++            _optional_identity_row(db, table_name, sym)
++            for table_name in _TICKER_OPTIONAL_IDENTITY_TABLES
++        ),
++    ]
++    profile_label = next(
++        (
++            label
++            for source in profile_sources
++            for label in [_ticker_header_asset_label_from_profile_source(source)]
++            if label and (label != "OPTION" or option_symbol)
++        ),
++        None,
++    )
++    if profile_label == "ETF":
++        return "ETF"
++    if security_label == "ETF":
++        return "ETF"
++    if security_label == "STOCK":
++        return "STOCK"
++    if profile_label == "STOCK":
++        return "STOCK"
++
++    if option_symbol:
++        return "OPTION"
++    if _is_standard_listed_ticker(sym):
++        return "STOCK"
++    return "SECURITY"
++
++
+ def _enqueue_ticker_identity_enrichment_if_sparse(
+     symbol: str,
+     *,
+@@ -4410,7 +4603,6 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
+     quote_snapshot = _ticker_shell_quote_snapshot(db, sym, fundamentals)
+     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+     ticker_name = _ticker_shell_company_name(db, sym, security=security, meta=meta, fundamentals=fundamentals)
+-    asset_class = _shell_text(security.asset_class if security is not None else None) or "Equity"
+     identity_fields = _ticker_shell_identity_fields(
+         db=db,
+         symbol=sym,
+@@ -4424,6 +4616,21 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
+     country = identity_fields["country"]
+     exchange = identity_fields["exchange"]
+     exchange_short_name = identity_fields["exchange_short_name"]
++    asset_class = _resolve_ticker_header_asset_class(
++        db,
++        sym,
++        security=security,
++        metadata={
++            "company_name": ticker_name,
++            "sector": sector,
++            "industry": industry,
++            "country": country,
++            "exchange": exchange,
++            "exchange_short_name": exchange_short_name,
++        },
++        profile_snapshot=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     _enqueue_ticker_identity_enrichment_if_sparse(sym, sector=sector, industry=industry, country=country)
+     metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
+     quote_available = quote_snapshot["current_price"] is not None
+@@ -5068,17 +5275,19 @@ def _ticker_trade_activity_summary(
+     freshness_days = max((now - latest_activity.astimezone(timezone.utc)).days, 0) if latest_activity is not None else None
+     if event_type == "insider_trade":
+         active_title = "Insider activity active"
+-        inactive_title = "No recent insider activity"
++        inactive_title = f"No notable insider activity in the last {lookback_days} Days"
+         subtitle = f"{buy_count} buys / {sell_count} sells"
++        inactive_subtitle = f"No qualifying insider buys or sells found in the {lookback_days} Day context window."
+     else:
+         active_title = "Congress trades active"
+-        inactive_title = "No recent Congress trades"
++        inactive_title = f"No notable Congress activity in the last {lookback_days} Days"
+         subtitle = f"{buy_count} buys / {sell_count} sells"
++        inactive_subtitle = f"No qualifying Congress trades found in the {lookback_days} Day context window."
+     return {
+         "status": "active" if active else "inactive",
+         "direction": direction,
+         "title": active_title if active else inactive_title,
+-        "subtitle": subtitle if active else f"No matching trades in the last {lookback_days}D.",
++        "subtitle": subtitle if active else inactive_subtitle,
+         "buy_count": buy_count,
+         "sell_count": sell_count,
+         "net_flow": net_flow,
+@@ -5104,7 +5313,7 @@ def _normalize_price_volume_context(summary: dict[str, Any]) -> dict[str, Any]:
+     title = _shell_text(summary.get("summary")) or (
+         "Price and volume active"
+         if status == "active"
+-        else "No active tape confirmation"
++        else "No strong price/volume signal in the last 30 Days"
+         if status == "inactive"
+         else "Limited price history"
+         if status == "limited"
+@@ -5145,8 +5354,8 @@ def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | f
+         return {
+             "status": "inactive",
+             "direction": "neutral",
+-            "title": "No recent signal activity",
+-            "subtitle": f"No signal conviction entries in the last {lookback_days}D.",
++            "title": f"No active signal stack in the last {lookback_days} Days",
++            "subtitle": f"No qualifying signal entries found in the {lookback_days} Day context window.",
+             "recent_count": 0,
+             "latest_score": None,
+             "latest_date": None,
+@@ -5194,7 +5403,7 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
+             "status": "inactive",
+             "direction": "neutral",
+             "title": "No major government contracts",
+-            "subtitle": "No contracts above threshold in selected window.",
++            "subtitle": "No qualifying contracts found in the last 30 Days.",
+             "contract_count": 0,
+             "contract_value": None,
+             "latest_date": None,
+@@ -7056,8 +7265,24 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
+     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+     technical_indicators = _ticker_technical_indicators(db, sym)
+     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
+-    ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
++    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
++    fundamentals = _latest_fundamentals_row(db, sym)
++    ticker_metadata = _resolve_ticker_company_metadata(
++        db,
++        sym,
++        security=security,
++        profile_row=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
++    asset_class = _resolve_ticker_header_asset_class(
++        db,
++        sym,
++        security=security,
++        metadata=ticker_metadata,
++        profile_snapshot=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     identity_status = _ticker_identity_status(
+         symbol=sym,
+         name=ticker_name,
+@@ -7073,7 +7298,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
+         "ticker": {
+             "symbol": security.symbol,
+             "name": ticker_name,
+-            "asset_class": security.asset_class,
++            "asset_class": asset_class,
+             **ticker_metadata,
+             **limited_history_metadata,
+             "identity_status": identity_status,
+@@ -7170,10 +7395,16 @@ def _resolve_ticker_company_metadata(
+     sym: str,
+     *,
+     security: Security | None = None,
++    profile_row: dict[str, Any] | None = None,
++    fundamentals: FundamentalsCache | None = None,
+ ) -> dict[str, str | None]:
+     metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
+-    profile_row = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
+-    fundamentals = _latest_fundamentals_row(db, sym)
++    profile_row = (
++        profile_row
++        if profile_row is not None
++        else (_cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym))
++    )
++    fundamentals = fundamentals if fundamentals is not None else _latest_fundamentals_row(db, sym)
+ 
+     return {
+         "sector": _clean_ticker_metadata_text(metadata.get("sector"))
+@@ -7232,8 +7463,22 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
+     confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+     technical_indicators = _ticker_technical_indicators(db, sym)
+-    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
++    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
++    fundamentals = _latest_fundamentals_row(db, sym)
++    ticker_metadata = _resolve_ticker_company_metadata(
++        db,
++        sym,
++        profile_row=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
++    asset_class = _resolve_ticker_header_asset_class(
++        db,
++        sym,
++        metadata=ticker_metadata,
++        profile_snapshot=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     identity_status = _ticker_identity_status(
+         symbol=sym,
+         name=name,
+@@ -7249,7 +7494,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
+         "ticker": {
+             "symbol": sym,
+             "name": name,
+-            "asset_class": "Equity",
++            "asset_class": asset_class,
+             **ticker_metadata,
+             **limited_history_metadata,
+             "identity_status": identity_status,
+@@ -7274,8 +7519,22 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
+     confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
+     technical_indicators = _ticker_technical_indicators(db, sym)
+-    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
++    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
++    fundamentals = _latest_fundamentals_row(db, sym)
++    ticker_metadata = _resolve_ticker_company_metadata(
++        db,
++        sym,
++        profile_row=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
++    asset_class = _resolve_ticker_header_asset_class(
++        db,
++        sym,
++        metadata=ticker_metadata,
++        profile_snapshot=profile_snapshot,
++        fundamentals=fundamentals,
++    )
+     identity_status = _ticker_identity_status(
+         symbol=sym,
+         name=company_name,
+@@ -7291,7 +7550,7 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
+         "ticker": {
+             "symbol": sym,
+             "name": company_name,
+-            "asset_class": "Equity",
++            "asset_class": asset_class,
+             **ticker_metadata,
+             **limited_history_metadata,
+             "identity_status": identity_status,
+@@ -8363,4 +8622,5 @@ app.include_router(backtests_router, prefix="/api")
+ app.include_router(debug_router, prefix="/api")
+ app.include_router(notifications_router, prefix="/api")
+ app.include_router(saved_screens_router, prefix="/api")
++app.include_router(admin_data_sources_router, prefix="/api")
+ app.include_router(accounts_router, prefix="/api")
+diff --git a/backend/app/models.py b/backend/app/models.py
+index 08fe11de..eedd8d6d 100644
+--- a/backend/app/models.py
++++ b/backend/app/models.py
+@@ -778,6 +778,12 @@ class Event(Base):
+     transaction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+     amount_min: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+     amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
++    data_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    source_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    source_filing_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    source_document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    provider_priority: Mapped[Optional[int]] = mapped_column(nullable=True)
+     created_at: Mapped[datetime] = mapped_column(
+         DateTime(timezone=True),
+         server_default=func.now(),
+@@ -1165,6 +1171,241 @@ class ProviderUsageEvent(Base):
+     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+ 
+ 
++class ProviderSetting(Base):
++    __tablename__ = "provider_settings"
++    __table_args__ = (
++        Index("ix_provider_settings_domain_key", "domain_key", unique=True),
++        Index("ix_provider_settings_mode", "mode"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
++    active_provider: Mapped[str] = mapped_column(Text, nullable=False)
++    fallback_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    mode: Mapped[str] = mapped_column(Text, default="primary", server_default="primary", nullable=False)
++    is_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
++    allow_external_live_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    allow_user_route_sync_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    builder_safe_required: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
++    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
++class ProviderSettingAuditLog(Base):
++    __tablename__ = "provider_setting_audit_log"
++    __table_args__ = (
++        Index("ix_provider_setting_audit_domain_changed", "domain_key", "changed_at"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
++    previous_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    new_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    previous_mode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    new_mode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    changed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++
++
++class SymbolResolutionOverride(Base):
++    __tablename__ = "symbol_resolution_overrides"
++    __table_args__ = (
++        Index("ix_symbol_resolution_override_lookup", "domain_key", "raw_symbol", "issuer_name", unique=True),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
++    raw_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    normalized_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    asset_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
++class CongressDisclosureFiling(Base):
++    __tablename__ = "congress_disclosure_filings"
++    __table_args__ = (
++        Index("ix_congress_disclosure_source_filing", "source_provider", "filing_id", unique=True),
++        Index("ix_congress_disclosure_chamber_date", "chamber", "filing_date"),
++        Index("ix_congress_disclosure_parser_status", "parser_status"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
++    chamber: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    filing_id: Mapped[str] = mapped_column(Text, nullable=False)
++    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    member_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    filing_date: Mapped[Optional[date]]
++    report_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    amendment_flag: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
++    raw_text_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    raw_blob_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    parser_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
++    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    last_parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
++class CongressTransactionNormalized(Base):
++    __tablename__ = "congress_transactions_normalized"
++    __table_args__ = (
++        Index("ix_congress_txn_normalized_hash", "normalized_hash", unique=True),
++        Index("ix_congress_txn_symbol_date", "ticker_normalized", "transaction_date"),
++        Index("ix_congress_txn_member_date", "member_id", "transaction_date"),
++        Index("ix_congress_txn_duplicate", "is_duplicate"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    filing_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    disclosure_filing_id: Mapped[Optional[int]]
++    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
++    chamber: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    member_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    owner_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    owner_normalized: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
++    transaction_date: Mapped[Optional[date]]
++    disclosure_date: Mapped[Optional[date]]
++    ticker_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    ticker_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    issuer_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    security_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    asset_type_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    asset_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    transaction_type_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    transaction_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    amount_range_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    amount_low: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    amount_high: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    source_line_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    normalized_hash: Mapped[str] = mapped_column(Text, nullable=False)
++    is_duplicate: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    duplicate_of_id: Mapped[Optional[int]]
++    symbol_resolution_status: Mapped[str] = mapped_column(Text, default="unresolved", server_default="unresolved", nullable=False)
++    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
++class SecForm4Filing(Base):
++    __tablename__ = "sec_form4_filings"
++    __table_args__ = (
++        Index("ix_sec_form4_accession", "accession_number", unique=True),
++        Index("ix_sec_form4_issuer_filing_date", "issuer_cik", "filing_date"),
++        Index("ix_sec_form4_parser_status", "parser_status"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    accession_number: Mapped[str] = mapped_column(Text, nullable=False)
++    issuer_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    issuer_trading_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    reporting_owner_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    reporting_owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    filing_date: Mapped[Optional[date]]
++    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    xml_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
++    raw_xml_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    raw_xml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    parser_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
++    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    last_parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
++class InsiderTransactionNormalized(Base):
++    __tablename__ = "insider_transactions_normalized"
++    __table_args__ = (
++        Index("ix_insider_txn_normalized_hash", "normalized_hash", unique=True),
++        Index("ix_insider_txn_symbol_date", "ticker_normalized", "transaction_date"),
++        Index("ix_insider_txn_owner_date", "reporting_owner_cik", "transaction_date"),
++        Index("ix_insider_txn_duplicate", "is_duplicate"),
++    )
++
++    id: Mapped[int] = mapped_column(primary_key=True)
++    form4_filing_id: Mapped[Optional[int]]
++    accession_number: Mapped[str] = mapped_column(Text, nullable=False)
++    issuer_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    ticker_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    ticker_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    reporting_owner_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    reporting_owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    owner_relationship_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
++    officer_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    is_director: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    is_officer: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    is_ten_percent_owner: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    transaction_date: Mapped[Optional[date]]
++    filing_date: Mapped[Optional[date]]
++    security_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    transaction_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    transaction_code_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    transaction_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    acquired_disposed: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    shares_owned_following: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    direct_or_indirect: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    ownership_nature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
++    is_derivative: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    footnotes_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
++    ten_b5_1_flag: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    normalized_hash: Mapped[str] = mapped_column(Text, nullable=False)
++    is_duplicate: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
++    duplicate_of_id: Mapped[Optional[int]]
++    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        onupdate=func.now(),
++    )
++
++
+ class DataEnrichmentJob(Base):
+     __tablename__ = "data_enrichment_jobs"
+     __table_args__ = (
+diff --git a/backend/app/services/confirmation_context.py b/backend/app/services/confirmation_context.py
+index 86ca66a9..1584172e 100644
+--- a/backend/app/services/confirmation_context.py
++++ b/backend/app/services/confirmation_context.py
+@@ -80,7 +80,7 @@ def build_confirmation_score_context(
+ 
+     if government_availability.get("status") == "ok":
+         government_contracts_summaries = {
+-            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary())
++            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary(lookback_days=government_lookback))
+             for symbol in normalized_symbols
+         }
+     else:
+diff --git a/backend/app/services/data_enrichment_queue.py b/backend/app/services/data_enrichment_queue.py
+index 0d1e58fa..4a490fc4 100644
+--- a/backend/app/services/data_enrichment_queue.py
++++ b/backend/app/services/data_enrichment_queue.py
+@@ -667,6 +667,14 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
+ 
+         refresh_insights_snapshot(db)
+         return
++    if job.job_type == "insights_refresh":
++        from app.services.insights_snapshots import refresh_insights_snapshot
++
++        refresh_insights_snapshot(db)
++        return
++    if job.job_type in {"official_congress_ingest", "official_house_discovery", "official_senate_discovery", "sec_form4_ingest"}:
++        _process_admin_data_source_shadow_job(db, job)
++        return
+     if job.job_type == "ticker_financials":
+         from app.services.ticker_financials import get_ticker_financials
+ 
+@@ -746,6 +754,18 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
+     raise RuntimeError(f"unsupported_job_type:{job.job_type}")
+ 
+ 
++def _process_admin_data_source_shadow_job(db: Session, job: DataEnrichmentJob) -> None:
++    payload = _payload_dict(job.payload_json)
++    result = {
++        **payload,
++        "status": "dry_run_complete",
++        "processed_at": datetime.now(timezone.utc).isoformat(),
++        "message": "Official-source shadow job acknowledged; no public feed promotion performed.",
++    }
++    job.payload_json = json.dumps(result, sort_keys=True)
++    db.flush()
++
++
+ def _raise_for_retryable_provider_result(result: Any) -> None:
+     if not isinstance(result, dict):
+         return
+diff --git a/backend/app/services/government_contracts.py b/backend/app/services/government_contracts.py
+index b0fd266e..296db847 100644
+--- a/backend/app/services/government_contracts.py
++++ b/backend/app/services/government_contracts.py
+@@ -165,7 +165,7 @@ def get_government_contracts_signals_for_symbols(
+             top_agency_amounts[symbol] = amount
+             top_agency_by_symbol[symbol] = canonical_department_name(agency) or agency.strip()
+ 
+-    results = {symbol: inactive_government_contracts_summary() for symbol in normalized_symbols}
++    results = {symbol: inactive_government_contracts_summary(lookback_days=lookback_days) for symbol in normalized_symbols}
+     for row in summary_rows:
+         symbol = normalize_symbol(row.get("symbol"))
+         if not symbol:
+@@ -189,6 +189,7 @@ def get_government_contracts_signals_for_symbols(
+                 contract_count=contract_count,
+                 total_award_amount=total_award_amount,
+                 active=contract_count > 0,
++                lookback_days=lookback_days,
+             ),
+             "contract_count": contract_count,
+             "total_award_amount": total_award_amount,
+@@ -202,6 +203,7 @@ def get_government_contracts_signals_for_symbols(
+                 total_award_amount=total_award_amount,
+                 top_agency=top_agency,
+                 active=contract_count > 0,
++                lookback_days=lookback_days,
+             ),
+         }
+     return results
+@@ -336,13 +338,17 @@ def get_government_contracts_for_symbol(
+     }
+ 
+ 
+-def inactive_government_contracts_summary() -> dict[str, Any]:
++def inactive_government_contracts_summary(
++    *,
++    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
++) -> dict[str, Any]:
++    window = _lookback_window_label(lookback_days)
+     return {
+         "status": "ok",
+         "active": False,
+         "source": GOVERNMENT_CONTRACTS_SOURCE,
+         "label": GOVERNMENT_CONTRACTS_LABEL,
+-        "summary": "No contracts above threshold in selected window.",
++        "summary": f"No major government contracts in the {window}.",
+         "contract_count": 0,
+         "total_award_amount": 0.0,
+         "largest_award_amount": None,
+@@ -350,7 +356,7 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
+         "top_agency": None,
+         "direction": "neutral",
+         "score_contribution": 0,
+-        "detail": "No contracts above threshold in selected window.",
++        "detail": f"No qualifying contracts found in the {window}.",
+     }
+ 
+ 
+@@ -383,6 +389,15 @@ def _cutoff_date(lookback_days: int) -> date:
+     return (datetime.now(timezone.utc) - timedelta(days=bounded_lookback)).date()
+ 
+ 
++def _bounded_lookback_days(lookback_days: int) -> int:
++    return max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
++
++
++def _lookback_window_label(lookback_days: int) -> str:
++    days = _bounded_lookback_days(lookback_days)
++    return f"last {days} {'Day' if days == 1 else 'Days'}"
++
++
+ def _non_negative_float(value: Any) -> float | None:
+     if value is None or isinstance(value, bool):
+         return None
+@@ -440,12 +455,14 @@ def _government_contracts_summary_line(
+     contract_count: int,
+     total_award_amount: float,
+     active: bool,
++    lookback_days: int,
+ ) -> str:
++    window = _lookback_window_label(lookback_days)
+     if not active or contract_count <= 0:
+-        return "No contracts above threshold in selected window."
++        return f"No major government contracts in the {window}."
+     return (
+         f"Government contracts: {_format_currency_compact(total_award_amount)} "
+-        f"across {contract_count} contract{'s' if contract_count != 1 else ''} in the selected window."
++        f"across {contract_count} contract{'s' if contract_count != 1 else ''} in the {window}."
+     )
+ 
+ 
+@@ -455,9 +472,10 @@ def _government_contracts_detail_line(
+     total_award_amount: float,
+     top_agency: str | None,
+     active: bool,
++    lookback_days: int,
+ ) -> str:
+     if not active or contract_count <= 0:
+-        return "No contracts above threshold in selected window."
++        return f"No qualifying contracts found in the {_lookback_window_label(lookback_days)}."
+     detail = (
+         f"{_format_currency_compact(total_award_amount)} across {contract_count} "
+         f"contract{'s' if contract_count != 1 else ''}"
+diff --git a/backend/app/services/search_suggest.py b/backend/app/services/search_suggest.py
+index 81073d11..4e5aeea0 100644
+--- a/backend/app/services/search_suggest.py
++++ b/backend/app/services/search_suggest.py
+@@ -24,9 +24,10 @@ from app.models import (
+     WatchlistItem,
+ )
+ from app.request_priority import get_request_context
++from app.services.data_enrichment_queue import enqueue_data_enrichment_job
+ from app.services.government_departments import department_suggestions
+ from app.services.ticker_identity import safe_company_identity_candidate
+-from app.utils.symbols import normalize_symbol
++from app.utils.symbols import normalize_symbol, symbol_variants
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -47,6 +48,7 @@ _personalization_cache: dict[int, tuple[float, SearchPersonalization]] = {}
+ _anonymous_suggestion_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+ _anonymous_suggestion_cache_lock = threading.Lock()
+ _WORD_RE = re.compile(r"[a-z0-9]+")
++_TICKER_QUERY_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}(?:[./-][A-Z])?$")
+ 
+ 
+ def normalize_search_query(q: str | None) -> str:
+@@ -168,18 +170,150 @@ def _score(
+ 
+ 
+ def _ticker_item(symbol: str, label: str | None, exchange: str | None, score: float) -> SearchSuggestItem:
+-    subtitle_parts = ["Ticker", label, exchange]
++    display_label = label or f"Ticker: {symbol}"
++    subtitle_parts = ["Ticker", label or symbol, exchange]
+     return {
+         "kind": "ticker",
+         "id": symbol,
+         "symbol": symbol,
+-        "label": label or symbol,
++        "label": display_label,
+         "subtitle": " - ".join(part for part in subtitle_parts if part),
+         "href": f"/ticker/{symbol}",
+         "score": score,
+     }
+ 
+ 
++def _ticker_query_symbol(query: str | None) -> str | None:
++    raw = (query or "").strip()
++    if not raw or any(ch.isspace() for ch in raw):
++        return None
++    symbol = normalize_symbol(raw)
++    if not symbol or not _TICKER_QUERY_RE.match(symbol):
++        return None
++    return symbol
++
++
++def _lookup_symbols(symbol: str) -> list[str]:
++    variants = symbol_variants(symbol) or [symbol]
++    seen: set[str] = set()
++    ordered: list[str] = []
++    for variant in variants:
++        normalized = normalize_symbol(variant)
++        if normalized and normalized not in seen:
++            seen.add(normalized)
++            ordered.append(normalized)
++    return ordered
++
++
++def _best_variant_row(rows: list[Any], variants: list[str]) -> Any | None:
++    by_symbol = {normalize_symbol(getattr(row, "symbol", None)): row for row in rows}
++    for variant in variants:
++        row = by_symbol.get(variant)
++        if row is not None:
++            return row
++    return rows[0] if rows else None
++
++
++def _exact_ticker_suggestion(db: Session, query: str, personalization: SearchPersonalization | None = None) -> SearchSuggestItem | None:
++    symbol = _ticker_query_symbol(query)
++    if not symbol:
++        return None
++    variants = _lookup_symbols(symbol)
++    if not variants:
++        return None
++
++    metadata_rows = db.execute(
++        select(TickerMeta.symbol, TickerMeta.company_name.label("metadata_name"), TickerMeta.exchange)
++        .where(func.upper(TickerMeta.symbol).in_(variants))
++        .limit(len(variants))
++    ).all()
++    metadata_row = _best_variant_row(metadata_rows, variants)
++    if metadata_row is not None:
++        resolved_symbol = normalize_symbol(metadata_row.symbol) or symbol
++        label = safe_company_identity_candidate(_clean(metadata_row.metadata_name), resolved_symbol)
++        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
++        return _ticker_item(resolved_symbol, label, _clean(metadata_row.exchange), 5000.0 + boost)
++
++    security_rows = db.execute(
++        select(
++            Security.symbol,
++            Security.name.label("security_name"),
++            TickerMeta.company_name.label("metadata_name"),
++            TickerMeta.exchange,
++        )
++        .select_from(Security)
++        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Security.symbol, "")))
++        .where(func.upper(Security.symbol).in_(variants))
++        .limit(len(variants))
++    ).all()
++    security_row = _best_variant_row(security_rows, variants)
++    if security_row is not None:
++        resolved_symbol = normalize_symbol(security_row.symbol) or symbol
++        label = safe_company_identity_candidate(_clean(security_row.metadata_name), resolved_symbol) or safe_company_identity_candidate(
++            _clean(security_row.security_name),
++            resolved_symbol,
++        )
++        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
++        return _ticker_item(resolved_symbol, label, _clean(security_row.exchange), 4700.0 + boost)
++
++    event_rows = db.execute(
++        select(
++            Event.symbol,
++            func.max(Security.name).label("security_name"),
++            func.max(TickerMeta.company_name).label("metadata_name"),
++            func.max(TickerMeta.exchange).label("exchange"),
++            func.count(Event.id).label("activity_count"),
++        )
++        .select_from(Event)
++        .outerjoin(Security, func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
++        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
++        .where(func.upper(Event.symbol).in_(variants))
++        .group_by(Event.symbol)
++        .order_by(func.count(Event.id).desc())
++        .limit(len(variants))
++    ).all()
++    event_row = _best_variant_row(event_rows, variants)
++    if event_row is not None:
++        resolved_symbol = normalize_symbol(event_row.symbol) or symbol
++        label = safe_company_identity_candidate(_clean(event_row.metadata_name), resolved_symbol) or safe_company_identity_candidate(
++            _clean(event_row.security_name),
++            resolved_symbol,
++        )
++        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
++        activity_boost = min(float(getattr(event_row, "activity_count", 0) or 0), 100.0)
++        return _ticker_item(resolved_symbol, label, _clean(event_row.exchange), 4400.0 + activity_boost + boost)
++
++    return None
++
++
++def _enqueue_ticker_search_enrichment(symbol: str) -> None:
++    try:
++        enqueue_data_enrichment_job(
++            job_type="ticker_meta",
++            symbol=symbol,
++            source="search",
++            reason="search_exact_ticker_fallback",
++            priority=20,
++        )
++        enqueue_data_enrichment_job(
++            job_type="profile",
++            symbol=symbol,
++            source="search",
++            reason="search_exact_ticker_fallback",
++            priority=25,
++        )
++    except Exception:
++        logger.exception("search_ticker_enrichment_enqueue_failed symbol=%s", symbol)
++
++
++def _lightweight_ticker_suggestion(query: str) -> SearchSuggestItem | None:
++    symbol = _ticker_query_symbol(query)
++    if not symbol:
++        return None
++    _enqueue_ticker_search_enrichment(symbol)
++    return _ticker_item(symbol, None, None, 3900.0)
++
++
+ def _add_boost(boosts: dict[str, float], key: str | None, amount: float) -> None:
+     cleaned = _clean(key)
+     if not cleaned:
+@@ -298,6 +432,19 @@ def _ticker_suggestions(db: Session, query: str, limit: int, personalization: Se
+     boosted_symbols = sorted(personalization.symbol_boosts)
+     candidate_limit = max(limit * 12, 80)
+ 
++    metadata_rows = db.execute(
++        select(
++            TickerMeta.symbol,
++            TickerMeta.company_name.label("metadata_name"),
++            TickerMeta.exchange,
++        )
++        .where(TickerMeta.symbol.is_not(None))
++        .where(func.length(func.trim(TickerMeta.symbol)) > 0)
++        .where(_candidate_clauses(query, TickerMeta.symbol, [TickerMeta.company_name]))
++        .order_by(func.length(TickerMeta.symbol), func.upper(TickerMeta.symbol))
++        .limit(candidate_limit)
++    ).all()
++
+     security_rows = db.execute(
+         select(
+             Security.symbol,
+@@ -349,11 +496,14 @@ def _ticker_suggestions(db: Session, query: str, limit: int, personalization: Se
+         ).all()
+ 
+     by_symbol: dict[str, SearchSuggestItem] = {}
+-    for row in [*security_rows, *event_rows, *context_rows]:
++    for row in [*metadata_rows, *security_rows, *event_rows, *context_rows]:
+         symbol = normalize_symbol(row.symbol)
+         if not symbol:
+             continue
+-        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(_clean(row.security_name), symbol)
++        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(
++            _clean(getattr(row, "security_name", None)),
++            symbol,
++        )
+         boost = personalization.symbol_boosts.get(symbol, 0.0)
+         score = _score(query, symbol=symbol, label=label, popularity=int(getattr(row, "activity_count", 0) or 0), context_boost=boost)
+         if score <= 0:
+@@ -501,6 +651,65 @@ def _agency_suggestions(db: Session, query: str, limit: int) -> list[SearchSugge
+     return items
+ 
+ 
++def _event_suggestions(db: Session, query: str, limit: int) -> list[SearchSuggestItem]:
++    if len(_compact_key(query)) < 3:
++        return []
++    rows = db.execute(
++        select(
++            Event.event_type,
++            Event.symbol,
++            func.max(Security.name).label("security_name"),
++            func.max(TickerMeta.company_name).label("metadata_name"),
++            func.max(TickerMeta.exchange).label("exchange"),
++            func.count(Event.id).label("activity_count"),
++            func.max(func.coalesce(Event.event_date, Event.ts)).label("latest_ts"),
++        )
++        .select_from(Event)
++        .outerjoin(Security, func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
++        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
++        .where(Event.symbol.is_not(None))
++        .where(func.length(func.trim(Event.symbol)) > 0)
++        .where(_candidate_clauses(query, Event.symbol, [Security.name, TickerMeta.company_name]))
++        .group_by(Event.event_type, Event.symbol)
++        .order_by(func.max(func.coalesce(Event.event_date, Event.ts)).desc(), func.count(Event.id).desc())
++        .limit(max(limit * 4, 24))
++    ).all()
++
++    items: list[SearchSuggestItem] = []
++    seen: set[tuple[str, str]] = set()
++    for row in rows:
++        symbol = normalize_symbol(row.symbol)
++        event_type = _clean(row.event_type)
++        if not symbol or not event_type:
++            continue
++        key = (event_type, symbol)
++        if key in seen:
++            continue
++        seen.add(key)
++        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(
++            _clean(row.security_name),
++            symbol,
++        )
++        score = _score(query, symbol=symbol, label=label, popularity=int(row.activity_count or 0)) - 180.0
++        if score <= 0:
++            continue
++        event_label = event_type.replace("_", " ").title()
++        items.append(
++            {
++                "kind": "event",
++                "id": f"{event_type}:{symbol}",
++                "symbol": symbol,
++                "label": label or f"{symbol} activity",
++                "subtitle": " - ".join(part for part in ["Event", event_label, symbol, _clean(row.exchange)] if part),
++                "href": f"/feed?symbol={symbol}",
++                "score": score,
++            }
++        )
++        if len(items) >= limit:
++            break
++    return sorted(items, key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
++
++
+ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: int | None = None) -> dict[str, Any]:
+     started_at = perf_counter()
+     query = normalize_search_query(q)
+@@ -515,6 +724,26 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
+             if cached and now - cached[0] <= ANONYMOUS_SEARCH_CACHE_TTL_SECONDS:
+                 return cached[1]
+ 
++    exact_ticker = _exact_ticker_suggestion(db, query)
++    if exact_ticker is not None:
++        item = {key: value for key, value in exact_ticker.items() if key != "score"}
++        payload = {"items": [item], "results": [item], "query": query}
++        duration_ms = (perf_counter() - started_at) * 1000
++        context = get_request_context() or {}
++        logger.info(
++            "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s exact_ticker=1",
++            duration_ms,
++            len(query),
++            1,
++            context.get("db_query_count"),
++            context.get("db_checkout_count"),
++            context.get("db_checkout_slow_count"),
++        )
++        if user_id is None:
++            with _anonymous_suggestion_cache_lock:
++                _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
++        return payload
++
+     results: list[SearchSuggestItem] = []
+     per_kind_limit = max(bounded_limit, 8)
+     personalization = _personalization_for_user(db, user_id)
+@@ -523,6 +752,7 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
+         lambda: _member_suggestions(db, query, per_kind_limit, personalization),
+         lambda: _insider_suggestions(db, query, per_kind_limit, personalization),
+         lambda: _agency_suggestions(db, query, per_kind_limit),
++        lambda: _event_suggestions(db, query, per_kind_limit),
+     )
+     for loader in loaders:
+         try:
+@@ -530,6 +760,11 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
+         except Exception:
+             logger.exception("search_suggest_loader_failed query_length=%s", len(query))
+ 
++    if not results:
++        lightweight_ticker = _lightweight_ticker_suggestion(query)
++        if lightweight_ticker is not None:
++            results.append(lightweight_ticker)
++
+     results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("kind") or ""), str(item.get("label") or "")))
+     items = [{key: value for key, value in item.items() if key != "score"} for item in results[:bounded_limit]]
+     duration_ms = (perf_counter() - started_at) * 1000
+diff --git a/backend/tests/test_search_suggest.py b/backend/tests/test_search_suggest.py
+index 105355d5..71335c3d 100644
+--- a/backend/tests/test_search_suggest.py
++++ b/backend/tests/test_search_suggest.py
+@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
+ from sqlalchemy.orm import sessionmaker
+ 
+ from app.db import Base
+-from app.models import InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
++from app.models import Event, InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
+ import app.services.search_suggest as search_suggest_module
+ from app.services.search_suggest import search_suggestions
+ 
+@@ -40,6 +40,184 @@ def test_search_suggest_exact_symbol_ranks_first_and_respects_limit():
+         db.close()
+ 
+ 
++def test_search_suggest_exact_lowercase_ticker_resolves_from_profile_cache_only():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"))
++        db.commit()
++
++        payload = search_suggestions(db, "msft", limit=5)
++
++        assert payload["items"] == [
++            {
++                "kind": "ticker",
++                "id": "MSFT",
++                "symbol": "MSFT",
++                "label": "Microsoft Corporation",
++                "subtitle": "Ticker - Microsoft Corporation - NASDAQ",
++                "href": "/ticker/MSFT",
++            }
++        ]
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_exact_uppercase_ticker_resolves_from_security_cache():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="stock", sector="Technology"))
++        db.commit()
++
++        item = search_suggestions(db, "NVDA", limit=5)["items"][0]
++
++        assert item["kind"] == "ticker"
++        assert item["symbol"] == "NVDA"
++        assert item["label"] == "NVIDIA Corporation"
++        assert item["href"] == "/ticker/NVDA"
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_profile_cache_ticker_does_not_require_event_rows():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"))
++        db.commit()
++
++        item = search_suggestions(db, "aapl", limit=5)["items"][0]
++
++        assert item["kind"] == "ticker"
++        assert item["symbol"] == "AAPL"
++        assert item["label"] == "Apple Inc."
++        assert item["href"] == "/ticker/AAPL"
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_exact_share_class_query_uses_cached_variant_symbol():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(TickerMeta(symbol="BRK-B", company_name="Berkshire Hathaway Inc.", exchange="NYSE"))
++        db.commit()
++
++        item = search_suggestions(db, "brk.b", limit=5)["items"][0]
++
++        assert item["kind"] == "ticker"
++        assert item["symbol"] == "BRK-B"
++        assert item["href"] == "/ticker/BRK-B"
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_ticker_pattern_fallback_returns_route_and_queues_enrichment(monkeypatch):
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    calls: list[dict[str, object]] = []
++    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
++    try:
++        item = search_suggestions(db, "xqzz", limit=5)["items"][0]
++
++        assert item == {
++            "kind": "ticker",
++            "id": "XQZZ",
++            "symbol": "XQZZ",
++            "label": "Ticker: XQZZ",
++            "subtitle": "Ticker - XQZZ",
++            "href": "/ticker/XQZZ",
++        }
++        assert [call["job_type"] for call in calls] == ["ticker_meta", "profile"]
++        assert {call["symbol"] for call in calls} == {"XQZZ"}
++        assert all(call["source"] == "search" for call in calls)
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_invalid_random_query_still_returns_no_matches(monkeypatch):
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    calls: list[dict[str, object]] = []
++    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
++    try:
++        payload = search_suggestions(db, "not a ticker", limit=5)
++
++        assert payload["items"] == []
++        assert calls == []
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_company_name_uses_profile_cache_without_security_rows():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(TickerMeta(symbol="MSFT", company_name="Microsoft Corporation", exchange="NASDAQ"))
++        db.commit()
++
++        item = search_suggestions(db, "Microsoft", limit=5)["items"][0]
++
++        assert item["kind"] == "ticker"
++        assert item["symbol"] == "MSFT"
++        assert item["label"] == "Microsoft Corporation"
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_member_name_beats_lightweight_ticker_fallback():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        db.add(Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="house", party="D", state="CA"))
++        db.commit()
++
++        items = search_suggestions(db, "nancy", limit=5)["items"]
++
++        assert items[0]["kind"] == "member"
++        assert items[0]["label"] == "Nancy Pelosi"
++        assert all(item["href"] != "/ticker/NANCY" for item in items)
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
++def test_search_suggest_includes_low_priority_event_badge_result():
++    db = _db()
++    search_suggest_module._anonymous_suggestion_cache.clear()
++    try:
++        now = datetime.now(timezone.utc)
++        db.add_all(
++            [
++                Security(symbol="ORBT", name="Orbital Systems Inc.", asset_class="stock", sector="Industrial"),
++                Event(
++                    event_type="government_contract",
++                    ts=now,
++                    event_date=now,
++                    symbol="ORBT",
++                    source="test",
++                    payload_json="{}",
++                ),
++            ]
++        )
++        db.commit()
++
++        items = search_suggestions(db, "Orbital", limit=8)["items"]
++
++        assert any(item["kind"] == "event" and item["symbol"] == "ORBT" and item["href"] == "/feed?symbol=ORBT" for item in items)
++    finally:
++        search_suggest_module._anonymous_suggestion_cache.clear()
++        db.close()
++
++
+ def test_search_suggest_symbol_prefix_beats_name_contains():
+     db = _db()
+     try:
+diff --git a/backend/tests/test_ticker_identity_event_contract.py b/backend/tests/test_ticker_identity_event_contract.py
+index 4c9a2724..2b7505b8 100644
+--- a/backend/tests/test_ticker_identity_event_contract.py
++++ b/backend/tests/test_ticker_identity_event_contract.py
+@@ -17,6 +17,31 @@ def _engine():
+     return engine
+ 
+ 
++def _patch_ticker_profile_dependencies(monkeypatch, *, meta_by_symbol: dict | None = None, profile_by_symbol: dict | None = None):
++    meta_by_symbol = meta_by_symbol or {}
++    profile_by_symbol = profile_by_symbol or {}
++
++    def fake_meta(_db, symbols, allow_refresh=True):
++        return {
++            str(symbol).strip().upper(): meta_by_symbol.get(str(symbol).strip().upper(), {})
++            for symbol in symbols
++        }
++
++    monkeypatch.setattr("app.main.get_ticker_meta", fake_meta)
++    monkeypatch.setattr(
++        "app.main._company_profile_snapshot_from_fmp",
++        lambda symbol: profile_by_symbol.get(str(symbol).strip().upper(), {}),
++    )
++    monkeypatch.setattr(
++        "app.main._ticker_confirmation_context",
++        lambda db, sym: {
++            "confirmation_score_bundle": {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
++            "options_flow_summary": {"ticker": sym, "status": "unavailable"},
++        },
++    )
++    monkeypatch.setattr("app.main._ticker_technical_indicators", lambda db, sym: {"source": "daily_close_history"})
++
++
+ def _insider_event(
+     *,
+     event_id: int,
+@@ -189,6 +214,95 @@ def test_ticker_profile_includes_company_metadata_from_profile_snapshot(monkeypa
+     assert profile["ticker"]["exchange"] == "NASDAQ"
+ 
+ 
++def test_ticker_header_asset_uses_stock_when_related_events_are_options(monkeypatch):
++    engine = _engine()
++    _patch_ticker_profile_dependencies(
++        monkeypatch,
++        meta_by_symbol={"NVDA": {"company_name": "NVIDIA Corporation", "exchange": "NASDAQ"}},
++        profile_by_symbol={
++            "NVDA": {
++                "companyName": "NVIDIA Corporation",
++                "sector": "Technology",
++                "industry": "Semiconductors",
++                "country": "US",
++                "exchangeShortName": "NASDAQ",
++            }
++        },
++    )
++
++    with Session(engine) as db:
++        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="Stock Option", sector=None))
++        db.add(TickerMeta(symbol="NVDA", company_name="NVIDIA Corporation", exchange="NASDAQ"))
++        db.add(
++            _insider_event(
++                event_id=1,
++                symbol="NVDA",
++                trade_type="a-award",
++                payload={
++                    "symbol": "NVDA",
++                    "asset_class": "stock_option",
++                    "raw": {
++                        "issuerName": "NVIDIA Corporation",
++                        "securityName": "Stock Option (Right to Buy)",
++                        "transactionType": "A-Award",
++                    },
++                },
++            )
++        )
++        db.commit()
++
++        shell_profile = _build_ticker_shell_profile("NVDA", db)
++        full_profile = _build_ticker_profile("NVDA", db)
++
++    assert shell_profile["ticker"]["asset_class"] == "STOCK"
++    assert full_profile["ticker"]["asset_class"] == "STOCK"
++
++
++def test_ticker_header_asset_uses_etf_when_profile_metadata_supports_it():
++    engine = _engine()
++
++    with Session(engine) as db:
++        db.add(TickerMeta(symbol="SPY", company_name="SPDR S&P 500 ETF Trust", exchange="NYSEARCA"))
++        db.add(
++            TickerContentCache(
++                content_type="profile",
++                symbol="SPY",
++                window_key="latest",
++                cache_key="profile:SPY:latest",
++                status="ok",
++                item_count=1,
++                payload_json=json.dumps(
++                    {
++                        "companyName": "SPDR S&P 500 ETF Trust",
++                        "exchangeShortName": "NYSEARCA",
++                        "isEtf": True,
++                    }
++                ),
++                source="fmp",
++                fetched_at=datetime.now(timezone.utc),
++            )
++        )
++        db.commit()
++
++        profile = _build_ticker_shell_profile("SPY", db)
++
++    assert profile["ticker"]["asset_class"] == "ETF"
++
++
++def test_ticker_header_asset_does_not_show_option_for_unresolved_symbol(monkeypatch):
++    engine = _engine()
++    _patch_ticker_profile_dependencies(monkeypatch)
++
++    with Session(engine) as db:
++        db.add(Security(symbol="ZZZ123", name="Stock Option (Right to Buy)", asset_class="stock_option", sector=None))
++        db.commit()
++
++        profile = _build_ticker_profile("ZZZ123", db)
++
++    assert profile["ticker"]["asset_class"] == "SECURITY"
++    assert profile["ticker"]["asset_class"] != "STOCK OPTION"
++
++
+ def test_ticker_profile_uses_metadata_fallback_for_real_symbol_without_security_or_events(monkeypatch):
+     engine = _engine()
+     monkeypatch.setattr(
+diff --git a/backend/tests/test_ticker_signals_summary.py b/backend/tests/test_ticker_signals_summary.py
+index dff91afb..ec0d4e20 100644
+--- a/backend/tests/test_ticker_signals_summary.py
++++ b/backend/tests/test_ticker_signals_summary.py
+@@ -137,7 +137,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
+             "active": False,
+             "contract_count": 0,
+             "total_award_amount": 0,
+-            "detail": "No contracts above threshold in selected window.",
++            "detail": "No qualifying contracts found in the last 30 Days.",
+         },
+     )
+     monkeypatch.setattr(
+@@ -215,7 +215,7 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
+                 "status": "active",
+                 "direction": "bearish",
+                 "title": "Insider selling active",
+-                "subtitle": "1 sell in the last 30D.",
++                "subtitle": "1 sell in the last 30 Days.",
+                 "buy_count": 0,
+                 "sell_count": 1,
+                 "net_flow": -125_000,
+@@ -224,7 +224,7 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
+             "status": "active",
+             "direction": "bullish",
+             "title": "Congress buying active",
+-            "subtitle": "1 purchase in the last 30D.",
++            "subtitle": "1 purchase in the last 30 Days.",
+             "buy_count": 1,
+             "sell_count": 0,
+             "net_flow": 50_000,
+diff --git a/frontend/app/search/page.tsx b/frontend/app/search/page.tsx
+index 7f4f576b..faf97a5f 100644
+--- a/frontend/app/search/page.tsx
++++ b/frontend/app/search/page.tsx
+@@ -8,13 +8,14 @@ type Props = {
+   searchParams?: Promise<Record<string, string | string[] | undefined>>;
+ };
+ 
+-const KIND_ORDER: SearchSuggestResult["kind"][] = ["ticker", "member", "insider", "agency"];
++const KIND_ORDER: SearchSuggestResult["kind"][] = ["ticker", "member", "insider", "agency", "event"];
+ 
+ const KIND_LABELS: Record<SearchSuggestResult["kind"], string> = {
+   agency: "Departments",
+   ticker: "Tickers",
+   member: "Members",
+   insider: "Insiders",
++  event: "Events",
+ };
+ 
+ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
+@@ -22,6 +23,7 @@ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
+   ticker: "Ticker",
+   member: "Member",
+   insider: "Insider",
++  event: "Event",
+ };
+ 
+ function one(sp: Record<string, string | string[] | undefined>, key: string): string {
+diff --git a/frontend/app/ticker/[symbol]/page.tsx b/frontend/app/ticker/[symbol]/page.tsx
+index fb70605d..780c6da6 100644
+--- a/frontend/app/ticker/[symbol]/page.tsx
++++ b/frontend/app/ticker/[symbol]/page.tsx
+@@ -52,6 +52,29 @@ type SideFilter = "all" | "buy" | "sell";
+ const SIGNAL_WINDOW_DAYS = 30;
+ const ACTIVITY_PAGE_SIZE = 20;
+ const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
++
++function contextWindowLabel(days: number): string {
++  return `${days} Day`;
++}
++
++function contextWindowNoun(days: number): string {
++  return `${contextWindowLabel(days)} context window`;
++}
++
++function lastContextWindowLabel(days: number): string {
++  return `last ${days} ${days === 1 ? "Day" : "Days"}`;
++}
++
++function normalizeUpperCardWindowCopy(value: string | null | undefined, days: number): string | null {
++  const text = value?.trim();
++  if (!text) return null;
++  return text
++    .replace(/\bin the selected window\b/gi, `in the ${contextWindowNoun(days)}`)
++    .replace(/\bin selected window\b/gi, `in the ${contextWindowNoun(days)}`)
++    .replace(/\bselected window\b/gi, `the ${contextWindowNoun(days)}`)
++    .replace(/\b(\d+)D\b/g, "$1 Day");
++}
++
+ type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
+ type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
+ type ActivityPageMeta = {
+@@ -842,8 +865,8 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
+         freshness_days: null,
+         label: "Government Contracts",
+         score_contribution: 0,
+-        detail: "No contracts above threshold in selected window.",
+-        summary: "No contracts above threshold in selected window.",
++        detail: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
++        summary: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
+       },
+       institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
+     },
+@@ -877,7 +900,7 @@ function TickerOverviewPanel({
+       <div className="flex items-start justify-between gap-4">
+         <div>
+           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
+-          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
++          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{contextWindowLabel(lookbackDays)} confirmation</p>
+         </div>
+         <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
+       </div>
+@@ -1293,8 +1316,10 @@ function overviewBullets({
+   const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
+   if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
+   if (confirmationBundle.sources.government_contracts.present) {
+-    const governmentSummary = confirmationBundle.sources.government_contracts.summary
+-      ?? "Government contracts are active in the selected window.";
++    const governmentSummary = normalizeUpperCardWindowCopy(
++      confirmationBundle.sources.government_contracts.detail ?? confirmationBundle.sources.government_contracts.summary,
++      confirmationBundle.lookback_days,
++    ) ?? `Government contracts are active in the ${contextWindowNoun(confirmationBundle.lookback_days)}.`;
+     if (confirmationBundle.direction === "bearish") {
+       bullets.add("Government contracts add positive support, while other sources remain bearish.");
+     } else {
+@@ -1344,6 +1369,7 @@ function priceVolumeSummary(
+   source: ConfirmationScoreBundle["sources"]["price_volume"],
+   technicalIndicators: TechnicalIndicators,
+   context?: TickerSignalsSummaryResponse["price_volume"] | null,
++  lookbackDays = SIGNAL_WINDOW_DAYS,
+ ): { state: string; summary: string; diagnostics: string[]; tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable" } {
+   const diagnostics = [
+     technicalIndicators.rsi.message,
+@@ -1355,7 +1381,12 @@ function priceVolumeSummary(
+   const contextDiagnostics = Array.isArray(context?.lines)
+     ? context.lines.map((line) => line.trim()).filter(Boolean).slice(0, 4)
+     : [];
+-  const contextSummary = (context?.summary ?? context?.title ?? "").trim();
++  const normalizedContextDiagnostics = contextDiagnostics
++    .map((line) => normalizeUpperCardWindowCopy(line, lookbackDays))
++    .filter((line): line is string => Boolean(line));
++  const contextSummary = normalizeUpperCardWindowCopy(context?.summary ?? context?.title, lookbackDays) ?? "";
++  const inactiveSummary = `No strong price/volume signal in the ${lastContextWindowLabel(lookbackDays)}.`;
++  const inactiveHelper = `Price and volume context is based on the fixed ${contextWindowNoun(lookbackDays)}.`;
+   if (contextStatus === "active") {
+     const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
+       ? contextDirection
+@@ -1363,16 +1394,18 @@ function priceVolumeSummary(
+     return {
+       state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : direction === "mixed" ? "MIXED" : "ACTIVE",
+       summary: contextSummary || "Tape confirmation is active",
+-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : diagnostics,
++      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : diagnostics,
+       tone: direction ?? "mixed",
+     };
+   }
+   if (contextStatus === "inactive") {
+-    const summary = contextSummary || "No active tape confirmation";
+     return {
+       state: "INACTIVE",
+-      summary,
+-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
++      summary: inactiveSummary,
++      diagnostics: [
++        inactiveHelper,
++        ...normalizedContextDiagnostics.filter((line) => line !== inactiveSummary && line !== inactiveHelper).slice(0, 3),
++      ],
+       tone: "inactive",
+     };
+   }
+@@ -1381,7 +1414,7 @@ function priceVolumeSummary(
+     return {
+       state: "LIMITED",
+       summary,
+-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
++      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+       tone: "unavailable",
+     };
+   }
+@@ -1390,7 +1423,7 @@ function priceVolumeSummary(
+     return {
+       state: "LOADING",
+       summary,
+-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
++      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+       tone: "unavailable",
+     };
+   }
+@@ -1399,7 +1432,7 @@ function priceVolumeSummary(
+     return {
+       state: "UNAVAILABLE",
+       summary,
+-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
++      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+       tone: "unavailable",
+     };
+   }
+@@ -1410,11 +1443,11 @@ function priceVolumeSummary(
+       (item) => item.reason === "insufficient_price_history",
+     );
+     if (hasTechnicalInputs) {
+-      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : "No active tape confirmation";
++      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : inactiveSummary;
+       return {
+         state: insufficientHistory || technicalIndicators.price_points < 35 ? "LIMITED" : "INACTIVE",
+         summary,
+-        diagnostics: [summary],
++        diagnostics: summary === inactiveSummary ? [inactiveHelper, ...diagnostics] : [summary],
+         tone: insufficientHistory || technicalIndicators.price_points < 35 ? "unavailable" : "inactive",
+       };
+     }
+@@ -1429,8 +1462,8 @@ function priceVolumeSummary(
+   if (!source.present) {
+     return {
+       state: "INACTIVE",
+-      summary: "No active tape confirmation",
+-      diagnostics,
++      summary: inactiveSummary,
++      diagnostics: [inactiveHelper, ...diagnostics],
+       tone: "inactive",
+     };
+   }
+@@ -1485,42 +1518,48 @@ function optionsFlowBorderClass(summary: OptionsFlowSummary): string {
+ 
+ function optionsFlowDiagnostics(summary: OptionsFlowSummary): string[] {
+   if (Array.isArray(summary.signals) && summary.signals.length > 0) return summary.signals.slice(0, 4);
+-  if (summary.state === "inactive") return ["No notable recent options flow"];
++  if (summary.state === "inactive") return [`No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`];
+   if (summary.state === "unavailable") return ["Options flow unavailable"];
+   return [summary.summary || "Options flow is active"];
+ }
+ 
+-function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"]): string {
+-  if (!source.present) return "No recent activity";
++function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"], lookbackDays: number): string {
++  if (!source.present) return `No notable insider activity in the ${lastContextWindowLabel(lookbackDays)}.`;
+   if (sells > buys) return "Active / sell-skewed";
+   if (buys > sells) return "Active / buy-skewed";
+   return "Active / balanced";
+ }
+ 
+ function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+-  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
+-  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
+-  return `${buys + sells} trades · ${lookbackDays}D`;
++  if (buys + sells <= 0) return `No qualifying insider buys or sells found in the ${contextWindowNoun(lookbackDays)}.`;
++  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
++  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
++  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
+ }
+ 
+ function congressSourceSupport(buys: number, sells: number, lookbackDays: number): string {
+-  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
+-  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
+-  return `${buys + sells} trades · ${lookbackDays}D`;
++  if (buys + sells <= 0) return `No qualifying Congress trades found in the ${contextWindowNoun(lookbackDays)}.`;
++  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
++  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
++  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
+ }
+ 
+-function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
+-  if (!source.present) return key === "congress" ? "No recent trades" : "No recent activity";
++function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
++  if (!source.present) {
++    return key === "congress"
++      ? `No notable Congress activity in the ${lastContextWindowLabel(lookbackDays)}.`
++      : `No active signal stack in the ${lastContextWindowLabel(lookbackDays)}.`;
++  }
+   if (key === "signals") return topSignal ? "Signal conviction active" : "Signal source active";
+   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
+ }
+ 
+ function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals"], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
+-  if (!source.present) return `${lookbackDays}D`;
++  if (!source.present) return `No qualifying signal entries found in the ${contextWindowNoun(lookbackDays)}.`;
+   if (topSignal?.smart_score !== null && topSignal?.smart_score !== undefined) {
+-    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${lookbackDays}D`;
++    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${contextWindowLabel(lookbackDays)}`;
+   }
+-  return `${lookbackDays}D`;
++  return contextWindowLabel(lookbackDays);
+ }
+ 
+ function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
+@@ -1689,11 +1728,14 @@ function LockedSourceEvidenceCard({
+ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
+   const contractCount = summary.metrics.observed_contracts ?? 0;
+   const freshnessDays = summary.metrics.freshness_days;
++  const body = summary.state === "inactive"
++    ? `No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`
++    : normalizeUpperCardWindowCopy(summary.summary, summary.lookback_days) ?? summary.summary;
+   const detail = summary.state === "inactive"
+-    ? `${summary.lookback_days}D`
++    ? `Options flow context is based on the fixed ${contextWindowNoun(summary.lookback_days)}.`
+     : summary.state === "unavailable"
+       ? "Flow unavailable"
+-      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? `${summary.lookback_days}D` : `${freshnessDays}d fresh`}`;
++      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? contextWindowLabel(summary.lookback_days) : `${freshnessDays}d fresh`}`;
+   return (
+     <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
+       <div className="flex items-center justify-between gap-2">
+@@ -1707,21 +1749,22 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
+           {summary.state.toUpperCase()}
+         </p>
+       </div>
+-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{summary.summary}</p>
++      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
+       <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
+     </div>
+   );
+ }
+ 
+ function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["institutional_activity"]): string {
+-  if (!source.present) return "No recent institutional activity";
++  if (!source.present) return "No notable institutional activity in the current context window.";
+   if (source.direction === "bearish") return "Active / reducing";
+   if (source.direction === "bullish") return "Active / accumulating";
+   return "Active / mixed";
+ }
+ 
+ function institutionalSourceSupport(source: ConfirmationScoreBundle["sources"]["institutional_activity"], lookbackDays: number): string {
+-  return source.detail ?? source.summary ?? (source.present ? `${lookbackDays}D` : "No activity in selected window");
++  if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
++  return normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? contextWindowLabel(lookbackDays);
+ }
+ 
+ function InstitutionalActivityCard({
+@@ -1744,12 +1787,16 @@ function InstitutionalActivityCard({
+ 
+ function GovernmentContractsCard({
+   source,
++  lookbackDays,
+ }: {
+   source: ConfirmationScoreBundle["sources"]["government_contracts"];
++  lookbackDays: number;
+ }) {
+   const isActive = source.present;
+   const body = isActive ? "Government contracts active" : "No major government contracts";
+-  const detail = source.detail ?? source.summary ?? "No contracts above threshold in selected window.";
++  const detail = isActive
++    ? normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? `Government contracts are active in the ${contextWindowNoun(lookbackDays)}.`
++    : `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`;
+ 
+   return (
+     <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
+@@ -2319,7 +2366,8 @@ async function DeferredTickerContent({
+     ? "Signal Activity is a premium feature."
+     : "Signals are gated for this view.";
+   const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
+-  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext);
++  const confirmationLookbackDays = confirmationBundle.lookback_days;
++  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
+   const insiderCardSource = confirmationBundle.sources.insiders;
+   const congressCardSource = confirmationBundle.sources.congress;
+   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
+@@ -2328,7 +2376,6 @@ async function DeferredTickerContent({
+   const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
+   const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
+   const intelligenceBullets = overviewBullets({ confirmationBundle: visibleConfirmationBundle, alignedSources });
+-  const confirmationLookbackDays = confirmationBundle.lookback_days;
+ 
+   return (
+     <>
+@@ -2377,14 +2424,14 @@ async function DeferredTickerContent({
+                 title="Insiders"
+                 icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
+                 source={insiderCardSource}
+-                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
++                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
+                 support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
+               />
+               <SourceEvidenceCard
+                 title="Congress"
+                 icon="congress"
+                 source={congressCardSource}
+-                body={sourceCardBody("congress", congressCardSource, topSignal)}
++                body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
+                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
+               />
+               {institutionalCardLocked ? (
+@@ -2412,7 +2459,7 @@ async function DeferredTickerContent({
+                   title="Signals"
+                   icon="signals"
+                   source={signalsCardSource}
+-                  body={sourceCardBody("signals", signalsCardSource, topSignal)}
++                  body={sourceCardBody("signals", signalsCardSource, topSignal, confirmationLookbackDays)}
+                   support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
+                 />
+               )}
+@@ -2428,6 +2475,7 @@ async function DeferredTickerContent({
+               )}
+               <GovernmentContractsCard
+                 source={confirmationBundle.sources.government_contracts}
++                lookbackDays={confirmationLookbackDays}
+               />
+             </div>
+           </div>
+diff --git a/frontend/components/GlobalSearch.tsx b/frontend/components/GlobalSearch.tsx
+index 2645dc36..8dc887a9 100644
+--- a/frontend/components/GlobalSearch.tsx
++++ b/frontend/components/GlobalSearch.tsx
+@@ -18,6 +18,7 @@ const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
+   ticker: "Tickers",
+   member: "Members",
+   insider: "Insiders",
++  event: "Events",
+ };
+ 
+ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
+@@ -25,6 +26,7 @@ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
+   ticker: "Ticker",
+   member: "Member",
+   insider: "Insider",
++  event: "Event",
+ };
+ 
+ function isEditableTarget(target: EventTarget | null): boolean {
+@@ -47,7 +49,7 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
+ }
+ 
+ function isSearchSuggestKind(value: unknown): value is SearchSuggestResult["kind"] {
+-  return value === "agency" || value === "ticker" || value === "member" || value === "insider";
++  return value === "agency" || value === "ticker" || value === "member" || value === "insider" || value === "event";
+ }
+ 
+ function readRecentSearchResults(): SearchSuggestResult[] {
+@@ -113,7 +115,7 @@ function prefetchSearchPrefixes(prefixes: string[]) {
+ }
+ 
+ function groupedResults(results: SearchSuggestResult[]) {
+-  return (["agency", "ticker", "member", "insider"] as const)
++  return (["ticker", "member", "insider", "agency", "event"] as const)
+     .map((kind) => ({
+       kind,
+       items: results.filter((result) => result.kind === kind),
+diff --git a/frontend/components/admin/AdminSettingsPanel.tsx b/frontend/components/admin/AdminSettingsPanel.tsx
+index 9f7db0bb..7108400b 100644
+--- a/frontend/components/admin/AdminSettingsPanel.tsx
++++ b/frontend/components/admin/AdminSettingsPanel.tsx
+@@ -22,9 +22,10 @@ import { AdminUsersView } from "@/components/admin/AdminUsersView";
+ import { PageAnalyticsReport } from "@/components/admin/PageAnalyticsReport";
+ import { ProviderUsageReport } from "@/components/admin/ProviderUsageReport";
+ import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
++import { DataSourcesReport } from "@/components/admin/DataSourcesReport";
+ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+ 
+-type AdminTab = "settings" | "reports" | "email" | "users";
++type AdminTab = "settings" | "data_sources" | "reports" | "email" | "users";
+ 
+ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
+   {
+@@ -32,6 +33,11 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
+     label: "Settings",
+     description: "Stripe setup, Stripe Tax readiness, OAuth setup, plan configuration, and feature gates.",
+   },
++  {
++    key: "data_sources",
++    label: "Data Sources",
++    description: "Provider status, endpoint coverage, Builder-safe mode, and official shadow pipelines.",
++  },
+   {
+     key: "reports",
+     label: "Reports",
+@@ -883,6 +889,10 @@ export function AdminSettingsPanel() {
+         </>
+       ) : null}
+ 
++      {activeTab === "data_sources" ? (
++        <DataSourcesReport />
++      ) : null}
++
+       {activeTab === "reports" ? (
+         <div className="space-y-6">
+           <BusinessOverviewReport />
+diff --git a/frontend/lib/api.ts b/frontend/lib/api.ts
+index f2837278..63b61179 100644
+--- a/frontend/lib/api.ts
++++ b/frontend/lib/api.ts
+@@ -1376,6 +1376,96 @@ export type AdminProviderUsageResponse = {
+   };
+ };
+ 
++export type AdminProviderSetting = {
++  id: number;
++  domain_key: string;
++  active_provider: string;
++  fallback_provider?: string | null;
++  mode: string;
++  is_enabled: boolean;
++  allow_external_live_fetch: boolean;
++  allow_user_route_sync_fetch: boolean;
++  builder_safe_required: boolean;
++  notes?: string | null;
++  updated_by?: string | null;
++  updated_at?: string | null;
++};
++
++export type AdminDataSourceDomain = {
++  domain_key: string;
++  data_domain: string;
++  active_provider: string;
++  fallback_provider?: string | null;
++  source_type: string;
++  mode: string;
++  builder_safe_status: "safe" | "warning" | "unsafe" | string;
++  endpoint_names: string[];
++  last_successful_refresh?: string | null;
++  last_attempted_refresh?: string | null;
++  stale_status: "fresh" | "stale" | "missing" | string;
++  cache_table?: string | null;
++  row_count?: number | null;
++  coverage?: string | null;
++  last_error?: string | null;
++  call_count_24h?: number | null;
++  queue_depth?: number | null;
++  settings: AdminProviderSetting;
++  badges: string[];
++  admin_actions: {
++    can_run_dry_run: boolean;
++    can_refresh_cache: boolean;
++    can_view_diagnostics: boolean;
++  };
++  notes?: string | null;
++};
++
++export type AdminDataSourcesStatusResponse = {
++  generated_at: string;
++  provider_options: string[];
++  mode_options: string[];
++  filters: string[];
++  status_badges: string[];
++  domains: AdminDataSourceDomain[];
++  current_data_source_map: Record<string, string>;
++  endpoint_map: Record<string, string[]>;
++  tables: {
++    existing_core: string[];
++    official_shadow: string[];
++  };
++  diagnostics: {
++    congress: Record<string, unknown>;
++    insider: Record<string, unknown>;
++    production_source_counts: Record<string, number>;
++  };
++  dry_run_commands: Record<string, string>;
++  risks: string[];
++};
++
++export type AdminDataSourceSettingPatch = Partial<{
++  active_provider: string | null;
++  fallback_provider: string | null;
++  mode: string;
++  is_enabled: boolean;
++  allow_external_live_fetch: boolean;
++  allow_user_route_sync_fetch: boolean;
++  builder_safe_required: boolean;
++  notes: string | null;
++  reason: string | null;
++}>;
++
++export type AdminDataSourceRunResponse = {
++  status: string;
++  domain_key: string;
++  mode: string;
++  dry_run: boolean;
++  job?: {
++    id?: number;
++    job_type?: string;
++    dedupe_key?: string;
++    status?: string;
++  };
++};
++
+ export type AdminEmailTemplate = {
+   id: number;
+   template_key: string;
+@@ -1862,6 +1952,44 @@ export async function getAdminProviderUsageFmp(): Promise<AdminProviderUsageResp
+   return fetchJson<AdminProviderUsageResponse>(buildApiUrl("/api/admin/provider-usage/fmp"));
+ }
+ 
++export async function getAdminDataSourcesStatus(): Promise<AdminDataSourcesStatusResponse> {
++  return fetchJson<AdminDataSourcesStatusResponse>(buildApiUrl("/api/admin/data-sources/status"), {
++    cache: "no-store",
++    next: { revalidate: 0 },
++    source: "AdminDataSources",
++  });
++}
++
++export async function updateAdminDataSourceSetting(
++  domainKey: string,
++  payload: AdminDataSourceSettingPatch,
++): Promise<AdminProviderSetting> {
++  return fetchJson<AdminProviderSetting>(
++    buildApiUrl(`/api/admin/data-sources/settings/${encodeURIComponent(domainKey)}`),
++    {
++      method: "PATCH",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify(payload),
++      source: "AdminDataSources",
++    },
++  );
++}
++
++export async function runAdminDataSource(
++  domainKey: string,
++  payload: { mode?: string; reason?: string | null } = {},
++): Promise<AdminDataSourceRunResponse> {
++  return fetchJson<AdminDataSourceRunResponse>(
++    buildApiUrl(`/api/admin/data-sources/run/${encodeURIComponent(domainKey)}`),
++    {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify(payload),
++      source: "AdminDataSources",
++    },
++  );
++}
++
+ export async function getAdminUsers(params: AdminUsersParams): Promise<AdminUsersResponse> {
+   return fetchJson<AdminUsersResponse>(buildApiUrl("/api/admin/users", params));
+ }
+@@ -2210,7 +2338,7 @@ export type SymbolSuggestResponse = {
+   items: SymbolSuggestion[];
+ };
+ 
+-export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency";
++export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "event";
+ 
+ export type SearchSuggestResult = {
+   kind: SearchSuggestKind;
+@@ -2250,7 +2378,7 @@ export type MemberInsiderSuggestResponse = {
+ };
+ 
+ export type GlobalSearchResult = {
+-  type: "ticker" | "member" | "insider" | "government_agency";
++  type: "ticker" | "member" | "insider" | "government_agency" | "event";
+   id: string;
+   label: string;
+   subtitle?: string | null;

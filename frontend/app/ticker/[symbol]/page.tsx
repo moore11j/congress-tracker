@@ -52,6 +52,29 @@ type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
 const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
+
+function contextWindowLabel(days: number): string {
+  return `${days} Day`;
+}
+
+function contextWindowNoun(days: number): string {
+  return `${contextWindowLabel(days)} context window`;
+}
+
+function lastContextWindowLabel(days: number): string {
+  return `last ${days} ${days === 1 ? "Day" : "Days"}`;
+}
+
+function normalizeUpperCardWindowCopy(value: string | null | undefined, days: number): string | null {
+  const text = value?.trim();
+  if (!text) return null;
+  return text
+    .replace(/\bin the selected window\b/gi, `in the ${contextWindowNoun(days)}`)
+    .replace(/\bin selected window\b/gi, `in the ${contextWindowNoun(days)}`)
+    .replace(/\bselected window\b/gi, `the ${contextWindowNoun(days)}`)
+    .replace(/\b(\d+)D\b/g, "$1 Day");
+}
+
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
 type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
 type ActivityPageMeta = {
@@ -842,8 +865,8 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
         freshness_days: null,
         label: "Government Contracts",
         score_contribution: 0,
-        detail: "No contracts above threshold in selected window.",
-        summary: "No contracts above threshold in selected window.",
+        detail: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
+        summary: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
       },
       institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
     },
@@ -877,7 +900,7 @@ function TickerOverviewPanel({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
-          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{lookbackDays}D confirmation</p>
+          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{contextWindowLabel(lookbackDays)} confirmation</p>
         </div>
         <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
       </div>
@@ -1293,8 +1316,10 @@ function overviewBullets({
   const activeLabels = Array.from(new Set(alignedSources.map((key) => confirmationSourceLabels[key])));
   if (activeLabels.length > 0) bullets.add(`Active sources: ${activeLabels.join(" · ")}`);
   if (confirmationBundle.sources.government_contracts.present) {
-    const governmentSummary = confirmationBundle.sources.government_contracts.summary
-      ?? "Government contracts are active in the selected window.";
+    const governmentSummary = normalizeUpperCardWindowCopy(
+      confirmationBundle.sources.government_contracts.detail ?? confirmationBundle.sources.government_contracts.summary,
+      confirmationBundle.lookback_days,
+    ) ?? `Government contracts are active in the ${contextWindowNoun(confirmationBundle.lookback_days)}.`;
     if (confirmationBundle.direction === "bearish") {
       bullets.add("Government contracts add positive support, while other sources remain bearish.");
     } else {
@@ -1344,6 +1369,7 @@ function priceVolumeSummary(
   source: ConfirmationScoreBundle["sources"]["price_volume"],
   technicalIndicators: TechnicalIndicators,
   context?: TickerSignalsSummaryResponse["price_volume"] | null,
+  lookbackDays = SIGNAL_WINDOW_DAYS,
 ): { state: string; summary: string; diagnostics: string[]; tone: "bullish" | "bearish" | "mixed" | "inactive" | "unavailable" } {
   const diagnostics = [
     technicalIndicators.rsi.message,
@@ -1355,7 +1381,12 @@ function priceVolumeSummary(
   const contextDiagnostics = Array.isArray(context?.lines)
     ? context.lines.map((line) => line.trim()).filter(Boolean).slice(0, 4)
     : [];
-  const contextSummary = (context?.summary ?? context?.title ?? "").trim();
+  const normalizedContextDiagnostics = contextDiagnostics
+    .map((line) => normalizeUpperCardWindowCopy(line, lookbackDays))
+    .filter((line): line is string => Boolean(line));
+  const contextSummary = normalizeUpperCardWindowCopy(context?.summary ?? context?.title, lookbackDays) ?? "";
+  const inactiveSummary = `No strong price/volume signal in the ${lastContextWindowLabel(lookbackDays)}.`;
+  const inactiveHelper = `Price and volume context is based on the fixed ${contextWindowNoun(lookbackDays)}.`;
   if (contextStatus === "active") {
     const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
       ? contextDirection
@@ -1363,16 +1394,18 @@ function priceVolumeSummary(
     return {
       state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : direction === "mixed" ? "MIXED" : "ACTIVE",
       summary: contextSummary || "Tape confirmation is active",
-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : diagnostics,
+      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : diagnostics,
       tone: direction ?? "mixed",
     };
   }
   if (contextStatus === "inactive") {
-    const summary = contextSummary || "No active tape confirmation";
     return {
       state: "INACTIVE",
-      summary,
-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      summary: inactiveSummary,
+      diagnostics: [
+        inactiveHelper,
+        ...normalizedContextDiagnostics.filter((line) => line !== inactiveSummary && line !== inactiveHelper).slice(0, 3),
+      ],
       tone: "inactive",
     };
   }
@@ -1381,7 +1414,7 @@ function priceVolumeSummary(
     return {
       state: "LIMITED",
       summary,
-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
       tone: "unavailable",
     };
   }
@@ -1390,7 +1423,7 @@ function priceVolumeSummary(
     return {
       state: "LOADING",
       summary,
-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
       tone: "unavailable",
     };
   }
@@ -1399,7 +1432,7 @@ function priceVolumeSummary(
     return {
       state: "UNAVAILABLE",
       summary,
-      diagnostics: contextDiagnostics.length > 0 ? contextDiagnostics : [summary],
+      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
       tone: "unavailable",
     };
   }
@@ -1410,11 +1443,11 @@ function priceVolumeSummary(
       (item) => item.reason === "insufficient_price_history",
     );
     if (hasTechnicalInputs) {
-      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : "No active tape confirmation";
+      const summary = insufficientHistory || technicalIndicators.price_points < 35 ? "Limited price history." : inactiveSummary;
       return {
         state: insufficientHistory || technicalIndicators.price_points < 35 ? "LIMITED" : "INACTIVE",
         summary,
-        diagnostics: [summary],
+        diagnostics: summary === inactiveSummary ? [inactiveHelper, ...diagnostics] : [summary],
         tone: insufficientHistory || technicalIndicators.price_points < 35 ? "unavailable" : "inactive",
       };
     }
@@ -1429,8 +1462,8 @@ function priceVolumeSummary(
   if (!source.present) {
     return {
       state: "INACTIVE",
-      summary: "No active tape confirmation",
-      diagnostics,
+      summary: inactiveSummary,
+      diagnostics: [inactiveHelper, ...diagnostics],
       tone: "inactive",
     };
   }
@@ -1485,42 +1518,48 @@ function optionsFlowBorderClass(summary: OptionsFlowSummary): string {
 
 function optionsFlowDiagnostics(summary: OptionsFlowSummary): string[] {
   if (Array.isArray(summary.signals) && summary.signals.length > 0) return summary.signals.slice(0, 4);
-  if (summary.state === "inactive") return ["No notable recent options flow"];
+  if (summary.state === "inactive") return [`No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`];
   if (summary.state === "unavailable") return ["Options flow unavailable"];
   return [summary.summary || "Options flow is active"];
 }
 
-function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"]): string {
-  if (!source.present) return "No recent activity";
+function insiderSourceBody(buys: number, sells: number, source: ConfirmationScoreBundle["sources"]["insiders"], lookbackDays: number): string {
+  if (!source.present) return `No notable insider activity in the ${lastContextWindowLabel(lookbackDays)}.`;
   if (sells > buys) return "Active / sell-skewed";
   if (buys > sells) return "Active / buy-skewed";
   return "Active / balanced";
 }
 
 function insiderSourceSupport(buys: number, sells: number, lookbackDays: number): string {
-  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
-  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
-  return `${buys + sells} trades · ${lookbackDays}D`;
+  if (buys + sells <= 0) return `No qualifying insider buys or sells found in the ${contextWindowNoun(lookbackDays)}.`;
+  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
+  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
+  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
 }
 
 function congressSourceSupport(buys: number, sells: number, lookbackDays: number): string {
-  if (sells > buys) return `${sells - buys} net sells · ${lookbackDays}D`;
-  if (buys > sells) return `${buys - sells} net buys · ${lookbackDays}D`;
-  return `${buys + sells} trades · ${lookbackDays}D`;
+  if (buys + sells <= 0) return `No qualifying Congress trades found in the ${contextWindowNoun(lookbackDays)}.`;
+  if (sells > buys) return `${sells - buys} net sells · ${contextWindowLabel(lookbackDays)}`;
+  if (buys > sells) return `${buys - sells} net buys · ${contextWindowLabel(lookbackDays)}`;
+  return `${buys + sells} trades · ${contextWindowLabel(lookbackDays)}`;
 }
 
-function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"]): string {
-  if (!source.present) return key === "congress" ? "No recent trades" : "No recent activity";
+function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
+  if (!source.present) {
+    return key === "congress"
+      ? `No notable Congress activity in the ${lastContextWindowLabel(lookbackDays)}.`
+      : `No active signal stack in the ${lastContextWindowLabel(lookbackDays)}.`;
+  }
   if (key === "signals") return topSignal ? "Signal conviction active" : "Signal source active";
   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
 }
 
 function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals"], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
-  if (!source.present) return `${lookbackDays}D`;
+  if (!source.present) return `No qualifying signal entries found in the ${contextWindowNoun(lookbackDays)}.`;
   if (topSignal?.smart_score !== null && topSignal?.smart_score !== undefined) {
-    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${lookbackDays}D`;
+    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${contextWindowLabel(lookbackDays)}`;
   }
-  return `${lookbackDays}D`;
+  return contextWindowLabel(lookbackDays);
 }
 
 function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
@@ -1689,11 +1728,14 @@ function LockedSourceEvidenceCard({
 function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   const contractCount = summary.metrics.observed_contracts ?? 0;
   const freshnessDays = summary.metrics.freshness_days;
+  const body = summary.state === "inactive"
+    ? `No notable options flow in the ${lastContextWindowLabel(summary.lookback_days)}.`
+    : normalizeUpperCardWindowCopy(summary.summary, summary.lookback_days) ?? summary.summary;
   const detail = summary.state === "inactive"
-    ? `${summary.lookback_days}D`
+    ? `Options flow context is based on the fixed ${contextWindowNoun(summary.lookback_days)}.`
     : summary.state === "unavailable"
       ? "Flow unavailable"
-      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? `${summary.lookback_days}D` : `${freshnessDays}d fresh`}`;
+      : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? contextWindowLabel(summary.lookback_days) : `${freshnessDays}d fresh`}`;
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
       <div className="flex items-center justify-between gap-2">
@@ -1707,21 +1749,22 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
           {summary.state.toUpperCase()}
         </p>
       </div>
-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{summary.summary}</p>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{body}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{detail}</p>
     </div>
   );
 }
 
 function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["institutional_activity"]): string {
-  if (!source.present) return "No recent institutional activity";
+  if (!source.present) return "No notable institutional activity in the current context window.";
   if (source.direction === "bearish") return "Active / reducing";
   if (source.direction === "bullish") return "Active / accumulating";
   return "Active / mixed";
 }
 
 function institutionalSourceSupport(source: ConfirmationScoreBundle["sources"]["institutional_activity"], lookbackDays: number): string {
-  return source.detail ?? source.summary ?? (source.present ? `${lookbackDays}D` : "No activity in selected window");
+  if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
+  return normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? contextWindowLabel(lookbackDays);
 }
 
 function InstitutionalActivityCard({
@@ -1744,12 +1787,16 @@ function InstitutionalActivityCard({
 
 function GovernmentContractsCard({
   source,
+  lookbackDays,
 }: {
   source: ConfirmationScoreBundle["sources"]["government_contracts"];
+  lookbackDays: number;
 }) {
   const isActive = source.present;
   const body = isActive ? "Government contracts active" : "No major government contracts";
-  const detail = source.detail ?? source.summary ?? "No contracts above threshold in selected window.";
+  const detail = isActive
+    ? normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? `Government contracts are active in the ${contextWindowNoun(lookbackDays)}.`
+    : `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`;
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
@@ -2319,7 +2366,8 @@ async function DeferredTickerContent({
     ? "Signal Activity is a premium feature."
     : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
-  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext);
+  const confirmationLookbackDays = confirmationBundle.lookback_days;
+  const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
   const insiderCardSource = confirmationBundle.sources.insiders;
   const congressCardSource = confirmationBundle.sources.congress;
   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
@@ -2328,7 +2376,6 @@ async function DeferredTickerContent({
   const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
   const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
   const intelligenceBullets = overviewBullets({ confirmationBundle: visibleConfirmationBundle, alignedSources });
-  const confirmationLookbackDays = confirmationBundle.lookback_days;
 
   return (
     <>
@@ -2377,14 +2424,14 @@ async function DeferredTickerContent({
                 title="Insiders"
                 icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
                 source={insiderCardSource}
-                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource)}
+                body={insiderSourceBody(summaryInsiderBuys, summaryInsiderSells, insiderCardSource, confirmationLookbackDays)}
                 support={insiderSourceSupport(summaryInsiderBuys, summaryInsiderSells, confirmationLookbackDays)}
               />
               <SourceEvidenceCard
                 title="Congress"
                 icon="congress"
                 source={congressCardSource}
-                body={sourceCardBody("congress", congressCardSource, topSignal)}
+                body={sourceCardBody("congress", congressCardSource, topSignal, confirmationLookbackDays)}
                 support={congressSourceSupport(summaryCongressBuys, summaryCongressSells, confirmationLookbackDays)}
               />
               {institutionalCardLocked ? (
@@ -2412,7 +2459,7 @@ async function DeferredTickerContent({
                   title="Signals"
                   icon="signals"
                   source={signalsCardSource}
-                  body={sourceCardBody("signals", signalsCardSource, topSignal)}
+                  body={sourceCardBody("signals", signalsCardSource, topSignal, confirmationLookbackDays)}
                   support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
                 />
               )}
@@ -2428,6 +2475,7 @@ async function DeferredTickerContent({
               )}
               <GovernmentContractsCard
                 source={confirmationBundle.sources.government_contracts}
+                lookbackDays={confirmationLookbackDays}
               />
             </div>
           </div>

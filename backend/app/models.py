@@ -778,6 +778,12 @@ class Event(Base):
     transaction_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     amount_min: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     amount_max: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    data_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_filing_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_priority: Mapped[Optional[int]] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -1163,6 +1169,241 @@ class ProviderUsageEvent(Base):
     throttled: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProviderSetting(Base):
+    __tablename__ = "provider_settings"
+    __table_args__ = (
+        Index("ix_provider_settings_domain_key", "domain_key", unique=True),
+        Index("ix_provider_settings_mode", "mode"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
+    active_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    fallback_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mode: Mapped[str] = mapped_column(Text, default="primary", server_default="primary", nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
+    allow_external_live_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    allow_user_route_sync_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    builder_safe_required: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ProviderSettingAuditLog(Base):
+    __tablename__ = "provider_setting_audit_log"
+    __table_args__ = (
+        Index("ix_provider_setting_audit_domain_changed", "domain_key", "changed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
+    previous_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    previous_mode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_mode: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class SymbolResolutionOverride(Base):
+    __tablename__ = "symbol_resolution_overrides"
+    __table_args__ = (
+        Index("ix_symbol_resolution_override_lookup", "domain_key", "raw_symbol", "issuer_name", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_key: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    normalized_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    asset_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class CongressDisclosureFiling(Base):
+    __tablename__ = "congress_disclosure_filings"
+    __table_args__ = (
+        Index("ix_congress_disclosure_source_filing", "source_provider", "filing_id", unique=True),
+        Index("ix_congress_disclosure_chamber_date", "chamber", "filing_date"),
+        Index("ix_congress_disclosure_parser_status", "parser_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    chamber: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_date: Mapped[Optional[date]]
+    report_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amendment_flag: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    raw_text_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_blob_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
+    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class CongressTransactionNormalized(Base):
+    __tablename__ = "congress_transactions_normalized"
+    __table_args__ = (
+        Index("ix_congress_txn_normalized_hash", "normalized_hash", unique=True),
+        Index("ix_congress_txn_symbol_date", "ticker_normalized", "transaction_date"),
+        Index("ix_congress_txn_member_date", "member_id", "transaction_date"),
+        Index("ix_congress_txn_duplicate", "is_duplicate"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filing_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    disclosure_filing_id: Mapped[Optional[int]]
+    source_provider: Mapped[str] = mapped_column(Text, nullable=False)
+    chamber: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    member_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    owner_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    owner_normalized: Mapped[str] = mapped_column(Text, default="unknown", server_default="unknown", nullable=False)
+    transaction_date: Mapped[Optional[date]]
+    disclosure_date: Mapped[Optional[date]]
+    ticker_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticker_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    security_name_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    asset_type_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    asset_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transaction_type_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transaction_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amount_range_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    amount_low: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    amount_high: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_line_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    normalized_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    is_duplicate: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    duplicate_of_id: Mapped[Optional[int]]
+    symbol_resolution_status: Mapped[str] = mapped_column(Text, default="unresolved", server_default="unresolved", nullable=False)
+    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SecForm4Filing(Base):
+    __tablename__ = "sec_form4_filings"
+    __table_args__ = (
+        Index("ix_sec_form4_accession", "accession_number", unique=True),
+        Index("ix_sec_form4_issuer_filing_date", "issuer_cik", "filing_date"),
+        Index("ix_sec_form4_parser_status", "parser_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    accession_number: Mapped[str] = mapped_column(Text, nullable=False)
+    issuer_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_trading_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporting_owner_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporting_owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_date: Mapped[Optional[date]]
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    xml_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    raw_xml_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_xml_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
+    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_parse_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InsiderTransactionNormalized(Base):
+    __tablename__ = "insider_transactions_normalized"
+    __table_args__ = (
+        Index("ix_insider_txn_normalized_hash", "normalized_hash", unique=True),
+        Index("ix_insider_txn_symbol_date", "ticker_normalized", "transaction_date"),
+        Index("ix_insider_txn_owner_date", "reporting_owner_cik", "transaction_date"),
+        Index("ix_insider_txn_duplicate", "is_duplicate"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    form4_filing_id: Mapped[Optional[int]]
+    accession_number: Mapped[str] = mapped_column(Text, nullable=False)
+    issuer_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticker_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ticker_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporting_owner_cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporting_owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    owner_relationship_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    officer_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_director: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    is_officer: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    is_ten_percent_owner: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    transaction_date: Mapped[Optional[date]]
+    filing_date: Mapped[Optional[date]]
+    security_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transaction_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transaction_code_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transaction_type_normalized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    acquired_disposed: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shares_owned_following: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    direct_or_indirect: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ownership_nature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_derivative: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    footnotes_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    ten_b5_1_flag: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    normalized_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    is_duplicate: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    duplicate_of_id: Mapped[Optional[int]]
+    parser_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class DataEnrichmentJob(Base):
