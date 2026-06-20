@@ -46,6 +46,17 @@ test("admin data sources panel explains shadow readiness and optional history", 
   assert.doesNotMatch(source, /Missing in official/);
 });
 
+test("admin data sources explains official congress source hierarchy", () => {
+  assert.match(source, /Aggregate pipeline that combines official House and Senate disclosures into normalized Congress trade events\./);
+  assert.match(source, /In shadow mode, this is staged\/comparison only and does not power the public feed\./);
+  assert.match(source, /Raw official House disclosure discovery and parsing source\. Feeds the Walnut Official Congress pipeline\./);
+  assert.match(source, /Raw official Senate disclosure discovery and parsing source\. Feeds the Walnut Official Congress pipeline\./);
+  assert.match(source, /House disclosures \+ Senate disclosures \\u2192 Walnut Official Pipeline \\u2192 normalized Congress trades\./);
+  assert.match(source, /Configured, but not production\. This pipeline is not considered ready until filings discovered, filings parsed, and normalized transactions are greater than zero with acceptable duplicate risk\./);
+  assert.match(source, /Configured but not populated yet\./);
+  assert.match(source, /function isCongressOfficialSourceDomain/);
+});
+
 test("admin data source map is grouped and responsive", () => {
   assert.match(source, /function DataSourceMap/);
   assert.match(source, /md:grid-cols-2/);

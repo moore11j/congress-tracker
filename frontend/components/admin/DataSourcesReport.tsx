@@ -124,6 +124,19 @@ const ADD_ON_RISK_HELP =
 const CACHE_PROVIDER_HELP =
   "Local Walnut Cache means the app reads from Walnut's database/cache instead of calling an external API during page render.";
 
+const CONGRESS_SOURCE_HIERARCHY =
+  "House disclosures + Senate disclosures \u2192 Walnut Official Pipeline \u2192 normalized Congress trades.";
+
+const CONGRESS_SOURCE_HELP: Record<string, string> = {
+  congress_trades:
+    "Aggregate pipeline that combines official House and Senate disclosures into normalized Congress trade events. In shadow mode, this is staged/comparison only and does not power the public feed.",
+  house_disclosures: "Raw official House disclosure discovery and parsing source. Feeds the Walnut Official Congress pipeline.",
+  senate_disclosures: "Raw official Senate disclosure discovery and parsing source. Feeds the Walnut Official Congress pipeline.",
+};
+
+const SHADOW_PIPELINE_STATUS_HELP =
+  "Configured, but not production. This pipeline is not considered ready until filings discovered, filings parsed, and normalized transactions are greater than zero with acceptable duplicate risk.";
+
 function badgeClass(label: string) {
   const normalized = label.toLowerCase();
   if (normalized.includes("error") || normalized.includes("unsafe")) return "border-rose-300/30 bg-rose-300/10 text-rose-100";
@@ -223,6 +236,14 @@ function cacheState(domain: AdminDataSourceDomain) {
 
 function isShadowExplainedDomain(domain: AdminDataSourceDomain) {
   return domain.domain_key === "congress_trades" || domain.domain_key === "insider_trades";
+}
+
+function isCongressOfficialSourceDomain(domain: AdminDataSourceDomain) {
+  return domain.domain_key === "congress_trades" || domain.domain_key === "house_disclosures" || domain.domain_key === "senate_disclosures";
+}
+
+function domainRowHelperText(domain: AdminDataSourceDomain) {
+  return CONGRESS_SOURCE_HELP[domain.domain_key] ?? domain.notes ?? null;
 }
 
 function domainMatchesFilter(domain: AdminDataSourceDomain, filter: string) {
@@ -485,14 +506,23 @@ function DataSourceRow({
   const modeSelectOptions = optionsWithSavedValue(allowedModes, domain.settings.mode, modeOptions);
   const providerLabels = domain.provider_labels;
   const validationWarnings = domain.validation_warnings ?? [];
+  const helperText = domainRowHelperText(domain);
+  const isCongressOfficialSource = isCongressOfficialSourceDomain(domain);
+  const isCongressShadowRow = isCongressOfficialSource && domain.settings.mode === "shadow";
+  const isConfiguredButEmpty = isCongressShadowRow && typeof domain.row_count === "number" && domain.row_count === 0;
 
   return (
     <tr className="bg-slate-950/30 align-top text-slate-300">
       <Td>
         <div className="font-semibold text-slate-100">{domain.data_domain}</div>
         <div className="mt-1 text-[11px] text-slate-500">{domain.domain_key}</div>
-        {domain.notes ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.notes}</div> : null}
-        {domain.domain_help_text && domain.domain_help_text !== domain.notes ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.domain_help_text}</div> : null}
+        {helperText ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{helperText}</div> : null}
+        {domain.domain_key === "congress_trades" ? (
+          <div className="mt-2 max-w-64 rounded-md border border-cyan-300/20 bg-cyan-300/10 p-2 text-[11px] leading-4 text-cyan-100">
+            {CONGRESS_SOURCE_HIERARCHY}
+          </div>
+        ) : null}
+        {domain.domain_help_text && domain.domain_help_text !== domain.notes && domain.domain_help_text !== helperText ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.domain_help_text}</div> : null}
         {validationWarnings.length ? (
           <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100">
             <div className="font-semibold uppercase">Provider validation warning</div>
@@ -560,6 +590,16 @@ function DataSourceRow({
         {isShadowExplainedDomain(domain) && domain.settings.mode === "shadow" ? (
           <p className="mt-2 max-w-44 text-[11px] leading-4 text-cyan-100">
             Shadow mode: staging/comparison only. Not powering public feed.
+          </p>
+        ) : null}
+        {isCongressShadowRow ? (
+          <p className="mt-2 max-w-44 text-[11px] leading-4 text-cyan-100">
+            {SHADOW_PIPELINE_STATUS_HELP}
+          </p>
+        ) : null}
+        {isConfiguredButEmpty ? (
+          <p className="mt-2 max-w-44 rounded-md border border-amber-300/20 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100">
+            Configured but not populated yet.
           </p>
         ) : null}
       </Td>
