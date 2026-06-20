@@ -57,6 +57,43 @@ const HEADER_HELP: Record<string, string> = {
   Rows: "Approximate number of local rows available for this domain.",
 };
 
+const SWITCH_READINESS_HELP =
+  "Provider switching affects future ingest jobs only. Existing Walnut records remain stored. This panel checks whether the shadow provider is healthy and whether it would create duplicates if promoted.";
+
+const PROVIDER_SWITCH_SAFETY_HELP =
+  "Changing a provider controls which source future ingest jobs use. It does not delete or replace existing records. Historical backfills are separate admin actions. Walnut uses stable deduplication keys to avoid duplicate events when multiple providers report the same trade or filing.";
+
+const HISTORICAL_COVERAGE_HELP =
+  "This does not need to match before switching providers for future ingests.";
+
+const HISTORICAL_GAP_HELP =
+  "Large historical gaps are expected before a backfill is run. They do not mean existing production data will be removed.";
+
+const READINESS_LABELS: Record<string, string> = {
+  mode: "Mode",
+  public_feed_impact: "Public feed impact",
+  existing_data_preserved: "Existing data preserved",
+  latest_source_check: "Latest source check",
+  sec_latest_check: "Latest SEC check",
+  form4_filings_discovered: "Form 4 filings discovered",
+  parser_failures: "Parser failures",
+  duplicate_candidates: "Duplicate candidates",
+  potential_duplicate_insert_risk: "Potential duplicate insert risk",
+  would_insert_count: "Would insert count",
+  would_skip_duplicate_count: "Would skip duplicate count",
+  potential_conflicts_count: "Potential conflicts count",
+  promoted_events: "Promoted events",
+  pnl_pending: "PnL pending",
+  last_successful_shadow_ingest: "Last successful shadow ingest",
+  last_successful_sec_ingest: "Last successful SEC ingest",
+  readiness_status: "Readiness status",
+  normalized_hash_coverage_percent: "Normalized hash coverage percent",
+  unresolved_ciks_tickers: "Unresolved CIK/ticker mappings",
+  grants_options_exercises: "Grants/options/exercises",
+};
+
+const SECONDARY_DIAGNOSTIC_KEYS = new Set(["comparison", "house_latest_source_check", "senate_latest_source_check", "safe_to_promote"]);
+
 const ISSUE_HELP: Record<string, { label: string; detail: string }> = {
   provider_entitlement: {
     label: "Provider entitlement",
@@ -112,6 +149,12 @@ function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.length ? value.map(formatValue).join(", ") : "none";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" && /^[a-z][a-z0-9_]*$/.test(value)) return titleLabel(value);
+  return formatValue(value);
 }
 
 function friendlyLabel(value?: string | null, labels?: Record<string, string>) {
@@ -274,7 +317,7 @@ export function DataSourcesReport() {
   };
 
   const officialShadowRows = getNestedNumber(data?.diagnostics.congress, ["normalized_transactions"]);
-  const secNormalizedRows = getNestedNumber(data?.diagnostics.insider, ["comparison", "sec_vs_current_feed_count", "sec_normalized"]);
+  const secNormalizedRows = getNestedNumber(data?.diagnostics.insider, ["normalized_transactions"]);
 
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -298,10 +341,14 @@ export function DataSourcesReport() {
       <div className="mt-5 rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-4">
         <h3 className="text-sm font-semibold text-emerald-100">How to read this panel</h3>
         <p className="mt-2 text-sm leading-6 text-emerald-50/80">
-          This page shows provider configuration, health, and risk. Shadow mode means the pipeline is being staged or compared in the
-          background and does not power public pages yet. Local Walnut Cache means user-facing pages read from Walnut's database/cache
-          instead of calling an external API live.
+          {SWITCH_READINESS_HELP} Shadow mode means the pipeline is being staged or compared in the background and does not power public
+          pages yet. Local Walnut Cache means user-facing pages read from Walnut's database/cache instead of calling an external API live.
         </p>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-cyan-300/20 bg-cyan-300/10 p-4">
+        <h3 className="text-sm font-semibold text-cyan-100">Provider switch safety</h3>
+        <p className="mt-2 text-sm leading-6 text-cyan-50/80">{PROVIDER_SWITCH_SAFETY_HELP}</p>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -322,12 +369,12 @@ export function DataSourcesReport() {
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Domains" value={String(data?.domains.length ?? "loading")} />
         <Metric
-          label="Official shadow rows"
+          label="Congress shadow rows"
           value={officialShadowRows.toLocaleString()}
           helper={officialShadowRows === 0 ? "No official-source shadow rows staged yet." : undefined}
         />
         <Metric
-          label="SEC normalized rows"
+          label="SEC Form 4 shadow rows"
           value={secNormalizedRows.toLocaleString()}
           helper={secNormalizedRows === 0 ? "No SEC Form 4 normalized rows staged yet." : undefined}
         />
@@ -378,8 +425,8 @@ export function DataSourcesReport() {
 
       {data ? (
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <Diagnostics title="Congress official vs current" rows={data.diagnostics.congress} />
-          <Diagnostics title="SEC Form 4 vs current" rows={data.diagnostics.insider} />
+          <Diagnostics title="Congress Official Pipeline Readiness" rows={data.diagnostics.congress} />
+          <Diagnostics title="SEC Form 4 Pipeline Readiness" rows={data.diagnostics.insider} />
           <DataSourceMap rows={data.current_data_source_map} domains={data.domains} />
           <Diagnostics title="Production source counts" rows={data.diagnostics.production_source_counts} />
         </div>
@@ -667,28 +714,23 @@ function Metric({ label, value, helper }: { label: string; value: string; helper
 
 function Diagnostics({ title, rows }: { title: string; rows: Record<string, unknown> }) {
   const comparison = rows.comparison && typeof rows.comparison === "object" ? rows.comparison as Record<string, unknown> : null;
-  const otherRows = Object.entries(rows).filter(([key]) => key !== "comparison");
+  const otherRows = Object.entries(rows).filter(([key]) => !SECONDARY_DIAGNOSTIC_KEYS.has(key));
 
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
       <h3 className="font-semibold text-white">{title}</h3>
-      {comparison ? <ComparisonBlock comparison={comparison} /> : null}
+      {comparison ? <p className="mt-2 text-xs leading-5 text-slate-400">{SWITCH_READINESS_HELP}</p> : null}
       <div className="mt-3 grid gap-2">
         {otherRows.map(([key, value]) => (
-          <DiagnosticRow key={key} label={titleLabel(key)} value={value} />
+          <DiagnosticRow key={key} label={diagnosticLabel(key)} value={value} />
         ))}
       </div>
-      {comparison ? (
-        <details className="mt-3 rounded-md border border-white/10 bg-slate-900/60 p-2 text-xs text-slate-400">
-          <summary className="cursor-pointer font-semibold text-slate-200">View raw comparison</summary>
-          <pre className="mt-2 max-w-full whitespace-pre-wrap break-words text-[11px] leading-4 text-slate-400">{JSON.stringify(comparison, null, 2)}</pre>
-        </details>
-      ) : null}
+      {comparison ? <HistoricalComparisonDetails comparison={comparison} /> : null}
     </div>
   );
 }
 
-function ComparisonBlock({ comparison }: { comparison: Record<string, unknown> }) {
+function HistoricalComparisonDetails({ comparison }: { comparison: Record<string, unknown> }) {
   const countObjectKey = Object.keys(comparison).find((key) => key.endsWith("_feed_count"));
   const countObject = countObjectKey && typeof comparison[countObjectKey] === "object" && comparison[countObjectKey] !== null
     ? comparison[countObjectKey] as Record<string, unknown>
@@ -699,18 +741,36 @@ function ComparisonBlock({ comparison }: { comparison: Record<string, unknown> }
   ];
 
   return (
-    <div className="mt-3 rounded-md border border-white/10 bg-slate-900/60 p-3">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Comparison</div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+    <details className="mt-3 rounded-md border border-white/10 bg-slate-900/60 p-3 text-xs text-slate-400">
+      <summary className="cursor-pointer font-semibold text-slate-200">Historical coverage comparison (optional)</summary>
+      <p className="mt-2 leading-5">{HISTORICAL_COVERAGE_HELP}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {entries.map(([key, value]) => (
           <div key={key} className="min-w-0 rounded-md border border-white/10 bg-slate-950/50 p-2">
-            <div className="text-[11px] font-semibold text-slate-300">{titleLabel(key)}</div>
-            <div className="mt-1 break-words text-sm font-semibold text-slate-100 [overflow-wrap:anywhere]">{formatValue(value)}</div>
+            <div className="text-[11px] font-semibold text-slate-300">{historicalComparisonLabel(key)}</div>
+            <div className="mt-1 break-words text-sm font-semibold text-slate-100 [overflow-wrap:anywhere]">{formatDiagnosticValue(value)}</div>
           </div>
         ))}
       </div>
-    </div>
+      <p className="mt-3 leading-5 text-slate-500">{HISTORICAL_GAP_HELP} Backfill is optional. Existing production data remains intact.</p>
+    </details>
   );
+}
+
+function diagnosticLabel(key: string) {
+  return READINESS_LABELS[key] ?? titleLabel(key);
+}
+
+function historicalComparisonLabel(key: string) {
+  if (key === "current_feed") return "Current production feed count";
+  if (key === "official_normalized" || key === "sec_normalized") return "Shadow normalized count";
+  if (key === "delta") return "Historical gap";
+  if (key === "missing_in_official" || key === "missing_in_sec") return "Missing in shadow";
+  if (key === "missing_in_current") return "Missing in current";
+  if (key === "potential_duplicates") return "Duplicate candidates";
+  if (key === "parse_confidence_warnings") return "Parse confidence warnings";
+  if (key === "fmp_raw_rows") return "Legacy FMP raw rows";
+  return titleLabel(key);
 }
 
 function DiagnosticRow({ label, value }: { label: string; value: unknown }) {
@@ -729,7 +789,7 @@ function DiagnosticValue({ value }: { value: unknown }) {
       <div className="grid min-w-0 gap-1">
         {value.slice(0, 12).map((item, index) => (
           <span key={index} className="min-w-0 break-words rounded border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-400">
-            {typeof item === "object" && item !== null ? Object.entries(item as Record<string, unknown>).map(([key, itemValue]) => `${titleLabel(key)}: ${formatValue(itemValue)}`).join(" | ") : formatValue(item)}
+            {typeof item === "object" && item !== null ? Object.entries(item as Record<string, unknown>).map(([key, itemValue]) => `${titleLabel(key)}: ${formatDiagnosticValue(itemValue)}`).join(" | ") : formatDiagnosticValue(item)}
           </span>
         ))}
         {value.length > 12 ? <span className="text-slate-500">+{value.length - 12} more</span> : null}
@@ -741,13 +801,13 @@ function DiagnosticValue({ value }: { value: unknown }) {
       <div className="grid min-w-0 gap-1">
         {Object.entries(value as Record<string, unknown>).map(([key, itemValue]) => (
           <span key={key} className="min-w-0 break-words text-slate-400">
-            <span className="font-semibold text-slate-300">{titleLabel(key)}:</span> {formatValue(itemValue)}
+            <span className="font-semibold text-slate-300">{titleLabel(key)}:</span> {formatDiagnosticValue(itemValue)}
           </span>
         ))}
       </div>
     );
   }
-  return <span className="break-words text-slate-400">{formatValue(value)}</span>;
+  return <span className="break-words text-slate-400">{formatDiagnosticValue(value)}</span>;
 }
 
 function DataSourceMap({ rows, domains }: { rows: Record<string, string>; domains: AdminDataSourceDomain[] }) {

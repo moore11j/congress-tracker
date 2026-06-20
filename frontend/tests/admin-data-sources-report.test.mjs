@@ -27,11 +27,23 @@ test("admin data sources panel explains provider keys, cache mode, and entitleme
   assert.match(source, /Provider entitlement/);
 });
 
-test("admin data sources panel explains shadow pipelines and structured comparisons", () => {
+test("admin data sources panel explains shadow readiness and optional history", () => {
   assert.match(source, /Shadow mode: staging\/comparison only\. Not powering public feed\./);
-  assert.match(source, /View raw comparison/);
-  assert.match(source, /function ComparisonBlock/);
+  assert.match(source, /Congress Official Pipeline Readiness/);
+  assert.match(source, /SEC Form 4 Pipeline Readiness/);
+  assert.match(source, /Provider switching affects future ingest jobs only/);
+  assert.match(source, /Existing Walnut records remain stored/);
+  assert.match(source, /Provider switch safety/);
+  assert.match(source, /Historical coverage comparison \(optional\)/);
+  assert.match(source, /This does not need to match before switching providers for future ingests/);
+  assert.match(source, /Large historical gaps are expected before a backfill is run/);
+  assert.match(source, /function HistoricalComparisonDetails/);
   assert.match(source, /\[overflow-wrap:anywhere\]/);
+  assert.doesNotMatch(source, /Congress official vs current/);
+  assert.doesNotMatch(source, /SEC Form 4 vs current/);
+  assert.doesNotMatch(source, /View raw comparison/);
+  assert.doesNotMatch(source, /function ComparisonBlock/);
+  assert.doesNotMatch(source, /Missing in official/);
 });
 
 test("admin data source map is grouped and responsive", () => {
@@ -74,6 +86,20 @@ test("admin data sources folds issue labels into health", () => {
   assert.match(source, /unknown_error/);
   assert.doesNotMatch(source, /Enabled does not mean healthy/);
   assert.doesNotMatch(source, />Issue<\/span>/);
+});
+
+test("admin data sources readiness panels emphasize dedupe and feed safety", () => {
+  assert.match(source, /public_feed_impact: "Public feed impact"/);
+  assert.match(source, /existing_data_preserved: "Existing data preserved"/);
+  assert.match(source, /duplicate_candidates/);
+  assert.match(source, /potential_duplicate_insert_risk: "Potential duplicate insert risk"/);
+  assert.match(source, /would_insert_count: "Would insert count"/);
+  assert.match(source, /would_skip_duplicate_count: "Would skip duplicate count"/);
+  assert.match(source, /readiness_status: "Readiness status"/);
+  assert.match(source, /Current production feed count/);
+  assert.match(source, /Shadow normalized count/);
+  assert.match(source, /Historical gap/);
+  assert.match(source, /Missing in shadow/);
 });
 
 test("admin data sources dropdowns use backend domain metadata", () => {

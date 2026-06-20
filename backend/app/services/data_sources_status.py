@@ -70,6 +70,17 @@ def _safe_count(db: Session, model, *filters) -> int:
         return 0
 
 
+def _percent(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round((numerator / denominator) * 100, 1)
+
+
+def _latest_value(*values: Any) -> Any:
+    candidates = [value for value in values if value is not None]
+    return max(candidates) if candidates else None
+
+
 def _queue_depth(db: Session, job_types: tuple[str, ...]) -> int:
     if not job_types:
         return 0
@@ -135,6 +146,71 @@ def _latest_sec_update(db: Session) -> datetime | None:
 
 def _latest_event_update(db: Session, event_types: tuple[str, ...]) -> datetime | None:
     return _safe_scalar(db, select(func.max(Event.created_at)).where(Event.event_type.in_(event_types)))
+
+
+def _promotion_preview_from_pairs(db: Session, pairs: list[tuple[str | None, str | None]]) -> dict[str, int]:
+    eligible_pairs = [(provider, key) for provider, key in pairs if provider and key]
+    if not eligible_pairs:
+        return {"would_insert_count": 0, "would_skip_duplicate_count": 0}
+    providers = {provider for provider, _key in eligible_pairs}
+    keys = {key for _provider, key in eligible_pairs}
+    try:
+        existing = {
+            (provider, key)
+            for provider, key in db.execute(
+                select(Event.source_provider, Event.source_filing_id)
+                .where(Event.source_provider.in_(providers))
+                .where(Event.source_filing_id.in_(keys))
+            ).all()
+        }
+    except SQLAlchemyError:
+        existing = set()
+    would_skip = sum(1 for pair in eligible_pairs if pair in existing)
+    return {
+        "would_insert_count": len(eligible_pairs) - would_skip,
+        "would_skip_duplicate_count": would_skip,
+    }
+
+
+def _congress_promotion_preview(db: Session) -> dict[str, int]:
+    try:
+        pairs = [
+            (row[0], row[1])
+            for row in db.execute(
+                select(CongressTransactionNormalized.source_provider, CongressTransactionNormalized.normalized_hash)
+                .where(CongressTransactionNormalized.is_duplicate.is_(False))
+                .where(CongressTransactionNormalized.ticker_normalized.is_not(None))
+            ).all()
+        ]
+    except SQLAlchemyError:
+        pairs = []
+    return _promotion_preview_from_pairs(db, pairs)
+
+
+def _sec_promotion_preview(db: Session) -> dict[str, int]:
+    try:
+        pairs = [
+            ("sec_edgar", row[0])
+            for row in db.execute(
+                select(InsiderTransactionNormalized.normalized_hash)
+                .where(InsiderTransactionNormalized.is_duplicate.is_(False))
+                .where(InsiderTransactionNormalized.ticker_normalized.is_not(None))
+                .where(InsiderTransactionNormalized.transaction_type_normalized.in_(("open_market_purchase", "open_market_sale")))
+            ).all()
+        ]
+    except SQLAlchemyError:
+        pairs = []
+    return _promotion_preview_from_pairs(db, pairs)
+
+
+def _readiness_status(*, parsed_count: int, normalized_count: int, parse_failures: int, potential_conflicts_count: int) -> str:
+    if parse_failures > 0 and parsed_count == 0:
+        return "error"
+    if parsed_count == 0 or normalized_count == 0:
+        return "not_ready"
+    if parse_failures > 0 or potential_conflicts_count > 0:
+        return "shadow_healthy"
+    return "ready_for_limited_forward_ingest"
 
 
 def _cache_metrics(db: Session, domain_key: str) -> tuple[str | None, int | None, datetime | None, int]:
@@ -282,23 +358,49 @@ def _congress_diagnostics(db: Session) -> dict[str, Any]:
     )
     current_feed_count = _safe_count(db, Event, Event.event_type.in_(CONGRESS_DISCLOSURE_EVENT_TYPES))
     normalized_count = _safe_count(db, CongressTransactionNormalized)
+    parsed_count = _safe_count(db, CongressDisclosureFiling, CongressDisclosureFiling.parser_status == "parsed")
+    parse_failures = _safe_count(db, CongressDisclosureFiling, CongressDisclosureFiling.parser_status == "error")
+    duplicate_candidates = _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.is_duplicate.is_(True))
+    parse_confidence_warnings = _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.parser_confidence < 0.75)
     unresolved = _safe_count(
         db,
         CongressTransactionNormalized,
         ~CongressTransactionNormalized.symbol_resolution_status.in_(("resolved", "admin_override", "treasury", "crypto", "etf")),
     )
+    preview = _congress_promotion_preview(db)
+    potential_conflicts_count = duplicate_candidates + parse_confidence_warnings + unresolved
+    readiness = _readiness_status(
+        parsed_count=parsed_count,
+        normalized_count=normalized_count,
+        parse_failures=parse_failures,
+        potential_conflicts_count=potential_conflicts_count,
+    )
     return {
+        "mode": "shadow",
+        "public_feed_impact": "none",
+        "existing_data_preserved": True,
+        "latest_source_check": _iso(_latest_value(latest_house, latest_senate)),
         "house_latest_source_check": _iso(latest_house),
         "senate_latest_source_check": _iso(latest_senate),
         "filings_discovered": _safe_count(db, CongressDisclosureFiling),
-        "filings_parsed": _safe_count(db, CongressDisclosureFiling, CongressDisclosureFiling.parser_status == "parsed"),
-        "parse_failures": _safe_count(db, CongressDisclosureFiling, CongressDisclosureFiling.parser_status == "error"),
+        "filings_parsed": parsed_count,
+        "parse_failures": parse_failures,
         "normalized_transactions": normalized_count,
+        "normalized_hash_coverage_percent": _percent(
+            _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.normalized_hash.is_not(None)),
+            normalized_count,
+        ),
         "unresolved_symbols": unresolved,
-        "duplicate_candidates": _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.is_duplicate.is_(True)),
+        "duplicate_candidates": duplicate_candidates,
+        "potential_duplicate_insert_risk": "review_duplicates" if duplicate_candidates or preview["would_skip_duplicate_count"] else "low",
+        "would_insert_count": preview["would_insert_count"],
+        "would_skip_duplicate_count": preview["would_skip_duplicate_count"],
+        "potential_conflicts_count": potential_conflicts_count,
         "promoted_events": _safe_count(db, Event, Event.source_provider.in_(("official_house", "official_senate", "walnut_official"))),
         "pnl_pending": _safe_count(db, TradeOutcome, TradeOutcome.scoring_status.in_(("pending", "provider_unavailable", "provider_429", "provider_402"))),
-        "last_successful_official_congress_ingest": _iso(_latest_congress_official_update(db)),
+        "last_successful_shadow_ingest": _iso(_latest_congress_official_update(db)),
+        "readiness_status": readiness,
+        "safe_to_promote": readiness,
         "comparison": {
             "official_vs_current_feed_count": {
                 "official_normalized": normalized_count,
@@ -307,8 +409,8 @@ def _congress_diagnostics(db: Session) -> dict[str, Any]:
             },
             "missing_in_official": max(current_feed_count - normalized_count, 0),
             "missing_in_current": max(normalized_count - current_feed_count, 0),
-            "potential_duplicates": _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.is_duplicate.is_(True)),
-            "parse_confidence_warnings": _safe_count(db, CongressTransactionNormalized, CongressTransactionNormalized.parser_confidence < 0.75),
+            "potential_duplicates": duplicate_candidates,
+            "parse_confidence_warnings": parse_confidence_warnings,
         },
     }
 
@@ -316,6 +418,19 @@ def _congress_diagnostics(db: Session) -> dict[str, Any]:
 def _insider_diagnostics(db: Session) -> dict[str, Any]:
     current_feed_count = _safe_count(db, Event, Event.event_type == "insider_trade")
     normalized_count = _safe_count(db, InsiderTransactionNormalized)
+    parsed_count = _safe_count(db, SecForm4Filing, SecForm4Filing.parser_status == "parsed")
+    parser_failures = _safe_count(db, SecForm4Filing, SecForm4Filing.parser_status == "error")
+    duplicate_candidates = _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.is_duplicate.is_(True))
+    unresolved_ciks_tickers = _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.ticker_normalized.is_(None))
+    parse_confidence_warnings = _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.parser_confidence < 0.75)
+    preview = _sec_promotion_preview(db)
+    potential_conflicts_count = duplicate_candidates + parse_confidence_warnings + unresolved_ciks_tickers
+    readiness = _readiness_status(
+        parsed_count=parsed_count,
+        normalized_count=normalized_count,
+        parse_failures=parser_failures,
+        potential_conflicts_count=potential_conflicts_count,
+    )
     code_rows = []
     try:
         code_rows = [
@@ -329,10 +444,18 @@ def _insider_diagnostics(db: Session) -> dict[str, Any]:
     except SQLAlchemyError:
         code_rows = []
     return {
+        "mode": "shadow",
+        "public_feed_impact": "none",
+        "existing_data_preserved": True,
         "sec_latest_check": _iso(_latest_sec_update(db)),
         "form4_filings_discovered": _safe_count(db, SecForm4Filing),
-        "filings_parsed": _safe_count(db, SecForm4Filing, SecForm4Filing.parser_status == "parsed"),
-        "parser_failures": _safe_count(db, SecForm4Filing, SecForm4Filing.parser_status == "error"),
+        "filings_parsed": parsed_count,
+        "parser_failures": parser_failures,
+        "normalized_transactions": normalized_count,
+        "normalized_hash_coverage_percent": _percent(
+            _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.normalized_hash.is_not(None)),
+            normalized_count,
+        ),
         "transactions_by_code": code_rows,
         "open_market_buys": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.transaction_type_normalized == "open_market_purchase"),
         "open_market_sales": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.transaction_type_normalized == "open_market_sale"),
@@ -341,10 +464,16 @@ def _insider_diagnostics(db: Session) -> dict[str, Any]:
             InsiderTransactionNormalized,
             InsiderTransactionNormalized.transaction_type_normalized.in_(("grant_award", "option_exercise_conversion")),
         ),
-        "unresolved_ciks_tickers": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.ticker_normalized.is_(None)),
-        "duplicate_candidates": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.is_duplicate.is_(True)),
+        "unresolved_ciks_tickers": unresolved_ciks_tickers,
+        "duplicate_candidates": duplicate_candidates,
+        "potential_duplicate_insert_risk": "review_duplicates" if duplicate_candidates or preview["would_skip_duplicate_count"] else "low",
+        "would_insert_count": preview["would_insert_count"],
+        "would_skip_duplicate_count": preview["would_skip_duplicate_count"],
+        "potential_conflicts_count": potential_conflicts_count,
         "promoted_events": _safe_count(db, Event, Event.source_provider == "sec_edgar"),
         "last_successful_sec_ingest": _iso(_latest_sec_update(db)),
+        "readiness_status": readiness,
+        "safe_to_promote": readiness,
         "comparison": {
             "sec_vs_current_feed_count": {
                 "sec_normalized": normalized_count,
@@ -354,8 +483,8 @@ def _insider_diagnostics(db: Session) -> dict[str, Any]:
             },
             "missing_in_sec": max(current_feed_count - normalized_count, 0),
             "missing_in_current": max(normalized_count - current_feed_count, 0),
-            "potential_duplicates": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.is_duplicate.is_(True)),
-            "parse_confidence_warnings": _safe_count(db, InsiderTransactionNormalized, InsiderTransactionNormalized.parser_confidence < 0.75),
+            "potential_duplicates": duplicate_candidates,
+            "parse_confidence_warnings": parse_confidence_warnings,
         },
     }
 
@@ -404,8 +533,8 @@ def build_data_sources_status(db: Session) -> dict[str, Any]:
         "risks": [
             "Official House/Senate documents have format drift; low-confidence rows stay in shadow diagnostics.",
             "SEC Form 4 transaction codes must remain distinct from open-market buy/sale signals.",
-            "Provider switches affect scheduled/internal jobs only; public routes must remain cache-first.",
-            "Promotion to primary should wait for admin comparison validation.",
+            "Provider switches affect future ingest jobs only; existing Walnut records remain stored.",
+            "Historical backfills and public-feed promotion require separate admin actions.",
         ],
     }
 

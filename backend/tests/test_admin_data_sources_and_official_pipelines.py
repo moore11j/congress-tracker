@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -10,10 +11,12 @@ from starlette.requests import Request
 
 from app.auth import sign_session_payload
 from app.db import Base, ensure_provider_control_schema
-from app.models import Event, ProviderSettingAuditLog, UserAccount
+from app.models import CongressTransactionNormalized, DataEnrichmentJob, Event, ProviderSettingAuditLog, UserAccount
 from app.routers.admin_data_sources import (
+    DataSourceRunPayload,
     ProviderSettingPatchPayload,
     admin_data_sources_status,
+    admin_run_data_source,
     admin_update_data_source_setting,
 )
 from app.services.official_congress import (
@@ -51,6 +54,19 @@ def _user(db, email: str, *, role: str = "user") -> UserAccount:
     db.commit()
     db.refresh(user)
     return user
+
+
+def _feed_event(event_type: str, *, source_provider: str, source_filing_id: str) -> Event:
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    return Event(
+        event_type=event_type,
+        ts=ts,
+        event_date=ts,
+        source=source_provider,
+        payload_json=json.dumps({"source_provider": source_provider, "source_filing_id": source_filing_id}),
+        source_provider=source_provider,
+        source_filing_id=source_filing_id,
+    )
 
 
 FORM4_SAMPLE = """<?xml version="1.0"?>
@@ -142,6 +158,78 @@ def test_provider_settings_defaults_and_admin_crud():
         db.close()
 
 
+def test_provider_patch_is_config_only_and_preserves_feed_and_shadow_rows():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add(_feed_event("congress_trade", source_provider="fmp", source_filing_id="legacy-fmp-event"))
+        stage_congress_disclosure_shadow(
+            db,
+            source_provider="official_house",
+            chamber="house",
+            raw={
+                "filing_id": "H-SAFE-SWITCH",
+                "member_name": "Rep Example",
+                "transactionDate": "2026-06-01",
+                "symbol": "AAPL",
+                "assetDescription": "Apple Inc.",
+                "transactionType": "Purchase",
+                "amount": "$1,001 - $15,000",
+            },
+        )
+        db.commit()
+
+        before_events = [(row.event_type, row.source_provider, row.source_filing_id) for row in db.execute(select(Event)).scalars().all()]
+        before_shadow_hashes = [row[0] for row in db.execute(select(CongressTransactionNormalized.normalized_hash)).all()]
+
+        updated = admin_update_data_source_setting(
+            "congress_trades",
+            ProviderSettingPatchPayload(active_provider="fmp", fallback_provider="none", mode="shadow", is_enabled=True, reason="switch future provider"),
+            _request_for_user(admin),
+            db,
+        )
+
+        after_events = [(row.event_type, row.source_provider, row.source_filing_id) for row in db.execute(select(Event)).scalars().all()]
+        after_shadow_hashes = [row[0] for row in db.execute(select(CongressTransactionNormalized.normalized_hash)).all()]
+        audits = db.execute(select(ProviderSettingAuditLog)).scalars().all()
+
+        assert updated["active_provider"] == "fmp"
+        assert before_events == after_events
+        assert before_shadow_hashes == after_shadow_hashes
+        assert len(audits) == 1
+        assert audits[0].domain_key == "congress_trades"
+    finally:
+        db.close()
+
+
+def test_shadow_provider_run_queues_dry_run_without_changing_public_feed_count():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        before_count = len(db.execute(select(Event)).scalars().all())
+
+        result = admin_run_data_source(
+            "insider_trades",
+            DataSourceRunPayload(mode="shadow", reason="safe shadow refresh"),
+            _request_for_user(admin),
+            db,
+        )
+
+        after_count = len(db.execute(select(Event)).scalars().all())
+        job = db.execute(select(DataEnrichmentJob)).scalar_one()
+        payload = json.loads(job.payload_json)
+
+        assert before_count == after_count == 0
+        assert result["status"] == "queued"
+        assert result["mode"] == "shadow"
+        assert result["dry_run"] is True
+        assert job.job_type == "sec_form4_ingest"
+        assert payload["dry_run"] is True
+        assert payload["source"] == "admin_data_sources"
+    finally:
+        db.close()
+
+
 def test_data_sources_status_requires_admin():
     db = _session()
     try:
@@ -154,6 +242,51 @@ def test_data_sources_status_requires_admin():
         payload = admin_data_sources_status(_request_for_user(admin), db)
         assert "congress_trades" in payload["current_data_source_map"]
         assert "provider_settings" in payload["tables"]["official_shadow"]
+    finally:
+        db.close()
+
+
+def test_data_sources_status_exposes_switch_readiness_and_optional_history():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        stage_congress_disclosure_shadow(
+            db,
+            source_provider="official_house",
+            chamber="house",
+            raw={
+                "filing_id": "H-READINESS",
+                "member_name": "Rep Example",
+                "transactionDate": "2026-06-01",
+                "symbol": "AAPL",
+                "assetDescription": "Apple Inc.",
+                "transactionType": "Purchase",
+                "amount": "$1,001 - $15,000",
+            },
+        )
+        stage_form4_shadow(db, xml_text=FORM4_SAMPLE, accession_number="0000320193-26-000001")
+        db.commit()
+
+        payload = admin_data_sources_status(_request_for_user(admin), db)
+        congress = payload["diagnostics"]["congress"]
+        insider = payload["diagnostics"]["insider"]
+
+        assert congress["public_feed_impact"] == "none"
+        assert congress["existing_data_preserved"] is True
+        assert congress["duplicate_candidates"] == 0
+        assert congress["would_insert_count"] == 1
+        assert congress["would_skip_duplicate_count"] == 0
+        assert congress["readiness_status"] == "ready_for_limited_forward_ingest"
+        assert "comparison" in congress
+        assert congress["comparison"]["missing_in_official"] == 0
+
+        assert insider["public_feed_impact"] == "none"
+        assert insider["existing_data_preserved"] is True
+        assert insider["normalized_transactions"] == 3
+        assert insider["duplicate_candidates"] == 0
+        assert insider["readiness_status"] == "ready_for_limited_forward_ingest"
+        assert "comparison" in insider
+        assert "missing_in_sec" in insider["comparison"]
     finally:
         db.close()
 
