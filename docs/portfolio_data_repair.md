@@ -3,6 +3,13 @@
 Portfolio simulation reads must remain read-only. Use these CLI paths for repair,
 diagnostics, and targeted recompute after ingestion or provider outages.
 
+## Trade Records vs Gain / Loss
+
+Historical trades and events are durable Walnut records. Gain / Loss, backed by
+internal `pnl` fields, is recalculable market-derived output that may change as
+cached EOD prices refresh. Provider switches should not delete historical trade
+records; they can affect future enrichment and recalculation values only.
+
 ## Daily Trade Outcome Sweep
 
 Retry missing Congress trade outcomes and safe failed statuses:

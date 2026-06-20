@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 
-const lastUpdated = "June 10, 2026";
+const lastUpdated = "June 20, 2026";
 
 const faqCategories = [
   {
@@ -25,6 +25,16 @@ const faqCategories = [
       {
         question: "Why do some tickers have no Congress or insider activity?",
         answer: "Not every company has disclosed activity within the selected window.",
+      },
+      {
+        question: "What does Gain / Loss mean?",
+        answer:
+          "Gain / Loss estimates the unrealized return you would have if you made the same disclosed trade. For example, if a Congress member disclosed a purchase and the stock later rose, Walnut may show a positive Gain / Loss. This does not necessarily mean the filer personally realized that gain or still holds the position. It is an estimate based on the disclosure, transaction timing, and latest available EOD prices.",
+      },
+      {
+        question: "Why does Gain / Loss change?",
+        answer:
+          "Gain / Loss can change as market prices update. Walnut uses cached EOD pricing where available, so the estimate may update after new daily prices are refreshed.",
       },
       {
         question: "What are Class A common shares?",

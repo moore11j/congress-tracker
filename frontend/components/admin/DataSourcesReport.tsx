@@ -83,7 +83,7 @@ const READINESS_LABELS: Record<string, string> = {
   would_skip_duplicate_count: "Would skip duplicate count",
   potential_conflicts_count: "Potential conflicts count",
   promoted_events: "Promoted events",
-  pnl_pending: "PnL pending",
+  pnl_pending: "Gain / Loss pending",
   last_successful_shadow_ingest: "Last successful shadow ingest",
   last_successful_sec_ingest: "Last successful SEC ingest",
   readiness_status: "Readiness status",

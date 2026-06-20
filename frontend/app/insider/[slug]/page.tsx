@@ -33,6 +33,7 @@ import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchli
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { gainLossLabel, gainLossTooltip } from "@/lib/gainLossCopy";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -693,7 +694,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                     key={trade.external_id ?? `${trade.event_id}`}
                     className="relative overflow-hidden rounded-3xl border border-white/5 bg-slate-900/70 p-5 shadow-card"
                   >
-                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(110px,.6fr)_minmax(90px,.5fr)_minmax(50px,.55fr)_minmax(100px,.65fr)_minmax(90px,.5fr)_minmax(120px,.5fr)] lg:items-center">
+                    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(110px,.6fr)_minmax(90px,.5fr)_minmax(50px,.55fr)_minmax(100px,.65fr)_minmax(100px,.55fr)_minmax(120px,.5fr)] lg:items-center">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
                           {trade.symbol ? (
@@ -736,7 +737,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                       </div>
 
                       <div className="text-right text-xs text-slate-400">
-                        <div>PnL</div>
+                        <div className="cursor-help whitespace-nowrap" title={gainLossTooltip} aria-label={`${gainLossLabel}: ${gainLossTooltip}`}>
+                          {gainLossLabel}
+                        </div>
                         <div className={`mt-1 text-sm font-semibold tabular-nums ${display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}`}>{display.pnl !== null ? formatPnl(display.pnl) : "—"}</div>
                         {pnlSourceLabel ? (
                           <div className="mt-1">

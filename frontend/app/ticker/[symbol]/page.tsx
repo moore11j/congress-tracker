@@ -40,6 +40,7 @@ import {
 } from "@/lib/insiderTradeDisplay";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { optionalPageAuthState } from "@/lib/serverAuth";
+import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -1979,13 +1980,22 @@ function ActivityCardGrid({
 }) {
   const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
   const metricValueClassName = "truncate text-sm font-semibold tabular-nums";
+  const gainLossLabelNode = (
+    <span
+      className="cursor-help whitespace-nowrap"
+      title={tickerGainLossTooltip}
+      aria-label={`${gainLossLabel}: ${tickerGainLossTooltip}`}
+    >
+      {gainLossLabel}
+    </span>
+  );
 
   return (
-    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(64px,.6fr)_minmax(84px,auto)] sm:items-center lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(72px,.62fr)_minmax(92px,auto)]">
+    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(88px,.65fr)_minmax(84px,auto)] sm:items-center lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(92px,.68fr)_minmax(92px,auto)]">
       <div className="min-w-0 sm:col-start-1 sm:row-start-1">{identity}</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-2 sm:row-start-1`}>Price</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-3 sm:row-start-1`}>Trade value</div>
-      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>PnL</div>
+      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>{gainLossLabelNode}</div>
       <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-1 sm:justify-end">{sideBadge}</div>
 
       <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
@@ -1999,7 +2009,7 @@ function ActivityCardGrid({
         <div className={`${metricValueClassName} text-white`}>{tradeValue}</div>
       </div>
       <div className="min-w-0 sm:col-start-4 sm:row-start-2">
-        <div className={`${metricLabelClassName} sm:hidden`}>PnL</div>
+        <div className={`${metricLabelClassName} sm:hidden`}>{gainLossLabelNode}</div>
         <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
       </div>
       <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-2 sm:justify-end">{signal}</div>
