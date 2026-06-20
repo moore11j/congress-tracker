@@ -10,27 +10,25 @@ type Props = {
 };
 
 const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada TSX", symbol: "^GSPTSE", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "FTSE 100", symbol: "^FTSE", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "DAX", symbol: "^GDAXI", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Nikkei 225", symbol: "^N225", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Hang Seng", symbol: "^HSI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Canada ETF Proxy", symbol: "EWC", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "United Kingdom ETF Proxy", symbol: "EWU", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Japan ETF Proxy", symbol: "EWJ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Germany ETF Proxy", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "France ETF Proxy", symbol: "EWQ", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
-  { label: "S&P 500", symbol: "^GSPC", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Dow", symbol: "^DJI", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Russell 2000", symbol: "^RUT", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "VIX", symbol: "^VIX", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "S&P 500 ETF Proxy", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Nasdaq 100 ETF Proxy", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Dow ETF Proxy", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Russell 2000 ETF Proxy", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver", symbol: "SIUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Brent Crude", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Wheat", symbol: "ZWUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold ETF Proxy", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver ETF Proxy", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Oil ETF Proxy", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper ETF Proxy", symbol: "CPER", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
 ];
 
 const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -55,6 +53,7 @@ const FALLBACK_MACRO: MacroSnapshotPoint[] = [
   { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points" },
   { label: "Debt/GDP", value: null, value_format: "percent", change_format: "percentage_points" },
   { label: "Retail Sales", value: null, value_format: "currency", change_format: "percent" },
+  { label: "GDP Growth", value: null, value_format: "percent", change_format: "percentage_points" },
 ];
 
 const FALLBACK_TREASURY: MacroSnapshotPoint[] = [
@@ -177,7 +176,8 @@ function formatMacroChange(item: MacroSnapshotPoint): string | null {
 }
 
 function formatMacroMeta(item: MacroSnapshotPoint): string {
-  const bits = [formatDateShort(item.date ?? null), item.change_label].filter((value): value is string => Boolean(value));
+  const contextLabel = item.context_label && item.context_label !== "Latest available" ? item.context_label : null;
+  const bits = [formatDateShort(item.date ?? null), item.change_label, contextLabel].filter((value): value is string => Boolean(value));
   return bits.length > 0 ? bits.join(" • ") : "—";
 }
 
@@ -340,25 +340,25 @@ export function MarketSnapshot({ snapshot }: Props) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
-          <p className="mt-2 text-sm text-slate-400">A compact macro read on global markets, US rates, economics, commodities, currencies, crypto, and sector breadth.</p>
+          <p className="mt-2 text-sm text-slate-400">A compact cache-first read on market proxies, FRED macro data, US rates, and sector breadth.</p>
         </div>
         {updatedLabel ? <p className="text-xs text-slate-500 sm:text-right">{updatedLabel}</p> : null}
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <SectionShell title="World Indexes" subtitle="Daily Change" href="/insights/world-indexes">
+        <SectionShell title="Global ETF Proxies" subtitle="EOD Change" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" subtitle="Daily Change" href="/insights/currencies">
+        <SectionShell title="Currencies" subtitle="Launch Disabled" href="/insights/currencies">
           <InstrumentList items={currencies} />
         </SectionShell>
 
-        <SectionShell title="Commodities" subtitle="Daily Change" href="/insights/commodities">
+        <SectionShell title="Commodity ETF Proxies" subtitle="EOD Change" href="/insights/commodities">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="Daily Change" href="/insights/crypto">
+        <SectionShell title="Crypto" subtitle="Launch Disabled" href="/insights/crypto">
           <InstrumentList items={crypto} />
         </SectionShell>
 
@@ -370,11 +370,11 @@ export function MarketSnapshot({ snapshot }: Props) {
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Indexes" subtitle="Daily Change" href="/insights/us-indexes">
+        <SectionShell title="US Market Proxies" subtitle="EOD Change" href="/insights/us-indexes">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="US Sectors" subtitle="Daily Change" href="/insights/us-sectors">
+        <SectionShell title="Sector ETF Proxies" subtitle="EOD Change" href="/insights/us-sectors">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

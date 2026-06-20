@@ -9,6 +9,7 @@ CRON_TZ=America/Los_Angeles
 */5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
 */5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
 */15 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm
+20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
 */15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
 30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
 0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh

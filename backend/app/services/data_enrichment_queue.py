@@ -663,9 +663,9 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
         _raise_for_retryable_provider_result(result)
         return
     if job.job_type == "macro_snapshot":
-        from app.services.fmp_market_snapshot import get_macro_snapshot
+        from app.services.insights_snapshots import refresh_insights_snapshot
 
-        get_macro_snapshot()
+        refresh_insights_snapshot(db)
         return
     if job.job_type == "ticker_financials":
         from app.services.ticker_financials import get_ticker_financials

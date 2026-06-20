@@ -528,6 +528,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             from sqlalchemy import func, select
             from app.models import DataEnrichmentJob, FundamentalsCache, PriceCache, ProviderUsageEvent
             from app.services.data_enrichment_queue import enrichment_queue_summary
+            from app.services.fred_macro_cache import fred_macro_cache_diagnostics
 
             day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             now_dt = datetime.now(timezone.utc)
@@ -626,6 +627,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
                     db.execute(select(func.count(func.distinct(PriceCache.symbol)))).scalar_one() or 0
                 ),
             }
+            summary["fred_macro_cache"] = fred_macro_cache_diagnostics(db)
         except Exception:
             logger.info("provider_usage db summary unavailable", exc_info=True)
             summary["calls_today"] = summary["totals"]["provider_calls"]
@@ -635,12 +637,14 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             summary["enrichment_queue"] = {"by_type_status": [], "failed_by_reason": [], "recent": [], "oldest_pending_content_job": None}
             summary["content_diagnostics"] = _content_diagnostics(summary, enrichment_queue=summary["enrichment_queue"])
             summary["cache_coverage"] = {}
+            summary["fred_macro_cache"] = {"source": "fred", "status": "unavailable", "last_refresh_at": None, "missing_series": [], "stale_series": [], "series": []}
     else:
         summary["calls_today"] = summary["totals"]["provider_calls"]
         summary["call_windows"] = {"last_1_min": calls_last_minute}
         summary["recent_throttles"] = [event for event in summary["recent_events"] if event.get("kind") == "throttle"]
         summary["recent_errors"] = [event for event in summary["recent_events"] if event.get("reason")]
         summary["content_diagnostics"] = _content_diagnostics(summary, enrichment_queue=None)
+        summary["fred_macro_cache"] = {"source": "fred", "status": "unavailable", "last_refresh_at": None, "missing_series": [], "stale_series": [], "series": []}
     status = "ok"
     warn_limit = _int_env("FMP_CALLS_PER_MINUTE_WARN_LIMIT", default=max(1, int(summary["budget"]["soft_limit_per_minute"] * 0.8)))
     soft_limit = summary["budget"]["soft_limit_per_minute"]

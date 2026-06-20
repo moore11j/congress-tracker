@@ -36,30 +36,30 @@ export type MarketSnapshotDetailRow = {
 export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
   {
     slug: "world-indexes",
-    title: "World Indexes",
-    subtitle: "Daily Change",
-    description: "Global equity index levels and daily market breadth across major regions.",
+    title: "Global ETF Proxies",
+    subtitle: "EOD Change",
+    description: "Global market proxy moves from cached ETF prices.",
     kind: "instrument",
   },
   {
     slug: "currencies",
     title: "Currencies",
-    subtitle: "Daily Change",
-    description: "Major FX pairs and daily moves across USD, CAD, EUR, GBP, JPY, and related crosses.",
+    subtitle: "Launch Disabled",
+    description: "Currency data is disabled for launch until a licensed FX provider is added.",
     kind: "instrument",
   },
   {
     slug: "commodities",
-    title: "Commodities",
-    subtitle: "Daily Change",
-    description: "Metals, energy, and agricultural contracts used to track macro and sector pressure.",
+    title: "Commodity ETF Proxies",
+    subtitle: "EOD Change",
+    description: "Commodity proxy moves from cached ETF prices.",
     kind: "instrument",
   },
   {
     slug: "crypto",
     title: "Crypto",
-    subtitle: "Daily Change",
-    description: "Major crypto assets and daily moves relevant to market risk appetite and digital-asset flows.",
+    subtitle: "Launch Disabled",
+    description: "Crypto data is disabled for launch until a licensed crypto provider is added.",
     kind: "instrument",
   },
   {
@@ -78,42 +78,40 @@ export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
   },
   {
     slug: "us-indexes",
-    title: "US Indexes",
-    subtitle: "Daily Change",
-    description: "Major US equity indexes and daily change across broad-market benchmarks.",
+    title: "US Market Proxies",
+    subtitle: "EOD Change",
+    description: "Major US market proxy moves from cached ETF prices.",
     kind: "instrument",
   },
   {
     slug: "us-sectors",
-    title: "US Sectors",
-    subtitle: "Daily Change",
-    description: "Daily sector performance across major US equity sectors.",
+    title: "Sector ETF Proxies",
+    subtitle: "EOD Change",
+    description: "Sector proxy moves from cached ETF prices.",
     kind: "sector",
   },
 ];
 
 export const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada TSX", symbol: "^GSPTSE", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "FTSE 100", symbol: "^FTSE", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "DAX", symbol: "^GDAXI", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Nikkei 225", symbol: "^N225", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Hang Seng", symbol: "^HSI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Canada ETF Proxy", symbol: "EWC", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "United Kingdom ETF Proxy", symbol: "EWU", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Japan ETF Proxy", symbol: "EWJ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Germany ETF Proxy", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "France ETF Proxy", symbol: "EWQ", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 export const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
-  { label: "S&P 500", symbol: "^GSPC", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Dow", symbol: "^DJI", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "Russell 2000", symbol: "^RUT", timeframe_label: "Daily Change", status: "unavailable" },
-  { label: "VIX", symbol: "^VIX", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "S&P 500 ETF Proxy", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Nasdaq 100 ETF Proxy", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Dow ETF Proxy", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Russell 2000 ETF Proxy", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 export const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver", symbol: "SIUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Brent Crude", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Wheat", symbol: "ZWUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold ETF Proxy", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver ETF Proxy", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Oil ETF Proxy", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper ETF Proxy", symbol: "CPER", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
 ];
 
 export const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -138,6 +136,7 @@ export const FALLBACK_MACRO: MacroSnapshotPoint[] = [
   { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points" },
   { label: "Debt/GDP", value: null, value_format: "percent", change_format: "percentage_points" },
   { label: "Retail Sales", value: null, value_format: "currency", change_format: "percent" },
+  { label: "GDP Growth", value: null, value_format: "percent", change_format: "percentage_points" },
 ];
 
 export const FALLBACK_TREASURY: MacroSnapshotPoint[] = [
@@ -278,7 +277,8 @@ export function formatMacroChange(item: MacroSnapshotPoint): string | null {
 }
 
 export function formatMacroMeta(item: MacroSnapshotPoint): string {
-  const bits = [formatDateShort(item.date ?? null), item.change_label].filter((value): value is string => Boolean(value));
+  const contextLabel = item.context_label && item.context_label !== "Latest available" ? item.context_label : null;
+  const bits = [formatDateShort(item.date ?? null), item.change_label, contextLabel].filter((value): value is string => Boolean(value));
   return bits.length > 0 ? bits.join(" / ") : "-";
 }
 

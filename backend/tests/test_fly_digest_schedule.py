@@ -39,6 +39,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
     assert "*/5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
     assert "0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab

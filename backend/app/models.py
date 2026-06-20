@@ -936,6 +936,46 @@ class InsightsSnapshot(Base):
     )
 
 
+class FredObservation(Base):
+    __tablename__ = "fred_observations"
+    __table_args__ = (
+        Index("ix_fred_observations_series_date", "series_id", "observation_date"),
+        Index("ix_fred_observations_fetched_at", "fetched_at"),
+    )
+
+    series_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    observation_date: Mapped[date] = mapped_column(primary_key=True)
+    value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(Text, default="fred", server_default="fred", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class FredSeriesRefresh(Base):
+    __tablename__ = "fred_series_refreshes"
+    __table_args__ = (
+        Index("ix_fred_series_refreshes_refreshed_at", "last_refreshed_at"),
+    )
+
+    series_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source: Mapped[str] = mapped_column(Text, default="fred", server_default="fred", nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending", nullable=False)
+    observation_count: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    latest_observation_date: Mapped[Optional[date]]
+    last_refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class CikMeta(Base):
     __tablename__ = "cik_meta"
 

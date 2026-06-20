@@ -9,7 +9,8 @@ function formatPercent(value?: number | null) {
 
 function statusClasses(status?: string) {
   if (status === "critical") return "border-rose-300/30 bg-rose-300/10 text-rose-100";
-  if (status === "warning") return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  if (status === "warning" || status === "partial" || status === "stale") return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  if (status === "unavailable" || status === "error") return "border-rose-300/30 bg-rose-300/10 text-rose-100";
   return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
 }
 
@@ -108,6 +109,10 @@ export function ProviderUsageReport() {
             <ContentDiagnostics rows={data.content_diagnostics ?? []} />
           </div>
 
+          <div className="mt-5">
+            <FredDiagnostics diagnostics={data.fred_macro_cache ?? null} />
+          </div>
+
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             <QueueList title="Enrichment queue" rows={data.enrichment_queue?.by_type_status ?? []} />
             <QueueList title="Failed enrichments" rows={data.enrichment_queue?.failed_by_reason ?? []} />
@@ -132,6 +137,63 @@ export function ProviderUsageReport() {
         </div>
       )}
     </section>
+  );
+}
+
+function FredDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: {
+    status: string;
+    last_refresh_at?: string | null;
+    missing_series?: string[];
+    stale_series?: string[];
+    error_series?: string[];
+    series?: Array<{
+      series_id: string;
+      label?: string | null;
+      block?: string | null;
+      status?: string | null;
+      cache_status?: string | null;
+      last_refreshed_at?: string | null;
+      latest_observation_date?: string | null;
+      observation_count?: number;
+      error?: string | null;
+    }>;
+  } | null;
+}) {
+  const rows = diagnostics?.series ?? [];
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-white">FRED macro cache</h3>
+          <p className="mt-1 text-sm text-slate-500">US Macro and Treasury source state.</p>
+        </div>
+        <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusClasses(diagnostics?.status)}`}>
+          {diagnostics?.status ?? "unavailable"}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <Metric label="Last FRED refresh" value={diagnostics?.last_refresh_at ?? "none"} />
+        <Metric label="Missing series" value={(diagnostics?.missing_series ?? []).join(", ") || "none"} />
+        <Metric label="Stale series" value={(diagnostics?.stale_series ?? []).join(", ") || "none"} />
+      </div>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+        {rows.length ? rows.map((row) => (
+          <div key={row.series_id} className="rounded-md border border-white/10 bg-slate-900/60 p-3 text-xs text-slate-400">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-slate-100">{row.series_id}</span>
+              <span>{row.cache_status ?? row.status ?? "unknown"}</span>
+            </div>
+            <div className="mt-1 truncate">{row.label ?? row.block ?? "FRED series"}</div>
+            <div className="mt-1">latest: {row.latest_observation_date ?? "missing"}</div>
+            <div className="mt-1">rows: {row.observation_count ?? 0}</div>
+            {row.error ? <div className="mt-1 truncate text-amber-200">{row.error}</div> : null}
+          </div>
+        )) : <p className="text-sm text-slate-500">No FRED diagnostics recorded yet.</p>}
+      </div>
+    </div>
   );
 }
 

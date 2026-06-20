@@ -381,7 +381,42 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fred_observations (
+                        series_id TEXT NOT NULL,
+                        observation_date DATE NOT NULL,
+                        value FLOAT,
+                        source TEXT NOT NULL DEFAULT 'fred',
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        fetched_at TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (series_id, observation_date)
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fred_series_refreshes (
+                        series_id TEXT PRIMARY KEY,
+                        source TEXT NOT NULL DEFAULT 'fred',
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        observation_count INTEGER NOT NULL DEFAULT 0,
+                        latest_observation_date DATE,
+                        last_refreshed_at TIMESTAMP,
+                        error TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_insights_snapshots_fetched_at ON insights_snapshots (fetched_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_series_date ON fred_observations (series_id, observation_date)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_fetched_at ON fred_observations (fetched_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities (lower(symbol))"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities (lower(name))"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta (lower(symbol))"))
@@ -408,6 +443,52 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
         conn.execute(text("ALTER TABLE insights_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_insights_snapshots_kind ON insights_snapshots (kind)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_insights_snapshots_fetched_at ON insights_snapshots (fetched_at)"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS fred_observations (
+                    series_id TEXT NOT NULL,
+                    observation_date DATE NOT NULL,
+                    value DOUBLE PRECISION,
+                    source TEXT NOT NULL DEFAULT 'fred',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    fetched_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (series_id, observation_date)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS fred_series_refreshes (
+                    series_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL DEFAULT 'fred',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    observation_count INTEGER NOT NULL DEFAULT 0,
+                    latest_observation_date DATE,
+                    last_refreshed_at TIMESTAMPTZ,
+                    error TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE fred_observations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'fred'"))
+        conn.execute(text("ALTER TABLE fred_observations ADD COLUMN IF NOT EXISTS payload_json TEXT NOT NULL DEFAULT '{}'"))
+        conn.execute(text("ALTER TABLE fred_observations ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()"))
+        conn.execute(text("ALTER TABLE fred_observations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'fred'"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS observation_count INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS latest_observation_date DATE"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS last_refreshed_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS error TEXT"))
+        conn.execute(text("ALTER TABLE fred_series_refreshes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_series_date ON fred_observations (series_id, observation_date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_fetched_at ON fred_observations (fetched_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
 
         indexed_tables = {
             row[0]

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import InsightsSnapshot
+from app.models import FredObservation, FredSeriesRefresh, InsightsSnapshot, PriceCache
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot, refresh_insights_snapshot
 
 
@@ -31,6 +31,36 @@ def _payload(status: str = "ok") -> dict:
         "status": status,
         "generated_at": "2026-06-05T12:00:00+00:00",
     }
+
+
+def _seed_fred(db, series_id: str, rows: list[tuple[str, float]]) -> None:
+    now = datetime.now(timezone.utc)
+    for day, value in rows:
+        db.add(
+            FredObservation(
+                series_id=series_id,
+                observation_date=datetime.fromisoformat(day).date(),
+                value=value,
+                source="fred",
+                payload_json="{}",
+                fetched_at=now,
+            )
+        )
+    db.add(
+        FredSeriesRefresh(
+            series_id=series_id,
+            source="fred",
+            status="ok",
+            observation_count=len(rows),
+            latest_observation_date=datetime.fromisoformat(rows[-1][0]).date(),
+            last_refreshed_at=now,
+        )
+    )
+
+
+def _seed_price(db, symbol: str, rows: list[tuple[str, float]]) -> None:
+    for day, close in rows:
+        db.add(PriceCache(symbol=symbol, date=day, close=close))
 
 
 def test_insights_snapshot_returns_cached_data_without_provider_call(monkeypatch):
@@ -142,5 +172,40 @@ def test_insights_refresh_returns_stale_cache_when_provider_fails(monkeypatch):
         assert payload["status"] == "ok"
         assert payload["stale"] is True
         assert payload["cache_hit"] is True
+    finally:
+        db.close()
+
+
+def test_insights_refresh_builder_safe_uses_fred_cache_and_eod_proxies(monkeypatch):
+    db = _db()
+    try:
+        _seed_fred(db, "FEDFUNDS", [("2026-03-01", 4.25), ("2026-04-01", 4.5)])
+        _seed_fred(db, "CPILFESL", [("2025-04-01", 300.0), ("2026-03-01", 306.0), ("2026-04-01", 309.0)])
+        _seed_fred(db, "UNRATE", [("2026-03-01", 4.0), ("2026-04-01", 4.1)])
+        _seed_fred(db, "GFDEGDQ188S", [("2026-01-01", 119.8), ("2026-04-01", 120.4)])
+        _seed_fred(db, "RSAFS", [("2026-03-01", 650000.0), ("2026-04-01", 656500.0)])
+        _seed_fred(db, "GDPC1", [("2025-10-01", 23100.0), ("2026-01-01", 23200.0), ("2026-04-01", 23300.0)])
+        _seed_fred(db, "DGS10", [("2026-04-01", 4.2), ("2026-04-02", 4.25)])
+        _seed_price(db, "SPY", [("2026-04-01", 510.0), ("2026-04-02", 515.1)])
+        db.commit()
+
+        def fail_provider():
+            raise AssertionError("FMP macro snapshot should not be called in builder_safe mode")
+
+        monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
+        monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
+
+        payload = refresh_insights_snapshot(db)
+
+        assert payload["source"] == "builder_safe_cache"
+        assert payload["cache_hit"] is False
+        assert payload["indexes"][0]["label"] == "S&P 500 ETF Proxy"
+        assert payload["indexes"][0]["symbol"] == "SPY"
+        assert payload["economics"][0]["source"] == "fred"
+        assert payload["economics"][0]["value"] == 4.5
+        assert payload["treasury"][3]["series_id"] == "DGS10"
+        assert payload["fred_macro_cache"]["last_refresh_at"]
+        assert payload["currencies"][0]["status"] == "disabled"
+        assert payload["crypto"][0]["status"] == "disabled"
     finally:
         db.close()

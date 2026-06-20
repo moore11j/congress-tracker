@@ -1271,6 +1271,27 @@ export type AdminProviderContentDiagnostic = {
   oldest_pending_at?: string | null;
 };
 
+export type AdminFredMacroCacheDiagnostic = {
+  source: string;
+  status: string;
+  last_refresh_at?: string | null;
+  missing_series: string[];
+  stale_series: string[];
+  error_series?: string[];
+  error?: string | null;
+  series: Array<{
+    series_id: string;
+    label?: string | null;
+    block?: string | null;
+    status?: string | null;
+    cache_status?: string | null;
+    last_refreshed_at?: string | null;
+    latest_observation_date?: string | null;
+    observation_count?: number;
+    error?: string | null;
+  }>;
+};
+
 export type AdminProviderUsageResponse = {
   provider: "fmp" | string;
   enabled: boolean;
@@ -1302,6 +1323,7 @@ export type AdminProviderUsageResponse = {
   fallback_reasons?: Array<{ reason: string; count: number }>;
   content_writes?: AdminProviderContentWrite[];
   content_diagnostics?: AdminProviderContentDiagnostic[];
+  fred_macro_cache?: AdminFredMacroCacheDiagnostic;
   warnings: string[];
   recommendation: string;
   recent_throttles: AdminProviderUsageEvent[];

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
@@ -9,8 +10,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import InsightsSnapshot
+from app.services.fred_macro_cache import build_fred_macro_sections
 from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.fmp_news import get_general_news
+from app.services.insights_builder_safe import build_builder_safe_insights_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,10 @@ def _empty_snapshot_payload(*, status: str = "warming") -> dict[str, Any]:
         "status": status,
         "generated_at": now,
     }
+
+
+def _insights_data_mode() -> str:
+    return (os.getenv("INSIGHTS_DATA_MODE") or "builder_safe").strip().lower() or "builder_safe"
 
 
 def _empty_headlines_payload(*, page: int = 0, limit: int = 20, status: str = "warming") -> dict[str, Any]:
@@ -102,6 +109,29 @@ def _store_payload(db: Session, payload: dict[str, Any], *, kind: str = INSIGHTS
     return row
 
 
+def _payload_has_snapshot_values(payload: dict[str, Any]) -> bool:
+    for key in ("indexes", "world_indexes", "treasury", "economics", "commodities", "sector_performance"):
+        value = payload.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            if item.get("value") is not None or item.get("change_pct") is not None:
+                return True
+    return False
+
+
+def _with_fred_macro_sections(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    sections = build_fred_macro_sections(db)
+    return {
+        **payload,
+        "treasury": sections["treasury"],
+        "economics": sections["economics"],
+        "fred_macro_cache": sections["diagnostics"],
+    }
+
+
 def _paginate_headlines_payload(payload: dict[str, Any], *, page: int, limit: int, row: InsightsSnapshot | None = None, stale: bool = False, cache_hit: bool = True) -> dict[str, Any]:
     all_items = payload.get("items")
     items = all_items if isinstance(all_items, list) else []
@@ -155,10 +185,16 @@ def refresh_insights_snapshot(db: Session, kind: str = INSIGHTS_SNAPSHOT_KIND) -
         return snapshot
     started_at = perf_counter()
     try:
-        payload = get_macro_snapshot()
+        if _insights_data_mode() == "builder_safe":
+            payload = build_builder_safe_insights_snapshot(db)
+        else:
+            payload = _with_fred_macro_sections(db, get_macro_snapshot())
         if not isinstance(payload, dict):
             payload = _empty_snapshot_payload(status="unavailable")
-        row = _store_payload(db, payload, kind=INSIGHTS_SNAPSHOT_KIND, source="fmp")
+        existing = _load_row(db, INSIGHTS_SNAPSHOT_KIND)
+        if payload.get("status") == "unavailable" and existing is not None and not _payload_has_snapshot_values(payload):
+            return _decorate(_loads_payload(existing), existing, stale=True, cache_hit=True)
+        row = _store_payload(db, payload, kind=INSIGHTS_SNAPSHOT_KIND, source=str(payload.get("source") or _insights_data_mode()))
         duration_ms = (perf_counter() - started_at) * 1000
         logger.info(
             "insights_snapshot_refresh_timing kind=%s duration_ms=%.1f status=%s",
@@ -207,8 +243,10 @@ def get_insights_headlines(db: Session, *, page: int = 0, limit: int = 20) -> di
     bounded_limit = max(1, min(int(limit or 20), 50))
     row = _load_row(db, INSIGHTS_HEADLINES_KIND)
     if row is None:
+        payload = _empty_headlines_payload(page=bounded_page, limit=bounded_limit)
+        payload.pop("message", None)
         return _decorate(
-            _empty_headlines_payload(page=bounded_page, limit=bounded_limit),
+            payload,
             None,
             stale=True,
             cache_hit=False,
