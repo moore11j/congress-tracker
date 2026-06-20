@@ -26,22 +26,31 @@ const PROVIDER_LABELS: Record<string, string> = {
   none: "None",
 };
 
+const MODE_HELP_ITEMS = [
+  ["Primary", "This provider is the selected production source for this data domain."],
+  ["Fallback", "This provider is used only if the primary provider is unavailable or disabled."],
+  ["Shadow", "This provider can ingest, stage, or compare data in the background, but it does not power public user-facing pages yet."],
+  ["Dry-run", "This mode can run test/staging jobs without writing to production event tables."],
+  ["Disabled", "This data domain is intentionally turned off."],
+] as const;
+
 const MODE_HELP: Record<string, string> = {
-  primary: "This is the selected production provider for this domain.",
+  primary: MODE_HELP_ITEMS[0][1],
   fallback: "This provider is used only if the primary provider is unavailable or disabled.",
-  shadow: "This provider can ingest or compare data in the background, but it does not power public user-facing data yet.",
-  dry_run: "This can run test/staging jobs without writing to production event tables.",
-  disabled: "This domain is intentionally turned off.",
+  shadow: MODE_HELP_ITEMS[2][1],
+  dry_run: MODE_HELP_ITEMS[3][1],
+  disabled: MODE_HELP_ITEMS[4][1],
 };
 
 const HEADER_HELP: Record<string, string> = {
   Domain: "The dataset or product area, such as prices, fundamentals, Congress trades, insider trades, or Insights macro.",
   Provider: "The currently selected source for this domain.",
   Fallback: "The backup source Walnut may use if the primary source is unavailable. Fallback should not trigger live user-route fetches.",
-  Mode: "Controls whether this provider is production, fallback, shadow, dry-run, or disabled.",
-  Enabled: "Whether this domain is enabled in provider settings.",
+  Enabled:
+    "Enabled means this domain is configured for use. It does not guarantee the latest refresh/check is healthy. Check the Health column for errors, stale data, or missing data.",
   Type: "External API, official public source, local cache, or internal computed data.",
-  Status: "Latest health/risk state based on refresh jobs, entitlement checks, cache state, and errors.",
+  Health: "Latest refresh/check condition for this data domain, such as healthy, stale, missing, or error.",
+  Risk: "Provider or licensing/runtime risk, such as Builder-safe, add-on risk, external API, official source, or cache-only.",
   "Endpoint/job": "The backend endpoint, scheduled job, or cache process responsible for this data.",
   Refresh: "The latest known refresh/check time and freshness state.",
   Cache: "The local Walnut table or cache used by the app.",
@@ -54,13 +63,26 @@ const ISSUE_HELP: Record<string, { label: string; detail: string }> = {
     detail:
       "This provider is selected, but the latest refresh/check failed because the current provider plan or API key may not be entitled to one or more endpoints in this domain.",
   },
+  missing_cache: {
+    label: "Missing cache",
+    detail: "The latest check could not find populated local cache rows for this domain.",
+  },
+  stale_cache: {
+    label: "Stale cache",
+    detail: "The local cache exists, but the latest check considers it stale.",
+  },
+  missing_refresh: {
+    label: "Missing refresh",
+    detail: "No successful refresh/check has been recorded for this domain.",
+  },
+  unknown_error: {
+    label: "Unknown error",
+    detail: "The latest refresh/check failed without a more specific issue label.",
+  },
 };
 
 const ADD_ON_RISK_HELP =
   "This may require an FMP add-on or exchange/provider entitlement depending on the endpoint used. Builder-safe mode should avoid this for launch unless explicitly enabled.";
-
-const PROVIDER_ENTITLEMENT_HELP =
-  "The provider returned or was flagged with an entitlement/access issue. This may affect one endpoint in the domain, not necessarily the entire domain. Check endpoint/job details.";
 
 const CACHE_PROVIDER_HELP =
   "Local Walnut Cache means the app reads from Walnut's database/cache instead of calling an external API during page render.";
@@ -131,12 +153,14 @@ function healthState(domain: AdminDataSourceDomain) {
   if (!domain.settings.is_enabled || domain.mode === "disabled") return "Not checked";
   if (domain.stale_status === "missing") return "Missing";
   if (domain.stale_status === "stale") return "Stale";
+  if (domain.stale_status === "warning") return "Warning";
   if (domain.stale_status === "fresh") return "Healthy";
   return "Not checked";
 }
 
 function riskStates(domain: AdminDataSourceDomain) {
   const states: string[] = [];
+  if (!domain.settings.is_enabled || domain.mode === "disabled" || domain.active_provider === "disabled") states.push("Disabled");
   if (domain.builder_safe_status === "safe") states.push("Builder-safe");
   if (domain.builder_safe_status === "warning") states.push("Add-on risk");
   if (domain.source_type === "external API") states.push("External API");
@@ -144,10 +168,6 @@ function riskStates(domain: AdminDataSourceDomain) {
   if (domain.source_type === "local cache" || domain.active_provider === "walnut_cache") states.push("Cache-only");
   if (!states.length) states.push(sourceTypeLabel(domain.source_type));
   return states;
-}
-
-function configStates(domain: AdminDataSourceDomain) {
-  return [domain.settings.is_enabled ? "Enabled" : "Disabled", modeLabel(domain.settings.mode)];
 }
 
 function cacheState(domain: AdminDataSourceDomain) {
@@ -278,9 +298,9 @@ export function DataSourcesReport() {
       <div className="mt-5 rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-4">
         <h3 className="text-sm font-semibold text-emerald-100">How to read this panel</h3>
         <p className="mt-2 text-sm leading-6 text-emerald-50/80">
-          This page shows provider configuration and health. A domain can be enabled but still show an error if the latest refresh/check
-          failed. Shadow mode means the pipeline is being staged or compared in the background and does not power public pages yet. Local
-          Walnut Cache means user-facing pages read from Walnut's database/cache instead of calling an external API live.
+          This page shows provider configuration, health, and risk. Shadow mode means the pipeline is being staged or compared in the
+          background and does not power public pages yet. Local Walnut Cache means user-facing pages read from Walnut's database/cache
+          instead of calling an external API live.
         </p>
       </div>
 
@@ -315,16 +335,17 @@ export function DataSourcesReport() {
       </div>
 
       <div className="mt-5 overflow-x-auto rounded-lg border border-white/10">
-        <table className="w-full min-w-[1500px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1550px] border-collapse text-left text-xs">
           <thead className="bg-slate-950/80 text-slate-400">
             <tr>
               <Th help={HEADER_HELP.Domain}>Domain</Th>
               <Th help={HEADER_HELP.Provider}>Provider</Th>
               <Th help={HEADER_HELP.Fallback}>Fallback</Th>
-              <Th help={HEADER_HELP.Mode}>Mode</Th>
+              <Th help={<ModeHelpList />}>Mode</Th>
               <Th help={HEADER_HELP.Enabled}>Enabled</Th>
               <Th help={HEADER_HELP.Type}>Type</Th>
-              <Th help={HEADER_HELP.Status}>Status</Th>
+              <Th help={HEADER_HELP.Health}>Health</Th>
+              <Th help={HEADER_HELP.Risk}>Risk</Th>
               <Th help={HEADER_HELP["Endpoint/job"]}>Endpoint/job</Th>
               <Th help={HEADER_HELP.Refresh}>Refresh</Th>
               <Th help={HEADER_HELP.Cache}>Cache</Th>
@@ -348,7 +369,7 @@ export function DataSourcesReport() {
               />
             )) : (
               <tr>
-                <td colSpan={14} className="bg-slate-950/30 p-4 text-sm text-slate-500">No data source rows match this filter.</td>
+                <td colSpan={15} className="bg-slate-950/30 p-4 text-sm text-slate-500">No data source rows match this filter.</td>
               </tr>
             )}
           </tbody>
@@ -407,7 +428,6 @@ function DataSourceRow({
   clearFilter: () => void;
 }) {
   const issue = issueMeta(domain.last_error);
-  const health = healthState(domain);
   const providerIsCache = domain.active_provider === "walnut_cache";
   const fallbackIsCache = domain.fallback_provider === "walnut_cache";
   const allowedProviders = domain.allowed_providers ?? providerOptions;
@@ -475,7 +495,7 @@ function DataSourceRow({
         <div className="flex items-center gap-2">
           <Badge label={modeLabel(domain.settings.mode)} title={MODE_HELP[domain.settings.mode]} />
           {MODE_HELP[domain.settings.mode] ? (
-            <InfoTooltip id={`mode-${domain.domain_key}`} label="Mode help" description={MODE_HELP[domain.settings.mode]} />
+            <InfoTooltip id={`mode-${domain.domain_key}`} label="Mode help" description={<ModeHelpList />} />
           ) : null}
         </div>
         <select
@@ -513,17 +533,10 @@ function DataSourceRow({
         {providerIsCache || domain.source_type === "local cache" ? <p className="mt-1 max-w-44 text-[11px] leading-4 text-slate-500">{CACHE_PROVIDER_HELP}</p> : null}
       </Td>
       <Td>
-        <StatusSummary domain={domain} />
-        {issue ? (
-          <div className="mt-3 rounded-md border border-rose-300/20 bg-rose-300/10 p-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase text-rose-100">Issue</span>
-              <Badge label={issue.label} title={domain.last_error === "provider_entitlement" ? PROVIDER_ENTITLEMENT_HELP : issue.detail} />
-            </div>
-            <p className="mt-1 max-w-64 text-[11px] leading-4 text-rose-100/80">{issue.detail}</p>
-          </div>
-        ) : null}
-        {health === "Error" ? <p className="mt-2 text-[11px] text-slate-500">Enabled does not mean healthy; it only means this domain is configured on.</p> : null}
+        <HealthBadge domain={domain} issue={issue} />
+      </Td>
+      <Td>
+        <RiskBadges domain={domain} />
       </Td>
       <Td>
         <div className="max-w-64 space-y-1">
@@ -588,30 +601,43 @@ function DataSourceRow({
   );
 }
 
-function StatusSummary({ domain }: { domain: AdminDataSourceDomain }) {
+function HealthBadge({ domain, issue }: { domain: AdminDataSourceDomain; issue: { label: string; detail: string } | null }) {
+  const state = healthState(domain);
+  const label = issue ? `${state} · ${issue.label}` : state;
+  const title = issue
+    ? `${issue.detail} Raw issue key: ${domain.last_error ?? "unknown_error"}`
+    : undefined;
   return (
-    <div className="space-y-2">
-      <StatusLine label="Configuration" badges={configStates(domain)} />
-      <StatusLine label="Health" badges={[healthState(domain)]} />
-      <StatusLine label="Risk" badges={riskStates(domain)} />
+    <div className="flex max-w-56 flex-wrap gap-1">
+      <Badge label={label} title={title} />
     </div>
   );
 }
 
-function StatusLine({ label, badges }: { label: string; badges: string[] }) {
+function RiskBadges({ domain }: { domain: AdminDataSourceDomain }) {
   return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 flex max-w-64 flex-wrap gap-1">
-        {badges.map((badge) => (
-          <Badge
-            key={badge}
-            label={badge}
-            title={badge === "Add-on risk" ? ADD_ON_RISK_HELP : undefined}
-          />
-        ))}
-      </div>
+    <div className="flex max-w-56 flex-wrap gap-1">
+      {riskStates(domain).map((badge) => (
+        <Badge
+          key={badge}
+          label={badge}
+          title={badge === "Add-on risk" ? ADD_ON_RISK_HELP : undefined}
+        />
+      ))}
     </div>
+  );
+}
+
+function ModeHelpList() {
+  return (
+    <dl className="grid gap-1.5">
+      {MODE_HELP_ITEMS.map(([label, detail]) => (
+        <div key={label} className="grid gap-0.5">
+          <dt className="font-semibold text-slate-100">{label}</dt>
+          <dd className="text-slate-300">{detail}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -779,13 +805,13 @@ function sourceMapGroup(key: string) {
 
 function Badge({ label, title }: { label: string; title?: string }) {
   return (
-    <span title={title} className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase ${badgeClass(label)}`}>
+    <span title={title} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${badgeClass(label)}`}>
       {label}
     </span>
   );
 }
 
-function InfoTooltip({ id, label, description, align = "left" }: { id: string; label: string; description: string; align?: "left" | "right" }) {
+function InfoTooltip({ id, label, description, align = "left" }: { id: string; label: string; description: ReactNode; align?: "left" | "right" }) {
   return (
     <span className="group/header-tip relative inline-flex items-center">
       <button
@@ -807,7 +833,7 @@ function InfoTooltip({ id, label, description, align = "left" }: { id: string; l
   );
 }
 
-function HeaderTooltip({ id, label, description }: { id: string; label: ReactNode; description: string }) {
+function HeaderTooltip({ id, label, description }: { id: string; label: ReactNode; description: ReactNode }) {
   const ariaLabel = typeof label === "string" ? `${label} help` : "Column help";
   return (
     <span className="group/header-tip relative inline-flex max-w-full items-center gap-1.5">
@@ -817,7 +843,7 @@ function HeaderTooltip({ id, label, description }: { id: string; label: ReactNod
   );
 }
 
-function Th({ children, help }: { children: ReactNode; help?: string }) {
+function Th({ children, help }: { children: ReactNode; help?: ReactNode }) {
   const label = typeof children === "string" ? children : "column";
   return (
     <th className="px-3 py-3 font-semibold">
