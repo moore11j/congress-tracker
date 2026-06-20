@@ -129,13 +129,28 @@ const CONGRESS_SOURCE_HIERARCHY =
 
 const CONGRESS_SOURCE_HELP: Record<string, string> = {
   congress_trades:
-    "Aggregate pipeline that combines official House and Senate disclosures into normalized Congress trade events. In shadow mode, this is staged/comparison only and does not power the public feed.",
-  house_disclosures: "Raw official House disclosure discovery and parsing source. Feeds the Walnut Official Congress pipeline.",
-  senate_disclosures: "Raw official Senate disclosure discovery and parsing source. Feeds the Walnut Official Congress pipeline.",
+    "Aggregate output combining House + Senate disclosures into normalized Congress trade events. In shadow mode, this does not power the public feed.",
+  house_disclosures: "Raw official House disclosure discovery and parsing source. Feeds the Walnut Official Congress Pipeline.",
+  senate_disclosures: "Raw official Senate disclosure discovery and parsing source. Feeds the Walnut Official Congress Pipeline.",
 };
 
 const SHADOW_PIPELINE_STATUS_HELP =
   "Configured, but not production. This pipeline is not considered ready until filings discovered, filings parsed, and normalized transactions are greater than zero with acceptable duplicate risk.";
+
+const OFFICIAL_CONGRESS_RELATIONSHIP_HELP =
+  "House disclosures and Senate disclosures are raw official source layers. Walnut Official Congress Pipeline is the aggregate pipeline that combines those sources into normalized Congress trades. In shadow mode, the official pipeline is staged for comparison and does not power public pages yet.";
+
+const ANALYTICS_LAYER_HELP =
+  "Screener, Leaderboards, and Backtesting consume normalized events and cached market/fundamental data. They should not read raw House/Senate/SEC filings directly.";
+
+const PIPELINE_FLOW_ROWS = [
+  "Official House Disclosures + Official Senate Disclosures \u2192 Walnut Official Congress Pipeline \u2192 Normalized Congress Trades \u2192 Unified Event Layer / Walnut Cache \u2192 Feed / Ticker Pages / Member Pages / Signals / Watchlists",
+  "SEC Form 4 Filings \u2192 Walnut Official Insider Pipeline \u2192 Normalized Insider Trades \u2192 Unified Event Layer / Walnut Cache \u2192 Feed / Ticker Pages / Insider Pages / Signals / Watchlists",
+  "FMP Market Data \u2192 Walnut Market Data / Cache Layer \u2192 Local Walnut Cache \u2192 Ticker Pages / Screener / Leaderboards / Backtesting / Gain-Loss / Signal Inputs",
+  "FRED Macro Data \u2192 FRED Macro/Treasury Cache \u2192 Insights Snapshots \u2192 Insights",
+];
+
+const SOURCE_MAP_GROUP_ORDER = ["Market Data", "Official / Alternative Data", "Insights", "Internal / Computed"];
 
 function badgeClass(label: string) {
   const normalized = label.toLowerCase();
@@ -372,6 +387,12 @@ export function DataSourcesReport() {
         <p className="mt-2 text-sm leading-6 text-cyan-50/80">{PROVIDER_SWITCH_SAFETY_HELP}</p>
       </div>
 
+      <PipelineOverview
+        domains={data?.domains ?? []}
+        officialShadowRows={officialShadowRows}
+        secNormalizedRows={secNormalizedRows}
+      />
+
       <div className="mt-5 flex flex-wrap gap-2">
         {(data?.filters ?? ["All", "Safe", "Warning", "Unsafe", "External APIs", "Official Sources", "Cache-only", "Errors", "Stale", "Disabled"]).map((item) => (
           <button
@@ -448,7 +469,9 @@ export function DataSourcesReport() {
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
           <Diagnostics title="Congress Official Pipeline Readiness" rows={data.diagnostics.congress} />
           <Diagnostics title="SEC Form 4 Pipeline Readiness" rows={data.diagnostics.insider} />
-          <DataSourceMap rows={data.current_data_source_map} domains={data.domains} />
+          <div className="xl:col-span-2">
+            <DataSourceMap rows={data.current_data_source_map} domains={data.domains} />
+          </div>
           <Diagnostics title="Production source counts" rows={data.diagnostics.production_source_counts} />
         </div>
       ) : null}
@@ -475,6 +498,167 @@ export function DataSourcesReport() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function PipelineOverview({
+  domains,
+  officialShadowRows,
+  secNormalizedRows,
+}: {
+  domains: AdminDataSourceDomain[];
+  officialShadowRows: number;
+  secNormalizedRows: number;
+}) {
+  const congressMode = domains.find((domain) => domain.domain_key === "congress_trades")?.settings.mode;
+  const insiderMode = domains.find((domain) => domain.domain_key === "insider_trades")?.settings.mode;
+  const hasLoadedStatus = domains.length > 0;
+  const congressNotPopulated = hasLoadedStatus && officialShadowRows === 0;
+  const insiderNotPopulated = hasLoadedStatus && secNormalizedRows === 0;
+
+  return (
+    <div className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-white">Pipeline Overview</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            How raw official sources, licensed data, and Walnut caches flow into product features.
+          </p>
+        </div>
+        <Badge label="Admin map" />
+      </div>
+
+      <p className="mt-3 rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3 text-xs leading-5 text-cyan-50/90">
+        {OFFICIAL_CONGRESS_RELATIONSHIP_HELP}
+      </p>
+
+      <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <PipelineLayer
+          title="Raw Sources"
+          items={[
+            { title: "Official House Disclosures", chips: ["Official Source"] },
+            { title: "Official Senate Disclosures", chips: ["Official Source"] },
+            { title: "SEC Form 4 Filings", chips: ["Official Source"] },
+            { title: "FMP Market Data", chips: ["Licensed Provider"] },
+            { title: "FRED Macro Data", chips: ["Official Source"] },
+          ]}
+        />
+        <PipelineLayer
+          title="Walnut Pipelines"
+          items={[
+            {
+              title: "Walnut Official Congress Pipeline",
+              helper: "Combines House + Senate disclosure sources, then stages, parses, normalizes, and deduplicates Congress trade records.",
+              chips: congressMode === "shadow" ? ["Shadow"] : congressMode ? [modeLabel(congressMode)] : [],
+              emptyNotice: congressNotPopulated,
+            },
+            {
+              title: "Walnut Official Insider Pipeline",
+              helper: "Stages, parses, normalizes, and deduplicates SEC Form 4 insider transaction records.",
+              chips: insiderMode === "shadow" ? ["Shadow"] : insiderMode ? [modeLabel(insiderMode)] : [],
+              emptyNotice: insiderNotPopulated,
+            },
+            {
+              title: "Walnut Market Data / Cache Layer",
+              helper: "Caches licensed market/fundamental data and stores internal computed values.",
+              chips: ["Cache"],
+            },
+            {
+              title: "FRED Macro/Treasury Cache",
+              helper: "Stores macro and treasury observations for Insights.",
+              chips: ["Cache"],
+            },
+          ]}
+        />
+        <PipelineLayer
+          title="Normalized / Cached Outputs"
+          items={[
+            { title: "Normalized Congress Trades", chips: ["Cache"], emptyNotice: congressNotPopulated },
+            { title: "Normalized Insider Trades", chips: ["Cache"], emptyNotice: insiderNotPopulated },
+            { title: "Unified Event Layer / Local Walnut Cache", chips: ["Cache"] },
+            { title: "Insights Snapshots", chips: ["Cache"] },
+            { title: "Screener Caches", chips: ["Cache"] },
+            { title: "Signal Inputs", chips: ["Internal Computed"] },
+            { title: "Gain / Loss Enrichment", chips: ["Internal Computed"] },
+            { title: "Trade Outcomes", chips: ["Internal Computed"] },
+          ]}
+        />
+        <PipelineLayer
+          title="Analytics / Intelligence Layer"
+          helper={ANALYTICS_LAYER_HELP}
+          items={[
+            { title: "Screener", helper: "Filters cached fundamentals, technicals, signal scores, and event activity." },
+            { title: "Leaderboards", helper: "Ranks members and insiders using normalized events, trade outcomes, and simulations." },
+            { title: "Backtesting", helper: "Simulates strategies using historical normalized events and cached EOD prices." },
+            { title: "Signal Scoring", helper: "Computes Walnut's signal and confirmation scores from cached inputs.", chips: ["Internal Computed"] },
+            { title: "Portfolio Simulation", helper: "Models disclosure-lag portfolios and benchmark comparisons.", chips: ["Internal Computed"] },
+          ]}
+        />
+        <PipelineLayer
+          title="Product Surfaces"
+          items={["Feed", "Ticker Pages", "Member Pages", "Insider Pages", "Signals", "Watchlists / Monitoring", "Insights"].map((title) => ({
+            title,
+            chips: ["Product Surface"],
+          }))}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Key flows</div>
+        {PIPELINE_FLOW_ROWS.map((flow) => (
+          <div key={flow} className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-xs leading-5 text-slate-300">
+            <span className="break-words">{flow}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineLayer({
+  title,
+  helper,
+  items,
+}: {
+  title: string;
+  helper?: string;
+  items: Array<{ title: string; helper?: string; chips?: string[]; emptyNotice?: boolean }>;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-white/10 bg-slate-900/60 p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {helper ? <p className="mt-2 text-[11px] leading-4 text-slate-400">{helper}</p> : null}
+      <div className="mt-3 grid gap-2">
+        {items.map((item) => (
+          <PipelineCard key={item.title} {...item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineCard({
+  title,
+  helper,
+  chips = [],
+  emptyNotice = false,
+}: {
+  title: string;
+  helper?: string;
+  chips?: string[];
+  emptyNotice?: boolean;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-white/10 bg-slate-950/50 p-2">
+      <div className="break-words text-xs font-semibold text-slate-100">{title}</div>
+      {chips.length ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {chips.map((chip) => <Badge key={chip} label={chip} />)}
+        </div>
+      ) : null}
+      {helper ? <p className="mt-1 text-[11px] leading-4 text-slate-500">{helper}</p> : null}
+      {emptyNotice ? <p className="mt-1 text-[11px] leading-4 text-amber-100">Configured but not populated yet.</p> : null}
+    </div>
   );
 }
 
@@ -861,46 +1045,73 @@ function DataSourceMap({ rows, domains }: { rows: Record<string, string>; domain
     acc[group] = [...(acc[group] ?? []), key];
     return acc;
   }, {});
+  const groupNames = [
+    ...SOURCE_MAP_GROUP_ORDER,
+    ...Object.keys(groups).filter((group) => !SOURCE_MAP_GROUP_ORDER.includes(group)),
+  ];
 
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
       <h3 className="font-semibold text-white">Current data source map</h3>
-      <div className="mt-3 space-y-4">
-        {Object.entries(groups).map(([group, keys]) => (
-          <div key={group}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group}</div>
-            <div className="mt-2 grid min-w-0 gap-2 md:grid-cols-2">
-              {keys.map((key) => {
-                const domain = domainByKey.get(key);
-                const provider = rows[key] ?? domain?.active_provider ?? "none";
-                return (
-                  <div key={key} className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-3">
-                    <div className="font-semibold text-slate-100">{domain?.data_domain ?? titleLabel(key)}</div>
-                    <div className="mt-1 text-sm text-slate-300">{friendlyLabel(provider, domain?.provider_labels)}</div>
-                    <div className="mt-1 break-words text-[11px] text-slate-500">{key} / {provider}</div>
-                    {domain ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        <Badge label={modeLabel(domain.settings.mode)} title={MODE_HELP[domain.settings.mode]} />
-                        <Badge label={healthState(domain)} />
+      <div className="mt-3 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {groupNames.map((group) => {
+          const keys = groups[group] ?? [];
+          return (
+            <div key={group} className="min-w-0 rounded-lg border border-white/10 bg-slate-900/50 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group}</div>
+              <div className="mt-2 grid min-w-0 gap-2">
+                {keys.length ? (
+                  keys.map((key) => {
+                    const domain = domainByKey.get(key);
+                    const provider = rows[key] ?? domain?.active_provider ?? "none";
+                    const risk = domain ? riskStates(domain)[0] : null;
+                    return (
+                      <div key={key} className="min-w-0 rounded-md border border-white/10 bg-slate-900/60 p-3">
+                        <div className="font-semibold text-slate-100">{domain?.data_domain ?? titleLabel(key)}</div>
+                        <div className="mt-1 text-sm text-slate-300">{friendlyLabel(provider, domain?.provider_labels)}</div>
+                        <div className="mt-1 break-words text-[11px] text-slate-500">{key} / {provider}</div>
+                        {domain ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <Badge label={modeLabel(domain.settings.mode)} title={MODE_HELP[domain.settings.mode]} />
+                            <Badge label={healthState(domain)} />
+                            {risk ? <Badge label={risk} title={risk === "Add-on risk" ? ADD_ON_RISK_HELP : undefined} /> : null}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+                    );
+                  })
+                ) : (
+                  <div className="rounded-md border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-500">No domains configured in this group.</div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 function sourceMapGroup(key: string) {
-  if (key.startsWith("prices_") || ["fundamentals", "ratios", "technicals", "profiles", "earnings", "analyst_estimates", "institutional_13f"].includes(key)) return "Market Data";
-  if (["congress_trades", "house_disclosures", "senate_disclosures", "insider_trades"].includes(key)) return "Alternative Data";
+  if (
+    key.startsWith("prices_")
+    || ["fundamentals", "ratios", "technicals", "profiles", "earnings", "analyst_estimates", "institutional_13f"].includes(key)
+  ) {
+    return "Market Data";
+  }
+  if (["congress_trades", "house_disclosures", "senate_disclosures", "insider_trades", "form4_filings"].includes(key) || key.includes("government_contract")) {
+    return "Official / Alternative Data";
+  }
   if (key.startsWith("insights_")) return "Insights";
-  if (key.startsWith("screener_")) return "Screener";
-  return "Internal/Computed";
+  if (
+    key.startsWith("screener_")
+    || ["pnl_enrichment", "signal_inputs", "confirmation_score", "trade_outcomes", "portfolio_simulation", "backtesting_inputs", "watchlist_alerts"].includes(key)
+    || key.includes("portfolio")
+    || key.includes("backtesting")
+  ) {
+    return "Internal / Computed";
+  }
+  return "Internal / Computed";
 }
 
 function Badge({ label, title }: { label: string; title?: string }) {

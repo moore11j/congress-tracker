@@ -47,22 +47,79 @@ test("admin data sources panel explains shadow readiness and optional history", 
 });
 
 test("admin data sources explains official congress source hierarchy", () => {
-  assert.match(source, /Aggregate pipeline that combines official House and Senate disclosures into normalized Congress trade events\./);
-  assert.match(source, /In shadow mode, this is staged\/comparison only and does not power the public feed\./);
-  assert.match(source, /Raw official House disclosure discovery and parsing source\. Feeds the Walnut Official Congress pipeline\./);
-  assert.match(source, /Raw official Senate disclosure discovery and parsing source\. Feeds the Walnut Official Congress pipeline\./);
+  assert.match(source, /Aggregate output combining House \+ Senate disclosures into normalized Congress trade events\./);
+  assert.match(source, /In shadow mode, this does not power the public feed\./);
+  assert.match(source, /Raw official House disclosure discovery and parsing source\. Feeds the Walnut Official Congress Pipeline\./);
+  assert.match(source, /Raw official Senate disclosure discovery and parsing source\. Feeds the Walnut Official Congress Pipeline\./);
   assert.match(source, /House disclosures \+ Senate disclosures \\u2192 Walnut Official Pipeline \\u2192 normalized Congress trades\./);
+  assert.match(source, /House disclosures and Senate disclosures are raw official source layers/);
   assert.match(source, /Configured, but not production\. This pipeline is not considered ready until filings discovered, filings parsed, and normalized transactions are greater than zero with acceptable duplicate risk\./);
   assert.match(source, /Configured but not populated yet\./);
   assert.match(source, /function isCongressOfficialSourceDomain/);
 });
 
+test("admin data sources pipeline overview includes raw, cache, intelligence, and product layers", () => {
+  assert.match(source, /Pipeline Overview/);
+  assert.match(source, /How raw official sources, licensed data, and Walnut caches flow into product features\./);
+  assert.match(source, /Raw Sources/);
+  assert.match(source, /Official House Disclosures/);
+  assert.match(source, /Official Senate Disclosures/);
+  assert.match(source, /SEC Form 4 Filings/);
+  assert.match(source, /FMP Market Data/);
+  assert.match(source, /FRED Macro Data/);
+  assert.match(source, /Walnut Pipelines/);
+  assert.match(source, /Walnut Official Congress Pipeline/);
+  assert.match(source, /Walnut Official Insider Pipeline/);
+  assert.match(source, /Walnut Market Data \/ Cache Layer/);
+  assert.match(source, /FRED Macro\/Treasury Cache/);
+  assert.match(source, /Normalized \/ Cached Outputs/);
+  assert.match(source, /Normalized Congress Trades/);
+  assert.match(source, /Normalized Insider Trades/);
+  assert.match(source, /Unified Event Layer \/ Local Walnut Cache/);
+  assert.match(source, /Insights Snapshots/);
+  assert.match(source, /Screener Caches/);
+  assert.match(source, /Signal Inputs/);
+  assert.match(source, /Gain \/ Loss Enrichment/);
+  assert.match(source, /Trade Outcomes/);
+  assert.match(source, /Analytics \/ Intelligence Layer/);
+  assert.match(source, /Screener, Leaderboards, and Backtesting consume normalized events and cached market\/fundamental data/);
+  assert.match(source, /They should not read raw House\/Senate\/SEC filings directly\./);
+  assert.match(source, /Portfolio Simulation/);
+  assert.match(source, /Product Surfaces/);
+  assert.match(source, /Watchlists \/ Monitoring/);
+});
+
+test("admin data sources pipeline overview shows required status chips and flows", () => {
+  assert.match(source, /Official Source/);
+  assert.match(source, /Licensed Provider/);
+  assert.match(source, /Shadow/);
+  assert.match(source, /Cache/);
+  assert.match(source, /Internal Computed/);
+  assert.match(source, /Product Surface/);
+  assert.match(source, /Official House Disclosures \+ Official Senate Disclosures \\u2192 Walnut Official Congress Pipeline \\u2192 Normalized Congress Trades/);
+  assert.match(source, /SEC Form 4 Filings \\u2192 Walnut Official Insider Pipeline \\u2192 Normalized Insider Trades/);
+  assert.match(source, /FMP Market Data \\u2192 Walnut Market Data \/ Cache Layer \\u2192 Local Walnut Cache/);
+  assert.match(source, /FRED Macro Data \\u2192 FRED Macro\/Treasury Cache \\u2192 Insights Snapshots \\u2192 Insights/);
+  assert.match(source, /function PipelineOverview/);
+  assert.match(source, /function PipelineLayer/);
+  assert.match(source, /function PipelineCard/);
+});
+
 test("admin data source map is grouped and responsive", () => {
   assert.match(source, /function DataSourceMap/);
   assert.match(source, /md:grid-cols-2/);
+  assert.match(source, /xl:grid-cols-4/);
+  assert.match(source, /xl:col-span-2/);
+  assert.match(source, /SOURCE_MAP_GROUP_ORDER = \["Market Data", "Official \/ Alternative Data", "Insights", "Internal \/ Computed"\]/);
   assert.match(source, /Market Data/);
-  assert.match(source, /Alternative Data/);
-  assert.match(source, /Internal\/Computed/);
+  assert.match(source, /Official \/ Alternative Data/);
+  assert.match(source, /Internal \/ Computed/);
+  assert.match(source, /riskStates\(domain\)\[0\]/);
+  assert.match(source, /form4_filings/);
+  assert.match(source, /government_contract/);
+  assert.match(source, /pnl_enrichment/);
+  assert.match(source, /signal_inputs/);
+  assert.match(source, /watchlist_alerts/);
 });
 
 test("admin data sources column headers include helper text", () => {
