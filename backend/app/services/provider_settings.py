@@ -16,6 +16,8 @@ from app.services.provider_registry import (
     validate_provider_selection,
 )
 
+PROVIDER_VALIDATION_CLEANUP_REASON = "provider_validation_cleanup"
+
 
 def seed_default_provider_settings(db: Session) -> None:
     existing = {
@@ -43,6 +45,51 @@ def seed_default_provider_settings(db: Session) -> None:
             )
         )
     db.flush()
+
+
+def cleanup_invalid_provider_settings(db: Session) -> list[dict[str, Any]]:
+    """Repair unambiguous legacy settings that the stricter registry rejects."""
+    seed_default_provider_settings(db)
+    settings = {
+        row.domain_key: row
+        for row in db.execute(select(ProviderSetting)).scalars().all()
+    }
+    cleaned: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
+    for domain_key in ("house_disclosures", "senate_disclosures"):
+        setting = settings.get(domain_key)
+        if not setting or setting.fallback_provider != "fmp":
+            continue
+        previous_fallback = setting.fallback_provider
+        next_fallback = "walnut_cache" if setting.active_provider != "walnut_cache" else None
+        previous_provider = setting.active_provider
+        previous_mode = setting.mode
+        setting.fallback_provider = next_fallback
+        setting.updated_by = "system"
+        setting.updated_at = now
+        db.add(
+            ProviderSettingAuditLog(
+                domain_key=domain_key,
+                previous_provider=previous_provider,
+                new_provider=setting.active_provider,
+                previous_mode=previous_mode,
+                new_mode=setting.mode,
+                changed_by="system",
+                reason=PROVIDER_VALIDATION_CLEANUP_REASON,
+            )
+        )
+        cleaned.append(
+            {
+                "domain_key": domain_key,
+                "field": "fallback_provider",
+                "previous_value": previous_fallback,
+                "new_value": next_fallback,
+                "reason": PROVIDER_VALIDATION_CLEANUP_REASON,
+            }
+        )
+    if cleaned:
+        db.flush()
+    return cleaned
 
 
 def get_provider_settings_by_domain(db: Session) -> dict[str, ProviderSetting]:

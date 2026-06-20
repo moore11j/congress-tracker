@@ -46,7 +46,7 @@ PROVIDER_HELP_TEXT = {
     "official_senate": "Official Senate disclosure source for Senate-specific discovery and shadow parsing.",
     "walnut_official": "Walnut's official-source aggregate pipeline for staged Congress disclosure ingestion.",
     "walnut_cache": "Local Walnut database/cache used by app routes instead of live external API calls.",
-    "internal_computed": "Internal Walnut-computed data from local tables and background jobs.",
+    "internal_computed": "Computed by Walnut from local stored data. Not an external provider.",
     "disabled": "This data domain is intentionally turned off.",
     "none": "No fallback provider.",
 }
@@ -80,6 +80,10 @@ MARKET_FALLBACKS = ("walnut_cache", "fmp", "none")
 MARKET_MODES = ("primary", "fallback", "disabled")
 CACHE_FMP_PROVIDERS = ("walnut_cache", "fmp", "disabled")
 CACHE_FMP_FALLBACKS = ("fmp", "walnut_cache", "none")
+PNL_ENRICHMENT_PROVIDERS = ("internal_computed", "walnut_cache", "fmp", "disabled")
+PNL_ENRICHMENT_FALLBACKS = ("walnut_cache", "fmp", "none")
+INTERNAL_COMPUTED_PROVIDERS = ("internal_computed", "walnut_cache", "disabled")
+INTERNAL_COMPUTED_FALLBACKS = ("walnut_cache", "none")
 OFFICIAL_MODES = ("shadow", "dry_run", "primary", "disabled")
 INSIGHTS_FRED_PROVIDERS = ("fred", "walnut_cache", "disabled")
 INSIGHTS_FRED_FALLBACKS = ("walnut_cache", "none")
@@ -146,8 +150,8 @@ PROVIDER_DOMAIN_DEFAULTS: tuple[ProviderDomainDefault, ...] = (
     _domain("form4_filings", "SEC Form 4 filings", "sec_edgar", "walnut_cache", "shadow", "public official source", "safe", ("sec_form4_ingest",), "sec_form4_filings", allowed_providers=("sec_edgar", "walnut_cache", "disabled"), allowed_fallbacks=("walnut_cache", "none"), allowed_modes=OFFICIAL_MODES, notes="Raw SEC Form 4 discovery/parsing stays staged until explicitly promoted elsewhere."),
     _domain("senate_disclosures", "Senate disclosures", "official_senate", "walnut_cache", "shadow", "public official source", "safe", ("official_senate_discovery", "ingest_senate"), "congress_disclosure_filings", allowed_providers=("official_senate", "walnut_cache", "disabled"), allowed_fallbacks=("walnut_cache", "none"), allowed_modes=OFFICIAL_MODES),
     _domain("house_disclosures", "House disclosures", "official_house", "walnut_cache", "shadow", "public official source", "safe", ("official_house_discovery", "ingest_house"), "congress_disclosure_filings", allowed_providers=("official_house", "walnut_cache", "disabled"), allowed_fallbacks=("walnut_cache", "none"), allowed_modes=OFFICIAL_MODES),
-    _domain("pnl_enrichment", "PnL enrichment", "walnut_cache", "fmp", "primary", "internal computed", "safe", ("feed_pnl_enrichment", "trade_outcomes"), "trade_outcomes", allowed_providers=CACHE_FMP_PROVIDERS, allowed_fallbacks=CACHE_FMP_FALLBACKS, allowed_modes=MARKET_MODES, notes="PnL uses cached EOD prices; FMP should only be used through background enrichment."),
-    _domain("signal_inputs", "signal scoring inputs", "walnut_cache", None, "primary", "internal computed", "safe", ("confirmation_score", "signal_score"), "events", allowed_providers=("walnut_cache", "disabled"), allowed_fallbacks=("none",), allowed_modes=("primary", "disabled"), notes="Signals should be internal/computed from cached data."),
+    _domain("pnl_enrichment", "PnL enrichment", "internal_computed", "walnut_cache", "primary", "internal computed", "safe", ("feed_pnl_enrichment", "trade_outcomes"), "trade_outcomes", allowed_providers=PNL_ENRICHMENT_PROVIDERS, allowed_fallbacks=PNL_ENRICHMENT_FALLBACKS, allowed_modes=MARKET_MODES, notes="PnL/Gain-Loss is computed by Walnut from cached trades and EOD prices; FMP may supply price inputs but not the final PnL value."),
+    _domain("signal_inputs", "signal scoring inputs", "internal_computed", "walnut_cache", "primary", "internal computed", "safe", ("confirmation_score", "signal_score"), "events", allowed_providers=INTERNAL_COMPUTED_PROVIDERS, allowed_fallbacks=INTERNAL_COMPUTED_FALLBACKS, allowed_modes=("primary", "disabled"), notes="Signals are Walnut-computed from cached/local inputs."),
     _domain("insights_macro", "Insights: US Macro", "fred", "walnut_cache", "primary", "local cache", "safe", ("refresh_fred_macro_cache", "insights_snapshots"), "fred_observations", allowed_providers=INSIGHTS_FRED_PROVIDERS, allowed_fallbacks=INSIGHTS_FRED_FALLBACKS, allowed_modes=("primary", "disabled"), notes="US Macro must come from FRED or the local FRED cache."),
     _domain("insights_treasury", "Insights: Treasury", "fred", "walnut_cache", "primary", "local cache", "safe", ("refresh_fred_macro_cache", "DGS*"), "fred_observations", allowed_providers=INSIGHTS_FRED_PROVIDERS, allowed_fallbacks=INSIGHTS_FRED_FALLBACKS, allowed_modes=("primary", "disabled"), notes="Treasury yields should be FRED/local cache; direct Treasury.gov can be added later."),
     _domain("insights_us_market", "Insights: US market ETF proxies", "walnut_cache", "fmp", "primary", "local cache", "safe", ("SPY price_cache proxy",), "price_cache", allowed_providers=CACHE_FMP_PROVIDERS, allowed_fallbacks=CACHE_FMP_FALLBACKS, allowed_modes=MARKET_MODES, notes="Builder-safe mode uses EOD ETF proxies from cache."),
@@ -191,8 +195,9 @@ def _valid_provider_list(values: tuple[str, ...], *, fallback: bool = False) -> 
 def _provider_error(provider: str | None, domain: ProviderDomainDefault, allowed: tuple[str, ...], *, fallback: bool = False) -> str:
     provider_name = provider_label(provider or "none")
     valid = _valid_provider_list(allowed, fallback=fallback)
-    kind = "fallback providers" if fallback else "providers"
-    return f"{provider_name} cannot be used for {domain.label}. Valid {kind}: {valid}."
+    if fallback:
+        return f"Invalid fallback: {provider_name} is not allowed for {domain.label}. Valid fallback providers: {valid}."
+    return f"Invalid provider: {provider_name} is not allowed for {domain.label}. Valid providers: {valid}."
 
 
 def validate_provider_selection(
@@ -217,7 +222,7 @@ def validate_provider_selection(
         raise ValueError(_provider_error(fallback_key, domain, domain.allowed_fallbacks, fallback=True))
     if mode not in domain.allowed_modes:
         valid_modes = ", ".join(mode.replace("_", "-").title() for mode in domain.allowed_modes)
-        raise ValueError(f"{mode.replace('_', '-').title()} mode cannot be used for {domain.label}. Valid modes: {valid_modes}.")
+        raise ValueError(f"Invalid mode: {mode.replace('_', '-').title()} is not allowed for {domain.label}. Valid modes: {valid_modes}.")
     if (
         is_enabled
         and mode != "disabled"

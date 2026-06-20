@@ -10,7 +10,7 @@ from app.auth import require_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_admin_mutation
 from app.services.data_sources_status import build_data_sources_status, enqueue_admin_data_source_run
-from app.services.provider_settings import provider_setting_payload, update_provider_setting
+from app.services.provider_settings import cleanup_invalid_provider_settings, provider_setting_payload, update_provider_setting
 
 router = APIRouter(tags=["admin-data-sources"])
 
@@ -44,6 +44,8 @@ def _payload_changes(payload: ProviderSettingPatchPayload) -> dict[str, Any]:
 @router.get("/admin/data-sources/status")
 def admin_data_sources_status(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
+    cleanup_invalid_provider_settings(db)
+    db.commit()
     return build_data_sources_status(db)
 
 

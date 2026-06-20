@@ -106,7 +106,10 @@ test("admin data sources dropdowns use backend domain metadata", () => {
   assert.match(source, /domain\.allowed_providers \?\? providerOptions/);
   assert.match(source, /domain\.allowed_fallbacks \?\? \["none", \.\.\.providerOptions\]/);
   assert.match(source, /domain\.allowed_modes \?\? modeOptions/);
-  assert.match(source, /Invalid saved value:/);
+  assert.match(source, /Invalid provider:/);
+  assert.match(source, /Invalid fallback:/);
+  assert.match(source, /Invalid mode:/);
   assert.match(source, /validation_warnings/);
+  assert.match(source, /Provider validation warning/);
   assert.match(source, /Choose a valid provider, fallback, and mode before making other changes/);
 });

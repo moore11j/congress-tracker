@@ -495,7 +495,7 @@ function DataSourceRow({
         {domain.domain_help_text && domain.domain_help_text !== domain.notes ? <div className="mt-2 max-w-64 text-[11px] leading-4 text-slate-500">{domain.domain_help_text}</div> : null}
         {validationWarnings.length ? (
           <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100">
-            <div className="font-semibold uppercase">Invalid saved value</div>
+            <div className="font-semibold uppercase">Provider validation warning</div>
             {validationWarnings.map((warning) => <div key={warning} className="mt-1">{warning}</div>)}
             <div className="mt-1 text-amber-100/70">Choose a valid provider, fallback, and mode before making other changes.</div>
           </div>
@@ -518,7 +518,7 @@ function DataSourceRow({
         >
           {providerSelectOptions.map((provider) => (
             <option key={provider} value={provider} disabled={isInvalidSavedValue(allowedProviders, provider)}>
-              {isInvalidSavedValue(allowedProviders, provider) ? `Invalid saved value: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
+              {isInvalidSavedValue(allowedProviders, provider) ? `Invalid provider: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
             </option>
           ))}
         </select>
@@ -533,7 +533,7 @@ function DataSourceRow({
         >
           {fallbackSelectOptions.map((provider) => (
             <option key={provider} value={provider} disabled={isInvalidSavedValue(allowedFallbacks, provider)}>
-              {isInvalidSavedValue(allowedFallbacks, provider) ? `Invalid saved value: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
+              {isInvalidSavedValue(allowedFallbacks, provider) ? `Invalid fallback: ${optionLabel(provider, providerLabels)}` : optionLabel(provider, providerLabels)}
             </option>
           ))}
         </select>
@@ -553,7 +553,7 @@ function DataSourceRow({
         >
           {modeSelectOptions.map((mode) => (
             <option key={mode} value={mode} disabled={isInvalidSavedValue(allowedModes, mode)}>
-              {isInvalidSavedValue(allowedModes, mode) ? `Invalid saved value: ${modeLabel(mode)}` : modeLabel(mode)}
+              {isInvalidSavedValue(allowedModes, mode) ? `Invalid mode: ${modeLabel(mode)}` : modeLabel(mode)}
             </option>
           ))}
         </select>

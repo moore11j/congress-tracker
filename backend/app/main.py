@@ -225,7 +225,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
-from app.services.provider_settings import seed_default_provider_settings
+from app.services.provider_settings import cleanup_invalid_provider_settings, seed_default_provider_settings
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -2576,6 +2576,7 @@ def _startup_create_tables():
     try:
         seed_plan_config(db)
         seed_default_provider_settings(db)
+        cleanup_invalid_provider_settings(db)
         db.commit()
     finally:
         db.close()

@@ -26,7 +26,7 @@ from app.services.official_congress import (
     promote_congress_shadow_events,
     stage_congress_disclosure_shadow,
 )
-from app.services.provider_settings import get_provider_settings_by_domain
+from app.services.provider_settings import PROVIDER_VALIDATION_CLEANUP_REASON, get_provider_settings_by_domain
 from app.services.sec_form4 import (
     insider_transaction_hash,
     parse_form4_xml,
@@ -139,6 +139,10 @@ def test_provider_settings_defaults_and_admin_crud():
         assert settings["congress_trades"].fallback_provider == "fmp"
         assert settings["congress_trades"].mode == "shadow"
         assert settings["insider_trades"].active_provider == "sec_edgar"
+        assert settings["pnl_enrichment"].active_provider == "internal_computed"
+        assert settings["pnl_enrichment"].fallback_provider == "walnut_cache"
+        assert settings["signal_inputs"].active_provider == "internal_computed"
+        assert settings["signal_inputs"].fallback_provider == "walnut_cache"
 
         admin = _user(db, "admin@example.com", role="admin")
         updated = admin_update_data_source_setting(
@@ -313,12 +317,14 @@ def test_provider_settings_domain_aware_validation_matrix():
             assert exc.value.status_code == 400
             assert expected in str(exc.value.detail)
 
-        assert_bad("prices_eod", "FRED cannot be used for EOD equity prices", active_provider="fred")
-        assert_bad("prices_eod", "SEC EDGAR cannot be used for EOD equity prices", active_provider="sec_edgar")
-        assert_bad("insights_macro", "FMP cannot be used for Insights: US Macro", active_provider="fmp")
-        assert_bad("insider_trades", "Official House Disclosures cannot be used for insider trades / Form 4", active_provider="official_house")
-        assert_bad("house_disclosures", "Official Senate Disclosures cannot be used for House disclosures", active_provider="official_senate")
-        assert_bad("prices_eod", "Shadow mode cannot be used for EOD equity prices", mode="shadow")
+        assert_bad("prices_eod", "FRED is not allowed for EOD equity prices", active_provider="fred")
+        assert_bad("prices_eod", "SEC EDGAR is not allowed for EOD equity prices", active_provider="sec_edgar")
+        assert_bad("insights_macro", "FMP is not allowed for Insights: US Macro", active_provider="fmp")
+        assert_bad("congress_trades", "FRED is not allowed for Congress trades", active_provider="fred")
+        assert_bad("insider_trades", "FRED is not allowed for insider trades / Form 4", active_provider="fred")
+        assert_bad("insider_trades", "Official House Disclosures is not allowed for insider trades / Form 4", active_provider="official_house")
+        assert_bad("house_disclosures", "Official Senate Disclosures is not allowed for House disclosures", active_provider="official_senate")
+        assert_bad("prices_eod", "Shadow is not allowed for EOD equity prices", mode="shadow")
 
         with pytest.raises(HTTPException) as exc:
             patch("unknown_domain", active_provider="fmp")
@@ -334,6 +340,12 @@ def test_provider_settings_domain_aware_validation_matrix():
         assert insider["mode"] == "shadow"
         macro = patch("insights_macro", active_provider="fred", mode="primary", is_enabled=True)
         assert macro["active_provider"] == "fred"
+        pnl = patch("pnl_enrichment", active_provider="internal_computed", fallback_provider="walnut_cache", mode="primary", is_enabled=True)
+        assert pnl["active_provider"] == "internal_computed"
+        assert pnl["fallback_provider"] == "walnut_cache"
+        signal = patch("signal_inputs", active_provider="internal_computed", fallback_provider="walnut_cache", mode="primary", is_enabled=True)
+        assert signal["active_provider"] == "internal_computed"
+        assert signal["fallback_provider"] == "walnut_cache"
         screener = patch("screener_fundamentals", active_provider="walnut_cache", mode="primary", is_enabled=True)
         assert screener["active_provider"] == "walnut_cache"
 
@@ -345,16 +357,18 @@ def test_provider_settings_domain_aware_validation_matrix():
         db.close()
 
 
-def test_data_sources_status_exposes_domain_options_and_invalid_saved_warnings():
+def test_data_sources_status_exposes_domain_options_and_cleans_legacy_disclosure_fallbacks():
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
         settings = get_provider_settings_by_domain(db)
         settings["house_disclosures"].fallback_provider = "fmp"
+        settings["senate_disclosures"].fallback_provider = "fmp"
         db.commit()
 
         payload = admin_data_sources_status(_request_for_user(admin), db)
         rows = {row["domain_key"]: row for row in payload["domains"]}
+        audits = db.execute(select(ProviderSettingAuditLog).where(ProviderSettingAuditLog.reason == PROVIDER_VALIDATION_CLEANUP_REASON)).scalars().all()
 
         assert rows["prices_eod"]["allowed_providers"] == ["fmp", "walnut_cache", "disabled"]
         assert "fred" not in rows["prices_eod"]["allowed_providers"]
@@ -366,9 +380,41 @@ def test_data_sources_status_exposes_domain_options_and_invalid_saved_warnings()
         assert rows["insider_trades"]["allowed_providers"] == ["sec_edgar", "fmp", "walnut_cache", "disabled"]
         assert "official_house" not in rows["insider_trades"]["allowed_providers"]
         assert "official_senate" not in rows["insider_trades"]["allowed_providers"]
-        assert rows["house_disclosures"]["can_save"] is False
-        assert rows["house_disclosures"]["validation_warnings"]
-        assert "FMP cannot be used for House disclosures" in rows["house_disclosures"]["validation_warnings"][0]
+        assert rows["pnl_enrichment"]["active_provider"] == "internal_computed"
+        assert rows["pnl_enrichment"]["fallback_provider"] == "walnut_cache"
+        assert rows["pnl_enrichment"]["allowed_providers"] == ["internal_computed", "walnut_cache", "fmp", "disabled"]
+        assert rows["pnl_enrichment"]["validation_warnings"] == []
+        assert rows["signal_inputs"]["active_provider"] == "internal_computed"
+        assert rows["signal_inputs"]["fallback_provider"] == "walnut_cache"
+        assert rows["signal_inputs"]["allowed_providers"] == ["internal_computed", "walnut_cache", "disabled"]
+        assert rows["signal_inputs"]["validation_warnings"] == []
+        assert rows["house_disclosures"]["fallback_provider"] == "walnut_cache"
+        assert rows["senate_disclosures"]["fallback_provider"] == "walnut_cache"
+        assert rows["house_disclosures"]["can_save"] is True
+        assert rows["senate_disclosures"]["can_save"] is True
+        assert rows["house_disclosures"]["validation_warnings"] == []
+        assert rows["senate_disclosures"]["validation_warnings"] == []
+        assert {audit.domain_key for audit in audits} == {"house_disclosures", "senate_disclosures"}
+        assert {audit.changed_by for audit in audits} == {"system"}
+    finally:
+        db.close()
+
+
+def test_data_sources_status_keeps_field_specific_warnings_for_truly_invalid_saved_values():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        settings = get_provider_settings_by_domain(db)
+        settings["prices_eod"].active_provider = "fred"
+        db.commit()
+
+        payload = admin_data_sources_status(_request_for_user(admin), db)
+        rows = {row["domain_key"]: row for row in payload["domains"]}
+
+        assert rows["prices_eod"]["can_save"] is False
+        assert rows["prices_eod"]["validation_warnings"]
+        assert "Invalid provider: FRED is not allowed for EOD equity prices" in rows["prices_eod"]["validation_warnings"][0]
+        assert "Valid providers: FMP, Local Walnut Cache, Disabled" in rows["prices_eod"]["validation_warnings"][0]
     finally:
         db.close()
 
