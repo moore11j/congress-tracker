@@ -8,13 +8,14 @@ type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const KIND_ORDER: SearchSuggestResult["kind"][] = ["ticker", "member", "insider", "agency"];
+const KIND_ORDER: SearchSuggestResult["kind"][] = ["ticker", "member", "insider", "agency", "event"];
 
 const KIND_LABELS: Record<SearchSuggestResult["kind"], string> = {
   agency: "Departments",
   ticker: "Tickers",
   member: "Members",
   insider: "Insiders",
+  event: "Events",
 };
 
 const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
@@ -22,6 +23,7 @@ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
   ticker: "Ticker",
   member: "Member",
   insider: "Insider",
+  event: "Event",
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {

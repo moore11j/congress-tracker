@@ -17,6 +17,31 @@ def _engine():
     return engine
 
 
+def _patch_ticker_profile_dependencies(monkeypatch, *, meta_by_symbol: dict | None = None, profile_by_symbol: dict | None = None):
+    meta_by_symbol = meta_by_symbol or {}
+    profile_by_symbol = profile_by_symbol or {}
+
+    def fake_meta(_db, symbols, allow_refresh=True):
+        return {
+            str(symbol).strip().upper(): meta_by_symbol.get(str(symbol).strip().upper(), {})
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr("app.main.get_ticker_meta", fake_meta)
+    monkeypatch.setattr(
+        "app.main._company_profile_snapshot_from_fmp",
+        lambda symbol: profile_by_symbol.get(str(symbol).strip().upper(), {}),
+    )
+    monkeypatch.setattr(
+        "app.main._ticker_confirmation_context",
+        lambda db, sym: {
+            "confirmation_score_bundle": {"ticker": sym, "lookback_days": 30, "score": 0, "sources": {}},
+            "options_flow_summary": {"ticker": sym, "status": "unavailable"},
+        },
+    )
+    monkeypatch.setattr("app.main._ticker_technical_indicators", lambda db, sym: {"source": "daily_close_history"})
+
+
 def _insider_event(
     *,
     event_id: int,
@@ -187,6 +212,95 @@ def test_ticker_profile_includes_company_metadata_from_profile_snapshot(monkeypa
     assert profile["ticker"]["industry"] == "Semiconductors"
     assert profile["ticker"]["country"] == "US"
     assert profile["ticker"]["exchange"] == "NASDAQ"
+
+
+def test_ticker_header_asset_uses_stock_when_related_events_are_options(monkeypatch):
+    engine = _engine()
+    _patch_ticker_profile_dependencies(
+        monkeypatch,
+        meta_by_symbol={"NVDA": {"company_name": "NVIDIA Corporation", "exchange": "NASDAQ"}},
+        profile_by_symbol={
+            "NVDA": {
+                "companyName": "NVIDIA Corporation",
+                "sector": "Technology",
+                "industry": "Semiconductors",
+                "country": "US",
+                "exchangeShortName": "NASDAQ",
+            }
+        },
+    )
+
+    with Session(engine) as db:
+        db.add(Security(symbol="NVDA", name="NVIDIA Corporation", asset_class="Stock Option", sector=None))
+        db.add(TickerMeta(symbol="NVDA", company_name="NVIDIA Corporation", exchange="NASDAQ"))
+        db.add(
+            _insider_event(
+                event_id=1,
+                symbol="NVDA",
+                trade_type="a-award",
+                payload={
+                    "symbol": "NVDA",
+                    "asset_class": "stock_option",
+                    "raw": {
+                        "issuerName": "NVIDIA Corporation",
+                        "securityName": "Stock Option (Right to Buy)",
+                        "transactionType": "A-Award",
+                    },
+                },
+            )
+        )
+        db.commit()
+
+        shell_profile = _build_ticker_shell_profile("NVDA", db)
+        full_profile = _build_ticker_profile("NVDA", db)
+
+    assert shell_profile["ticker"]["asset_class"] == "STOCK"
+    assert full_profile["ticker"]["asset_class"] == "STOCK"
+
+
+def test_ticker_header_asset_uses_etf_when_profile_metadata_supports_it():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(TickerMeta(symbol="SPY", company_name="SPDR S&P 500 ETF Trust", exchange="NYSEARCA"))
+        db.add(
+            TickerContentCache(
+                content_type="profile",
+                symbol="SPY",
+                window_key="latest",
+                cache_key="profile:SPY:latest",
+                status="ok",
+                item_count=1,
+                payload_json=json.dumps(
+                    {
+                        "companyName": "SPDR S&P 500 ETF Trust",
+                        "exchangeShortName": "NYSEARCA",
+                        "isEtf": True,
+                    }
+                ),
+                source="fmp",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        profile = _build_ticker_shell_profile("SPY", db)
+
+    assert profile["ticker"]["asset_class"] == "ETF"
+
+
+def test_ticker_header_asset_does_not_show_option_for_unresolved_symbol(monkeypatch):
+    engine = _engine()
+    _patch_ticker_profile_dependencies(monkeypatch)
+
+    with Session(engine) as db:
+        db.add(Security(symbol="ZZZ123", name="Stock Option (Right to Buy)", asset_class="stock_option", sector=None))
+        db.commit()
+
+        profile = _build_ticker_profile("ZZZ123", db)
+
+    assert profile["ticker"]["asset_class"] == "SECURITY"
+    assert profile["ticker"]["asset_class"] != "STOCK OPTION"
 
 
 def test_ticker_profile_uses_metadata_fallback_for_real_symbol_without_security_or_events(monkeypatch):

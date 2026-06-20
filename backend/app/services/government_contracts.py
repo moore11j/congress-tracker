@@ -165,7 +165,7 @@ def get_government_contracts_signals_for_symbols(
             top_agency_amounts[symbol] = amount
             top_agency_by_symbol[symbol] = canonical_department_name(agency) or agency.strip()
 
-    results = {symbol: inactive_government_contracts_summary() for symbol in normalized_symbols}
+    results = {symbol: inactive_government_contracts_summary(lookback_days=lookback_days) for symbol in normalized_symbols}
     for row in summary_rows:
         symbol = normalize_symbol(row.get("symbol"))
         if not symbol:
@@ -189,6 +189,7 @@ def get_government_contracts_signals_for_symbols(
                 contract_count=contract_count,
                 total_award_amount=total_award_amount,
                 active=contract_count > 0,
+                lookback_days=lookback_days,
             ),
             "contract_count": contract_count,
             "total_award_amount": total_award_amount,
@@ -202,6 +203,7 @@ def get_government_contracts_signals_for_symbols(
                 total_award_amount=total_award_amount,
                 top_agency=top_agency,
                 active=contract_count > 0,
+                lookback_days=lookback_days,
             ),
         }
     return results
@@ -336,13 +338,17 @@ def get_government_contracts_for_symbol(
     }
 
 
-def inactive_government_contracts_summary() -> dict[str, Any]:
+def inactive_government_contracts_summary(
+    *,
+    lookback_days: int = DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
+) -> dict[str, Any]:
+    window = _lookback_window_label(lookback_days)
     return {
         "status": "ok",
         "active": False,
         "source": GOVERNMENT_CONTRACTS_SOURCE,
         "label": GOVERNMENT_CONTRACTS_LABEL,
-        "summary": "No contracts above threshold in selected window.",
+        "summary": f"No major government contracts in the {window}.",
         "contract_count": 0,
         "total_award_amount": 0.0,
         "largest_award_amount": None,
@@ -350,7 +356,7 @@ def inactive_government_contracts_summary() -> dict[str, Any]:
         "top_agency": None,
         "direction": "neutral",
         "score_contribution": 0,
-        "detail": "No contracts above threshold in selected window.",
+        "detail": f"No qualifying contracts found in the {window}.",
     }
 
 
@@ -381,6 +387,15 @@ def _government_contract_row_count(db: Session) -> int:
 def _cutoff_date(lookback_days: int) -> date:
     bounded_lookback = max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
     return (datetime.now(timezone.utc) - timedelta(days=bounded_lookback)).date()
+
+
+def _bounded_lookback_days(lookback_days: int) -> int:
+    return max(1, min(int(lookback_days or DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS), 365 * 3))
+
+
+def _lookback_window_label(lookback_days: int) -> str:
+    days = _bounded_lookback_days(lookback_days)
+    return f"last {days} {'Day' if days == 1 else 'Days'}"
 
 
 def _non_negative_float(value: Any) -> float | None:
@@ -440,12 +455,14 @@ def _government_contracts_summary_line(
     contract_count: int,
     total_award_amount: float,
     active: bool,
+    lookback_days: int,
 ) -> str:
+    window = _lookback_window_label(lookback_days)
     if not active or contract_count <= 0:
-        return "No contracts above threshold in selected window."
+        return f"No major government contracts in the {window}."
     return (
         f"Government contracts: {_format_currency_compact(total_award_amount)} "
-        f"across {contract_count} contract{'s' if contract_count != 1 else ''} in the selected window."
+        f"across {contract_count} contract{'s' if contract_count != 1 else ''} in the {window}."
     )
 
 
@@ -455,9 +472,10 @@ def _government_contracts_detail_line(
     total_award_amount: float,
     top_agency: str | None,
     active: bool,
+    lookback_days: int,
 ) -> str:
     if not active or contract_count <= 0:
-        return "No contracts above threshold in selected window."
+        return f"No qualifying contracts found in the {_lookback_window_label(lookback_days)}."
     detail = (
         f"{_format_currency_compact(total_award_amount)} across {contract_count} "
         f"contract{'s' if contract_count != 1 else ''}"

@@ -677,6 +677,288 @@ def ensure_provider_usage_schema(bind=engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events ((lower(member_name)))"))
 
 
+def ensure_provider_control_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
+        id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        bool_type = "BOOLEAN"
+        default_true = "true" if dialect_name != "sqlite" else "1"
+        default_false = "false" if dialect_name != "sqlite" else "0"
+        float_type = "DOUBLE PRECISION" if dialect_name != "sqlite" else "FLOAT"
+
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS provider_settings (
+                    id {id_type},
+                    domain_key TEXT NOT NULL,
+                    active_provider TEXT NOT NULL,
+                    fallback_provider TEXT,
+                    mode TEXT NOT NULL DEFAULT 'primary',
+                    is_enabled {bool_type} NOT NULL DEFAULT {default_true},
+                    allow_external_live_fetch {bool_type} NOT NULL DEFAULT {default_false},
+                    allow_user_route_sync_fetch {bool_type} NOT NULL DEFAULT {default_false},
+                    builder_safe_required {bool_type} NOT NULL DEFAULT {default_true},
+                    notes TEXT,
+                    updated_by TEXT,
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS provider_setting_audit_log (
+                    id {id_type},
+                    domain_key TEXT NOT NULL,
+                    previous_provider TEXT,
+                    new_provider TEXT,
+                    previous_mode TEXT,
+                    new_mode TEXT,
+                    changed_by TEXT,
+                    changed_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    reason TEXT
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS symbol_resolution_overrides (
+                    id {id_type},
+                    domain_key TEXT NOT NULL,
+                    raw_symbol TEXT,
+                    issuer_name TEXT,
+                    normalized_symbol TEXT,
+                    asset_type TEXT,
+                    reason TEXT,
+                    updated_by TEXT,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS congress_disclosure_filings (
+                    id {id_type},
+                    source_provider TEXT NOT NULL,
+                    chamber TEXT,
+                    filing_id TEXT NOT NULL,
+                    source_url TEXT,
+                    document_url TEXT,
+                    document_hash TEXT,
+                    member_name_raw TEXT,
+                    member_id TEXT,
+                    filing_date DATE,
+                    report_type TEXT,
+                    amendment_flag {bool_type} NOT NULL DEFAULT {default_false},
+                    raw_metadata_json TEXT NOT NULL DEFAULT '{{}}',
+                    raw_text_path TEXT,
+                    raw_blob_ref TEXT,
+                    parser_status TEXT NOT NULL DEFAULT 'pending',
+                    parser_version TEXT,
+                    parser_confidence {float_type},
+                    last_parse_error TEXT,
+                    discovered_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    parsed_at {created_at_type},
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS congress_transactions_normalized (
+                    id {id_type},
+                    filing_id TEXT,
+                    disclosure_filing_id INTEGER,
+                    source_provider TEXT NOT NULL,
+                    chamber TEXT,
+                    member_name_raw TEXT,
+                    member_id TEXT,
+                    owner_raw TEXT,
+                    owner_normalized TEXT NOT NULL DEFAULT 'unknown',
+                    transaction_date DATE,
+                    disclosure_date DATE,
+                    ticker_raw TEXT,
+                    ticker_normalized TEXT,
+                    issuer_name_raw TEXT,
+                    security_name_raw TEXT,
+                    asset_type_raw TEXT,
+                    asset_type_normalized TEXT,
+                    transaction_type_raw TEXT,
+                    transaction_type_normalized TEXT,
+                    amount_range_raw TEXT,
+                    amount_low {float_type},
+                    amount_high {float_type},
+                    source_url TEXT,
+                    document_url TEXT,
+                    source_line_ref TEXT,
+                    normalized_hash TEXT NOT NULL,
+                    is_duplicate {bool_type} NOT NULL DEFAULT {default_false},
+                    duplicate_of_id INTEGER,
+                    symbol_resolution_status TEXT NOT NULL DEFAULT 'unresolved',
+                    parser_confidence {float_type},
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS sec_form4_filings (
+                    id {id_type},
+                    accession_number TEXT NOT NULL,
+                    issuer_cik TEXT,
+                    issuer_name TEXT,
+                    issuer_trading_symbol TEXT,
+                    reporting_owner_cik TEXT,
+                    reporting_owner_name TEXT,
+                    filing_date DATE,
+                    source_url TEXT,
+                    xml_url TEXT,
+                    document_hash TEXT,
+                    raw_metadata_json TEXT NOT NULL DEFAULT '{{}}',
+                    raw_xml_path TEXT,
+                    raw_xml_text TEXT,
+                    parser_status TEXT NOT NULL DEFAULT 'pending',
+                    parser_version TEXT,
+                    parser_confidence {float_type},
+                    last_parse_error TEXT,
+                    discovered_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    parsed_at {created_at_type},
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS insider_transactions_normalized (
+                    id {id_type},
+                    form4_filing_id INTEGER,
+                    accession_number TEXT NOT NULL,
+                    issuer_cik TEXT,
+                    issuer_name TEXT,
+                    ticker_raw TEXT,
+                    ticker_normalized TEXT,
+                    reporting_owner_cik TEXT,
+                    reporting_owner_name TEXT,
+                    owner_relationship_json TEXT NOT NULL DEFAULT '{{}}',
+                    officer_title TEXT,
+                    is_director {bool_type} NOT NULL DEFAULT {default_false},
+                    is_officer {bool_type} NOT NULL DEFAULT {default_false},
+                    is_ten_percent_owner {bool_type} NOT NULL DEFAULT {default_false},
+                    transaction_date DATE,
+                    filing_date DATE,
+                    security_title TEXT,
+                    transaction_code TEXT,
+                    transaction_code_description TEXT,
+                    transaction_type_normalized TEXT,
+                    shares {float_type},
+                    price {float_type},
+                    value {float_type},
+                    acquired_disposed TEXT,
+                    shares_owned_following {float_type},
+                    direct_or_indirect TEXT,
+                    ownership_nature TEXT,
+                    is_derivative {bool_type} NOT NULL DEFAULT {default_false},
+                    footnotes_json TEXT NOT NULL DEFAULT '[]',
+                    ten_b5_1_flag {bool_type} NOT NULL DEFAULT {default_false},
+                    normalized_hash TEXT NOT NULL,
+                    is_duplicate {bool_type} NOT NULL DEFAULT {default_false},
+                    duplicate_of_id INTEGER,
+                    parser_confidence {float_type},
+                    created_at {created_at_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {created_at_type} DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+        if dialect_name != "sqlite":
+            table_columns = {
+                "provider_settings": {
+                    "fallback_provider": "TEXT",
+                    "mode": "TEXT NOT NULL DEFAULT 'primary'",
+                    "is_enabled": "BOOLEAN NOT NULL DEFAULT true",
+                    "allow_external_live_fetch": "BOOLEAN NOT NULL DEFAULT false",
+                    "allow_user_route_sync_fetch": "BOOLEAN NOT NULL DEFAULT false",
+                    "builder_safe_required": "BOOLEAN NOT NULL DEFAULT true",
+                    "notes": "TEXT",
+                    "updated_by": "TEXT",
+                    "created_at": "TIMESTAMPTZ DEFAULT now()",
+                    "updated_at": "TIMESTAMPTZ DEFAULT now()",
+                },
+                "events": {
+                    "data_source": "TEXT",
+                    "source_provider": "TEXT",
+                    "source_filing_id": "TEXT",
+                    "source_document_url": "TEXT",
+                    "parser_version": "TEXT",
+                    "provider_priority": "INTEGER",
+                },
+            }
+            for table_name, columns in table_columns.items():
+                for column, spec in columns.items():
+                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column} {spec}"))
+        else:
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+            ).fetchone()
+            if table_exists:
+                existing = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(events)")).fetchall()
+                    if len(row) > 1
+                }
+                for name, column_type in {
+                    "data_source": "TEXT",
+                    "source_provider": "TEXT",
+                    "source_filing_id": "TEXT",
+                    "source_document_url": "TEXT",
+                    "parser_version": "TEXT",
+                    "provider_priority": "INTEGER",
+                }.items():
+                    if name not in existing:
+                        conn.execute(text(f"ALTER TABLE events ADD COLUMN {name} {column_type}"))
+
+        indexes = (
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_provider_settings_domain_key ON provider_settings (domain_key)",
+            "CREATE INDEX IF NOT EXISTS ix_provider_settings_mode ON provider_settings (mode)",
+            "CREATE INDEX IF NOT EXISTS ix_provider_setting_audit_domain_changed ON provider_setting_audit_log (domain_key, changed_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_symbol_resolution_override_lookup ON symbol_resolution_overrides (domain_key, raw_symbol, issuer_name)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_congress_disclosure_source_filing ON congress_disclosure_filings (source_provider, filing_id)",
+            "CREATE INDEX IF NOT EXISTS ix_congress_disclosure_chamber_date ON congress_disclosure_filings (chamber, filing_date)",
+            "CREATE INDEX IF NOT EXISTS ix_congress_disclosure_parser_status ON congress_disclosure_filings (parser_status)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_congress_txn_normalized_hash ON congress_transactions_normalized (normalized_hash)",
+            "CREATE INDEX IF NOT EXISTS ix_congress_txn_symbol_date ON congress_transactions_normalized (ticker_normalized, transaction_date)",
+            "CREATE INDEX IF NOT EXISTS ix_congress_txn_member_date ON congress_transactions_normalized (member_id, transaction_date)",
+            "CREATE INDEX IF NOT EXISTS ix_congress_txn_duplicate ON congress_transactions_normalized (is_duplicate)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_sec_form4_accession ON sec_form4_filings (accession_number)",
+            "CREATE INDEX IF NOT EXISTS ix_sec_form4_issuer_filing_date ON sec_form4_filings (issuer_cik, filing_date)",
+            "CREATE INDEX IF NOT EXISTS ix_sec_form4_parser_status ON sec_form4_filings (parser_status)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_insider_txn_normalized_hash ON insider_transactions_normalized (normalized_hash)",
+            "CREATE INDEX IF NOT EXISTS ix_insider_txn_symbol_date ON insider_transactions_normalized (ticker_normalized, transaction_date)",
+            "CREATE INDEX IF NOT EXISTS ix_insider_txn_owner_date ON insider_transactions_normalized (reporting_owner_cik, transaction_date)",
+            "CREATE INDEX IF NOT EXISTS ix_insider_txn_duplicate ON insider_transactions_normalized (is_duplicate)",
+        )
+        for statement in indexes:
+            conn.execute(text(statement))
+
+
 def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

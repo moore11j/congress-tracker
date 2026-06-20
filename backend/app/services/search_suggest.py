@@ -24,9 +24,10 @@ from app.models import (
     WatchlistItem,
 )
 from app.request_priority import get_request_context
+from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_departments import department_suggestions
 from app.services.ticker_identity import safe_company_identity_candidate
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import normalize_symbol, symbol_variants
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ _personalization_cache: dict[int, tuple[float, SearchPersonalization]] = {}
 _anonymous_suggestion_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
 _anonymous_suggestion_cache_lock = threading.Lock()
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_TICKER_QUERY_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}(?:[./-][A-Z])?$")
 
 
 def normalize_search_query(q: str | None) -> str:
@@ -168,16 +170,148 @@ def _score(
 
 
 def _ticker_item(symbol: str, label: str | None, exchange: str | None, score: float) -> SearchSuggestItem:
-    subtitle_parts = ["Ticker", label, exchange]
+    display_label = label or f"Ticker: {symbol}"
+    subtitle_parts = ["Ticker", label or symbol, exchange]
     return {
         "kind": "ticker",
         "id": symbol,
         "symbol": symbol,
-        "label": label or symbol,
+        "label": display_label,
         "subtitle": " - ".join(part for part in subtitle_parts if part),
         "href": f"/ticker/{symbol}",
         "score": score,
     }
+
+
+def _ticker_query_symbol(query: str | None) -> str | None:
+    raw = (query or "").strip()
+    if not raw or any(ch.isspace() for ch in raw):
+        return None
+    symbol = normalize_symbol(raw)
+    if not symbol or not _TICKER_QUERY_RE.match(symbol):
+        return None
+    return symbol
+
+
+def _lookup_symbols(symbol: str) -> list[str]:
+    variants = symbol_variants(symbol) or [symbol]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for variant in variants:
+        normalized = normalize_symbol(variant)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            ordered.append(normalized)
+    return ordered
+
+
+def _best_variant_row(rows: list[Any], variants: list[str]) -> Any | None:
+    by_symbol = {normalize_symbol(getattr(row, "symbol", None)): row for row in rows}
+    for variant in variants:
+        row = by_symbol.get(variant)
+        if row is not None:
+            return row
+    return rows[0] if rows else None
+
+
+def _exact_ticker_suggestion(db: Session, query: str, personalization: SearchPersonalization | None = None) -> SearchSuggestItem | None:
+    symbol = _ticker_query_symbol(query)
+    if not symbol:
+        return None
+    variants = _lookup_symbols(symbol)
+    if not variants:
+        return None
+
+    metadata_rows = db.execute(
+        select(TickerMeta.symbol, TickerMeta.company_name.label("metadata_name"), TickerMeta.exchange)
+        .where(func.upper(TickerMeta.symbol).in_(variants))
+        .limit(len(variants))
+    ).all()
+    metadata_row = _best_variant_row(metadata_rows, variants)
+    if metadata_row is not None:
+        resolved_symbol = normalize_symbol(metadata_row.symbol) or symbol
+        label = safe_company_identity_candidate(_clean(metadata_row.metadata_name), resolved_symbol)
+        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
+        return _ticker_item(resolved_symbol, label, _clean(metadata_row.exchange), 5000.0 + boost)
+
+    security_rows = db.execute(
+        select(
+            Security.symbol,
+            Security.name.label("security_name"),
+            TickerMeta.company_name.label("metadata_name"),
+            TickerMeta.exchange,
+        )
+        .select_from(Security)
+        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Security.symbol, "")))
+        .where(func.upper(Security.symbol).in_(variants))
+        .limit(len(variants))
+    ).all()
+    security_row = _best_variant_row(security_rows, variants)
+    if security_row is not None:
+        resolved_symbol = normalize_symbol(security_row.symbol) or symbol
+        label = safe_company_identity_candidate(_clean(security_row.metadata_name), resolved_symbol) or safe_company_identity_candidate(
+            _clean(security_row.security_name),
+            resolved_symbol,
+        )
+        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
+        return _ticker_item(resolved_symbol, label, _clean(security_row.exchange), 4700.0 + boost)
+
+    event_rows = db.execute(
+        select(
+            Event.symbol,
+            func.max(Security.name).label("security_name"),
+            func.max(TickerMeta.company_name).label("metadata_name"),
+            func.max(TickerMeta.exchange).label("exchange"),
+            func.count(Event.id).label("activity_count"),
+        )
+        .select_from(Event)
+        .outerjoin(Security, func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .where(func.upper(Event.symbol).in_(variants))
+        .group_by(Event.symbol)
+        .order_by(func.count(Event.id).desc())
+        .limit(len(variants))
+    ).all()
+    event_row = _best_variant_row(event_rows, variants)
+    if event_row is not None:
+        resolved_symbol = normalize_symbol(event_row.symbol) or symbol
+        label = safe_company_identity_candidate(_clean(event_row.metadata_name), resolved_symbol) or safe_company_identity_candidate(
+            _clean(event_row.security_name),
+            resolved_symbol,
+        )
+        boost = (personalization or SearchPersonalization()).symbol_boosts.get(resolved_symbol, 0.0)
+        activity_boost = min(float(getattr(event_row, "activity_count", 0) or 0), 100.0)
+        return _ticker_item(resolved_symbol, label, _clean(event_row.exchange), 4400.0 + activity_boost + boost)
+
+    return None
+
+
+def _enqueue_ticker_search_enrichment(symbol: str) -> None:
+    try:
+        enqueue_data_enrichment_job(
+            job_type="ticker_meta",
+            symbol=symbol,
+            source="search",
+            reason="search_exact_ticker_fallback",
+            priority=20,
+        )
+        enqueue_data_enrichment_job(
+            job_type="profile",
+            symbol=symbol,
+            source="search",
+            reason="search_exact_ticker_fallback",
+            priority=25,
+        )
+    except Exception:
+        logger.exception("search_ticker_enrichment_enqueue_failed symbol=%s", symbol)
+
+
+def _lightweight_ticker_suggestion(query: str) -> SearchSuggestItem | None:
+    symbol = _ticker_query_symbol(query)
+    if not symbol:
+        return None
+    _enqueue_ticker_search_enrichment(symbol)
+    return _ticker_item(symbol, None, None, 3900.0)
 
 
 def _add_boost(boosts: dict[str, float], key: str | None, amount: float) -> None:
@@ -298,6 +432,19 @@ def _ticker_suggestions(db: Session, query: str, limit: int, personalization: Se
     boosted_symbols = sorted(personalization.symbol_boosts)
     candidate_limit = max(limit * 12, 80)
 
+    metadata_rows = db.execute(
+        select(
+            TickerMeta.symbol,
+            TickerMeta.company_name.label("metadata_name"),
+            TickerMeta.exchange,
+        )
+        .where(TickerMeta.symbol.is_not(None))
+        .where(func.length(func.trim(TickerMeta.symbol)) > 0)
+        .where(_candidate_clauses(query, TickerMeta.symbol, [TickerMeta.company_name]))
+        .order_by(func.length(TickerMeta.symbol), func.upper(TickerMeta.symbol))
+        .limit(candidate_limit)
+    ).all()
+
     security_rows = db.execute(
         select(
             Security.symbol,
@@ -349,11 +496,14 @@ def _ticker_suggestions(db: Session, query: str, limit: int, personalization: Se
         ).all()
 
     by_symbol: dict[str, SearchSuggestItem] = {}
-    for row in [*security_rows, *event_rows, *context_rows]:
+    for row in [*metadata_rows, *security_rows, *event_rows, *context_rows]:
         symbol = normalize_symbol(row.symbol)
         if not symbol:
             continue
-        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(_clean(row.security_name), symbol)
+        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(
+            _clean(getattr(row, "security_name", None)),
+            symbol,
+        )
         boost = personalization.symbol_boosts.get(symbol, 0.0)
         score = _score(query, symbol=symbol, label=label, popularity=int(getattr(row, "activity_count", 0) or 0), context_boost=boost)
         if score <= 0:
@@ -501,6 +651,65 @@ def _agency_suggestions(db: Session, query: str, limit: int) -> list[SearchSugge
     return items
 
 
+def _event_suggestions(db: Session, query: str, limit: int) -> list[SearchSuggestItem]:
+    if len(_compact_key(query)) < 3:
+        return []
+    rows = db.execute(
+        select(
+            Event.event_type,
+            Event.symbol,
+            func.max(Security.name).label("security_name"),
+            func.max(TickerMeta.company_name).label("metadata_name"),
+            func.max(TickerMeta.exchange).label("exchange"),
+            func.count(Event.id).label("activity_count"),
+            func.max(func.coalesce(Event.event_date, Event.ts)).label("latest_ts"),
+        )
+        .select_from(Event)
+        .outerjoin(Security, func.upper(func.coalesce(Security.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .outerjoin(TickerMeta, func.upper(func.coalesce(TickerMeta.symbol, "")) == func.upper(func.coalesce(Event.symbol, "")))
+        .where(Event.symbol.is_not(None))
+        .where(func.length(func.trim(Event.symbol)) > 0)
+        .where(_candidate_clauses(query, Event.symbol, [Security.name, TickerMeta.company_name]))
+        .group_by(Event.event_type, Event.symbol)
+        .order_by(func.max(func.coalesce(Event.event_date, Event.ts)).desc(), func.count(Event.id).desc())
+        .limit(max(limit * 4, 24))
+    ).all()
+
+    items: list[SearchSuggestItem] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        symbol = normalize_symbol(row.symbol)
+        event_type = _clean(row.event_type)
+        if not symbol or not event_type:
+            continue
+        key = (event_type, symbol)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = safe_company_identity_candidate(_clean(row.metadata_name), symbol) or safe_company_identity_candidate(
+            _clean(row.security_name),
+            symbol,
+        )
+        score = _score(query, symbol=symbol, label=label, popularity=int(row.activity_count or 0)) - 180.0
+        if score <= 0:
+            continue
+        event_label = event_type.replace("_", " ").title()
+        items.append(
+            {
+                "kind": "event",
+                "id": f"{event_type}:{symbol}",
+                "symbol": symbol,
+                "label": label or f"{symbol} activity",
+                "subtitle": " - ".join(part for part in ["Event", event_label, symbol, _clean(row.exchange)] if part),
+                "href": f"/feed?symbol={symbol}",
+                "score": score,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return sorted(items, key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
+
+
 def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: int | None = None) -> dict[str, Any]:
     started_at = perf_counter()
     query = normalize_search_query(q)
@@ -515,6 +724,26 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
             if cached and now - cached[0] <= ANONYMOUS_SEARCH_CACHE_TTL_SECONDS:
                 return cached[1]
 
+    exact_ticker = _exact_ticker_suggestion(db, query)
+    if exact_ticker is not None:
+        item = {key: value for key, value in exact_ticker.items() if key != "score"}
+        payload = {"items": [item], "results": [item], "query": query}
+        duration_ms = (perf_counter() - started_at) * 1000
+        context = get_request_context() or {}
+        logger.info(
+            "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s exact_ticker=1",
+            duration_ms,
+            len(query),
+            1,
+            context.get("db_query_count"),
+            context.get("db_checkout_count"),
+            context.get("db_checkout_slow_count"),
+        )
+        if user_id is None:
+            with _anonymous_suggestion_cache_lock:
+                _anonymous_suggestion_cache[cache_key] = (perf_counter(), payload)
+        return payload
+
     results: list[SearchSuggestItem] = []
     per_kind_limit = max(bounded_limit, 8)
     personalization = _personalization_for_user(db, user_id)
@@ -523,12 +752,18 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
         lambda: _member_suggestions(db, query, per_kind_limit, personalization),
         lambda: _insider_suggestions(db, query, per_kind_limit, personalization),
         lambda: _agency_suggestions(db, query, per_kind_limit),
+        lambda: _event_suggestions(db, query, per_kind_limit),
     )
     for loader in loaders:
         try:
             results.extend(loader())
         except Exception:
             logger.exception("search_suggest_loader_failed query_length=%s", len(query))
+
+    if not results:
+        lightweight_ticker = _lightweight_ticker_suggestion(query)
+        if lightweight_ticker is not None:
+            results.append(lightweight_ticker)
 
     results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("kind") or ""), str(item.get("label") or "")))
     items = [{key: value for key, value in item.items() if key != "score"} for item in results[:bounded_limit]]

@@ -18,6 +18,7 @@ const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
   ticker: "Tickers",
   member: "Members",
   insider: "Insiders",
+  event: "Events",
 };
 
 const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
@@ -25,6 +26,7 @@ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
   ticker: "Ticker",
   member: "Member",
   insider: "Insider",
+  event: "Event",
 };
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -47,7 +49,7 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
 }
 
 function isSearchSuggestKind(value: unknown): value is SearchSuggestResult["kind"] {
-  return value === "agency" || value === "ticker" || value === "member" || value === "insider";
+  return value === "agency" || value === "ticker" || value === "member" || value === "insider" || value === "event";
 }
 
 function readRecentSearchResults(): SearchSuggestResult[] {
@@ -113,7 +115,7 @@ function prefetchSearchPrefixes(prefixes: string[]) {
 }
 
 function groupedResults(results: SearchSuggestResult[]) {
-  return (["agency", "ticker", "member", "insider"] as const)
+  return (["ticker", "member", "insider", "agency", "event"] as const)
     .map((kind) => ({
       kind,
       items: results.filter((result) => result.kind === kind),

@@ -80,7 +80,7 @@ def build_confirmation_score_context(
 
     if government_availability.get("status") == "ok":
         government_contracts_summaries = {
-            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary())
+            symbol: government_contracts_summaries.get(symbol, inactive_government_contracts_summary(lookback_days=government_lookback))
             for symbol in normalized_symbols
         }
     else:

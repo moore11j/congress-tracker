@@ -37,6 +37,7 @@ from app.db import (
     ensure_house_annual_disclosure_schema,
     ensure_monitoring_alert_columns,
     ensure_page_analytics_schema,
+    ensure_provider_control_schema,
     ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_search_and_insights_schema,
@@ -110,6 +111,7 @@ from app.routers.accounts import router as accounts_router
 from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
 from app.routers.notifications import router as notifications_router
+from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
 from app.routers.events import (
@@ -223,6 +225,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.services.provider_settings import seed_default_provider_settings
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -2561,6 +2564,7 @@ def _startup_create_tables():
     ensure_user_account_billing_schema(engine)
     ensure_page_analytics_schema(engine)
     ensure_provider_usage_schema(engine)
+    ensure_provider_control_schema(engine)
     ensure_data_enrichment_jobs_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
@@ -2570,6 +2574,8 @@ def _startup_create_tables():
     db = SessionLocal()
     try:
         seed_plan_config(db)
+        seed_default_provider_settings(db)
+        db.commit()
     finally:
         db.close()
 
@@ -4352,6 +4358,193 @@ def _ticker_shell_identity_fields(
     }
 
 
+_OPTION_CONTRACT_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
+_STANDARD_LISTED_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:[./-][A-Z])?$")
+_ETF_PROFILE_NAME_RE = re.compile(
+    r"\b(etf|exchange[-\s]+traded fund|mutual fund|index fund|closed[-\s]+end fund)\b",
+    re.IGNORECASE,
+)
+
+_TICKER_HEADER_EQUITY_ASSET_VALUES = {
+    "common_equity",
+    "common_stock",
+    "common_shares",
+    "equity",
+    "equities",
+    "ordinary_shares",
+    "public_equity",
+    "public_stock",
+    "share",
+    "shares",
+    "stock",
+    "stocks",
+}
+_TICKER_HEADER_ETF_ASSET_VALUES = {
+    "closed_end_fund",
+    "etf",
+    "etf_fund",
+    "exchange_traded_fund",
+    "fund",
+    "index_fund",
+    "mutual_fund",
+}
+_TICKER_HEADER_OPTION_ASSET_VALUES = {
+    "option",
+    "options",
+    "stock_option",
+    "stock_options",
+}
+
+
+def _ticker_asset_value_token(value: object) -> str | None:
+    cleaned = _shell_text(value)
+    if not cleaned:
+        return None
+    token = re.sub(r"[^a-z0-9]+", "_", cleaned.lower()).strip("_")
+    return token or None
+
+
+def _ticker_header_asset_label_from_value(value: object) -> str | None:
+    token = _ticker_asset_value_token(value)
+    if not token:
+        return None
+    if token in _TICKER_HEADER_OPTION_ASSET_VALUES or "option" in token:
+        return "OPTION"
+    if (
+        token in _TICKER_HEADER_ETF_ASSET_VALUES
+        or "exchange_traded_fund" in token
+        or token.endswith("_etf")
+        or "_etf_" in f"_{token}_"
+    ):
+        return "ETF"
+    if (
+        token in _TICKER_HEADER_EQUITY_ASSET_VALUES
+        or "common_stock" in token
+        or "common_equity" in token
+        or token.endswith("_stock")
+        or token.endswith("_equity")
+    ):
+        return "STOCK"
+    return None
+
+
+def _ticker_profile_bool(source: dict[str, Any] | None, *keys: str) -> bool:
+    value = _identity_value(source, *keys)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return False
+
+
+def _ticker_profile_source_exists(source: dict[str, Any] | None) -> bool:
+    if not source:
+        return False
+    return any(
+        _shell_text(_identity_value(source, *keys))
+        for keys in (
+            ("company_name", "companyName", "name"),
+            ("exchange", "exchangeShortName", "stockExchange"),
+            ("sector", "industry", "country"),
+        )
+    )
+
+
+def _ticker_header_asset_label_from_profile_source(source: dict[str, Any] | None) -> str | None:
+    if not source:
+        return None
+    if _ticker_profile_bool(source, "isEtf", "isETF", "is_etf", "etf", "isFund", "is_fund"):
+        return "ETF"
+    for keys in (
+        ("asset_class", "assetClass"),
+        ("asset_type", "assetType"),
+        ("security_type", "securityType"),
+        ("instrument_type", "instrumentType"),
+        ("quoteType", "quote_type"),
+        ("type",),
+    ):
+        label = _ticker_header_asset_label_from_value(_identity_value(source, *keys))
+        if label:
+            return label
+    for keys in (("company_name", "companyName", "name"),):
+        name = _shell_text(_identity_value(source, *keys))
+        if name and _ETF_PROFILE_NAME_RE.search(name):
+            return "ETF"
+    return None
+
+
+def _is_option_contract_symbol(symbol: str | None) -> bool:
+    return bool(symbol and _OPTION_CONTRACT_SYMBOL_RE.match(symbol))
+
+
+def _is_standard_listed_ticker(symbol: str | None) -> bool:
+    return bool(symbol and not symbol.startswith("^") and _STANDARD_LISTED_TICKER_RE.match(symbol))
+
+
+def _ticker_fundamentals_identity_source(fundamentals: FundamentalsCache | None) -> dict[str, Any] | None:
+    if fundamentals is None:
+        return None
+    return {
+        "company_name": fundamentals.company_name,
+        "exchange": fundamentals.exchange,
+        "sector": fundamentals.sector,
+        "industry": fundamentals.industry,
+        "country": fundamentals.country,
+    }
+
+
+def _resolve_ticker_header_asset_class(
+    db: Session,
+    symbol: str,
+    *,
+    security: Security | None = None,
+    metadata: dict[str, Any] | None = None,
+    profile_snapshot: dict[str, Any] | None = None,
+    fundamentals: FundamentalsCache | None = None,
+) -> str:
+    sym = normalize_symbol(symbol) or ""
+    option_symbol = _is_option_contract_symbol(sym)
+    security_label = _ticker_header_asset_label_from_value(security.asset_class if security is not None else None)
+    if security_label == "OPTION" and option_symbol:
+        return "OPTION"
+
+    profile_sources = [
+        profile_snapshot or {},
+        metadata or {},
+        _ticker_fundamentals_identity_source(fundamentals),
+        _ticker_content_profile_identity_row(db, sym),
+        *(
+            _optional_identity_row(db, table_name, sym)
+            for table_name in _TICKER_OPTIONAL_IDENTITY_TABLES
+        ),
+    ]
+    profile_label = next(
+        (
+            label
+            for source in profile_sources
+            for label in [_ticker_header_asset_label_from_profile_source(source)]
+            if label and (label != "OPTION" or option_symbol)
+        ),
+        None,
+    )
+    if profile_label == "ETF":
+        return "ETF"
+    if security_label == "ETF":
+        return "ETF"
+    if security_label == "STOCK":
+        return "STOCK"
+    if profile_label == "STOCK":
+        return "STOCK"
+
+    if option_symbol:
+        return "OPTION"
+    if _is_standard_listed_ticker(sym):
+        return "STOCK"
+    return "SECURITY"
+
+
 def _enqueue_ticker_identity_enrichment_if_sparse(
     symbol: str,
     *,
@@ -4410,7 +4603,6 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     quote_snapshot = _ticker_shell_quote_snapshot(db, sym, fundamentals)
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
     ticker_name = _ticker_shell_company_name(db, sym, security=security, meta=meta, fundamentals=fundamentals)
-    asset_class = _shell_text(security.asset_class if security is not None else None) or "Equity"
     identity_fields = _ticker_shell_identity_fields(
         db=db,
         symbol=sym,
@@ -4424,6 +4616,21 @@ def _build_ticker_shell_profile(symbol: str, db: Session) -> dict:
     country = identity_fields["country"]
     exchange = identity_fields["exchange"]
     exchange_short_name = identity_fields["exchange_short_name"]
+    asset_class = _resolve_ticker_header_asset_class(
+        db,
+        sym,
+        security=security,
+        metadata={
+            "company_name": ticker_name,
+            "sector": sector,
+            "industry": industry,
+            "country": country,
+            "exchange": exchange,
+            "exchange_short_name": exchange_short_name,
+        },
+        profile_snapshot=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     _enqueue_ticker_identity_enrichment_if_sparse(sym, sector=sector, industry=industry, country=country)
     metadata_available = bool(ticker_name and ticker_name != sym) or bool(exchange or sector or industry or country)
     quote_available = quote_snapshot["current_price"] is not None
@@ -5068,17 +5275,19 @@ def _ticker_trade_activity_summary(
     freshness_days = max((now - latest_activity.astimezone(timezone.utc)).days, 0) if latest_activity is not None else None
     if event_type == "insider_trade":
         active_title = "Insider activity active"
-        inactive_title = "No recent insider activity"
+        inactive_title = f"No notable insider activity in the last {lookback_days} Days"
         subtitle = f"{buy_count} buys / {sell_count} sells"
+        inactive_subtitle = f"No qualifying insider buys or sells found in the {lookback_days} Day context window."
     else:
         active_title = "Congress trades active"
-        inactive_title = "No recent Congress trades"
+        inactive_title = f"No notable Congress activity in the last {lookback_days} Days"
         subtitle = f"{buy_count} buys / {sell_count} sells"
+        inactive_subtitle = f"No qualifying Congress trades found in the {lookback_days} Day context window."
     return {
         "status": "active" if active else "inactive",
         "direction": direction,
         "title": active_title if active else inactive_title,
-        "subtitle": subtitle if active else f"No matching trades in the last {lookback_days}D.",
+        "subtitle": subtitle if active else inactive_subtitle,
         "buy_count": buy_count,
         "sell_count": sell_count,
         "net_flow": net_flow,
@@ -5104,7 +5313,7 @@ def _normalize_price_volume_context(summary: dict[str, Any]) -> dict[str, Any]:
     title = _shell_text(summary.get("summary")) or (
         "Price and volume active"
         if status == "active"
-        else "No active tape confirmation"
+        else "No strong price/volume signal in the last 30 Days"
         if status == "inactive"
         else "Limited price history"
         if status == "limited"
@@ -5145,8 +5354,8 @@ def _normalize_signals_context(rows: list[dict[str, Any]], latest_score: int | f
         return {
             "status": "inactive",
             "direction": "neutral",
-            "title": "No recent signal activity",
-            "subtitle": f"No signal conviction entries in the last {lookback_days}D.",
+            "title": f"No active signal stack in the last {lookback_days} Days",
+            "subtitle": f"No qualifying signal entries found in the {lookback_days} Day context window.",
             "recent_count": 0,
             "latest_score": None,
             "latest_date": None,
@@ -5194,7 +5403,7 @@ def _normalize_government_contracts_context(summary: dict[str, Any]) -> dict[str
             "status": "inactive",
             "direction": "neutral",
             "title": "No major government contracts",
-            "subtitle": "No contracts above threshold in selected window.",
+            "subtitle": "No qualifying contracts found in the last 30 Days.",
             "contract_count": 0,
             "contract_value": None,
             "latest_date": None,
@@ -7056,8 +7265,24 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
     ticker_name = _resolve_ticker_page_name(db, sym, canonical_profile_name=security.name)
-    ticker_metadata = _resolve_ticker_company_metadata(db, sym, security=security)
+    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
+    fundamentals = _latest_fundamentals_row(db, sym)
+    ticker_metadata = _resolve_ticker_company_metadata(
+        db,
+        sym,
+        security=security,
+        profile_row=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    asset_class = _resolve_ticker_header_asset_class(
+        db,
+        sym,
+        security=security,
+        metadata=ticker_metadata,
+        profile_snapshot=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     identity_status = _ticker_identity_status(
         symbol=sym,
         name=ticker_name,
@@ -7073,7 +7298,7 @@ def _build_ticker_profile(symbol: str, db: Session) -> dict:
         "ticker": {
             "symbol": security.symbol,
             "name": ticker_name,
-            "asset_class": security.asset_class,
+            "asset_class": asset_class,
             **ticker_metadata,
             **limited_history_metadata,
             "identity_status": identity_status,
@@ -7170,10 +7395,16 @@ def _resolve_ticker_company_metadata(
     sym: str,
     *,
     security: Security | None = None,
+    profile_row: dict[str, Any] | None = None,
+    fundamentals: FundamentalsCache | None = None,
 ) -> dict[str, str | None]:
     metadata = get_ticker_meta(db, [sym], allow_refresh=False).get(sym) or {}
-    profile_row = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
-    fundamentals = _latest_fundamentals_row(db, sym)
+    profile_row = (
+        profile_row
+        if profile_row is not None
+        else (_cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym))
+    )
+    fundamentals = fundamentals if fundamentals is not None else _latest_fundamentals_row(db, sym)
 
     return {
         "sector": _clean_ticker_metadata_text(metadata.get("sector"))
@@ -7232,8 +7463,22 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
     confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
-    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
+    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
+    fundamentals = _latest_fundamentals_row(db, sym)
+    ticker_metadata = _resolve_ticker_company_metadata(
+        db,
+        sym,
+        profile_row=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    asset_class = _resolve_ticker_header_asset_class(
+        db,
+        sym,
+        metadata=ticker_metadata,
+        profile_snapshot=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     identity_status = _ticker_identity_status(
         symbol=sym,
         name=name,
@@ -7249,7 +7494,7 @@ def _build_ticker_fallback_profile(sym: str, db: Session) -> dict | None:
         "ticker": {
             "symbol": sym,
             "name": name,
-            "asset_class": "Equity",
+            "asset_class": asset_class,
             **ticker_metadata,
             **limited_history_metadata,
             "identity_status": identity_status,
@@ -7274,8 +7519,22 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
     confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
     signal_freshness = build_signal_freshness_bundle(sym, confirmation_score_bundle, lookback_days=30)
     technical_indicators = _ticker_technical_indicators(db, sym)
-    ticker_metadata = _resolve_ticker_company_metadata(db, sym)
+    profile_snapshot = _cached_profile_snapshot_if_available(sym) or _company_profile_snapshot_from_fmp(sym)
+    fundamentals = _latest_fundamentals_row(db, sym)
+    ticker_metadata = _resolve_ticker_company_metadata(
+        db,
+        sym,
+        profile_row=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     limited_history_metadata = _ticker_limited_history_metadata(db, sym)
+    asset_class = _resolve_ticker_header_asset_class(
+        db,
+        sym,
+        metadata=ticker_metadata,
+        profile_snapshot=profile_snapshot,
+        fundamentals=fundamentals,
+    )
     identity_status = _ticker_identity_status(
         symbol=sym,
         name=company_name,
@@ -7291,7 +7550,7 @@ def _build_ticker_metadata_only_profile(sym: str, db: Session) -> dict | None:
         "ticker": {
             "symbol": sym,
             "name": company_name,
-            "asset_class": "Equity",
+            "asset_class": asset_class,
             **ticker_metadata,
             **limited_history_metadata,
             "identity_status": identity_status,
@@ -8363,4 +8622,5 @@ app.include_router(backtests_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
+app.include_router(admin_data_sources_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")
