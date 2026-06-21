@@ -478,6 +478,7 @@ def test_ticker_context_source_entitlements_match_required_plan_model():
     free = main_module._ticker_context_source_entitlements(ENTITLEMENTS["free"])
     premium = main_module._ticker_context_source_entitlements(ENTITLEMENTS["premium"])
     pro = main_module._ticker_context_source_entitlements(ENTITLEMENTS["pro"])
+    admin = main_module._ticker_context_source_entitlements(ENTITLEMENTS["admin"])
 
     for public_source in ("price_volume", "insiders", "congress", "government_contracts"):
         assert logged_out[public_source]["locked"] is False
@@ -488,22 +489,61 @@ def test_ticker_context_source_entitlements_match_required_plan_model():
         assert premium[public_source]["required_plan"] is None
         assert pro[public_source]["locked"] is False
         assert pro[public_source]["required_plan"] is None
+        assert admin[public_source]["locked"] is False
+        assert admin[public_source]["required_plan"] is None
 
     assert logged_out["signals"]["required_plan"] == "premium"
     assert logged_out["signals"]["locked"] is True
     assert free["signals"]["locked"] is True
     assert premium["signals"]["locked"] is False
     assert pro["signals"]["locked"] is False
+    assert admin["signals"]["locked"] is False
     assert logged_out["institutional_activity"]["required_plan"] == "pro"
     assert logged_out["institutional_activity"]["locked"] is True
     assert free["institutional_activity"]["locked"] is True
     assert premium["institutional_activity"]["locked"] is True
     assert pro["institutional_activity"]["locked"] is False
+    assert admin["institutional_activity"]["locked"] is False
     assert logged_out["options_flow"]["required_plan"] == "pro"
     assert logged_out["options_flow"]["locked"] is True
     assert free["options_flow"]["locked"] is True
     assert premium["options_flow"]["locked"] is True
     assert pro["options_flow"]["locked"] is False
+    assert admin["options_flow"]["locked"] is False
+
+
+def test_ticker_signals_summary_admin_does_not_lock_paid_sources(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="admin")
+    full_bundle = _full_source_confirmation_bundle("AAPL")
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+    source_entitlements = response["source_entitlements"]
+    bundle = response["confirmation_score_bundle"]
+
+    assert source_entitlements["signals"]["lock_state"] == "available"
+    assert source_entitlements["options_flow"]["lock_state"] == "available"
+    assert source_entitlements["institutional_activity"]["lock_state"] == "available"
+    assert bundle["sources"]["signals"].get("locked") is not True
+    assert bundle["sources"]["options_flow"].get("locked") is not True
+    assert bundle["sources"]["institutional_activity"].get("locked") is not True
+    assert bundle["sources"]["signals"]["present"] is True
+    assert bundle["sources"]["options_flow"]["present"] is True
+    assert bundle["sources"]["institutional_activity"]["present"] is True
+    assert "signals" in bundle["active_sources"]
+    assert "options_flow" in bundle["active_sources"]
+    assert "institutional_activity" in bundle["active_sources"]
+    assert bundle["score"] == full_bundle["score"]
 
 
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):

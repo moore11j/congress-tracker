@@ -12,6 +12,7 @@ from app.main import (
     WatchlistPayload,
     add_to_watchlist,
     create_watchlist,
+    get_entitlements,
     refresh_watchlist_confirmation_monitoring_endpoint,
 )
 from app.models import (
@@ -63,8 +64,8 @@ def _request(tier: str | None = None) -> Request:
     return Request({"type": "http", "method": "POST", "path": "/", "headers": headers})
 
 
-def _user(db, email: str, *, tier: str = "free") -> UserAccount:
-    user = UserAccount(email=email, role="user", entitlement_tier=tier)
+def _user(db, email: str, *, tier: str = "free", role: str = "user") -> UserAccount:
+    user = UserAccount(email=email, role=role, entitlement_tier=tier)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -134,6 +135,35 @@ def test_options_flow_and_institutional_activity_are_pro_only_even_if_gates_drif
         for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
             assert gates[feature] == "pro"
             assert config[feature] == "pro"
+    finally:
+        db.close()
+
+
+def test_admin_entitlements_include_all_paid_feature_sources():
+    db = _session()
+    try:
+        admin = _user(db, "admin-entitlements@example.com", tier="free", role="admin")
+
+        entitlements = entitlements_for_user(db, admin)
+        payload = get_entitlements(_request_for_user(admin), db)
+
+        assert entitlements.tier == "admin"
+        assert payload["tier"] == "admin"
+        assert payload["effective_tier"] == "admin"
+        assert payload["is_admin"] is True
+        for feature in (
+            "signals",
+            "backtesting",
+            "screener_intelligence",
+            "options_flow_feed",
+            "options_flow_filters",
+            "institutional_feed",
+            "institutional_filters",
+            "screener_monitoring",
+        ):
+            assert entitlements.has_feature(feature) is True
+            assert feature in payload["features"]
+            assert int(payload["limits"][feature]) >= 1
     finally:
         db.close()
 

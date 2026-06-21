@@ -1012,10 +1012,16 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
 
 def entitlements_for_user(db: Session | None, user: UserAccount) -> TierEntitlements:
     tier = effective_user_tier(user)
+    limits = _limits_for_tier(db, "pro" if is_admin_user(user) else tier)
+    if is_admin_user(user):
+        limits = {
+            feature: 1 if int(value or 0) <= 1 else max(int(value or 0), 1_000_000)
+            for feature, value in limits.items()
+        }
     return TierEntitlements(
         tier=tier,
         rank=ENTITLEMENTS[tier].rank,
-        limits=_limits_for_tier(db, tier),
+        limits=limits,
         features=_features_for_tier(db, tier, is_admin=is_admin_user(user)),
     )
 
@@ -1061,6 +1067,8 @@ def current_entitlements(request: Request, db: Session | None = None) -> TierEnt
 def entitlement_payload(entitlements: TierEntitlements, *, user: UserAccount | None = None) -> dict[str, Any]:
     return {
         "tier": entitlements.tier,
+        "effective_tier": entitlements.tier,
+        "is_admin": is_admin_user(user),
         "limits": entitlements.limits,
         "features": sorted(entitlements.features),
         "upgrade_url": "/pricing",

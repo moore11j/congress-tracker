@@ -30,6 +30,8 @@ export type EntitlementFeature =
 
 export type Entitlements = {
   tier: EntitlementTier;
+  effective_tier?: EntitlementTier;
+  is_admin?: boolean;
   limits: Record<EntitlementFeature, number>;
   features: EntitlementFeature[];
   upgrade_url: string;
@@ -197,12 +199,12 @@ export const proEntitlements: Entitlements = {
 };
 
 export function hasEntitlement(entitlements: Entitlements, feature: EntitlementFeature) {
-  if (entitlements.tier === "admin" || entitlements.user?.is_admin) return true;
+  if (entitlements.tier === "admin" || entitlements.effective_tier === "admin" || entitlements.is_admin || entitlements.user?.is_admin) return true;
   return entitlements.features.includes(feature);
 }
 
 export function limitFor(entitlements: Entitlements, feature: EntitlementFeature) {
-  if (entitlements.tier === "admin" || entitlements.user?.is_admin) {
+  if (entitlements.tier === "admin" || entitlements.effective_tier === "admin" || entitlements.is_admin || entitlements.user?.is_admin) {
     return Math.max(entitlements.limits[feature] ?? 0, proEntitlements.limits[feature] ?? 1);
   }
   return entitlements.limits[feature];

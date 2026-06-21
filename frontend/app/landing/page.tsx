@@ -6,6 +6,7 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
 const landingTitle = "Walnut Markets | Market Intelligence from Political Trades and Insider Activity";

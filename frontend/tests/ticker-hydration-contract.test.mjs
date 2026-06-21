@@ -99,7 +99,8 @@ test("ticker context gates source cards instead of the whole context request", (
 test("logged out ticker context keeps public sources visible and paid sources locked", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
-  assert.match(tickerPage, /tickerContextSourceEntitlements\(entitlements, Boolean\(authToken\)\)/);
+  assert.match(tickerPage, /const hasAuthForEntitlementDisplay = Boolean\(authToken \|\| authState\.hasAuthHint\)/);
+  assert.match(tickerPage, /tickerContextSourceEntitlements\(entitlements, hasAuthForEntitlementDisplay\)/);
   assert.match(tickerPage, /insiders: meta\("insiders", null, false\)/);
   assert.match(tickerPage, /congress: meta\("congress", null, false\)/);
   assert.match(tickerPage, /government_contracts: meta\("government_contracts", null, false\)/);

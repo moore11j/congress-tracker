@@ -39,8 +39,8 @@ def _request(tier: str | None = None) -> Request:
     return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
 
 
-def _user(db: Session, email: str, *, tier: str = "free") -> UserAccount:
-    user = UserAccount(email=email, role="user", entitlement_tier=tier)
+def _user(db: Session, email: str, *, tier: str = "free", role: str = "user") -> UserAccount:
+    user = UserAccount(email=email, role=role, entitlement_tier=tier)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -305,6 +305,42 @@ def test_pro_screener_returns_institutional_activity_when_provider_data_exists(m
         assert "institutional_activity_locked" not in row
         assert response["overlay_availability"]["institutional_activity"]["status"] == "ok"
         assert response["overlay_availability"]["institutional_activity"]["filterable"] is True
+    finally:
+        db.close()
+
+
+def test_admin_screener_returns_signal_options_and_institutional_overlays(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    _install_overlay_screener_fixtures(monkeypatch)
+    db = _session()
+    try:
+        admin = _user(db, "admin-screener@example.com", tier="free", role="admin")
+
+        response = stock_screener(
+            request=_request_for_user(admin),
+            db=db,
+            page_size=5,
+            confirmation_score_min=1,
+            options_flow_active=True,
+            options_flow_min_score=50,
+            institutional_activity_active=True,
+            institutional_activity_min_value=1,
+        )
+        row = response["items"][0]
+
+        assert response["access"]["tier"] == "admin"
+        assert response["access"]["intelligence_locked"] is False
+        assert response["access"]["options_flow_locked"] is False
+        assert response["access"]["institutional_activity_locked"] is False
+        assert response["overlay_availability"]["options_flow"]["status"] == "ok"
+        assert response["overlay_availability"]["institutional_activity"]["status"] == "ok"
+        assert row["confirmation"]["score"] > 0
+        assert row["options_flow_status"] == "ok"
+        assert row["options_flow_active"] is True
+        assert row["institutional_activity_status"] == "ok"
+        assert row["institutional_activity_active"] is True
+        assert "options_flow_locked" not in row
+        assert "institutional_activity_locked" not in row
     finally:
         db.close()
 

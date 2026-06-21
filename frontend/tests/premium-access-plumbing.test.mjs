@@ -17,6 +17,8 @@ const leaderboardResultsClient = read("components/leaderboards/CongressTraderLea
 const entitlements = read("lib/entitlements.ts");
 const api = read("lib/api.ts");
 const serverAuth = read("lib/serverAuth.ts");
+const entitlementHintRefresh = read("components/auth/EntitlementHintRefresh.tsx");
+const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
 test("signals page preserves the full filter and saved-view surface", () => {
   assert.match(signalsPage, /Mode/);
@@ -206,12 +208,27 @@ test("backtesting workbench preserves full workflow controls", () => {
 });
 
 test("admin entitlement and cross-site tier hint plumbing stay non-secret", () => {
-  assert.match(entitlements, /entitlements\.tier === "admin" \|\| entitlements\.user\?\.is_admin/);
+  assert.match(entitlements, /entitlements\.tier === "admin"/);
+  assert.match(entitlements, /entitlements\.user\?\.is_admin/);
+  assert.match(entitlements, /effective_tier\?: EntitlementTier/);
+  assert.match(entitlements, /entitlements\.effective_tier === "admin"/);
+  assert.match(entitlements, /entitlements\.is_admin/);
   assert.match(api, /entitlementHintCookieName = "ct_entitlement_hint"/);
   assert.match(api, /window\.localStorage\.setItem\(entitlementTierStorageKey, tier\)/);
   assert.match(serverAuth, /entitlementHintCookieName/);
   assert.doesNotMatch(api, /document\.cookie = `\$\{backendSessionCookieName\}=\$\{token\}/);
   assert.doesNotMatch(api, /ct_session=\$\{token\}/);
+});
+
+test("admin cross-site auth hint refresh repairs stale free SSR paint", () => {
+  assert.match(entitlementHintRefresh, /getMe\(\{ force: true, source: "EntitlementHintRefresh" \}\)/);
+  assert.match(entitlementHintRefresh, /response\.user\.is_admin && renderedTier !== "admin"/);
+  assert.match(entitlementHintRefresh, /window\.location\.reload\(\)/);
+  assert.match(screenerPage, /<EntitlementHintRefresh enabled=\{!authToken && authState\.entitlementHint != null\} renderedTier=\{entitlements\.tier\} \/>/);
+  assert.match(tickerPage, /<EntitlementHintRefresh enabled=\{!authToken && authState\.hasAuthHint\} renderedTier=\{entitlements\?\.tier \?\? null\} \/>/);
+  assert.match(tickerPage, /const hasAuthForEntitlementDisplay = Boolean\(authToken \|\| authState\.hasAuthHint\)/);
+  assert.match(tickerPage, /preferFallbackSourceEntitlements=\{!authToken && authState\.hasAuthHint\}/);
+  assert.match(tickerPage, /preferFallbackSourceEntitlements \? fallbackSourceEntitlements : activitySourceEntitlements \?\? fallbackSourceEntitlements/);
 });
 
 test("leaderboard renders clean protected errors instead of raw ApiError bodies", () => {

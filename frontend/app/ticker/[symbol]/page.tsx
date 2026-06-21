@@ -5,6 +5,7 @@ import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
@@ -2278,6 +2279,7 @@ async function DeferredTickerContent({
   signalFreshness,
   technicalIndicators,
   fallbackSourceEntitlements,
+  preferFallbackSourceEntitlements,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -2291,6 +2293,7 @@ async function DeferredTickerContent({
   signalFreshness: SignalFreshnessBundle | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
   fallbackSourceEntitlements: TickerSourceEntitlements;
+  preferFallbackSourceEntitlements: boolean;
 }) {
   const {
     events,
@@ -2350,7 +2353,7 @@ async function DeferredTickerContent({
     confirmationBundle.lookback_days || effectiveLookbackDays,
   );
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
-  const sourceEntitlements = activitySourceEntitlements ?? fallbackSourceEntitlements;
+  const sourceEntitlements = preferFallbackSourceEntitlements ? fallbackSourceEntitlements : activitySourceEntitlements ?? fallbackSourceEntitlements;
   const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
   const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
   const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
@@ -3107,11 +3110,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
   const shellFallbackMessage = profileResult.fallbackMessage;
 
-  const shouldLoadSignalActivity = source === "all" || source === "signals";
-  const signalActivityAuthPending = shouldLoadSignalActivity && !authToken && authState.hasAuthHint;
-  const canViewSignalActivity = authToken ? canUseSignalActivity(entitlements) : false;
-  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, Boolean(authToken));
-  const signalGateState = !shouldLoadSignalActivity || signalActivityAuthPending
+  const shouldLoadSignals = source === "all" || source === "signals";
+  const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
+  const hasAuthForEntitlementDisplay = Boolean(authToken || authState.hasAuthHint);
+  const canViewSignalActivity = hasAuthForEntitlementDisplay ? canUseSignalActivity(entitlements) : false;
+  const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
+  const signalGateState = !shouldLoadSignals || signalActivityAuthPending
     ? null
     : !authToken
       ? signalGateForUnauthenticatedUser()
@@ -3237,6 +3241,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   return (
     <div className="space-y-6">
+      <EntitlementHintRefresh enabled={!authToken && authState.hasAuthHint} renderedTier={entitlements?.tier ?? null} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
@@ -3280,6 +3285,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           signalFreshness={profile.signal_freshness}
           technicalIndicators={profile.technical_indicators}
           fallbackSourceEntitlements={fallbackSourceEntitlements}
+          preferFallbackSourceEntitlements={!authToken && authState.hasAuthHint}
         />
       </Suspense>
     </div>

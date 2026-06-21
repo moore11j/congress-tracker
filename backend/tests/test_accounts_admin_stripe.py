@@ -1307,6 +1307,30 @@ def test_normal_user_serializers_exclude_admin_and_stripe_identifiers():
         db.close()
 
 
+def test_auth_me_returns_admin_effective_entitlements_without_sensitive_fields():
+    db = _session()
+    try:
+        admin = _user(db, "admin-me@example.com", role="admin", tier="free")
+        admin.stripe_customer_id = "cus_secret"
+        admin.stripe_subscription_id = "sub_secret"
+        db.commit()
+
+        payload = me(_request_for_user(admin), db)
+
+        assert payload["user"]["is_admin"] is True
+        assert payload["user"]["role"] == "admin"
+        assert payload["entitlements"]["tier"] == "admin"
+        assert payload["entitlements"]["effective_tier"] == "admin"
+        assert payload["entitlements"]["is_admin"] is True
+        assert "signals" in payload["entitlements"]["features"]
+        assert "options_flow_feed" in payload["entitlements"]["features"]
+        assert "institutional_feed" in payload["entitlements"]["features"]
+        assert "stripe_customer_id" not in payload["user"]
+        assert "stripe_subscription_id" not in payload["user"]
+    finally:
+        db.close()
+
+
 def test_password_policy_is_consistent_for_register_reset_and_change(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("CT_ALLOW_INSECURE_RESET_LINK_RESPONSE", "1")

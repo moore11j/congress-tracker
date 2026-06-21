@@ -3,6 +3,7 @@ import { ClickableScreenerRow } from "@/components/screener/ClickableScreenerRow
 import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilterSection";
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
 import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
+import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
 import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClient";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
@@ -854,6 +855,7 @@ export default async function ScreenerPage({
 
   return (
     <div className="space-y-8">
+      <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
       <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
