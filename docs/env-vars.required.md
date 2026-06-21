@@ -38,6 +38,11 @@ Required for production runtime:
 | `EMAIL_REPLY_TO` | Canonical fallback reply-to | Fallback only when template reply-to is blank. |
 | `EMAIL_DIGEST_SCHEDULE_ENABLED` | Enables scheduled digest cron sends | Required only if scheduled sends should run. |
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
+| `OPENAI_API_KEY` | AI Outreach suggestion generation | Server-side only. Required to generate suggested replies. |
+| `AI_MARKETING_MODEL` | AI Outreach model override | Optional; defaults to `gpt-5.4-mini`. |
+| `REDDIT_CLIENT_ID` | Reddit official API OAuth client ID | Required only for AI Outreach Reddit discovery. |
+| `REDDIT_CLIENT_SECRET` | Reddit official API OAuth client secret | Required only for AI Outreach Reddit discovery. |
+| `REDDIT_USER_AGENT` | Reddit official API user agent | Required only for AI Outreach Reddit discovery. |
 | `STRIPE_SECRET_KEY` | Stripe API access | Required for checkout, portal, admin sync. |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook verification | Required for webhook sync. |
 | `STRIPE_PRICE_ID_PREMIUM_MONTHLY` | Premium monthly price | Canonical price var. |

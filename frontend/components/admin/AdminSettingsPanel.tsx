@@ -23,9 +23,10 @@ import { PageAnalyticsReport } from "@/components/admin/PageAnalyticsReport";
 import { ProviderUsageReport } from "@/components/admin/ProviderUsageReport";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { DataSourcesReport } from "@/components/admin/DataSourcesReport";
+import { AdminAiMarketingView } from "@/components/admin/AdminAiMarketingView";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
-type AdminTab = "settings" | "data_sources" | "reports" | "email" | "users";
+type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "users";
 
 const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
   {
@@ -47,6 +48,11 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
     key: "email",
     label: "Email",
     description: "Templates, previews, test sends, and recent delivery logs.",
+  },
+  {
+    key: "ai_marketing",
+    label: "AI Outreach",
+    description: "Find relevant investing conversations, draft reviewed replies, and send founder digests.",
   },
   {
     key: "users",
@@ -153,8 +159,8 @@ function adminLoadStatus(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load admin panel.";
 }
 
-export function AdminSettingsPanel() {
-  const [activeTab, setActiveTab] = useState<AdminTab>("settings");
+export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: AdminTab } = {}) {
+  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const { toast, showToast, clearToast } = useAdminToast();
@@ -904,6 +910,10 @@ export function AdminSettingsPanel() {
 
       {activeTab === "email" ? (
         <AdminEmailTemplatesView showToast={showToast} />
+      ) : null}
+
+      {activeTab === "ai_marketing" ? (
+        <AdminAiMarketingView showToast={showToast} />
       ) : null}
 
       {activeTab === "users" ? (

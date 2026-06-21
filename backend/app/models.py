@@ -409,6 +409,134 @@ class EmailDelivery(Base):
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AiMarketingCampaign(Base):
+    __tablename__ = "ai_marketing_campaigns"
+    __table_args__ = (
+        Index("ix_ai_marketing_campaigns_enabled", "enabled"),
+        Index("ix_ai_marketing_campaigns_mode", "mode"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    platforms_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    keywords_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    tickers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    subreddits_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    minimum_relevance_score: Mapped[int] = mapped_column(default=60, server_default=text("60"), nullable=False)
+    max_items_per_run: Mapped[int] = mapped_column(default=10, server_default=text("10"), nullable=False)
+    default_destination_page: Mapped[str] = mapped_column(Text, default="https://walnutmarkets.com", server_default="https://walnutmarkets.com", nullable=False)
+    include_disclosure: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
+    scheduled_digest_enabled: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AiMarketingSetting(Base):
+    __tablename__ = "ai_marketing_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_secret: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AiMarketingOpportunity(Base):
+    __tablename__ = "ai_marketing_opportunities"
+    __table_args__ = (
+        UniqueConstraint("platform", "source_dedupe_key", name="uq_ai_marketing_opportunities_source"),
+        Index("ix_ai_marketing_opportunities_campaign_status", "campaign_id", "status"),
+        Index("ix_ai_marketing_opportunities_status_created", "status", "created_at"),
+        Index("ix_ai_marketing_opportunities_platform_created", "platform", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[Optional[int]]
+    platform: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    excerpt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    author: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    community: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_score: Mapped[Optional[int]]
+    comment_count: Mapped[Optional[int]]
+    source_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="new", server_default="new", nullable=False)
+    matched_keywords_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    matched_tickers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    relevance_score: Mapped[Optional[int]]
+    spam_risk_score: Mapped[Optional[int]]
+    intent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    suggested_destination_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    short_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    compliance_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AiMarketingSuggestion(Base):
+    __tablename__ = "ai_marketing_suggestions"
+    __table_args__ = (
+        Index("ix_ai_marketing_suggestions_opportunity_created", "opportunity_id", "created_at"),
+        Index("ix_ai_marketing_suggestions_campaign_created", "campaign_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    opportunity_id: Mapped[int]
+    campaign_id: Mapped[Optional[int]]
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    relevance_score: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    spam_risk_score: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    detected_tickers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    intent: Mapped[str] = mapped_column(Text, default="other", server_default="other", nullable=False)
+    suggested_destination_url: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_reply: Mapped[str] = mapped_column(Text, nullable=False)
+    short_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    compliance_notes: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, default="ai_marketing_v1", server_default="ai_marketing_v1", nullable=False)
+    raw_response_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AiMarketingEmailLog(Base):
+    __tablename__ = "ai_marketing_email_logs"
+    __table_args__ = (
+        Index("ix_ai_marketing_email_logs_created", "created_at"),
+        Index("ix_ai_marketing_email_logs_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    delivery_id: Mapped[Optional[int]]
+    to_email: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    opportunity_ids_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="queued", server_default="queued", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class BillingTransaction(Base):
     __tablename__ = "billing_transactions"
     __table_args__ = (

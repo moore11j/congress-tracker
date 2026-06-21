@@ -30,6 +30,7 @@ from app.db import (
     DATABASE_URL,
     SessionLocal,
     engine,
+    ensure_ai_marketing_schema,
     ensure_data_enrichment_jobs_schema,
     ensure_email_notification_schema,
     ensure_event_columns,
@@ -112,6 +113,7 @@ from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
 from app.routers.notifications import router as notifications_router
 from app.routers.admin_data_sources import router as admin_data_sources_router
+from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
 from app.routers.events import (
@@ -2567,6 +2569,7 @@ def _startup_create_tables():
     ensure_provider_usage_schema(engine)
     ensure_provider_control_schema(engine)
     ensure_data_enrichment_jobs_schema(engine)
+    ensure_ai_marketing_schema(engine)
     ensure_event_columns()
     ensure_monitoring_alert_columns()
     ensure_house_annual_disclosure_schema()
@@ -8625,4 +8628,5 @@ app.include_router(debug_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(admin_data_sources_router, prefix="/api")
+app.include_router(ai_marketing_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

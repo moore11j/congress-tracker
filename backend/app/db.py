@@ -2181,6 +2181,277 @@ def ensure_email_notification_schema(bind=engine) -> None:
         )
 
 
+def ensure_ai_marketing_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        is_secret BOOLEAN NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_campaigns (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        enabled BOOLEAN NOT NULL DEFAULT 1,
+                        mode TEXT NOT NULL,
+                        platforms_json TEXT NOT NULL DEFAULT '[]',
+                        keywords_json TEXT NOT NULL DEFAULT '[]',
+                        tickers_json TEXT NOT NULL DEFAULT '[]',
+                        subreddits_json TEXT NOT NULL DEFAULT '[]',
+                        minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
+                        max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
+                        include_disclosure BOOLEAN NOT NULL DEFAULT 1,
+                        scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_opportunities (
+                        id INTEGER PRIMARY KEY,
+                        campaign_id INTEGER,
+                        platform TEXT NOT NULL,
+                        source_id TEXT,
+                        source_url TEXT NOT NULL,
+                        source_dedupe_key TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        excerpt TEXT,
+                        author TEXT,
+                        community TEXT,
+                        source_score INTEGER,
+                        comment_count INTEGER,
+                        source_created_at TIMESTAMP,
+                        status TEXT NOT NULL DEFAULT 'new',
+                        matched_keywords_json TEXT NOT NULL DEFAULT '[]',
+                        matched_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        relevance_score INTEGER,
+                        spam_risk_score INTEGER,
+                        intent TEXT,
+                        suggested_destination_url TEXT,
+                        short_reason TEXT,
+                        compliance_notes TEXT,
+                        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_seen_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_suggestions (
+                        id INTEGER PRIMARY KEY,
+                        opportunity_id INTEGER NOT NULL,
+                        campaign_id INTEGER,
+                        model TEXT NOT NULL,
+                        relevance_score INTEGER NOT NULL DEFAULT 0,
+                        spam_risk_score INTEGER NOT NULL DEFAULT 0,
+                        detected_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        intent TEXT NOT NULL DEFAULT 'other',
+                        suggested_destination_url TEXT NOT NULL,
+                        suggested_reply TEXT NOT NULL,
+                        short_reason TEXT NOT NULL,
+                        compliance_notes TEXT NOT NULL,
+                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v1',
+                        raw_response_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_email_logs (
+                        id INTEGER PRIMARY KEY,
+                        delivery_id INTEGER,
+                        to_email TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        opportunity_ids_json TEXT NOT NULL DEFAULT '[]',
+                        status TEXT NOT NULL DEFAULT 'queued',
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sent_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+        else:
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        is_secret BOOLEAN NOT NULL DEFAULT false,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_campaigns (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        enabled BOOLEAN NOT NULL DEFAULT true,
+                        mode TEXT NOT NULL,
+                        platforms_json TEXT NOT NULL DEFAULT '[]',
+                        keywords_json TEXT NOT NULL DEFAULT '[]',
+                        tickers_json TEXT NOT NULL DEFAULT '[]',
+                        subreddits_json TEXT NOT NULL DEFAULT '[]',
+                        minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
+                        max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
+                        include_disclosure BOOLEAN NOT NULL DEFAULT true,
+                        scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT false,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_opportunities (
+                        id SERIAL PRIMARY KEY,
+                        campaign_id INTEGER,
+                        platform TEXT NOT NULL,
+                        source_id TEXT,
+                        source_url TEXT NOT NULL,
+                        source_dedupe_key TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        excerpt TEXT,
+                        author TEXT,
+                        community TEXT,
+                        source_score INTEGER,
+                        comment_count INTEGER,
+                        source_created_at TIMESTAMPTZ,
+                        status TEXT NOT NULL DEFAULT 'new',
+                        matched_keywords_json TEXT NOT NULL DEFAULT '[]',
+                        matched_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        relevance_score INTEGER,
+                        spam_risk_score INTEGER,
+                        intent TEXT,
+                        suggested_destination_url TEXT,
+                        short_reason TEXT,
+                        compliance_notes TEXT,
+                        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now(),
+                        last_seen_at TIMESTAMPTZ
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_suggestions (
+                        id SERIAL PRIMARY KEY,
+                        opportunity_id INTEGER NOT NULL,
+                        campaign_id INTEGER,
+                        model TEXT NOT NULL,
+                        relevance_score INTEGER NOT NULL DEFAULT 0,
+                        spam_risk_score INTEGER NOT NULL DEFAULT 0,
+                        detected_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        intent TEXT NOT NULL DEFAULT 'other',
+                        suggested_destination_url TEXT NOT NULL,
+                        suggested_reply TEXT NOT NULL,
+                        short_reason TEXT NOT NULL,
+                        compliance_notes TEXT NOT NULL,
+                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v1',
+                        raw_response_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_email_logs (
+                        id SERIAL PRIMARY KEY,
+                        delivery_id INTEGER,
+                        to_email TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        opportunity_ids_json TEXT NOT NULL DEFAULT '[]',
+                        status TEXT NOT NULL DEFAULT 'queued',
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        sent_at TIMESTAMPTZ
+                    )
+                    """
+                )
+            )
+
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_settings_secret ON ai_marketing_settings (is_secret)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_enabled ON ai_marketing_campaigns (enabled)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_mode ON ai_marketing_campaigns (mode)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_marketing_opportunities_source "
+                "ON ai_marketing_opportunities (platform, source_dedupe_key)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_opportunities_campaign_status "
+                "ON ai_marketing_opportunities (campaign_id, status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_opportunities_status_created "
+                "ON ai_marketing_opportunities (status, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_opportunities_platform_created "
+                "ON ai_marketing_opportunities (platform, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_suggestions_opportunity_created "
+                "ON ai_marketing_suggestions (opportunity_id, created_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_suggestions_campaign_created "
+                "ON ai_marketing_suggestions (campaign_id, created_at)"
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_email_logs_created ON ai_marketing_email_logs (created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_email_logs_status ON ai_marketing_email_logs (status)"))
+
+
 def get_db():
     context = get_request_context()
     session_started = perf_counter()

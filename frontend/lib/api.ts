@@ -1478,6 +1478,163 @@ export type AdminDataSourceRunResponse = {
   };
 };
 
+export type AdminAiMarketingMode =
+  | "ticker_thread_assist"
+  | "congress_trade_angle"
+  | "insider_buying_angle"
+  | "unusual_signal_angle"
+  | "pain_point_tool_alternative"
+  | "manual_url_review";
+
+export type AdminAiMarketingPlatform = "reddit" | "x_stub" | "facebook_manual";
+export type AdminAiMarketingStatus = "new" | "emailed" | "dismissed" | "copied" | "archived";
+
+export type AdminAiMarketingConfig = {
+  openai_configured: boolean;
+  openai_model: string;
+  reddit_configured: boolean;
+  reddit_missing: string[];
+  x_status: string;
+  facebook_status: string;
+  warnings: string[];
+  recipient: string;
+  settings?: Record<string, AdminAiMarketingSetting>;
+};
+
+export type AdminAiMarketingSetting = {
+  key: string;
+  label: string;
+  is_secret: boolean;
+  configured: boolean;
+  source: "admin_settings" | "server_env" | "missing" | string;
+  source_label: string;
+  required_for: string;
+  masked_value?: string | null;
+  value?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminAiMarketingSettingsResponse = {
+  items: AdminAiMarketingSetting[];
+  config: AdminAiMarketingConfig;
+};
+
+export type AdminAiMarketingSettingsTestResponse = {
+  ok: boolean;
+  message: string;
+  model?: string;
+  status_code?: number;
+};
+
+export type AdminAiMarketingCampaign = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  mode: AdminAiMarketingMode;
+  platforms: AdminAiMarketingPlatform[];
+  keywords: string[];
+  tickers: string[];
+  subreddits: string[];
+  minimum_relevance_score: number;
+  max_items_per_run: number;
+  default_destination_page: string;
+  include_disclosure: boolean;
+  scheduled_digest_enabled: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type AdminAiMarketingCampaignPayload = Omit<AdminAiMarketingCampaign, "id" | "created_at" | "updated_at">;
+
+export type AdminAiMarketingSuggestion = {
+  id: number;
+  opportunity_id: number;
+  campaign_id?: number | null;
+  model: string;
+  relevance_score: number;
+  spam_risk_score: number;
+  detected_tickers: string[];
+  intent: "question" | "complaint" | "trade_idea" | "tool_search" | "news_reaction" | "other";
+  suggested_destination_url: string;
+  suggested_reply: string;
+  short_reason: string;
+  compliance_notes: string;
+  prompt_version: string;
+  created_at?: string | null;
+};
+
+export type AdminAiMarketingOpportunity = {
+  id: number;
+  campaign_id?: number | null;
+  platform: AdminAiMarketingPlatform | string;
+  source_id?: string | null;
+  source_url: string;
+  title: string;
+  excerpt?: string | null;
+  author?: string | null;
+  community?: string | null;
+  source_score?: number | null;
+  comment_count?: number | null;
+  source_created_at?: string | null;
+  status: AdminAiMarketingStatus;
+  matched_keywords: string[];
+  matched_tickers: string[];
+  relevance_score?: number | null;
+  spam_risk_score?: number | null;
+  intent?: string | null;
+  suggested_destination_url?: string | null;
+  short_reason?: string | null;
+  compliance_notes?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_seen_at?: string | null;
+  suggestion?: AdminAiMarketingSuggestion | null;
+};
+
+export type AdminAiMarketingCampaignsResponse = {
+  items: AdminAiMarketingCampaign[];
+  config: AdminAiMarketingConfig;
+};
+
+export type AdminAiMarketingOpportunitiesResponse = {
+  items: AdminAiMarketingOpportunity[];
+  config: AdminAiMarketingConfig;
+};
+
+export type AdminAiMarketingRunResponse = {
+  created: number;
+  deduped: number;
+  suggested: number;
+  warnings: string[];
+  opportunities: AdminAiMarketingOpportunity[];
+};
+
+export type AdminAiMarketingManualResponse = {
+  opportunity: AdminAiMarketingOpportunity;
+  warning?: string | null;
+};
+
+export type AdminAiMarketingEmailDigestResponse = {
+  to_email?: string;
+  subject?: string;
+  body_text?: string;
+  body_html?: string;
+  count: number;
+  items: AdminAiMarketingOpportunity[];
+  delivery?: AdminEmailDelivery;
+  email_log?: {
+    id: number;
+    delivery_id?: number | null;
+    to_email: string;
+    subject: string;
+    opportunity_ids: string[];
+    status: string;
+    created_at?: string | null;
+    sent_at?: string | null;
+  };
+};
+
 export type AdminEmailTemplate = {
   id: number;
   template_key: string;
@@ -1998,6 +2155,150 @@ export async function runAdminDataSource(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       source: "AdminDataSources",
+    },
+  );
+}
+
+export async function getAdminAiMarketingCampaigns(): Promise<AdminAiMarketingCampaignsResponse> {
+  return fetchJson<AdminAiMarketingCampaignsResponse>(buildApiUrl("/api/admin/ai-marketing/campaigns"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminAiMarketing",
+  });
+}
+
+export async function getAdminAiMarketingSettings(): Promise<AdminAiMarketingSettingsResponse> {
+  return fetchJson<AdminAiMarketingSettingsResponse>(buildApiUrl("/api/admin/ai-marketing/settings"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminAiMarketing",
+  });
+}
+
+export async function updateAdminAiMarketingSettings(payload: {
+  updates?: Record<string, string | null>;
+  clear?: string[];
+}): Promise<AdminAiMarketingSettingsResponse> {
+  return fetchJson<AdminAiMarketingSettingsResponse>(buildApiUrl("/api/admin/ai-marketing/settings"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates: {}, clear: [], ...payload }),
+    source: "AdminAiMarketing",
+  });
+}
+
+export async function testAdminAiMarketingOpenAI(): Promise<AdminAiMarketingSettingsTestResponse> {
+  return fetchJson<AdminAiMarketingSettingsTestResponse>(
+    buildApiUrl("/api/admin/ai-marketing/settings/test-openai"),
+    { method: "POST", source: "AdminAiMarketing" },
+  );
+}
+
+export async function testAdminAiMarketingReddit(): Promise<AdminAiMarketingSettingsTestResponse> {
+  return fetchJson<AdminAiMarketingSettingsTestResponse>(
+    buildApiUrl("/api/admin/ai-marketing/settings/test-reddit"),
+    { method: "POST", source: "AdminAiMarketing" },
+  );
+}
+
+export async function createAdminAiMarketingCampaign(
+  payload: AdminAiMarketingCampaignPayload,
+): Promise<AdminAiMarketingCampaign> {
+  return fetchJson<AdminAiMarketingCampaign>(buildApiUrl("/api/admin/ai-marketing/campaigns"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminAiMarketing",
+  });
+}
+
+export async function updateAdminAiMarketingCampaign(
+  campaignId: number,
+  payload: Partial<AdminAiMarketingCampaignPayload>,
+): Promise<AdminAiMarketingCampaign> {
+  return fetchJson<AdminAiMarketingCampaign>(
+    buildApiUrl(`/api/admin/ai-marketing/campaigns/${campaignId}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminAiMarketing",
+    },
+  );
+}
+
+export async function runAdminAiMarketingCampaign(campaignId: number): Promise<AdminAiMarketingRunResponse> {
+  return fetchJson<AdminAiMarketingRunResponse>(
+    buildApiUrl(`/api/admin/ai-marketing/campaigns/${campaignId}/run`),
+    { method: "POST", source: "AdminAiMarketing" },
+  );
+}
+
+export async function getAdminAiMarketingOpportunities(params: {
+  status?: string;
+  campaign_id?: number;
+  limit?: number;
+} = {}): Promise<AdminAiMarketingOpportunitiesResponse> {
+  return fetchJson<AdminAiMarketingOpportunitiesResponse>(
+    buildApiUrl("/api/admin/ai-marketing/opportunities", params),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      source: "AdminAiMarketing",
+    },
+  );
+}
+
+export async function updateAdminAiMarketingOpportunity(
+  opportunityId: number,
+  payload: { status?: AdminAiMarketingStatus },
+): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(
+    buildApiUrl(`/api/admin/ai-marketing/opportunities/${opportunityId}`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminAiMarketing",
+    },
+  );
+}
+
+export async function analyzeAdminAiMarketingManualUrl(payload: {
+  url: string;
+  text?: string | null;
+  title?: string | null;
+  campaign_id?: number | null;
+  generate?: boolean;
+}): Promise<AdminAiMarketingManualResponse> {
+  return fetchJson<AdminAiMarketingManualResponse>(buildApiUrl("/api/admin/ai-marketing/manual-url"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminAiMarketing",
+  });
+}
+
+export async function regenerateAdminAiMarketingSuggestion(opportunityId: number): Promise<AdminAiMarketingSuggestion> {
+  return fetchJson<AdminAiMarketingSuggestion>(
+    buildApiUrl(`/api/admin/ai-marketing/suggestions/${opportunityId}/regenerate`),
+    { method: "POST", source: "AdminAiMarketing" },
+  );
+}
+
+export async function sendAdminAiMarketingEmailDigest(payload: {
+  send?: boolean;
+  opportunity_ids?: number[] | null;
+  statuses?: string[] | null;
+  limit?: number;
+}): Promise<AdminAiMarketingEmailDigestResponse> {
+  return fetchJson<AdminAiMarketingEmailDigestResponse>(
+    buildApiUrl("/api/admin/ai-marketing/email-digest"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminAiMarketing",
     },
   );
 }
