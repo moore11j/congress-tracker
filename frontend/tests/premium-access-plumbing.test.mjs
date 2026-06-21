@@ -227,8 +227,9 @@ test("admin cross-site auth hint refresh repairs stale free SSR paint", () => {
   assert.match(screenerPage, /<EntitlementHintRefresh enabled=\{!authToken && authState\.entitlementHint != null\} renderedTier=\{entitlements\.tier\} \/>/);
   assert.match(tickerPage, /<EntitlementHintRefresh enabled=\{!authToken && authState\.hasAuthHint\} renderedTier=\{entitlements\?\.tier \?\? null\} \/>/);
   assert.match(tickerPage, /const hasAuthForEntitlementDisplay = Boolean\(authToken \|\| authState\.hasAuthHint\)/);
-  assert.match(tickerPage, /preferFallbackSourceEntitlements=\{!authToken && authState\.hasAuthHint\}/);
-  assert.match(tickerPage, /preferFallbackSourceEntitlements \? fallbackSourceEntitlements : activitySourceEntitlements \?\? fallbackSourceEntitlements/);
+  assert.match(tickerPage, /allowAuthHintEntitlementOverride=\{authState\.hasAuthHint\}/);
+  assert.match(tickerPage, /displaySourceEntitlementsForTickerContext\(/);
+  assert.match(tickerPage, /activityMeta\?\.locked && fallbackMeta\?\.locked === false/);
 });
 
 test("leaderboard renders clean protected errors instead of raw ApiError bodies", () => {

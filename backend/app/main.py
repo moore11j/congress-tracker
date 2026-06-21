@@ -4260,14 +4260,20 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
 
 
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
+    started_at = perf_counter()
     sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
     cache_key = f"profile:{sym}"
     cached = _ticker_response_cache_get(_TICKER_PROFILE_RESPONSE_CACHE, cache_key)
     if cached is not None:
+        _log_ticker_endpoint_payload(symbol=sym, endpoint="profile", payload={**cached, "status": cached.get("status", "ok")}, started_at=started_at)
+        logger.info("ticker_profile_timing endpoint=profile symbol=%s duration_ms=%.1f cache_hit=true", sym, (perf_counter() - started_at) * 1000)
         return cached
-    return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, _build_ticker_shell_profile(sym, db))
+    payload = _build_ticker_shell_profile(sym, db)
+    _log_ticker_endpoint_payload(symbol=sym, endpoint="profile", payload={**payload, "status": payload.get("status", "ok")}, started_at=started_at)
+    logger.info("ticker_profile_timing endpoint=profile symbol=%s duration_ms=%.1f cache_hit=false", sym, (perf_counter() - started_at) * 1000)
+    return _ticker_response_cache_set(_TICKER_PROFILE_RESPONSE_CACHE, cache_key, payload)
 
 
 def _shell_text(value: object) -> str | None:
@@ -5787,6 +5793,36 @@ def _log_ticker_signals_summary_response(
     )
 
 
+def _log_ticker_signals_summary_timing(
+    *,
+    symbol: str,
+    started_at: float,
+    effective_tier: str,
+    is_admin: bool,
+    entitlement_variant: str,
+    cache_hit: bool,
+    auth_ms: float,
+    signals_query_ms: float = 0.0,
+    source_context_ms: float = 0.0,
+    confirmation_ms: float = 0.0,
+    cache_ms: float = 0.0,
+) -> None:
+    logger.info(
+        "ticker_signals_summary_timing endpoint=signals-summary symbol=%s duration_ms=%.1f effective_tier=%s is_admin=%s entitlement_variant=%s cache_hit=%s auth_ms=%.1f signals_query_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f cache_ms=%.1f",
+        symbol,
+        (perf_counter() - started_at) * 1000,
+        effective_tier,
+        is_admin,
+        entitlement_variant,
+        cache_hit,
+        auth_ms,
+        signals_query_ms,
+        source_context_ms,
+        confirmation_ms,
+        cache_ms,
+    )
+
+
 def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int = 120) -> dict[str, Any]:
     normalized = normalize_symbol(symbol) or symbol.upper()
     try:
@@ -6198,16 +6234,18 @@ def ticker_signals_summary(
     lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    started_at = perf_counter()
+    auth_started_at = perf_counter()
     user = current_user(db, request, required=False)
     is_authenticated = user is not None
     entitlements = current_entitlements(request, db) if is_authenticated else None
     source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=is_authenticated)
     can_view_signal_details = not bool(source_entitlements["signals"]["locked"])
+    auth_ms = (perf_counter() - auth_started_at) * 1000
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
-    started_at = perf_counter()
     requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
     effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
     entitlement_variant = (
@@ -6219,13 +6257,30 @@ def ticker_signals_summary(
         if is_authenticated
         else "logged_out"
     )
+    effective_tier = getattr(entitlements, "tier", None) if entitlements is not None else ("free" if is_authenticated else "logged_out")
+    effective_tier = str(effective_tier or "free")
+    effective_is_admin = effective_tier == "admin" or getattr(user, "role", None) == "admin"
     cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}:{entitlement_variant}"
+    cache_started_at = perf_counter()
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
+    cache_ms = (perf_counter() - cache_started_at) * 1000
     if cached is not None:
         _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=cached, started_at=started_at)
         _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=cached, started_at=started_at)
+        _log_ticker_signals_summary_timing(
+            symbol=normalized_symbol,
+            started_at=started_at,
+            effective_tier=effective_tier,
+            is_admin=effective_is_admin,
+            entitlement_variant=entitlement_variant,
+            cache_hit=True,
+            auth_ms=auth_ms,
+            cache_ms=cache_ms,
+        )
         return cached
+    signals_query_ms = 0.0
     if can_view_signal_details:
+        signals_query_started_at = perf_counter()
         items = _query_unified_signals(
             db=db,
             mode="all",
@@ -6245,6 +6300,7 @@ def ticker_signals_summary(
             side=side,
             symbol=normalized_symbol,
         )
+        signals_query_ms = (perf_counter() - signals_query_started_at) * 1000
         rows = [_public_signal_row(item) for item in items[:limit]]
     else:
         rows = []
@@ -6256,6 +6312,7 @@ def ticker_signals_summary(
         ),
         None,
     )
+    source_context_started_at = perf_counter()
     source_contexts = build_ticker_signals_summary_contexts_from_cache(
         normalized_symbol,
         window_days=requested_lookback_days,
@@ -6263,6 +6320,7 @@ def ticker_signals_summary(
         signal_rows=rows,
         latest_signal_score=latest_score,
     )
+    source_context_ms = (perf_counter() - source_context_started_at) * 1000
     if not can_view_signal_details:
         source_contexts["signals"] = {
             "status": "premium_locked",
@@ -6272,6 +6330,7 @@ def ticker_signals_summary(
             "recent_count": 0,
             "latest_score": None,
         }
+    confirmation_started_at = perf_counter()
     if not is_authenticated:
         confirmation_score_bundle = confirmation_score_bundle_from_source_contexts(
             normalized_symbol,
@@ -6296,6 +6355,7 @@ def ticker_signals_summary(
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
         signal_freshness = slim_confirmation["signal_freshness"]
         has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
+    confirmation_ms = (perf_counter() - confirmation_started_at) * 1000
     payload = {
         "symbol": normalized_symbol,
         "status": "ok" if rows or has_canonical_activity else "no_data",
@@ -6318,6 +6378,19 @@ def ticker_signals_summary(
     }
     _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=payload, started_at=started_at)
     _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=payload, started_at=started_at)
+    _log_ticker_signals_summary_timing(
+        symbol=normalized_symbol,
+        started_at=started_at,
+        effective_tier=effective_tier,
+        is_admin=effective_is_admin,
+        entitlement_variant=entitlement_variant,
+        cache_hit=False,
+        auth_ms=auth_ms,
+        signals_query_ms=signals_query_ms,
+        source_context_ms=source_context_ms,
+        confirmation_ms=confirmation_ms,
+        cache_ms=cache_ms,
+    )
     return _ticker_response_cache_set(
         _TICKER_SIGNALS_SUMMARY_CACHE,
         cache_key,

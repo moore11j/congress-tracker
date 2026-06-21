@@ -795,7 +795,13 @@ function canUseSignalActivity(entitlements: Entitlements | null): boolean {
 function canUseProTickerContext(entitlements: Entitlements | null): boolean {
   if (entitlements?.status === "temporarily_unavailable") return true;
   if (!entitlements) return true;
-  return entitlements.tier === "pro" || entitlements.tier === "admin" || Boolean(entitlements.user?.is_admin);
+  return (
+    entitlements.tier === "pro"
+    || entitlements.tier === "admin"
+    || entitlements.effective_tier === "pro"
+    || entitlements.effective_tier === "admin"
+    || Boolean(entitlements.is_admin || entitlements.user?.is_admin)
+  );
 }
 
 function tickerContextSourceEntitlements(entitlements: Entitlements | null, authenticated: boolean): TickerSourceEntitlements {
@@ -1149,6 +1155,24 @@ function sourceEntitlement(entitlements: TickerSourceEntitlements | null | undef
 
 function sourceIsLocked(entitlements: TickerSourceEntitlements | null | undefined, source: ConfirmationSourceKey): boolean {
   return Boolean(sourceEntitlement(entitlements, source)?.locked);
+}
+
+function displaySourceEntitlementsForTickerContext(
+  activityEntitlements: TickerSourceEntitlements | null | undefined,
+  fallbackEntitlements: TickerSourceEntitlements,
+  allowAuthHintOverride: boolean,
+): TickerSourceEntitlements {
+  if (!activityEntitlements) return fallbackEntitlements;
+  if (!allowAuthHintOverride) return activityEntitlements;
+  const merged = { ...activityEntitlements };
+  for (const source of confirmationSourceOrder) {
+    const activityMeta = activityEntitlements[source];
+    const fallbackMeta = fallbackEntitlements[source];
+    if (activityMeta?.locked && fallbackMeta?.locked === false) {
+      merged[source] = fallbackMeta;
+    }
+  }
+  return merged;
 }
 
 function lockFeatureLabel(requiredPlan?: TickerSourceEntitlement["required_plan"]): string {
@@ -2279,7 +2303,7 @@ async function DeferredTickerContent({
   signalFreshness,
   technicalIndicators,
   fallbackSourceEntitlements,
-  preferFallbackSourceEntitlements,
+  allowAuthHintEntitlementOverride,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -2293,7 +2317,7 @@ async function DeferredTickerContent({
   signalFreshness: SignalFreshnessBundle | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
   fallbackSourceEntitlements: TickerSourceEntitlements;
-  preferFallbackSourceEntitlements: boolean;
+  allowAuthHintEntitlementOverride: boolean;
 }) {
   const {
     events,
@@ -2353,7 +2377,11 @@ async function DeferredTickerContent({
     confirmationBundle.lookback_days || effectiveLookbackDays,
   );
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
-  const sourceEntitlements = preferFallbackSourceEntitlements ? fallbackSourceEntitlements : activitySourceEntitlements ?? fallbackSourceEntitlements;
+  const sourceEntitlements = displaySourceEntitlementsForTickerContext(
+    activitySourceEntitlements,
+    fallbackSourceEntitlements,
+    allowAuthHintEntitlementOverride,
+  );
   const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
   const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
   const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
@@ -3285,7 +3313,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           signalFreshness={profile.signal_freshness}
           technicalIndicators={profile.technical_indicators}
           fallbackSourceEntitlements={fallbackSourceEntitlements}
-          preferFallbackSourceEntitlements={!authToken && authState.hasAuthHint}
+          allowAuthHintEntitlementOverride={authState.hasAuthHint}
         />
       </Suspense>
     </div>

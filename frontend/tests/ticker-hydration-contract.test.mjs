@@ -82,6 +82,7 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(api, /lock_state\?: "available" \| "requires_login" \| "premium_locked" \| "pro_locked" \| null/);
   assert.match(api, /source_entitlements\?: TickerSourceEntitlements \| null/);
   assert.match(tickerPage, /function tickerContextSourceEntitlements/);
+  assert.match(tickerPage, /function displaySourceEntitlementsForTickerContext/);
   assert.match(tickerPage, /function displayConfirmationBundleForEntitlements/);
   assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
   assert.doesNotMatch(tickerPage, /const signalSummaryRequest =\s*authToken\s*\?/);
@@ -94,6 +95,20 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(tickerPage, /requiredPlan="pro"/);
   assert.match(tickerPage, /Premium feature/);
   assert.match(tickerPage, /Pro feature/);
+});
+
+test("ticker upper source cards let authenticated tier hints override stale locked summary metadata", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /function displaySourceEntitlementsForTickerContext/);
+  assert.match(tickerPage, /activityMeta\?\.locked && fallbackMeta\?\.locked === false/);
+  assert.match(tickerPage, /merged\[source\] = fallbackMeta/);
+  assert.match(tickerPage, /const sourceEntitlements = displaySourceEntitlementsForTickerContext\(/);
+  assert.match(tickerPage, /allowAuthHintEntitlementOverride=\{authState\.hasAuthHint\}/);
+  assert.match(tickerPage, /const signalsCardLocked = sourceIsLocked\(sourceEntitlements, "signals"\)/);
+  assert.match(tickerPage, /const institutionalCardLocked = sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
+  assert.match(tickerPage, /const optionsFlowCardLocked = sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
+  assert.doesNotMatch(tickerPage, /preferFallbackSourceEntitlements/);
 });
 
 test("logged out ticker context keeps public sources visible and paid sources locked", () => {

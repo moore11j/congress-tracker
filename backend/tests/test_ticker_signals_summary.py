@@ -546,6 +546,36 @@ def test_ticker_signals_summary_admin_does_not_lock_paid_sources(monkeypatch):
     assert bundle["score"] == full_bundle["score"]
 
 
+def test_ticker_signals_summary_pro_does_not_lock_paid_sources(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="pro")
+    full_bundle = _full_source_confirmation_bundle("AAPL")
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+    source_entitlements = response["source_entitlements"]
+    bundle = response["confirmation_score_bundle"]
+
+    assert source_entitlements["signals"]["lock_state"] == "available"
+    assert source_entitlements["options_flow"]["lock_state"] == "available"
+    assert source_entitlements["institutional_activity"]["lock_state"] == "available"
+    assert bundle["sources"]["signals"].get("locked") is not True
+    assert bundle["sources"]["options_flow"].get("locked") is not True
+    assert bundle["sources"]["institutional_activity"].get("locked") is not True
+    assert bundle["sources"]["signals"]["present"] is True
+    assert bundle["sources"]["options_flow"]["present"] is True
+    assert bundle["sources"]["institutional_activity"]["present"] is True
+
+
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):
     _mock_signal_auth(monkeypatch, tier="premium")
     full_bundle = _full_source_confirmation_bundle("AAPL")
@@ -565,7 +595,10 @@ def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized
     bundle = response["confirmation_score_bundle"]
 
     assert bundle["score"] > 0
+    assert response["source_entitlements"]["signals"]["locked"] is False
+    assert response["source_entitlements"]["signals"]["lock_state"] == "available"
     assert bundle["sources"]["signals"]["present"] is True
+    assert bundle["sources"]["signals"].get("locked") is not True
     assert bundle["sources"]["options_flow"]["locked"] is True
     assert bundle["sources"]["options_flow"]["lock_state"] == "pro_locked"
     assert bundle["sources"]["options_flow"]["present"] is False
@@ -577,6 +610,45 @@ def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized
     assert "institutional_activity" not in bundle["active_sources"]
     assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
     assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
+
+
+def test_ticker_signals_summary_premium_missing_signal_data_is_inactive_not_locked(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="premium")
+    inactive_context = _public_summary_context("AAPL")
+    inactive_context["signals"] = {
+        "status": "inactive",
+        "direction": "neutral",
+        "title": "No current signal conviction",
+        "subtitle": "No premium signals in this window.",
+        "recent_count": 0,
+        "latest_score": None,
+    }
+    inactive_bundle = confirmation_score_bundle_from_source_contexts(
+        "AAPL",
+        source_contexts=inactive_context,
+    )
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: inactive_context,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": inactive_bundle},
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+    bundle = response["confirmation_score_bundle"]
+
+    assert response["source_entitlements"]["signals"]["locked"] is False
+    assert response["source_entitlements"]["signals"]["lock_state"] == "available"
+    assert response["signals"]["status"] == "inactive"
+    assert response["signals"]["status"] != "premium_locked"
+    assert bundle["sources"]["signals"].get("locked") is not True
+    assert bundle["sources"]["signals"]["present"] is False
+    assert bundle["sources"]["signals"].get("lock_state") not in {"premium_locked", "pro_locked"}
 
 
 def test_ticker_signals_summary_free_redacts_signals_and_pro_sources_but_keeps_public_score(monkeypatch):
