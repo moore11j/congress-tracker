@@ -43,8 +43,8 @@ test("reset password API submits confirmation with included credentials", () => 
   assert.match(api, /buildApiUrl\("\/api\/auth\/password-reset\/confirm"\)/);
   assert.match(api, /credentials:\s*fetchInit\.credentials \?\? "include"/);
   assert.match(api, /Promise<PasswordResetConfirmResponse>/);
-  assert.match(api, /forgetAuthToken\(\)/);
-  assert.doesNotMatch(api, /confirmPasswordReset[\s\S]*rememberAuthToken\(response\.token\)/);
+  assert.match(api, /forgetAuthenticatedSession\(\)/);
+  assert.doesNotMatch(api, /confirmPasswordReset[\s\S]*rememberAuthenticatedSession\(response\.token\)/);
 });
 
 test("login page displays password reset success message from query param", () => {

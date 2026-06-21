@@ -33,7 +33,7 @@ Names currently deployed on Fly, status `Deployed`: `ADMIN_TOKEN`, `APP_BASE_URL
 | `ADMIN_EMAILS` | `backend/app/auth.py` | Optional | empty | Yes, admin role mapping | none | Keep if using email admin mapping |
 | `APP_ENV` / `ENV` / `NODE_ENV` | auth, accounts/events routers, startup checks | Optional but recommended | inferred, or non-prod behavior | Yes | runtime aliases | Keep one canonical `APP_ENV=production`; keep `NODE_ENV` for frontend/build runtime |
 | `APP_SESSION_TTL_SECONDS` | `backend/app/auth.py` | Optional | 30 days | Yes | none | Keep optional |
-| `APP_SESSION_COOKIE_SAMESITE` | `backend/app/auth.py` | Optional | `lax` | Yes | none | Keep optional |
+| `APP_SESSION_COOKIE_SAMESITE` | `backend/app/auth.py` | Required for current production topology | `lax` outside production, `none` in production cookie helper | Yes | none | Set `none` on Fly while Vercel-to-Fly auth is cross-site |
 | `FRONTEND_ORIGINS`, `CORS_ALLOW_ORIGINS`, `FRONTEND_URL` | `backend/app/security/startup_checks.py` | Optional if defaults fit | built-in Walnut allowlist | Yes | overlapping CORS origin inputs | Keep `FRONTEND_ORIGINS`; deprecate `FRONTEND_URL` after CORS verification |
 | `CT_ALLOW_ENTITLEMENT_HEADER` | `backend/app/entitlements.py`, startup checks | Optional, must be off in prod | `0` | Test/admin only in prod unsafe | none | Keep off in production |
 | `CT_ALLOW_INSECURE_RESET_LINK_RESPONSE` | `backend/app/routers/accounts.py`, startup checks | Optional, must be off in prod | off | Dev/test only | none | Keep off in production |
@@ -47,7 +47,7 @@ Names currently deployed on Fly, status `Deployed`: `ADMIN_TOKEN`, `APP_BASE_URL
 
 | Var | Source files | Required | Default | Production use | Alias/duplicate | Recommended action |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | `backend/app/db.py`, migration docs | Required in production | `sqlite:////data/app.db` | Yes, production Postgres | none | Keep; production must stay Postgres |
+| `DATABASE_URL` | `backend/app/db.py`, migration docs | Required in production unless Fly injects attached Postgres automatically | local/dev fallback is `sqlite:////data/app.db` | Yes, production Postgres | none | Keep as actual Postgres connection string or Fly-injected Postgres; never overwrite production with SQLite |
 | `DB_POOL_SIZE` | `backend/app/db.py`, migration script/docs | Optional | `8` app, `5` migration | Yes | none | Keep optional |
 | `DB_MAX_OVERFLOW` | `backend/app/db.py`, migration script/docs | Optional | `4` app, `5` migration | Yes | none | Keep optional |
 | `DB_POOL_TIMEOUT` | `backend/app/db.py`, migration script/docs | Optional | `2` app, `30` migration | Yes | none | Keep optional |

@@ -18,6 +18,8 @@ from app.models import UserAccount, Watchlist
 SESSION_COOKIE_NAME = "ct_session"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
+_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
+_NONPRODUCTION_ENVS = {"local", "dev", "development", "test", "testing", "ci"}
 
 
 def normalize_email(value: str | None) -> str:
@@ -38,7 +40,16 @@ def _runtime_environment() -> str:
 
 
 def _is_production_runtime() -> bool:
-    return _runtime_environment() in {"prod", "production"}
+    runtime = _runtime_environment()
+    if runtime in {"prod", "production"}:
+        return True
+    if runtime in _NONPRODUCTION_ENVS:
+        return False
+    return bool(os.getenv("FLY_APP_NAME", "").strip())
+
+
+def _is_truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in _TRUE_VALUES
 
 
 def _configured_session_secret() -> str:
@@ -84,8 +95,16 @@ def session_cookie_secure() -> bool:
 
 
 def session_cookie_samesite() -> str:
-    configured = os.getenv("APP_SESSION_COOKIE_SAMESITE", "lax").strip().lower()
-    return configured if configured in {"lax", "strict"} else "lax"
+    default = "none" if _is_production_runtime() else "lax"
+    configured = os.getenv("APP_SESSION_COOKIE_SAMESITE", default).strip().lower()
+    return configured if configured in {"lax", "strict", "none"} else "lax"
+
+
+def allow_bearer_session_auth() -> bool:
+    """Legacy session-token bearer auth is disabled by default and never normal production auth."""
+    if _is_production_runtime():
+        return False
+    return _is_truthy_env("APP_ALLOW_BEARER_SESSION_AUTH")
 
 
 def _now_ts() -> int:
@@ -207,12 +226,12 @@ def attach_legacy_watchlists_to_user(db: Session, user: UserAccount) -> int:
 
 
 def request_session_token(request: Request) -> str | None:
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        return auth[7:].strip()
     cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
     if cookie_token:
         return cookie_token
+    auth = request.headers.get("authorization", "")
+    if allow_bearer_session_auth() and auth.lower().startswith("bearer "):
+        return auth[7:].strip()
     return None
 
 

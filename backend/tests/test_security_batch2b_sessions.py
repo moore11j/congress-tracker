@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -17,7 +18,7 @@ from app.auth import (
 )
 from app.db import Base
 from app.models import UserAccount
-from app.routers.accounts import LoginPayload, RegisterPayload, login, logout, register
+from app.routers.accounts import LoginPayload, RegisterPayload, login, logout, me, register
 
 
 def _session():
@@ -80,20 +81,24 @@ def test_session_token_has_expiration_and_rejects_expired_or_malformed(monkeypat
 def test_login_sets_secure_httponly_session_cookie_in_production(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_SESSION_SECRET", "x" * 48)
+    monkeypatch.setenv("APP_SESSION_COOKIE_SAMESITE", "none")
     db = _session()
     try:
         registered = register(_register_payload("cookie-login@example.com"), db)
-        assert registered["token"]
+        assert registered["authenticated"] is True
+        assert "token" not in registered
         response = Response()
 
         signed_in = login(LoginPayload(email="cookie-login@example.com", password="Password123!"), response, db)
 
         assert signed_in["user"]["email"] == "cookie-login@example.com"
+        assert signed_in["authenticated"] is True
+        assert "token" not in signed_in
         cookie = response.headers["set-cookie"].lower()
         assert f"{SESSION_COOKIE_NAME}=" in cookie
         assert "httponly" in cookie
         assert "secure" in cookie
-        assert "samesite=lax" in cookie
+        assert "samesite=none" in cookie
         assert "max-age=2592000" in cookie
         assert "expires=" in cookie
     finally:
@@ -109,6 +114,8 @@ def test_register_sets_session_cookie(monkeypatch):
         created = register(_register_payload("cookie-register@example.com"), response, db)
 
         assert created["user"]["email"] == "cookie-register@example.com"
+        assert created["authenticated"] is True
+        assert "token" not in created
         cookie = response.headers["set-cookie"].lower()
         assert f"{SESSION_COOKIE_NAME}=" in cookie
         assert "httponly" in cookie
@@ -117,8 +124,9 @@ def test_register_sets_session_cookie(monkeypatch):
         db.close()
 
 
-def test_current_user_accepts_cookie_and_bearer_and_prefers_bearer(monkeypatch):
+def test_current_user_uses_cookie_and_rejects_bearer_by_default(monkeypatch):
     monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.delenv("APP_ALLOW_BEARER_SESSION_AUTH", raising=False)
     db = _session()
     try:
         cookie_user = _user(db, "cookie@example.com")
@@ -136,8 +144,61 @@ def test_current_user_accepts_cookie_and_bearer_and_prefers_bearer(monkeypatch):
         )
 
         assert current_user(db, cookie_request, required=True).email == cookie_user.email
+        assert current_user(db, bearer_request, required=False) is None
+        with pytest.raises(HTTPException) as exc_info:
+            current_user(db, bearer_request, required=True)
+        assert exc_info.value.status_code == 401
+        assert current_user(db, both_request, required=True).email == cookie_user.email
+    finally:
+        db.close()
+
+
+def test_bearer_session_auth_requires_nonproduction_opt_in(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("APP_ALLOW_BEARER_SESSION_AUTH", "1")
+    db = _session()
+    try:
+        bearer_user = _user(db, "bearer-dev@example.com")
+        bearer_token = sign_session_payload({"uid": bearer_user.id, "email": bearer_user.email})
+
+        bearer_request = _request([(b"authorization", f"Bearer {bearer_token}".encode())])
+
         assert current_user(db, bearer_request, required=True).email == bearer_user.email
-        assert current_user(db, both_request, required=True).email == bearer_user.email
+    finally:
+        db.close()
+
+
+def test_bearer_session_auth_is_rejected_in_production(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("APP_SESSION_SECRET", "x" * 48)
+    monkeypatch.setenv("APP_ALLOW_BEARER_SESSION_AUTH", "1")
+    db = _session()
+    try:
+        bearer_user = _user(db, "bearer-prod@example.com")
+        bearer_token = sign_session_payload({"uid": bearer_user.id, "email": bearer_user.email})
+
+        bearer_request = _request([(b"authorization", f"Bearer {bearer_token}".encode())])
+
+        assert current_user(db, bearer_request, required=False) is None
+    finally:
+        db.close()
+
+
+def test_auth_me_uses_cookie_session_and_returns_unauthenticated_without_cookie(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    db = _session()
+    try:
+        user = _user(db, "cookie-me@example.com")
+        token = sign_session_payload({"uid": user.id, "email": user.email})
+
+        cookie_request = _request([(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())])
+        cookie_response = me(cookie_request, db)
+        assert cookie_response["user"]["email"] == "cookie-me@example.com"
+        assert cookie_response["entitlements"]["tier"] == "free"
+
+        anonymous_response = me(_request([]), db)
+        assert anonymous_response["user"] is None
+        assert anonymous_response["entitlements"]["tier"] == "free"
     finally:
         db.close()
 
@@ -145,6 +206,7 @@ def test_current_user_accepts_cookie_and_bearer_and_prefers_bearer(monkeypatch):
 def test_logout_clears_session_cookie(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_SESSION_SECRET", "x" * 48)
+    monkeypatch.setenv("APP_SESSION_COOKIE_SAMESITE", "none")
     response = Response()
 
     result = logout(response)
@@ -155,7 +217,7 @@ def test_logout_clears_session_cookie(monkeypatch):
     assert "max-age=0" in cookie
     assert "httponly" in cookie
     assert "secure" in cookie
-    assert "samesite=lax" in cookie
+    assert "samesite=none" in cookie
 
 
 def test_production_requires_strong_app_session_secret(monkeypatch):

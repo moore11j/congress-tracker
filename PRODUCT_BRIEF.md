@@ -19,7 +19,7 @@ Investors want actionable intelligence—not raw data.
 - Clean, fast, addictive UX
 
 ## Current State (Already Built)
-- Backend: FastAPI + SQLite (Fly volume at `/data/app.db`), Uvicorn on `0.0.0.0:8080`
+- Backend: FastAPI + PostgreSQL in production, Uvicorn on `0.0.0.0:8080`; local/dev can still use SQLite for isolated testing.
 - Startup autoheal ingests data if DB empty
 - Live data: Congress trades (House + Senate), enriched member metadata, securities table
 - Watchlists implemented
@@ -92,7 +92,7 @@ Answer: “If I followed congressional whale buys over the last 2 years, what re
 
 ## Technical Direction
 - Keep FastAPI backend
-- Gradually move to Postgres as scale matters
+- Keep production on Postgres; use SQLite only for local/dev tests and historical migration tooling.
 - Build analytics layer separately from ingestion
 - Frontend in Next.js with modern fintech UI patterns
 

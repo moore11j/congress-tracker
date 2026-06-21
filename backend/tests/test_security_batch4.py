@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base, get_db
 from app.main import app
 from app.models import Event, UserAccount
@@ -121,7 +121,7 @@ def test_debug_ticker_meta_allows_admin_session_in_production(monkeypatch):
         status, body = asyncio.run(
             _call_app(
                 "/api/debug/ticker-meta?symbol=AAPL",
-                headers=[(b"authorization", f"Bearer {token}".encode("ascii"))],
+                headers=[(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode("ascii"))],
             )
         )
     finally:
@@ -176,7 +176,7 @@ def test_events_debug_metadata_is_available_to_admin_in_production(monkeypatch):
         status, body = asyncio.run(
             _call_app(
                 "/api/events?debug=true&limit=1&enrich_prices=false",
-                headers=[(b"authorization", f"Bearer {token}".encode("ascii"))],
+                headers=[(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode("ascii"))],
             )
         )
     finally:

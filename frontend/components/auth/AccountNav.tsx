@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, authTokenStorageKey, getMe, getMonitoringUnreadCount, hasClientAuthHint, logout, syncServerAuthSession, type AccountUser } from "@/lib/api";
+import { ApiError, clearLegacyAuthStorage, getMe, getMonitoringUnreadCount, hasClientAuthHint, logout, type AccountUser } from "@/lib/api";
 import { isAdminRoute } from "@/lib/routes";
 
 function displayName(user: AccountUser): string {
@@ -14,7 +14,6 @@ function displayName(user: AccountUser): string {
 
 export function AccountNav() {
   const pathname = usePathname();
-  const router = useRouter();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [authUnavailable, setAuthUnavailable] = useState(false);
@@ -31,14 +30,6 @@ export function AccountNav() {
           setAuthUnavailable(false);
           setUser(response.user);
         }
-        const token = window.localStorage.getItem(authTokenStorageKey);
-        if (token) {
-          syncServerAuthSession(token)
-            .then((synced) => {
-              if (synced && mountedRef.current) router.refresh();
-            })
-            .catch(() => {});
-        }
       })
       .catch((error) => {
         if (!mountedRef.current) return;
@@ -52,25 +43,21 @@ export function AccountNav() {
       .finally(() => {
         if (mountedRef.current) setLoaded(true);
       });
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
+    clearLegacyAuthStorage();
     loadAccount();
 
     const onAuthUpdated = () => {
       loadAccount(true);
     };
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === authTokenStorageKey) loadAccount(true);
-    };
 
     window.addEventListener("ct:auth-updated", onAuthUpdated);
-    window.addEventListener("storage", onStorage);
     return () => {
       mountedRef.current = false;
       window.removeEventListener("ct:auth-updated", onAuthUpdated);
-      window.removeEventListener("storage", onStorage);
     };
   }, [loadAccount]);
 

@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base, ensure_ai_marketing_schema
 from app.models import UserAccount
 from app.routers.ai_marketing import (
@@ -37,7 +37,7 @@ def _session():
 
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
-    return Request({"type": "http", "method": "PATCH", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+    return Request({"type": "http", "method": "PATCH", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
 
 
 def _user(db, email: str, *, role: str = "user") -> UserAccount:

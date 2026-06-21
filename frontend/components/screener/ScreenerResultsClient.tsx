@@ -190,8 +190,8 @@ function SortHeader({
   );
 }
 
-function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerApiRow; intelligenceLocked?: boolean }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+function InstitutionalActivityCell({ row, proLocked }: { row: ScreenerApiRow; proLocked?: boolean }) {
+  if (proLocked || row.institutional_activity_locked || row.institutional_activity_status === "pro_locked") return lockedMetricLine("Pro data locked");
   if (!row.institutional_activity_active || row.institutional_activity_status !== "ok") return <span className="text-sm text-slate-500">--</span>;
   return (
     <div className="min-w-[10rem]">
@@ -205,8 +205,8 @@ function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerA
   );
 }
 
-function OptionsFlowCell({ row, intelligenceLocked }: { row: ScreenerApiRow; intelligenceLocked?: boolean }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+function OptionsFlowCell({ row, proLocked }: { row: ScreenerApiRow; proLocked?: boolean }) {
+  if (proLocked || row.options_flow_locked || row.options_flow_status === "pro_locked") return lockedMetricLine("Pro data locked");
   if (!row.options_flow_active || row.options_flow_status === "unavailable") return <span className="text-sm text-slate-500">--</span>;
   return (
     <div className="min-w-[10rem]">
@@ -222,14 +222,11 @@ function OptionsFlowCell({ row, intelligenceLocked }: { row: ScreenerApiRow; int
 
 function GovernmentContractsMetricCell({
   row,
-  intelligenceLocked,
   availabilityStatus,
 }: {
   row: ScreenerApiRow;
-  intelligenceLocked?: boolean;
   availabilityStatus?: string;
 }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
   if (availabilityStatus === "unavailable" && row.government_contracts_status !== "ok") {
     return <span className="text-sm text-slate-500">Unavailable</span>;
   }
@@ -300,12 +297,14 @@ function DynamicMetricCell({ value }: { value: string }) {
 
 function ScreenerTableRow({
   row,
-  intelligenceLocked = false,
+  optionsFlowLocked = false,
+  institutionalActivityLocked = false,
   governmentContractsAvailabilityStatus = "ok",
   activeColumns,
 }: {
   row: ScreenerApiRow;
-  intelligenceLocked?: boolean;
+  optionsFlowLocked?: boolean;
+  institutionalActivityLocked?: boolean;
   governmentContractsAvailabilityStatus?: string;
   activeColumns: ScreenerColumnKey[];
 }) {
@@ -344,48 +343,30 @@ function ScreenerTableRow({
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
       {activeColumns.includes("congress") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
-        {intelligenceLocked ? (
-          lockedMetricLine("Locked intelligence")
-        ) : (
-          <>
-            <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>{row.congress_activity.present ? "Active" : "None"}</div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
-          </>
-        )}
+        <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>{row.congress_activity.present ? "Active" : "None"}</div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
       </td> : null}
       {activeColumns.includes("insiders") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
-        {intelligenceLocked ? (
-          lockedMetricLine("Locked intelligence")
-        ) : (
-          <>
-            <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>{row.insider_activity.present ? "Active" : "None"}</div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
-          </>
-        )}
+        <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>{row.insider_activity.present ? "Active" : "None"}</div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
       </td> : null}
-      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
-      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} proLocked={institutionalActivityLocked} /></td> : null}
+      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} proLocked={optionsFlowLocked} /></td> : null}
       {activeColumns.includes("government_contracts") ? <td className={`${tableCellClassName} min-w-[11rem]`}>
-        <GovernmentContractsMetricCell row={row} intelligenceLocked={intelligenceLocked} availabilityStatus={governmentContractsAvailabilityStatus} />
+        <GovernmentContractsMetricCell row={row} availabilityStatus={governmentContractsAvailabilityStatus} />
       </td> : null}
       {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
-        {intelligenceLocked ? (
-          lockedMetricLine("Confirmation score, band, and direction are locked.")
-        ) : (
-          <>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
-              <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>{titleCase(row.confirmation.band)}</span>
-            </div>
-            <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>{confirmationDirection}</div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
-          </>
-        )}
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
+          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>{titleCase(row.confirmation.band)}</span>
+        </div>
+        <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>{confirmationDirection}</div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
       </td> : null}
       {activeColumns.includes("why_now") ? <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
-        <WhyNowHover row={row} locked={intelligenceLocked} />
+        <WhyNowHover row={row} locked={false} />
         <div className="mt-1 text-[11px] leading-4 text-slate-500">
-          {intelligenceLocked ? "Premium freshness" : freshnessStateLabel(row.signal_freshness.freshness_state)}
+          {freshnessStateLabel(row.signal_freshness.freshness_state)}
         </div>
       </td> : null}
       {activeColumns.includes("rel_volume") ? <DynamicMetricCell value={formatMultiple(row.rel_volume)} /> : null}
@@ -462,6 +443,8 @@ export function ScreenerResultsClient({
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
   const governmentContractsAvailabilityStatus = data?.overlay_availability?.government_contracts?.status ?? "ok";
+  const optionsFlowLocked = data?.access?.options_flow_locked === true || data?.overlay_availability?.options_flow?.status === "pro_locked";
+  const institutionalActivityLocked = data?.access?.institutional_activity_locked === true || data?.overlay_availability?.institutional_activity?.status === "pro_locked";
   const colSpan = 7 + activeColumns.length;
 
   return (
@@ -496,8 +479,8 @@ export function ScreenerResultsClient({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} /> : null}
-              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" /> : null}
+              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" /> : null}
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
               {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
@@ -542,7 +525,8 @@ export function ScreenerResultsClient({
                 <ScreenerTableRow
                   key={row.symbol}
                   row={row}
-                  intelligenceLocked={intelligenceLocked}
+                  optionsFlowLocked={optionsFlowLocked}
+                  institutionalActivityLocked={institutionalActivityLocked}
                   governmentContractsAvailabilityStatus={governmentContractsAvailabilityStatus}
                   activeColumns={activeColumns}
                 />

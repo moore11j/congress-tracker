@@ -810,7 +810,7 @@ def _fundamental_fixture_rows(row_field: str, *, passing: float, below: float, a
         {**base, "symbol": "PASS", row_field: passing},
         {**base, "symbol": "LOW", row_field: below},
         {**base, "symbol": "HIGH", row_field: above},
-        {**base, "symbol": "NULL", row_field: None},
+        {**base, "symbol": "MISS", row_field: None},
     ]
 
 
@@ -836,7 +836,7 @@ def test_screener_fundamental_min_max_filters_exclude_out_of_range_and_nulls(
         min_response = build_screener_response(db, screener_params_from_mapping({f"{param_base}_min": str(min_value)}))
         max_response = build_screener_response(db, screener_params_from_mapping({f"{param_base}_max": str(max_value)}))
 
-    assert {row["symbol"] for row in default_response["items"]} == {"PASS", "LOW", "HIGH", "NULL"}
+    assert {row["symbol"] for row in default_response["items"]} == {"PASS", "LOW", "HIGH", "MISS"}
     assert {row["symbol"] for row in min_response["items"]} == {"PASS", "HIGH"}
     assert {row["symbol"] for row in max_response["items"]} == {"PASS", "LOW"}
     assert f"{param_base}_min" in min_response["filters"]

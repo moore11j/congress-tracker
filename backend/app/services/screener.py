@@ -19,6 +19,7 @@ from app.entitlements import TierEntitlements, premium_required_error
 from app.models import PriceCache
 from app.services.confirmation_score import (
     normalize_confirmation_state,
+    redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
 )
 from app.services.confirmation_context import build_confirmation_score_context
@@ -111,6 +112,38 @@ PREMIUM_SORTS = {
     "institutional_activity_net_activity",
     "institutional_activity_institution_count",
     "institutional_activity_total_value",
+}
+OPTIONS_FLOW_FILTER_KEYS = {
+    "options_flow_active",
+    "options_flow_direction",
+    "options_flow_min_score",
+    "options_flow_min_premium",
+}
+OPTIONS_FLOW_SORTS = {
+    "options_flow_score",
+    "options_flow_total_premium",
+    "options_flow_call_put_premium_ratio",
+}
+INSTITUTIONAL_ACTIVITY_FILTER_KEYS = {
+    "institutional_activity_active",
+    "institutional_activity_direction",
+    "institutional_activity_min_value",
+}
+INSTITUTIONAL_ACTIVITY_SORTS = {
+    "institutional_activity_net_activity",
+    "institutional_activity_institution_count",
+    "institutional_activity_total_value",
+}
+PREMIUM_SIGNAL_FILTER_KEYS = {
+    "confirmation_score_min",
+    "confirmation_direction",
+    "confirmation_band",
+    "why_now_state",
+    "freshness",
+}
+PREMIUM_SIGNAL_SORTS = {
+    "confirmation_score",
+    "freshness",
 }
 
 NUMERIC_ROW_SORTS = {
@@ -407,14 +440,18 @@ def build_screener_response_for_entitlements(
         db,
         params,
         requested_rows=_requested_rows(params, page=page, page_size=page_size, row_cap=result_cap),
+        entitlements=entitlements,
     )
     rows = dataset["rows"]
-    if not entitlements.has_feature("screener_intelligence"):
-        rows = redact_intelligence_rows(rows)
+    if not entitlements.has_feature("options_flow_feed"):
+        rows = redact_options_flow_rows(rows)
+    if not entitlements.has_feature("institutional_feed"):
+        rows = redact_institutional_activity_rows(rows)
 
     start = (page - 1) * page_size
     end = min(start + page_size, result_cap)
     paged = rows[start:end]
+    overlay_availability = dataset["overlay_availability"]
     return {
         "items": paged,
         "page": page,
@@ -427,12 +464,14 @@ def build_screener_response_for_entitlements(
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
         "source": "fmp_company_screener",
         "lookback_days": lookback_days,
-        "overlay_availability": dataset["overlay_availability"],
+        "overlay_availability": overlay_availability,
         "ignored_filters": dataset["ignored_filters"],
         "result_cap": result_cap,
         "access": {
             "tier": entitlements.tier,
             "intelligence_locked": not entitlements.has_feature("screener_intelligence"),
+            "options_flow_locked": not entitlements.has_feature("options_flow_feed"),
+            "institutional_activity_locked": not entitlements.has_feature("institutional_feed"),
             "presets_locked": not entitlements.has_feature("screener_presets"),
             "saved_screens_limit": entitlements.limit("screener_saved_screens"),
             "monitoring_locked": not entitlements.has_feature("screener_monitoring"),
@@ -457,6 +496,7 @@ def _build_screener_dataset(
     params: ScreenerParams,
     *,
     requested_rows: int | None = None,
+    entitlements: TierEntitlements | None = None,
 ) -> dict[str, Any]:
     lookback_days = max(1, min(int(params.lookback_days or 30), 365))
     sort = params.sort if params.sort in SUPPORTED_SORTS else "relevance"
@@ -555,7 +595,47 @@ def _build_screener_dataset(
     government_contracts_summaries = confirmation_context["government_contracts_summaries"]
     options_flow_summaries = confirmation_context["options_flow_summaries"]
     institutional_activity_summaries = confirmation_context["institutional_activity_summaries"]
-    overlay_availability = confirmation_context["overlay_availability"]
+    overlay_availability = _overlay_availability_for_entitlements(
+        confirmation_context["overlay_availability"],
+        entitlements,
+    )
+    if entitlements is not None:
+        premium_locked_sources: set[str] = set()
+        pro_locked_sources: set[str] = set()
+        if not entitlements.has_feature("signals"):
+            premium_locked_sources.add("signals")
+        if not entitlements.has_feature("options_flow_feed"):
+            pro_locked_sources.add("options_flow")
+            options_flow_summaries = {
+                symbol: _locked_options_flow_summary(symbol)
+                for symbol in symbols
+            }
+        if not entitlements.has_feature("institutional_feed"):
+            pro_locked_sources.add("institutional_activity")
+            institutional_activity_summaries = {
+                symbol: _locked_institutional_activity_summary()
+                for symbol in symbols
+            }
+        if premium_locked_sources:
+            bundles = {
+                symbol: redact_confirmation_bundle_sources(
+                    bundle,
+                    premium_locked_sources,
+                    lock_state="premium_locked",
+                    required_plan="premium",
+                )
+                for symbol, bundle in bundles.items()
+            }
+        if pro_locked_sources:
+            bundles = {
+                symbol: redact_confirmation_bundle_sources(
+                    bundle,
+                    pro_locked_sources,
+                    lock_state="pro_locked",
+                    required_plan="pro",
+                )
+                for symbol, bundle in bundles.items()
+            }
     rows = [
         _enrich_row(
             row,
@@ -701,7 +781,13 @@ def build_screener_csv_export(
 
 def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_cap: int = MAX_FETCH_ROWS) -> int:
     requested_rows = min(MAX_FETCH_ROWS, row_cap, max(page * page_size + 1, page_size))
-    if _has_intelligence_filters(params) or _has_technical_filters(params) or _has_fundamental_filters(params):
+    if (
+        _has_intelligence_filters(params)
+        or _has_source_derived_filters(params)
+        or params.sort in PREMIUM_SORTS
+        or _has_technical_filters(params)
+        or _has_fundamental_filters(params)
+    ):
         requested_rows = min(MAX_FETCH_ROWS, row_cap)
     return requested_rows
 
@@ -833,24 +919,35 @@ def _fundamental_range(params: ScreenerParams, spec: FundamentalFilterSpec) -> t
 def _has_intelligence_filters(params: ScreenerParams) -> bool:
     return any(
         getattr(params, key) is not None
-        for key in (
-            "congress_activity",
-            "insider_activity",
-            "confirmation_score_min",
-            "confirmation_direction",
-            "confirmation_band",
-            "why_now_state",
-            "freshness",
-            "government_contracts_active",
-            "options_flow_active",
-            "options_flow_direction",
-            "options_flow_min_score",
-            "options_flow_min_premium",
-            "institutional_activity_active",
-            "institutional_activity_direction",
-            "institutional_activity_min_value",
-        )
+        for key in PREMIUM_SIGNAL_FILTER_KEYS
     )
+
+
+def _has_public_source_filters(params: ScreenerParams) -> bool:
+    return (
+        _normalized_str(params.congress_activity) is not None
+        or _normalized_str(params.insider_activity) is not None
+        or params.government_contracts_active is not None
+    )
+
+
+def _has_options_flow_filters(params: ScreenerParams) -> bool:
+    if any(getattr(params, key) is not None for key in OPTIONS_FLOW_FILTER_KEYS):
+        return True
+    return int(params.options_flow_lookback_days or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS) != DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS
+
+
+def _has_institutional_activity_filters(params: ScreenerParams) -> bool:
+    if any(getattr(params, key) is not None for key in INSTITUTIONAL_ACTIVITY_FILTER_KEYS):
+        return True
+    return (
+        int(params.institutional_activity_lookback_days or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS)
+        != DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
+    )
+
+
+def _has_source_derived_filters(params: ScreenerParams) -> bool:
+    return _has_public_source_filters(params) or _has_options_flow_filters(params) or _has_institutional_activity_filters(params)
 
 
 def _has_core_filters(params: ScreenerParams) -> bool:
@@ -866,23 +963,45 @@ def _has_fundamental_filters(params: ScreenerParams) -> bool:
 
 
 def has_intelligence_sort(params: ScreenerParams) -> bool:
-    return params.sort in PREMIUM_SORTS
+    return params.sort in PREMIUM_SIGNAL_SORTS
 
 
 def require_screener_intelligence_access(params: ScreenerParams, entitlements: TierEntitlements) -> None:
+    if (_has_options_flow_filters(params) or params.sort in OPTIONS_FLOW_SORTS) and not entitlements.has_feature("options_flow_filters"):
+        raise premium_required_error(
+            feature="options_flow_filters",
+            message="Options flow screener filters, sorts, columns, and overlays require Pro.",
+            entitlements=entitlements,
+        )
+    if (
+        _has_institutional_activity_filters(params) or params.sort in INSTITUTIONAL_ACTIVITY_SORTS
+    ) and not entitlements.has_feature("institutional_filters"):
+        raise premium_required_error(
+            feature="institutional_filters",
+            message="Institutional activity screener filters, sorts, columns, and overlays require Pro.",
+            entitlements=entitlements,
+        )
     if entitlements.has_feature("screener_intelligence"):
         return
     if not _has_intelligence_filters(params) and not has_intelligence_sort(params):
         return
     raise premium_required_error(
         feature="screener_intelligence",
-        message="Congress, insider, government contract, options flow, institutional, confirmation, Why Now, and freshness screener filters are included with Premium.",
+        message="Signal confirmation, Why Now, and freshness screener filters are included with Premium.",
         entitlements=entitlements,
     )
 
 
 def redact_intelligence_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_redact_intelligence_row(row) for row in rows]
+
+
+def redact_options_flow_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_redact_options_flow_row(row) for row in rows]
+
+
+def redact_institutional_activity_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_redact_institutional_activity_row(row) for row in rows]
 
 
 def _number(value: Any) -> float | None:
@@ -1234,6 +1353,18 @@ def _enrich_row(
         if isinstance(government_contracts_summary.get("status"), str)
         else "ok"
     )
+    options_flow_status = (
+        options_flow_summary.get("status")
+        if isinstance(options_flow_summary.get("status"), str)
+        else "unavailable"
+    )
+    options_flow_available = options_flow_status == "ok"
+    institutional_activity_status = (
+        institutional_activity_summary.get("status")
+        if isinstance(institutional_activity_summary.get("status"), str)
+        else "not_configured"
+    )
+    institutional_activity_available = institutional_activity_status == "ok"
     return {
         **row,
         "congress_activity": _activity_from_bundle(bundle, "congress", "No recent activity"),
@@ -1261,21 +1392,21 @@ def _enrich_row(
         "government_contracts_direction": government_contracts_summary.get("direction")
         if government_contracts_status == "ok" and isinstance(government_contracts_summary.get("direction"), str)
         else None,
-        "options_flow_active": options_flow_summary.get("active") is True,
-        "options_flow_score": _int_param(options_flow_summary.get("score")),
-        "options_flow_direction": options_flow_summary.get("direction") if isinstance(options_flow_summary.get("direction"), str) else "neutral",
-        "options_flow_intensity": options_flow_summary.get("intensity") if isinstance(options_flow_summary.get("intensity"), str) else None,
-        "options_flow_total_premium": _number(options_flow_summary.get("total_premium")),
-        "options_flow_call_put_premium_ratio": _number(options_flow_summary.get("call_put_premium_ratio")),
-        "options_flow_latest_date": options_flow_summary.get("latest_flow_date") if isinstance(options_flow_summary.get("latest_flow_date"), str) else None,
-        "options_flow_status": options_flow_summary.get("status") if isinstance(options_flow_summary.get("status"), str) else "unavailable",
-        "institutional_activity_active": institutional_activity_summary.get("active") is True,
-        "institutional_activity_direction": institutional_activity_summary.get("direction") if isinstance(institutional_activity_summary.get("direction"), str) else "neutral",
-        "institutional_activity_net_activity": _number(institutional_activity_summary.get("net_activity")),
-        "institutional_activity_institution_count": _int_param(institutional_activity_summary.get("institution_count")),
-        "institutional_activity_total_value": _number(institutional_activity_summary.get("total_value")),
-        "institutional_activity_latest_date": institutional_activity_summary.get("latest_activity_date") if isinstance(institutional_activity_summary.get("latest_activity_date"), str) else None,
-        "institutional_activity_status": institutional_activity_summary.get("status") if isinstance(institutional_activity_summary.get("status"), str) else "not_configured",
+        "options_flow_active": (options_flow_summary.get("active") is True) if options_flow_available else None,
+        "options_flow_score": _int_param(options_flow_summary.get("score")) if options_flow_available else None,
+        "options_flow_direction": options_flow_summary.get("direction") if options_flow_available and isinstance(options_flow_summary.get("direction"), str) else None,
+        "options_flow_intensity": options_flow_summary.get("intensity") if options_flow_available and isinstance(options_flow_summary.get("intensity"), str) else None,
+        "options_flow_total_premium": _number(options_flow_summary.get("total_premium")) if options_flow_available else None,
+        "options_flow_call_put_premium_ratio": _number(options_flow_summary.get("call_put_premium_ratio")) if options_flow_available else None,
+        "options_flow_latest_date": options_flow_summary.get("latest_flow_date") if options_flow_available and isinstance(options_flow_summary.get("latest_flow_date"), str) else None,
+        "options_flow_status": options_flow_status,
+        "institutional_activity_active": (institutional_activity_summary.get("active") is True) if institutional_activity_available else None,
+        "institutional_activity_direction": institutional_activity_summary.get("direction") if institutional_activity_available and isinstance(institutional_activity_summary.get("direction"), str) else None,
+        "institutional_activity_net_activity": _number(institutional_activity_summary.get("net_activity")) if institutional_activity_available else None,
+        "institutional_activity_institution_count": _int_param(institutional_activity_summary.get("institution_count")) if institutional_activity_available else None,
+        "institutional_activity_total_value": _number(institutional_activity_summary.get("total_value")) if institutional_activity_available else None,
+        "institutional_activity_latest_date": institutional_activity_summary.get("latest_activity_date") if institutional_activity_available and isinstance(institutional_activity_summary.get("latest_activity_date"), str) else None,
+        "institutional_activity_status": institutional_activity_status,
         "confirmation": {
             "score": int(summary.get("confirmation_score") or 0),
             "band": summary.get("confirmation_band") if isinstance(summary.get("confirmation_band"), str) else "inactive",
@@ -1295,44 +1426,6 @@ def _enrich_row(
 def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         **row,
-        "congress_activity": {
-            "present": False,
-            "label": "Premium intelligence locked",
-            "direction": None,
-            "freshness_days": None,
-            "locked": True,
-        },
-        "insider_activity": {
-            "present": False,
-            "label": "Premium intelligence locked",
-            "direction": None,
-            "freshness_days": None,
-            "locked": True,
-        },
-        "government_contracts_status": "locked",
-        "government_contracts_active": None,
-        "government_contracts_score_contribution": None,
-        "government_contracts_count": None,
-        "government_contracts_total_amount": None,
-        "government_contracts_largest_amount": None,
-        "government_contracts_latest_date": None,
-        "government_contracts_top_agency": None,
-        "government_contracts_direction": None,
-        "options_flow_active": None,
-        "options_flow_score": None,
-        "options_flow_direction": None,
-        "options_flow_intensity": None,
-        "options_flow_total_premium": None,
-        "options_flow_call_put_premium_ratio": None,
-        "options_flow_latest_date": None,
-        "options_flow_status": "locked",
-        "institutional_activity_active": None,
-        "institutional_activity_direction": None,
-        "institutional_activity_net_activity": None,
-        "institutional_activity_institution_count": None,
-        "institutional_activity_total_value": None,
-        "institutional_activity_latest_date": None,
-        "institutional_activity_status": "locked",
         "confirmation": {
             "score": None,
             "band": "locked",
@@ -1352,6 +1445,67 @@ def _redact_intelligence_row(row: dict[str, Any]) -> dict[str, Any]:
             "freshness_label": "Premium intelligence locked",
             "locked": True,
         },
+    }
+
+
+def _redact_options_flow_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "options_flow_active": None,
+        "options_flow_score": None,
+        "options_flow_direction": None,
+        "options_flow_intensity": None,
+        "options_flow_total_premium": None,
+        "options_flow_call_put_premium_ratio": None,
+        "options_flow_latest_date": None,
+        "options_flow_status": "pro_locked",
+        "options_flow_locked": True,
+    }
+
+
+def _redact_institutional_activity_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "institutional_activity_active": None,
+        "institutional_activity_direction": None,
+        "institutional_activity_net_activity": None,
+        "institutional_activity_institution_count": None,
+        "institutional_activity_total_value": None,
+        "institutional_activity_latest_date": None,
+        "institutional_activity_status": "pro_locked",
+        "institutional_activity_locked": True,
+    }
+
+
+def _locked_options_flow_summary(symbol: str) -> dict[str, Any]:
+    return {
+        "active": None,
+        "score": None,
+        "direction": None,
+        "intensity": None,
+        "call_put_premium_ratio": None,
+        "total_premium": None,
+        "latest_flow_date": None,
+        "source": None,
+        "status": "pro_locked",
+        "locked": True,
+        "required_plan": "pro",
+        "symbol": symbol,
+    }
+
+
+def _locked_institutional_activity_summary() -> dict[str, Any]:
+    return {
+        "active": None,
+        "direction": None,
+        "net_activity": None,
+        "institution_count": None,
+        "total_value": None,
+        "latest_activity_date": None,
+        "source": None,
+        "status": "pro_locked",
+        "locked": True,
+        "required_plan": "pro",
     }
 
 
@@ -1735,6 +1889,36 @@ def _overlay_filterable(overlay_availability: dict[str, Any] | None, key: str) -
         return False
     overlay = overlay_availability.get(key)
     return isinstance(overlay, dict) and overlay.get("filterable") is True
+
+
+def _locked_overlay_availability(source: str, availability: Any) -> dict[str, Any]:
+    base = dict(availability) if isinstance(availability, dict) else {}
+    return {
+        **base,
+        "source": source,
+        "enabled": bool(base.get("enabled", True)),
+        "status": "pro_locked",
+        "filterable": False,
+        "locked": True,
+        "required_plan": "pro",
+    }
+
+
+def _overlay_availability_for_entitlements(
+    overlay_availability: dict[str, Any] | None,
+    entitlements: TierEntitlements | None,
+) -> dict[str, Any]:
+    result = dict(overlay_availability) if isinstance(overlay_availability, dict) else {}
+    if entitlements is None:
+        return result
+    if not entitlements.has_feature("options_flow_filters"):
+        result["options_flow"] = _locked_overlay_availability("options_flow", result.get("options_flow"))
+    if not entitlements.has_feature("institutional_filters"):
+        result["institutional_activity"] = _locked_overlay_availability(
+            "institutional_activity",
+            result.get("institutional_activity"),
+        )
+    return result
 
 
 def _ignored_overlay_filters(params: ScreenerParams, overlay_availability: dict[str, Any]) -> list[str]:

@@ -9,8 +9,9 @@ Required for production runtime:
 | Var | Purpose | Notes |
 | --- | --- | --- |
 | `APP_ENV` | Runtime mode | Use `production` for production. |
-| `APP_SESSION_SECRET` | Signed session cookies and password pepper | Required by startup checks in production. |
-| `DATABASE_URL` | Production PostgreSQL database | Production must be Postgres. Do not switch production to SQLite. |
+| `APP_SESSION_SECRET` | Signed session cookies and password pepper | Required by startup checks in production. Must be strong and rotated during the cookie-only auth deploy to invalidate previously exposed bearer/localStorage tokens. |
+| `APP_SESSION_COOKIE_SAMESITE` | Session cookie SameSite policy | Required as `none` on Fly production while the Vercel frontend calls the Fly API cross-site. Local/dev may omit this and use the `lax` default. |
+| `DATABASE_URL` | Production PostgreSQL database | Production must use the actual Postgres connection string, or be omitted only when Fly injects it automatically through the attached Postgres database. Do not set production to SQLite. |
 | `ADMIN_TOKEN` | Admin/token-protected backend paths | Keep distinct from `APP_SESSION_SECRET`. |
 | `FRONTEND_ORIGINS` | Credentialed CORS origins | Prefer this over `FRONTEND_URL`. |
 | `FRONTEND_BASE_URL` | Current app URL for checkout, billing, emails, notifications | Current code reads this. Future canonical target is `PUBLIC_APP_URL`. |
@@ -55,6 +56,16 @@ Required for production runtime:
 | `GOOGLE_REDIRECT_URI` | Google OAuth redirect override | Optional if generated callback URL matches Google Console. |
 | `MASSIVE_API_KEY` | Massive options/alternate data provider | Required only if options flow provider is live. |
 | `OPTIONS_FLOW_PROVIDER` | Options flow provider selector | Defaults to Massive. |
+
+Cookie-only auth deployment note:
+
+- Set `APP_ENV=production` on Fly so session cookies are emitted as `Secure` and startup validation runs in production mode.
+- Set `APP_SESSION_COOKIE_SAMESITE=none` on Fly while the app frontend and API are cross-site (`https://app.walnutmarkets.com` to `https://congress-tracker-api.fly.dev`). The backend will fail startup in production if cross-site cookie auth would otherwise use `lax` or `strict`.
+- Keep `APP_ALLOW_BEARER_SESSION_AUTH` unset or false. It is only a non-production escape hatch for local test/dev sessions and production startup rejects it.
+- Rotate `APP_SESSION_SECRET` in the same deploy that removes bearer-session auth, so any session tokens previously exposed to browser JavaScript or localStorage stop working.
+- Confirm `FRONTEND_ORIGINS=https://app.walnutmarkets.com` unless an additional production Walnut app domain is intentionally enabled.
+- Confirm production `DATABASE_URL` resolves to Postgres, or is supplied automatically by Fly Postgres. SQLite URLs such as `sqlite:////data/app.db` are local/dev only and must not replace production Postgres.
+- Smoke test login, Google OAuth, `/api/auth/me`, admin, account, watchlists, screener, logout, and refresh after deploy.
 
 Optional backend tuning vars that are safe to omit unless tuning production behavior:
 

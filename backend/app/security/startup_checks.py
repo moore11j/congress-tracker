@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+from urllib.parse import urlparse
 
 from app.services.billing_readiness import (
     STRIPE_BILLING_ENABLE_FLAGS,
@@ -33,6 +34,10 @@ DEFAULT_LOCAL_FRONTEND_ORIGINS = (
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _PRODUCTION_ENVS = {"prod", "production"}
 _NONPRODUCTION_ENVS = {"local", "dev", "development", "test", "testing", "ci"}
+_KNOWN_COOKIE_SITE_SUFFIXES = (
+    ".walnutmarkets.com",
+    ".walnut-intel.com",
+)
 
 
 class StartupSecurityError(RuntimeError):
@@ -49,6 +54,41 @@ def _env_lower(name: str) -> str:
 
 def _is_truthy(name: str) -> bool:
     return _env_lower(name) in _TRUE_VALUES
+
+
+def _origin_host(origin: str) -> str:
+    parsed = urlparse(origin)
+    return (parsed.hostname or "").strip().lower()
+
+
+def _cookie_site_key(origin: str) -> str:
+    parsed = urlparse(origin)
+    scheme = (parsed.scheme or "https").lower()
+    host = (parsed.hostname or "").strip().lower()
+    for suffix in _KNOWN_COOKIE_SITE_SUFFIXES:
+        bare = suffix.lstrip(".")
+        if host == bare or host.endswith(suffix):
+            return f"{scheme}://{bare}"
+    return f"{scheme}://{host}"
+
+
+def backend_public_origin() -> str:
+    for name in ("PUBLIC_API_URL", "API_BASE_URL", "BACKEND_PUBLIC_URL", "APP_API_BASE_URL"):
+        raw = _env(name)
+        if raw:
+            parsed = urlparse(raw)
+            if parsed.scheme and parsed.netloc:
+                return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
+    fly_app = _env("FLY_APP_NAME")
+    if fly_app:
+        return f"https://{fly_app}.fly.dev"
+    return "https://congress-tracker-api.fly.dev"
+
+
+def frontend_backend_are_cross_site() -> bool:
+    backend_site = _cookie_site_key(backend_public_origin())
+    origins = cors_allowed_origins()
+    return any(_origin_host(origin) and _cookie_site_key(origin) != backend_site for origin in origins)
 
 
 def stripe_billing_readiness() -> dict[str, object]:
@@ -155,6 +195,22 @@ def validate_session_secret_config() -> None:
         raise StartupSecurityError("APP_SESSION_SECRET must not reuse ADMIN_TOKEN in production.")
 
 
+def validate_session_cookie_config() -> None:
+    if not is_production():
+        return
+
+    samesite = _env_lower("APP_SESSION_COOKIE_SAMESITE") or "lax"
+    if frontend_backend_are_cross_site() and samesite != "none":
+        raise StartupSecurityError(
+            "APP_SESSION_COOKIE_SAMESITE=none is required in production when the frontend and backend are cross-site."
+        )
+
+
+def validate_bearer_session_auth_config() -> None:
+    if is_production() and _is_truthy("APP_ALLOW_BEARER_SESSION_AUTH"):
+        raise StartupSecurityError("APP_ALLOW_BEARER_SESSION_AUTH must be disabled in production.")
+
+
 def validate_cors_config() -> None:
     if not is_production():
         return
@@ -220,6 +276,8 @@ def validate_debug_admin_config() -> None:
 
 def validate_startup_security_config() -> None:
     validate_session_secret_config()
+    validate_session_cookie_config()
+    validate_bearer_session_auth_config()
     validate_cors_config()
     validate_entitlement_header_config()
     validate_password_reset_config()

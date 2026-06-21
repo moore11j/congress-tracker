@@ -11,43 +11,45 @@ const apiSource = fs.readFileSync(apiPath, "utf8");
 const middlewareSource = fs.readFileSync(middlewarePath, "utf8");
 const serverAuthSource = fs.readFileSync(serverAuthPath, "utf8");
 
-test("api client includes credentials while preserving bearer-token compatibility", () => {
+test("api client includes credentials and does not attach localStorage bearer tokens", () => {
   assert.match(apiSource, /credentials:\s*fetchInit\.credentials \?\? "include"/);
-  assert.match(apiSource, /window\.localStorage\.getItem\(authTokenStorageKey\)/);
-  assert.match(apiSource, /headers\.set\("Authorization", `Bearer \$\{token\}`\)/);
+  assert.match(apiSource, /function authHeaders\(sessionToken\?: string \| null\)/);
+  assert.match(apiSource, /return \{ Cookie: `\$\{backendSessionCookieName\}=\$\{sessionToken\}` \}/);
+  assert.doesNotMatch(apiSource, /headers\.set\("Authorization"/);
+  assert.doesNotMatch(apiSource, /Bearer \$\{/);
+  assert.doesNotMatch(apiSource, /localStorage\.getItem\(.*authToken/);
 });
 
-test("rememberAuthToken never writes the auth token to the ct_session cookie from client JavaScript", () => {
-  const rememberBody = apiSource.match(/function rememberAuthToken\(token: string\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+test("authenticated-session hint never stores or exposes a raw session token", () => {
+  const rememberBody = apiSource.match(/function rememberAuthenticatedSession\(\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 
   assert.match(apiSource, /export const backendSessionCookieName = "ct_session"/);
   assert.match(apiSource, /export const authHintCookieName = "ct_auth_hint"/);
-  assert.match(rememberBody, /window\.localStorage\.setItem\(authTokenStorageKey, token\)/);
   assert.match(rememberBody, /document\.cookie = `\$\{authHintCookieName\}=1; Path=\/; SameSite=Lax; Max-Age=/);
-  assert.doesNotMatch(rememberBody, /backendSessionCookieName|ct_session|encodeURIComponent\(token\)/);
+  assert.doesNotMatch(rememberBody, /localStorage\.setItem|backendSessionCookieName|ct_session|token|Authorization|Bearer/);
 });
 
-test("same-origin session bridge sets the server-readable auth cookie as httpOnly", () => {
+test("same-origin legacy session route no longer accepts bearer tokens", () => {
   const bridgePath = path.join(process.cwd(), "app", "api", "auth", "session", "route.ts");
   const bridgeSource = fs.readFileSync(bridgePath, "utf8");
 
   assert.match(bridgeSource, /const authSessionCookieName = "ct_session"/);
   assert.match(bridgeSource, /export async function POST/);
-  assert.match(bridgeSource, /response\.cookies\.set\(\{/);
-  assert.match(bridgeSource, /httpOnly: true/);
-  assert.match(bridgeSource, /sameSite: "lax"/);
+  assert.match(bridgeSource, /status: "unsupported"/);
+  assert.match(bridgeSource, /status: 410/);
   assert.match(bridgeSource, /export async function DELETE/);
-  assert.match(apiSource, /export async function syncServerAuthSession/);
-  assert.match(apiSource, /fetch\("\/api\/auth\/session", \{\s*method: "POST"/);
-  assert.match(apiSource, /await syncServerAuthSession\(response\.token\)/);
+  assert.doesNotMatch(bridgeSource, /authorization|bearer|Bearer|value: token|bearerToken/i);
+  assert.doesNotMatch(apiSource, /syncServerAuthSession|response\.token|method: "POST"[\s\S]*\/api\/auth\/session/);
 });
 
-test("logout calls backend logout and clears transition storage", () => {
-  const forgetBody = apiSource.match(/function forgetAuthToken\(\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+test("logout calls backend logout and clears legacy transition storage", () => {
+  const forgetBody = apiSource.match(/function forgetAuthenticatedSession\(\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 
   assert.match(apiSource, /buildApiUrl\("\/api\/auth\/logout"\)/);
-  assert.match(apiSource, /finally\s*\{\s*forgetAuthToken\(\);/);
-  assert.match(forgetBody, /window\.localStorage\.removeItem\(authTokenStorageKey\)/);
+  assert.match(apiSource, /finally\s*\{\s*forgetAuthenticatedSession\(\);/);
+  assert.match(apiSource, /function clearLegacyAuthStorage\(\)/);
+  assert.match(apiSource, /window\.localStorage\.removeItem\(legacyAuthTokenStorageKey\)/);
+  assert.match(apiSource, /window\.sessionStorage\.removeItem\(legacyServerSessionSyncStorageKey\)/);
   assert.match(forgetBody, /document\.cookie = `\$\{backendSessionCookieName\}=; Path=\/; SameSite=Lax; Max-Age=0`;/);
   assert.match(forgetBody, /document\.cookie = `\$\{authHintCookieName\}=; Path=\/; SameSite=Lax; Max-Age=0`;/);
 });

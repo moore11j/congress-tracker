@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.models import Event, GovernmentContractAction, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.events import list_events, list_watchlist_events
@@ -34,7 +34,7 @@ def _session():
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request(
-        {"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+        {"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]}
     )
 
 

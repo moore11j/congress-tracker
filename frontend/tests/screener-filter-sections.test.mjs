@@ -41,5 +41,12 @@ test("free screener gates premium filter groups without the top monitoring badge
   assert.match(page, /badge=\{null\}/);
   assert.match(upgradeOverlay, /badge = "Premium"/);
   assert.match(upgradeOverlay, /badge \? \(/);
-  assert.match(page, /<ScreenerUpgradeOverlay\s+title="Intelligence screener filters"/);
+  assert.match(page, /<FilterSelect name="congress_activity" label="Congress"/);
+  assert.match(page, /<FilterSelect name="government_contracts_active" label="Contracts"/);
+  assert.doesNotMatch(page, /congress_activity_locked/);
+  assert.doesNotMatch(page, /government_contracts_active_locked/);
+  assert.match(page, /title="Confirmation filters"/);
+  assert.match(page, /Options flow filters require Pro\./);
+  assert.match(page, /Institutional activity filters require Pro\./);
+  assert.doesNotMatch(page, /<ScreenerUpgradeOverlay\s+title="Intelligence screener filters"/);
 });

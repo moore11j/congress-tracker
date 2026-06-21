@@ -168,6 +168,92 @@ def inactive_confirmation_score_bundle(ticker: str, *, lookback_days: int = 30) 
     return _empty_bundle(ticker.strip().upper(), lookback_days).as_dict()
 
 
+def _source_summary_from_payload(source: Any, *, fallback_label: str) -> ConfirmationSourceSummary:
+    if not isinstance(source, dict):
+        return _empty_source(fallback_label)
+    direction = source.get("direction")
+    if direction not in {"bullish", "bearish", "neutral", "mixed"}:
+        direction = "neutral"
+    freshness_days = source.get("freshness_days")
+    if not isinstance(freshness_days, int):
+        freshness_days = None
+    label = source.get("label") if isinstance(source.get("label"), str) and source.get("label").strip() else fallback_label
+    detail = source.get("detail") if isinstance(source.get("detail"), str) and source.get("detail").strip() else None
+    summary = source.get("summary") if isinstance(source.get("summary"), str) and source.get("summary").strip() else None
+    return ConfirmationSourceSummary(
+        present=source.get("present") is True,
+        direction=direction,
+        strength=_clamp_int(float(source.get("strength") or 0)),
+        quality=_clamp_int(float(source.get("quality") or 0)),
+        freshness_days=freshness_days,
+        label=label,
+        score_contribution=_clamp_int(float(source.get("score_contribution") or 0), minimum=0, maximum=20),
+        detail=detail,
+        summary=summary,
+    )
+
+
+def redact_confirmation_bundle_sources(
+    bundle: dict,
+    locked_sources: set[str],
+    *,
+    lock_state: str = "pro_locked",
+    required_plan: str = "pro",
+) -> dict:
+    """Remove locked source payloads and recompute derived bundle score fields."""
+    if not isinstance(bundle, dict):
+        return bundle
+    locked = {source for source in locked_sources if source in SOURCE_ORDER}
+    if not locked:
+        return bundle
+
+    ticker = str(bundle.get("ticker") or "").strip().upper()
+    try:
+        lookback_days = max(1, min(int(bundle.get("lookback_days") or 30), 365))
+    except (TypeError, ValueError):
+        lookback_days = 30
+    raw_sources = bundle.get("sources") if isinstance(bundle.get("sources"), dict) else {}
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary] = {}
+    for key in SOURCE_ORDER:
+        label = SOURCE_LABELS[key]
+        if key in locked:
+            sources[key] = _empty_source(f"{label} locked")
+            continue
+        sources[key] = _source_summary_from_payload(raw_sources.get(key), fallback_label=label)
+
+    redacted = _score_bundle(ticker, lookback_days, sources).as_dict()
+    existing_locked = {
+        key
+        for key in SOURCE_ORDER
+        if isinstance(raw_sources.get(key), dict) and raw_sources[key].get("locked") is True
+    }
+    all_locked = existing_locked | locked
+    redacted["redacted_sources"] = sorted(all_locked)
+    for key in all_locked:
+        existing = raw_sources.get(key) if isinstance(raw_sources.get(key), dict) else {}
+        source_lock_state = lock_state if key in locked else str(existing.get("lock_state") or existing.get("status") or lock_state)
+        source_required_plan = required_plan if key in locked else str(existing.get("required_plan") or required_plan)
+        label = SOURCE_LABELS[key]  # type: ignore[index]
+        redacted["sources"][key] = {
+            "present": False,
+            "direction": "neutral",
+            "strength": None,
+            "quality": None,
+            "freshness_days": None,
+            "label": f"{label} locked",
+            "score_contribution": None,
+            "detail": None,
+            "summary": f"{label} requires {source_required_plan.title()}.",
+            "status": source_lock_state,
+            "lock_state": source_lock_state,
+            "locked": True,
+            "required_plan": source_required_plan,
+        }
+        redacted["source_details"][key] = f"{label} requires {source_required_plan.title()}."
+    redacted["active_sources"] = [source for source in redacted.get("active_sources", []) if source not in all_locked]
+    return redacted
+
+
 def confirmation_score_bundle_from_source_contexts(
     ticker: str,
     *,

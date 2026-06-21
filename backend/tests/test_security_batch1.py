@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.main import _cors_allowed_origins, seed_demo
 from app.models import Member, UserAccount
@@ -25,7 +25,7 @@ def _anonymous_request() -> Request:
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request(
-        {"type": "http", "method": "POST", "path": "/admin/seed-demo", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+        {"type": "http", "method": "POST", "path": "/admin/seed-demo", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]}
     )
 
 

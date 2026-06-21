@@ -105,8 +105,8 @@ export const premiumEntitlements: Entitlements = {
     government_contracts_filters: 1,
     insider_feed: 1,
     congress_feed: 1,
-    options_flow_feed: 1,
-    options_flow_filters: 1,
+    options_flow_feed: 0,
+    options_flow_filters: 0,
     institutional_feed: 0,
     institutional_filters: 0,
     api_webhooks: 0,
@@ -132,8 +132,66 @@ export const premiumEntitlements: Entitlements = {
     "government_contracts_filters",
     "insider_feed",
     "congress_feed",
+  ],
+  upgrade_url: "/pricing",
+};
+
+export const proEntitlements: Entitlements = {
+  tier: "pro",
+  limits: {
+    signals: 1,
+    leaderboards: 1,
+    backtesting: 1,
+    screener: 1,
+    screener_intelligence: 1,
+    screener_presets: 1,
+    screener_saved_screens: 50,
+    screener_monitoring: 1,
+    screener_csv_export: 1,
+    screener_results: 1000,
+    watchlists: 25,
+    watchlist_tickers: 100,
+    saved_views: 50,
+    notification_digests: 100,
+    monitoring_sources: 15,
+    inbox_alerts: 1,
+    inbox_alert_retention: 365,
+    government_contracts_feed: 1,
+    government_contracts_filters: 1,
+    insider_feed: 1,
+    congress_feed: 1,
+    options_flow_feed: 1,
+    options_flow_filters: 1,
+    institutional_feed: 1,
+    institutional_filters: 1,
+    api_webhooks: 1,
+  },
+  features: [
+    "signals",
+    "leaderboards",
+    "backtesting",
+    "screener",
+    "screener_intelligence",
+    "screener_presets",
+    "screener_saved_screens",
+    "screener_monitoring",
+    "screener_csv_export",
+    "screener_results",
+    "watchlists",
+    "watchlist_tickers",
+    "saved_views",
+    "notification_digests",
+    "monitoring_sources",
+    "inbox_alerts",
+    "government_contracts_feed",
+    "government_contracts_filters",
+    "insider_feed",
+    "congress_feed",
     "options_flow_feed",
     "options_flow_filters",
+    "institutional_feed",
+    "institutional_filters",
+    "api_webhooks",
   ],
   upgrade_url: "/pricing",
 };
@@ -145,7 +203,7 @@ export function hasEntitlement(entitlements: Entitlements, feature: EntitlementF
 
 export function limitFor(entitlements: Entitlements, feature: EntitlementFeature) {
   if (entitlements.tier === "admin" || entitlements.user?.is_admin) {
-    return Math.max(entitlements.limits[feature] ?? 0, premiumEntitlements.limits[feature] ?? 1);
+    return Math.max(entitlements.limits[feature] ?? 0, proEntitlements.limits[feature] ?? 1);
   }
   return entitlements.limits[feature];
 }
@@ -159,6 +217,13 @@ export function normalizeTier(value: string | null | undefined): EntitlementTier
 export function entitlementsFromTierHint(value: string | null | undefined): Entitlements {
   const tier = normalizeTier(value);
   if (tier === "free") return defaultEntitlements;
+  if (tier === "pro" || tier === "admin") {
+    return {
+      ...proEntitlements,
+      tier,
+      status: "client_auth_hint",
+    };
+  }
   return {
     ...premiumEntitlements,
     tier,

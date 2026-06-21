@@ -13,7 +13,7 @@ from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
 from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
 from app.services.confirmation_context import build_confirmation_score_context
-from app.services.confirmation_score import slim_confirmation_score_bundle
+from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts, slim_confirmation_score_bundle
 
 
 def _engine():
@@ -206,6 +206,114 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
             "lines": ["Price / volume available"],
         },
     )
+
+
+def _full_source_confirmation_bundle(symbol: str) -> dict:
+    return confirmation_score_bundle_from_source_contexts(
+        symbol,
+        source_contexts={
+            "congress": {
+                "status": "active",
+                "direction": "bullish",
+                "buy_count": 2,
+                "sell_count": 0,
+                "net_flow": 250_000,
+                "title": "Congress buying active",
+            },
+            "insiders": {
+                "status": "active",
+                "direction": "bullish",
+                "buy_count": 1,
+                "sell_count": 0,
+                "net_flow": 125_000,
+                "title": "Insider buying active",
+            },
+            "signals": {
+                "status": "active",
+                "direction": "bullish",
+                "recent_count": 1,
+                "latest_score": 86,
+                "title": "Signal conviction active",
+            },
+            "price_volume": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 76,
+                "price_points": 60,
+                "latest_volume": 2_000_000,
+                "title": "Bullish tape confirmation",
+            },
+            "government_contracts": {
+                "status": "active",
+                "contract_count": 2,
+                "contract_value": 22_000_000,
+                "latest_date": date.today().isoformat(),
+                "title": "Government contracts active",
+            },
+            "options_flow": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 92,
+                "freshness_days": 1,
+                "title": "Options flow confirming",
+            },
+            "institutional_activity": {
+                "status": "active",
+                "direction": "bullish",
+                "freshness_days": 1,
+                "title": "Institutional activity active",
+            },
+        },
+    )
+
+
+def _public_summary_context(symbol: str) -> dict[str, dict]:
+    return {
+        "price_volume": {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Bullish tape confirmation",
+            "summary": "Bullish tape confirmation",
+            "score": 76,
+            "price_points": 60,
+            "latest_volume": 2_000_000,
+        },
+        "insiders": {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Insider buying active",
+            "subtitle": "1 buy in the last 30 Days.",
+            "buy_count": 1,
+            "sell_count": 0,
+            "net_flow": 125_000,
+        },
+        "congress": {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Congress buying active",
+            "subtitle": "2 buys in the last 30 Days.",
+            "buy_count": 2,
+            "sell_count": 0,
+            "net_flow": 250_000,
+        },
+        "signals": {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Signal conviction active",
+            "subtitle": "1 premium signal.",
+            "recent_count": 1,
+            "latest_score": 86,
+        },
+        "government_contracts": {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Government contracts active",
+            "subtitle": "2 contracts above threshold.",
+            "contract_count": 2,
+            "contract_value": 22_000_000,
+            "latest_date": date.today().isoformat(),
+        },
+    }
     trade_calls = []
 
     def fake_trade_activity(db, symbol, event_type, **kwargs):
@@ -396,6 +504,76 @@ def test_ticker_context_source_entitlements_match_required_plan_model():
     assert free["options_flow"]["locked"] is True
     assert premium["options_flow"]["locked"] is True
     assert pro["options_flow"]["locked"] is False
+
+
+def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="premium")
+    full_bundle = _full_source_confirmation_bundle("AAPL")
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+    bundle = response["confirmation_score_bundle"]
+
+    assert bundle["score"] > 0
+    assert bundle["sources"]["signals"]["present"] is True
+    assert bundle["sources"]["options_flow"]["locked"] is True
+    assert bundle["sources"]["options_flow"]["lock_state"] == "pro_locked"
+    assert bundle["sources"]["options_flow"]["present"] is False
+    assert bundle["sources"]["options_flow"]["strength"] is None
+    assert bundle["sources"]["institutional_activity"]["locked"] is True
+    assert bundle["sources"]["institutional_activity"]["lock_state"] == "pro_locked"
+    assert bundle["sources"]["institutional_activity"]["present"] is False
+    assert "options_flow" not in bundle["active_sources"]
+    assert "institutional_activity" not in bundle["active_sources"]
+    assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
+    assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
+
+
+def test_ticker_signals_summary_free_redacts_signals_and_pro_sources_but_keeps_public_score(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="free")
+    full_bundle = _full_source_confirmation_bundle("AAPL")
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("free users must not query premium signals")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+    bundle = response["confirmation_score_bundle"]
+
+    assert bundle["score"] > 0
+    assert bundle["sources"]["signals"]["locked"] is True
+    assert bundle["sources"]["signals"]["lock_state"] == "premium_locked"
+    assert bundle["sources"]["signals"]["present"] is False
+    assert bundle["sources"]["options_flow"]["locked"] is True
+    assert bundle["sources"]["options_flow"]["lock_state"] == "pro_locked"
+    assert bundle["sources"]["institutional_activity"]["locked"] is True
+    assert bundle["sources"]["institutional_activity"]["lock_state"] == "pro_locked"
+    assert "signals" not in bundle["active_sources"]
+    assert "options_flow" not in bundle["active_sources"]
+    assert "institutional_activity" not in bundle["active_sources"]
+    assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
+    assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
 
 
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):

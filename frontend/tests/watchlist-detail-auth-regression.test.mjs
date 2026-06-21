@@ -27,12 +27,14 @@ test("watchlist detail renders a client fallback when SSR only has the auth hint
   assert.match(clientSource, /initialAuthPending \|\| hasClientAuthHint\(\)/);
 });
 
-test("client watchlist detail fetch relies on the API client's bearer fallback", () => {
-  assert.match(clientSource, /await getWatchlist\(watchlistId\)/);
-  assert.match(clientSource, /getWatchlistConfirmationEvents\(watchlistId, \{ limit: 5 \}\)/);
+test("client watchlist detail fetch relies on credentialed cookie auth", () => {
+  assert.match(clientSource, /await getWatchlist\(watchlistId, undefined,/);
+  assert.match(clientSource, /getWatchlistConfirmationEvents\(watchlistId, \{[\s\S]*?limit: 5/);
   assert.match(clientSource, /getWatchlistEvents\(watchlistId,/);
-  assert.match(apiSource, /window\.localStorage\.getItem\(authTokenStorageKey\)/);
-  assert.match(apiSource, /headers\.set\("Authorization", `Bearer \$\{token\}`\)/);
+  assert.match(apiSource, /credentials:\s*fetchInit\.credentials \?\? "include"/);
+  assert.match(apiSource, /return \{ Cookie: `\$\{backendSessionCookieName\}=\$\{sessionToken\}` \}/);
+  assert.doesNotMatch(apiSource, /headers\.set\("Authorization"/);
+  assert.doesNotMatch(apiSource, /Bearer \$\{/);
 });
 
 test("client watchlist detail handles auth and ownership failures without throwing during render", () => {

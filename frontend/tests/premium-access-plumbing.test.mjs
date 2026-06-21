@@ -188,7 +188,10 @@ test("transition data loaders use shared authenticated API helpers", () => {
   assert.match(screenerResultsClient, /getScreener/);
   assert.match(leaderboardResultsClient, /getCongressTraderLeaderboard/);
   assert.match(api, /function requestInitWithEntitlements/);
-  assert.match(api, /headers\.set\("Authorization", `Bearer \$\{token\}`\)/);
+  assert.match(api, /function authHeaders\(sessionToken\?: string \| null\)/);
+  assert.match(api, /return \{ Cookie: `\$\{backendSessionCookieName\}=\$\{sessionToken\}` \}/);
+  assert.doesNotMatch(api, /headers\.set\("Authorization"/);
+  assert.doesNotMatch(api, /Bearer \$\{/);
   assert.match(api, /credentials: fetchInit\.credentials \?\? "include"/);
 });
 

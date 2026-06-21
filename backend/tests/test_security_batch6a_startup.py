@@ -24,6 +24,8 @@ _ENV_KEYS = (
     "NODE_ENV",
     "FLY_APP_NAME",
     "APP_SESSION_SECRET",
+    "APP_SESSION_COOKIE_SAMESITE",
+    "APP_ALLOW_BEARER_SESSION_AUTH",
     "ADMIN_TOKEN",
     "FRONTEND_ORIGINS",
     "CORS_ALLOW_ORIGINS",
@@ -57,6 +59,7 @@ def _safe_production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_security_env(monkeypatch)
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_SESSION_SECRET", "x" * 48)
+    monkeypatch.setenv("APP_SESSION_COOKIE_SAMESITE", "none")
     monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
 
 
@@ -83,6 +86,23 @@ def test_production_app_session_secret_equal_admin_token_fails_validation(monkey
     monkeypatch.setenv("ADMIN_TOKEN", shared)
 
     with pytest.raises(StartupSecurityError, match="must not reuse ADMIN_TOKEN"):
+        validate_startup_security_config()
+
+
+def test_cross_site_production_requires_samesite_none(monkeypatch):
+    _safe_production_env(monkeypatch)
+    monkeypatch.setenv("APP_SESSION_COOKIE_SAMESITE", "lax")
+    monkeypatch.setenv("FRONTEND_ORIGINS", "https://app.walnutmarkets.com")
+
+    with pytest.raises(StartupSecurityError, match="APP_SESSION_COOKIE_SAMESITE=none"):
+        validate_startup_security_config()
+
+
+def test_bearer_session_auth_enabled_in_production_fails_validation(monkeypatch):
+    _safe_production_env(monkeypatch)
+    monkeypatch.setenv("APP_ALLOW_BEARER_SESSION_AUTH", "1")
+
+    with pytest.raises(StartupSecurityError, match="APP_ALLOW_BEARER_SESSION_AUTH"):
         validate_startup_security_config()
 
 

@@ -5,6 +5,8 @@ import test from "node:test";
 
 const pricingPlannerPath = path.join(process.cwd(), "components", "billing", "PricingPlanner.tsx");
 const source = fs.readFileSync(pricingPlannerPath, "utf8");
+const defaultPlanConfig = fs.readFileSync(path.join(process.cwd(), "lib", "defaultPlanConfig.ts"), "utf8");
+const entitlementConfig = fs.readFileSync(path.join(process.cwd(), "lib", "entitlements.ts"), "utf8");
 
 test("annual pricing badge derives rounded-up months free from configured prices", () => {
   assert.match(source, /Math\.ceil\(\(\(monthlyYear - annualAmount\) \/ monthlyAmount\) \* 2\) \/ 2/);
@@ -78,6 +80,21 @@ test("advanced coming soon rows keep feed rows paired with their filters", () =>
     source,
     /if \(\["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"\]\.includes\(featureKey\)\) return "Screener & signals";/,
   );
+});
+
+test("options flow and institutional activity are Pro-only in frontend fallback config", () => {
+  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?options_flow_feed:\s*0,[\s\S]*?options_flow_filters:\s*0,[\s\S]*?institutional_feed:\s*0,[\s\S]*?institutional_filters:\s*0,/);
+  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?options_flow_feed:\s*1,[\s\S]*?options_flow_filters:\s*1,[\s\S]*?institutional_feed:\s*1,[\s\S]*?institutional_filters:\s*1,/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_feed"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_filters"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"institutional_feed"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"institutional_filters"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(entitlementConfig, /export const proEntitlements/);
+  const premiumBlock = entitlementConfig.slice(
+    entitlementConfig.indexOf("export const premiumEntitlements"),
+    entitlementConfig.indexOf("export const proEntitlements"),
+  );
+  assert.doesNotMatch(premiumBlock, /"options_flow_feed"|"options_flow_filters"|"institutional_feed"|"institutional_filters"/);
 });
 
 test("pricing actions render current plan states from fresh account entitlements", () => {

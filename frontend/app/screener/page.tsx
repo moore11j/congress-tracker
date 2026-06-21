@@ -111,6 +111,7 @@ type ScreenerRow = {
   options_flow_call_put_premium_ratio?: number | null;
   options_flow_latest_date?: string | null;
   options_flow_status?: string | null;
+  options_flow_locked?: boolean | null;
   institutional_activity_active?: boolean | null;
   institutional_activity_direction?: string | null;
   institutional_activity_net_activity?: number | null;
@@ -118,6 +119,7 @@ type ScreenerRow = {
   institutional_activity_total_value?: number | null;
   institutional_activity_latest_date?: string | null;
   institutional_activity_status?: string | null;
+  institutional_activity_locked?: boolean | null;
 };
 
 type ActivityOverlay = {
@@ -152,6 +154,8 @@ type ScreenerResponse = {
   access?: {
     tier: "free" | "premium" | "pro" | "admin";
     intelligence_locked: boolean;
+    options_flow_locked?: boolean;
+    institutional_activity_locked?: boolean;
     presets_locked: boolean;
     saved_screens_limit: number;
     monitoring_locked: boolean;
@@ -164,6 +168,8 @@ type OverlayAvailability = {
   enabled: boolean;
   status: string;
   filterable: boolean;
+  locked?: boolean;
+  required_plan?: string | null;
 };
 
 const PARAM_KEYS = [
@@ -534,7 +540,7 @@ function buildApiUrl(params: Record<string, string | number>): string {
 }
 
 function authHeaders(authToken?: string | null): HeadersInit | undefined {
-  return authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+  return authToken ? { Cookie: `ct_session=${authToken}` } : undefined;
 }
 
 function pageHref(params: Record<string, string | number>, overrides: Record<string, string | number | null>): string {
@@ -824,6 +830,8 @@ export default async function ScreenerPage({
   const pageSize = Number(params.page_size ?? DEFAULT_PAGE_SIZE);
   const canUseScreener = hasEntitlement(entitlements, "screener");
   const canUseIntelligence = hasEntitlement(entitlements, "screener_intelligence");
+  const canUseOptionsFlow = hasEntitlement(entitlements, "options_flow_filters");
+  const canUseInstitutionalActivity = hasEntitlement(entitlements, "institutional_filters");
   const canUsePresets = hasEntitlement(entitlements, "screener_presets");
   const canUseMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const canExportCsv = hasEntitlement(entitlements, "screener_csv_export");
@@ -833,9 +841,9 @@ export default async function ScreenerPage({
       ? await loadScreenerPayload(requestUrl, authToken)
       : { data: null, errorMessage: canUseScreener ? "Sign in required." : null };
   const overlayAvailability = screenerPayload.data?.overlay_availability ?? overlayAvailabilityDefaults();
-  const sortOptions = canUseIntelligence
-    ? SORTS
-    : SORTS.filter(([value]) => !["confirmation_score", "freshness", "congress_activity", "insider_activity"].includes(value));
+  const optionsFlowFilterable = canUseOptionsFlow && overlayAvailability?.options_flow?.filterable === true;
+  const institutionalActivityFilterable = canUseInstitutionalActivity && overlayAvailability?.institutional_activity?.filterable === true;
+  const sortOptions = SORTS.filter(([value]) => canUseIntelligence || !["confirmation_score", "freshness"].includes(value));
   const rowsOptions: ReadonlyArray<readonly [string, string]> = PAGE_SIZE_OPTIONS.map((value) => [String(value), String(value)] as const).filter(
     ([value]) => Number(value) <= Math.min(resultCap, 100),
   );
@@ -1011,154 +1019,40 @@ export default async function ScreenerPage({
             defaultOpen={intelligenceFiltersOpen}
             storageKey="screener-section-intelligence"
           >
-            {canUseIntelligence ? (
-              <div className="grid gap-3 xl:grid-cols-3">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
-                    <FilterSelect name="insider_activity" label="Insiders" value={params.insider_activity} options={ACTIVITY_FILTER_OPTIONS} />
-                  </div>
+            <div className="grid gap-3 xl:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <FilterSelect name="congress_activity" label="Congress" value={params.congress_activity} options={ACTIVITY_FILTER_OPTIONS} />
+                  <FilterSelect name="insider_activity" label="Insiders" value={params.insider_activity} options={ACTIVITY_FILTER_OPTIONS} />
                 </div>
+              </div>
 
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <FilterSelect name="government_contracts_active" label="Contracts" value={params.government_contracts_active} options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
+                  <FilterSelect name="government_contracts_min_amount" label="Minimum contract value" value={params.government_contracts_min_amount} options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
+                  <FilterSelect name="government_contracts_lookback_days" label="Lookback" value={params.government_contracts_lookback_days} options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
+                </div>
+              </div>
+
+              {canUseIntelligence ? (
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <FilterSelect
-                      name="confirmation_score_min"
-                      label="Score"
-                      value={params.confirmation_score_min}
-                      options={CONFIRMATION_SCORE_OPTIONS}
-                    />
-                    <FilterSelect
-                      name="confirmation_direction"
-                      label="Direction"
-                      value={params.confirmation_direction}
-                      options={CONFIRMATION_DIRECTION_OPTIONS}
-                    />
-                    <FilterSelect
-                      name="confirmation_band"
-                      label="Band"
-                      value={params.confirmation_band}
-                      options={CONFIRMATION_BAND_OPTIONS}
-                    />
+                    <FilterSelect name="confirmation_score_min" label="Score" value={params.confirmation_score_min} options={CONFIRMATION_SCORE_OPTIONS} />
+                    <FilterSelect name="confirmation_direction" label="Direction" value={params.confirmation_direction} options={CONFIRMATION_DIRECTION_OPTIONS} />
+                    <FilterSelect name="confirmation_band" label="Band" value={params.confirmation_band} options={CONFIRMATION_BAND_OPTIONS} />
                   </div>
                 </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
-                    <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <FilterSelect name="government_contracts_active" label="Contracts" value={params.government_contracts_active} options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
-                    <FilterSelect name="government_contracts_min_amount" label="Minimum contract value" value={params.government_contracts_min_amount} options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
-                    <FilterSelect name="government_contracts_lookback_days" label="Lookback" value={params.government_contracts_lookback_days} options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <FilterSelect
-                      name="options_flow_active"
-                      label="Options flow"
-                      value={params.options_flow_active}
-                      options={BOOLEAN_ACTIVITY_OPTIONS}
-                      disabled={!overlayAvailability?.options_flow?.filterable}
-                    />
-                    <FilterSelect
-                      name="options_flow_direction"
-                      label="Direction"
-                      value={params.options_flow_direction}
-                      options={OPTIONS_FLOW_DIRECTION_OPTIONS}
-                      disabled={!overlayAvailability?.options_flow?.filterable}
-                    />
-                    <FilterSelect
-                      name="options_flow_min_score"
-                      label="Minimum score"
-                      value={params.options_flow_min_score}
-                      options={OPTIONS_FLOW_SCORE_OPTIONS}
-                      disabled={!overlayAvailability?.options_flow?.filterable}
-                    />
-                    <FilterSelect
-                      name="options_flow_min_premium"
-                      label="Minimum premium"
-                      value={params.options_flow_min_premium}
-                      options={OPTIONS_FLOW_PREMIUM_OPTIONS}
-                      disabled={!overlayAvailability?.options_flow?.filterable}
-                    />
-                    <FilterSelect
-                      name="options_flow_lookback_days"
-                      label="Lookback"
-                      value={params.options_flow_lookback_days}
-                      options={OPTIONS_FLOW_LOOKBACK_OPTIONS}
-                      disabled={!overlayAvailability?.options_flow?.filterable}
-                    />
-                  </div>
-                  {!overlayAvailability?.options_flow?.filterable ? (
-                    <p className="mt-3 text-xs leading-5 text-slate-500">Options flow data is not connected yet.</p>
-                  ) : null}
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <FilterSelect
-                      name="institutional_activity_active"
-                      label="Institutional"
-                      value={params.institutional_activity_active}
-                      options={BOOLEAN_ACTIVITY_OPTIONS}
-                      disabled={!overlayAvailability?.institutional_activity?.filterable}
-                    />
-                    <FilterSelect
-                      name="institutional_activity_direction"
-                      label="Direction"
-                      value={params.institutional_activity_direction}
-                      options={INSTITUTIONAL_DIRECTION_OPTIONS}
-                      disabled={!overlayAvailability?.institutional_activity?.filterable}
-                    />
-                    <FilterSelect
-                      name="institutional_activity_min_value"
-                      label="Minimum value"
-                      value={params.institutional_activity_min_value}
-                      options={INSTITUTIONAL_VALUE_OPTIONS}
-                      disabled={!overlayAvailability?.institutional_activity?.filterable}
-                    />
-                    <FilterSelect
-                      name="institutional_activity_lookback_days"
-                      label="Lookback"
-                      value={params.institutional_activity_lookback_days}
-                      options={INSTITUTIONAL_LOOKBACK_OPTIONS}
-                      disabled={!overlayAvailability?.institutional_activity?.filterable}
-                    />
-                  </div>
-                  {!overlayAvailability?.institutional_activity?.filterable ? (
-                    <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity data is not connected yet.</p>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <ScreenerUpgradeOverlay
-                title="Intelligence screener filters"
-                body="Congress activity, insider activity, confirmation, Why Now, and freshness filters are included with Premium."
-                className="mt-3"
-              >
-                <div className="grid gap-3 opacity-70 blur-[1.5px] xl:grid-cols-3">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Activity</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                      <FilterSelect name="congress_activity_locked" label="Congress" value="" options={ACTIVITY_FILTER_OPTIONS} />
-                      <FilterSelect name="insider_activity_locked" label="Insiders" value="" options={ACTIVITY_FILTER_OPTIONS} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              ) : (
+                <ScreenerUpgradeOverlay
+                  title="Confirmation filters"
+                  body="Confirmation score, direction, band, Why Now, and freshness filters are included with Premium."
+                  className="rounded-2xl"
+                >
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmation</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <FilterSelect name="confirmation_score_locked" label="Score" value="" options={CONFIRMATION_SCORE_OPTIONS} />
@@ -1166,47 +1060,64 @@ export default async function ScreenerPage({
                       <FilterSelect name="confirmation_band_locked" label="Band" value="" options={CONFIRMATION_BAND_OPTIONS} />
                     </div>
                   </div>
+                </ScreenerUpgradeOverlay>
+              )}
 
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+              {canUseIntelligence ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <FilterSelect name="why_now_state" label="Why now" value={params.why_now_state} options={WHY_NOW_OPTIONS} />
+                    <FilterSelect name="freshness" label="Freshness" value={params.freshness} options={FRESHNESS_OPTIONS} />
+                  </div>
+                </div>
+              ) : (
+                <ScreenerUpgradeOverlay
+                  title="Timing filters"
+                  body="Why Now and freshness filters are included with Premium."
+                  className="rounded-2xl"
+                >
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3 opacity-70 blur-[1.5px]">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Timing / Why Now</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <FilterSelect name="why_now_locked" label="Why now" value="" options={WHY_NOW_OPTIONS} />
                       <FilterSelect name="freshness_locked" label="Freshness" value="" options={FRESHNESS_OPTIONS} />
                     </div>
                   </div>
+                </ScreenerUpgradeOverlay>
+              )}
 
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Government Contracts</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <FilterSelect name="government_contracts_active_locked" label="Contracts" value="" options={GOVERNMENT_CONTRACT_BOOLEAN_OPTIONS} />
-                      <FilterSelect name="government_contracts_min_amount_locked" label="Minimum contract value" value="" options={GOVERNMENT_CONTRACT_AMOUNT_OPTIONS} />
-                      <FilterSelect name="government_contracts_lookback_locked" label="Lookback" value="" options={GOVERNMENT_CONTRACT_LOOKBACK_OPTIONS} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <FilterSelect name="options_flow_active_locked" label="Options flow" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
-                      <FilterSelect name="options_flow_direction_locked" label="Direction" value="" options={OPTIONS_FLOW_DIRECTION_OPTIONS} />
-                      <FilterSelect name="options_flow_score_locked" label="Minimum score" value="" options={OPTIONS_FLOW_SCORE_OPTIONS} />
-                      <FilterSelect name="options_flow_premium_locked" label="Minimum premium" value="" options={OPTIONS_FLOW_PREMIUM_OPTIONS} />
-                      <FilterSelect name="options_flow_lookback_locked" label="Lookback" value="" options={OPTIONS_FLOW_LOOKBACK_OPTIONS} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      <FilterSelect name="institutional_activity_active_locked" label="Institutional" value="" options={BOOLEAN_ACTIVITY_OPTIONS} />
-                      <FilterSelect name="institutional_activity_direction_locked" label="Direction" value="" options={INSTITUTIONAL_DIRECTION_OPTIONS} />
-                      <FilterSelect name="institutional_activity_value_locked" label="Minimum value" value="" options={INSTITUTIONAL_VALUE_OPTIONS} />
-                      <FilterSelect name="institutional_activity_lookback_locked" label="Lookback" value="" options={INSTITUTIONAL_LOOKBACK_OPTIONS} />
-                    </div>
-                  </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Options Flow</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <FilterSelect name="options_flow_active" label="Options flow" value={params.options_flow_active} options={BOOLEAN_ACTIVITY_OPTIONS} disabled={!optionsFlowFilterable} />
+                  <FilterSelect name="options_flow_direction" label="Direction" value={params.options_flow_direction} options={OPTIONS_FLOW_DIRECTION_OPTIONS} disabled={!optionsFlowFilterable} />
+                  <FilterSelect name="options_flow_min_score" label="Minimum score" value={params.options_flow_min_score} options={OPTIONS_FLOW_SCORE_OPTIONS} disabled={!optionsFlowFilterable} />
+                  <FilterSelect name="options_flow_min_premium" label="Minimum premium" value={params.options_flow_min_premium} options={OPTIONS_FLOW_PREMIUM_OPTIONS} disabled={!optionsFlowFilterable} />
+                  <FilterSelect name="options_flow_lookback_days" label="Lookback" value={params.options_flow_lookback_days} options={OPTIONS_FLOW_LOOKBACK_OPTIONS} disabled={!optionsFlowFilterable} />
                 </div>
-              </ScreenerUpgradeOverlay>
-            )}
+                {!canUseOptionsFlow ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Options flow filters require Pro.</p>
+                ) : !overlayAvailability?.options_flow?.filterable ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Options flow data is not connected yet.</p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <FilterSelect name="institutional_activity_active" label="Institutional" value={params.institutional_activity_active} options={BOOLEAN_ACTIVITY_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_direction" label="Direction" value={params.institutional_activity_direction} options={INSTITUTIONAL_DIRECTION_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_min_value" label="Minimum value" value={params.institutional_activity_min_value} options={INSTITUTIONAL_VALUE_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_lookback_days" label="Lookback" value={params.institutional_activity_lookback_days} options={INSTITUTIONAL_LOOKBACK_OPTIONS} disabled={!institutionalActivityFilterable} />
+                </div>
+                {!canUseInstitutionalActivity ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity filters require Pro.</p>
+                ) : !overlayAvailability?.institutional_activity?.filterable ? (
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity data is not connected yet.</p>
+                ) : null}
+              </div>
+            </div>
           </CollapsibleFilterSection>
 
           <CollapsibleFilterSection
@@ -1385,6 +1296,8 @@ function ScreenerResults({
   const totalAvailable = data?.total_available ?? 0;
   const hasNext = data?.has_next ?? false;
   const governmentContractsAvailabilityStatus = data?.overlay_availability?.government_contracts?.status ?? "ok";
+  const optionsFlowLocked = data?.access?.options_flow_locked === true || data?.overlay_availability?.options_flow?.status === "pro_locked";
+  const institutionalActivityLocked = data?.access?.institutional_activity_locked === true || data?.overlay_availability?.institutional_activity?.status === "pro_locked";
   const colSpan = 7 + activeColumns.length;
 
   return (
@@ -1431,8 +1344,8 @@ function ScreenerResults({
               <SortHeader params={params} sort="price" label="Price" />
               <SortHeader params={params} sort="volume" label="Volume" />
               <SortHeader params={params} sort="beta" label="Beta" />
-              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" locked={intelligenceLocked} /> : null}
-              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" locked={intelligenceLocked} /> : null}
+              {activeColumns.includes("congress") ? <SortHeader params={params} sort="congress_activity" label="Congress" /> : null}
+              {activeColumns.includes("insiders") ? <SortHeader params={params} sort="insider_activity" label="Insiders" /> : null}
               {activeColumns.includes("institutional") ? <th className="px-3 py-2.5 text-left">Institutional</th> : null}
               {activeColumns.includes("options_flow") ? <th className="px-3 py-2.5 text-left">Options Flow</th> : null}
               {activeColumns.includes("government_contracts") ? <th className="px-3 py-2.5 text-left">Gov Contracts</th> : null}
@@ -1483,7 +1396,8 @@ function ScreenerResults({
                 <ScreenerTableRow
                   key={row.symbol}
                   row={row}
-                  intelligenceLocked={intelligenceLocked}
+                  optionsFlowLocked={optionsFlowLocked}
+                  institutionalActivityLocked={institutionalActivityLocked}
                   governmentContractsAvailabilityStatus={governmentContractsAvailabilityStatus}
                   activeColumns={activeColumns}
                 />
@@ -1582,14 +1496,11 @@ function WhyNowHover({ row, locked = false }: { row: ScreenerRow; locked?: boole
 
 function GovernmentContractsCell({
   row,
-  intelligenceLocked,
   availabilityStatus,
 }: {
   row: ScreenerRow;
-  intelligenceLocked?: boolean;
   availabilityStatus?: string;
 }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
   if (availabilityStatus === "unavailable" && row.government_contracts_status !== "ok") {
     return <span className="text-sm text-slate-500">Unavailable</span>;
   }
@@ -1609,14 +1520,11 @@ function GovernmentContractsCell({
 
 function GovernmentContractsMetricCell({
   row,
-  intelligenceLocked,
   availabilityStatus,
 }: {
   row: ScreenerRow;
-  intelligenceLocked?: boolean;
   availabilityStatus?: string;
 }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
   if (availabilityStatus === "unavailable" && row.government_contracts_status !== "ok") {
     return <span className="text-sm text-slate-500">Unavailable</span>;
   }
@@ -1634,8 +1542,8 @@ function GovernmentContractsMetricCell({
   );
 }
 
-function OptionsFlowCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+function OptionsFlowCell({ row, proLocked }: { row: ScreenerRow; proLocked?: boolean }) {
+  if (proLocked || row.options_flow_locked || row.options_flow_status === "pro_locked") return lockedMetricLine("Pro data locked");
   if (!row.options_flow_active || row.options_flow_status === "unavailable") return <span className="text-sm text-slate-500">—</span>;
   return (
     <div className="min-w-[10rem]">
@@ -1649,8 +1557,8 @@ function OptionsFlowCell({ row, intelligenceLocked }: { row: ScreenerRow; intell
   );
 }
 
-function InstitutionalActivityCell({ row, intelligenceLocked }: { row: ScreenerRow; intelligenceLocked?: boolean }) {
-  if (intelligenceLocked) return lockedMetricLine("Locked intelligence");
+function InstitutionalActivityCell({ row, proLocked }: { row: ScreenerRow; proLocked?: boolean }) {
+  if (proLocked || row.institutional_activity_locked || row.institutional_activity_status === "pro_locked") return lockedMetricLine("Pro data locked");
   if (!row.institutional_activity_active || row.institutional_activity_status !== "ok") return <span className="text-sm text-slate-500">—</span>;
   return (
     <div className="min-w-[10rem]">
@@ -1682,12 +1590,14 @@ function DynamicMetricCell({ value }: { value: string }) {
 
 function ScreenerTableRow({
   row,
-  intelligenceLocked = false,
+  optionsFlowLocked = false,
+  institutionalActivityLocked = false,
   governmentContractsAvailabilityStatus = "ok",
   activeColumns,
 }: {
   row: ScreenerRow;
-  intelligenceLocked?: boolean;
+  optionsFlowLocked?: boolean;
+  institutionalActivityLocked?: boolean;
   governmentContractsAvailabilityStatus?: string;
   activeColumns: ScreenerColumnKey[];
 }) {
@@ -1726,68 +1636,41 @@ function ScreenerTableRow({
       <td className={tableMetricClassName}>{formatCompact(row.volume)}</td>
       <td className={tableMetricClassName}>{formatBeta(row.beta)}</td>
       {activeColumns.includes("congress") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.congress_activity.label}>
-        {intelligenceLocked ? (
-          lockedMetricLine("Locked intelligence")
-        ) : (
-          <>
-            <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>
-              {row.congress_activity.present ? "Active" : "None"}
-            </div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
-          </>
-        )}
+        <div className={`text-xs font-semibold ${activityTextClass(row.congress_activity)}`}>
+          {row.congress_activity.present ? "Active" : "None"}
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.congress_activity)}</div>
       </td> : null}
       {activeColumns.includes("insiders") ? <td className={`${tableCellClassName} whitespace-nowrap`} title={row.insider_activity.label}>
-        {intelligenceLocked ? (
-          lockedMetricLine("Locked intelligence")
-        ) : (
-          <>
-            <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>
-              {row.insider_activity.present ? "Active" : "None"}
-            </div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
-          </>
-        )}
+        <div className={`text-xs font-semibold ${activityTextClass(row.insider_activity)}`}>
+          {row.insider_activity.present ? "Active" : "None"}
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{activityMeta(row.insider_activity)}</div>
       </td> : null}
-      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
-      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} intelligenceLocked={intelligenceLocked} /></td> : null}
+      {activeColumns.includes("institutional") ? <td className={`${tableCellClassName} min-w-[10rem]`}><InstitutionalActivityCell row={row} proLocked={institutionalActivityLocked} /></td> : null}
+      {activeColumns.includes("options_flow") ? <td className={`${tableCellClassName} min-w-[10rem]`}><OptionsFlowCell row={row} proLocked={optionsFlowLocked} /></td> : null}
       {activeColumns.includes("government_contracts") ? <td className={`${tableCellClassName} min-w-[11rem]`}>
         <GovernmentContractsMetricCell
           row={row}
-          intelligenceLocked={intelligenceLocked}
           availabilityStatus={governmentContractsAvailabilityStatus}
         />
       </td> : null}
       {activeColumns.includes("confirmation") ? <td className={`${tableCellClassName} min-w-[8.5rem] whitespace-nowrap`} title={row.confirmation.status}>
-        {intelligenceLocked ? (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-12 rounded-full bg-slate-800/90" />
-              <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-100">
-                Premium
-              </span>
-            </div>
-            <div className="text-[11px] leading-4 text-slate-500">Confirmation score, band, and direction are locked.</div>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
-              <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
-                {titleCase(row.confirmation.band)}
-              </span>
-            </div>
-            <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>
-              {confirmationDirection}
-            </div>
-            <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
-          </>
-        )}
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-sm font-semibold tabular-nums text-slate-100">{row.confirmation.score}</span>
+          <span className={`text-xs font-medium ${confirmationBandClass(row.confirmation.band)}`}>
+            {titleCase(row.confirmation.band)}
+          </span>
+        </div>
+        <div className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${directionTextClass(row.confirmation.direction)}`}>
+          {confirmationDirection}
+        </div>
+        <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{confirmationSourceMeta}</div>
       </td> : null}
       {activeColumns.includes("why_now") ? <td className={`${tableCellClassName} min-w-[8rem] max-w-[10rem]`}>
-        <WhyNowHover row={row} locked={intelligenceLocked} />
+        <WhyNowHover row={row} locked={false} />
         <div className="mt-1 text-[11px] leading-4 text-slate-500">
-          {intelligenceLocked ? "Premium freshness" : freshnessStateLabel(row.signal_freshness.freshness_state)}
+          {freshnessStateLabel(row.signal_freshness.freshness_state)}
         </div>
       </td> : null}
       {activeColumns.includes("rel_volume") ? <DynamicMetricCell value={formatMultiple(row.rel_volume)} /> : null}

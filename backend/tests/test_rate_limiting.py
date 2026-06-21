@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.models import UserAccount
 from app.rate_limit import (
@@ -53,7 +53,7 @@ def _request(
     headers = [(b"content-type", b"application/json")]
     if user is not None:
         token = sign_session_payload({"uid": user.id, "email": user.email})
-        headers.append((b"authorization", f"Bearer {token}".encode("utf-8")))
+        headers.append((b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode("utf-8")))
 
     async def receive():
         return {"type": "http.request", "body": body, "more_body": False}

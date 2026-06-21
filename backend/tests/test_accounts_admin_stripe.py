@@ -103,7 +103,7 @@ def _session():
 
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
 
 
 def _user(db, email: str, *, role: str = "user", tier: str = "free") -> UserAccount:
@@ -214,11 +214,15 @@ def test_successful_stripe_checkout_grants_premium_access(monkeypatch):
 
 def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.delenv("STRIPE_PAYMENT_FAILURE_GRACE_DAYS", raising=False)
     db = _session()
     try:
         user = _user(db, "failed@example.com", tier="premium")
         user.stripe_customer_id = "cus_456"
         user.stripe_subscription_id = "sub_456"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=25)
         db.commit()
 
         process_stripe_event(
@@ -230,10 +234,16 @@ def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
             },
         )
         db.refresh(user)
+        assert user.subscription_status == "payment_failed"
+        failed_expiry = user.access_expires_at.replace(tzinfo=timezone.utc) if user.access_expires_at and user.access_expires_at.tzinfo is None else user.access_expires_at
+        assert failed_expiry <= datetime.now(timezone.utc)
         assert user.entitlement_tier == "free"
         assert current_entitlements(_request_for_user(user), db).tier == "free"
 
         user.entitlement_tier = "premium"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=25)
         db.commit()
         process_stripe_event(
             db,
@@ -244,8 +254,228 @@ def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
             },
         )
         db.refresh(user)
-        assert user.subscription_status == "canceled"
+        assert user.subscription_status == "deleted"
+        assert user.access_expires_at is None
         assert user.entitlement_tier == "free"
+    finally:
+        db.close()
+
+
+def test_cancel_at_period_end_preserves_access_until_period_end(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_cancel_period")
+    db = _session()
+    try:
+        user = _user(db, "cancel-period@example.com", tier="premium")
+        user.stripe_customer_id = "cus_cancel_period"
+        db.commit()
+
+        process_stripe_event(
+            db,
+            {
+                "id": "evt_cancel_period",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_cancel_period",
+                        "customer": "cus_cancel_period",
+                        "status": "active",
+                        "cancel_at_period_end": True,
+                        "current_period_end": int((datetime.now(timezone.utc) + timedelta(days=12)).timestamp()),
+                        "items": {"data": [{"price": {"id": "price_cancel_period", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert user.subscription_cancel_at_period_end is True
+        assert user.entitlement_tier == "premium"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+    finally:
+        db.close()
+
+
+def test_invoice_payment_failed_can_use_explicit_grace(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PAYMENT_FAILURE_GRACE_DAYS", "3")
+    db = _session()
+    try:
+        user = _user(db, "failed-grace@example.com", tier="premium")
+        user.stripe_customer_id = "cus_failed_grace"
+        user.stripe_subscription_id = "sub_failed_grace"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+        db.commit()
+
+        process_stripe_event(
+            db,
+            {
+                "id": "evt_failed_grace",
+                "type": "invoice.payment_failed",
+                "data": {"object": {"id": "in_failed_grace", "customer": "cus_failed_grace", "subscription": "sub_failed_grace"}},
+            },
+        )
+        db.refresh(user)
+
+        assert user.subscription_status == "payment_failed"
+        assert user.entitlement_tier == "premium"
+        assert user.access_expires_at is not None
+        grace_expiry = user.access_expires_at.replace(tzinfo=timezone.utc) if user.access_expires_at.tzinfo is None else user.access_expires_at
+        assert grace_expiry <= datetime.now(timezone.utc) + timedelta(days=3, minutes=1)
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+    finally:
+        db.close()
+
+
+def test_invoice_voided_and_uncollectible_remove_paid_access(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    try:
+        for event_type, status, email, customer, subscription in (
+            ("invoice.voided", "voided", "voided@example.com", "cus_voided", "sub_voided"),
+            ("invoice.marked_uncollectible", "uncollectible", "uncollectible@example.com", "cus_uncollectible", "sub_uncollectible"),
+        ):
+            user = _user(db, email, tier="premium")
+            user.stripe_customer_id = customer
+            user.stripe_subscription_id = subscription
+            user.subscription_status = "active"
+            user.subscription_plan = "premium"
+            user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=20)
+            db.commit()
+
+            process_stripe_event(
+                db,
+                {
+                    "id": f"evt_{status}",
+                    "type": event_type,
+                    "data": {"object": {"id": f"in_{status}", "customer": customer, "subscription": subscription}},
+                },
+            )
+            db.refresh(user)
+
+            assert user.subscription_status == status
+            assert user.access_expires_at is None
+            assert user.entitlement_tier == "free"
+            assert current_entitlements(_request_for_user(user), db).tier == "free"
+    finally:
+        db.close()
+
+
+def test_full_refund_revokes_paid_access_and_duplicate_is_idempotent(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    try:
+        user = _user(db, "refund@example.com", tier="premium")
+        user.stripe_customer_id = "cus_refund"
+        user.stripe_subscription_id = "sub_refund"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=20)
+        db.add(
+            BillingTransaction(
+                user_id=user.id,
+                stripe_customer_id="cus_refund",
+                stripe_subscription_id="sub_refund",
+                stripe_invoice_id="in_refund",
+                stripe_charge_id="ch_refund",
+                total_amount=1995,
+                payment_status="paid",
+                refund_status="none",
+                charged_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        event = {
+            "id": "evt_full_refund",
+            "type": "charge.refunded",
+            "data": {
+                "object": {
+                    "object": "charge",
+                    "id": "ch_refund",
+                    "customer": "cus_refund",
+                    "invoice": "in_refund",
+                    "amount": 1995,
+                    "amount_refunded": 1995,
+                    "refunded": True,
+                }
+            },
+        }
+        first = process_stripe_event(db, event)
+        db.refresh(user)
+        assert user.subscription_status == "refunded"
+        assert user.access_expires_at is None
+        assert user.entitlement_tier == "free"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
+
+        user.entitlement_tier = "premium"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=20)
+        db.commit()
+        second = process_stripe_event(db, event)
+        db.refresh(user)
+        tx = db.execute(select(BillingTransaction).where(BillingTransaction.stripe_charge_id == "ch_refund")).scalar_one()
+
+        assert first["status"] == "processed"
+        assert second == {"status": "already_processed", "event_type": "charge.refunded"}
+        assert tx.refund_status == "refunded"
+        assert user.subscription_status == "active"
+        assert user.entitlement_tier == "premium"
+    finally:
+        db.close()
+
+
+def test_partial_refund_updates_transaction_without_revoking_access(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    try:
+        user = _user(db, "partial-refund@example.com", tier="premium")
+        user.stripe_customer_id = "cus_partial_refund"
+        user.stripe_subscription_id = "sub_partial_refund"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=20)
+        db.add(
+            BillingTransaction(
+                user_id=user.id,
+                stripe_customer_id="cus_partial_refund",
+                stripe_subscription_id="sub_partial_refund",
+                stripe_invoice_id="in_partial_refund",
+                stripe_charge_id="ch_partial_refund",
+                total_amount=1995,
+                payment_status="paid",
+                refund_status="none",
+                charged_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        process_stripe_event(
+            db,
+            {
+                "id": "evt_partial_refund",
+                "type": "refund.updated",
+                "data": {
+                    "object": {
+                        "object": "refund",
+                        "id": "re_partial",
+                        "amount": 500,
+                        "status": "succeeded",
+                        "charge": {"id": "ch_partial_refund", "amount": 1995, "amount_refunded": 500, "refunded": False},
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+        tx = db.execute(select(BillingTransaction).where(BillingTransaction.stripe_charge_id == "ch_partial_refund")).scalar_one()
+
+        assert tx.refund_status == "partially_refunded"
+        assert user.entitlement_tier == "premium"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
     finally:
         db.close()
 
@@ -286,6 +516,8 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         registered = register(_register_payload("reader-one@example.com"), db)
         user = db.get(UserAccount, registered["user"]["id"])
         assert user is not None
+        assert registered["authenticated"] is True
+        assert "token" not in registered
         assert user.name == "Reader One"
         assert user.country == "US"
         assert user.postal_code == "94105"
@@ -304,6 +536,8 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
 
         signed_in = login(LoginPayload(email="reader-one@example.com", password="Password123!"), db)
         assert signed_in["user"]["email"] == "reader-one@example.com"
+        assert signed_in["authenticated"] is True
+        assert "token" not in signed_in
 
         reset = request_password_reset(PasswordResetRequestPayload(email="reader-one@example.com"), db)
         assert reset["reset_path"].startswith("/reset-password?token=")
@@ -2395,7 +2629,10 @@ def test_subscription_updated_portal_change_premium_to_pro_uses_current_item_pri
         assert user.subscription_plan == "pro"
         assert user.entitlement_tier == "pro"
         assert user.stripe_price_id == "price_portal_pro"
-        assert current_entitlements(_request_for_user(user), db).tier == "pro"
+        entitlements = current_entitlements(_request_for_user(user), db)
+        assert entitlements.tier == "pro"
+        assert entitlements.has_feature("options_flow_feed") is True
+        assert entitlements.has_feature("institutional_feed") is True
     finally:
         db.close()
 
@@ -2439,6 +2676,11 @@ def test_subscription_updated_portal_change_pro_to_premium_uses_current_item_pri
         assert user.subscription_plan == "premium"
         assert user.entitlement_tier == "premium"
         assert user.stripe_price_id == "price_downgrade_premium"
+        entitlements = current_entitlements(_request_for_user(user), db)
+        assert entitlements.tier == "premium"
+        assert entitlements.has_feature("signals") is True
+        assert entitlements.has_feature("options_flow_feed") is False
+        assert entitlements.has_feature("institutional_feed") is False
     finally:
         db.close()
 
@@ -3543,7 +3785,8 @@ def test_google_callback_sets_session_cookie_on_fastapi_response(monkeypatch):
 
         assert auth["user"]["email"] == "callback-reader@example.com"
         assert auth["return_to"] == "/terminal"
-        assert auth["token"]
+        assert auth["authenticated"] is True
+        assert "token" not in auth
         assert f"{SESSION_COOKIE_NAME}=" in response.headers["set-cookie"]
         user = db.execute(select(UserAccount).where(UserAccount.email == "callback-reader@example.com")).scalar_one()
         assert user.email_verified_at is not None

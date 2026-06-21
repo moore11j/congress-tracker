@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import HTTPException, Request
@@ -47,6 +47,12 @@ FeatureKey = Literal[
 
 PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
 PLAN_RANKS: dict[TierName, int] = {"free": 0, "premium": 10, "pro": 20, "admin": 100}
+HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
+    "options_flow_feed": "pro",
+    "options_flow_filters": "pro",
+    "institutional_feed": "pro",
+    "institutional_filters": "pro",
+}
 
 
 @dataclass(frozen=True)
@@ -136,8 +142,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "government_contracts_filters": 1,
             "insider_feed": 1,
             "congress_feed": 1,
-            "options_flow_feed": 1,
-            "options_flow_filters": 1,
+            "options_flow_feed": 0,
+            "options_flow_filters": 0,
             "institutional_feed": 0,
             "institutional_filters": 0,
             "api_webhooks": 0,
@@ -164,8 +170,6 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "government_contracts_filters",
                 "insider_feed",
                 "congress_feed",
-                "options_flow_feed",
-                "options_flow_filters",
             }
         ),
     ),
@@ -318,11 +322,11 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
         "description": "Congress trading feed access.",
     },
     "options_flow_feed": {
-        "required_tier": "premium",
+        "required_tier": "pro",
         "description": "Options flow feed access when provider data is available.",
     },
     "options_flow_filters": {
-        "required_tier": "premium",
+        "required_tier": "pro",
         "description": "Options flow filters in discovery workflows.",
     },
     "institutional_feed": {
@@ -590,6 +594,65 @@ DEFAULT_PLAN_PRICES: dict[TierName, dict[BillingInterval, dict[str, Any]]] = {
 }
 
 PAID_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+CANCELED_PAID_THROUGH_STATUSES = {"canceled", "cancelled"}
+PAYMENT_GRACE_SUBSCRIPTION_STATUSES = {"past_due", "payment_failed", "payment_action_required"}
+REVOKED_SUBSCRIPTION_STATUSES = {
+    "deleted",
+    "incomplete_expired",
+    "paused",
+    "refunded",
+    "uncollectible",
+    "unpaid",
+    "void",
+    "voided",
+}
+
+
+def stripe_payment_failure_grace_days() -> int:
+    raw = os.getenv("STRIPE_PAYMENT_FAILURE_GRACE_DAYS", "0").strip()
+    try:
+        return max(0, min(int(raw), 30))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def stripe_managed_subscription(user: UserAccount) -> bool:
+    return bool(user.stripe_customer_id or user.stripe_subscription_id or user.subscription_status or user.subscription_plan)
+
+
+def subscription_policy_tier(user: UserAccount, *, now: datetime | None = None) -> PlanTierName:
+    """Resolve paid access from Stripe lifecycle fields only."""
+    now = now or datetime.now(timezone.utc)
+    status = (user.subscription_status or "").strip().lower()
+    paid_through = _aware_utc(user.access_expires_at)
+    subscription_tier = normalize_tier(user.subscription_plan)
+    if subscription_tier not in {"premium", "pro"}:
+        entitlement_tier = normalize_tier(user.entitlement_tier)
+        if entitlement_tier in {"premium", "pro"}:
+            subscription_tier = entitlement_tier
+    if subscription_tier not in {"premium", "pro"}:
+        return "free"
+    if status in REVOKED_SUBSCRIPTION_STATUSES:
+        return "free"
+    if bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through <= now:
+        return "free"
+    if status in PAID_SUBSCRIPTION_STATUSES:
+        return subscription_tier
+    if status in CANCELED_PAID_THROUGH_STATUSES and bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through > now:
+        return subscription_tier
+    if status in PAYMENT_GRACE_SUBSCRIPTION_STATUSES:
+        grace_days = stripe_payment_failure_grace_days()
+        if grace_days > 0 and paid_through is not None and paid_through > now and paid_through <= now + timedelta(days=grace_days, minutes=5):
+            return subscription_tier
+    return "free"
 
 
 def normalize_tier(value: str | None) -> TierName:
@@ -605,6 +668,14 @@ def normalize_tier(value: str | None) -> TierName:
 
 def _rank(tier: TierName) -> int:
     return PLAN_RANKS.get(tier, 0)
+
+
+def _effective_required_tier(feature_key: FeatureKey, configured_tier: str | None) -> TierName:
+    normalized = normalize_tier(configured_tier)
+    hard_minimum = HARD_MINIMUM_FEATURE_TIERS.get(feature_key)
+    if hard_minimum and _rank(normalized) < _rank(hard_minimum):
+        return hard_minimum
+    return normalized
 
 
 def seed_feature_gates(db: Session) -> None:
@@ -715,7 +786,7 @@ def feature_gate_payloads(db: Session) -> list[dict[str, str]]:
     payloads = [
         {
             "feature_key": row.feature_key,
-            "required_tier": normalize_tier(row.required_tier),
+            "required_tier": _effective_required_tier(row.feature_key, row.required_tier),  # type: ignore[arg-type]
             "description": row.description or DEFAULT_FEATURE_GATES.get(row.feature_key, {}).get("description", ""),
         }
         for row in feature_gate_rows(db)
@@ -733,7 +804,7 @@ def set_feature_gate(db: Session, *, feature_key: FeatureKey, required_tier: Tie
             description=DEFAULT_FEATURE_GATES[feature_key]["description"],
         )
         db.add(row)
-    row.required_tier = required_tier
+    row.required_tier = _effective_required_tier(feature_key, required_tier)
     db.commit()
     db.refresh(row)
     return row
@@ -862,7 +933,10 @@ def plan_config_payload(db: Session) -> dict[str, Any]:
     features = []
     for feature_key, meta in sorted(PLAN_FEATURES.items(), key=lambda item: int(item[1]["sort_order"])):
         gate = gates_by_key.get(feature_key)
-        required_tier = normalize_tier(gate.get("required_tier") if gate else DEFAULT_FEATURE_GATES[feature_key]["required_tier"])
+        required_tier = _effective_required_tier(
+            feature_key,
+            gate.get("required_tier") if gate else DEFAULT_FEATURE_GATES[feature_key]["required_tier"],
+        )
         features.append(
             {
                 "feature_key": feature_key,
@@ -921,16 +995,11 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         return "free"
     if user.manual_tier_override:
         return normalize_tier(user.manual_tier_override)
-    access_expires_at = user.access_expires_at
-    if access_expires_at and access_expires_at.tzinfo is None:
-        access_expires_at = access_expires_at.replace(tzinfo=timezone.utc)
-    if user.subscription_cancel_at_period_end and access_expires_at and access_expires_at <= datetime.now(timezone.utc):
-        return "free"
+    if stripe_managed_subscription(user):
+        return subscription_policy_tier(user)
     entitlement_tier = normalize_tier(user.entitlement_tier)
     if entitlement_tier in {"premium", "pro"}:
         return entitlement_tier
-    if access_expires_at and access_expires_at > datetime.now(timezone.utc):
-        return "premium"
     if (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
         subscription_tier = normalize_tier(user.subscription_plan)
         if subscription_tier in {"premium", "pro"}:
@@ -960,7 +1029,8 @@ def _features_for_tier(db: Session | None, tier: TierName, *, is_admin: bool = F
     return frozenset(
         row.feature_key
         for row in rows
-        if row.feature_key in DEFAULT_FEATURE_GATES and _rank(tier) >= _rank(normalize_tier(row.required_tier))
+        if row.feature_key in DEFAULT_FEATURE_GATES
+        and _rank(tier) >= _rank(_effective_required_tier(row.feature_key, row.required_tier))  # type: ignore[arg-type]
     )
 
 

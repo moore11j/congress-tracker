@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.entitlements import seed_plan_config
 from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_alpha_summary, member_performance
@@ -47,7 +47,7 @@ def _premium_request(db) -> Request:
     db.commit()
     db.refresh(user)
     token = sign_session_payload({"uid": user.id, "email": user.email})
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
 
 
 def _stub_event_route_enrichment(monkeypatch):

@@ -5,8 +5,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
+from app.entitlements import ENTITLEMENTS, DEFAULT_FEATURE_GATES, entitlements_for_user, feature_gate_payloads, plan_config_payload
 from app.main import (
     WatchlistPayload,
     add_to_watchlist,
@@ -73,7 +74,7 @@ def _user(db, email: str, *, tier: str = "free") -> UserAccount:
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request(
-        {"type": "http", "method": "POST", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+        {"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]}
     )
 
 
@@ -96,6 +97,45 @@ def _seed_watchlist_with_tickers(db, ticker_count: int, owner_user_id: int) -> i
     db.add(Security(symbol="AAPL", name="Apple", asset_class="stock", sector=None))
     db.commit()
     return watchlist.id
+
+
+def test_options_flow_and_institutional_activity_are_pro_only_even_if_gates_drift():
+    assert ENTITLEMENTS["premium"].limit("options_flow_feed") == 0
+    assert ENTITLEMENTS["premium"].limit("options_flow_filters") == 0
+    assert ENTITLEMENTS["premium"].limit("institutional_feed") == 0
+    assert ENTITLEMENTS["premium"].limit("institutional_filters") == 0
+    for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+        assert feature not in ENTITLEMENTS["premium"].features
+        assert feature in ENTITLEMENTS["pro"].features
+        assert DEFAULT_FEATURE_GATES[feature]["required_tier"] == "pro"
+
+    db = _session()
+    try:
+        db.add_all(
+            [
+                FeatureGate(feature_key="options_flow_feed", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="options_flow_filters", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="institutional_feed", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="institutional_filters", required_tier="premium", description="stale"),
+            ]
+        )
+        db.commit()
+        premium_user = _user(db, "premium-matrix@example.com", tier="premium")
+        pro_user = _user(db, "pro-matrix@example.com", tier="pro")
+
+        premium = entitlements_for_user(db, premium_user)
+        pro = entitlements_for_user(db, pro_user)
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+            assert premium.has_feature(feature) is False
+            assert pro.has_feature(feature) is True
+
+        gates = {row["feature_key"]: row["required_tier"] for row in feature_gate_payloads(db)}
+        config = {row["feature_key"]: row["required_tier"] for row in plan_config_payload(db)["features"]}
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+            assert gates[feature] == "pro"
+            assert config[feature] == "pro"
+    finally:
+        db.close()
 
 
 def test_free_user_hitting_watchlist_limit_gets_upgrade_response(monkeypatch):

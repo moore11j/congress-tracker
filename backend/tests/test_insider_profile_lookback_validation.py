@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.main import app
 from app.models import Event, UserAccount
 from app.routers import events as events_router
@@ -151,7 +151,7 @@ def test_insider_recent_trades_public_route_returns_same_rows_for_guest_and_free
 
     path = "/api/insiders/0001824159/trades?lookback_days=90&limit=20&page=0"
     guest_status, guest_body = asyncio.run(_call_app(path))
-    free_status, free_body = asyncio.run(_call_app(path, [(b"authorization", f"Bearer {token}".encode("ascii"))]))
+    free_status, free_body = asyncio.run(_call_app(path, [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode("ascii"))]))
 
     assert guest_status == 200
     assert free_status == 200

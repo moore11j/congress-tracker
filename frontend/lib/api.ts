@@ -23,19 +23,26 @@ import type {
 import { defaultEntitlements, entitlementTierStorageKey, storedEntitlementTier, type Entitlements } from "@/lib/entitlements";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
-export const authTokenStorageKey = "ct:authToken";
-const serverSessionSyncStorageKey = "ct:serverSessionToken";
+const legacyAuthTokenStorageKey = "ct:authToken";
+const legacyServerSessionSyncStorageKey = "ct:serverSessionToken";
 export const backendSessionCookieName = "ct_session";
 export const authHintCookieName = "ct_auth_hint";
 export const entitlementHintCookieName = "ct_entitlement_hint";
 
+export function clearLegacyAuthStorage() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(legacyAuthTokenStorageKey);
+  window.sessionStorage.removeItem(legacyServerSessionSyncStorageKey);
+}
+
 export function hasClientAuthHint() {
   if (typeof window === "undefined") return false;
+  clearLegacyAuthStorage();
   const hasCookieHint = document.cookie
     .split(";")
     .map((part) => part.trim())
     .includes(`${authHintCookieName}=1`);
-  return hasCookieHint || Boolean(window.localStorage.getItem(authTokenStorageKey));
+  return hasCookieHint;
 }
 
 function notifyAuthChanged() {
@@ -194,10 +201,9 @@ function requestInitWithEntitlements(init?: ApiRequestInit): RequestInit {
   const fetchInit = withRequestAttribution(init);
   const headers = new Headers(fetchInit.headers);
   if (typeof window !== "undefined") {
+    clearLegacyAuthStorage();
     const tier = storedEntitlementTier();
     if (tier) headers.set("X-CT-Entitlement-Tier", tier);
-    const token = window.localStorage.getItem(authTokenStorageKey);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
   }
   return { ...fetchInit, credentials: fetchInit.credentials ?? "include", headers };
 }
@@ -209,20 +215,19 @@ function rememberEntitlements(entitlements: Entitlements | null | undefined) {
   document.cookie = `${entitlementHintCookieName}=${tier}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
 }
 
-function rememberAuthToken(token: string) {
+function rememberAuthenticatedSession() {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(authTokenStorageKey, token);
+  clearLegacyAuthStorage();
   document.cookie = `${authHintCookieName}=1; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
   resetClientApiCaches();
   notifyAuthChanged();
 }
 
-function forgetAuthToken() {
+function forgetAuthenticatedSession() {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(authTokenStorageKey);
+  clearLegacyAuthStorage();
   window.localStorage.removeItem(entitlementTierStorageKey);
-  window.sessionStorage.removeItem(serverSessionSyncStorageKey);
-  void clearServerAuthSession();
+  void clearFrontendSessionCookie();
   document.cookie = `${backendSessionCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${authHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
   document.cookie = `${entitlementHintCookieName}=; Path=/; SameSite=Lax; Max-Age=0`;
@@ -230,33 +235,14 @@ function forgetAuthToken() {
   notifyAuthChanged();
 }
 
-function authHeaders(authToken?: string): Record<string, string> {
-  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+function authHeaders(sessionToken?: string | null): Record<string, string> {
+  if (!sessionToken || typeof window !== "undefined") return {};
+  return { Cookie: `${backendSessionCookieName}=${sessionToken}` };
 }
 
-function serverSessionSyncMarker(token: string): string {
-  return `${token.length}:${token.slice(0, 12)}:${token.slice(-12)}`;
-}
-
-export async function syncServerAuthSession(token?: string | null): Promise<boolean> {
-  if (typeof window === "undefined" || !token) return false;
-  const marker = serverSessionSyncMarker(token);
-  if (window.sessionStorage.getItem(serverSessionSyncStorageKey) === marker) return false;
-
-  const response = await fetch("/api/auth/session", {
-    method: "POST",
-    headers: authHeaders(token),
-    cache: "no-store",
-  });
-  if (!response.ok) return false;
-
-  window.sessionStorage.setItem(serverSessionSyncStorageKey, marker);
-  return true;
-}
-
-async function clearServerAuthSession(): Promise<void> {
+async function clearFrontendSessionCookie(): Promise<void> {
   if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(serverSessionSyncStorageKey);
+  clearLegacyAuthStorage();
   try {
     await fetch("/api/auth/session", { method: "DELETE", cache: "no-store" });
   } catch {
@@ -696,7 +682,7 @@ export type AccountNotificationSettings = {
 };
 
 export type AuthResponse = {
-  token: string;
+  authenticated: boolean;
   user: AccountUser;
   entitlements: Entitlements;
   return_to?: string;
@@ -1861,9 +1847,8 @@ export async function login(payload: { email: string; password?: string; name?: 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  rememberAuthToken(response.token);
+  rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
-  await syncServerAuthSession(response.token);
   return response;
 }
 
@@ -1884,9 +1869,8 @@ export async function register(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  rememberAuthToken(response.token);
+  rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
-  await syncServerAuthSession(response.token);
   return response;
 }
 
@@ -1906,9 +1890,8 @@ export async function completeGoogleSignIn(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  rememberAuthToken(response.token);
+  rememberAuthenticatedSession();
   rememberEntitlements(response.entitlements);
-  await syncServerAuthSession(response.token);
   return response;
 }
 
@@ -1939,7 +1922,7 @@ export async function logout(): Promise<void> {
   try {
     await fetchJson<{ status: string }>(buildApiUrl("/api/auth/logout"), { method: "POST" });
   } finally {
-    forgetAuthToken();
+    forgetAuthenticatedSession();
   }
 }
 
@@ -2004,7 +1987,7 @@ export async function deleteAccount(confirmation: string): Promise<{
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirmation }),
   });
-  forgetAuthToken();
+  forgetAuthenticatedSession();
   return response;
 }
 
@@ -2050,7 +2033,7 @@ export async function confirmPasswordReset(payload: { token: string; password: s
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  forgetAuthToken();
+  forgetAuthenticatedSession();
   return response;
 }
 
@@ -2322,7 +2305,7 @@ export function recordPageView(payload: { path: string; referrer_path?: string |
     const blob = new Blob([body], headers);
     if (navigator.sendBeacon(url, blob)) return;
   }
-  const token = window.localStorage.getItem(authTokenStorageKey);
+  clearLegacyAuthStorage();
   void fetch(url, {
     method: "POST",
     body,
@@ -2331,7 +2314,6 @@ export function recordPageView(payload: { path: string; referrer_path?: string |
     headers: {
       "Content-Type": "application/json",
       "X-Walnut-Analytics-Session": sessionId,
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   }).catch(() => undefined);
 }
@@ -4099,11 +4081,13 @@ export type ScreenerApiRow = {
   options_flow_intensity?: string | null;
   options_flow_total_premium?: number | null;
   options_flow_status?: string | null;
+  options_flow_locked?: boolean | null;
   institutional_activity_active?: boolean | null;
   institutional_activity_direction?: string | null;
   institutional_activity_net_activity?: number | null;
   institutional_activity_institution_count?: number | null;
   institutional_activity_status?: string | null;
+  institutional_activity_locked?: boolean | null;
 };
 
 export type ScreenerApiResponse = {
@@ -4116,9 +4100,19 @@ export type ScreenerApiResponse = {
   lookback_days: number;
   result_cap?: number;
   overlay_availability?: {
-    government_contracts?: { enabled: boolean; status: string; filterable: boolean };
-    options_flow?: { enabled: boolean; status: string; filterable: boolean };
-    institutional_activity?: { enabled: boolean; status: string; filterable: boolean };
+    government_contracts?: { enabled: boolean; status: string; filterable: boolean; locked?: boolean; required_plan?: string | null };
+    options_flow?: { enabled: boolean; status: string; filterable: boolean; locked?: boolean; required_plan?: string | null };
+    institutional_activity?: { enabled: boolean; status: string; filterable: boolean; locked?: boolean; required_plan?: string | null };
+  };
+  access?: {
+    tier?: string;
+    intelligence_locked?: boolean;
+    options_flow_locked?: boolean;
+    institutional_activity_locked?: boolean;
+    presets_locked?: boolean;
+    monitoring_locked?: boolean;
+    csv_export_locked?: boolean;
+    saved_screens_limit?: number;
   };
 };
 

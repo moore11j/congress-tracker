@@ -41,6 +41,10 @@ from app.db import get_db
 from app.entitlements import (
     DEFAULT_FEATURE_GATES,
     PAID_SUBSCRIPTION_STATUSES,
+    PAYMENT_GRACE_SUBSCRIPTION_STATUSES,
+    REVOKED_SUBSCRIPTION_STATUSES,
+    subscription_policy_tier,
+    stripe_payment_failure_grace_days,
     plan_config_payload,
     current_entitlements,
     entitlements_for_user,
@@ -482,6 +486,8 @@ def _deleted_email_namespace(user: UserAccount, email: str) -> str:
 
 def _paid_access_deadline(user: UserAccount, *, now: datetime | None = None) -> datetime | None:
     now = now or datetime.now(timezone.utc)
+    if subscription_policy_tier(user, now=now) == "free":
+        return None
     access_expires_at = _aware_utc(user.access_expires_at)
     if access_expires_at and access_expires_at > now:
         return access_expires_at
@@ -542,14 +548,7 @@ def _reactivation_deadline(user: UserAccount, *, now: datetime | None = None) ->
 
 def _restore_entitlement_after_reactivation(user: UserAccount, *, now: datetime | None = None) -> None:
     now = now or datetime.now(timezone.utc)
-    paid_through = _aware_utc(user.access_expires_at)
-    subscription_tier = normalize_tier(user.subscription_plan)
-    if paid_through and paid_through > now and subscription_tier in {"premium", "pro"}:
-        user.entitlement_tier = subscription_tier
-    elif paid_through and paid_through > now and (user.subscription_status or "").strip().lower() in PAID_SUBSCRIPTION_STATUSES:
-        user.entitlement_tier = "premium"
-    else:
-        user.entitlement_tier = "free"
+    user.entitlement_tier = subscription_policy_tier(user, now=now)
 
 
 def _schedule_subscription_cancellation_for_deleted_account(db: Session, user: UserAccount) -> dict[str, Any] | None:
@@ -579,11 +578,13 @@ def _deleted_reactivation_window_active(user: UserAccount, *, now: datetime | No
     return bool(expires_at and expires_at > (now or datetime.now(timezone.utc)))
 
 
-def _clear_paid_entitlement(user: UserAccount, *, status: str = "free") -> None:
+def _clear_paid_entitlement(user: UserAccount, *, status: str = "free", clear_access_expiry: bool = True) -> None:
     user.subscription_status = status
     user.subscription_plan = "free"
     user.entitlement_tier = "free"
     user.subscription_cancel_at_period_end = False
+    if clear_access_expiry:
+        user.access_expires_at = None
     user.updated_at = datetime.now(timezone.utc)
 
 
@@ -2600,11 +2601,7 @@ def _has_recent_activity(user: UserAccount, cutoff: datetime, *, use_created_fal
 
 
 def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
-    status = (user.subscription_status or "").strip().lower()
-    paid_through = _aware_utc(user.access_expires_at)
-    if bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through <= now:
-        return False
-    return bool(status in PAID_SUBSCRIPTION_STATUSES or (paid_through is not None and paid_through > now))
+    return subscription_policy_tier(user, now=now) != "free"
 
 
 def _has_checkout_blocking_subscription(user: UserAccount) -> bool:
@@ -2722,8 +2719,7 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
     token = sign_session_payload({"uid": user.id, "email": user.email})
     set_session_cookie(response, token)
     return {
-        # TODO(security): remove token from JSON responses after the frontend and API clients fully migrate to cookies.
-        "token": token,
+        "authenticated": True,
         "user": serialize_user_basic(user),
         "entitlements": entitlement_payload(current_entitlements(_request_from_token(token), db), user=user),
     }
@@ -2934,7 +2930,7 @@ def verify_email(token: str = Query(min_length=16, max_length=240), db: Session 
 
 
 def _request_from_token(token: str) -> Request:
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode("utf-8"))]})
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode("utf-8"))]})
 
 
 @router.get("/auth/google/start")
@@ -3856,6 +3852,79 @@ def _persist_billing_snapshot(db: Session, invoice: dict[str, Any]) -> BillingTr
     return row
 
 
+def _int_amount(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _billing_transaction_for_stripe_money_object(db: Session, obj: dict[str, Any]) -> BillingTransaction | None:
+    invoice_id = _stripe_object_id(obj.get("invoice"))
+    charge_id = _stripe_object_id(obj.get("charge"))
+    payment_intent_id = _stripe_object_id(obj.get("payment_intent"))
+    charge = obj.get("charge") if isinstance(obj.get("charge"), dict) else {}
+    if not charge_id:
+        charge_id = _stripe_object_id(charge)
+    if not payment_intent_id:
+        payment_intent_id = _stripe_object_id(charge.get("payment_intent"))
+    conditions = []
+    if invoice_id:
+        conditions.append(BillingTransaction.stripe_invoice_id == invoice_id)
+    if charge_id:
+        conditions.append(BillingTransaction.stripe_charge_id == charge_id)
+    if payment_intent_id:
+        conditions.append(BillingTransaction.stripe_payment_intent_id == payment_intent_id)
+    if not conditions:
+        return None
+    return db.execute(select(BillingTransaction).where(or_(*conditions)).order_by(BillingTransaction.id.desc())).scalars().first()
+
+
+def _refund_state_from_stripe_object(obj: dict[str, Any]) -> str:
+    charge = obj.get("charge") if isinstance(obj.get("charge"), dict) else {}
+    source = charge if charge else obj
+    amount_refunded = _int_amount(source.get("amount_refunded")) or 0
+    amount = _int_amount(source.get("amount")) or _int_amount(source.get("total")) or 0
+    if source.get("refunded") is True or (amount_refunded > 0 and amount > 0 and amount_refunded >= amount):
+        return "refunded"
+    refund_amount = _int_amount(obj.get("amount")) or 0
+    if refund_amount > 0 and amount > 0 and refund_amount >= amount:
+        return "refunded"
+    metadata = _extract_metadata(obj)
+    if str(metadata.get("refund_type") or metadata.get("refund_status") or "").strip().lower() == "full":
+        return "refunded"
+    if amount_refunded > 0 or refund_amount > 0:
+        return "partially_refunded"
+    return "none"
+
+
+def _sync_refund_event(db: Session, obj: dict[str, Any]) -> UserAccount | None:
+    refund_state = _refund_state_from_stripe_object(obj)
+    transaction = _billing_transaction_for_stripe_money_object(db, obj)
+    if transaction and refund_state != "none":
+        transaction.refund_status = refund_state
+        transaction.updated_at = datetime.now(timezone.utc)
+    user = _find_user_for_stripe_object(db, obj)
+    if not user and transaction and transaction.user_id:
+        user = db.get(UserAccount, int(transaction.user_id))
+    if not user or refund_state != "refunded":
+        db.flush()
+        return user
+    event_subscription_id = _extract_subscription_id(obj) or (transaction.stripe_subscription_id if transaction else None)
+    current_subscription_id = user.stripe_subscription_id
+    if (
+        event_subscription_id
+        and current_subscription_id
+        and event_subscription_id != current_subscription_id
+        and subscription_policy_tier(user) != "free"
+    ):
+        db.flush()
+        return user
+    _clear_paid_entitlement(user, status="refunded")
+    db.flush()
+    return user
+
+
 def _find_user_for_stripe_object(db: Session, obj: dict[str, Any]) -> UserAccount | None:
     metadata = _extract_metadata(obj)
     user_id = metadata.get("user_id") or obj.get("client_reference_id")
@@ -3967,12 +4036,15 @@ def _sync_user_subscription(
     user.subscription_status = status
     event_metadata = _extract_metadata(obj)
     metadata_tier = normalize_tier(event_metadata.get("tier") or event_metadata.get("plan"))
+    existing_subscription_tier = normalize_tier(user.subscription_plan)
     if tier:
         resolved_tier = tier
     elif resolved_from_price_tier:
         resolved_tier = resolved_from_price_tier
     elif metadata_tier in {"premium", "pro"}:
         resolved_tier = metadata_tier
+    elif existing_subscription_tier in {"premium", "pro"}:
+        resolved_tier = existing_subscription_tier
     elif final_price_id:
         resolved_tier = "free"
     else:
@@ -3989,20 +4061,26 @@ def _sync_user_subscription(
             user.current_plan_currency = current_currency
     if "cancel_at_period_end" in obj:
         user.subscription_cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+    now = datetime.now(timezone.utc)
+    if status in REVOKED_SUBSCRIPTION_STATUSES:
+        _clear_paid_entitlement(user, status=status)
+        db.flush()
+        return user
+    if status in PAYMENT_GRACE_SUBSCRIPTION_STATUSES:
+        grace_days = stripe_payment_failure_grace_days()
+        if grace_days > 0:
+            grace_deadline = now + timedelta(days=grace_days)
+            if period_end and period_end > now:
+                period_end = min(period_end, grace_deadline)
+            else:
+                period_end = grace_deadline
+        else:
+            period_end = now
     if period_end:
         user.access_expires_at = period_end
-    paid_through = _aware_utc(user.access_expires_at)
-    now = datetime.now(timezone.utc)
-    has_paid_access = bool(
-        (status in {"active", "trialing", "past_due"} and (paid_through is None or paid_through > now))
-        or (paid_through is not None and paid_through > now)
-    )
-    if status in {"canceled", "unpaid", "incomplete_expired"} and not (
-        bool(user.subscription_cancel_at_period_end) and paid_through is not None and paid_through > now
-    ):
-        has_paid_access = False
-    user.entitlement_tier = resolved_tier if has_paid_access else "free"
-    user.updated_at = datetime.now(timezone.utc)
+    policy_tier = subscription_policy_tier(user, now=now)
+    user.entitlement_tier = policy_tier
+    user.updated_at = now
     db.flush()
     return user
 
@@ -4060,24 +4138,44 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
         sync_obj = subscription or obj
         resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(sync_obj)
         logged_price_id = price_id
+        sync_status = str(sync_obj.get("status") or "active")
+        if sync_obj is obj and sync_status.strip().lower() in {"paid", "succeeded"}:
+            sync_status = "active"
         synced_user = _sync_user_subscription(
             db,
             obj=sync_obj,
-            status=str(sync_obj.get("status") or "active"),
+            status=sync_status,
             tier=resolved_tier,
             billing_interval=billing_interval,
             stripe_price_id=price_id,
             access_expires_at=snapshot.access_expires_at if snapshot else None,
         )
-    elif event_type == "invoice.payment_failed":
-        synced_user = _sync_user_subscription(db, obj=obj, status="payment_failed")
+    elif event_type in {"invoice.payment_failed", "invoice.payment_action_required"}:
+        snapshot = _persist_billing_snapshot(db, obj)
+        status = "payment_failed" if event_type == "invoice.payment_failed" else "payment_action_required"
+        synced_user = _sync_user_subscription(
+            db,
+            obj=obj,
+            status=status,
+            access_expires_at=snapshot.access_expires_at if snapshot else None,
+        )
+    elif event_type == "invoice.voided":
+        _persist_billing_snapshot(db, obj)
+        synced_user = _sync_user_subscription(db, obj=obj, status="voided")
+    elif event_type == "invoice.marked_uncollectible":
+        _persist_billing_snapshot(db, obj)
+        synced_user = _sync_user_subscription(db, obj=obj, status="uncollectible")
+    elif event_type in {"charge.refunded", "refund.created", "refund.updated"}:
+        synced_user = _sync_refund_event(db, obj)
     elif event_type in {"customer.subscription.created", "customer.subscription.updated"}:
         status = str(obj.get("status") or "unknown")
         resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
         logged_price_id = price_id
         synced_user = _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
     elif event_type == "customer.subscription.deleted":
-        synced_user = _sync_user_subscription(db, obj=obj, status="canceled")
+        synced_user = _sync_user_subscription(db, obj=obj, status="deleted")
+    elif event_type == "customer.subscription.paused":
+        synced_user = _sync_user_subscription(db, obj=obj, status="paused")
     else:
         handled = False
 

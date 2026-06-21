@@ -44,9 +44,9 @@ test("monitoring source cards share styling and make whole source rows clickable
 });
 
 test("auth client still avoids writing a readable ct_session cookie", () => {
-  const rememberBody = api.match(/function rememberAuthToken\(token: string\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const rememberBody = api.match(/function rememberAuthenticatedSession\(\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 
   assert.match(api, /export const backendSessionCookieName = "ct_session"/);
   assert.match(rememberBody, /document\.cookie = `\$\{authHintCookieName\}=1; Path=\/; SameSite=Lax; Max-Age=/);
-  assert.doesNotMatch(rememberBody, /backendSessionCookieName|ct_session|encodeURIComponent\(token\)/);
+  assert.doesNotMatch(rememberBody, /backendSessionCookieName|ct_session|token|Authorization|Bearer/);
 });

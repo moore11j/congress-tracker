@@ -59,14 +59,16 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
 });
 
-test("ticker server context can refresh after client auth session bridge syncs", () => {
+test("ticker server context relies on cookie-backed auth state without client token bridge", () => {
   const accountNav = read("components/auth/AccountNav.tsx");
   const api = read("lib/api.ts");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
-  assert.match(api, /export async function syncServerAuthSession/);
-  assert.match(accountNav, /syncServerAuthSession\(token\)/);
-  assert.match(accountNav, /router\.refresh\(\)/);
+  assert.match(api, /function authHeaders\(sessionToken\?: string \| null\)/);
+  assert.match(api, /return \{ Cookie: `\$\{backendSessionCookieName\}=\$\{sessionToken\}` \}/);
+  assert.match(accountNav, /clearLegacyAuthStorage\(\)/);
+  assert.doesNotMatch(accountNav, /syncServerAuthSession|localStorage\.getItem|router\.refresh/);
+  assert.doesNotMatch(api, /syncServerAuthSession|response\.token|headers\.set\("Authorization"/);
   assert.match(tickerPage, /const authToken = authState\.token/);
   assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);

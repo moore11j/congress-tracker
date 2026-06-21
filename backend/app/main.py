@@ -174,6 +174,7 @@ from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
     confirmation_score_bundle_from_source_contexts,
     inactive_confirmation_score_bundle,
+    redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
 )
 from app.services.options_flow import unavailable_options_flow_summary
@@ -5953,6 +5954,38 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
     }
 
 
+def _redact_locked_ticker_confirmation_sources(
+    bundle: dict[str, Any],
+    source_entitlements: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    premium_locked = {
+        source
+        for source in ("signals",)
+        if bool((source_entitlements.get(source) or {}).get("locked"))
+    }
+    pro_locked = {
+        source
+        for source in ("options_flow", "institutional_activity")
+        if bool((source_entitlements.get(source) or {}).get("locked"))
+    }
+    redacted = bundle
+    if premium_locked:
+        redacted = redact_confirmation_bundle_sources(
+            redacted,
+            premium_locked,
+            lock_state="premium_locked",
+            required_plan="premium",
+        )
+    if pro_locked:
+        redacted = redact_confirmation_bundle_sources(
+            redacted,
+            pro_locked,
+            lock_state="pro_locked",
+            required_plan="pro",
+        )
+    return redacted
+
+
 @app.get("/api/tickers/{symbol}/signals-summary")
 def ticker_signals_summary(
     request: Request,
@@ -6042,6 +6075,10 @@ def ticker_signals_summary(
             lookback_days=effective_window_days,
             source_contexts=source_contexts,
         )
+        confirmation_score_bundle = _redact_locked_ticker_confirmation_sources(
+            confirmation_score_bundle,
+            source_entitlements,
+        )
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
         signal_freshness = slim_confirmation["signal_freshness"]
         has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
@@ -6049,6 +6086,10 @@ def ticker_signals_summary(
         # Keep ticker confirmation aligned with the screener's lower-level score context.
         confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
         confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+        confirmation_score_bundle = _redact_locked_ticker_confirmation_sources(
+            confirmation_score_bundle,
+            source_entitlements,
+        )
         slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
         signal_freshness = slim_confirmation["signal_freshness"]
         has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0

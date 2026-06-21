@@ -1,15 +1,17 @@
 # SQLite to PostgreSQL Migration Runbook
 
-This migration is copy-first and rollback-ready:
+Status: archived pre-cutover runbook. Walnut Market Terminal production now uses PostgreSQL. Do not use this document as current production deployment guidance, and do not set production `DATABASE_URL` back to SQLite unless an explicit incident rollback plan has been approved.
+
+This historical migration was copy-first and rollback-ready:
 
 `COPY -> VERIFY -> COMPARE -> STAGE -> CUT OVER -> MONITOR -> KEEP SQLITE AS ROLLBACK`
 
-Do not delete, compact, overwrite, or replace `/data/app.db`. SQLite remains the source of truth until the PostgreSQL copy has passed verification, backend endpoint comparison, frontend smoke testing, and manual production cutover approval.
+During the original migration, `/data/app.db` was preserved as the SQLite source and rollback artifact until PostgreSQL verification and cutover approval. Current production source of truth is PostgreSQL.
 
 ## Database Audit Summary
 
 - DB engine/session is created in `backend/app/db.py`.
-- `DATABASE_URL` defaults to `sqlite:////data/app.db`. PostgreSQL URLs are now supported through `postgresql+psycopg://`, with modest pooling and `pool_pre_ping`.
+- Runtime `DATABASE_URL` must point at PostgreSQL in production, or be supplied by Fly's attached Postgres database. The app still has a SQLite fallback for local/dev and legacy migration tooling.
 - Tables are declared in `backend/app/models.py`; some legacy schema repair is still in `backend/app/db.py`.
 - Startup in `backend/app/main.py` currently calls `Base.metadata.create_all`, `ensure_event_columns`, `ensure_government_contracts_schema`, `seed_plan_config`, event repair, optional ingest autoheal, and optional event backfill. These startup writes are a cutover risk and should be disabled or tightly controlled during final migration.
 - SQLite-specific code found:
@@ -30,9 +32,9 @@ Model/table inventory from `backend/app/models.py`:
 
 `members`, `securities`, `filings`, `transactions`, `insider_transactions`, `institutional_transactions`, `watchlists`, `watchlist_items`, `watchlist_view_states`, `confirmation_monitoring_snapshots`, `confirmation_monitoring_events`, `user_accounts`, `app_settings`, `feature_gates`, `plan_limits`, `plan_prices`, `stripe_webhook_events`, `billing_transactions`, `notification_subscriptions`, `government_contracts`, `government_contract_actions`, `saved_screens`, `saved_screen_snapshots`, `saved_screen_events`, `monitoring_alerts`, `notification_deliveries`, `events`, `quotes_cache`, `price_cache`, `ticker_meta`, `cik_meta`, `trade_outcomes`, `congress_member_aliases`.
 
-## Backup Before Migration
+## Backup Before Historical Migration
 
-On Fly, create a timestamped backup without altering the source DB:
+For a legacy SQLite source, create a timestamped backup without altering the source DB:
 
 ```bash
 python backend/scripts/backup_sqlite.py --sqlite-path /data/app.db
@@ -130,9 +132,9 @@ Required manual smoke tests:
 - Login/session behavior
 - Premium/Pro/Admin entitlements
 
-## Production Cutover Checklist
+## Historical Production Cutover Checklist
 
-Production cutover is manual. This patch does not automate or imply cutover.
+This section describes the completed SQLite-to-Postgres cutover pattern. It is not a current deploy checklist.
 
 1. Pause ingestion/background jobs if possible.
 2. Confirm no long-running writes.
@@ -159,9 +161,11 @@ Recommended cutover environment hardening:
   - `DB_MAX_OVERFLOW=5`
   - `DB_POOL_TIMEOUT=30`
 
-## Rollback Checklist
+## Historical Rollback Checklist
 
-1. Set `DATABASE_URL` back to `sqlite:////data/app.db`.
+Production should remain on PostgreSQL. Only use this rollback path with explicit incident approval.
+
+1. Set `DATABASE_URL` back to `sqlite:////data/app.db` only as an approved emergency rollback.
 2. Restart backend.
 3. Confirm backend health.
 4. Confirm frontend core flows.

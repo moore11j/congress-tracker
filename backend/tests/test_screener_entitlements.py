@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
-from app.auth import sign_session_payload
+from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.models import AppSetting, SavedScreen, SavedScreenSnapshot, UserAccount
 from app.routers.saved_screens import (
@@ -16,6 +16,7 @@ from app.routers.saved_screens import (
     refresh_saved_screens_monitoring,
 )
 from app.routers.screener import stock_screener, stock_screener_export
+from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 
 
@@ -49,7 +50,7 @@ def _user(db: Session, email: str, *, tier: str = "free") -> UserAccount:
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request(
-        {"type": "http", "method": "POST", "path": "/", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+        {"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]}
     )
 
 
@@ -68,6 +69,125 @@ def _fake_screener_row(symbol: str) -> dict[str, object]:
     }
 
 
+def _full_source_bundle(symbol: str) -> dict:
+    return confirmation_score_bundle_from_source_contexts(
+        symbol,
+        source_contexts={
+            "congress": {
+                "status": "active",
+                "direction": "bullish",
+                "buy_count": 2,
+                "sell_count": 0,
+                "net_flow": 350_000,
+                "title": "Congress buying active",
+            },
+            "insiders": {
+                "status": "active",
+                "direction": "bullish",
+                "buy_count": 1,
+                "sell_count": 0,
+                "net_flow": 125_000,
+                "title": "Insider buying active",
+            },
+            "signals": {
+                "status": "active",
+                "direction": "bullish",
+                "recent_count": 1,
+                "latest_score": 82,
+                "title": "Signal conviction active",
+            },
+            "price_volume": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 74,
+                "price_points": 45,
+                "latest_volume": 1_500_000,
+                "title": "Bullish tape confirmation",
+            },
+                "government_contracts": {
+                    "status": "active",
+                    "contract_count": 2,
+                    "contract_value": 18_000_000,
+                    "latest_date": "2026-06-20",
+                    "title": "Government contracts active",
+                },
+            "options_flow": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 91,
+                "freshness_days": 1,
+                "title": "Options flow confirming",
+            },
+            "institutional_activity": {
+                "status": "active",
+                "direction": "bullish",
+                "freshness_days": 2,
+                "title": "Institutional activity active",
+            },
+        },
+    )
+
+
+def _fake_confirmation_context(db, symbols, **kwargs):
+    return {
+        "bundles": {symbol: _full_source_bundle(symbol) for symbol in symbols},
+        "government_contracts_summaries": {
+            symbol: {
+                "status": "ok",
+                "active": True,
+                "contract_count": 2,
+                "total_award_amount": 18_000_000,
+                "largest_award_amount": 12_000_000,
+                "latest_award_date": "2026-06-20",
+                "top_agency": "NASA",
+                "direction": "bullish",
+                "score_contribution": 10,
+            }
+            for symbol in symbols
+        },
+        "options_flow_summaries": {
+            symbol: {
+                "active": True,
+                "score": 91,
+                "direction": "bullish",
+                "intensity": "high",
+                "call_put_premium_ratio": 2.4,
+                "total_premium": 3_250_000,
+                "latest_flow_date": "2026-06-20",
+                "source": "massive",
+                "status": "ok",
+            }
+            for symbol in symbols
+        },
+        "institutional_activity_summaries": {
+            symbol: {
+                "active": True,
+                "direction": "bullish",
+                "net_activity": 4_500_000,
+                "institution_count": 4,
+                "total_value": 9_000_000,
+                "latest_activity_date": "2026-06-20",
+                "source": "fmp",
+                "status": "ok",
+            }
+            for symbol in symbols
+        },
+        "overlay_availability": {
+            "government_contracts": {"enabled": True, "status": "ok", "filterable": True},
+            "options_flow": {"enabled": True, "status": "ok", "filterable": True},
+            "institutional_activity": {"enabled": True, "status": "ok", "filterable": True},
+        },
+    }
+
+
+def _install_overlay_screener_fixtures(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: [_fake_screener_row("OPT")],
+    )
+    monkeypatch.setattr("app.services.screener.build_confirmation_score_context", _fake_confirmation_context)
+
+
 def test_free_screener_intelligence_filters_require_premium(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
@@ -78,7 +198,7 @@ def test_free_screener_intelligence_filters_require_premium(monkeypatch):
     db = _session()
     try:
         try:
-            stock_screener(request=_request("free"), db=db, congress_activity="has_activity")
+            stock_screener(request=_request("free"), db=db, confirmation_score_min=50)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "screener_intelligence"
@@ -101,8 +221,90 @@ def test_free_screener_basic_access_is_capped_and_redacted(monkeypatch):
         assert response["result_cap"] == 25
         assert response["returned"] == 25
         assert response["access"]["intelligence_locked"] is True
-        assert response["items"][0]["confirmation"]["locked"] is True
-        assert response["items"][0]["why_now"]["locked"] is True
+        assert isinstance(response["items"][0]["confirmation"]["score"], int)
+        assert response["items"][0]["confirmation"]["score"] >= 0
+    finally:
+        db.close()
+
+
+def test_free_and_premium_screener_redact_options_flow_but_keep_confirmation_score(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    _install_overlay_screener_fixtures(monkeypatch)
+    db = _session()
+    try:
+        for tier in ("free", "premium"):
+            response = stock_screener(request=_request(tier), db=db, page_size=5)
+            row = response["items"][0]
+            assert row["confirmation"]["score"] > 0
+            assert row["options_flow_status"] == "pro_locked"
+            assert row["options_flow_active"] is None
+            assert row["options_flow_score"] is None
+            assert row["options_flow_total_premium"] is None
+            assert row["options_flow_locked"] is True
+            assert response["overlay_availability"]["options_flow"]["status"] == "pro_locked"
+            assert response["overlay_availability"]["options_flow"]["filterable"] is False
+    finally:
+        db.close()
+
+
+def test_pro_screener_returns_options_flow_when_provider_data_exists(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    _install_overlay_screener_fixtures(monkeypatch)
+    db = _session()
+    try:
+        response = stock_screener(request=_request("pro"), db=db, page_size=5)
+        row = response["items"][0]
+        assert row["confirmation"]["score"] > 0
+        assert row["options_flow_status"] == "ok"
+        assert row["options_flow_active"] is True
+        assert row["options_flow_score"] == 91
+        assert row["options_flow_total_premium"] == 3_250_000
+        assert "options_flow_locked" not in row
+        assert response["overlay_availability"]["options_flow"]["status"] == "ok"
+        assert response["overlay_availability"]["options_flow"]["filterable"] is True
+    finally:
+        db.close()
+
+
+def test_free_and_premium_screener_redact_institutional_activity_but_keep_confirmation_score(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    _install_overlay_screener_fixtures(monkeypatch)
+    db = _session()
+    try:
+        for tier in ("free", "premium"):
+            response = stock_screener(request=_request(tier), db=db, page_size=5)
+            row = response["items"][0]
+            assert row["confirmation"]["score"] > 0
+            assert row["institutional_activity_status"] == "pro_locked"
+            assert row["institutional_activity_active"] is None
+            assert row["institutional_activity_net_activity"] is None
+            assert row["institutional_activity_institution_count"] is None
+            assert row["institutional_activity_locked"] is True
+            assert response["overlay_availability"]["institutional_activity"]["status"] == "pro_locked"
+            assert response["overlay_availability"]["institutional_activity"]["filterable"] is False
+    finally:
+        db.close()
+
+
+def test_pro_screener_returns_institutional_activity_when_provider_data_exists(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    _install_overlay_screener_fixtures(monkeypatch)
+    db = _session()
+    try:
+        response = stock_screener(request=_request("pro"), db=db, page_size=5)
+        row = response["items"][0]
+        assert row["confirmation"]["score"] > 0
+        assert row["institutional_activity_status"] == "ok"
+        assert row["institutional_activity_active"] is True
+        assert row["institutional_activity_net_activity"] == 4_500_000
+        assert row["institutional_activity_institution_count"] == 4
+        assert "institutional_activity_locked" not in row
+        assert response["overlay_availability"]["institutional_activity"]["status"] == "ok"
+        assert response["overlay_availability"]["institutional_activity"]["filterable"] is True
     finally:
         db.close()
 

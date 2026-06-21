@@ -33,7 +33,8 @@ COPY . .
 # Verify backfill module exists in deployed package
 RUN python -c "import app.backfill_events_from_trades"
 
-# Ensure SQLite directory exists and declare it as a volume
+# Keep /data available for local/dev SQLite fallback and legacy migration artifacts.
+# Production must use PostgreSQL through DATABASE_URL or Fly's attached Postgres injection.
 RUN mkdir -p /data
 VOLUME ["/data"]
 
