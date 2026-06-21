@@ -63,6 +63,33 @@ def _event(
     )
 
 
+def _signal_item(
+    event_id: int,
+    *,
+    symbol: str = "NVDA",
+    days_ago: int = 2,
+    smart_score: int = 78,
+    smart_band: str = "strong",
+    trade_type: str = "purchase",
+) -> SimpleNamespace:
+    ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return SimpleNamespace(
+        model_dump=lambda mode="json": {
+            "kind": "insider",
+            "event_id": event_id,
+            "ts": ts,
+            "symbol": symbol,
+            "who": "Mark A Stevens",
+            "trade_type": trade_type,
+            "amount_min": 100_000,
+            "amount_max": 100_000,
+            "smart_score": smart_score,
+            "smart_band": smart_band,
+            "reporting_cik": "0001045810",
+        }
+    )
+
+
 def _seed_score_contract_fixture(db: Session) -> None:
     today = date.today()
     price_points = {
@@ -206,6 +233,75 @@ def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_pa
             "lines": ["Price / volume available"],
         },
     )
+    trade_calls = []
+
+    def fake_trade_activity(db, symbol, event_type, **kwargs):
+        trade_calls.append((symbol, event_type, kwargs.get("lookback_days")))
+        if event_type == "insider_trade":
+            return {
+                "status": "active",
+                "direction": "bearish",
+                "title": "Insider selling active",
+                "subtitle": "1 sell in the last 30 Days.",
+                "buy_count": 0,
+                "sell_count": 1,
+                "net_flow": -125_000,
+            }
+        return {
+            "status": "active",
+            "direction": "bullish",
+            "title": "Congress buying active",
+            "subtitle": "1 purchase in the last 30 Days.",
+            "buy_count": 1,
+            "sell_count": 0,
+            "net_flow": 50_000,
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_trade_activity_summary",
+        fake_trade_activity,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_government_contracts_summary",
+        lambda *args, **kwargs: {
+            "status": "ok",
+            "active": True,
+            "contract_count": 2,
+            "total_award_amount": 25_000_000,
+            "latest_award_date": date.today().isoformat(),
+            "detail": "2 contracts above threshold.",
+        },
+    )
+
+    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
+
+    assert response["status"] == "ok"
+    assert response["price_volume"]["status"] == "active"
+    assert response["source_entitlements"]["price_volume"]["lock_state"] == "available"
+    assert response["source_entitlements"]["price_volume"]["required_plan"] is None
+    assert response["source_entitlements"]["insiders"]["locked"] is False
+    assert response["source_entitlements"]["insiders"]["required_plan"] is None
+    assert response["source_entitlements"]["congress"]["locked"] is False
+    assert response["source_entitlements"]["congress"]["required_plan"] is None
+    assert response["source_entitlements"]["government_contracts"]["locked"] is False
+    assert response["source_entitlements"]["government_contracts"]["required_plan"] is None
+    assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
+    assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
+    assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
+    assert response["insiders"]["status"] == "active"
+    assert response["insiders"]["sell_count"] == 1
+    assert response["congress"]["status"] == "active"
+    assert response["congress"]["buy_count"] == 1
+    assert response["government_contracts"]["status"] == "active"
+    assert response["government_contracts"]["contract_count"] == 2
+    assert response["confirmation_score_bundle"]["score"] > 0
+    assert response["signal_freshness"] is not None
+    assert response["items"] == []
+    assert response["recent_signal_count"] == 0
+    assert ("AAPL", "insider_trade", 30) in trade_calls
+    assert ("AAPL", "congress_trade", 30) in trade_calls
 
 
 def _full_source_confirmation_bundle(symbol: str) -> dict:
@@ -314,75 +410,17 @@ def _public_summary_context(symbol: str) -> dict[str, dict]:
             "latest_date": date.today().isoformat(),
         },
     }
-    trade_calls = []
 
-    def fake_trade_activity(db, symbol, event_type, **kwargs):
-        trade_calls.append((symbol, event_type, kwargs.get("lookback_days")))
-        if event_type == "insider_trade":
-            return {
-                "status": "active",
-                "direction": "bearish",
-                "title": "Insider selling active",
-                "subtitle": "1 sell in the last 30 Days.",
-                "buy_count": 0,
-                "sell_count": 1,
-                "net_flow": -125_000,
-            }
-        return {
-            "status": "active",
-            "direction": "bullish",
-            "title": "Congress buying active",
-            "subtitle": "1 purchase in the last 30 Days.",
-            "buy_count": 1,
-            "sell_count": 0,
-            "net_flow": 50_000,
-        }
 
-    monkeypatch.setattr(
-        main_module,
-        "_ticker_trade_activity_summary",
-        fake_trade_activity,
-    )
-    monkeypatch.setattr(
-        main_module,
-        "get_government_contracts_summary",
-        lambda *args, **kwargs: {
-            "status": "ok",
-            "active": True,
-            "contract_count": 2,
-            "total_award_amount": 25_000_000,
-            "latest_award_date": date.today().isoformat(),
-            "detail": "2 contracts above threshold.",
-        },
-    )
-
-    response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
-
-    assert response["status"] == "ok"
-    assert response["price_volume"]["status"] == "active"
-    assert response["source_entitlements"]["price_volume"]["lock_state"] == "available"
-    assert response["source_entitlements"]["price_volume"]["required_plan"] is None
-    assert response["source_entitlements"]["insiders"]["locked"] is False
-    assert response["source_entitlements"]["insiders"]["required_plan"] is None
-    assert response["source_entitlements"]["congress"]["locked"] is False
-    assert response["source_entitlements"]["congress"]["required_plan"] is None
-    assert response["source_entitlements"]["government_contracts"]["locked"] is False
-    assert response["source_entitlements"]["government_contracts"]["required_plan"] is None
-    assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
-    assert response["source_entitlements"]["institutional_activity"]["lock_state"] == "pro_locked"
-    assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
-    assert response["insiders"]["status"] == "active"
-    assert response["insiders"]["sell_count"] == 1
-    assert response["congress"]["status"] == "active"
-    assert response["congress"]["buy_count"] == 1
-    assert response["government_contracts"]["status"] == "active"
-    assert response["government_contracts"]["contract_count"] == 2
-    assert response["confirmation_score_bundle"]["score"] > 0
-    assert response["signal_freshness"] is not None
-    assert response["items"] == []
-    assert response["recent_signal_count"] == 0
-    assert ("AAPL", "insider_trade", 30) in trade_calls
-    assert ("AAPL", "congress_trade", 30) in trade_calls
+def _active_institutional_summary() -> dict:
+    return {
+        "status": "ok",
+        "active": True,
+        "direction": "bullish",
+        "institution_count": 3,
+        "total_value": 25_000_000,
+        "latest_activity_date": date.today().isoformat(),
+    }
 
 
 def test_ticker_signals_summary_free_user_gets_public_context_with_locked_sources(monkeypatch):
@@ -524,7 +562,10 @@ def test_ticker_signals_summary_admin_does_not_lock_paid_sources(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "_ticker_confirmation_context",
-        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+        lambda db, symbol: {
+            "confirmation_score_bundle": full_bundle,
+            "institutional_activity_summary": _active_institutional_summary(),
+        },
     )
 
     response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
@@ -558,7 +599,10 @@ def test_ticker_signals_summary_pro_does_not_lock_paid_sources(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "_ticker_confirmation_context",
-        lambda db, symbol: {"confirmation_score_bundle": full_bundle},
+        lambda db, symbol: {
+            "confirmation_score_bundle": full_bundle,
+            "institutional_activity_summary": _active_institutional_summary(),
+        },
     )
 
     response = ticker_signals_summary(object(), "AAPL", side="all", limit=3, lookback_days=365, db=object())
@@ -649,6 +693,123 @@ def test_ticker_signals_summary_premium_missing_signal_data_is_inactive_not_lock
     assert bundle["sources"]["signals"].get("locked") is not True
     assert bundle["sources"]["signals"]["present"] is False
     assert bundle["sources"]["signals"].get("lock_state") not in {"premium_locked", "pro_locked"}
+
+
+def test_ticker_signals_summary_authorized_rows_repair_inactive_signal_source(monkeypatch):
+    inactive_context = _public_summary_context("NVDA")
+    inactive_context["signals"] = {
+        "status": "inactive",
+        "direction": "neutral",
+        "title": "No active signal stack in the last 30 Days",
+        "subtitle": "No qualifying signal entries found in the 30 Day context window.",
+        "recent_count": 0,
+        "latest_score": None,
+    }
+    inactive_bundle = confirmation_score_bundle_from_source_contexts("NVDA", source_contexts=inactive_context)
+    active_context = _public_summary_context("NVDA")
+    active_context["signals"] = {
+        "status": "active",
+        "direction": "bullish",
+        "title": "Signal conviction active",
+        "subtitle": "3 recent signals.",
+        "recent_count": 3,
+        "latest_score": 78,
+    }
+
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: [
+            _signal_item(1, symbol="NVDA", days_ago=2, smart_score=78, smart_band="strong"),
+            _signal_item(2, symbol="NVDA", days_ago=4, smart_score=78, smart_band="strong"),
+            _signal_item(3, symbol="NVDA", days_ago=2, smart_score=69, smart_band="notable"),
+        ],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: active_context,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": inactive_bundle, "institutional_activity_summary": {"status": "ok", "active": False}},
+    )
+
+    for tier in ("premium", "admin"):
+        _mock_signal_auth(monkeypatch, tier=tier)
+
+        response = ticker_signals_summary(object(), "NVDA", side="all", limit=3, lookback_days=30, db=object())
+        bundle = response["confirmation_score_bundle"]
+
+        assert response["signals"]["status"] == "active"
+        assert response["recent_signal_count"] == 3
+        assert response["items"][0]["smart_score"] == 78
+        assert response["source_entitlements"]["signals"]["locked"] is False
+        assert bundle["sources"]["signals"]["present"] is True
+        assert bundle["sources"]["signals"].get("locked") is not True
+        assert bundle["sources"]["signals"]["label"] == "Signal conviction active"
+        assert "signals" in bundle["active_sources"]
+        assert response["signal_freshness"]["timing"]["active_source_count"] >= 1
+
+
+def test_ticker_signals_summary_free_rows_stay_locked(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="free")
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("free users must not query signal rows")),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": _full_source_confirmation_bundle(symbol), "institutional_activity_summary": {"status": "ok", "active": True}},
+    )
+
+    response = ticker_signals_summary(object(), "NVDA", side="all", limit=3, lookback_days=30, db=object())
+    bundle = response["confirmation_score_bundle"]
+
+    assert response["items"] == []
+    assert response["source_entitlements"]["signals"]["locked"] is True
+    assert bundle["sources"]["signals"]["locked"] is True
+    assert bundle["sources"]["signals"]["lock_state"] == "premium_locked"
+    assert bundle["sources"]["signals"]["present"] is False
+
+
+def test_ticker_signals_summary_entitled_institutional_not_configured_is_unavailable(monkeypatch):
+    full_bundle = _full_source_confirmation_bundle("NVDA")
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {
+            "confirmation_score_bundle": full_bundle,
+            "institutional_activity_summary": {"status": "not_configured", "active": False},
+        },
+    )
+
+    for tier in ("pro", "admin"):
+        _mock_signal_auth(monkeypatch, tier=tier)
+
+        response = ticker_signals_summary(object(), "NVDA", side="all", limit=3, lookback_days=30, db=object())
+        source = response["confirmation_score_bundle"]["sources"]["institutional_activity"]
+
+        assert response["source_entitlements"]["institutional_activity"]["locked"] is False
+        assert source["present"] is False
+        assert source["status"] == "unavailable"
+        assert source["reason"] == "not_configured"
+        assert source.get("locked") is not True
+        assert "institutional_activity" not in response["confirmation_score_bundle"]["active_sources"]
 
 
 def test_ticker_signals_summary_free_redacts_signals_and_pro_sources_but_keeps_public_score(monkeypatch):

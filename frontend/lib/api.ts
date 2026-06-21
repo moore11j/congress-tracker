@@ -3336,13 +3336,18 @@ export async function getTickerSignalsSummary(
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
   });
-  const data = await fetchJson<TickerSignalsSummaryResponse>(url, {
+  const request = (signal?: AbortSignal) => fetchJson<TickerSignalsSummaryResponse>(url, {
     headers: authHeaders(params?.authToken),
     cache: "no-store",
     next: { revalidate: 0 },
-    signal: params?.signal,
+    signal,
     source: params?.source ?? "TickerSignalsSummary",
   });
+  const data = await clientCachedJson<TickerSignalsSummaryResponse>(
+    `ticker-signals-summary:${url}`,
+    params?.signal,
+    request,
+  );
   return {
     ...data,
     items: Array.isArray(data.items) ? data.items : [],

@@ -38,14 +38,19 @@ test("ticker context does not eagerly request heavy tab data on overview mount",
 
 test("ticker signal activity uses ticker-specific summary instead of broad signals endpoint", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
+  const sourceCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const api = read("lib/api.ts");
 
   assert.match(api, /export async function getTickerSignalsSummary/);
   assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
   assert.match(api, /lookback_days: params\?\.lookback_days/);
+  assert.match(api, /clientCachedJson<TickerSignalsSummaryResponse>/);
+  assert.match(api, /`ticker-signals-summary:\$\{url\}`/);
   assert.match(client, /getTickerSignalsSummary\(symbol,/);
   assert.match(client, /lookback_days: lookbackDays/);
+  assert.match(sourceCard, /getTickerSignalsSummary\(symbol,/);
+  assert.match(sourceCard, /sourceFromSummary\(response, visibleItems, lookbackDays, fallbackSource\)/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
   assert.match(tickerPage, /lookback_days: SIGNAL_WINDOW_DAYS/);
   assert.match(tickerPage, /lookbackDays=\{SIGNAL_WINDOW_DAYS\}/);
@@ -57,6 +62,33 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.doesNotMatch(tickerPage, /sourceFromActivityCounts/);
   assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
+});
+
+test("ticker upper Signals source card repairs stale inactive SSR from browser-authenticated summary rows", () => {
+  const sourceCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /<TickerSignalsSourceCardClient/);
+  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(confirmationLookbackDays\)\}/);
+  assert.match(sourceCard, /const hasVisibleSignals = visibleItems\.length > 0/);
+  assert.match(sourceCard, /if \(hasVisibleSignals\) \{/);
+  assert.match(sourceCard, /body: "Signal conviction active"/);
+  assert.match(sourceCard, /No qualifying signal entries found in the \$\{windowNoun\(lookbackDays\)\}/);
+  assert.match(sourceCard, /source: "TickerSignalsSourceCard"/);
+  assert.match(sourceCard, /error instanceof ApiError && \[401, 402, 403\]\.includes\(error\.status\)/);
+  assert.match(sourceCard, /return "LOCKED"/);
+  assert.match(sourceCard, /return "UNAVAILABLE"/);
+});
+
+test("ticker institutional source card renders unavailable for entitled missing provider state", () => {
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+
+  assert.match(tickerPage, /function sourceUnavailable/);
+  assert.match(tickerPage, /if \(sourceUnavailable\(source\)\) return "UNAVAILABLE"/);
+  assert.match(tickerPage, /Institutional activity unavailable\./);
+  assert.match(tickerPage, /Institutional activity source is not configured\./);
+  assert.match(tickerPage, /institutionalCardLocked \? \(/);
+  assert.match(tickerPage, /requiredPlan="pro"/);
 });
 
 test("ticker server context relies on cookie-backed auth state without client token bridge", () => {

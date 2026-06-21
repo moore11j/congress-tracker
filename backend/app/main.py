@@ -6225,6 +6225,124 @@ def _redact_locked_ticker_confirmation_sources(
     return redacted
 
 
+_TICKER_CONFIRMATION_SOURCE_ORDER = (
+    "congress",
+    "insiders",
+    "signals",
+    "price_volume",
+    "options_flow",
+    "government_contracts",
+    "institutional_activity",
+)
+
+
+def _merge_authorized_signal_context_into_confirmation_bundle(
+    bundle: dict[str, Any],
+    signal_context: dict[str, Any] | None,
+    source_entitlements: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(bundle, dict) or not isinstance(signal_context, dict):
+        return bundle
+    if bool((source_entitlements.get("signals") or {}).get("locked")):
+        return bundle
+    if str(signal_context.get("status") or "").strip().lower() != "active":
+        return bundle
+
+    signal_bundle = confirmation_score_bundle_from_source_contexts(
+        str(bundle.get("ticker") or ""),
+        lookback_days=max(1, min(int(bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        source_contexts={"signals": signal_context},
+    )
+    signal_source = (
+        signal_bundle.get("sources", {}).get("signals")
+        if isinstance(signal_bundle.get("sources"), dict)
+        else None
+    )
+    if not isinstance(signal_source, dict) or signal_source.get("present") is not True:
+        return bundle
+
+    merged = copy.deepcopy(bundle)
+    sources = merged.setdefault("sources", {})
+    if not isinstance(sources, dict):
+        return bundle
+    sources["signals"] = signal_source
+
+    active_sources = merged.get("active_sources")
+    if not isinstance(active_sources, list):
+        active_sources = []
+    active = {source for source in active_sources if isinstance(source, str)}
+    active.add("signals")
+    merged["active_sources"] = [source for source in _TICKER_CONFIRMATION_SOURCE_ORDER if source in active]
+
+    source_details = merged.get("source_details")
+    if not isinstance(source_details, dict):
+        source_details = {}
+    signal_detail = next(
+        (
+            value
+            for value in (signal_source.get("detail"), signal_source.get("summary"), signal_source.get("label"))
+            if isinstance(value, str) and value.strip()
+        ),
+        "Signal conviction active",
+    )
+    source_details["signals"] = signal_detail
+    merged["source_details"] = source_details
+    return merged
+
+
+def _institutional_summary_is_unavailable(summary: Any) -> bool:
+    if not isinstance(summary, dict):
+        return True
+    status = str(summary.get("status") or "").strip().lower()
+    return status in {"not_configured", "unavailable", "disabled", "provider_error", "error"}
+
+
+def _mark_institutional_unavailable_in_confirmation_bundle(
+    bundle: dict[str, Any],
+    institutional_summary: Any,
+    source_entitlements: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(bundle, dict):
+        return bundle
+    if bool((source_entitlements.get("institutional_activity") or {}).get("locked")):
+        return bundle
+    if not _institutional_summary_is_unavailable(institutional_summary):
+        return bundle
+
+    merged = copy.deepcopy(bundle)
+    sources = merged.setdefault("sources", {})
+    if not isinstance(sources, dict):
+        return bundle
+    reason = (
+        str(institutional_summary.get("status") or "unavailable").strip().lower()
+        if isinstance(institutional_summary, dict)
+        else "unavailable"
+    )
+    sources["institutional_activity"] = {
+        "present": False,
+        "direction": "neutral",
+        "strength": 0,
+        "quality": 0,
+        "freshness_days": None,
+        "label": "Institutional activity unavailable",
+        "score_contribution": 0,
+        "detail": "Institutional activity source is not configured.",
+        "summary": "Institutional activity is unavailable.",
+        "status": "unavailable",
+        "reason": reason,
+    }
+
+    active_sources = merged.get("active_sources")
+    if isinstance(active_sources, list):
+        merged["active_sources"] = [source for source in active_sources if source != "institutional_activity"]
+    source_details = merged.get("source_details")
+    if not isinstance(source_details, dict):
+        source_details = {}
+    source_details["institutional_activity"] = "Institutional activity is unavailable."
+    merged["source_details"] = source_details
+    return merged
+
+
 @app.get("/api/tickers/{symbol}/signals-summary")
 def ticker_signals_summary(
     request: Request,
@@ -6348,6 +6466,16 @@ def ticker_signals_summary(
         # Keep ticker confirmation aligned with the screener's lower-level score context.
         confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
         confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+        confirmation_score_bundle = _merge_authorized_signal_context_into_confirmation_bundle(
+            confirmation_score_bundle,
+            source_contexts.get("signals"),
+            source_entitlements,
+        )
+        confirmation_score_bundle = _mark_institutional_unavailable_in_confirmation_bundle(
+            confirmation_score_bundle,
+            confirmation_context.get("institutional_activity_summary"),
+            source_entitlements,
+        )
         confirmation_score_bundle = _redact_locked_ticker_confirmation_sources(
             confirmation_score_bundle,
             source_entitlements,

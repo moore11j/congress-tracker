@@ -10,6 +10,7 @@ import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSec
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
+import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { entitlementsFromTierHint, hasEntitlement, type Entitlements } from "@/lib/entitlements";
@@ -1129,7 +1130,13 @@ function technicalToneClass(tone: "bullish" | "bearish" | "mixed" | "inactive" |
   return "text-slate-400";
 }
 
+function sourceUnavailable(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): boolean {
+  const status = (source.status ?? "").toLowerCase();
+  return !source.present && ["unavailable", "not_configured", "disabled", "provider_error", "error"].includes(status);
+}
+
 function sourceStateLabel(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
+  if (sourceUnavailable(source)) return "UNAVAILABLE";
   if (source.present && source.score_contribution && source.score_contribution > 0) return "BULLISH SUPPORT";
   return source.present ? source.direction.toUpperCase() : "INACTIVE";
 }
@@ -1580,14 +1587,6 @@ function sourceCardBody(key: "congress" | "signals", source: ConfirmationScoreBu
   return source.direction === "bearish" ? "Active / sell-skewed" : source.direction === "bullish" ? "Active / buy-skewed" : "Active / mixed";
 }
 
-function signalSourceSupport(source: ConfirmationScoreBundle["sources"]["signals"], topSignal: TickerActivityData["topSignal"], lookbackDays: number): string {
-  if (!source.present) return `No qualifying signal entries found in the ${contextWindowNoun(lookbackDays)}.`;
-  if (topSignal?.smart_score !== null && topSignal?.smart_score !== undefined) {
-    return `${topSignal.smart_band ?? "signal"} ${topSignal.smart_score} · ${contextWindowLabel(lookbackDays)}`;
-  }
-  return contextWindowLabel(lookbackDays);
-}
-
 function summaryCount(context: TickerSignalsSummaryResponse["insiders"] | TickerSignalsSummaryResponse["congress"] | null, key: "buy_count" | "sell_count"): number {
   const value = context?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -1782,6 +1781,7 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
 }
 
 function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["institutional_activity"]): string {
+  if (sourceUnavailable(source)) return "Institutional activity unavailable.";
   if (!source.present) return "No notable institutional activity in the current context window.";
   if (source.direction === "bearish") return "Active / reducing";
   if (source.direction === "bullish") return "Active / accumulating";
@@ -1789,6 +1789,7 @@ function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["ins
 }
 
 function institutionalSourceSupport(source: ConfirmationScoreBundle["sources"]["institutional_activity"], lookbackDays: number): string {
+  if (sourceUnavailable(source)) return source.detail ?? source.summary ?? "Institutional activity source is not configured.";
   if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
   return normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? contextWindowLabel(lookbackDays);
 }
@@ -2496,12 +2497,21 @@ async function DeferredTickerContent({
                   support="Signal stack details unlock with Premium."
                 />
               ) : (
-                <SourceEvidenceCard
-                  title="Signals"
-                  icon="signals"
-                  source={signalsCardSource}
-                  body={sourceCardBody("signals", signalsCardSource, topSignal, confirmationLookbackDays)}
-                  support={signalSourceSupport(signalsCardSource, topSignal, confirmationLookbackDays)}
+                <TickerSignalsSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
+                  lookbackDays={confirmationLookbackDays}
+                  lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
+                  initialSource={signalsCardSource}
+                  initialTopSignal={
+                    topSignal
+                      ? {
+                          smart_score: topSignal.smart_score ?? null,
+                          smart_band: topSignal.smart_band ?? null,
+                          trade_type: topSignal.trade_type ?? null,
+                        }
+                      : null
+                  }
                 />
               )}
               {optionsFlowCardLocked ? (
