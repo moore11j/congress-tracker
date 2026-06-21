@@ -522,6 +522,22 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert user.country == "US"
         assert user.postal_code == "94105"
         assert "billing_profile_complete" not in registered["user"]
+        browser_auth_forbidden = {
+            "country",
+            "state_province",
+            "postal_code",
+            "city",
+            "address_line1",
+            "address_line2",
+            "deleted_at",
+            "deleted_by_user",
+            "deletion_reason",
+            "deletion_plan",
+            "reactivation_expires_at",
+            "is_deleted",
+            "email_verified_at",
+        }
+        assert browser_auth_forbidden.isdisjoint(registered["user"].keys())
         assert user.password_hash
         assert registered["email_verification_required"] is True
         assert registered["dev_verification_url"].startswith("http://localhost:3000/account/verify-email?token=")
@@ -538,6 +554,7 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert signed_in["user"]["email"] == "reader-one@example.com"
         assert signed_in["authenticated"] is True
         assert "token" not in signed_in
+        assert browser_auth_forbidden.isdisjoint(signed_in["user"].keys())
 
         reset = request_password_reset(PasswordResetRequestPayload(email="reader-one@example.com"), db)
         assert reset["reset_path"].startswith("/reset-password?token=")
@@ -1281,6 +1298,17 @@ def test_normal_user_serializers_exclude_admin_and_stripe_identifiers():
         user.monthly_price_override = 1495
         user.override_currency = "USD"
         user.override_note = "support-only"
+        user.original_email = "minimized-original@example.com"
+        user.country = "US"
+        user.state_province = "CA"
+        user.postal_code = "94105"
+        user.city = "San Francisco"
+        user.address_line1 = "1 Market St"
+        user.address_line2 = "Suite 200"
+        user.deleted_by_user = True
+        user.deletion_reason = "self_service"
+        user.deletion_plan = "reactivation_window"
+        user.reactivation_expires_at = datetime.now(timezone.utc)
         db.commit()
         request = _request_for_user(user)
 
@@ -1297,10 +1325,29 @@ def test_normal_user_serializers_exclude_admin_and_stripe_identifiers():
             "override_currency",
             "override_note",
         }
-        assert forbidden.isdisjoint(auth_user.keys())
+        auth_only_forbidden = forbidden | {
+            "original_email",
+            "country",
+            "state_province",
+            "postal_code",
+            "city",
+            "address_line1",
+            "address_line2",
+            "deleted_at",
+            "deleted_by_user",
+            "deletion_reason",
+            "deletion_plan",
+            "reactivation_expires_at",
+            "is_deleted",
+            "email_verified_at",
+        }
+        assert auth_only_forbidden.isdisjoint(auth_user.keys())
         assert forbidden.isdisjoint(account_user.keys())
         assert {"id", "email", "name", "role", "is_admin", "entitlement_tier"}.issubset(auth_user.keys())
+        assert {"email_verified", "email_verification_required", "current_plan", "subscription_status"}.issubset(auth_user.keys())
         assert "billing_profile_complete" not in auth_user
+        assert account_user["country"] == "US"
+        assert account_user["address_line1"] == "1 Market St"
         assert {"billing_location", "billing_profile_complete", "billing_profile_missing_fields"}.issubset(account_user.keys())
         assert "manual_tier_override" not in (me_payload["entitlements"]["user"] or {})
     finally:
@@ -1325,8 +1372,25 @@ def test_auth_me_returns_admin_effective_entitlements_without_sensitive_fields()
         assert "signals" in payload["entitlements"]["features"]
         assert "options_flow_feed" in payload["entitlements"]["features"]
         assert "institutional_feed" in payload["entitlements"]["features"]
-        assert "stripe_customer_id" not in payload["user"]
-        assert "stripe_subscription_id" not in payload["user"]
+        forbidden = {
+            "stripe_customer_id",
+            "stripe_subscription_id",
+            "stripe_price_id",
+            "country",
+            "state_province",
+            "postal_code",
+            "city",
+            "address_line1",
+            "address_line2",
+            "deleted_at",
+            "deleted_by_user",
+            "deletion_reason",
+            "deletion_plan",
+            "reactivation_expires_at",
+            "is_deleted",
+            "email_verified_at",
+        }
+        assert forbidden.isdisjoint(payload["user"].keys())
     finally:
         db.close()
 
@@ -1502,9 +1566,16 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         admin = _user(db, "admin@example.com", role="admin")
         _user(db, "reader@example.com")
 
-        response = admin_settings(_request_for_user(admin), db)
+        default_response = admin_settings(_request_for_user(admin), db)
+        assert default_response["users"] == []
+        assert default_response["users_limit"] == 0
+        assert default_response["users_truncated"] is False
+
+        response = admin_settings(_request_for_user(admin), db, include_users=True)
 
         assert len(response["users"]) == 2
+        assert response["users_limit"] == 100
+        assert response["users_truncated"] is False
         assert {"email", "name", "created_at", "last_seen_at"}.issubset(response["users"][0].keys())
         forbidden = {"password", "password_hash", "card", "payment_method", "stripe_customer_id", "stripe_subscription_id"}
         assert forbidden.isdisjoint(response["users"][0].keys())
@@ -1523,6 +1594,7 @@ def test_admin_settings_lists_registered_accounts_without_sensitive_fields(monke
         assert response["stripe"]["success_url"] == "https://app.walnutmarkets.com/account/billing?checkout=success"
         assert response["stripe"]["cancel_url"] == "https://app.walnutmarkets.com/pricing?checkout=cancelled"
         assert admin_settings(_request_for_user(admin), db, include_users=False)["users"] == []
+        assert admin_settings(_request_for_user(admin), db, include_users=False)["users_limit"] == 0
     finally:
         db.close()
 
@@ -3095,6 +3167,14 @@ def test_user_refresh_subscription_repairs_missed_webhook(monkeypatch):
         db.refresh(user)
 
         assert refreshed["status"] == "refreshed"
+        assert "sync" not in refreshed
+        assert refreshed["message"] == "Subscription refreshed."
+        assert refreshed["user"]["subscription_plan"] == "premium"
+        assert refreshed["user"]["subscription_status"] == "active"
+        assert refreshed["user"]["entitlement_tier"] == "premium"
+        assert refreshed["user"]["current_plan"] == "premium"
+        assert "stripe_price_id" not in refreshed["user"]
+        assert "subscription_item_resolution" not in refreshed
         assert user.stripe_customer_id == "cus_refresh"
         assert user.stripe_subscription_id == "sub_refresh"
         assert user.stripe_price_id == "price_refresh"
@@ -3141,7 +3221,12 @@ def test_user_refresh_subscription_repairs_portal_change_to_pro(monkeypatch):
         db.refresh(user)
 
         assert refreshed["status"] == "refreshed"
-        assert refreshed["sync"]["mapped_plan"] == "pro"
+        assert "sync" not in refreshed
+        assert refreshed["user"]["subscription_plan"] == "pro"
+        assert refreshed["user"]["entitlement_tier"] == "pro"
+        assert refreshed["user"]["current_plan"] == "pro"
+        assert "stripe_price_id" not in refreshed["user"]
+        assert "subscription_item_resolution" not in refreshed
         assert user.subscription_plan == "pro"
         assert user.entitlement_tier == "pro"
         assert user.stripe_price_id == "price_refresh_pro"
@@ -3965,7 +4050,7 @@ def test_google_sign_in_preserves_existing_admin_role(monkeypatch):
         entitlements = current_entitlements(_request_for_user(user), db)
         assert entitlements.tier == "admin"
         assert "notification_digests" in entitlements.features
-        assert admin_settings(_request_for_user(user), db)["users"][0]["email"] == "admin-google@example.com"
+        assert admin_settings(_request_for_user(user), db, include_users=True)["users"][0]["email"] == "admin-google@example.com"
     finally:
         db.close()
 

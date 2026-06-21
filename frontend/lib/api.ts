@@ -871,6 +871,8 @@ export type AdminSettings = {
     google_client_id: string;
   };
   users: AccountUser[];
+  users_limit?: number;
+  users_truncated?: boolean;
   feature_gates: FeatureGate[];
   features: Record<string, { required_tier: "free" | "premium" | "pro"; description: string }>;
   plan_config: PlanConfig;
@@ -2052,8 +2054,14 @@ export async function createCustomerPortalSession(): Promise<{ url?: string | nu
   return fetchJson(buildApiUrl("/api/billing/customer-portal"), { method: "POST" });
 }
 
-export async function refreshBillingSubscription(): Promise<{ status: string; sync?: Record<string, unknown>; user?: AccountUser }> {
-  const response = await fetchJson<{ status: string; sync?: Record<string, unknown>; user?: AccountUser }>(
+export type BillingRefreshResponse = {
+  status: string;
+  message?: string;
+  user?: AccountUser;
+};
+
+export async function refreshBillingSubscription(): Promise<BillingRefreshResponse> {
+  const response = await fetchJson<BillingRefreshResponse>(
     buildApiUrl("/api/billing/refresh-subscription"),
     { method: "POST" },
   );

@@ -804,6 +804,32 @@ def serialize_user_basic(user: UserAccount) -> dict[str, Any]:
     }
 
 
+def serialize_user_self_profile(user: UserAccount) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "user_display_id": _user_display_id(user.id),
+        "user_id_display": _user_display_id(user.id),
+        "email": user.email,
+        "name": user.name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "auth_provider": user.auth_provider,
+        "avatar_url": user.avatar_url,
+        "role": user.role,
+        "is_admin": is_admin_user(user),
+        "entitlement_tier": user.entitlement_tier,
+        "current_plan": _effective_user_plan(user),
+        "subscription_status": user.subscription_status,
+        "subscription_plan": user.subscription_plan,
+        "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "current_period_end": user.access_expires_at,
+        "access_expires_at": user.access_expires_at,
+        "is_suspended": user.is_suspended,
+        "email_verified": user.email_verified_at is not None,
+        "email_verification_required": user.email_verified_at is None,
+    }
+
+
 def _user_display_id(user_id: int | None) -> str:
     if user_id is None:
         return "U-000000"
@@ -836,6 +862,29 @@ def serialize_user_billing(user: UserAccount) -> dict[str, Any]:
         "billing_location": _billing_location_payload(user),
         "billing_profile_complete": not billing_missing,
         "billing_profile_missing_fields": billing_missing,
+    }
+
+
+def serialize_user_billing_access(user: UserAccount) -> dict[str, Any]:
+    billing_missing = _billing_profile_missing_fields(user)
+    return {
+        "id": user.id,
+        "user_display_id": _user_display_id(user.id),
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+        "is_admin": is_admin_user(user),
+        "entitlement_tier": user.entitlement_tier,
+        "current_plan": _effective_user_plan(user),
+        "subscription_status": user.subscription_status,
+        "subscription_plan": user.subscription_plan,
+        "subscription_cancel_at_period_end": bool(user.subscription_cancel_at_period_end),
+        "current_period_end": user.access_expires_at,
+        "access_expires_at": user.access_expires_at,
+        "billing_profile_complete": not billing_missing,
+        "billing_profile_missing_fields": billing_missing,
+        "email_verified": user.email_verified_at is not None,
+        "email_verification_required": user.email_verified_at is None,
     }
 
 
@@ -2720,7 +2769,7 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
     set_session_cookie(response, token)
     return {
         "authenticated": True,
-        "user": serialize_user_basic(user),
+        "user": serialize_user_self_profile(user),
         "entitlements": entitlement_payload(current_entitlements(_request_from_token(token), db), user=user),
     }
 
@@ -3100,7 +3149,7 @@ def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=False)
     entitlements = entitlements_for_user(db, user) if user else current_entitlements(request, None)
     return {
-        "user": serialize_user_basic(user) if user else None,
+        "user": serialize_user_self_profile(user) if user else None,
         "entitlements": entitlement_payload(entitlements, user=user),
     }
 
@@ -4508,7 +4557,11 @@ def refresh_subscription_from_stripe(request: Request, db: Session = Depends(get
         raise HTTPException(status_code=502, detail="Unable to refresh subscription from Stripe.")
     db.commit()
     db.refresh(user)
-    return {"status": "refreshed" if result.get("synced") else "not_found", "sync": result, "user": serialize_user_billing(user)}
+    return {
+        "status": "refreshed" if result.get("synced") else "not_found",
+        "user": serialize_user_billing_access(user),
+        "message": "Subscription refreshed." if result.get("synced") else "No active subscription was found.",
+    }
 
 
 @router.post("/billing/stripe/webhook")
@@ -4826,18 +4879,24 @@ def admin_users_export(
 
 
 @router.get("/admin/settings")
-def admin_settings(request: Request, db: Session = Depends(get_db), include_users: bool = True):
+def admin_settings(request: Request, db: Session = Depends(get_db), include_users: bool = False):
     require_admin_user(db, request)
+    user_limit = 100
     users = (
-        db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc())).scalars().all()
+        db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc()).limit(user_limit + 1)).scalars().all()
         if include_users
         else []
     )
+    users_truncated = len(users) > user_limit
+    if users_truncated:
+        users = users[:user_limit]
     return {
         "stripe": _stripe_config_status(),
         "stripe_tax": _stripe_tax_config(db),
         "oauth": {"google_client_id": _google_client_id(db) or ""},
         "users": [_admin_user_row(user) for user in users],
+        "users_limit": user_limit if include_users else 0,
+        "users_truncated": users_truncated,
         "feature_gates": feature_gate_payloads(db),
         "features": DEFAULT_FEATURE_GATES,
         "plan_config": plan_config_payload(db),

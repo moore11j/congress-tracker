@@ -95,13 +95,13 @@ export function AccountSettingsPanel() {
           setUser(response.user);
           setFirstName(response.user.first_name ?? fallback.firstName);
           setLastName(response.user.last_name ?? fallback.lastName);
-          setCountry(response.user.country ?? "");
-          setStateProvince(response.user.state_province ?? "");
-          setPostalCode(response.user.postal_code ?? "");
-          setCity(response.user.city ?? "");
-          setAddressLine1(response.user.address_line1 ?? "");
-          setAddressLine2(response.user.address_line2 ?? "");
-          setNotifications(response.user.notifications ?? emptyNotifications);
+          setCountry("");
+          setStateProvince("");
+          setPostalCode("");
+          setCity("");
+          setAddressLine1("");
+          setAddressLine2("");
+          setNotifications(emptyNotifications);
           setSettingsApiUnavailable(true);
         } catch {
           if (!cancelled) setLoadStatus(error instanceof Error ? error.message : "Unable to load account settings.");
