@@ -65,6 +65,11 @@ Cookie-only auth deployment note:
 - Rotate `APP_SESSION_SECRET` in the same deploy that removes bearer-session auth, so any session tokens previously exposed to browser JavaScript or localStorage stop working.
 - Confirm `FRONTEND_ORIGINS=https://app.walnutmarkets.com` unless an additional production Walnut app domain is intentionally enabled.
 - Confirm production `DATABASE_URL` resolves to Postgres, or is supplied automatically by Fly Postgres. SQLite URLs such as `sqlite:////data/app.db` are local/dev only and must not replace production Postgres.
+- Keep web-machine startup maintenance disabled unless actively recovering data:
+  - `AUTOHEAL_ON_STARTUP=0`
+  - `AUTO_REPAIR_EVENTS_ON_STARTUP=0`
+  - `AUTO_BACKFILL_EVENTS_ON_STARTUP=0`
+  These tasks are scheduled in the background when explicitly enabled, but normal production repairs/backfills should run through cron/admin jobs rather than blocking app readiness.
 - Smoke test login, Google OAuth, `/api/auth/me`, admin, account, watchlists, screener, logout, and refresh after deploy.
 
 Optional backend tuning vars that are safe to omit unless tuning production behavior:

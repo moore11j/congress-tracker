@@ -77,33 +77,36 @@ _CORPORATE_SUFFIXES = {
 
 
 def ensure_government_contracts_schema(target_engine=engine) -> None:
-    GovernmentContract.__table__.create(bind=target_engine, checkfirst=True)
-    GovernmentContractAction.__table__.create(bind=target_engine, checkfirst=True)
-
-    inspector = inspect(target_engine)
-    columns = {column["name"] for column in inspector.get_columns("government_contracts")}
-    action_columns = (
-        {column["name"] for column in inspector.get_columns("government_contract_actions")}
-        if inspector.has_table("government_contract_actions")
-        else set()
-    )
-    additions = {
-        "award_id": "TEXT",
-        "dedupe_key": "TEXT",
-        "recipient_name": "TEXT",
-        "raw_recipient_name": "TEXT",
-        "awarding_sub_agency": "TEXT",
-        "funding_agency": "TEXT",
-        "funding_sub_agency": "TEXT",
-        "period_start": "DATE",
-        "period_end": "DATE",
-        "contract_type": "TEXT",
-        "source_url": "TEXT",
-        "mapping_method": "TEXT",
-        "mapping_confidence": "FLOAT",
-        "updated_at": "TIMESTAMP",
-    }
     with target_engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+        GovernmentContract.__table__.create(bind=conn, checkfirst=True)
+        GovernmentContractAction.__table__.create(bind=conn, checkfirst=True)
+
+        inspector = inspect(conn)
+        columns = {column["name"] for column in inspector.get_columns("government_contracts")}
+        action_columns = (
+            {column["name"] for column in inspector.get_columns("government_contract_actions")}
+            if inspector.has_table("government_contract_actions")
+            else set()
+        )
+        additions = {
+            "award_id": "TEXT",
+            "dedupe_key": "TEXT",
+            "recipient_name": "TEXT",
+            "raw_recipient_name": "TEXT",
+            "awarding_sub_agency": "TEXT",
+            "funding_agency": "TEXT",
+            "funding_sub_agency": "TEXT",
+            "period_start": "DATE",
+            "period_end": "DATE",
+            "contract_type": "TEXT",
+            "source_url": "TEXT",
+            "mapping_method": "TEXT",
+            "mapping_confidence": "FLOAT",
+            "updated_at": "TIMESTAMP",
+        }
         for name, column_type in additions.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE government_contracts ADD COLUMN {name} {column_type}"))

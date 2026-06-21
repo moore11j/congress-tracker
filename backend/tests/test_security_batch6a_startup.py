@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 
 import pytest
 from fastapi import HTTPException
@@ -47,6 +48,12 @@ _ENV_KEYS = (
     "CT_ALLOW_DEBUG_QUERY_TOKEN",
     "CT_ENABLE_ADMIN_TOKEN_QUERY_AUTH",
     "CT_ENABLE_DEBUG_TOKEN_QUERY_AUTH",
+    "AUTO_REPAIR_EVENTS_ON_STARTUP",
+    "AUTOHEAL_ON_STARTUP",
+    "AUTO_BACKFILL_EVENTS_ON_STARTUP",
+    "STARTUP_OPTIONAL_TASK_TIMEOUT_SECONDS",
+    "STARTUP_EVENT_REPAIR_LIMIT",
+    "STARTUP_EVENT_BACKFILL_LIMIT",
 )
 
 
@@ -249,3 +256,102 @@ def test_fly_app_name_implies_production_without_local_override(monkeypatch):
     monkeypatch.setenv("FLY_APP_NAME", "congress-tracker-api")
 
     assert is_production() is True
+
+
+def test_fastapi_startup_schedules_optional_maintenance_without_running_inline(monkeypatch, caplog):
+    import app.main as main_module
+
+    _clear_security_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1")
+    monkeypatch.setenv("AUTOHEAL_ON_STARTUP", "1")
+    monkeypatch.setenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "1")
+
+    calls: list[str] = []
+    scheduled: list[str] = []
+
+    monkeypatch.setattr(main_module, "validate_startup_security_config", lambda: calls.append("security"))
+    monkeypatch.setattr(main_module, "_create_all_with_startup_limits", lambda: calls.append("create_all"))
+    monkeypatch.setattr(main_module, "_seed_plan_and_provider_config", lambda: calls.append("seed_plan_provider"))
+    monkeypatch.setattr(main_module, "_seed_email_templates", lambda: calls.append("seed_email_templates"))
+    monkeypatch.setattr(main_module, "_log_startup_maintenance_config", lambda: calls.append("maintenance_config"))
+
+    for attr in (
+        "ensure_email_notification_schema",
+        "ensure_price_cache_volume_columns",
+        "ensure_fundamentals_cache_schema",
+        "ensure_ticker_meta_identity_schema",
+        "ensure_search_and_insights_schema",
+        "ensure_ticker_content_cache_schema",
+        "ensure_ticker_financials_cache_schema",
+        "ensure_user_account_billing_schema",
+        "ensure_page_analytics_schema",
+        "ensure_provider_usage_schema",
+        "ensure_provider_control_schema",
+        "ensure_data_enrichment_jobs_schema",
+        "ensure_ai_marketing_schema",
+        "ensure_event_columns",
+        "ensure_monitoring_alert_columns",
+        "ensure_house_annual_disclosure_schema",
+        "ensure_trade_outcomes_amount_bigint",
+        "ensure_government_contracts_schema",
+    ):
+        monkeypatch.setattr(main_module, attr, lambda *args, _attr=attr, **kwargs: calls.append(_attr))
+
+    monkeypatch.setattr(main_module, "_schedule_startup_maintenance", lambda name, fn: scheduled.append(name))
+    monkeypatch.setattr(
+        main_module,
+        "_run_startup_event_repair",
+        lambda: pytest.fail("event repair should be scheduled, not run inline"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_run_startup_autoheal",
+        lambda: pytest.fail("autoheal should be scheduled, not run inline"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_run_startup_auto_backfill",
+        lambda: pytest.fail("auto-backfill should be scheduled, not run inline"),
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        main_module._startup_create_tables()
+
+    assert calls[0:2] == ["security", "create_all"]
+    assert "seed_plan_provider" in calls
+    assert "seed_email_templates" in calls
+    assert scheduled == ["startup_event_repair", "startup_autoheal", "startup_auto_backfill"]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("startup_step_begin name=startup_security_config" in message for message in messages)
+    assert any("startup_step_complete name=database_base_metadata_create_all" in message for message in messages)
+
+
+def test_production_startup_maintenance_defaults_disabled(monkeypatch):
+    import app.main as main_module
+
+    _clear_security_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("AUTO_REPAIR_EVENTS_ON_STARTUP", raising=False)
+    monkeypatch.delenv("AUTOHEAL_ON_STARTUP", raising=False)
+    monkeypatch.delenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", raising=False)
+
+    assert main_module._startup_maintenance_enabled("AUTO_REPAIR_EVENTS_ON_STARTUP") is False
+    assert main_module._startup_maintenance_enabled("AUTOHEAL_ON_STARTUP") is False
+    assert main_module._startup_maintenance_enabled("AUTO_BACKFILL_EVENTS_ON_STARTUP") is False
+
+
+def test_startup_run_module_returns_timeout_result(monkeypatch):
+    import app.main as main_module
+
+    def timeout_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=["python", "-m", "app.fake"], timeout=1, output="out", stderr="err")
+
+    monkeypatch.setattr(main_module.subprocess, "run", timeout_run)
+
+    result = main_module._run_module("app.fake", timeout_seconds=1)
+
+    assert result["module"] == "app.fake"
+    assert result["returncode"] == -1
+    assert result["timed_out"] is True
+    assert result["timeout_seconds"] == 1

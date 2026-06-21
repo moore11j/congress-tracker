@@ -7,6 +7,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -2493,13 +2494,167 @@ def _get_owned_watchlist(db: Session, user: UserAccount, watchlist_id: int) -> W
     return watchlist
 
 
+_STARTUP_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
+_STARTUP_BACKGROUND_TASKS: list[threading.Thread] = []
+
+
+def _startup_bool_env(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _STARTUP_TRUE_VALUES
+
+
+def _startup_int_env(name: str, *, default: int | None = None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("startup_env_invalid name=%s value=%r expected=int default=%s", name, raw, default)
+        return default
+
+
+def _startup_float_env(name: str, *, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("startup_env_invalid name=%s value=%r expected=float default=%s", name, raw, default)
+        return default
+
+
+def _startup_maintenance_default_enabled() -> bool:
+    runtime = _runtime_environment()
+    if runtime in {"test", "testing", "ci"} or os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    # Local/dev keeps the historical self-heal behavior. Production web startup
+    # should only run maintenance when the operator opts in explicitly.
+    return not _is_production_runtime()
+
+
+def _startup_maintenance_enabled(name: str) -> bool:
+    return _startup_bool_env(name, default=_startup_maintenance_default_enabled())
+
+
+@contextmanager
+def _startup_step(name: str, *, critical: bool = True):
+    started = perf_counter()
+    logger.info("startup_step_begin name=%s critical=%s", name, critical)
+    try:
+        yield
+    except Exception:
+        elapsed_ms = (perf_counter() - started) * 1000
+        logger.exception(
+            "startup_step_failed name=%s critical=%s duration_ms=%.1f",
+            name,
+            critical,
+            elapsed_ms,
+        )
+        raise
+    else:
+        elapsed_ms = (perf_counter() - started) * 1000
+        logger.info(
+            "startup_step_complete name=%s critical=%s duration_ms=%.1f",
+            name,
+            critical,
+            elapsed_ms,
+        )
+
+
+def _startup_step_skipped(name: str, reason: str) -> None:
+    logger.info("startup_step_skipped name=%s reason=%s", name, reason)
+
+
+def _run_required_startup_step(name: str, fn) -> None:
+    with _startup_step(name, critical=True):
+        fn()
+
+
+def _run_optional_startup_step(name: str, fn) -> None:
+    try:
+        with _startup_step(name, critical=False):
+            fn()
+    except Exception:
+        # Optional seed/maintenance work must not keep the web process from
+        # serving health checks and authenticated routes.
+        return
+
+
+def _startup_optional_task_timeout_seconds() -> float:
+    return max(_startup_float_env("STARTUP_OPTIONAL_TASK_TIMEOUT_SECONDS", default=120.0), 1.0)
+
+
+def _schedule_startup_maintenance(name: str, fn) -> None:
+    timeout_seconds = _startup_optional_task_timeout_seconds()
+
+    def runner() -> None:
+        _run_optional_startup_step(name, fn)
+
+    def monitor(thread: threading.Thread) -> None:
+        thread.join(timeout_seconds)
+        if thread.is_alive():
+            logger.warning(
+                "startup_step_timeout name=%s critical=false timeout_seconds=%.1f status=still_running",
+                name,
+                timeout_seconds,
+            )
+
+    thread = threading.Thread(target=runner, name=f"walnut-startup-{name}", daemon=True)
+    thread.start()
+    _STARTUP_BACKGROUND_TASKS.append(thread)
+    threading.Thread(
+        target=monitor,
+        args=(thread,),
+        name=f"walnut-startup-monitor-{name}",
+        daemon=True,
+    ).start()
+    logger.info(
+        "startup_step_scheduled name=%s critical=false timeout_seconds=%.1f",
+        name,
+        timeout_seconds,
+    )
+
+
+def _create_all_with_startup_limits() -> None:
+    if DATABASE_URL.startswith("postgresql"):
+        with engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+            Base.metadata.create_all(bind=conn)
+        return
+    Base.metadata.create_all(bind=engine)
+
+
+def _seed_plan_and_provider_config() -> None:
+    db = SessionLocal()
+    try:
+        seed_plan_config(db)
+        seed_default_provider_settings(db)
+        cleanup_invalid_provider_settings(db)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _seed_email_templates() -> None:
+    db = SessionLocal()
+    try:
+        seed_default_email_templates(db)
+    finally:
+        db.close()
+
+
 def _autoheal_if_empty() -> dict:
     """
     Boot-time self-heal: if DB has 0 transactions, run ingest pipeline.
     This prevents the "machine restarted -> empty feed until I remember token" problem.
     """
-    # Allow turning off via env if you ever want it
-    if os.getenv("AUTOHEAL_ON_STARTUP", "1").strip() not in ("1", "true", "TRUE", "yes", "YES"):
+    # Allow turning off via env if you ever want it.
+    if not _startup_maintenance_enabled("AUTOHEAL_ON_STARTUP"):
         return {"status": "skipped", "reason": "AUTOHEAL_ON_STARTUP disabled"}
 
     db = SessionLocal()
@@ -2515,10 +2670,10 @@ def _autoheal_if_empty() -> dict:
     steps = ["app.ingest_house", "app.ingest_senate", "app.enrich_members", "app.write_last_updated"]
     results = []
     for mod in steps:
-        r = _run_module(mod)
+        r = _run_module(mod, timeout_seconds=_startup_optional_task_timeout_seconds())
         results.append(r)
         if r["returncode"] != 0:
-            print("AUTOHEAL FAILED:", {"step": mod, "results": results})
+            logger.warning("startup_autoheal_failed step=%s results=%s", mod, results)
             return {"status": "failed", "step": mod, "results": results}
 
     # Recount
@@ -2528,7 +2683,7 @@ def _autoheal_if_empty() -> dict:
     finally:
         db2.close()
 
-    print("AUTOHEAL OK:", {"transactions": tx_count2})
+    logger.info("startup_autoheal_complete transactions=%s", tx_count2)
     return {"status": "ok", "did_ingest": True, "transactions": tx_count2, "results": results}
 
 
@@ -2553,100 +2708,130 @@ def _needs_event_repair(db: Session) -> bool:
     return row is not None
 
 
+def _run_startup_event_repair() -> None:
+    limit = _startup_int_env("STARTUP_EVENT_REPAIR_LIMIT", default=500)
+    db = SessionLocal()
+    try:
+        if not _needs_event_repair(db):
+            _startup_step_skipped("startup_event_repair.work", "no_repair_needed")
+            return
+
+        from app.backfill_events_from_trades import repair_events
+
+        repaired = repair_events(db, limit=limit)
+        logger.info("startup_event_repair_complete repaired=%s limit=%s", repaired, limit)
+    finally:
+        db.close()
+
+
+def _run_startup_autoheal() -> None:
+    result = _autoheal_if_empty()
+    logger.info("startup_autoheal_result status=%s result=%s", result.get("status"), result)
+
+
+def _run_startup_auto_backfill() -> None:
+    db = SessionLocal()
+    try:
+        tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
+        event_count = db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.event_type == "congress_trade")
+        ).scalar_one()
+    finally:
+        db.close()
+
+    if tx_count <= 0 or event_count != 0:
+        _startup_step_skipped(
+            "startup_auto_backfill.work",
+            f"not_needed transactions={tx_count} congress_events={event_count}",
+        )
+        return
+
+    limit = _startup_int_env("STARTUP_EVENT_BACKFILL_LIMIT", default=500)
+    logger.info("startup_auto_backfill_triggered transactions=%s events=0 limit=%s", tx_count, limit)
+    from app.backfill_events_from_trades import run_backfill
+
+    results = run_backfill(
+        dry_run=False,
+        limit=limit,
+        replace=False,
+        repair=False,
+        skip_verify=True,
+    )
+    logger.info(
+        "startup_auto_backfill_complete scanned=%s inserted=%s skipped=%s limit=%s",
+        results.get("scanned", 0),
+        results.get("inserted", 0),
+        results.get("skipped", 0),
+        limit,
+    )
+
+
+def _log_startup_maintenance_config() -> None:
+    logger.info(
+        (
+            "startup_maintenance_config autoheal=%s auto_repair=%s auto_backfill=%s "
+            "data_enrichment_queue_enabled=%s optional_timeout_seconds=%.1f "
+            "event_repair_limit=%s event_backfill_limit=%s"
+        ),
+        _startup_maintenance_enabled("AUTOHEAL_ON_STARTUP"),
+        _startup_maintenance_enabled("AUTO_REPAIR_EVENTS_ON_STARTUP"),
+        _startup_maintenance_enabled("AUTO_BACKFILL_EVENTS_ON_STARTUP"),
+        os.getenv("DATA_ENRICHMENT_QUEUE_ENABLED", ""),
+        _startup_optional_task_timeout_seconds(),
+        _startup_int_env("STARTUP_EVENT_REPAIR_LIMIT", default=500),
+        _startup_int_env("STARTUP_EVENT_BACKFILL_LIMIT", default=500),
+    )
+
+
 @app.on_event("startup")
 def _startup_create_tables():
-    validate_startup_security_config()
+    _run_required_startup_step("startup_security_config", validate_startup_security_config)
     # Creates tables if missing. Does NOT delete or overwrite data.
-    Base.metadata.create_all(bind=engine)
-    ensure_email_notification_schema(engine)
-    ensure_price_cache_volume_columns(engine)
-    ensure_fundamentals_cache_schema(engine)
-    ensure_ticker_meta_identity_schema(engine)
-    ensure_search_and_insights_schema(engine)
-    ensure_ticker_content_cache_schema(engine)
-    ensure_ticker_financials_cache_schema(engine)
-    ensure_user_account_billing_schema(engine)
-    ensure_page_analytics_schema(engine)
-    ensure_provider_usage_schema(engine)
-    ensure_provider_control_schema(engine)
-    ensure_data_enrichment_jobs_schema(engine)
-    ensure_ai_marketing_schema(engine)
-    ensure_event_columns()
-    ensure_monitoring_alert_columns()
-    ensure_house_annual_disclosure_schema()
-    ensure_trade_outcomes_amount_bigint()
-    ensure_government_contracts_schema(engine)
-    db = SessionLocal()
-    try:
-        seed_plan_config(db)
-        seed_default_provider_settings(db)
-        cleanup_invalid_provider_settings(db)
-        db.commit()
-    finally:
-        db.close()
+    _run_required_startup_step("database_base_metadata_create_all", _create_all_with_startup_limits)
 
-    db = SessionLocal()
-    try:
-        seed_default_email_templates(db)
-    except Exception:
-        logger.exception("email_template_seed_failed")
-    finally:
-        db.close()
+    schema_steps = (
+        ("schema_email_notifications", lambda: ensure_email_notification_schema(engine)),
+        ("schema_price_cache_volume_columns", lambda: ensure_price_cache_volume_columns(engine)),
+        ("schema_fundamentals_cache", lambda: ensure_fundamentals_cache_schema(engine)),
+        ("schema_ticker_meta_identity", lambda: ensure_ticker_meta_identity_schema(engine)),
+        ("schema_search_and_insights", lambda: ensure_search_and_insights_schema(engine)),
+        ("schema_ticker_content_cache", lambda: ensure_ticker_content_cache_schema(engine)),
+        ("schema_ticker_financials_cache", lambda: ensure_ticker_financials_cache_schema(engine)),
+        ("schema_user_account_billing", lambda: ensure_user_account_billing_schema(engine)),
+        ("schema_page_analytics", lambda: ensure_page_analytics_schema(engine)),
+        ("schema_provider_usage", lambda: ensure_provider_usage_schema(engine)),
+        ("schema_provider_control", lambda: ensure_provider_control_schema(engine)),
+        ("schema_data_enrichment_jobs", lambda: ensure_data_enrichment_jobs_schema(engine)),
+        ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
+        ("schema_event_columns", ensure_event_columns),
+        ("schema_monitoring_alert_columns", ensure_monitoring_alert_columns),
+        ("schema_house_annual_disclosure", ensure_house_annual_disclosure_schema),
+        ("schema_trade_outcomes_amount_bigint", ensure_trade_outcomes_amount_bigint),
+        ("schema_government_contracts", lambda: ensure_government_contracts_schema(engine)),
+    )
+    for name, fn in schema_steps:
+        _run_required_startup_step(name, fn)
+    _run_required_startup_step("seed_plan_provider_config", _seed_plan_and_provider_config)
+    _run_optional_startup_step("seed_email_templates", _seed_email_templates)
+    _log_startup_maintenance_config()
 
-    if os.getenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "1").strip() in ("1", "true", "TRUE", "yes", "YES"):
-        db = SessionLocal()
-        try:
-            if _needs_event_repair(db):
-                from app.backfill_events_from_trades import repair_events
+    if _startup_maintenance_enabled("AUTO_REPAIR_EVENTS_ON_STARTUP"):
+        _schedule_startup_maintenance("startup_event_repair", _run_startup_event_repair)
+    else:
+        _startup_step_skipped("startup_event_repair", "AUTO_REPAIR_EVENTS_ON_STARTUP disabled")
 
-                repair_events(db)
-        finally:
-            db.close()
+    # Schedule self-heal after readiness; it can call providers and must not block /health.
+    if _startup_maintenance_enabled("AUTOHEAL_ON_STARTUP"):
+        _schedule_startup_maintenance("startup_autoheal", _run_startup_autoheal)
+    else:
+        _startup_step_skipped("startup_autoheal", "AUTOHEAL_ON_STARTUP disabled")
 
-    # NEW: self-heal if the DB is empty (prevents empty feed after restarts/autostop)
-    try:
-        _autoheal_if_empty()
-    except Exception as e:
-        # Don't crash the app on boot — log and keep serving (you can still call /admin/ensure_data)
-        print("AUTOHEAL EXCEPTION:", repr(e))
-
-    if os.getenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "1").strip() in (
-        "1",
-        "true",
-        "TRUE",
-        "yes",
-        "YES",
-    ):
-        db = SessionLocal()
-        try:
-            tx_count = db.execute(select(func.count()).select_from(Transaction)).scalar_one()
-            event_count = db.execute(
-                select(func.count())
-                .select_from(Event)
-                .where(Event.event_type == "congress_trade")
-            ).scalar_one()
-        finally:
-            db.close()
-
-        if tx_count > 0 and event_count == 0:
-            logger.info("Auto-backfill triggered: transactions=%s events=0", tx_count)
-            try:
-                from app.backfill_events_from_trades import run_backfill
-
-                results = run_backfill(
-                    dry_run=False,
-                    limit=None,
-                    replace=False,
-                    repair=False,
-                )
-                logger.info(
-                    "Auto-backfill done: scanned=%s inserted=%s skipped=%s",
-                    results.get("scanned", 0),
-                    results.get("inserted", 0),
-                    results.get("skipped", 0),
-                )
-            except Exception:
-                logger.exception("Auto-backfill failed")
+    if _startup_maintenance_enabled("AUTO_BACKFILL_EVENTS_ON_STARTUP"):
+        _schedule_startup_maintenance("startup_auto_backfill", _run_startup_auto_backfill)
+    else:
+        _startup_step_skipped("startup_auto_backfill", "AUTO_BACKFILL_EVENTS_ON_STARTUP disabled")
 
 
 def _sqlite_path_from_database_url(database_url: str) -> str | None:
@@ -3196,17 +3381,35 @@ def meta():
 
     return {"last_updated_utc": last_updated_utc}
 
-def _run_module(module: str) -> dict:
+def _run_module(module: str, *, args: list[str] | None = None, timeout_seconds: float | None = None) -> dict:
     """
-    Runs: python3 -m <module>
+    Runs: current Python executable -m <module>
     Returns stdout/stderr and exit code.
     """
-    p = subprocess.run(
-        ["python3", "-m", module],
-        capture_output=True,
-        text=True,
-        cwd="/app",
-    )
+    cwd = Path(__file__).resolve().parents[1]
+    cmd = [sys.executable, "-m", module, *(args or [])]
+    try:
+        p = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(cwd),
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "startup_subprocess_timeout module=%s timeout_seconds=%s",
+            module,
+            timeout_seconds,
+        )
+        return {
+            "module": module,
+            "returncode": -1,
+            "stdout": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
+            "stderr": (exc.stderr or "")[-4000:] if isinstance(exc.stderr, str) else "",
+            "timed_out": True,
+            "timeout_seconds": timeout_seconds,
+        }
     return {
         "module": module,
         "returncode": p.returncode,

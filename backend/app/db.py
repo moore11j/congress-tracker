@@ -60,6 +60,13 @@ if IS_SQLITE:
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def _set_postgres_ddl_timeouts(conn, *, lock_timeout: str = "2s", statement_timeout: str = "10s") -> None:
+    if conn.dialect.name != "postgresql":
+        return
+    conn.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
+    conn.execute(text(f"SET LOCAL statement_timeout = '{statement_timeout}'"))
+
+
 if not IS_SQLITE:
 
     @event.listens_for(engine, "checkout")
@@ -98,6 +105,7 @@ class Base(DeclarativeBase):
 def ensure_ticker_meta_identity_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         if dialect_name == "sqlite":
             table_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='ticker_meta'")
@@ -126,6 +134,7 @@ def ensure_ticker_meta_identity_schema(bind=engine) -> None:
 def ensure_price_cache_volume_columns(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn, statement_timeout="5s")
         if dialect_name == "sqlite":
             table_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='price_cache'")
@@ -175,6 +184,7 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
 def ensure_fundamentals_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         if dialect_name == "sqlite":
             conn.execute(
                 text(
@@ -367,6 +377,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
 def ensure_search_and_insights_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         if dialect_name == "sqlite":
             conn.execute(
                 text(
@@ -514,6 +525,7 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
 def ensure_ticker_financials_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         timestamp_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
         timestamp_default = "now()" if dialect_name != "sqlite" else "CURRENT_TIMESTAMP"
         conn.execute(
@@ -543,6 +555,7 @@ def ensure_ticker_financials_cache_schema(bind=engine) -> None:
 def ensure_ticker_content_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         timestamp_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
         timestamp_default = "now()" if dialect_name != "sqlite" else "CURRENT_TIMESTAMP"
         id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
@@ -595,6 +608,7 @@ def ensure_ticker_content_cache_schema(bind=engine) -> None:
 def ensure_provider_usage_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
         bool_type = "BOOLEAN" if dialect_name != "sqlite" else "BOOLEAN"
         default_true = "true" if dialect_name != "sqlite" else "1"
@@ -680,6 +694,7 @@ def ensure_provider_usage_schema(bind=engine) -> None:
 def ensure_provider_control_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
         id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         bool_type = "BOOLEAN"
@@ -962,6 +977,7 @@ def ensure_provider_control_schema(bind=engine) -> None:
 def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
         created_at_type = "TIMESTAMPTZ" if dialect_name != "sqlite" else "TIMESTAMP"
         id_type = "BIGSERIAL PRIMARY KEY" if dialect_name != "sqlite" else "INTEGER PRIMARY KEY AUTOINCREMENT"
         conn.execute(
@@ -1644,6 +1660,7 @@ def ensure_event_columns() -> None:
 
 def ensure_monitoring_alert_columns() -> None:
     with engine.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
         if DATABASE_URL.startswith("sqlite"):
             table_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='monitoring_alerts'")
@@ -1677,6 +1694,7 @@ def ensure_monitoring_alert_columns() -> None:
 
 def ensure_house_annual_disclosure_schema() -> None:
     with engine.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
         if DATABASE_URL.startswith("sqlite"):
             positions_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='replicated_portfolio_positions'")
@@ -1842,6 +1860,7 @@ def ensure_trade_outcomes_amount_bigint() -> None:
     if IS_SQLITE:
         return
     with engine.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
         table_exists = conn.execute(
             text(
                 """

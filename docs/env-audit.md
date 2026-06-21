@@ -190,7 +190,7 @@ These are intentional legacy compatibility references. They should not appear in
 | `SCREEN_MONITORING_LIMIT` | `backend/app/ingest_run.py` | Optional | `25` | Yes | none | Keep optional |
 | `GOVERNMENT_CONTRACT_*` | `backend/app/ingest_run.py` | Optional | script defaults | Yes for gov contract ingest | none | Keep optional |
 | `PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT`, `PRIORITY_TICKER_PREWARM_POPULAR_LIMIT`, `PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS` | ingest/data enrichment | Optional | script defaults | Yes | none | Keep optional |
-| `AUTOHEAL_ON_STARTUP`, `AUTO_REPAIR_EVENTS_ON_STARTUP`, `AUTO_BACKFILL_EVENTS_ON_STARTUP` | `backend/app/main.py`, migration docs | Optional | enabled | Yes | startup repair toggles | Keep during migration stabilization |
+| `AUTOHEAL_ON_STARTUP`, `AUTO_REPAIR_EVENTS_ON_STARTUP`, `AUTO_BACKFILL_EVENTS_ON_STARTUP` | `backend/app/main.py`, migration docs | Optional | disabled in production unless explicitly set | Emergency web-startup maintenance only | startup repair toggles | Keep unset/false on normal production web machines; use cron/admin jobs for repairs |
 | `HEAVY_ROUTE_WAIT_SECONDS`, `HEAVY_ROUTE_MAX_CONCURRENCY`, `TICKER_CHART_MAX_CONCURRENCY`, `TICKER_WIDGET_MAX_CONCURRENCY` | `backend/app/main.py` | Optional | low concurrency defaults | Yes | performance knobs | Keep optional |
 | `MAX_SYMBOLS_PER_REQUEST`, `TICKER_RESPONSE_CACHE_TTL_SECONDS`, `TICKER_CHART_DEDUPE_WAIT_SECONDS`, `TICKER_CHART_VOLUME_PROVIDER_FALLBACK`, `TICKER_FUNDAMENTALS_CACHE_TTL_SECONDS` | `backend/app/main.py` | Optional | code defaults | Yes | ticker route knobs | Keep optional |
 
@@ -254,7 +254,8 @@ Keep deployed secrets that are actively read and production-relevant: `ADMIN_TOK
 - `FRONTEND_BASE_URL` and `APP_BASE_URL`: both are active. Consolidate in code before removing either.
 - `GOOGLE_REDIRECT_URI`: optional but may be intentionally pinned to match Google Console config.
 - `EMAIL_FROM_BILLING`: active fallback but only matters if billing templates have blank sender fields.
-- `HEAVY_ROUTE_MAX_CONCURRENCY`, `AUTOHEAL_ON_STARTUP`, `AUTO_BACKFILL_EVENTS_ON_STARTUP`, `AUTO_REPAIR_EVENTS_ON_STARTUP`: operational tuning; keep unless runtime behavior is confirmed safe without them.
+- `HEAVY_ROUTE_MAX_CONCURRENCY`: operational tuning; keep if current route saturation behavior is acceptable.
+- `AUTOHEAL_ON_STARTUP`, `AUTO_BACKFILL_EVENTS_ON_STARTUP`, `AUTO_REPAIR_EVENTS_ON_STARTUP`: keep unset/false on normal production web machines. Enable only for an explicit recovery window; startup now schedules them in the background, but they can still compete for DB/provider resources.
 
 ## Suggested Next Cleanup PR
 
