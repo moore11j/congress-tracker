@@ -21,13 +21,18 @@ const inactiveSource: InstitutionalSource = {
   score_contribution: 0,
 };
 
-function sourceLocked(source: InstitutionalSource): boolean {
+function sourceLocked(source: InstitutionalSource, canViewInstitutional = false): boolean {
+  if (canViewInstitutional) return false;
   return source.locked === true || source.lock_state === "pro_locked";
 }
 
 function sourceUnavailable(source: InstitutionalSource): boolean {
   const status = (source.status ?? "").toLowerCase();
   return !source.present && ["unavailable", "not_configured", "disabled", "provider_error", "error"].includes(status);
+}
+
+function canSkipInstitutionalFetch(source: InstitutionalSource): boolean {
+  return sourceUnavailable(source) && !["pro_locked", "stale_locked_metadata"].includes(source.reason ?? "");
 }
 
 function toneClass(source: InstitutionalSource, loading: boolean): string {
@@ -45,9 +50,9 @@ function borderClass(source: InstitutionalSource, loading: boolean): string {
   return "border-amber-400/20 bg-amber-400/[0.04]";
 }
 
-function stateLabel(source: InstitutionalSource, loading: boolean): string {
+function stateLabel(source: InstitutionalSource, loading: boolean, canViewInstitutional = false): string {
   if (loading && !source.present) return "CHECKING";
-  if (sourceLocked(source)) return "LOCKED";
+  if (sourceLocked(source, canViewInstitutional)) return "LOCKED";
   if (sourceUnavailable(source)) return "UNAVAILABLE";
   if (source.present && source.score_contribution && source.score_contribution > 0) return "BULLISH SUPPORT";
   return source.present ? source.direction.toUpperCase() : "INACTIVE";
@@ -72,8 +77,8 @@ function contextWindowLabel(lookbackDays: number): string {
   return `${lookbackDays}D confirmation`;
 }
 
-function bodyForSource(source: InstitutionalSource): string {
-  if (sourceLocked(source)) return "Pro feature";
+function bodyForSource(source: InstitutionalSource, canViewInstitutional = false): string {
+  if (sourceLocked(source, canViewInstitutional)) return "Pro feature";
   if (sourceUnavailable(source)) return "Institutional activity unavailable.";
   if (!source.present) return "No notable institutional activity in the current context window.";
   if (source.direction === "bearish") return "Active / reducing";
@@ -81,8 +86,8 @@ function bodyForSource(source: InstitutionalSource): string {
   return "Active / mixed";
 }
 
-function supportForSource(source: InstitutionalSource, lookbackDays: number): string {
-  if (sourceLocked(source)) return "Institutional activity unlocks with Pro.";
+function supportForSource(source: InstitutionalSource, lookbackDays: number, canViewInstitutional = false): string {
+  if (sourceLocked(source, canViewInstitutional)) return "Institutional activity unlocks with Pro.";
   if (sourceUnavailable(source)) return source.detail ?? source.summary ?? "Institutional activity source is not configured.";
   if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
   return source.detail ?? source.summary ?? contextWindowLabel(lookbackDays);
@@ -110,23 +115,35 @@ function lockedSource(): InstitutionalSource {
   };
 }
 
+function normalizeSourceForAccess(source: InstitutionalSource, canViewInstitutional: boolean): InstitutionalSource {
+  if (canViewInstitutional && sourceLocked(source)) {
+    return unavailableSource(source.lock_state ?? source.status ?? "stale_locked_metadata");
+  }
+  return source;
+}
+
 export function TickerInstitutionalSourceCardClient({
   symbol,
   side,
   lookbackDays,
   initialSource,
+  canViewInstitutional = false,
 }: {
   symbol: string;
   side: string;
   lookbackDays: number;
   initialSource: InstitutionalSource;
+  canViewInstitutional?: boolean;
 }) {
-  const fallbackSource = useMemo<InstitutionalSource>(() => ({ ...inactiveSource, ...initialSource }), [initialSource]);
+  const fallbackSource = useMemo<InstitutionalSource>(
+    () => normalizeSourceForAccess({ ...inactiveSource, ...initialSource }, canViewInstitutional),
+    [canViewInstitutional, initialSource],
+  );
   const [source, setSource] = useState<InstitutionalSource>(fallbackSource);
-  const [loading, setLoading] = useState(!fallbackSource.present && !sourceUnavailable(fallbackSource) && !sourceLocked(fallbackSource));
+  const [loading, setLoading] = useState(!fallbackSource.present && !sourceUnavailable(fallbackSource) && !sourceLocked(fallbackSource, canViewInstitutional));
 
   useEffect(() => {
-    if (sourceLocked(fallbackSource) || sourceUnavailable(fallbackSource)) {
+    if (sourceLocked(fallbackSource, canViewInstitutional) || canSkipInstitutionalFetch(fallbackSource)) {
       setSource(fallbackSource);
       setLoading(false);
       return;
@@ -146,10 +163,10 @@ export function TickerInstitutionalSourceCardClient({
         if (!alive) return;
         const nextSource = response.confirmation_score_bundle?.sources?.institutional_activity as InstitutionalSource | undefined;
         const nextEntitlement = response.source_entitlements?.institutional_activity;
-        if (nextEntitlement?.locked) {
+        if (nextEntitlement?.locked && !canViewInstitutional) {
           setSource(lockedSource());
         } else if (nextSource) {
-          setSource({ ...inactiveSource, ...nextSource });
+          setSource(normalizeSourceForAccess({ ...inactiveSource, ...nextSource }, canViewInstitutional));
         } else {
           setSource(unavailableSource("missing_source"));
         }
@@ -158,7 +175,7 @@ export function TickerInstitutionalSourceCardClient({
         if (error instanceof Error && error.name === "AbortError") return;
         console.error("[ticker-institutional-source-card] client fetch failed", error);
         if (alive) {
-          setSource(error instanceof ApiError && [401, 402, 403].includes(error.status) ? lockedSource() : unavailableSource("fetch_failed"));
+          setSource(!canViewInstitutional && error instanceof ApiError && [401, 402, 403].includes(error.status) ? lockedSource() : unavailableSource("fetch_failed"));
         }
       })
       .finally(() => {
@@ -169,7 +186,7 @@ export function TickerInstitutionalSourceCardClient({
       alive = false;
       controller.abort();
     };
-  }, [fallbackSource, lookbackDays, side, symbol]);
+  }, [canViewInstitutional, fallbackSource, lookbackDays, side, symbol]);
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${borderClass(source, loading)}`}>
@@ -179,11 +196,11 @@ export function TickerInstitutionalSourceCardClient({
           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Institutional</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${toneClass(source, loading)}`}>
-          {stateLabel(source, loading)}
+          {stateLabel(source, loading, canViewInstitutional)}
         </p>
       </div>
-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking institutional activity" : bodyForSource(source)}</p>
-      <p className="mt-1 text-xs leading-snug text-slate-500">{loading ? contextWindowLabel(lookbackDays) : supportForSource(source, lookbackDays)}</p>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking institutional activity" : bodyForSource(source, canViewInstitutional)}</p>
+      <p className="mt-1 text-xs leading-snug text-slate-500">{loading ? contextWindowLabel(lookbackDays) : supportForSource(source, lookbackDays, canViewInstitutional)}</p>
     </div>
   );
 }

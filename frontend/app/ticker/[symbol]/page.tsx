@@ -2274,6 +2274,7 @@ async function DeferredTickerContent({
   technicalIndicators,
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
+  canViewProTickerContext,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -2288,6 +2289,7 @@ async function DeferredTickerContent({
   technicalIndicators: TechnicalIndicators | null | undefined;
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
+  canViewProTickerContext: boolean;
 }) {
   const {
     events,
@@ -2354,8 +2356,8 @@ async function DeferredTickerContent({
   );
   const visibleConfirmationBundle = displayConfirmationBundleForEntitlements(confirmationBundle, sourceEntitlements);
   const signalsCardLocked = sourceIsLocked(sourceEntitlements, "signals");
-  const institutionalCardLocked = sourceIsLocked(sourceEntitlements, "institutional_activity");
-  const optionsFlowCardLocked = sourceIsLocked(sourceEntitlements, "options_flow");
+  const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked(sourceEntitlements, "institutional_activity");
+  const optionsFlowCardLocked = !canViewProTickerContext && sourceIsLocked(sourceEntitlements, "options_flow");
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
@@ -2458,6 +2460,7 @@ async function DeferredTickerContent({
                   side={side}
                   lookbackDays={confirmationLookbackDays}
                   initialSource={confirmationBundle.sources.institutional_activity}
+                  canViewInstitutional={canViewProTickerContext}
                 />
               )}
               {signalsCardLocked ? (
@@ -3123,6 +3126,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
   const hasAuthForEntitlementDisplay = Boolean(authToken || authState.hasAuthHint);
   const canViewSignalActivity = hasAuthForEntitlementDisplay ? canUseSignalActivity(entitlements) : false;
+  const canViewProContext = hasAuthForEntitlementDisplay && canUseProTickerContext(entitlements);
   const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
   const signalGateState = !shouldLoadSignals || signalActivityAuthPending
     ? null
@@ -3295,6 +3299,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           technicalIndicators={profile.technical_indicators}
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}
+          canViewProTickerContext={canViewProContext}
         />
       </Suspense>
     </div>

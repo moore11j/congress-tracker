@@ -90,10 +90,15 @@ test("ticker institutional source card renders unavailable for entitled missing 
   assert.match(tickerPage, /if \(sourceUnavailable\(source\)\) return "UNAVAILABLE"/);
   assert.match(institutionalCard, /getTickerSignalsSummary\(symbol,/);
   assert.match(institutionalCard, /source: "TickerInstitutionalSourceCard"/);
+  assert.match(institutionalCard, /canViewInstitutional\?: boolean/);
+  assert.match(institutionalCard, /normalizeSourceForAccess/);
+  assert.match(institutionalCard, /canViewInstitutional && sourceLocked\(source\)/);
+  assert.match(institutionalCard, /nextEntitlement\?\.locked && !canViewInstitutional/);
   assert.match(institutionalCard, /return "UNAVAILABLE"/);
   assert.match(institutionalCard, /Institutional activity unavailable\./);
   assert.match(institutionalCard, /Institutional activity source is not configured\./);
-  assert.match(tickerPage, /institutionalCardLocked \? \(/);
+  assert.match(tickerPage, /const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
+  assert.match(tickerPage, /canViewInstitutional=\{canViewProTickerContext\}/);
   assert.match(tickerPage, /requiredPlan="pro"/);
 });
 
@@ -127,8 +132,8 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
   assert.match(tickerPage, /sourceEntitlements: signalsRes\.source_entitlements \?\? null/);
   assert.match(tickerPage, /const signalsCardLocked = sourceIsLocked\(sourceEntitlements, "signals"\)/);
-  assert.match(tickerPage, /const institutionalCardLocked = sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
-  assert.match(tickerPage, /const optionsFlowCardLocked = sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
+  assert.match(tickerPage, /const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
+  assert.match(tickerPage, /const optionsFlowCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
   assert.match(tickerPage, /requiredPlan="premium"/);
   assert.match(tickerPage, /requiredPlan="pro"/);
   assert.match(tickerPage, /Premium feature/);
@@ -144,8 +149,8 @@ test("ticker upper source cards let authenticated tier hints override stale lock
   assert.match(tickerPage, /const sourceEntitlements = displaySourceEntitlementsForTickerContext\(/);
   assert.match(tickerPage, /allowAuthHintEntitlementOverride=\{authState\.hasAuthHint\}/);
   assert.match(tickerPage, /const signalsCardLocked = sourceIsLocked\(sourceEntitlements, "signals"\)/);
-  assert.match(tickerPage, /const institutionalCardLocked = sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
-  assert.match(tickerPage, /const optionsFlowCardLocked = sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
+  assert.match(tickerPage, /const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
+  assert.match(tickerPage, /const optionsFlowCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "options_flow"\)/);
   assert.doesNotMatch(tickerPage, /preferFallbackSourceEntitlements/);
 });
 
