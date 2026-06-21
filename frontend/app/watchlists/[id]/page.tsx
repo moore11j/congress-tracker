@@ -1,3 +1,4 @@
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { WatchlistDetailClient } from "@/components/watchlists/WatchlistDetailClient";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
 import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
@@ -15,7 +16,8 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const { id } = await params;
   const watchlistId = Number(id);
   const sp = (await searchParams) ?? {};
-  const authToken = await requirePageAuth(buildReturnTo(`/watchlists/${id}`, sp));
+  const returnTo = buildReturnTo(`/watchlists/${id}`, sp);
+  const authToken = await requirePageAuth(returnTo);
 
   const mode = parseMode(getParam(sp, "mode"));
   const recentDays = getParam(sp, "recent_days") || "30";
@@ -32,12 +34,20 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   };
 
   if (!authToken) {
-    return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} initialAuthPending />;
+    return (
+      <VerifiedSessionGuard returnTo={returnTo}>
+        <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} initialAuthPending />
+      </VerifiedSessionGuard>
+    );
   }
 
   const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
   if (!watchlist) {
-    return <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />;
+    return (
+      <VerifiedSessionGuard returnTo={returnTo}>
+        <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />
+      </VerifiedSessionGuard>
+    );
   }
 
   const confirmationEventsResponse = await getWatchlistConfirmationEvents(watchlistId, { limit: 5, authToken }).catch(() => ({ items: [] }));
@@ -73,16 +83,18 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       : (activity.items as EventItem[]).map(eventToFeedItem);
 
   return (
-    <WatchlistDetailContent
-      watchlist={watchlist}
-      confirmationEvents={confirmationEvents}
-      initialState={hydratedState}
-      initialData={{
-        items,
-        nextCursor: "next_cursor" in activity ? activity.next_cursor ?? null : null,
-        offset: mode === "signals" ? (Number.isFinite(offset) ? offset : 0) + items.length : 0,
-        hasMore: mode === "signals" ? items.length === numericLimit : Boolean("next_cursor" in activity && activity.next_cursor),
-      }}
-    />
+    <VerifiedSessionGuard returnTo={returnTo}>
+      <WatchlistDetailContent
+        watchlist={watchlist}
+        confirmationEvents={confirmationEvents}
+        initialState={hydratedState}
+        initialData={{
+          items,
+          nextCursor: "next_cursor" in activity ? activity.next_cursor ?? null : null,
+          offset: mode === "signals" ? (Number.isFinite(offset) ? offset : 0) + items.length : 0,
+          hasMore: mode === "signals" ? items.length === numericLimit : Boolean("next_cursor" in activity && activity.next_cursor),
+        }}
+      />
+    </VerifiedSessionGuard>
   );
 }

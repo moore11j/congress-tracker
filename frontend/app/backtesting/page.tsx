@@ -1,4 +1,5 @@
 import { BacktestingWorkbench } from "@/components/backtesting/BacktestingWorkbench";
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { getBacktestPresets, getEntitlements } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint } from "@/lib/entitlements";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
@@ -85,7 +86,8 @@ function fallbackPresets() {
 
 export default async function BacktestingPage({ searchParams }: Props) {
   const sp = (await searchParams) ?? {};
-  const authState = await requirePageAuthState(buildReturnTo("/backtesting", sp));
+  const returnTo = buildReturnTo("/backtesting", sp);
+  const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;
   const [entitlements, presets] = authToken
     ? await Promise.all([
@@ -95,21 +97,23 @@ export default async function BacktestingPage({ searchParams }: Props) {
     : [entitlementsFromTierHint(authState.entitlementHint), fallbackPresets()];
 
   return (
-    <BacktestingWorkbench
-      initialEntitlements={entitlements}
-      initialPresets={presets}
-      initialAuthPending={!authToken}
-      initialQuery={{
-        strategy: one(sp.strategy),
-        watchlist_id: one(sp.watchlist_id),
-        saved_screen_id: one(sp.saved_screen_id),
-        scope: one(sp.scope),
-        member_id: one(sp.member_id),
-        insider_cik: one(sp.insider_cik),
-        lookback_days: one(sp.lookback_days),
-        hold_days: one(sp.hold_days),
-        tickers: one(sp.tickers),
-      }}
-    />
+    <VerifiedSessionGuard returnTo={returnTo}>
+      <BacktestingWorkbench
+        initialEntitlements={entitlements}
+        initialPresets={presets}
+        initialAuthPending={!authToken}
+        initialQuery={{
+          strategy: one(sp.strategy),
+          watchlist_id: one(sp.watchlist_id),
+          saved_screen_id: one(sp.saved_screen_id),
+          scope: one(sp.scope),
+          member_id: one(sp.member_id),
+          insider_cik: one(sp.insider_cik),
+          lookback_days: one(sp.lookback_days),
+          hold_days: one(sp.hold_days),
+          tickers: one(sp.tickers),
+        }}
+      />
+    </VerifiedSessionGuard>
   );
 }

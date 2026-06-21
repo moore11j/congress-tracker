@@ -4,6 +4,7 @@ import { CollapsibleFilterSection } from "@/components/screener/CollapsibleFilte
 import { FormattedNumberInput } from "@/components/screener/FormattedNumberInput";
 import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitlementRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
 import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClient";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
@@ -818,7 +819,8 @@ export default async function ScreenerPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authState = await requirePageAuthState(buildReturnTo("/screener", sp));
+  const returnTo = buildReturnTo("/screener", sp);
+  const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;
   const entitlements = authToken
     ? await getEntitlements(authToken).catch(() => defaultEntitlements)
@@ -854,7 +856,8 @@ export default async function ScreenerPage({
   const fundamentalFiltersOpen = hasActiveFundamentalFilters(params);
 
   return (
-    <div className="space-y-8">
+    <VerifiedSessionGuard returnTo={returnTo}>
+      <div className="space-y-8">
       <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
       <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1197,7 +1200,8 @@ export default async function ScreenerPage({
           activeColumns={activeColumns}
         />
       ) : null}
-    </div>
+      </div>
+    </VerifiedSessionGuard>
   );
 }
 

@@ -4,8 +4,9 @@ import { isBioguideId, nameToSlug } from "./lib/memberSlug";
 const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
-const protectedPrefixes = ["/watchlists", "/monitoring", "/signals", "/leaderboards"];
+const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/watchlists", "/monitoring", "/signals", "/leaderboards"];
 const publicStaticPaths = new Set(["/landing", "/terms", "/privacy", "/faq"]);
+const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ??
   process.env.API_BASE ??
@@ -35,7 +36,7 @@ export async function middleware(request: NextRequest) {
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]?.toLowerCase();
   const requestHeaders = new Headers(request.headers);
 
-  if (publicStaticPaths.has(pathname)) {
+  if (publicStaticPaths.has(pathname) || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
     return NextResponse.next({
       request: {
@@ -81,5 +82,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/landing", "/terms", "/privacy", "/faq", "/member/:path*", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/", "/landing", "/terms", "/privacy", "/faq", "/member/:path*", "/admin/:path*", "/account/:path*", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
 };

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { SignalsResultsClient } from "@/components/signals/SignalsResultsClient";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
@@ -467,7 +468,8 @@ export default async function SignalsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const sp = (await searchParams) ?? {};
-  const authState = await requirePageAuthState(buildReturnTo("/signals", sp));
+  const returnTo = buildReturnTo("/signals", sp);
+  const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;
   const entitlements = authToken
     ? await getEntitlements(authToken).catch(() => defaultEntitlements)
@@ -519,7 +521,8 @@ export default async function SignalsPage({
     });
 
   return (
-    <div className="space-y-8">
+    <VerifiedSessionGuard returnTo={returnTo}>
+      <div className="space-y-8">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
@@ -717,7 +720,8 @@ export default async function SignalsPage({
           />
         </Suspense>
       </div>
-    </div>
+      </div>
+    </VerifiedSessionGuard>
   );
 }
 

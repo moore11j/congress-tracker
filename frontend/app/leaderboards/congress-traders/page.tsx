@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
 import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
@@ -348,7 +349,8 @@ export default async function CongressTraderLeaderboardPage({
       limit: parseLimit(getParam(sp, "limit")),
     }));
   }
-  const authState = await requirePageAuthState(buildReturnTo("/leaderboards/congress-traders", sp));
+  const returnTo = buildReturnTo("/leaderboards/congress-traders", sp);
+  const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;
   const performanceModel = parsePerformanceModel(rawPerformanceModel, sourceMode);
   const isPortfolioMode = performanceModel === "portfolio";
@@ -371,7 +373,8 @@ export default async function CongressTraderLeaderboardPage({
   const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
 
   return (
-    <div className="space-y-6">
+    <VerifiedSessionGuard returnTo={returnTo}>
+      <div className="space-y-6">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">LEADERBOARDS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Trade Leaderboards</h1>
@@ -566,6 +569,7 @@ export default async function CongressTraderLeaderboardPage({
           senate 90D return
         </Link>
       </div>
-    </div>
+      </div>
+    </VerifiedSessionGuard>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { listWatchlists } from "@/lib/api";
 import { requirePageAuth } from "@/lib/serverAuth";
 import { ghostButtonClassName } from "@/lib/styles";
@@ -11,19 +12,21 @@ export default async function WatchlistsPage() {
   const watchlists = authToken ? await listWatchlists(authToken).catch(() => []) : [];
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlists</p>
-          <h1 className="text-3xl font-semibold text-white">Monitor ticker themes.</h1>
-          <p className="text-sm text-slate-400">Create a list, add symbols, and open it to review recent filings, insiders, and signals.</p>
+    <VerifiedSessionGuard returnTo="/watchlists">
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlists</p>
+            <h1 className="text-3xl font-semibold text-white">Monitor ticker themes.</h1>
+            <p className="text-sm text-slate-400">Create a list, add symbols, and open it to review recent filings, insiders, and signals.</p>
+          </div>
+          <Link href="/?mode=all" className={ghostButtonClassName}>
+            Back to feed
+          </Link>
         </div>
-        <Link href="/?mode=all" className={ghostButtonClassName}>
-          Back to feed
-        </Link>
-      </div>
 
-      <WatchlistsDashboard initialWatchlists={watchlists} initialAuthPending={!authToken} />
-    </div>
+        <WatchlistsDashboard initialWatchlists={watchlists} initialAuthPending={!authToken} />
+      </div>
+    </VerifiedSessionGuard>
   );
 }
