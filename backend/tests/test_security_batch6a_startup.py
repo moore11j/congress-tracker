@@ -6,8 +6,11 @@ import subprocess
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import OperationalError
 from starlette.requests import Request
 
+from app.db import ensure_provider_usage_schema
 from app.routers.accounts import stripe_webhook
 from app.security.startup_checks import (
     StartupSecurityError,
@@ -325,6 +328,65 @@ def test_fastapi_startup_schedules_optional_maintenance_without_running_inline(m
     messages = [record.getMessage() for record in caplog.records]
     assert any("startup_step_begin name=startup_security_config" in message for message in messages)
     assert any("startup_step_complete name=database_base_metadata_create_all" in message for message in messages)
+
+
+def test_fastapi_startup_provider_usage_ignores_optional_index_lock_timeout(monkeypatch):
+    import app.main as main_module
+
+    _clear_security_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTO_REPAIR_EVENTS_ON_STARTUP", "0")
+    monkeypatch.setenv("AUTOHEAL_ON_STARTUP", "0")
+    monkeypatch.setenv("AUTO_BACKFILL_EVENTS_ON_STARTUP", "0")
+
+    test_engine = create_engine("sqlite:///:memory:", future=True)
+    optional_index_attempted = {"value": False}
+    with test_engine.begin() as conn:
+        conn.execute(text("CREATE TABLE members (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)"))
+        conn.execute(text("CREATE TABLE events (id INTEGER PRIMARY KEY, member_name TEXT)"))
+
+    @event.listens_for(test_engine, "before_cursor_execute")
+    def fail_optional_index(_conn, _cursor, statement, parameters, _context, _executemany):
+        if "ix_events_member_name_lower" in statement:
+            optional_index_attempted["value"] = True
+            raise OperationalError(
+                statement,
+                parameters,
+                Exception("canceling statement due to lock timeout"),
+            )
+
+    monkeypatch.setattr(main_module, "validate_startup_security_config", lambda: None)
+    monkeypatch.setattr(main_module, "_create_all_with_startup_limits", lambda: None)
+    monkeypatch.setattr(main_module, "_seed_plan_and_provider_config", lambda: None)
+    monkeypatch.setattr(main_module, "_seed_email_templates", lambda: None)
+    monkeypatch.setattr(main_module, "_log_startup_maintenance_config", lambda: None)
+
+    for attr in (
+        "ensure_email_notification_schema",
+        "ensure_price_cache_volume_columns",
+        "ensure_fundamentals_cache_schema",
+        "ensure_ticker_meta_identity_schema",
+        "ensure_search_and_insights_schema",
+        "ensure_ticker_content_cache_schema",
+        "ensure_ticker_financials_cache_schema",
+        "ensure_user_account_billing_schema",
+        "ensure_page_analytics_schema",
+        "ensure_provider_control_schema",
+        "ensure_data_enrichment_jobs_schema",
+        "ensure_ai_marketing_schema",
+        "ensure_event_columns",
+        "ensure_monitoring_alert_columns",
+        "ensure_house_annual_disclosure_schema",
+        "ensure_trade_outcomes_amount_bigint",
+        "ensure_government_contracts_schema",
+    ):
+        monkeypatch.setattr(main_module, attr, lambda *args, **kwargs: None)
+
+    monkeypatch.setattr(main_module, "ensure_provider_usage_schema", lambda _engine: ensure_provider_usage_schema(test_engine))
+
+    main_module._startup_create_tables()
+
+    assert optional_index_attempted["value"] is False
 
 
 def test_production_startup_maintenance_defaults_disabled(monkeypatch):

@@ -70,6 +70,7 @@ Cookie-only auth deployment note:
   - `AUTO_REPAIR_EVENTS_ON_STARTUP=0`
   - `AUTO_BACKFILL_EVENTS_ON_STARTUP=0`
   These tasks are scheduled in the background when explicitly enabled, but normal production repairs/backfills should run through cron/admin jobs rather than blocking app readiness.
+- Create optional large-table performance indexes with the maintenance command in `docs/runbooks/production_indexes.md`, not during normal web startup.
 - Smoke test login, Google OAuth, `/api/auth/me`, admin, account, watchlists, screener, logout, and refresh after deploy.
 
 Optional backend tuning vars that are safe to omit unless tuning production behavior:

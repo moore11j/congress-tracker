@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import logging
+from dataclasses import dataclass
 from time import perf_counter
 from pathlib import Path
 
@@ -65,6 +66,200 @@ def _set_postgres_ddl_timeouts(conn, *, lock_timeout: str = "2s", statement_time
         return
     conn.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
     conn.execute(text(f"SET LOCAL statement_timeout = '{statement_timeout}'"))
+
+
+@dataclass(frozen=True)
+class OptionalIndexSpec:
+    name: str
+    table: str
+    sqlite_sql: str
+    postgres_sql: str
+
+
+OPTIONAL_PERFORMANCE_INDEXES: tuple[OptionalIndexSpec, ...] = (
+    OptionalIndexSpec(
+        name="ix_securities_symbol_lower",
+        table="securities",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities (lower(symbol))",
+        postgres_sql="CREATE INDEX {concurrently}IF NOT EXISTS ix_securities_symbol_lower ON securities ((lower(symbol)))",
+    ),
+    OptionalIndexSpec(
+        name="ix_securities_name_lower",
+        table="securities",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities (lower(name))",
+        postgres_sql="CREATE INDEX {concurrently}IF NOT EXISTS ix_securities_name_lower ON securities ((lower(name)))",
+    ),
+    OptionalIndexSpec(
+        name="ix_ticker_meta_symbol_lower",
+        table="ticker_meta",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta (lower(symbol))",
+        postgres_sql="CREATE INDEX {concurrently}IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta ((lower(symbol)))",
+    ),
+    OptionalIndexSpec(
+        name="ix_ticker_meta_company_name_lower",
+        table="ticker_meta",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta (lower(company_name))",
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_ticker_meta_company_name_lower "
+            "ON ticker_meta ((lower(company_name)))"
+        ),
+    ),
+    OptionalIndexSpec(
+        name="ix_members_name_lower",
+        table="members",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members (lower(first_name), lower(last_name))",
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_members_name_lower "
+            "ON members ((lower(first_name)), (lower(last_name)))"
+        ),
+    ),
+    OptionalIndexSpec(
+        name="ix_events_member_name_lower",
+        table="events",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events (lower(member_name))",
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_events_member_name_lower "
+            "ON events ((lower(member_name)))"
+        ),
+    ),
+)
+
+
+def _optional_index_skip_reason(exc: BaseException) -> str:
+    message = str(exc).lower()
+    if "lock timeout" in message or "locknotavailable" in message:
+        return "lock_timeout"
+    if "already exists" in message or "duplicate" in message:
+        return "already_exists_race"
+    if "does not exist" in message or "undefinedtable" in message or "undefinedcolumn" in message:
+        return "missing_relation"
+    return "error"
+
+
+def _optional_index_tables(conn, dialect_name: str) -> set[str]:
+    if dialect_name == "sqlite":
+        return {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type='table'
+                      AND name IN ('securities', 'ticker_meta', 'members', 'events')
+                    """
+                )
+            ).fetchall()
+        }
+    if dialect_name == "postgresql":
+        return {
+            row[0]
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name IN ('securities', 'ticker_meta', 'members', 'events')
+                    """
+                )
+            ).fetchall()
+        }
+    return set()
+
+
+def _create_optional_index(conn, spec: OptionalIndexSpec, *, dialect_name: str, concurrent: bool) -> bool:
+    if dialect_name == "sqlite":
+        statement = spec.sqlite_sql
+    elif dialect_name == "postgresql":
+        statement = spec.postgres_sql.format(concurrently="CONCURRENTLY " if concurrent else "")
+    else:
+        logger.info(
+            "startup_step_skipped name=optional_index reason=unsupported_dialect index=%s table=%s dialect=%s",
+            spec.name,
+            spec.table,
+            dialect_name,
+        )
+        return False
+
+    try:
+        conn.execute(text(statement))
+    except SQLAlchemyError as exc:
+        reason = _optional_index_skip_reason(exc)
+        logger.warning(
+            "startup_step_skipped name=optional_index reason=%s index=%s table=%s",
+            reason,
+            spec.name,
+            spec.table,
+        )
+        return False
+
+    logger.info("optional_index_complete index=%s table=%s concurrent=%s", spec.name, spec.table, concurrent)
+    return True
+
+
+def ensure_optional_performance_indexes(
+    bind=engine,
+    *,
+    concurrent: bool | None = None,
+    index_names: set[str] | None = None,
+    lock_timeout: str = "2s",
+    statement_timeout: str = "30s",
+) -> dict[str, object]:
+    """
+    Create performance-only indexes. This is intentionally not called from web
+    startup because these indexes can touch large/hot production tables.
+    """
+    with bind.connect() as conn:
+        dialect_name = conn.dialect.name
+        existing_tables = _optional_index_tables(conn, dialect_name)
+
+    specs = [
+        spec
+        for spec in OPTIONAL_PERFORMANCE_INDEXES
+        if index_names is None or spec.name in index_names
+    ]
+    use_concurrent = dialect_name == "postgresql" if concurrent is None else concurrent
+    attempted = completed = skipped = 0
+
+    if dialect_name == "postgresql" and use_concurrent:
+        with bind.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(f"SET lock_timeout = '{lock_timeout}'"))
+            conn.execute(text(f"SET statement_timeout = '{statement_timeout}'"))
+            for spec in specs:
+                if spec.table not in existing_tables:
+                    logger.info(
+                        "startup_step_skipped name=optional_index reason=table_missing index=%s table=%s",
+                        spec.name,
+                        spec.table,
+                    )
+                    skipped += 1
+                    continue
+                attempted += 1
+                if _create_optional_index(conn, spec, dialect_name=dialect_name, concurrent=True):
+                    completed += 1
+                else:
+                    skipped += 1
+        return {"attempted": attempted, "completed": completed, "skipped": skipped}
+
+    with bind.begin() as conn:
+        if dialect_name == "postgresql":
+            _set_postgres_ddl_timeouts(conn, lock_timeout=lock_timeout, statement_timeout=statement_timeout)
+        for spec in specs:
+            if spec.table not in existing_tables:
+                logger.info(
+                    "startup_step_skipped name=optional_index reason=table_missing index=%s table=%s",
+                    spec.name,
+                    spec.table,
+                )
+                skipped += 1
+                continue
+            attempted += 1
+            if _create_optional_index(conn, spec, dialect_name=dialect_name, concurrent=False):
+                completed += 1
+            else:
+                skipped += 1
+    return {"attempted": attempted, "completed": completed, "skipped": skipped}
 
 
 if not IS_SQLITE:
@@ -428,12 +623,6 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_series_date ON fred_observations (series_id, observation_date)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_fetched_at ON fred_observations (fetched_at)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities (lower(symbol))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities (lower(name))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta (lower(symbol))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta (lower(company_name))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members (lower(first_name), lower(last_name))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events (lower(member_name))"))
             return
 
         conn.execute(
@@ -500,26 +689,6 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_series_date ON fred_observations (series_id, observation_date)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_observations_fetched_at ON fred_observations (fetched_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
-
-        indexed_tables = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = current_schema()
-                      AND table_name IN ('securities', 'ticker_meta', 'members', 'events')
-                    """
-                )
-            ).fetchall()
-        }
-        if "securities" in indexed_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_symbol_lower ON securities ((lower(symbol)))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_securities_name_lower ON securities ((lower(name)))"))
-        if "ticker_meta" in indexed_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_symbol_lower ON ticker_meta ((lower(symbol)))"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticker_meta_company_name_lower ON ticker_meta ((lower(company_name)))"))
 
 
 def ensure_ticker_financials_cache_schema(bind=engine) -> None:
@@ -652,44 +821,6 @@ def ensure_provider_usage_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_category_created ON provider_usage_events (category, created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_source_created ON provider_usage_events (source, created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_usage_throttled_created ON provider_usage_events (throttled, created_at)"))
-        if dialect_name == "sqlite":
-            indexed_tables = {
-                row[0]
-                for row in conn.execute(
-                    text(
-                        """
-                        SELECT name
-                        FROM sqlite_master
-                        WHERE type='table'
-                          AND name IN ('members', 'events')
-                        """
-                    )
-                ).fetchall()
-            }
-            if "members" in indexed_tables:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members (lower(first_name), lower(last_name))"))
-            if "events" in indexed_tables:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events (lower(member_name))"))
-            return
-
-        indexed_tables = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = current_schema()
-                      AND table_name IN ('members', 'events')
-                    """
-                )
-            ).fetchall()
-        }
-        if "members" in indexed_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_members_name_lower ON members ((lower(first_name)), (lower(last_name)))"))
-        if "events" in indexed_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_events_member_name_lower ON events ((lower(member_name)))"))
-
 
 def ensure_provider_control_schema(bind=engine) -> None:
     with bind.begin() as conn:
