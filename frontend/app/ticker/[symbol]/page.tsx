@@ -8,6 +8,7 @@ import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
+import { TickerInstitutionalSourceCardClient } from "@/components/ticker/TickerInstitutionalSourceCardClient";
 import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
@@ -1780,38 +1781,6 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
   );
 }
 
-function institutionalSourceBody(source: ConfirmationScoreBundle["sources"]["institutional_activity"]): string {
-  if (sourceUnavailable(source)) return "Institutional activity unavailable.";
-  if (!source.present) return "No notable institutional activity in the current context window.";
-  if (source.direction === "bearish") return "Active / reducing";
-  if (source.direction === "bullish") return "Active / accumulating";
-  return "Active / mixed";
-}
-
-function institutionalSourceSupport(source: ConfirmationScoreBundle["sources"]["institutional_activity"], lookbackDays: number): string {
-  if (sourceUnavailable(source)) return source.detail ?? source.summary ?? "Institutional activity source is not configured.";
-  if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
-  return normalizeUpperCardWindowCopy(source.detail ?? source.summary, lookbackDays) ?? contextWindowLabel(lookbackDays);
-}
-
-function InstitutionalActivityCard({
-  source,
-  lookbackDays,
-}: {
-  source: ConfirmationScoreBundle["sources"]["institutional_activity"];
-  lookbackDays: number;
-}) {
-  return (
-    <SourceEvidenceCard
-      title="Institutional"
-      icon="people"
-      source={source}
-      body={institutionalSourceBody(source)}
-      support={institutionalSourceSupport(source, lookbackDays)}
-    />
-  );
-}
-
 function GovernmentContractsCard({
   source,
   lookbackDays,
@@ -2484,9 +2453,11 @@ async function DeferredTickerContent({
                   support="Institutional activity unlocks with Pro."
                 />
               ) : (
-                <InstitutionalActivityCard
-                  source={confirmationBundle.sources.institutional_activity}
+                <TickerInstitutionalSourceCardClient
+                  symbol={normalizedSymbol}
+                  side={side}
                   lookbackDays={confirmationLookbackDays}
+                  initialSource={confirmationBundle.sources.institutional_activity}
                 />
               )}
               {signalsCardLocked ? (

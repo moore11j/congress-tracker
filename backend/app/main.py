@@ -5718,6 +5718,14 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
                 normalized_symbol,
                 lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
             )
+        institutional_activity_summary = institutional_activity_summaries.get(normalized_symbol)
+        if not isinstance(institutional_activity_summary, dict):
+            institutional_activity_summary = None
+        bundle = _mark_institutional_unavailable_in_confirmation_bundle(
+            bundle,
+            institutional_activity_summary,
+            {"institutional_activity": {"locked": False}},
+        )
         return {
             "confirmation_score_bundle": bundle,
             "options_flow_summary": (
@@ -5733,17 +5741,21 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             "government_contracts_summary": government_contracts_summaries.get(normalized_symbol)
             if isinstance(government_contracts_summaries.get(normalized_symbol), dict)
             else None,
-            "institutional_activity_summary": institutional_activity_summaries.get(normalized_symbol)
-            if isinstance(institutional_activity_summaries.get(normalized_symbol), dict)
-            else None,
+            "institutional_activity_summary": institutional_activity_summary,
         }
     except Exception:
         logger.exception("ticker_confirmation_context_failed symbol=%s", normalized_symbol)
+        bundle = inactive_confirmation_score_bundle(
+            normalized_symbol,
+            lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        )
+        bundle = _mark_institutional_unavailable_in_confirmation_bundle(
+            bundle,
+            None,
+            {"institutional_activity": {"locked": False}},
+        )
         return {
-            "confirmation_score_bundle": inactive_confirmation_score_bundle(
-                normalized_symbol,
-                lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
-            ),
+            "confirmation_score_bundle": bundle,
             "options_flow_summary": unavailable_options_flow_summary(
                 normalized_symbol,
                 CONFIRMATION_SIGNAL_WINDOW_DAYS,

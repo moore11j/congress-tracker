@@ -812,6 +812,53 @@ def test_ticker_signals_summary_entitled_institutional_not_configured_is_unavail
         assert "institutional_activity" not in response["confirmation_score_bundle"]["active_sources"]
 
 
+def test_ticker_confirmation_context_marks_absent_institutional_provider_unavailable(monkeypatch):
+    inactive_bundle = confirmation_score_bundle_from_source_contexts("NVDA", source_contexts={})
+
+    monkeypatch.setattr(
+        main_module,
+        "build_confirmation_score_context",
+        lambda db, tickers, **kwargs: {
+            "bundles": {"NVDA": inactive_bundle},
+            "options_flow_summaries": {},
+            "government_contracts_summaries": {},
+            "institutional_activity_summaries": {"NVDA": {"status": "not_configured", "active": False}},
+        },
+    )
+
+    context = main_module._ticker_confirmation_context(object(), "NVDA")
+    source = context["confirmation_score_bundle"]["sources"]["institutional_activity"]
+
+    assert source["present"] is False
+    assert source["status"] == "unavailable"
+    assert source["reason"] == "not_configured"
+    assert source.get("locked") is not True
+    assert context["options_flow_summary"]["state"] == "unavailable"
+
+
+def test_ticker_confirmation_context_keeps_available_no_institutional_activity_inactive(monkeypatch):
+    inactive_bundle = confirmation_score_bundle_from_source_contexts("NVDA", source_contexts={})
+
+    monkeypatch.setattr(
+        main_module,
+        "build_confirmation_score_context",
+        lambda db, tickers, **kwargs: {
+            "bundles": {"NVDA": inactive_bundle},
+            "options_flow_summaries": {},
+            "government_contracts_summaries": {},
+            "institutional_activity_summaries": {"NVDA": {"status": "ok", "active": False}},
+        },
+    )
+
+    context = main_module._ticker_confirmation_context(object(), "NVDA")
+    source = context["confirmation_score_bundle"]["sources"]["institutional_activity"]
+
+    assert source["present"] is False
+    assert source.get("status") != "unavailable"
+    assert source.get("locked") is not True
+    assert context["institutional_activity_summary"]["status"] == "ok"
+
+
 def test_ticker_signals_summary_free_redacts_signals_and_pro_sources_but_keeps_public_score(monkeypatch):
     _mock_signal_auth(monkeypatch, tier="free")
     full_bundle = _full_source_confirmation_bundle("AAPL")
