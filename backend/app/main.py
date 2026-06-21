@@ -17,6 +17,7 @@ from time import perf_counter
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -52,7 +53,7 @@ from app.db import (
     is_database_locked_error,
 )
 from app.ingest.government_contracts import ensure_government_contracts_schema
-from app.auth import current_user, require_admin_user
+from app.auth import SESSION_COOKIE_NAME, current_user, require_admin_user
 from app.entitlements import (
     current_entitlements,
     enforce_limit,
@@ -2289,6 +2290,78 @@ _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
 _TICKER_CHART_INFLIGHT: dict[str, dict] = {}
 _TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
+_CSRF_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_CSRF_EXEMPT_PATHS = {
+    "/api/auth/google/callback",
+    "/api/billing/stripe/webhook",
+}
+_CSRF_ORIGIN_ENV_VARS = (
+    "FRONTEND_ORIGINS",
+    "FRONTEND_BASE_URL",
+    "APP_BASE_URL",
+    "FRONTEND_URL",
+    "CORS_ALLOW_ORIGINS",
+)
+
+
+def _normalize_request_origin(value: str | None) -> str | None:
+    raw = (value or "").strip().rstrip("/")
+    if not raw or raw == "*":
+        return None
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.hostname:
+        return None
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
+        return None
+    host = parsed.hostname.lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
+        host = f"{host}:{port}"
+    return f"{scheme}://{host}"
+
+
+def _csrf_trusted_origins() -> set[str]:
+    origins: set[str] = set()
+    for name in _CSRF_ORIGIN_ENV_VARS:
+        for origin in split_origins(os.getenv(name)):
+            normalized = _normalize_request_origin(origin)
+            if normalized:
+                origins.add(normalized)
+
+    for origin in _DEFAULT_PRODUCTION_FRONTEND_ORIGINS:
+        normalized = _normalize_request_origin(origin)
+        if normalized:
+            origins.add(normalized)
+
+    if not is_production():
+        for origin in _DEFAULT_LOCAL_FRONTEND_ORIGINS:
+            normalized = _normalize_request_origin(origin)
+            if normalized:
+                origins.add(normalized)
+    return origins
+
+
+def _csrf_origin_allowed(request: Request) -> bool:
+    trusted = _csrf_trusted_origins()
+    origin = request.headers.get("origin")
+    if origin:
+        return _normalize_request_origin(origin) in trusted
+    referer = request.headers.get("referer")
+    if referer:
+        return _normalize_request_origin(referer) in trusted
+    return False
+
+
+def _csrf_origin_check_required(request: Request) -> bool:
+    if request.method.upper() not in _CSRF_UNSAFE_METHODS:
+        return False
+    if request.url.path in _CSRF_EXEMPT_PATHS:
+        return False
+    return SESSION_COOKIE_NAME in request.cookies
 
 
 @contextmanager
@@ -2301,6 +2374,23 @@ def _heavy_route_slot(route_name: str, semaphore: threading.BoundedSemaphore):
         yield
     finally:
         semaphore.release()
+
+
+@app.middleware("http")
+async def csrf_origin_guard(request: Request, call_next):
+    if not _csrf_origin_check_required(request):
+        return await call_next(request)
+    if _csrf_origin_allowed(request):
+        return await call_next(request)
+
+    logger.warning(
+        "csrf_origin_rejected path=%s method=%s origin_present=%s referer_present=%s",
+        request.url.path,
+        request.method,
+        bool(request.headers.get("origin")),
+        bool(request.headers.get("referer")),
+    )
+    return JSONResponse(status_code=403, content={"detail": "Forbidden"})
 
 
 @app.middleware("http")
