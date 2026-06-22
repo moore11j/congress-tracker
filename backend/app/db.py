@@ -2432,11 +2432,16 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         spam_risk_score INTEGER NOT NULL DEFAULT 0,
                         detected_tickers_json TEXT NOT NULL DEFAULT '[]',
                         intent TEXT NOT NULL DEFAULT 'other',
+                        recommended_action TEXT NOT NULL DEFAULT 'reply',
+                        reply_angle TEXT NOT NULL DEFAULT 'other',
+                        value_added_insight TEXT NOT NULL DEFAULT '',
+                        walnut_feature_to_mention TEXT NOT NULL DEFAULT '',
                         suggested_destination_url TEXT NOT NULL,
                         suggested_reply TEXT NOT NULL,
+                        alternate_reply_more_direct TEXT NOT NULL DEFAULT '',
                         short_reason TEXT NOT NULL,
                         compliance_notes TEXT NOT NULL,
-                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v1',
+                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v2',
                         raw_response_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -2545,11 +2550,16 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         spam_risk_score INTEGER NOT NULL DEFAULT 0,
                         detected_tickers_json TEXT NOT NULL DEFAULT '[]',
                         intent TEXT NOT NULL DEFAULT 'other',
+                        recommended_action TEXT NOT NULL DEFAULT 'reply',
+                        reply_angle TEXT NOT NULL DEFAULT 'other',
+                        value_added_insight TEXT NOT NULL DEFAULT '',
+                        walnut_feature_to_mention TEXT NOT NULL DEFAULT '',
                         suggested_destination_url TEXT NOT NULL,
                         suggested_reply TEXT NOT NULL,
+                        alternate_reply_more_direct TEXT NOT NULL DEFAULT '',
                         short_reason TEXT NOT NULL,
                         compliance_notes TEXT NOT NULL,
-                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v1',
+                        prompt_version TEXT NOT NULL DEFAULT 'ai_marketing_v2',
                         raw_response_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMPTZ DEFAULT now()
                     )
@@ -2573,6 +2583,28 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                     """
                 )
             )
+
+        if conn.dialect.name == "sqlite":
+            existing_suggestion_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(ai_marketing_suggestions)")).fetchall()
+                if len(row) > 1
+            }
+            for name, column_type in {
+                "recommended_action": "TEXT NOT NULL DEFAULT 'reply'",
+                "reply_angle": "TEXT NOT NULL DEFAULT 'other'",
+                "value_added_insight": "TEXT NOT NULL DEFAULT ''",
+                "walnut_feature_to_mention": "TEXT NOT NULL DEFAULT ''",
+                "alternate_reply_more_direct": "TEXT NOT NULL DEFAULT ''",
+            }.items():
+                if name not in existing_suggestion_columns:
+                    conn.execute(text(f"ALTER TABLE ai_marketing_suggestions ADD COLUMN {name} {column_type}"))
+        else:
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS recommended_action TEXT NOT NULL DEFAULT 'reply'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS reply_angle TEXT NOT NULL DEFAULT 'other'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS value_added_insight TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS walnut_feature_to_mention TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS alternate_reply_more_direct TEXT NOT NULL DEFAULT ''"))
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_settings_secret ON ai_marketing_settings (is_secret)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_enabled ON ai_marketing_campaigns (enabled)"))

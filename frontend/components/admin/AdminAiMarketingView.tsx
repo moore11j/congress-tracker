@@ -327,6 +327,10 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       notify("No suggested reply to copy yet.", "error");
       return;
     }
+    if (opportunity.suggestion?.recommended_action !== "reply") {
+      notify("This suggestion recommends not posting a reply yet.", "info");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(reply);
       await updateStatus(opportunity, "copied");
@@ -787,7 +791,9 @@ function OpportunityRow({
   onArchive: () => void;
 }) {
   const suggestion = opportunity.suggestion;
-  const destination = suggestion?.suggested_destination_url || opportunity.suggested_destination_url;
+  const recommendedAction = suggestion?.recommended_action ?? null;
+  const destination = recommendedAction === "skip" ? null : suggestion?.suggested_destination_url || opportunity.suggested_destination_url;
+  const canCopyReply = Boolean(suggestion?.suggested_reply) && recommendedAction === "reply";
   const hasSourceUrl = opportunity.metadata?.source_url_provided !== false;
   const rawSuggestionError = opportunity.metadata?.ai_suggestion_error;
   const suggestionError = typeof rawSuggestionError === "string" && rawSuggestionError.trim() ? rawSuggestionError.trim() : null;
@@ -800,6 +806,7 @@ function OpportunityRow({
           <div className="flex flex-wrap gap-2">
             <Badge label={platformLabel(opportunity.platform)} />
             <Badge label={opportunity.status} tone={statusTone(opportunity.status)} />
+            {recommendedAction ? <Badge label={`Action: ${recommendedAction}`} tone={actionTone(recommendedAction)} /> : null}
             <ScoreBadge label="Relevance" value={suggestion?.relevance_score ?? opportunity.relevance_score} />
             <ScoreBadge label="Spam" value={suggestion?.spam_risk_score ?? opportunity.spam_risk_score} invert />
           </div>
@@ -830,12 +837,34 @@ function OpportunityRow({
             <span className="text-sm font-semibold text-white">Suggested reply</span>
             {suggestion ? <span className="text-xs text-slate-500">{suggestion.model}</span> : null}
           </div>
+          {recommendedAction === "skip" ? (
+            <p className="mb-2 rounded-md border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">
+              Probably do not reply.
+            </p>
+          ) : null}
+          {recommendedAction === "monitor" ? (
+            <p className="mb-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm font-semibold text-amber-100">
+              Monitor before replying.
+            </p>
+          ) : null}
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-200">
             {suggestion?.suggested_reply ?? emptySuggestionMessage}
           </pre>
+          {suggestion?.alternate_reply_more_direct ? (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">More direct</p>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                {suggestion.alternate_reply_more_direct}
+              </pre>
+            </div>
+          ) : null}
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3 text-sm text-slate-300">
-          <p><span className="font-semibold text-slate-100">Tickers:</span> {listOrNone(suggestion?.detected_tickers ?? opportunity.matched_tickers)}</p>
+          <p><span className="font-semibold text-slate-100">Recommended action:</span> {recommendedAction ?? "Pending"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Reply angle:</span> {suggestion?.reply_angle ?? "Pending"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Walnut feature:</span> {suggestion?.walnut_feature_to_mention || "none"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Value added:</span> {suggestion?.value_added_insight || "Pending"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Tickers:</span> {listOrNone(suggestion?.detected_tickers ?? opportunity.matched_tickers)}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Keywords:</span> {listOrNone(opportunity.matched_keywords)}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Reason:</span> {suggestion?.short_reason ?? suggestionError ?? opportunity.short_reason ?? "Pending"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Compliance:</span> {suggestion?.compliance_notes ?? opportunity.compliance_notes ?? "Review manually."}</p>
@@ -845,7 +874,7 @@ function OpportunityRow({
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
-          disabled={Boolean(busy) || !suggestion}
+          disabled={Boolean(busy) || !canCopyReply}
           onClick={onCopy}
           className="rounded-md border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50"
         >
@@ -961,6 +990,13 @@ function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
   if (status === "new") return "good";
   if (status === "emailed" || status === "copied") return "warn";
   if (status === "dismissed") return "bad";
+  return "muted";
+}
+
+function actionTone(action: string): "muted" | "good" | "warn" | "bad" {
+  if (action === "reply") return "good";
+  if (action === "monitor") return "warn";
+  if (action === "skip") return "bad";
   return "muted";
 }
 

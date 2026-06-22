@@ -1562,8 +1562,21 @@ export type AdminAiMarketingSuggestion = {
   spam_risk_score: number;
   detected_tickers: string[];
   intent: "question" | "complaint" | "trade_idea" | "tool_search" | "news_reaction" | "other";
+  recommended_action: "reply" | "skip" | "monitor";
+  reply_angle:
+    | "margin_analysis"
+    | "ticker_context"
+    | "congress_activity"
+    | "insider_activity"
+    | "government_contracts"
+    | "screener_tool"
+    | "general_market_context"
+    | "other";
+  value_added_insight: string;
+  walnut_feature_to_mention: string;
   suggested_destination_url: string;
   suggested_reply: string;
+  alternate_reply_more_direct: string;
   short_reason: string;
   compliance_notes: string;
   prompt_version: string;

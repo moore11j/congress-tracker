@@ -25,6 +25,18 @@ test("manual AI outreach opportunity card shows stored OpenAI failure reasons", 
   assert.doesNotMatch(viewSource, /Configure OPENAI_API_KEY or regenerate after setup/);
 });
 
+test("manual AI outreach card surfaces skip and angle metadata", () => {
+  assert.match(viewSource, /Action: \$\{recommendedAction\}/);
+  assert.match(viewSource, /Probably do not reply\./);
+  assert.match(viewSource, /Recommended action:/);
+  assert.match(viewSource, /Reply angle:/);
+  assert.match(viewSource, /Walnut feature:/);
+  assert.match(viewSource, /Value added:/);
+  assert.match(viewSource, /recommended_action !== "reply"/);
+  assert.match(apiSource, /recommended_action: "reply" \| "skip" \| "monitor"/);
+  assert.match(apiSource, /alternate_reply_more_direct: string/);
+});
+
 test("manual AI outreach API and errors preserve backend validation detail", () => {
   assert.match(apiSource, /url\?: string \| null/);
   assert.match(apiSource, /function structuredDetailMessage/);

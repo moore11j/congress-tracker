@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 AI_MARKETING_RECIPIENT = "jarod@walnutmarkets.com"
 AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
-AI_MARKETING_PROMPT_VERSION = "ai_marketing_v1"
+AI_MARKETING_PROMPT_VERSION = "ai_marketing_v2"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
 OPENAI_API_KEY = "OPENAI_API_KEY"
@@ -49,6 +49,17 @@ CAMPAIGN_MODES = {
 PLATFORMS = {"reddit", "x_stub", "facebook_manual"}
 OPPORTUNITY_STATUSES = {"new", "emailed", "dismissed", "copied", "archived"}
 INTENTS = {"question", "complaint", "trade_idea", "tool_search", "news_reaction", "other"}
+RECOMMENDED_ACTIONS = {"reply", "skip", "monitor"}
+REPLY_ANGLES = {
+    "margin_analysis",
+    "ticker_context",
+    "congress_activity",
+    "insider_activity",
+    "government_contracts",
+    "screener_tool",
+    "general_market_context",
+    "other",
+}
 AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "OpenAI suggestions"},
     AI_MARKETING_MODEL: {"label": "AI Marketing Model", "is_secret": False, "required_for": "OpenAI suggestions"},
@@ -444,8 +455,13 @@ def suggestion_to_dict(suggestion: AiMarketingSuggestion | None) -> dict[str, An
         "spam_risk_score": suggestion.spam_risk_score,
         "detected_tickers": _load_list(suggestion.detected_tickers_json),
         "intent": suggestion.intent,
+        "recommended_action": suggestion.recommended_action,
+        "reply_angle": suggestion.reply_angle,
+        "value_added_insight": suggestion.value_added_insight,
+        "walnut_feature_to_mention": suggestion.walnut_feature_to_mention,
         "suggested_destination_url": suggestion.suggested_destination_url,
         "suggested_reply": suggestion.suggested_reply,
+        "alternate_reply_more_direct": suggestion.alternate_reply_more_direct,
         "short_reason": suggestion.short_reason,
         "compliance_notes": suggestion.compliance_notes,
         "prompt_version": suggestion.prompt_version,
@@ -755,8 +771,13 @@ def generate_suggestion(
         spam_risk_score=structured["spam_risk_score"],
         detected_tickers_json=_dump_list(structured["detected_tickers"]),
         intent=structured["intent"],
+        recommended_action=structured["recommended_action"],
+        reply_angle=structured["reply_angle"],
+        value_added_insight=structured["value_added_insight"],
+        walnut_feature_to_mention=structured["walnut_feature_to_mention"],
         suggested_destination_url=structured["suggested_destination_url"],
         suggested_reply=structured["suggested_reply"],
+        alternate_reply_more_direct=structured["alternate_reply_more_direct"],
         short_reason=structured["short_reason"],
         compliance_notes=structured["compliance_notes"],
         prompt_version=AI_MARKETING_PROMPT_VERSION,
@@ -1058,12 +1079,19 @@ def _digest_context(
     for index, opportunity in enumerate(opportunities, start=1):
         suggestion = latest.get(opportunity.id)
         reply = suggestion.suggested_reply if suggestion else "No AI suggestion generated yet."
-        destination = (suggestion.suggested_destination_url if suggestion else opportunity.suggested_destination_url) or DEFAULT_DESTINATION_URL
+        destination = suggestion.suggested_destination_url if suggestion else (opportunity.suggested_destination_url or DEFAULT_DESTINATION_URL)
         reason = (suggestion.short_reason if suggestion else opportunity.short_reason) or "No reasoning summary available."
         tickers = ", ".join(_load_list(opportunity.matched_tickers_json)) or "none"
         keywords = ", ".join(_load_list(opportunity.matched_keywords_json)) or "none"
         relevance = suggestion.relevance_score if suggestion else opportunity.relevance_score
         spam = suggestion.spam_risk_score if suggestion else opportunity.spam_risk_score
+        action = suggestion.recommended_action if suggestion else "pending"
+        angle = suggestion.reply_angle if suggestion else "pending"
+        destination_html = (
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut page</a></p>"
+            if destination
+            else "<p style=\"margin:0 0 8px 0;color:#334155;\">Suggested Walnut link: none</p>"
+        )
         items_text.append(
             "\n".join(
                 [
@@ -1071,9 +1099,11 @@ def _digest_context(
                     f"Platform/source: {opportunity.platform} / {opportunity.community or 'manual'}",
                     f"Permalink: {opportunity.source_url}",
                     f"Matched ticker/keywords: {tickers} / {keywords}",
+                    f"Recommended action: {action}",
+                    f"Reply angle: {angle}",
                     f"Relevance score: {relevance if relevance is not None else 'pending'}",
                     f"Spam risk score: {spam if spam is not None else 'pending'}",
-                    f"Suggested Walnut link: {destination}",
+                    f"Suggested Walnut link: {destination or 'none'}",
                     "Suggested reply:",
                     reply,
                     f"Reasoning: {reason}",
@@ -1086,8 +1116,9 @@ def _digest_context(
             f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(opportunity.platform)} / {html.escape(opportunity.community or 'manual')}</p>"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source thread</a></p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Matched ticker/keywords: {html.escape(tickers)} / {html.escape(keywords)}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Recommended action: {html.escape(action)} | Reply angle: {html.escape(angle)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Relevance: {html.escape(str(relevance if relevance is not None else 'pending'))} | Spam risk: {html.escape(str(spam if spam is not None else 'pending'))}</p>"
-            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut page</a></p>"
+            f"{destination_html}"
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(reply)}</pre>"
             f"<p style=\"margin:0;color:#475569;\">{html.escape(reason)}</p>"
             "</div>"
@@ -1105,13 +1136,29 @@ def _digest_context(
 
 def _suggestion_system_prompt() -> str:
     return (
-        "You draft human-reviewed outreach replies for Walnut Market Terminal. "
-        "Return only JSON matching the supplied schema. Be helpful first. Do not write spammy, hypey, deceptive, or repetitive promotional replies. "
+        "You draft human-reviewed outreach recommendations for Walnut Market Terminal. "
+        "Return only JSON matching the supplied schema. First decide whether the thread deserves a reply at all. "
+        "Use recommended_action='skip' when the source is not clearly about investing, markets, public companies, trading, finance, or research tools. "
+        "Use recommended_action='skip' or 'monitor' when Walnut cannot add a meaningful, specific angle. "
+        "For skip, suggested_reply should be exactly or very close to: 'Skip - not relevant enough.' "
+        "For monitor, explain what would make the thread worth replying to later. "
+        "Walnut Market Terminal is a professional-grade market intelligence platform for sophisticated retail investors. "
+        "It helps users find market tells by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
+        "Congress trading disclosures, government contracts, signal conviction, screener workflows, and evidence trail or why-now context. "
+        "The brand idea is: 'The market has tells. Walnut finds them.' Do not describe Walnut as a casual stock app. "
+        "When replying, lead with useful insight specific to the thread, then add nuance, then mention Walnut only if it has a strong natural angle. "
+        "Sound like a sharp market participant and excellent founder/salesperson, while staying concise, helpful, and non-spammy. "
+        "Explain Walnut concretely when mentioned; vague phrases like 'compare drivers in one place' are not enough. "
+        "If the source mentions a specific public company or ticker, prefer the ticker page /ticker/{SYMBOL}. "
+        "If it discusses screeners or research tooling without a ticker, prefer /screener or the homepage. "
+        "If it discusses Congress trades, insider buying, or government contracts, use that as the reply_angle when relevant. "
         "Do not imply endorsement by Reddit, X, Facebook, Congress, SEC, or any data provider. "
         "If promoting Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
         "Do not make investment advice claims, tell users to buy or sell a security, or guarantee returns. "
         "Prefer educational language such as \"this may be useful\", \"you can cross-check\", and \"one way to look at it\". "
-        "Include at most one Walnut link unless the thread clearly needs more. Avoid replies when spam risk is high. "
+        "Include at most one Walnut link unless the thread clearly needs more. Never use spammy CTA language. "
+        "Do not fake personal experience or pretend to be unaffiliated. No automated posting is happening; a human will review this. "
+        "Avoid replies when spam risk is high. "
         "Avoid replying to old or inactive threads unless relevance is very high."
     )
 
@@ -1124,8 +1171,13 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "spam_risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
             "detected_tickers": {"type": "array", "items": {"type": "string"}},
             "intent": {"type": "string", "enum": sorted(INTENTS)},
+            "recommended_action": {"type": "string", "enum": sorted(RECOMMENDED_ACTIONS)},
+            "reply_angle": {"type": "string", "enum": sorted(REPLY_ANGLES)},
+            "value_added_insight": {"type": "string"},
+            "walnut_feature_to_mention": {"type": "string"},
             "suggested_destination_url": {"type": "string"},
             "suggested_reply": {"type": "string"},
+            "alternate_reply_more_direct": {"type": "string"},
             "short_reason": {"type": "string"},
             "compliance_notes": {"type": "string"},
         },
@@ -1134,8 +1186,13 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "spam_risk_score",
             "detected_tickers",
             "intent",
+            "recommended_action",
+            "reply_angle",
+            "value_added_insight",
+            "walnut_feature_to_mention",
             "suggested_destination_url",
             "suggested_reply",
+            "alternate_reply_more_direct",
             "short_reason",
             "compliance_notes",
         ],
@@ -1150,25 +1207,91 @@ def _normalize_suggestion_payload(
     campaign_id: int,
 ) -> dict[str, Any]:
     detected_tickers = _normalized_tickers(payload.get("detected_tickers"))
-    destination = _normalize_destination_url(
-        str(payload.get("suggested_destination_url") or destination_hint),
-        platform=platform,
-        campaign_id=campaign_id,
-        fallback=destination_hint,
-    )
     intent = str(payload.get("intent") or "other").strip().lower()
     if intent not in INTENTS:
         intent = "other"
+    recommended_action = str(payload.get("recommended_action") or "reply").strip().lower()
+    if recommended_action not in RECOMMENDED_ACTIONS:
+        recommended_action = "reply"
+    reply_angle = str(payload.get("reply_angle") or "other").strip().lower()
+    if reply_angle not in REPLY_ANGLES:
+        reply_angle = "other"
+    raw_destination = str(payload.get("suggested_destination_url") or "").strip()
+    if recommended_action == "skip":
+        destination = ""
+    else:
+        if detected_tickers:
+            raw_destination = f"https://walnutmarkets.com/ticker/{detected_tickers[0]}"
+        elif not raw_destination and reply_angle == "screener_tool":
+            raw_destination = "https://walnutmarkets.com/screener"
+        destination = _normalize_destination_url(
+            raw_destination or destination_hint,
+            platform=platform,
+            campaign_id=campaign_id,
+            fallback=destination_hint,
+        )
+    suggested_reply = _truncate(str(payload.get("suggested_reply") or "").strip(), 3000) or ""
+    alternate_reply = _truncate(str(payload.get("alternate_reply_more_direct") or "").strip(), 3000) or ""
+    if recommended_action == "skip":
+        suggested_reply = suggested_reply or "Skip - not relevant enough."
+        alternate_reply = alternate_reply or suggested_reply
+    elif recommended_action == "monitor":
+        suggested_reply = suggested_reply or "Monitor - relevant, but not worth replying yet."
+        alternate_reply = alternate_reply or suggested_reply
+    else:
+        suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
+        alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
+    if _contains_direct_trade_advice(suggested_reply) or _contains_direct_trade_advice(alternate_reply):
+        recommended_action = "monitor"
+        destination = ""
+        suggested_reply = "Monitor - generated draft contained direct trading advice; review manually before replying."
+        alternate_reply = suggested_reply
+    value_added_insight = _truncate(str(payload.get("value_added_insight") or "").strip(), 1500) or ""
+    walnut_feature = _truncate(str(payload.get("walnut_feature_to_mention") or "").strip(), 500) or ""
     return {
         "relevance_score": _clamp_int(payload.get("relevance_score"), 0, 100),
         "spam_risk_score": _clamp_int(payload.get("spam_risk_score"), 0, 100),
         "detected_tickers": detected_tickers,
         "intent": intent,
+        "recommended_action": recommended_action,
+        "reply_angle": reply_angle,
+        "value_added_insight": value_added_insight,
+        "walnut_feature_to_mention": "" if recommended_action == "skip" else walnut_feature,
         "suggested_destination_url": destination,
-        "suggested_reply": _truncate(str(payload.get("suggested_reply") or "").strip(), 3000) or "No safe reply suggested.",
-        "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or "No reason provided.",
+        "suggested_reply": suggested_reply,
+        "alternate_reply_more_direct": alternate_reply,
+        "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or value_added_insight or "No reason provided.",
         "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 1000) or "Review manually before posting.",
     }
+
+
+def _ensure_walnut_affiliation_disclosure(reply: str) -> str:
+    cleaned = reply.strip()
+    if not cleaned or "walnut" not in cleaned.lower():
+        return cleaned
+    lowered = cleaned.lower()
+    disclosure_markers = (
+        "i'm building walnut",
+        "i am building walnut",
+        "we're building walnut",
+        "we are building walnut",
+        "bias disclosed",
+        "obvious bias",
+        "my company",
+        "our platform",
+    )
+    if any(marker in lowered for marker in disclosure_markers):
+        return cleaned
+    return _truncate(f"Bias disclosed: I'm building Walnut. {cleaned}", 3000) or cleaned
+
+
+def _contains_direct_trade_advice(reply: str) -> bool:
+    lowered = reply.lower()
+    patterns = (
+        r"\b(you should|you need to|you can|i would|i'd|we would|must|should)\s+(buy|sell|short)\b",
+        r"\b(buy|sell|short)\s+(this|the stock|the name|[a-z]{1,6})\b",
+    )
+    return any(re.search(pattern, lowered) for pattern in patterns)
 
 
 def _classify_openai_suggestion_error(response: requests.Response) -> tuple[str, str, int]:

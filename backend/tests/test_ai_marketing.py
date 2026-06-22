@@ -137,8 +137,13 @@ def test_manual_url_mode_generates_from_pasted_text_without_reddit_credentials(m
                                     "spam_risk_score": 12,
                                     "detected_tickers": ["NVDA"],
                                     "intent": "question",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "ticker_context",
+                                    "value_added_insight": "NVDA research should cross-check insider and Congress activity with company context.",
+                                    "walnut_feature_to_mention": "ticker pages with insider and Congress activity",
                                     "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
                                     "suggested_reply": "I'm building Walnut, so obvious bias, but this may help with NVDA context.",
+                                    "alternate_reply_more_direct": "Bias disclosed - I'm building Walnut, and the NVDA ticker page pulls this context together.",
                                     "short_reason": "The pasted source asks about NVDA research.",
                                     "compliance_notes": "Disclose affiliation and avoid investment advice.",
                                 }
@@ -389,8 +394,13 @@ def test_openai_suggestion_returns_structured_payload_with_walnut_utm(monkeypatc
                                     "spam_risk_score": 18,
                                     "detected_tickers": ["NVDA"],
                                     "intent": "question",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "ticker_context",
+                                    "value_added_insight": "The thread is asking how to validate NVDA insider and Congress activity in context.",
+                                    "walnut_feature_to_mention": "ticker pages with filings, insiders, Congress trades, and signal context",
                                     "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
                                     "suggested_reply": "I'm building Walnut, so obvious bias, but this may be useful for cross-checking NVDA insider context: https://walnutmarkets.com/ticker/NVDA",
+                                    "alternate_reply_more_direct": "Bias disclosed - I'm building Walnut. The NVDA page pulls insider, Congress, filings, and signal context together.",
                                     "short_reason": "The post asks for source-backed ticker research.",
                                     "compliance_notes": "Discloses affiliation and avoids investment advice.",
                                 }
@@ -419,10 +429,255 @@ def test_openai_suggestion_returns_structured_payload_with_walnut_utm(monkeypatc
         suggestion = result["opportunity"]["suggestion"]
         assert suggestion["relevance_score"] == 88
         assert suggestion["spam_risk_score"] == 18
+        assert suggestion["recommended_action"] == "reply"
+        assert suggestion["reply_angle"] == "ticker_context"
+        assert "insider" in suggestion["walnut_feature_to_mention"].lower()
         assert suggestion["suggested_destination_url"].startswith("https://walnutmarkets.com/ticker/NVDA?")
         assert "utm_source=reddit" in suggestion["suggested_destination_url"]
         assert "utm_campaign=ai_outreach" in suggestion["suggested_destination_url"]
         assert db.query(AiMarketingSuggestion).count() == 1
+    finally:
+        db.close()
+
+
+def test_openai_suggestion_supports_specific_margin_analysis_reply(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 86,
+                                    "spam_risk_score": 14,
+                                    "detected_tickers": ["NKE"],
+                                    "intent": "trade_idea",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "margin_analysis",
+                                    "value_added_insight": "Revenue growth can look fine while gross margin and operating leverage weaken the setup.",
+                                    "walnut_feature_to_mention": "financials, filings, and ticker context on one ticker page",
+                                    "suggested_destination_url": "https://walnutmarkets.com/ticker/NKE",
+                                        "suggested_reply": (
+                                            "I'm building Walnut, so obvious bias, but that margin point is exactly what gets missed "
+                                            "when people only look at revenue growth. Sales can be up while gross margin, freight, product mix, "
+                                            "discounting, or operating leverage eats the upside. Walnut's ticker pages put filings, "
+                                        "financials, insider/Congress activity, and signal context next to the chart, which is useful "
+                                        "for checking whether the issue is brand demand or margin mechanics."
+                                    ),
+                                    "alternate_reply_more_direct": (
+                                        "Bias disclosed - I'm building Walnut. For NKE, I would start by comparing revenue growth "
+                                        "against gross margin, operating margin, and segment commentary before blaming the brand alone."
+                                    ),
+                                    "short_reason": "The source is a ticker-specific margin discussion where Walnut can add context.",
+                                    "compliance_notes": "Discloses affiliation and avoids investment advice.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/nke/thread/",
+                text="NKE revenue is still growing, but margins look ugly. Is this a brand problem or a cost structure problem?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["recommended_action"] == "reply"
+        assert suggestion["reply_angle"] == "margin_analysis"
+        assert "gross margin" in suggestion["suggested_reply"]
+        assert "filings" in suggestion["suggested_reply"]
+        assert "I'm building Walnut" in suggestion["suggested_reply"]
+        assert "you should buy" not in suggestion["suggested_reply"].lower()
+        assert "you should sell" not in suggestion["suggested_reply"].lower()
+    finally:
+        db.close()
+
+
+def test_openai_suggestion_can_recommend_skip_for_unrelated_reddit_thread(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 12,
+                                    "spam_risk_score": 76,
+                                    "detected_tickers": [],
+                                    "intent": "complaint",
+                                    "recommended_action": "skip",
+                                    "reply_angle": "other",
+                                    "value_added_insight": "",
+                                    "walnut_feature_to_mention": "homepage",
+                                    "suggested_destination_url": "https://walnutmarkets.com",
+                                    "suggested_reply": "",
+                                    "alternate_reply_more_direct": "",
+                                    "short_reason": "The thread is a consumer service complaint, not a market research discussion.",
+                                    "compliance_notes": "No Walnut angle; do not force a reply.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/mildlyinfuriating/comments/support/thread/",
+                text="The delivery driver left my package in the rain and customer support never replied.",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["recommended_action"] == "skip"
+        assert suggestion["suggested_reply"] == "Skip - not relevant enough."
+        assert suggestion["suggested_destination_url"] == ""
+        assert suggestion["walnut_feature_to_mention"] == ""
+    finally:
+        db.close()
+
+
+def test_openai_suggestion_routes_detected_ticker_and_adds_missing_disclosure(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 82,
+                                    "spam_risk_score": 19,
+                                    "detected_tickers": ["TSLA"],
+                                    "intent": "question",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "ticker_context",
+                                    "value_added_insight": "The question needs source-backed TSLA context rather than a one-factor answer.",
+                                    "walnut_feature_to_mention": "ticker page with filings, insider activity, Congress activity, and signal context",
+                                    "suggested_destination_url": "https://walnutmarkets.com",
+                                    "suggested_reply": "Walnut is useful here because it puts TSLA filings, insider activity, Congress activity, and price context together.",
+                                    "alternate_reply_more_direct": "",
+                                    "short_reason": "Ticker-specific research question.",
+                                    "compliance_notes": "Needs affiliation disclosure.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/tsla/thread/",
+                text="Does TSLA have any recent insider or Congress trading context?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["suggested_destination_url"].startswith("https://walnutmarkets.com/ticker/TSLA?")
+        assert suggestion["suggested_reply"].startswith("Bias disclosed: I'm building Walnut.")
+    finally:
+        db.close()
+
+
+def test_openai_suggestion_downgrades_direct_trading_advice(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 75,
+                                    "spam_risk_score": 20,
+                                    "detected_tickers": ["NVDA"],
+                                    "intent": "trade_idea",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "ticker_context",
+                                    "value_added_insight": "The source is asking about NVDA context.",
+                                    "walnut_feature_to_mention": "ticker context",
+                                    "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
+                                    "suggested_reply": "I'm building Walnut, so obvious bias, but you should buy NVDA after checking the signals.",
+                                    "alternate_reply_more_direct": "",
+                                    "short_reason": "Ticker discussion.",
+                                    "compliance_notes": "Needs compliance review.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/nvda/thread/",
+                text="What do people think about NVDA signals?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["recommended_action"] == "monitor"
+        assert "buy" not in suggestion["suggested_reply"].lower()
+        assert "sell" not in suggestion["suggested_reply"].lower()
+        assert suggestion["suggested_destination_url"] == ""
     finally:
         db.close()
 
