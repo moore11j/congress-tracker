@@ -113,8 +113,26 @@ function parseApiErrorDetail(body: string): unknown {
   }
 }
 
+function structuredDetailMessage(item: unknown) {
+  if (!item || typeof item !== "object") return "";
+  const detail = item as { msg?: unknown; message?: unknown; loc?: unknown };
+  const message = typeof detail.msg === "string" ? detail.msg : typeof detail.message === "string" ? detail.message : "";
+  if (!message.trim()) return "";
+  if (!Array.isArray(detail.loc)) return message.trim();
+  const field = detail.loc
+    .filter((part) => typeof part === "string" || typeof part === "number")
+    .map(String)
+    .filter((part) => part !== "body")
+    .join(".");
+  return field ? `${field}: ${message.trim()}` : message.trim();
+}
+
 function apiErrorMessage(status: number, statusText: string, detail: unknown, body: string) {
   if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (Array.isArray(detail)) {
+    const messages = detail.map(structuredDetailMessage).filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
   if (detail && typeof detail === "object" && "message" in detail) {
     const message = (detail as { message?: unknown }).message;
     if (typeof message === "string" && message.trim()) return message.trim();
@@ -2257,7 +2275,7 @@ export async function updateAdminAiMarketingOpportunity(
 }
 
 export async function analyzeAdminAiMarketingManualUrl(payload: {
-  url: string;
+  url?: string | null;
   text?: string | null;
   title?: string | null;
   campaign_id?: number | null;

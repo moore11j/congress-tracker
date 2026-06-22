@@ -71,7 +71,7 @@ class OpportunityPatchPayload(BaseModel):
 
 
 class ManualUrlPayload(BaseModel):
-    url: str = Field(min_length=1, max_length=1200)
+    url: str | None = Field(default=None, max_length=1200)
     text: str | None = Field(default=None, max_length=4000)
     title: str | None = Field(default=None, max_length=300)
     campaign_id: int | None = None

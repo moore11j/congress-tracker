@@ -113,6 +113,115 @@ def test_manual_url_mode_saves_without_social_credentials(monkeypatch):
         db.close()
 
 
+def test_manual_url_mode_generates_from_pasted_text_without_reddit_credentials(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 91,
+                                    "spam_risk_score": 12,
+                                    "detected_tickers": ["NVDA"],
+                                    "intent": "question",
+                                    "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
+                                    "suggested_reply": "I'm building Walnut, so obvious bias, but this may help with NVDA context.",
+                                    "short_reason": "The pasted source asks about NVDA research.",
+                                    "compliance_notes": "Disclose affiliation and avoid investment advice.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, *args, **kwargs):
+        calls.append((url, kwargs))
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+        pasted_text = "Can I compare NVDA insider buying and Congress trades from one research page?"
+
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/example/thread/",
+                text=pasted_text,
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] is None
+        assert result["opportunity"]["suggestion"]["relevance_score"] == 91
+        assert len(calls) == 1
+        assert calls[0][0] == "https://api.openai.com/v1/chat/completions"
+        prompt = json.loads(calls[0][1]["json"]["messages"][1]["content"])
+        assert prompt["opportunity"]["excerpt"] == pasted_text
+    finally:
+        db.close()
+
+
+def test_manual_url_only_reddit_post_without_credentials_returns_validation(monkeypatch):
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        with pytest.raises(HTTPException) as exc:
+            admin_ai_marketing_manual_url(
+                ManualUrlPayload(url="https://www.reddit.com/r/stocks/comments/example/thread/"),
+                _request_for_user(admin),
+                db,
+            )
+
+        assert exc.value.status_code == 422
+        assert exc.value.detail == (
+            "Reddit API credentials are not configured. "
+            "Paste the post/comment text manually or configure Reddit API credentials."
+        )
+        assert db.query(AiMarketingOpportunity).count() == 0
+    finally:
+        db.close()
+
+
+def test_manual_url_subreddit_listing_without_text_returns_validation():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        with pytest.raises(HTTPException) as exc:
+            admin_ai_marketing_manual_url(
+                ManualUrlPayload(url="https://www.reddit.com/r/stocks/"),
+                _request_for_user(admin),
+                db,
+            )
+
+        assert exc.value.status_code == 422
+        assert exc.value.detail == (
+            "Manual URL mode works best with a specific post/comment URL or pasted text. "
+            "Subreddit listing URLs require Reddit API discovery."
+        )
+        assert db.query(AiMarketingOpportunity).count() == 0
+    finally:
+        db.close()
+
+
 def test_campaign_run_dedupes_source_items(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 

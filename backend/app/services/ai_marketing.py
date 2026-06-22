@@ -68,6 +68,15 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
     }
 )
 PROVIDER_ENV_ONLY_MESSAGE = "Provider credentials are managed through server environment variables."
+MANUAL_REDDIT_CREDENTIALS_MESSAGE = (
+    "Reddit API credentials are not configured. Paste the post/comment text manually or configure Reddit API credentials."
+)
+MANUAL_SUBREDDIT_LISTING_MESSAGE = (
+    "Manual URL mode works best with a specific post/comment URL or pasted text. "
+    "Subreddit listing URLs require Reddit API discovery."
+)
+MANUAL_TEXT_REQUIRED_MESSAGE = "Paste the post/comment text or thread excerpt before generating a manual suggestion."
+MANUAL_SOURCE_URL = "https://walnutmarkets.com/admin/ai-marketing"
 
 _TICKER_PATTERN = re.compile(r"(?<![A-Za-z0-9])\$?([A-Z]{1,5})(?![A-Za-z0-9])")
 _COMMON_FALSE_TICKERS = {
@@ -576,21 +585,36 @@ def upsert_source_item(
 def create_manual_opportunity(
     db: Session,
     *,
-    url: str,
+    url: str | None,
     text: str | None,
     title: str | None = None,
     campaign: AiMarketingCampaign | None = None,
     generate: bool = True,
 ) -> dict[str, Any]:
-    normalized_url = _normalize_source_url(url)
-    platform = _platform_from_url(normalized_url)
+    manual_text = str(text or "").strip()
+    raw_url = str(url or "").strip()
+    normalized_url = _normalize_source_url(raw_url) if raw_url else None
+    if normalized_url and _is_reddit_subreddit_listing_url(normalized_url) and not manual_text:
+        raise ValueError(MANUAL_SUBREDDIT_LISTING_MESSAGE)
+    if normalized_url and _platform_from_url(normalized_url) == "reddit" and not manual_text and _missing_reddit_credentials(db):
+        raise ValueError(MANUAL_REDDIT_CREDENTIALS_MESSAGE)
+    if not manual_text:
+        raise ValueError(MANUAL_TEXT_REQUIRED_MESSAGE)
+
+    platform = _platform_from_url(normalized_url) if normalized_url else "manual"
+    source_url = normalized_url or MANUAL_SOURCE_URL
+    source_key = normalized_url or f"manual:text:{_dedupe_key(manual_text)}"
     source_item = SourceItem(
         platform=platform,
-        source_id=f"manual:{_dedupe_key(normalized_url)}",
-        source_url=normalized_url,
+        source_id=f"manual:{_dedupe_key(source_key)}",
+        source_url=source_url,
         title=title or "Manual URL review",
-        excerpt=text or "",
-        metadata={"manual": True, "source": "admin_manual_url"},
+        excerpt=manual_text,
+        metadata={
+            "manual": True,
+            "source": "admin_manual_url",
+            "source_url_provided": bool(normalized_url),
+        },
     )
     opportunity, _was_created = upsert_source_item(db, campaign, source_item)
     warning: str | None = None
@@ -1228,6 +1252,24 @@ def _normalize_source_url(value: str) -> str:
     if not any(domain in host for domain in ("reddit.com", "x.com", "twitter.com", "facebook.com", "fb.com")):
         raise ValueError("Manual URL must be from Reddit, X, or Facebook.")
     return value.strip()
+
+
+def _missing_reddit_credentials(db: Session | None) -> list[str]:
+    return [
+        key
+        for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
+        if not resolved_setting_value(db, key)
+    ]
+
+
+def _is_reddit_subreddit_listing_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if "reddit.com" not in parsed.netloc.lower():
+        return False
+    parts = [part.lower() for part in parsed.path.split("/") if part]
+    if len(parts) < 2 or parts[0] != "r":
+        return False
+    return "comments" not in parts
 
 
 def _platform_from_url(url: str) -> str:
