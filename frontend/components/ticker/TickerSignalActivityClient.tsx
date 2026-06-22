@@ -156,6 +156,7 @@ export function TickerSignalActivityClient({
   lookbackStartKey,
   returnTo,
   className,
+  initialItems,
 }: {
   symbol: string;
   side: string;
@@ -163,12 +164,21 @@ export function TickerSignalActivityClient({
   lookbackStartKey: string;
   returnTo: string;
   className: string;
+  initialItems?: SignalItem[] | null;
 }) {
-  const [items, setItems] = useState<SignalItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const hasInitialItems = Array.isArray(initialItems);
+  const [items, setItems] = useState<SignalItem[]>(() => initialItems ?? []);
+  const [loading, setLoading] = useState(!hasInitialItems);
   const [gate, setGate] = useState<{ reason: GateReason; message: string } | null>(null);
 
   useEffect(() => {
+    if (hasInitialItems) {
+      setItems(initialItems ?? []);
+      setGate(null);
+      setLoading(false);
+      return;
+    }
+
     let alive = true;
     const controller = new AbortController();
     setLoading(true);
@@ -197,7 +207,7 @@ export function TickerSignalActivityClient({
       alive = false;
       controller.abort();
     };
-  }, [lookbackDays, side, symbol]);
+  }, [hasInitialItems, initialItems, lookbackDays, side, symbol]);
 
   const visibleItems = useMemo(
     () => items.filter((item) => item.ts && item.ts.slice(0, 10) >= lookbackStartKey),

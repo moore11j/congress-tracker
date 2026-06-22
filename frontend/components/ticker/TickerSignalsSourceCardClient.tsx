@@ -162,7 +162,7 @@ function sourceFromSummary(response: TickerSignalsSummaryResponse, visibleItems:
   };
 }
 
-function initialCardState(source: SignalCardSource, topSignal: InitialTopSignal | null, lookbackDays: number): CardState {
+function initialCardState(source: SignalCardSource, topSignal: InitialTopSignal | null, lookbackDays: number, resolved = false): CardState {
   if (sourceLocked(source)) {
     return {
       source,
@@ -171,11 +171,27 @@ function initialCardState(source: SignalCardSource, topSignal: InitialTopSignal 
       loading: false,
     };
   }
+  if (sourceUnavailable(source)) {
+    return {
+      source,
+      body: "Signal activity unavailable.",
+      support: "Ticker signals are temporarily unavailable.",
+      loading: false,
+    };
+  }
   if (source.present) {
     return {
       source,
       body: topSignal ? "Signal conviction active" : "Signal source active",
       support: signalSupport(source, topSignal, lookbackDays),
+      loading: false,
+    };
+  }
+  if (resolved) {
+    return {
+      source,
+      body: `No active signal stack in the ${lastWindowLabel(lookbackDays)}.`,
+      support: signalSupport(source, null, lookbackDays),
       loading: false,
     };
   }
@@ -194,6 +210,7 @@ export function TickerSignalsSourceCardClient({
   lookbackStartKey,
   initialSource,
   initialTopSignal,
+  initialResolved = false,
 }: {
   symbol: string;
   side: string;
@@ -201,13 +218,14 @@ export function TickerSignalsSourceCardClient({
   lookbackStartKey: string;
   initialSource: SignalCardSource;
   initialTopSignal: InitialTopSignal | null;
+  initialResolved?: boolean;
 }) {
   const fallbackSource = useMemo<SignalCardSource>(() => ({ ...inactiveSource, ...initialSource }), [initialSource]);
-  const [state, setState] = useState<CardState>(() => initialCardState(fallbackSource, initialTopSignal, lookbackDays));
+  const [state, setState] = useState<CardState>(() => initialCardState(fallbackSource, initialTopSignal, lookbackDays, initialResolved));
 
   useEffect(() => {
-    if (fallbackSource.present) {
-      setState(initialCardState(fallbackSource, initialTopSignal, lookbackDays));
+    if (fallbackSource.present || initialResolved) {
+      setState(initialCardState(fallbackSource, initialTopSignal, lookbackDays, initialResolved));
       return;
     }
 
@@ -266,7 +284,7 @@ export function TickerSignalsSourceCardClient({
       alive = false;
       controller.abort();
     };
-  }, [fallbackSource, initialTopSignal, lookbackDays, lookbackStartKey, side, symbol]);
+  }, [fallbackSource, initialResolved, initialTopSignal, lookbackDays, lookbackStartKey, side, symbol]);
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${cardBorderClass(state.source, state.loading)}`}>

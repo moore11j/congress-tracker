@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { searchSuggest, type SearchSuggestResult } from "@/lib/api";
+import type { SearchSuggestResult } from "@/lib/api";
 import { useFastSearchSuggest } from "@/hooks/useFastSearchSuggest";
 import { isHighConfidenceSearchResult, routeForSearchResult, searchResultsHref } from "@/lib/searchNavigation";
 
@@ -10,8 +10,6 @@ const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 8;
 const RECENT_SEARCH_RESULTS_KEY = "walnut:globalSearch:recentResults";
 const MAX_RECENT_SEARCH_RESULTS = 12;
-const PREFETCH_SESSION_KEY = "walnut:globalSearch:prefetched";
-const prefetchedSearchPrefixes = new Set<string>();
 
 const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
   agency: "Departments",
@@ -93,27 +91,6 @@ function recentSearchMatches(query: string): SearchSuggestResult[] {
     .slice(0, RESULT_LIMIT);
 }
 
-function warmPrefixesForResult(result: SearchSuggestResult): string[] {
-  const raw = result.symbol || result.label || result.id;
-  const compact = raw.trim().toLowerCase().replace(/[^a-z0-9. -]/g, "");
-  if (compact.length < MIN_QUERY_LENGTH) return [];
-  return Array.from(new Set([compact.slice(0, 2), compact.slice(0, 3), compact.split(/\s+/)[0]].filter((value) => value.length >= MIN_QUERY_LENGTH)));
-}
-
-function prefetchSearchPrefixes(prefixes: string[]) {
-  if (typeof window === "undefined") return;
-  const unique = Array.from(new Set(prefixes.map((value) => value.trim().toLowerCase()).filter((value) => value.length >= MIN_QUERY_LENGTH)))
-    .filter((value) => !prefetchedSearchPrefixes.has(value))
-    .slice(0, 4);
-  if (unique.length === 0) return;
-  unique.forEach((prefix) => prefetchedSearchPrefixes.add(prefix));
-  window.setTimeout(() => {
-    unique.forEach((prefix) => {
-      void searchSuggest(prefix, RESULT_LIMIT, { source: "GlobalSearchPrefetch" }).catch(() => undefined);
-    });
-  }, 250);
-}
-
 function groupedResults(results: SearchSuggestResult[]) {
   return (["ticker", "member", "insider", "agency", "event"] as const)
     .map((kind) => ({
@@ -137,6 +114,7 @@ export function GlobalSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -144,17 +122,16 @@ export function GlobalSearch() {
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
 
   const trimmedQuery = query.trim();
-  const suggest = useFastSearchSuggest(trimmedQuery, { limit: RESULT_LIMIT, minLength: MIN_QUERY_LENGTH, source: "GlobalSearch" });
+  const suggest = useFastSearchSuggest(trimmedQuery, {
+    limit: RESULT_LIMIT,
+    minLength: MIN_QUERY_LENGTH,
+    source: "GlobalSearch",
+    enabled: searchFocused,
+  });
   const recentResults = useMemo(() => recentSearchMatches(trimmedQuery), [trimmedQuery]);
   const results = useMemo(() => dedupeResults([...suggest.results, ...recentResults]), [recentResults, suggest.results]);
   const showPanel = open && trimmedQuery.length >= MIN_QUERY_LENGTH;
   const groups = useMemo(() => groupedResults(results), [results]);
-
-  useEffect(() => {
-    if (window.sessionStorage.getItem(PREFETCH_SESSION_KEY) === "1") return;
-    window.sessionStorage.setItem(PREFETCH_SESSION_KEY, "1");
-    prefetchSearchPrefixes(readRecentSearchResults().flatMap(warmPrefixesForResult));
-  }, []);
 
   useEffect(() => {
     if (trimmedQuery.length < MIN_QUERY_LENGTH) {
@@ -173,6 +150,7 @@ export function GlobalSearch() {
       if (rootRef.current?.contains(target)) return;
       setOpen(false);
       setMobileOpen(false);
+      setSearchFocused(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
@@ -185,6 +163,7 @@ export function GlobalSearch() {
       event.preventDefault();
       setMobileOpen(true);
       setOpen(true);
+      setSearchFocused(true);
       window.setTimeout(() => {
         const input = window.matchMedia("(min-width: 768px)").matches ? inputRef.current : mobileInputRef.current;
         input?.focus();
@@ -203,6 +182,7 @@ export function GlobalSearch() {
   function closeSearch() {
     setOpen(false);
     setMobileOpen(false);
+    setSearchFocused(false);
     setHighlightedIndex(-1);
   }
 
@@ -211,7 +191,6 @@ export function GlobalSearch() {
     const route = routeForSearchResult(result);
     if (!route) return;
     rememberSearchResult({ ...result, href: route });
-    prefetchSearchPrefixes(warmPrefixesForResult(result));
     closeSearch();
     setQuery("");
     router.push(route);
@@ -317,6 +296,7 @@ export function GlobalSearch() {
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => {
+          setSearchFocused(true);
           if (trimmedQuery.length >= MIN_QUERY_LENGTH) setOpen(true);
         }}
         onKeyDown={handleKeyDown}
@@ -343,6 +323,7 @@ export function GlobalSearch() {
         onClick={() => {
           setMobileOpen(true);
           setOpen(true);
+          setSearchFocused(true);
         }}
         aria-label="Open search"
       >
@@ -357,6 +338,7 @@ export function GlobalSearch() {
               ref={mobileInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onFocus={() => setSearchFocused(true)}
               onKeyDown={handleKeyDown}
               placeholder="Search tickers, departments, members, insiders..."
               className="h-10 w-full rounded-lg border border-white/10 bg-slate-950 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500/40 focus:border-emerald-300/55"

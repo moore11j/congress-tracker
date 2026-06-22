@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getTickerChartBundle,
   getTickerHydrationStatus,
@@ -13,6 +13,7 @@ import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/tic
 import { cardClassName } from "@/lib/styles";
 
 const CHART_HYDRATION_DELAY_MS = 1200;
+const CHART_VISIBILITY_FALLBACK_MS = 2200;
 const requestedHydrationSymbols = new Set<string>();
 
 function isAbortError(error: unknown): boolean {
@@ -53,12 +54,40 @@ function waitForHydrationWindow(signal: AbortSignal): Promise<void> {
 }
 
 export function TickerChartLoader({ symbol, days }: { symbol: string; days: number }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [bundle, setBundle] = useState<TickerChartBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [shouldLoad, setShouldLoad] = useState(false);
 
   useEffect(() => {
+    if (shouldLoad) return;
+    const node = rootRef.current;
+    const fallbackTimer = window.setTimeout(() => setShouldLoad(true), CHART_VISIBILITY_FALLBACK_MS);
+
+    if (!node || typeof IntersectionObserver === "undefined") {
+      return () => window.clearTimeout(fallbackTimer);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        window.clearTimeout(fallbackTimer);
+        setShouldLoad(true);
+        observer.disconnect();
+      },
+      { rootMargin: "420px 0px" },
+    );
+    observer.observe(node);
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      observer.disconnect();
+    };
+  }, [shouldLoad]);
+
+  useEffect(() => {
+    if (!shouldLoad) return;
     const controller = new AbortController();
     setBundle(null);
     setLoading(true);
@@ -119,23 +148,35 @@ export function TickerChartLoader({ symbol, days }: { symbol: string; days: numb
       });
 
     return () => controller.abort();
-  }, [attempt, days, symbol]);
+  }, [attempt, days, shouldLoad, symbol]);
 
-  if (loading) return <PremiumTickerChartSkeleton />;
-  if (failed) {
+  if (!shouldLoad || loading) {
     return (
-      <section className={cardClassName}>
-        <h2 className="text-lg font-semibold text-white">Ticker chart</h2>
-        <p className="mt-2 text-sm text-slate-400">Chart unavailable.</p>
-        <button
-          type="button"
-          onClick={() => setAttempt((value) => value + 1)}
-          className="mt-4 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/15"
-        >
-          Retry
-        </button>
-      </section>
+      <div ref={rootRef}>
+        <PremiumTickerChartSkeleton />
+      </div>
     );
   }
-  return <PremiumTickerChart bundle={bundle} />;
+  if (failed) {
+    return (
+      <div ref={rootRef}>
+        <section className={cardClassName}>
+          <h2 className="text-lg font-semibold text-white">Ticker chart</h2>
+          <p className="mt-2 text-sm text-slate-400">Chart unavailable.</p>
+          <button
+            type="button"
+            onClick={() => setAttempt((value) => value + 1)}
+            className="mt-4 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/15"
+          >
+            Retry
+          </button>
+        </section>
+      </div>
+    );
+  }
+  return (
+    <div ref={rootRef}>
+      <PremiumTickerChart bundle={bundle} />
+    </div>
+  );
 }

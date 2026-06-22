@@ -31,7 +31,7 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
 
 test("ticker chart helper forwards selected days to chart-bundle", () => {
   assert.match(chartLoader, /getTickerChartBundle\(symbol, days,/);
-  assert.match(chartLoader, /\}, \[attempt, days, symbol\]\)/);
+  assert.match(chartLoader, /\}, \[attempt, days, shouldLoad, symbol\]\)/);
   assert.match(api, /buildApiUrl\(`\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/chart-bundle`, \{ days \}\)/);
 });
 

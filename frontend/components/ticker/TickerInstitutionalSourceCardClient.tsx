@@ -128,22 +128,24 @@ export function TickerInstitutionalSourceCardClient({
   lookbackDays,
   initialSource,
   canViewInstitutional = false,
+  initialResolved = false,
 }: {
   symbol: string;
   side: string;
   lookbackDays: number;
   initialSource: InstitutionalSource;
   canViewInstitutional?: boolean;
+  initialResolved?: boolean;
 }) {
   const fallbackSource = useMemo<InstitutionalSource>(
     () => normalizeSourceForAccess({ ...inactiveSource, ...initialSource }, canViewInstitutional),
     [canViewInstitutional, initialSource],
   );
   const [source, setSource] = useState<InstitutionalSource>(fallbackSource);
-  const [loading, setLoading] = useState(!fallbackSource.present && !sourceUnavailable(fallbackSource) && !sourceLocked(fallbackSource, canViewInstitutional));
+  const [loading, setLoading] = useState(!initialResolved && !fallbackSource.present && !sourceUnavailable(fallbackSource) && !sourceLocked(fallbackSource, canViewInstitutional));
 
   useEffect(() => {
-    if (sourceLocked(fallbackSource, canViewInstitutional) || canSkipInstitutionalFetch(fallbackSource)) {
+    if (initialResolved || sourceLocked(fallbackSource, canViewInstitutional) || canSkipInstitutionalFetch(fallbackSource)) {
       setSource(fallbackSource);
       setLoading(false);
       return;
@@ -186,7 +188,7 @@ export function TickerInstitutionalSourceCardClient({
       alive = false;
       controller.abort();
     };
-  }, [canViewInstitutional, fallbackSource, lookbackDays, side, symbol]);
+  }, [canViewInstitutional, fallbackSource, initialResolved, lookbackDays, side, symbol]);
 
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${borderClass(source, loading)}`}>

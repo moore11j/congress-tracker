@@ -73,6 +73,7 @@ type ApiRequestInit = RequestInit & {
 export const EVENTS_API_MAX_LIMIT = 100;
 const CLIENT_CACHE_TTL_MS = 30_000;
 const SEARCH_CACHE_TTL_MS = 20 * 60_000;
+const EVENTS_CACHE_TTL_MS = 5_000;
 
 export class ApiError extends Error {
   status: number;
@@ -277,6 +278,8 @@ let unreadPromise: Promise<MonitoringUnreadCountResponse> | null = null;
 const globalSearchCache = new Map<string, { value: GlobalSearchResponse; expiresAt: number }>();
 const searchSuggestCache = new Map<string, { value: SearchSuggestResponse; expiresAt: number }>();
 const searchSuggestPromises = new Map<string, Promise<SearchSuggestResponse>>();
+const eventsCache = new Map<string, { value: EventsResponse; expiresAt: number }>();
+const eventsPromises = new Map<string, Promise<EventsResponse>>();
 const tickerDataCache = new Map<string, { value: unknown; expiresAt: number }>();
 const tickerDataPromises = new Map<string, Promise<unknown>>();
 
@@ -288,6 +291,8 @@ function resetClientApiCaches() {
   entitlementPromises.clear();
   searchSuggestCache.clear();
   searchSuggestPromises.clear();
+  eventsCache.clear();
+  eventsPromises.clear();
   tickerDataCache.clear();
   tickerDataPromises.clear();
   unreadCache = null;
@@ -1931,7 +1936,7 @@ export async function completeGoogleSignIn(payload: {
 
 export async function getMe(options?: { force?: boolean; source?: string }): Promise<MeResponse> {
   if (typeof window !== "undefined") {
-    if (!options?.force && mePromise) return mePromise;
+    if (mePromise) return mePromise;
     if (!options?.force && meCache && meCache.expiresAt > Date.now()) return meCache.value;
   }
 
@@ -3423,6 +3428,7 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
 
   const request = fetchJson<SearchSuggestResponse>(buildApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
     cache: "no-store",
+    signal: options?.signal,
     source: options?.source ?? "FastSearchSuggest",
   }).then((response) => {
     const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
@@ -3546,13 +3552,41 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   if (process.env.NODE_ENV === "development") {
     console.info(`[feed] GET ${url}`);
   }
-  const response = await fetchJson<unknown>(url, {
+  const windowDays = isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null;
+  const cacheKey = `events:${url}`;
+  const canShortCache = nextParams.debug === undefined && !requestSignal?.aborted;
+  if (canShortCache) {
+    const now = Date.now();
+    const cached = eventsCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+    const pending = eventsPromises.get(cacheKey);
+    if (pending) return raceWithAbort(pending, requestSignal);
+  }
+
+  const request = fetchJson<unknown>(url, {
     cache: "force-cache",
     next: { revalidate: 30 },
-    signal: requestSignal,
+    signal: canShortCache ? undefined : requestSignal,
     source,
+  }).then((response) => {
+    const normalized = normalizeEventsResponse(response, windowDays);
+    if (canShortCache) {
+      eventsCache.set(cacheKey, { value: normalized, expiresAt: Date.now() + EVENTS_CACHE_TTL_MS });
+      if (eventsCache.size > 80) {
+        const staleKeys = [...eventsCache.entries()]
+          .sort((left, right) => left[1].expiresAt - right[1].expiresAt)
+          .slice(0, 20)
+          .map(([key]) => key);
+        staleKeys.forEach((key) => eventsCache.delete(key));
+      }
+    }
+    return normalized;
+  }).finally(() => {
+    if (canShortCache) eventsPromises.delete(cacheKey);
   });
-  return normalizeEventsResponse(response, isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null);
+
+  if (canShortCache) eventsPromises.set(cacheKey, request);
+  return raceWithAbort(request, requestSignal);
 }
 
 export async function getWatchlistEvents(id: number, params: QueryParamsWithRequestOptions): Promise<EventsResponse> {

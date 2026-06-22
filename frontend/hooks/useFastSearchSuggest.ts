@@ -12,11 +12,12 @@ type FastSearchSuggestState = {
   settled: boolean;
 };
 
-export function useFastSearchSuggest(query: string, options?: { limit?: number; minLength?: number; source?: string; debounceMs?: number }) {
+export function useFastSearchSuggest(query: string, options?: { limit?: number; minLength?: number; source?: string; debounceMs?: number; enabled?: boolean }) {
   const limit = options?.limit ?? 8;
   const minLength = options?.minLength ?? 2;
   const debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const source = options?.source ?? "FastSearchSuggest";
+  const enabled = options?.enabled ?? true;
   const [state, setState] = useState<FastSearchSuggestState>({
     results: [],
     loading: false,
@@ -29,7 +30,7 @@ export function useFastSearchSuggest(query: string, options?: { limit?: number; 
   useEffect(() => {
     const trimmed = query.trim();
     abortRef.current?.abort();
-    if (trimmed.length < minLength) {
+    if (!enabled || trimmed.length < minLength) {
       requestIdRef.current += 1;
       setState({ results: [], loading: false, error: false, settled: true });
       return;
@@ -68,7 +69,7 @@ export function useFastSearchSuggest(query: string, options?: { limit?: number; 
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [debounceMs, limit, minLength, query, source]);
+  }, [debounceMs, enabled, limit, minLength, query, source]);
 
   return state;
 }

@@ -131,6 +131,7 @@ type TickerActivityData = {
   sourceEntitlements: TickerSourceEntitlements | null;
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
   signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
+  signalSummaryResolved: boolean;
   effectiveWindowDays: number | null;
   summaryInsiders: TickerSignalsSummaryResponse["insiders"] | null;
   summaryCongress: TickerSignalsSummaryResponse["congress"] | null;
@@ -2082,16 +2083,19 @@ async function resolveTickerActivityData({
       ? signalSummaryRequest
           .then((response) => ({
             response,
+            resolved: true,
             unavailable: response.source_entitlements?.signals?.locked
               ? signalsUnavailable ?? signalGateForAuthenticatedFreeUser()
               : null,
           }))
           .catch(() => ({
             response: { items: [] as SignalItem[] },
+            resolved: false,
             unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
           }))
       : Promise.resolve({
           response: { items: [] as SignalItem[] },
+          resolved: false,
           unavailable: signalsUnavailable ?? null,
         }),
   ]);
@@ -2240,6 +2244,7 @@ async function resolveTickerActivityData({
     sourceEntitlements: signalsRes.source_entitlements ?? null,
     confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
     signalFreshness: signalsRes.signal_freshness ?? null,
+    signalSummaryResolved: signalsResult.resolved,
     effectiveWindowDays: typeof signalsRes.effective_window_days === "number"
       ? signalsRes.effective_window_days
       : typeof signalsRes.lookback_days === "number"
@@ -2321,6 +2326,7 @@ async function DeferredTickerContent({
     sourceEntitlements: activitySourceEntitlements,
     confirmationScoreBundle: activityConfirmationScoreBundle,
     signalFreshness: activitySignalFreshness,
+    signalSummaryResolved,
     effectiveWindowDays,
     summaryInsiders,
     summaryCongress,
@@ -2380,6 +2386,7 @@ async function DeferredTickerContent({
     : "Signals are gated for this view.";
   const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
   const confirmationLookbackDays = confirmationBundle.lookback_days;
+  const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
   const insiderCardSource = confirmationBundle.sources.insiders;
   const congressCardSource = confirmationBundle.sources.congress;
@@ -2461,6 +2468,7 @@ async function DeferredTickerContent({
                   lookbackDays={confirmationLookbackDays}
                   initialSource={confirmationBundle.sources.institutional_activity}
                   canViewInstitutional={canViewProTickerContext}
+                  initialResolved={canReuseSignalSummary}
                 />
               )}
               {signalsCardLocked ? (
@@ -2477,6 +2485,7 @@ async function DeferredTickerContent({
                   lookbackDays={confirmationLookbackDays}
                   lookbackStartKey={lookbackStartDateKey(confirmationLookbackDays)}
                   initialSource={signalsCardSource}
+                  initialResolved={canReuseSignalSummary}
                   initialTopSignal={
                     topSignal
                       ? {
@@ -2812,6 +2821,7 @@ async function DeferredTickerContent({
                 lookbackStartKey={lookbackStartDateKey(SIGNAL_WINDOW_DAYS)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
+                initialItems={canReuseSignalSummary ? signals : null}
               />
             </div>
           ) : showSignals ? (
