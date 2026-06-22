@@ -39,11 +39,11 @@ Required for production runtime:
 | `EMAIL_REPLY_TO` | Canonical fallback reply-to | Fallback only when template reply-to is blank. |
 | `EMAIL_DIGEST_SCHEDULE_ENABLED` | Enables scheduled digest cron sends | Required only if scheduled sends should run. |
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
-| `OPENAI_API_KEY` | AI Outreach suggestion generation | Server-side only. Required to generate suggested replies. |
-| `AI_MARKETING_MODEL` | AI Outreach model override | Optional; defaults to `gpt-5.4-mini`. |
-| `REDDIT_CLIENT_ID` | Reddit official API OAuth client ID | Required only for AI Outreach Reddit discovery. |
-| `REDDIT_CLIENT_SECRET` | Reddit official API OAuth client secret | Required only for AI Outreach Reddit discovery. |
-| `REDDIT_USER_AGENT` | Reddit official API user agent | Required only for AI Outreach Reddit discovery. |
+| `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
+| `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.4-mini`; do not store in admin DB settings. |
+| `REDDIT_CLIENT_ID` | Reddit official API OAuth client ID | Server env/Fly secret only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |
+| `REDDIT_CLIENT_SECRET` | Reddit official API OAuth client secret | Server env/Fly secret only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |
+| `REDDIT_USER_AGENT` | Reddit official API user agent | Server env only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |
 | `STRIPE_SECRET_KEY` | Stripe API access | Required for checkout, portal, admin sync. |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook verification | Required for webhook sync. |
 | `STRIPE_PRICE_ID_PREMIUM_MONTHLY` | Premium monthly price | Canonical price var. |
@@ -71,6 +71,7 @@ Cookie-only auth deployment note:
   - `AUTO_BACKFILL_EVENTS_ON_STARTUP=0`
   These tasks are scheduled in the background when explicitly enabled, but normal production repairs/backfills should run through cron/admin jobs rather than blocking app readiness.
 - Create optional large-table performance indexes with the maintenance command in `docs/runbooks/production_indexes.md`, not during normal web startup.
+- Manage AI Outreach provider credentials with Fly secrets/server env only. The admin settings API ignores and rejects DB-stored provider values for `OPENAI_API_KEY`, `AI_MARKETING_MODEL`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`; see `docs/runbooks/ai_outreach_provider_credentials.md` for cleanup of deprecated rows.
 - Smoke test login, Google OAuth, `/api/auth/me`, admin, account, watchlists, screener, logout, and refresh after deploy.
 
 Optional backend tuning vars that are safe to omit unless tuning production behavior:

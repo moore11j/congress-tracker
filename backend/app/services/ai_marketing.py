@@ -58,6 +58,16 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
 }
 SECRET_SETTING_KEYS = {key for key, meta in AI_MARKETING_SETTINGS.items() if meta["is_secret"]}
+ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
+    {
+        OPENAI_API_KEY,
+        AI_MARKETING_MODEL,
+        REDDIT_CLIENT_ID,
+        REDDIT_CLIENT_SECRET,
+        REDDIT_USER_AGENT,
+    }
+)
+PROVIDER_ENV_ONLY_MESSAGE = "Provider credentials are managed through server environment variables."
 
 _TICKER_PATTERN = re.compile(r"(?<![A-Za-z0-9])\$?([A-Z]{1,5})(?![A-Za-z0-9])")
 _COMMON_FALSE_TICKERS = {
@@ -117,10 +127,37 @@ def resolve_setting(db: Session | None, key: str) -> dict[str, Any]:
 
     row = db.get(AiMarketingSetting, key) if db is not None else None
     row_value = (row.value or "").strip() if row and row.value is not None else ""
+    deprecated_admin_setting = key in ENV_ONLY_PROVIDER_SETTING_KEYS and bool(row_value)
+    env_value = os.getenv(key, "").strip()
+
+    if key in ENV_ONLY_PROVIDER_SETTING_KEYS:
+        if env_value:
+            return {
+                "key": key,
+                "value": env_value,
+                "source": "server_env",
+                "row": row,
+                "deprecated_admin_setting": deprecated_admin_setting,
+            }
+        if key == AI_MARKETING_MODEL:
+            return {
+                "key": key,
+                "value": DEFAULT_AI_MARKETING_MODEL,
+                "source": "default",
+                "row": row,
+                "deprecated_admin_setting": deprecated_admin_setting,
+            }
+        return {
+            "key": key,
+            "value": None,
+            "source": "missing",
+            "row": row,
+            "deprecated_admin_setting": deprecated_admin_setting,
+        }
+
     if row_value:
         return {"key": key, "value": row_value, "source": "admin_settings", "row": row}
 
-    env_value = os.getenv(key, "").strip()
     if env_value:
         return {"key": key, "value": env_value, "source": "server_env", "row": row}
 
@@ -133,6 +170,7 @@ def public_setting_payload(db: Session, key: str) -> dict[str, Any]:
     row = resolved["row"]
     configured = bool(resolved["value"])
     is_secret = bool(meta["is_secret"])
+    env_only = key in ENV_ONLY_PROVIDER_SETTING_KEYS
     payload = {
         "key": key,
         "label": meta["label"],
@@ -141,10 +179,12 @@ def public_setting_payload(db: Session, key: str) -> dict[str, Any]:
         "source": resolved["source"],
         "source_label": _setting_source_label(resolved["source"]),
         "required_for": meta["required_for"],
-        "masked_value": _masked_secret() if is_secret and configured else None,
-        "updated_at": _iso(row.updated_at) if row else None,
+        "masked_value": None if env_only else _masked_secret() if is_secret and configured else None,
+        "updated_at": None if env_only else _iso(row.updated_at) if row else None,
     }
-    if not is_secret:
+    if resolved.get("deprecated_admin_setting"):
+        payload["deprecated_admin_setting"] = True
+    if not is_secret and not env_only:
         payload["value"] = resolved["value"] or (DEFAULT_AI_MARKETING_MODEL if key == AI_MARKETING_MODEL else "")
     return payload
 
@@ -167,6 +207,9 @@ def update_settings(
     unknown = sorted((set(updates) | clear_keys) - set(AI_MARKETING_SETTINGS))
     if unknown:
         raise ValueError(f"Unsupported AI marketing setting: {', '.join(unknown)}.")
+    env_only = sorted((set(updates) | clear_keys) & ENV_ONLY_PROVIDER_SETTING_KEYS)
+    if env_only:
+        raise ValueError(PROVIDER_ENV_ONLY_MESSAGE)
 
     for key in clear_keys:
         _upsert_setting(db, key, None)
@@ -191,6 +234,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
+    if any(status.get("deprecated_admin_setting") for status in statuses.values()):
+        warnings.append("Deprecated DB-stored provider credentials detected; ignored.")
     if not statuses[REDDIT_CLIENT_ID]["configured"]:
         warnings.append("Reddit client ID missing")
     if not statuses[REDDIT_CLIENT_SECRET]["configured"]:
@@ -201,7 +246,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     warnings.append("Facebook is manual URL mode only. No Facebook scraping or posting is implemented.")
     return {
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
-        "openai_model": statuses[AI_MARKETING_MODEL].get("value") or DEFAULT_AI_MARKETING_MODEL,
+        "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
         "reddit_configured": all(
             bool(statuses[key]["configured"])
             for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
@@ -1110,20 +1155,22 @@ def _upsert_setting(db: Session, key: str, value: str | None) -> AiMarketingSett
 def _public_setting_payload_without_db(key: str) -> dict[str, Any]:
     meta = AI_MARKETING_SETTINGS[key]
     value = os.getenv(key, "").strip()
-    configured = bool(value)
+    env_only = key in ENV_ONLY_PROVIDER_SETTING_KEYS
+    source = "server_env" if value else "default" if key == AI_MARKETING_MODEL else "missing"
+    configured = bool(value) or key == AI_MARKETING_MODEL
     is_secret = bool(meta["is_secret"])
     payload = {
         "key": key,
         "label": meta["label"],
         "is_secret": is_secret,
         "configured": configured,
-        "source": "server_env" if configured else "missing",
-        "source_label": "Configured via server env" if configured else "Missing",
+        "source": source,
+        "source_label": _setting_source_label(source),
         "required_for": meta["required_for"],
-        "masked_value": _masked_secret() if is_secret and configured else None,
+        "masked_value": None if env_only else _masked_secret() if is_secret and configured else None,
         "updated_at": None,
     }
-    if not is_secret:
+    if not is_secret and not env_only:
         payload["value"] = value or (DEFAULT_AI_MARKETING_MODEL if key == AI_MARKETING_MODEL else "")
     return payload
 
@@ -1133,6 +1180,8 @@ def _setting_source_label(source: str) -> str:
         return "Configured in admin settings"
     if source == "server_env":
         return "Configured via server env"
+    if source == "default":
+        return "Default"
     return "Missing"
 
 

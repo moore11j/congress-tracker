@@ -1494,12 +1494,13 @@ export type AdminAiMarketingSetting = {
   label: string;
   is_secret: boolean;
   configured: boolean;
-  source: "admin_settings" | "server_env" | "missing" | string;
+  source: "admin_settings" | "server_env" | "default" | "missing" | string;
   source_label: string;
   required_for: string;
   masked_value?: string | null;
   value?: string | null;
   updated_at?: string | null;
+  deprecated_admin_setting?: boolean;
 };
 
 export type AdminAiMarketingSettingsResponse = {

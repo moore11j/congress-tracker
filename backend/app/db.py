@@ -2057,6 +2057,19 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             for name, column_type in user_columns.items():
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {name} {column_type}"))
+            stripe_webhook_events_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='stripe_webhook_events'")
+            ).fetchone()
+            if stripe_webhook_events_exists:
+                webhook_existing = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(stripe_webhook_events)")).fetchall()
+                    if len(row) > 1
+                }
+                if "status" not in webhook_existing:
+                    conn.execute(text("ALTER TABLE stripe_webhook_events ADD COLUMN status TEXT NOT NULL DEFAULT 'processed'"))
+                if "error_message" not in webhook_existing:
+                    conn.execute(text("ALTER TABLE stripe_webhook_events ADD COLUMN error_message TEXT"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_accounts_deleted_at ON user_accounts (deleted_at)"))
             conn.execute(
                 text(
@@ -2080,6 +2093,8 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS deletion_plan TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS reactivation_token_hash TEXT"))
             conn.execute(text("ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS reactivation_expires_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE stripe_webhook_events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processed'"))
+            conn.execute(text("ALTER TABLE stripe_webhook_events ADD COLUMN IF NOT EXISTS error_message TEXT"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_accounts_deleted_at ON user_accounts (deleted_at)"))
             conn.execute(
                 text(

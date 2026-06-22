@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import threading
+import time
 import zipfile
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -18,7 +20,8 @@ from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates, seed_plan_prices
 from app.main import WatchlistPayload, create_watchlist
-from app.models import AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, UserAccount, Watchlist
+from app.models import AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, StripeWebhookEvent, UserAccount, Watchlist
+from app.routers import accounts as accounts_module
 from app.services.billing_reminders import run_billing_expiry_reminders
 from app.routers.accounts import (
     CheckoutSessionPayload,
@@ -3006,8 +3009,163 @@ def test_duplicate_subscription_updated_event_remains_idempotent(monkeypatch):
 
         assert first["status"] == "processed"
         assert second == {"status": "already_processed", "event_type": "customer.subscription.updated"}
+        ledger = db.get(StripeWebhookEvent, "evt_subscription_idempotent")
+        assert ledger is not None
+        assert ledger.status == "processed"
+        assert ledger.error_message is None
         assert user.subscription_plan == "pro"
         assert user.stripe_price_id == "price_idem_pro"
+    finally:
+        db.close()
+
+
+def test_concurrent_duplicate_stripe_event_runs_side_effects_once(monkeypatch, tmp_path):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db_path = tmp_path / "stripe-idempotency.db"
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False, "timeout": 5},
+    )
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(engine)
+    with Session() as db:
+        seed_feature_gates(db)
+        seed_plan_prices(db)
+        user = _user(db, "race-stripe@example.com")
+        user_id = user.id
+
+    original_sync = accounts_module._sync_user_subscription
+    side_effect_calls: list[str] = []
+    first_side_effect_started = threading.Event()
+    release_first_side_effect = threading.Event()
+
+    def slow_sync(db, **kwargs):
+        side_effect_calls.append(str(kwargs.get("status")))
+        first_side_effect_started.set()
+        release_first_side_effect.wait(timeout=2)
+        return original_sync(db, **kwargs)
+
+    monkeypatch.setattr(accounts_module, "_sync_user_subscription", slow_sync)
+    event = {
+        "id": "evt_concurrent_duplicate",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "object": "checkout.session",
+                "customer": "cus_race",
+                "subscription": "sub_race",
+                "customer_email": "race-stripe@example.com",
+                "metadata": {"user_id": str(user_id), "email": "race-stripe@example.com"},
+            }
+        },
+    }
+    results: list[dict] = []
+    errors: list[BaseException] = []
+
+    def deliver():
+        db = Session()
+        try:
+            results.append(process_stripe_event(db, event))
+        except BaseException as exc:  # pragma: no cover - failure path asserted below
+            errors.append(exc)
+        finally:
+            db.close()
+
+    first = threading.Thread(target=deliver)
+    second = threading.Thread(target=deliver)
+    first.start()
+    assert first_side_effect_started.wait(timeout=2)
+    second.start()
+    time.sleep(0.2)
+    release_first_side_effect.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert not errors
+    assert sorted(result["status"] for result in results) == ["already_processed", "processed"]
+    assert side_effect_calls == ["active"]
+    with Session() as db:
+        user = db.get(UserAccount, user_id)
+        ledger = db.get(StripeWebhookEvent, "evt_concurrent_duplicate")
+        assert user is not None
+        assert user.stripe_customer_id == "cus_race"
+        assert user.entitlement_tier == "premium"
+        assert ledger is not None
+        assert ledger.status == "processed"
+        assert ledger.error_message is None
+
+
+def test_failed_stripe_event_records_safe_failed_status_and_can_retry(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    original_sync = accounts_module._sync_user_subscription
+
+    def failing_sync(*_args, **_kwargs):
+        raise RuntimeError("sk_live_secret_should_not_be_recorded")
+
+    try:
+        user = _user(db, "retry-stripe@example.com")
+        event = {
+            "id": "evt_retry_after_failure",
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "object": "checkout.session",
+                    "customer": "cus_retry",
+                    "subscription": "sub_retry",
+                    "customer_email": user.email,
+                    "metadata": {"user_id": str(user.id), "email": user.email},
+                }
+            },
+        }
+
+        monkeypatch.setattr(accounts_module, "_sync_user_subscription", failing_sync)
+        with pytest.raises(RuntimeError):
+            process_stripe_event(db, event)
+
+        failed = db.get(StripeWebhookEvent, "evt_retry_after_failure")
+        assert failed is not None
+        assert failed.status == "failed"
+        assert failed.error_message == "RuntimeError"
+        assert "sk_live" not in (failed.error_message or "")
+        db.refresh(user)
+        assert user.entitlement_tier == "free"
+        db.expunge(failed)
+
+        monkeypatch.setattr(accounts_module, "_sync_user_subscription", original_sync)
+        retried = process_stripe_event(db, event)
+        db.refresh(user)
+        processed = db.get(StripeWebhookEvent, "evt_retry_after_failure")
+
+        assert retried["status"] == "processed"
+        assert processed is not None
+        assert processed.status == "processed"
+        assert processed.error_message is None
+        assert user.entitlement_tier == "premium"
+        assert user.stripe_customer_id == "cus_retry"
+    finally:
+        db.close()
+
+
+def test_unknown_stripe_event_is_recorded_and_ignored_safely():
+    db = _session()
+    try:
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_unknown_ignored",
+                "type": "customer.created",
+                "data": {"object": {"object": "customer", "id": "cus_unknown_ignored"}},
+            },
+        )
+        ledger = db.get(StripeWebhookEvent, "evt_unknown_ignored")
+
+        assert result == {"status": "ignored", "event_type": "customer.created"}
+        assert ledger is not None
+        assert ledger.status == "processed"
+        assert ledger.error_message is None
     finally:
         db.close()
 

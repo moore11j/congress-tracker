@@ -46,6 +46,7 @@ def test_ticker_hydration_status_reports_ok_and_missing_states():
                 market_cap=8_000_000_000,
                 volume=5_000_000,
                 avg_volume=4_500_000,
+                exchange="NASDAQ",
                 sector="Technology",
                 industry="Information Technology Services",
                 beta=1.4,

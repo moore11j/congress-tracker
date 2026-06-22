@@ -18,7 +18,8 @@ from zoneinfo import ZoneInfo
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import String, case, cast, func, or_, select
+from sqlalchemy import String, case, cast, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -4155,88 +4156,235 @@ def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, 
     }
 
 
+def _stripe_webhook_payload_json(event: dict[str, Any]) -> str:
+    return json.dumps(event, sort_keys=True)
+
+
+def _stripe_webhook_safe_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return f"HTTPException:{exc.status_code}"
+    return exc.__class__.__name__
+
+
+def _claim_stripe_webhook_event(
+    db: Session,
+    *,
+    event_id: str,
+    event_type: str,
+    event: dict[str, Any],
+) -> tuple[StripeWebhookEvent | None, dict[str, Any] | None]:
+    if not event_id:
+        return None, None
+
+    now = datetime.now(timezone.utc)
+    payload_json = _stripe_webhook_payload_json(event)
+    row = StripeWebhookEvent(
+        event_id=event_id,
+        event_type=event_type,
+        payload_json=payload_json,
+        status="processing",
+        error_message=None,
+        processed_at=now,
+    )
+    db.add(row)
+    try:
+        db.flush()
+        return row, None
+    except IntegrityError:
+        db.rollback()
+
+    existing = db.get(StripeWebhookEvent, event_id)
+    existing_status = str(getattr(existing, "status", "") or "processed").strip().lower()
+    if existing_status == "failed":
+        updated = db.execute(
+            update(StripeWebhookEvent)
+            .where(StripeWebhookEvent.event_id == event_id)
+            .where(StripeWebhookEvent.status == "failed")
+            .values(
+                event_type=event_type,
+                payload_json=payload_json,
+                status="processing",
+                error_message=None,
+                processed_at=now,
+            )
+        ).rowcount
+        if updated:
+            db.flush()
+            return db.get(StripeWebhookEvent, event_id), None
+        db.rollback()
+        existing_status = "processing"
+
+    logger.info(
+        "stripe_webhook_duplicate event_id=%s event_type=%s status=%s",
+        event_id,
+        event_type,
+        existing_status or "processed",
+    )
+    return None, {"status": "already_processed", "event_type": event_type}
+
+
+def _mark_stripe_webhook_processed(row: StripeWebhookEvent | None) -> None:
+    if not row:
+        return
+    row.status = "processed"
+    row.error_message = None
+    row.processed_at = datetime.now(timezone.utc)
+
+
+def _record_stripe_webhook_failure(
+    db: Session,
+    *,
+    event_id: str,
+    event_type: str,
+    event: dict[str, Any],
+    exc: Exception,
+) -> None:
+    if not event_id:
+        return
+    payload_json = _stripe_webhook_payload_json(event)
+    error_message = _stripe_webhook_safe_error(exc)
+    now = datetime.now(timezone.utc)
+    recorded_row: StripeWebhookEvent | None = None
+    try:
+        row = db.get(StripeWebhookEvent, event_id)
+        if row and str(row.status or "").strip().lower() == "processed":
+            return
+        if row:
+            row.event_type = event_type
+            row.payload_json = payload_json
+            row.status = "failed"
+            row.error_message = error_message
+            row.processed_at = now
+            recorded_row = row
+        else:
+            recorded_row = StripeWebhookEvent(
+                event_id=event_id,
+                event_type=event_type,
+                payload_json=payload_json,
+                status="failed",
+                error_message=error_message,
+                processed_at=now,
+            )
+            db.add(recorded_row)
+        db.commit()
+        if recorded_row is not None:
+            db.expunge(recorded_row)
+    except IntegrityError:
+        db.rollback()
+        db.execute(
+            update(StripeWebhookEvent)
+            .where(StripeWebhookEvent.event_id == event_id)
+            .where(StripeWebhookEvent.status != "processed")
+            .values(
+                event_type=event_type,
+                payload_json=payload_json,
+                status="failed",
+                error_message=error_message,
+                processed_at=now,
+            )
+        )
+        db.commit()
+
+
 def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     event_id = str(event.get("id") or "")
     event_type = str(event.get("type") or "")
-    if event_id and db.get(StripeWebhookEvent, event_id):
-        logger.info("stripe_webhook_duplicate event_id=%s event_type=%s", event_id, event_type)
-        return {"status": "already_processed", "event_type": event_type}
+    claimed_event, duplicate_response = _claim_stripe_webhook_event(
+        db,
+        event_id=event_id,
+        event_type=event_type,
+        event=event,
+    )
+    if duplicate_response is not None:
+        return duplicate_response
 
     obj = (event.get("data") or {}).get("object") if isinstance(event.get("data"), dict) else {}
     if not isinstance(obj, dict):
         obj = {}
 
-    handled = True
-    synced_user: UserAccount | None = None
-    logged_price_id: str | None = None
-    if event_type == "checkout.session.completed":
-        subscription = _stripe_subscription_from_event_object(obj) or obj
-        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(subscription)
-        logged_price_id = price_id
-        synced_user = _sync_user_subscription(
-            db,
-            obj=subscription,
-            status=str(subscription.get("status") or "active"),
-            tier=resolved_tier,
-            billing_interval=billing_interval,
-            stripe_price_id=price_id,
-        )
-    elif event_type in {"invoice.paid", "invoice.payment_succeeded", "invoice.payment.paid"}:
-        snapshot = _persist_billing_snapshot(db, obj)
-        subscription = _stripe_subscription_from_event_object(obj)
-        sync_obj = subscription or obj
-        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(sync_obj)
-        logged_price_id = price_id
-        sync_status = str(sync_obj.get("status") or "active")
-        if sync_obj is obj and sync_status.strip().lower() in {"paid", "succeeded"}:
-            sync_status = "active"
-        synced_user = _sync_user_subscription(
-            db,
-            obj=sync_obj,
-            status=sync_status,
-            tier=resolved_tier,
-            billing_interval=billing_interval,
-            stripe_price_id=price_id,
-            access_expires_at=snapshot.access_expires_at if snapshot else None,
-        )
-    elif event_type in {"invoice.payment_failed", "invoice.payment_action_required"}:
-        snapshot = _persist_billing_snapshot(db, obj)
-        status = "payment_failed" if event_type == "invoice.payment_failed" else "payment_action_required"
-        synced_user = _sync_user_subscription(
-            db,
-            obj=obj,
-            status=status,
-            access_expires_at=snapshot.access_expires_at if snapshot else None,
-        )
-    elif event_type == "invoice.voided":
-        _persist_billing_snapshot(db, obj)
-        synced_user = _sync_user_subscription(db, obj=obj, status="voided")
-    elif event_type == "invoice.marked_uncollectible":
-        _persist_billing_snapshot(db, obj)
-        synced_user = _sync_user_subscription(db, obj=obj, status="uncollectible")
-    elif event_type in {"charge.refunded", "refund.created", "refund.updated"}:
-        synced_user = _sync_refund_event(db, obj)
-    elif event_type in {"customer.subscription.created", "customer.subscription.updated"}:
-        status = str(obj.get("status") or "unknown")
-        resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
-        logged_price_id = price_id
-        synced_user = _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
-    elif event_type == "customer.subscription.deleted":
-        synced_user = _sync_user_subscription(db, obj=obj, status="deleted")
-    elif event_type == "customer.subscription.paused":
-        synced_user = _sync_user_subscription(db, obj=obj, status="paused")
-    else:
-        handled = False
-
-    if event_id:
-        db.add(
-            StripeWebhookEvent(
-                event_id=event_id,
-                event_type=event_type,
-                payload_json=json.dumps(event, sort_keys=True),
+    try:
+        handled = True
+        synced_user: UserAccount | None = None
+        logged_price_id: str | None = None
+        if event_type == "checkout.session.completed":
+            subscription = _stripe_subscription_from_event_object(obj) or obj
+            resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(subscription)
+            logged_price_id = price_id
+            synced_user = _sync_user_subscription(
+                db,
+                obj=subscription,
+                status=str(subscription.get("status") or "active"),
+                tier=resolved_tier,
+                billing_interval=billing_interval,
+                stripe_price_id=price_id,
             )
+        elif event_type in {"invoice.paid", "invoice.payment_succeeded", "invoice.payment.paid"}:
+            snapshot = _persist_billing_snapshot(db, obj)
+            subscription = _stripe_subscription_from_event_object(obj)
+            sync_obj = subscription or obj
+            resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(sync_obj)
+            logged_price_id = price_id
+            sync_status = str(sync_obj.get("status") or "active")
+            if sync_obj is obj and sync_status.strip().lower() in {"paid", "succeeded"}:
+                sync_status = "active"
+            synced_user = _sync_user_subscription(
+                db,
+                obj=sync_obj,
+                status=sync_status,
+                tier=resolved_tier,
+                billing_interval=billing_interval,
+                stripe_price_id=price_id,
+                access_expires_at=snapshot.access_expires_at if snapshot else None,
+            )
+        elif event_type in {"invoice.payment_failed", "invoice.payment_action_required"}:
+            snapshot = _persist_billing_snapshot(db, obj)
+            status = "payment_failed" if event_type == "invoice.payment_failed" else "payment_action_required"
+            synced_user = _sync_user_subscription(
+                db,
+                obj=obj,
+                status=status,
+                access_expires_at=snapshot.access_expires_at if snapshot else None,
+            )
+        elif event_type == "invoice.voided":
+            _persist_billing_snapshot(db, obj)
+            synced_user = _sync_user_subscription(db, obj=obj, status="voided")
+        elif event_type == "invoice.marked_uncollectible":
+            _persist_billing_snapshot(db, obj)
+            synced_user = _sync_user_subscription(db, obj=obj, status="uncollectible")
+        elif event_type in {"charge.refunded", "refund.created", "refund.updated"}:
+            synced_user = _sync_refund_event(db, obj)
+        elif event_type in {"customer.subscription.created", "customer.subscription.updated"}:
+            status = str(obj.get("status") or "unknown")
+            resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
+            logged_price_id = price_id
+            synced_user = _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
+        elif event_type == "customer.subscription.deleted":
+            synced_user = _sync_user_subscription(db, obj=obj, status="deleted")
+        elif event_type == "customer.subscription.paused":
+            synced_user = _sync_user_subscription(db, obj=obj, status="paused")
+        else:
+            handled = False
+
+        _mark_stripe_webhook_processed(claimed_event)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        _record_stripe_webhook_failure(
+            db,
+            event_id=event_id,
+            event_type=event_type,
+            event=event,
+            exc=exc,
         )
-    db.commit()
+        logger.warning(
+            "stripe_webhook_failed event_id=%s event_type=%s error=%s",
+            event_id,
+            event_type,
+            _stripe_webhook_safe_error(exc),
+            exc_info=True,
+        )
+        raise
+
     context = _stripe_event_log_context(obj, synced_user, price_id=logged_price_id)
     logger.info(
         "stripe_webhook_processed event_id=%s event_type=%s handled=%s customer_id=%s subscription_id=%s checkout_session_id=%s client_reference_id=%s metadata_user_id=%s resolved_user_id=%s resolved_email=%s price_id=%s item_count=%s active_item_count=%s selected_item_id=%s mapped_plan=%s final_status=%s final_access=%s",

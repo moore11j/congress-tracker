@@ -12,7 +12,6 @@ import {
   sendAdminAiMarketingEmailDigest,
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
-  updateAdminAiMarketingSettings,
   updateAdminAiMarketingCampaign,
   updateAdminAiMarketingOpportunity,
   type AdminAiMarketingCampaign,
@@ -47,8 +46,6 @@ type CampaignFormState = {
   scheduled_digest_enabled: boolean;
 };
 
-type SettingsDraft = Record<string, string>;
-
 const MODE_OPTIONS: Array<{ value: AdminAiMarketingMode; label: string }> = [
   { value: "ticker_thread_assist", label: "Ticker thread assist" },
   { value: "congress_trade_angle", label: "Congress trade angle" },
@@ -80,8 +77,6 @@ const SETTING_KEYS = [
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
 ] as const;
-
-const SECRET_KEYS = new Set(["OPENAI_API_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"]);
 
 function emptyForm(): CampaignFormState {
   return {
@@ -147,7 +142,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [opportunities, setOpportunities] = useState<AdminAiMarketingOpportunity[]>([]);
   const [config, setConfig] = useState<AdminAiMarketingConfig | null>(null);
   const [settings, setSettings] = useState<AdminAiMarketingSetting[]>([]);
-  const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>({});
   const [settingsTest, setSettingsTest] = useState<Record<"openai" | "reddit", AdminAiMarketingSettingsTestResponse | null>>({
     openai: null,
     reddit: null,
@@ -184,7 +178,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       setCampaigns(campaignData.items);
       setConfig(settingsData.config);
       setOpportunities(opportunityData.items);
-      applySettingsResponse(settingsData.items);
+      setSettings(settingsData.items);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to load AI Outreach.", "error");
     } finally {
@@ -196,58 +190,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     const data = await getAdminAiMarketingSettings();
     setSettings(data.items);
     setConfig(data.config);
-    applySettingsResponse(data.items);
-  };
-
-  const applySettingsResponse = (items: AdminAiMarketingSetting[]) => {
-    setSettings(items);
-    setSettingsDraft((current) => {
-      const next = { ...current };
-      items.forEach((item) => {
-        if (!item.is_secret) next[item.key] = item.value ?? "";
-        if (item.is_secret && item.configured) next[item.key] = "";
-      });
-      return next;
-    });
-  };
-
-  const saveSettings = async () => {
-    setBusy("settings-save");
-    try {
-      const updates: Record<string, string | null> = {};
-      settings.forEach((item) => {
-        const draft = settingsDraft[item.key] ?? "";
-        if (item.is_secret) {
-          if (draft.trim()) updates[item.key] = draft.trim();
-          return;
-        }
-        updates[item.key] = draft.trim();
-      });
-      const result = await updateAdminAiMarketingSettings({ updates });
-      applySettingsResponse(result.items);
-      setConfig(result.config);
-      setSettingsTest({ openai: null, reddit: null });
-      notify("AI Outreach settings saved.", "success");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Unable to save AI Outreach settings.", "error");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const clearSetting = async (key: string) => {
-    setBusy(`settings-clear:${key}`);
-    try {
-      const result = await updateAdminAiMarketingSettings({ clear: [key] });
-      applySettingsResponse(result.items);
-      setConfig(result.config);
-      setSettingsTest({ openai: null, reddit: null });
-      notify("Setting cleared.", "success");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Unable to clear setting.", "error");
-    } finally {
-      setBusy(null);
-    }
   };
 
   const testConnection = async (kind: "openai" | "reddit") => {
@@ -450,7 +392,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           <div>
             <h3 className="text-lg font-semibold text-white">Settings</h3>
             <p className="mt-1 text-sm text-slate-400">
-              Admin-saved values override server env vars. Stored secrets are never returned to this page after save.
+              Provider credentials are read from server environment variables and Fly secrets only.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -481,25 +423,12 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
                 key={key}
                 settingKey={key}
                 item={item}
-                value={settingsDraft[key] ?? ""}
-                busy={busy}
-                onChange={(value) => setSettingsDraft((current) => ({ ...current, [key]: value }))}
-                onReplace={() => setSettingsDraft((current) => ({ ...current, [key]: "" }))}
-                onClear={() => void clearSetting(key)}
               />
             );
           })}
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void saveSettings()}
-            className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50"
-          >
-            {busy === "settings-save" ? "Saving..." : "Save settings"}
-          </button>
           <ConnectionResult result={settingsTest.openai} />
           <ConnectionResult result={settingsTest.reddit} />
         </div>
@@ -938,25 +867,15 @@ function OpportunityRow({
 function SettingField({
   item,
   settingKey,
-  value,
-  busy,
-  onChange,
-  onReplace,
-  onClear,
 }: {
   settingKey: string;
   item?: AdminAiMarketingSetting;
-  value: string;
-  busy: string | null;
-  onChange: (value: string) => void;
-  onReplace: () => void;
-  onClear: () => void;
 }) {
-  const isSecret = item?.is_secret ?? SECRET_KEYS.has(settingKey);
   const label = item?.label ?? "Setting";
   const configured = Boolean(item?.configured);
-  const placeholder = isSecret && configured ? item?.masked_value ?? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 saved" : "";
-  const inputType = isSecret ? "password" : "text";
+  const source = item?.source ?? "missing";
+  const sourceLabel = item?.source_label ?? "Loading";
+  const badgeTone = source === "missing" ? "bad" : source === "server_env" ? "good" : "warn";
 
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -966,41 +885,18 @@ function SettingField({
           <p className="mt-1 text-xs text-slate-500">{item?.required_for ?? "AI Outreach"}</p>
         </div>
         <Badge
-          label={item?.source_label ?? "Loading"}
-          tone={item?.source === "missing" ? "bad" : item?.source === "admin_settings" ? "good" : "warn"}
+          label={sourceLabel}
+          tone={badgeTone}
         />
       </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-        <input
-          type={inputType}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder || (isSecret ? "Paste replacement value" : "Value")}
-          autoComplete="off"
-          className="w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
-        />
-        {isSecret && configured ? (
-          <button
-            type="button"
-            onClick={onReplace}
-            disabled={Boolean(busy)}
-            className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
-          >
-            Replace
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onClear}
-          disabled={Boolean(busy) || !item}
-          className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50"
-        >
-          {busy === `settings-clear:${settingKey}` ? "Clearing..." : "Clear"}
-        </button>
+      <div className="mt-3 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300">
+        {configured ? sourceLabel : "Missing"}
       </div>
-      {isSecret && configured && !value ? (
-        <p className="mt-2 text-xs text-slate-500">Stored value is configured and masked.</p>
-      ) : null}
+      <p className="mt-2 text-xs text-slate-500">
+        {settingKey === "AI_MARKETING_MODEL"
+          ? "Set AI_MARKETING_MODEL on the backend to override the default model."
+          : "Set this value as a backend environment variable or Fly secret."}
+      </p>
     </div>
   );
 }
