@@ -108,6 +108,9 @@ def test_manual_url_mode_saves_without_social_credentials(monkeypatch):
         assert result["warning"] == "OpenAI API key missing; manual opportunity was saved without an AI suggestion."
         assert result["opportunity"]["platform"] == "reddit"
         assert result["opportunity"]["matched_tickers"] == ["NVDA"]
+        assert result["opportunity"]["metadata"]["ai_suggestion_error"] == (
+            "OpenAI API key missing. Configure OPENAI_API_KEY, then regenerate."
+        )
         assert db.execute(select(AiMarketingOpportunity)).scalar_one().source_url.startswith("https://www.reddit.com/")
     finally:
         db.close()
@@ -218,6 +221,119 @@ def test_manual_url_subreddit_listing_without_text_returns_validation():
             "Subreddit listing URLs require Reddit API discovery."
         )
         assert db.query(AiMarketingOpportunity).count() == 0
+    finally:
+        db.close()
+
+
+def test_manual_url_invalid_openai_key_returns_helpful_warning(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-invalid")
+
+    class FakeResponse:
+        status_code = 401
+
+        def json(self):
+            return {"error": {"message": "Incorrect API key provided.", "type": "invalid_request_error", "code": "invalid_api_key"}}
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/example/thread/",
+                text="Can I compare NVDA insider buying and Congress trades?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] == (
+            "OpenAI API key was rejected. Check the OPENAI_API_KEY server environment variable, then regenerate."
+        )
+        assert result["opportunity"]["suggestion"] is None
+        assert result["opportunity"]["metadata"]["ai_suggestion_error"] == result["warning"]
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_code"] == "invalid_key"
+    finally:
+        db.close()
+
+
+def test_manual_url_openai_insufficient_quota_returns_billing_message(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-no-credits")
+
+    class FakeResponse:
+        status_code = 429
+
+        def json(self):
+            return {
+                "error": {
+                    "message": "You exceeded your current quota, please check your plan and billing details.",
+                    "type": "insufficient_quota",
+                    "code": "insufficient_quota",
+                }
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/example/thread/",
+                text="Can I compare NVDA insider buying and Congress trades?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] == (
+            "OpenAI API billing/credits are unavailable. Add credits in the OpenAI Platform billing page, then regenerate."
+        )
+        assert result["opportunity"]["suggestion"] is None
+        assert result["opportunity"]["metadata"]["ai_suggestion_error"] == result["warning"]
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_code"] == "insufficient_quota"
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_status_code"] == 429
+    finally:
+        db.close()
+
+
+def test_manual_url_generic_openai_failure_returns_safe_message(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class FakeResponse:
+        status_code = 500
+
+        def json(self):
+            return {"error": {"message": "Internal server error.", "type": "server_error"}}
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(mode="manual_url_review"), _request_for_user(admin), db)
+
+        result = admin_ai_marketing_manual_url(
+            ManualUrlPayload(
+                url="https://www.reddit.com/r/stocks/comments/example/thread/",
+                text="Can I compare NVDA insider buying and Congress trades?",
+                campaign_id=campaign["id"],
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] == "OpenAI suggestion request failed. Check OpenAI status and the configured model, then regenerate."
+        assert result["opportunity"]["suggestion"] is None
+        assert result["opportunity"]["metadata"]["ai_suggestion_error"] == result["warning"]
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_code"] == "openai_error"
     finally:
         db.close()
 

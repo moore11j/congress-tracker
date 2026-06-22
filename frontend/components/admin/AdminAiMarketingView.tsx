@@ -302,6 +302,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       notify("Suggestion regenerated.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to regenerate suggestion.", "error");
+      await refreshOpportunities();
     } finally {
       setBusy(null);
     }
@@ -788,6 +789,9 @@ function OpportunityRow({
   const suggestion = opportunity.suggestion;
   const destination = suggestion?.suggested_destination_url || opportunity.suggested_destination_url;
   const hasSourceUrl = opportunity.metadata?.source_url_provided !== false;
+  const rawSuggestionError = opportunity.metadata?.ai_suggestion_error;
+  const suggestionError = typeof rawSuggestionError === "string" && rawSuggestionError.trim() ? rawSuggestionError.trim() : null;
+  const emptySuggestionMessage = suggestionError ?? "No suggestion yet. Regenerate when ready.";
 
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -827,13 +831,13 @@ function OpportunityRow({
             {suggestion ? <span className="text-xs text-slate-500">{suggestion.model}</span> : null}
           </div>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-200">
-            {suggestion?.suggested_reply ?? "No suggestion yet. Configure OPENAI_API_KEY or regenerate after setup."}
+            {suggestion?.suggested_reply ?? emptySuggestionMessage}
           </pre>
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3 text-sm text-slate-300">
           <p><span className="font-semibold text-slate-100">Tickers:</span> {listOrNone(suggestion?.detected_tickers ?? opportunity.matched_tickers)}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Keywords:</span> {listOrNone(opportunity.matched_keywords)}</p>
-          <p className="mt-2"><span className="font-semibold text-slate-100">Reason:</span> {suggestion?.short_reason ?? opportunity.short_reason ?? "Pending"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Reason:</span> {suggestion?.short_reason ?? suggestionError ?? opportunity.short_reason ?? "Pending"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Compliance:</span> {suggestion?.compliance_notes ?? opportunity.compliance_notes ?? "Review manually."}</p>
         </div>
       </div>

@@ -12,7 +12,6 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
-from fastapi import HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -77,6 +76,13 @@ MANUAL_SUBREDDIT_LISTING_MESSAGE = (
 )
 MANUAL_TEXT_REQUIRED_MESSAGE = "Paste the post/comment text or thread excerpt before generating a manual suggestion."
 MANUAL_SOURCE_URL = "https://walnutmarkets.com/admin/ai-marketing"
+OPENAI_MISSING_KEY_MESSAGE = "OpenAI API key missing. Configure OPENAI_API_KEY, then regenerate."
+OPENAI_INVALID_KEY_MESSAGE = "OpenAI API key was rejected. Check the OPENAI_API_KEY server environment variable, then regenerate."
+OPENAI_BILLING_CREDITS_MESSAGE = (
+    "OpenAI API billing/credits are unavailable. Add credits in the OpenAI Platform billing page, then regenerate."
+)
+OPENAI_RATE_LIMIT_MESSAGE = "OpenAI API rate limit reached. Wait a moment, then regenerate."
+OPENAI_GENERIC_SUGGESTION_MESSAGE = "OpenAI suggestion request failed. Check OpenAI status and the configured model, then regenerate."
 
 _TICKER_PATTERN = re.compile(r"(?<![A-Za-z0-9])\$?([A-Z]{1,5})(?![A-Za-z0-9])")
 _COMMON_FALSE_TICKERS = {
@@ -104,6 +110,13 @@ _COMMON_FALSE_TICKERS = {
 
 class MissingMarketingCredential(RuntimeError):
     pass
+
+
+class OpenAISuggestionError(RuntimeError):
+    def __init__(self, admin_message: str, *, status_code: int = 502):
+        super().__init__(admin_message)
+        self.admin_message = admin_message
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -492,6 +505,8 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
             try:
                 generate_suggestion(db, opportunity, campaign=campaign)
                 suggested += 1
+            except OpenAISuggestionError as exc:
+                warnings.append(f"Suggestion generation failed for opportunity {opportunity.id}: {exc.admin_message}")
             except Exception:
                 logger.exception("ai_marketing_suggestion_failed opportunity_id=%s", opportunity.id)
                 warnings.append(f"Suggestion generation failed for opportunity {opportunity.id}.")
@@ -620,9 +635,13 @@ def create_manual_opportunity(
     warning: str | None = None
     if generate:
         if resolved_setting_value(db, OPENAI_API_KEY):
-            generate_suggestion(db, opportunity, campaign=campaign)
+            try:
+                generate_suggestion(db, opportunity, campaign=campaign)
+            except OpenAISuggestionError as exc:
+                warning = exc.admin_message
         else:
             warning = "OpenAI API key missing; manual opportunity was saved without an AI suggestion."
+            _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
     latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
     return {
         "opportunity": opportunity_to_dict(opportunity, suggestion=latest),
@@ -655,6 +674,7 @@ def generate_suggestion(
 ) -> AiMarketingSuggestion:
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
+        _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
         raise MissingMarketingCredential("OpenAI API key missing.")
     if campaign is None and opportunity.campaign_id:
         campaign = db.get(AiMarketingCampaign, opportunity.campaign_id)
@@ -707,17 +727,23 @@ def generate_suggestion(
             },
         },
     }
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=request_payload,
-        timeout=30,
-    )
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=request_payload,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        _record_suggestion_failure(db, opportunity, OPENAI_GENERIC_SUGGESTION_MESSAGE, code="request_error")
+        raise OpenAISuggestionError(OPENAI_GENERIC_SUGGESTION_MESSAGE, status_code=502) from exc
     if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail="OpenAI suggestion request failed.")
+        message, code, status_code = _classify_openai_suggestion_error(response)
+        _record_suggestion_failure(db, opportunity, message, code=code, status_code=response.status_code)
+        raise OpenAISuggestionError(message, status_code=status_code)
     data = response.json()
     content = _extract_chat_completion_content(data)
     structured = _normalize_suggestion_payload(json.loads(content), destination_hint, platform, campaign.id if campaign else 0)
@@ -743,6 +769,7 @@ def generate_suggestion(
     opportunity.suggested_destination_url = suggestion.suggested_destination_url
     opportunity.short_reason = suggestion.short_reason
     opportunity.compliance_notes = suggestion.compliance_notes
+    _clear_suggestion_failure(opportunity)
     opportunity.matched_tickers_json = _dump_list(
         sorted(set(_load_list(opportunity.matched_tickers_json)) | set(structured["detected_tickers"]))
     )
@@ -1142,6 +1169,65 @@ def _normalize_suggestion_payload(
         "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or "No reason provided.",
         "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 1000) or "Review manually before posting.",
     }
+
+
+def _classify_openai_suggestion_error(response: requests.Response) -> tuple[str, str, int]:
+    payload: dict[str, Any] = {}
+    try:
+        data = response.json()
+        payload = data if isinstance(data, dict) else {}
+    except Exception:
+        payload = {}
+
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    message = str(error.get("message") or payload.get("message") or "").lower()
+    code = str(error.get("code") or "").lower()
+    error_type = str(error.get("type") or "").lower()
+    haystack = " ".join(part for part in (message, code, error_type) if part)
+
+    if any(term in haystack for term in ("insufficient_quota", "quota", "billing", "credit")):
+        return OPENAI_BILLING_CREDITS_MESSAGE, "insufficient_quota", 422
+    if response.status_code in {401, 403} or any(term in haystack for term in ("invalid_api_key", "incorrect api key", "unauthorized")):
+        return OPENAI_INVALID_KEY_MESSAGE, "invalid_key", 422
+    if response.status_code == 429 or any(term in haystack for term in ("rate_limit", "rate limit")):
+        return OPENAI_RATE_LIMIT_MESSAGE, "rate_limit", 429
+    return OPENAI_GENERIC_SUGGESTION_MESSAGE, "openai_error", 502
+
+
+def _record_suggestion_failure(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    message: str,
+    *,
+    code: str,
+    status_code: int | None = None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    metadata = _load_object(opportunity.raw_metadata_json)
+    metadata["ai_suggestion_error"] = message
+    metadata["ai_suggestion_error_code"] = code
+    metadata["ai_suggestion_error_at"] = _iso(now)
+    if status_code is not None:
+        metadata["ai_suggestion_error_status_code"] = status_code
+    else:
+        metadata.pop("ai_suggestion_error_status_code", None)
+    opportunity.raw_metadata_json = _dump_object(metadata)
+    opportunity.updated_at = now
+    db.add(opportunity)
+    db.commit()
+    db.refresh(opportunity)
+
+
+def _clear_suggestion_failure(opportunity: AiMarketingOpportunity) -> None:
+    metadata = _load_object(opportunity.raw_metadata_json)
+    for key in (
+        "ai_suggestion_error",
+        "ai_suggestion_error_code",
+        "ai_suggestion_error_at",
+        "ai_suggestion_error_status_code",
+    ):
+        metadata.pop(key, None)
+    opportunity.raw_metadata_json = _dump_object(metadata)
 
 
 def _extract_chat_completion_content(data: dict[str, Any]) -> str:

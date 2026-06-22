@@ -16,6 +16,15 @@ test("manual AI outreach form accepts pasted text as the source body", () => {
   assert.doesNotMatch(viewSource, /Paste a Reddit, X, or Facebook URL first\./);
 });
 
+test("manual AI outreach opportunity card shows stored OpenAI failure reasons", () => {
+  assert.match(viewSource, /ai_suggestion_error/);
+  assert.match(viewSource, /const emptySuggestionMessage = suggestionError \?\? "No suggestion yet\. Regenerate when ready\."/);
+  assert.match(viewSource, /suggestion\?\.suggested_reply \?\? emptySuggestionMessage/);
+  assert.match(viewSource, /suggestion\?\.short_reason \?\? suggestionError/);
+  assert.match(viewSource, /await refreshOpportunities\(\);/);
+  assert.doesNotMatch(viewSource, /Configure OPENAI_API_KEY or regenerate after setup/);
+});
+
 test("manual AI outreach API and errors preserve backend validation detail", () => {
   assert.match(apiSource, /url\?: string \| null/);
   assert.match(apiSource, /function structuredDetailMessage/);

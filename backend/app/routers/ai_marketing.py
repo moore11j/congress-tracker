@@ -13,6 +13,7 @@ from app.models import AiMarketingCampaign, AiMarketingOpportunity
 from app.rate_limit import rate_limit_admin_mutation
 from app.services.ai_marketing import (
     MissingMarketingCredential,
+    OpenAISuggestionError,
     OPPORTUNITY_STATUSES,
     campaign_to_dict,
     config_status,
@@ -270,6 +271,8 @@ def admin_ai_marketing_regenerate_suggestion(
         suggestion = generate_suggestion(db, opportunity)
     except MissingMarketingCredential as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OpenAISuggestionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.admin_message) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return suggestion_to_dict(suggestion)
