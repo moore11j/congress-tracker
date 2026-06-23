@@ -2837,6 +2837,7 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     if missing:
         raise HTTPException(status_code=422, detail=f"{', '.join(missing)} required.")
 
+    is_new_user = existing is None
     user = existing or get_or_create_user(db, email=email, name=payload.name or _display_name(payload.first_name, payload.last_name))
     _set_billing_profile(user, **cleaned_registration)
     user.password_hash = hash_password(payload.password)
@@ -2852,6 +2853,8 @@ def register(payload: RegisterPayload, response: Response = None, db: Session = 
     db.refresh(user)
     verification_url = _verification_url(verification_token)
     _send_verification_email(db, user, verification_url)
+    if is_new_user:
+        _send_welcome_email(db, user)
     auth_response = _auth_response_for_user(db, user, response)
     auth_response["email_verification_required"] = user.email_verified_at is None
     if _allow_insecure_verification_link_response():

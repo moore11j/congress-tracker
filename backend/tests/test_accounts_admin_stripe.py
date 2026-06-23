@@ -552,6 +552,12 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
         assert verification_delivery.user_id == user.id
         assert verification_delivery.to_email == "reader-one@example.com"
         assert verification_delivery.idempotency_key == f"verify-email:{user.id}:{user.email_verification_token_hash}"
+        welcome_delivery = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.welcome")
+        ).scalar_one()
+        assert welcome_delivery.user_id == user.id
+        assert welcome_delivery.to_email == "reader-one@example.com"
+        assert welcome_delivery.idempotency_key == f"account.welcome:user:{user.id}"
 
         signed_in = login(LoginPayload(email="reader-one@example.com", password="Password123!"), db)
         assert signed_in["user"]["email"] == "reader-one@example.com"
@@ -594,6 +600,46 @@ def test_email_password_register_login_and_reset_flow(monkeypatch):
             assert "Invalid or expired reset link." in str(exc.detail)
         else:
             raise AssertionError("Expected used password reset token rejection")
+    finally:
+        db.close()
+
+
+def test_duplicate_email_password_register_does_not_send_welcome():
+    db = _session()
+    try:
+        registered = register(_register_payload("duplicate-register@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        assert len(db.execute(select(EmailDelivery)).scalars().all()) == 2
+
+        with pytest.raises(HTTPException) as exc:
+            register(_register_payload("duplicate-register@example.com"), db)
+
+        assert exc.value.status_code == 409
+        assert len(db.execute(select(EmailDelivery)).scalars().all()) == 2
+        welcome_deliveries = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.welcome")
+        ).scalars().all()
+        assert len(welcome_deliveries) == 1
+        assert welcome_deliveries[0].user_id == user.id
+    finally:
+        db.close()
+
+
+def test_failed_email_password_register_does_not_send_welcome(monkeypatch):
+    sent: list[dict] = []
+    monkeypatch.setattr("app.routers.accounts.send_email", lambda *_args, **kwargs: sent.append(kwargs) or {"status": "sent"})
+    db = _session()
+    try:
+        with pytest.raises(HTTPException) as exc:
+            register(_register_payload("weak-register-no-welcome@example.com", password="password"), db)
+
+        assert exc.value.status_code == 422
+        assert sent == []
+        user = db.execute(
+            select(UserAccount).where(UserAccount.email == "weak-register-no-welcome@example.com")
+        ).scalar_one_or_none()
+        assert user is None
     finally:
         db.close()
 
