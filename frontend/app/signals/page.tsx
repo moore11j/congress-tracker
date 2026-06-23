@@ -731,7 +731,7 @@ export default async function SignalsPage({
 
 function SignalsResultsFallback({ card }: { card: string }) {
   return (
-    <div className={`${card} min-h-[32rem] overflow-hidden p-4`} aria-live="polite" aria-busy="true">
+    <div className={`${card} min-h-[32rem] overflow-hidden p-4 md:w-[65rem]`} aria-live="polite" aria-busy="true">
       <div className="mb-4 flex items-center justify-between">
         <SkeletonBlock className="h-4 w-36" />
         <SkeletonBlock className="h-4 w-28" />
@@ -821,7 +821,7 @@ async function SignalsResultsSection({
   const backtestingHref = backtestingHrefFromItems(items);
 
   return (
-    <div className={`${card} min-h-[32rem] overflow-hidden`}>
+    <div className={`${card} min-h-[32rem] overflow-hidden md:w-[65rem]`}>
       <div className="flex min-w-0 max-w-full flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
         <p className="min-w-0 text-slate-400">
           {items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
@@ -972,7 +972,7 @@ async function SignalsResultsSection({
         )}
       </div>
       <div className="hidden min-w-0 max-w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
-        <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
+        <table className="w-[65rem] max-w-none table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[5rem]" />
             <col className="w-[5.25rem]" />
