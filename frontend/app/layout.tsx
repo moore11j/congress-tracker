@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AccountNav } from "@/components/auth/AccountNav";
 import { AppTopNav } from "@/components/AppTopNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
@@ -21,7 +22,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   if (isPublicLanding) {
     return (
       <html lang="en" className="h-full">
-        <body className="min-h-full">{children}</body>
+        <body className="min-h-full">
+          {children}
+          <SpeedInsights />
+        </body>
       </html>
     );
   }
@@ -56,6 +60,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <PageAnalyticsTracker />
           <main className="relative z-0 mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8 2xl:px-10">{children}</main>
         </div>
+        <SpeedInsights />
       </body>
     </html>
   );
