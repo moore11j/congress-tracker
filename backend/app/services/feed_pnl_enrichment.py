@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import or_, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -53,6 +53,20 @@ class FeedPnlInputs:
     member_name: str | None
     structural_status: str | None = None
     structural_error: str | None = None
+
+
+@dataclass(frozen=True)
+class _QueuedJobSpec:
+    job_type: str
+    symbol: str | None
+    date_key: str | None
+    window_key: str | None
+    dedupe_key: str
+    source: str
+    reason: str
+    priority: int
+    payload_json: str | None
+    max_attempts: int
 
 
 def _payload_dict(payload_json: str | dict | None) -> dict[str, Any]:
@@ -418,6 +432,238 @@ def enqueue_feed_pnl_enrichment_for_event(
             inputs.trade_date,
         )
     return result
+
+
+def _feed_pnl_job_specs(
+    inputs: FeedPnlInputs,
+    *,
+    source: str,
+    reason: str,
+    priority: int,
+) -> list[_QueuedJobSpec]:
+    if inputs.structural_status is not None or not inputs.symbol or not inputs.trade_date or inputs.event_id is None:
+        return []
+
+    payload = {
+        "event_id": inputs.event_id,
+        "event_type": inputs.event_type,
+        "symbol": inputs.symbol,
+        "trade_date": inputs.trade_date,
+    }
+    payload_json = json.dumps(payload, sort_keys=True)
+    raw_specs = [
+        {
+            "job_type": "quote",
+            "symbol": inputs.symbol,
+            "date_key": None,
+            "window_key": None,
+            "priority": priority,
+            "payload_json": None,
+            "max_attempts": 5,
+        },
+        {
+            "job_type": "price_eod",
+            "symbol": inputs.symbol,
+            "date_key": inputs.trade_date,
+            "window_key": None,
+            "priority": priority + 1,
+            "payload_json": None,
+            "max_attempts": 5,
+        },
+        {
+            "job_type": "pnl_refresh",
+            "symbol": inputs.symbol,
+            "date_key": inputs.trade_date,
+            "window_key": f"event:{inputs.event_id}",
+            "priority": priority + 2,
+            "payload_json": payload_json,
+            "max_attempts": 8,
+        },
+    ]
+    return [
+        _QueuedJobSpec(
+            job_type=str(spec["job_type"]),
+            symbol=str(spec["symbol"]) if spec["symbol"] else None,
+            date_key=str(spec["date_key"]) if spec["date_key"] else None,
+            window_key=str(spec["window_key"]) if spec["window_key"] else None,
+            dedupe_key=build_dedupe_key(
+                job_type=str(spec["job_type"]),
+                symbol=str(spec["symbol"]) if spec["symbol"] else None,
+                date_key=str(spec["date_key"]) if spec["date_key"] else None,
+                window_key=str(spec["window_key"]) if spec["window_key"] else None,
+            ),
+            source=source,
+            reason=reason,
+            priority=int(spec["priority"]),
+            payload_json=str(spec["payload_json"]) if spec["payload_json"] else None,
+            max_attempts=int(spec["max_attempts"]),
+        )
+        for spec in raw_specs
+    ]
+
+
+def _enqueue_job_specs_in_session(db: Session, specs: list[_QueuedJobSpec]) -> dict[str, int]:
+    if not specs:
+        return {"attempted": 0, "enqueued": 0, "skipped": 0}
+
+    unique_specs: dict[str, _QueuedJobSpec] = {}
+    for spec in specs:
+        if spec.dedupe_key.strip("|"):
+            unique_specs.setdefault(spec.dedupe_key, spec)
+    if not unique_specs:
+        return {"attempted": 0, "enqueued": 0, "skipped": len(specs)}
+
+    now = datetime.now(timezone.utc)
+    try:
+        existing_rows = db.execute(
+            select(DataEnrichmentJob).where(DataEnrichmentJob.dedupe_key.in_(sorted(unique_specs)))
+        ).scalars().all()
+    except OperationalError as exc:
+        logger.info(
+            "feed_pnl_jobs_batch_skipped reason=queue_table_unavailable attempted=%s error=%s",
+            len(unique_specs),
+            exc.__class__.__name__,
+        )
+        return {"attempted": len(unique_specs), "enqueued": 0, "skipped": len(unique_specs)}
+
+    existing_by_key = {row.dedupe_key: row for row in existing_rows}
+    enqueued = 0
+    skipped = 0
+    for key, spec in unique_specs.items():
+        existing = existing_by_key.get(key)
+        if existing is not None:
+            if existing.status in ACTIVE_STATUSES:
+                skipped += 1
+                continue
+            if existing.status == "done" and _job_completed_recently(existing, now):
+                skipped += 1
+                continue
+            existing.status = "queued"
+            existing.reason = spec.reason
+            existing.source = spec.source
+            existing.priority = min(int(existing.priority or spec.priority), int(spec.priority))
+            existing.error = None
+            existing.next_run_at = now
+            existing.updated_at = now
+            if spec.payload_json:
+                existing.payload_json = spec.payload_json
+            enqueued += 1
+            continue
+
+        db.add(
+            DataEnrichmentJob(
+                job_type=spec.job_type,
+                symbol=spec.symbol,
+                date_key=spec.date_key,
+                window_key=spec.window_key,
+                dedupe_key=spec.dedupe_key,
+                priority=int(spec.priority),
+                status="queued",
+                attempts=0,
+                max_attempts=int(spec.max_attempts),
+                source=spec.source,
+                reason=spec.reason,
+                payload_json=spec.payload_json,
+                next_run_at=now,
+            )
+        )
+        enqueued += 1
+
+    return {"attempted": len(unique_specs), "enqueued": enqueued, "skipped": skipped}
+
+
+def enqueue_feed_pnl_enrichment_for_events(
+    db: Session | None,
+    events: list[Event],
+    *,
+    source: str = "event_ingest",
+    reason: str = "feed_pnl_missing",
+    priority: int = FEED_PNL_PRIORITY_BASE,
+    use_current_session: bool = False,
+) -> dict[str, int]:
+    if not events:
+        return {
+            "events": 0,
+            "eligible_events": 0,
+            "structural_outcomes": 0,
+            "jobs_attempted": 0,
+            "jobs_enqueued": 0,
+            "jobs_skipped": 0,
+        }
+
+    own_session = not (use_current_session and db is not None)
+    target_db = db if not own_session and db is not None else SessionLocal()
+    try:
+        specs: list[_QueuedJobSpec] = []
+        structural_outcomes = 0
+        eligible_events = 0
+        for event in events:
+            inputs = feed_pnl_inputs_for_event(event)
+            if inputs.structural_status is not None or not inputs.symbol or not inputs.trade_date or inputs.event_id is None:
+                if _write_structural_outcome_for_enqueue(
+                    target_db,
+                    event,
+                    inputs,
+                    use_current_session=True,
+                ):
+                    structural_outcomes += 1
+                continue
+            eligible_events += 1
+            specs.extend(
+                _feed_pnl_job_specs(
+                    inputs,
+                    source=source,
+                    reason=reason,
+                    priority=priority,
+                )
+            )
+
+        queue_summary = _enqueue_job_specs_in_session(target_db, specs)
+        if own_session:
+            target_db.commit()
+        summary = {
+            "events": len(events),
+            "eligible_events": eligible_events,
+            "structural_outcomes": structural_outcomes,
+            "jobs_attempted": queue_summary["attempted"],
+            "jobs_enqueued": queue_summary["enqueued"],
+            "jobs_skipped": queue_summary["skipped"],
+        }
+        logger.info(
+            "feed_pnl_jobs_batch events=%s eligible_events=%s structural_outcomes=%s jobs_attempted=%s jobs_enqueued=%s jobs_skipped=%s",
+            summary["events"],
+            summary["eligible_events"],
+            summary["structural_outcomes"],
+            summary["jobs_attempted"],
+            summary["jobs_enqueued"],
+            summary["jobs_skipped"],
+        )
+        return summary
+    except IntegrityError:
+        target_db.rollback()
+        logger.info("feed_pnl_jobs_batch_skipped reason=integrity_race events=%s", len(events))
+    except OperationalError as exc:
+        target_db.rollback()
+        logger.info(
+            "feed_pnl_jobs_batch_skipped reason=db_busy events=%s error=%s",
+            len(events),
+            exc.__class__.__name__,
+        )
+    except Exception:
+        target_db.rollback()
+        logger.exception("feed_pnl_jobs_batch_failed events=%s", len(events))
+    finally:
+        if own_session:
+            target_db.close()
+
+    return {
+        "events": len(events),
+        "eligible_events": 0,
+        "structural_outcomes": 0,
+        "jobs_attempted": 0,
+        "jobs_enqueued": 0,
+        "jobs_skipped": len(events),
+    }
 
 
 def _cached_entry_close(db: Session, symbol: str, trade_date: str) -> PriceCache | None:

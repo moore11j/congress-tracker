@@ -371,6 +371,7 @@ def get_ticker_meta(
     symbols: list[str],
     *,
     allow_refresh: bool = True,
+    enqueue_refresh: bool = True,
 ) -> dict[str, dict[str, str | None]]:
     try:
         normalized = sorted({sym for raw in symbols for sym in [normalize_symbol(raw)] if sym})
@@ -402,7 +403,7 @@ def get_ticker_meta(
                 continue
             record_cache_hit(category="ticker_meta", symbol=symbol)
 
-        if stale_or_missing and _is_public_request_context():
+        if stale_or_missing and enqueue_refresh and _is_public_request_context():
             for symbol in stale_or_missing:
                 reason = "missing_profile_identity" if by_symbol.get(symbol) is not None else "cache_miss"
                 _enqueue_ticker_meta_refresh(symbol, reason=reason)
@@ -506,6 +507,7 @@ def get_cik_meta(
     ciks: list[str],
     *,
     allow_refresh: bool = True,
+    enqueue_refresh: bool = True,
 ) -> dict[str, str | None]:
     try:
         normalized = sorted({cik for raw in ciks for cik in [normalize_cik(raw)] if cik})
@@ -525,7 +527,7 @@ def get_cik_meta(
             else:
                 record_cache_hit(category="cik_meta", symbol=cik)
 
-        if stale_or_missing and _is_public_request_context():
+        if stale_or_missing and enqueue_refresh and _is_public_request_context():
             for cik in stale_or_missing:
                 _enqueue_cik_meta_refresh(cik, reason="cache_miss")
 

@@ -49,7 +49,7 @@ from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
 from app.services.search_suggest import search_suggestions
-from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 
@@ -122,6 +122,38 @@ def _log_ticker_events_payload(
         context.get("db_checkout_count"),
         context.get("db_checkout_slow_count"),
     )
+
+
+def _log_events_request_summary(
+    *,
+    started_at: float,
+    item_count: int,
+    total: int | None,
+    include_total: bool,
+    enrich_prices: bool,
+    limit: int,
+    page_size: int | None,
+    offset: int,
+) -> None:
+    context = get_request_context() or {}
+    logger.info(
+        "events_feed_timing endpoint=/api/events total_duration_ms=%.1f item_count=%s include_total=%s total=%s enrich_prices=%s limit=%s page_size=%s offset=%s db_checkout_count=%s db_checkout_slow_count=%s query_count=%s component=%s route=%s",
+        (perf_counter() - started_at) * 1000,
+        item_count,
+        include_total,
+        total,
+        enrich_prices,
+        limit,
+        page_size,
+        offset,
+        context.get("db_checkout_count"),
+        context.get("db_checkout_slow_count"),
+        context.get("db_query_count"),
+        context.get("walnut_component"),
+        context.get("walnut_route"),
+    )
+
+
 MEMBER_NICKNAME_EXPANSIONS = {
     "BILL": ("WILLIAM",),
     "BILLY": ("WILLIAM",),
@@ -1775,12 +1807,19 @@ def _normalize_congress_payload_identity(event: Event, payload: dict) -> dict:
 def _ticker_meta_with_security_names(
     db: Session,
     symbols: list[str],
+    *,
+    enqueue_refresh: bool = True,
 ) -> dict[str, dict[str, str | None]]:
     normalized_symbols = sorted({symbol for raw in symbols for symbol in [normalize_symbol(raw)] if symbol})
     if not normalized_symbols:
         return {}
 
-    ticker_meta = get_ticker_meta(db, normalized_symbols, allow_refresh=False)
+    ticker_meta = get_ticker_meta(
+        db,
+        normalized_symbols,
+        allow_refresh=False,
+        enqueue_refresh=enqueue_refresh,
+    )
     security_rows = db.execute(
         select(Security.symbol, Security.name)
         .where(Security.symbol.in_(normalized_symbols))
@@ -1851,7 +1890,11 @@ def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[i
     return {row.event_id: row for row in rows}
 
 
-def _enqueue_missing_trade_outcomes(paged_rows: list[Event], outcome_by_event_id: dict[int, TradeOutcome]) -> None:
+def _enqueue_missing_trade_outcomes(
+    db: Session,
+    paged_rows: list[Event],
+    outcome_by_event_id: dict[int, TradeOutcome],
+) -> None:
     missing = [
         event
         for event in paged_rows
@@ -1861,14 +1904,19 @@ def _enqueue_missing_trade_outcomes(paged_rows: list[Event], outcome_by_event_id
     if not missing:
         return
 
-    for event in missing[:FEED_OUTCOME_ENQUEUE_LIMIT]:
-        enqueue_feed_pnl_enrichment_for_event(
-            None,
-            event,
+    try:
+        enqueue_feed_pnl_enrichment_for_events(
+            db,
+            missing[:FEED_OUTCOME_ENQUEUE_LIMIT],
             source="feed_load",
             reason="missing_trade_outcome",
             priority=FEED_PNL_PRIORITY_BASE,
+            use_current_session=True,
         )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("feed_pnl_batch_enqueue_failed endpoint=/api/events events=%s", len(missing))
 
 
 def _event_payload(
@@ -2291,12 +2339,13 @@ def _fetch_events_page(
     limit: int,
     enrich_prices: bool = True,
     use_effective_activity_date: bool = False,
+    enqueue_feed_outcomes: bool = True,
+    enqueue_metadata_refresh: bool = True,
 ) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
     event_ids = [event.id for event in paged_rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
-    _enqueue_missing_trade_outcomes(paged_rows, outcome_by_event_id)
 
     price_memo: dict[tuple[str, str], float | None] = {}
     current_quote_meta: dict[str, dict] = {}
@@ -2309,7 +2358,11 @@ def _fetch_events_page(
         if symbol
     }
     try:
-        ticker_meta = _ticker_meta_with_security_names(db, sorted(ticker_symbols))
+        ticker_meta = _ticker_meta_with_security_names(
+            db,
+            sorted(ticker_symbols),
+            enqueue_refresh=enqueue_metadata_refresh,
+        )
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
@@ -2321,7 +2374,12 @@ def _fetch_events_page(
         if event.event_type == "insider_trade" and cik
     }
     try:
-        cik_names = get_cik_meta(db, sorted(insider_ciks), allow_refresh=False)
+        cik_names = get_cik_meta(
+            db,
+            sorted(insider_ciks),
+            allow_refresh=False,
+            enqueue_refresh=enqueue_metadata_refresh,
+        )
     except Exception:
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
@@ -2357,6 +2415,9 @@ def _fetch_events_page(
         last = rows[limit - 1]
         cursor_ts = _event_effective_activity_ts(last) if use_effective_activity_date else last.event_date or last.ts
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
+
+    if enqueue_feed_outcomes:
+        _enqueue_missing_trade_outcomes(db, paged_rows, outcome_by_event_id)
 
     return EventsPage(items=items, next_cursor=next_cursor)
 
@@ -3049,6 +3110,7 @@ def list_events(
     recent_days: int | None = Query(None, ge=1),
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=100),
+    page_size: int | None = Query(None, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     include_total: bool = Query(False),
     enrich_prices: bool = Query(True),
@@ -3074,6 +3136,7 @@ def list_events(
     signal_min = signal_min if isinstance(signal_min, (int, float)) else None
     recent_days = recent_days if isinstance(recent_days, int) else None
     offset = offset if isinstance(offset, int) else 0
+    page_size = page_size if isinstance(page_size, int) else None
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
     debug_enabled = _events_debug_enabled(db, request, debug)
@@ -3095,6 +3158,8 @@ def list_events(
             ",".join(combined_symbols),
         )
         enrich_prices = False
+    enqueue_feed_outcomes = enrich_prices
+    enqueue_metadata_refresh = bool(combined_symbols) or enrich_prices or debug_enabled
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
@@ -3292,7 +3357,14 @@ def list_events(
         total = db.execute(select(func.count()).select_from(filtered_query.subquery())).scalar()
 
     if cursor:
-        page = _fetch_events_page(db, filtered_query.limit(candidate_limit + 1), candidate_limit, enrich_prices=enrich_prices)
+        page = _fetch_events_page(
+            db,
+            filtered_query.limit(candidate_limit + 1),
+            candidate_limit,
+            enrich_prices=enrich_prices,
+            enqueue_feed_outcomes=enqueue_feed_outcomes,
+            enqueue_metadata_refresh=enqueue_metadata_refresh,
+        )
         if display_filter_active:
             page.items = _apply_display_value_filters(
                 page.items,
@@ -3331,6 +3403,7 @@ def list_events(
                     "recent_days": recent_days,
                     "cursor": cursor,
                     "offset": offset,
+                    "page_size": page_size,
                     "include_total": include_total,
                     "enrich_prices": enrich_prices,
                 },
@@ -3340,21 +3413,44 @@ def list_events(
                 sql_hint=", ".join(applied_filters) if applied_filters else None,
             )
             _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
+            _log_events_request_summary(
+                started_at=started_at,
+                item_count=len(page.items),
+                total=None,
+                include_total=include_total,
+                enrich_prices=enrich_prices,
+                limit=limit,
+                page_size=page_size,
+                offset=offset,
+            )
             return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
         _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
+        _log_events_request_summary(
+            started_at=started_at,
+            item_count=len(page.items),
+            total=None,
+            include_total=include_total,
+            enrich_prices=enrich_prices,
+            limit=limit,
+            page_size=page_size,
+            offset=offset,
+        )
         return page
 
     rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
-    _enqueue_missing_trade_outcomes(rows, outcome_by_event_id)
     price_memo: dict[tuple[str, str], float | None] = {}
     current_quote_meta: dict[str, dict] = {}
     current_price_memo: dict[str, float] = {}
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:
-        ticker_meta = _ticker_meta_with_security_names(db, [symbol for symbol in ticker_symbols if symbol])
+        ticker_meta = _ticker_meta_with_security_names(
+            db,
+            [symbol for symbol in ticker_symbols if symbol],
+            enqueue_refresh=enqueue_metadata_refresh,
+        )
     except Exception:
         logger.exception("ticker_meta resolver failed in /api/events")
         ticker_meta = {}
@@ -3366,7 +3462,12 @@ def list_events(
         if event.event_type == "insider_trade" and cik
     }
     try:
-        cik_names = get_cik_meta(db, sorted(insider_ciks), allow_refresh=False)
+        cik_names = get_cik_meta(
+            db,
+            sorted(insider_ciks),
+            allow_refresh=False,
+            enqueue_refresh=enqueue_metadata_refresh,
+        )
     except Exception:
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
@@ -3404,6 +3505,9 @@ def list_events(
             signal_min=signal_min,
         )[:limit]
 
+    if enqueue_feed_outcomes:
+        _enqueue_missing_trade_outcomes(db, rows, outcome_by_event_id)
+
     if debug_enabled:
         count_query = select(func.count()).select_from(q.subquery())
         count_after_filters = db.execute(count_query).scalar_one()
@@ -3433,20 +3537,41 @@ def list_events(
                 "pnl_max": pnl_max,
                 "signal_min": signal_min,
                 "recent_days": recent_days,
-                "cursor": cursor,
-                "offset": offset,
-                "include_total": include_total,
-                "enrich_prices": enrich_prices,
-            },
+                    "cursor": cursor,
+                    "offset": offset,
+                    "page_size": page_size,
+                    "include_total": include_total,
+                    "enrich_prices": enrich_prices,
+                },
             applied_filters=applied_filters,
             count_after_filters=count_after_filters,
             diagnostics=diagnostics,
             sql_hint=", ".join(applied_filters) if applied_filters else None,
         )
         _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
+        _log_events_request_summary(
+            started_at=started_at,
+            item_count=len(items),
+            total=total,
+            include_total=include_total,
+            enrich_prices=enrich_prices,
+            limit=limit,
+            page_size=page_size,
+            offset=offset,
+        )
         return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
 
     _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
+    _log_events_request_summary(
+        started_at=started_at,
+        item_count=len(items),
+        total=total,
+        include_total=include_total,
+        enrich_prices=enrich_prices,
+        limit=limit,
+        page_size=page_size,
+        offset=offset,
+    )
     return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
 
 

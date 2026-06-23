@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event as sqlalchemy_event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.services.data_enrichment_queue as queue_module
@@ -336,8 +336,8 @@ def test_events_endpoint_returns_updating_without_provider_when_outcome_missing(
         monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider called")))
         enqueued: list[int] = []
         monkeypatch.setattr(
-            "app.routers.events.enqueue_feed_pnl_enrichment_for_event",
-            lambda _db, event, **_kwargs: enqueued.append(event.id) or {"eligible": True},
+            "app.routers.events.enqueue_feed_pnl_enrichment_for_events",
+            lambda _db, events, **_kwargs: enqueued.extend(event.id for event in events) or {"events": len(events)},
         )
         db.add(_event(301, "congress_trade", symbol="ORKA"))
         db.commit()
@@ -352,6 +352,93 @@ def test_events_endpoint_returns_updating_without_provider_when_outcome_missing(
         db.close()
 
 
+def test_events_endpoint_enrich_prices_false_skips_feed_pnl_enqueue(monkeypatch) -> None:
+    db = _session_factory()()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider called")))
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider called")))
+        monkeypatch.setattr("app.routers.events.enqueue_feed_pnl_enrichment_for_events", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("enqueue called")))
+        db.add(_event(351, "congress_trade", symbol="ORKA"))
+        db.commit()
+
+        page = list_events(db=db, mode="all", limit=10, page_size=10, enrich_prices=False)
+
+        assert [item.id for item in page.items] == [351]
+        assert page.items[0].pnl_pct is None
+        assert page.items[0].current_price is None
+        assert page.total is None
+        assert page.limit == 10
+        assert page.offset == 0
+    finally:
+        db.close()
+
+
+def test_events_endpoint_batches_missing_outcome_enqueue(monkeypatch) -> None:
+    db = _session_factory()()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        batches: list[list[int]] = []
+
+        def _capture_batch(_db, events, **kwargs):
+            batches.append([event.id for event in events])
+            assert kwargs["use_current_session"] is True
+            return {"events": len(events)}
+
+        monkeypatch.setattr("app.routers.events.enqueue_feed_pnl_enrichment_for_events", _capture_batch)
+        db.add_all([
+            _event(352, "congress_trade", symbol="ORKA"),
+            _event(353, "insider_trade", symbol="BLND"),
+        ])
+        db.commit()
+
+        page = list_events(db=db, mode="all", limit=10, enrich_prices=True)
+
+        assert sorted(item.id for item in page.items) == [352, 353]
+        assert len(batches) == 1
+        assert sorted(batches[0]) == [352, 353]
+    finally:
+        db.close()
+
+
+def test_events_endpoint_include_total_false_skips_count_query(monkeypatch) -> None:
+    SessionLocal = _session_factory()
+    engine = SessionLocal.kw["bind"]
+    statements: list[str] = []
+
+    def _capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement.lower())
+
+    sqlalchemy_event.listen(engine, "before_cursor_execute", _capture_sql)
+    db = SessionLocal()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        db.add(
+            _event(
+                354,
+                "congress_trade",
+                symbol=None,
+                member_bioguide_id=None,
+                amount_min=None,
+                amount_max=None,
+                payload={"asset_class": "other"},
+            )
+        )
+        db.commit()
+        statements.clear()
+
+        page = list_events(db=db, mode="all", limit=10, include_total=False, enrich_prices=False)
+
+        assert [item.id for item in page.items] == [354]
+        assert page.total is None
+        assert not any("count(" in statement or "count(*)" in statement for statement in statements)
+    finally:
+        db.close()
+        sqlalchemy_event.remove(engine, "before_cursor_execute", _capture_sql)
+
+
 def test_events_endpoint_treats_retryable_missing_outcome_as_updating(monkeypatch) -> None:
     db = _session_factory()()
     try:
@@ -360,8 +447,8 @@ def test_events_endpoint_treats_retryable_missing_outcome_as_updating(monkeypatc
         monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider called")))
         enqueued: list[int] = []
         monkeypatch.setattr(
-            "app.routers.events.enqueue_feed_pnl_enrichment_for_event",
-            lambda _db, event, **_kwargs: enqueued.append(event.id) or {"eligible": True},
+            "app.routers.events.enqueue_feed_pnl_enrichment_for_events",
+            lambda _db, events, **_kwargs: enqueued.extend(event.id for event in events) or {"events": len(events)},
         )
         db.add(_event(303, "insider_trade", symbol="BLND"))
         db.add(
