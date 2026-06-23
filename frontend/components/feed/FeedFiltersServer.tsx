@@ -279,7 +279,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
 
         <div className="min-w-0 lg:col-start-3 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">PNL Min</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Min</label>
           <input
             name="pnl_min"
             type="number"
@@ -292,7 +292,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
 
         <div className="min-w-0 lg:col-start-4 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">PNL Max</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Max</label>
           <input
             name="pnl_max"
             type="number"
