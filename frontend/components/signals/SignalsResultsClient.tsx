@@ -196,8 +196,8 @@ export function SignalsResultsClient({
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
-      <div className="flex flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
-        <p className="text-slate-400">
+      <div className="flex min-w-0 max-w-full flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
+        <p className="min-w-0 text-slate-400">
           {loading ? "Loading signals..." : items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
         </p>
         {canBacktest ? (
@@ -222,7 +222,7 @@ export function SignalsResultsClient({
           </Link>
         )}
       </div>
-      <div className="md:hidden">
+      <div className="max-w-full overflow-hidden md:hidden">
         {loading || items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
             {loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}
@@ -292,15 +292,15 @@ export function SignalsResultsClient({
 
                   <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Baseline</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Baseline">Base</div>
                       <div className="truncate font-mono text-slate-200">{formatUSD(item.baseline_median_amount_max)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Multiple</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Multiple">Mult</div>
                       <div className="truncate font-mono text-slate-200">{formatMultiple(item.unusual_multiple)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Conviction</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Conviction">Score</div>
                       <span className={`${pill} mt-1 min-w-0 max-w-full justify-center gap-1.5 px-2.5 py-1 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 shrink-0 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof item.smart_score === "number" && Number.isFinite(item.smart_score) ? item.smart_score : "--"}</span>
@@ -314,7 +314,7 @@ export function SignalsResultsClient({
                       </div>
                     </div>
                     <div className="min-w-0" title={item.confirmation_explanation ?? item.confirmation_status ?? undefined}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confirm</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Confirmation">Conf.</div>
                       <div className={`mt-1 truncate text-xs font-semibold ${confirmationClass(item.confirmation_direction)}`}>
                         {titleCase(item.confirmation_band ?? "inactive")}
                       </div>
@@ -340,52 +340,52 @@ export function SignalsResultsClient({
           </div>
         )}
       </div>
-      <div className="hidden w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
-        <table className="w-full min-w-[58rem] table-fixed border-collapse text-sm">
+      <div className="hidden min-w-0 max-w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
+        <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[7.5rem]" />
-            <col className="w-[6.5rem]" />
-            <col />
-            <col className="w-[5.5rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[6.75rem]" />
+            <col className="w-[5rem]" />
+            <col className="w-[5.25rem]" />
+            <col className="w-[9.5rem]" />
+            <col className="w-[4.5rem]" />
+            <col className="w-[5.75rem]" />
+            <col className="w-[5.25rem]" />
+            <col className="w-[5rem]" />
             <col className="w-[9.25rem]" />
-            <col className="w-[6rem]" />
-            <col className="w-[8rem]" />
-            <col className="w-[5.5rem]" />
+            <col className="w-[4.75rem]" />
+            <col className="w-[5.75rem]" />
+            <col className="w-[5rem]" />
           </colgroup>
           <thead className="whitespace-nowrap bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
-              <th className="px-3 py-3 text-left">Time</th>
-              <th className="px-3 py-3 text-left">Ticker</th>
-              <th className="px-3 py-3 text-left">Member</th>
-              <th className="px-3 py-3 text-left">Side</th>
-              <th className="px-3 py-3 text-left">Amount</th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-client-header-baseline" label="Baseline" description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
+              <th className="px-2 py-3 text-left xl:px-3">Time</th>
+              <th className="px-2 py-3 text-left xl:px-3">Ticker</th>
+              <th className="px-2 py-3 text-left xl:px-3">Member</th>
+              <th className="px-2 py-3 text-left xl:px-3">Side</th>
+              <th className="px-2 py-3 text-left xl:px-3">Amount</th>
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-client-header-baseline" label={<span title="Baseline">Base</span>} description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
               </th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-client-header-multiple" label="Multiple" description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-client-header-multiple" label={<span title="Multiple">Mult</span>} description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
               </th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-client-header-conviction" label="Conviction" description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-client-header-conviction" label={<span title="Conviction">Score</span>} description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
               </th>
-              <th className="px-3 py-3 text-left">
+              <th className="px-2 py-3 text-left xl:px-3">
                 <SignalColumnHeaderTooltip id="signals-client-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
               </th>
-              <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
+              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-client-header-confirmation"
-                  label={<Link href={confirmationSortHref} prefetch={false} className="hover:text-white">Confirm</Link>}
+                  label={<Link href={confirmationSortHref} prefetch={false} title="Confirmation" aria-label="Confirmation" className="hover:text-white">Conf.</Link>}
                   description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
                   align="right"
                 />
               </th>
-              <th className={`px-3 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
+              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-client-header-freshness"
-                  label={<Link href={freshnessSortHref} prefetch={false} className="hover:text-white">Fresh</Link>}
+                  label={<Link href={freshnessSortHref} prefetch={false} title="Freshness" aria-label="Freshness" className="hover:text-white">Fresh</Link>}
                   description={SIGNALS_COLUMN_DEFINITIONS.freshness}
                   align="right"
                 />
@@ -413,18 +413,18 @@ export function SignalsResultsClient({
                 const freshness = item.signal_freshness;
                 return (
                   <tr key={item.event_id} className="hover:bg-slate-900/20">
-                    <td className="px-3 py-3 text-slate-300"><span className="font-mono text-[12px]" title={item.ts}>{formatSignalDate(item.ts)}</span></td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-2 py-3 text-slate-300 xl:px-3"><span className="font-mono text-[12px]" title={item.ts}>{formatSignalDate(item.ts)}</span></td>
+                    <td className="px-2 py-3 xl:px-3">
+                      <div className="flex min-w-0 items-center gap-1.5 xl:gap-2">
                         {item.symbol ? <AddTickerToWatchlist symbol={item.symbol} variant="compact" align="left" /> : null}
                         {tickerHref(item.symbol) ? (
-                          <Link href={tickerHref(item.symbol)!} prefetch={false} className={`truncate ${tickerMonoLinkClassName}`}>{item.symbol}</Link>
+                          <Link href={tickerHref(item.symbol)!} prefetch={false} className={`min-w-0 truncate ${tickerMonoLinkClassName}`}>{item.symbol}</Link>
                         ) : (
-                          <span className="truncate font-mono text-slate-300">{item.symbol}</span>
+                          <span className="min-w-0 truncate font-mono text-slate-300">{item.symbol}</span>
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-slate-200">
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">
                       {isInsider ? (
                         <div className="flex min-w-0 items-center gap-2">
                           <span title={rawPosition ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
@@ -445,19 +445,19 @@ export function SignalsResultsClient({
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-3"><span className={`${pill} ${sideLabelValue.klass}`}>{sideLabelValue.label}</span></td>
-                    <td className="px-3 py-3 text-slate-200" title={`${formatUSD(item.amount_min)} - ${formatUSD(item.amount_max)}`}>{formatUSD(item.amount_max)}</td>
-                    <td className="px-3 py-3 text-slate-200">{formatUSD(item.baseline_median_amount_max)}</td>
-                    <td className="px-3 py-3 text-slate-200">{formatMultiple(item.unusual_multiple)}</td>
-                    <td className="px-3 py-3">
-                      <span className={`${pill} min-w-[7.75rem] justify-center gap-1.5 px-2.5 text-[11px] leading-none ${smart.klass}`}>
+                    <td className="px-2 py-3 xl:px-3"><span className={`${pill} max-w-full px-2.5 ${sideLabelValue.klass}`}>{sideLabelValue.label}</span></td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3" title={`${formatUSD(item.amount_min)} - ${formatUSD(item.amount_max)}`}>{formatUSD(item.amount_max)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{formatUSD(item.baseline_median_amount_max)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{formatMultiple(item.unusual_multiple)}</td>
+                    <td className="px-2 py-3 xl:px-3">
+                      <span className={`${pill} min-w-[7.75rem] max-w-full justify-center gap-1.5 px-2 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof item.smart_score === "number" && Number.isFinite(item.smart_score) ? item.smart_score : "--"}</span>
-                        <span className="opacity-80">{smart.label}</span>
+                        <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-3"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 xl:px-3"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></td>
+                    <td className="px-2 py-3 xl:px-3">
                       <div className="min-w-0" title={item.confirmation_explanation ?? item.confirmation_status ?? undefined}>
                         <div className={`text-xs font-semibold ${confirmationClass(item.confirmation_direction)}`}>
                           {titleCase(item.confirmation_band ?? "inactive")}
@@ -467,7 +467,7 @@ export function SignalsResultsClient({
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 xl:px-3">
                       <div title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}>
                         <span className={`whitespace-nowrap text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
                           {titleCase(freshness?.freshness_state ?? "inactive")}

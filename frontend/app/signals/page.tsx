@@ -389,16 +389,20 @@ function SignalsSortLink({
   label,
   href,
   active,
+  title,
 }: {
   label: string;
   href?: string;
   active: boolean;
+  title?: string;
 }) {
-  if (!href) return <>{label}</>;
+  if (!href) return <span title={title}>{label}</span>;
   return (
     <Link
       href={href}
       prefetch={false}
+      title={title}
+      aria-label={title}
       className={`inline-flex items-center gap-1 transition hover:text-white ${active ? "text-emerald-100" : ""}`}
     >
       {label}
@@ -497,7 +501,7 @@ export default async function SignalsPage({
     multiSourceOnly,
   );
 
-  const card = "rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
+  const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
   const btn =
     "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
@@ -522,7 +526,7 @@ export default async function SignalsPage({
 
   return (
     <VerifiedSessionGuard returnTo={returnTo}>
-      <div className="space-y-8">
+      <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
@@ -693,7 +697,7 @@ export default async function SignalsPage({
       </div>
 
       {/* Table */}
-      <div className="mt-6">
+      <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">
         <div className="mb-3">
           <h2 className="text-xl font-semibold text-white">Signals table</h2>
           <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
@@ -818,8 +822,8 @@ async function SignalsResultsSection({
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
-      <div className="flex flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
-        <p className="text-slate-400">
+      <div className="flex min-w-0 max-w-full flex-col items-stretch gap-3 border-b border-slate-800 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
+        <p className="min-w-0 text-slate-400">
           {items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
         </p>
         {canBacktest ? (
@@ -844,7 +848,7 @@ async function SignalsResultsSection({
           </Link>
         )}
       </div>
-      <div className="md:hidden">
+      <div className="max-w-full overflow-hidden md:hidden">
         {items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
             {errorMessage || "No unusual signals returned."}
@@ -916,15 +920,15 @@ async function SignalsResultsSection({
 
                   <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Baseline</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Baseline">Base</div>
                       <div className="truncate font-mono text-slate-200">{formatUSD(it.baseline_median_amount_max)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Multiple</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Multiple">Mult</div>
                       <div className="truncate font-mono text-slate-200">{formatMultiple(it.unusual_multiple)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Conviction</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Conviction">Score</div>
                       <span className={`${pill} mt-1 min-w-0 max-w-full justify-center gap-1.5 px-2.5 py-1 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 shrink-0 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "--"}</span>
@@ -942,7 +946,7 @@ async function SignalsResultsSection({
                       </div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confirm</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Confirmation">Conf.</div>
                       <div className="mt-1 flex min-w-0 items-center gap-1.5">
                         <span className="font-mono font-semibold text-slate-100">{confirmationScore}</span>
                         <span className="text-slate-600">&middot;</span>
@@ -967,52 +971,52 @@ async function SignalsResultsSection({
           </div>
         )}
       </div>
-      <div className="hidden w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
-        <table className="w-full min-w-[58rem] table-fixed border-collapse text-sm">
+      <div className="hidden min-w-0 max-w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
+        <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[7.5rem]" />
-            <col className="w-[6.5rem]" />
-            <col />
-            <col className="w-[5.5rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[6.75rem]" />
+            <col className="w-[5rem]" />
+            <col className="w-[5.25rem]" />
+            <col className="w-[9.5rem]" />
+            <col className="w-[4.5rem]" />
+            <col className="w-[5.75rem]" />
+            <col className="w-[5.25rem]" />
+            <col className="w-[5rem]" />
             <col className="w-[9.25rem]" />
-            <col className="w-[6rem]" />
-            <col className="w-[8rem]" />
-            <col className="w-[5.5rem]" />
+            <col className="w-[4.75rem]" />
+            <col className="w-[5.75rem]" />
+            <col className="w-[5rem]" />
           </colgroup>
           <thead className="whitespace-nowrap bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
             <tr>
-              <th className="px-3 py-3 text-left">Time</th>
-              <th className="px-3 py-3 text-left">Ticker</th>
-              <th className="px-3 py-3 text-left">Member</th>
-              <th className="px-3 py-3 text-left">Side</th>
-              <th className="px-3 py-3 text-left">Amount</th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-header-baseline" label="Baseline" description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
+              <th className="px-2 py-3 text-left xl:px-3">Time</th>
+              <th className="px-2 py-3 text-left xl:px-3">Ticker</th>
+              <th className="px-2 py-3 text-left xl:px-3">Member</th>
+              <th className="px-2 py-3 text-left xl:px-3">Side</th>
+              <th className="px-2 py-3 text-left xl:px-3">Amount</th>
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-header-baseline" label={<span title="Baseline">Base</span>} description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
               </th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-header-multiple" label="Multiple" description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-header-multiple" label={<span title="Multiple">Mult</span>} description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
               </th>
-              <th className="px-3 py-3 text-left">
-                <SignalColumnHeaderTooltip id="signals-header-conviction" label="Conviction" description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
+              <th className="px-2 py-3 text-left xl:px-3">
+                <SignalColumnHeaderTooltip id="signals-header-conviction" label={<span title="Conviction">Score</span>} description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
               </th>
-              <th className="px-3 py-3 text-left">
+              <th className="px-2 py-3 text-left xl:px-3">
                 <SignalColumnHeaderTooltip id="signals-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
               </th>
-              <th className={`px-3 py-3 text-left ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
+              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-header-confirmation"
-                  label={<SignalsSortLink label="Confirm" href={confirmationSortHref} active={activeSort === "confirmation"} />}
+                  label={<SignalsSortLink label="Conf." href={confirmationSortHref} active={activeSort === "confirmation"} title="Confirmation" />}
                   description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
                   align="right"
                 />
               </th>
-              <th className={`px-3 py-3 text-left ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
+              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-header-freshness"
-                  label={<SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} />}
+                  label={<SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} title="Freshness" />}
                   description={SIGNALS_COLUMN_DEFINITIONS.freshness}
                   align="right"
                 />
@@ -1040,20 +1044,20 @@ async function SignalsResultsSection({
                 const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
                 return (
                   <tr key={it.event_id} className="hover:bg-slate-900/20">
-                    <td className="px-3 py-3 text-slate-300">
+                    <td className="px-2 py-3 text-slate-300 xl:px-3">
                       <span className="font-mono text-[12px]" title={it.ts}>{formatSignalDate(it.ts)}</span>
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-2 py-3 xl:px-3">
+                      <div className="flex min-w-0 items-center gap-1.5 xl:gap-2">
                         {it.symbol ? <AddTickerToWatchlist symbol={it.symbol} variant="compact" align="left" /> : null}
                         {tickerHref(it.symbol) ? (
-                          <Link href={tickerHref(it.symbol)!} prefetch={false} className={`truncate ${tickerMonoLinkClassName}`}>{it.symbol}</Link>
+                          <Link href={tickerHref(it.symbol)!} prefetch={false} className={`min-w-0 truncate ${tickerMonoLinkClassName}`}>{it.symbol}</Link>
                         ) : (
-                          <span className="truncate font-mono text-slate-300">{it.symbol}</span>
+                          <span className="min-w-0 truncate font-mono text-slate-300">{it.symbol}</span>
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-slate-200">
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">
                       {isInsider ? (
                         <div className="flex min-w-0 items-center gap-2">
                           <span title={rawPos ?? undefined}><Badge tone={roleTone}>{roleCode}</Badge></span>
@@ -1074,30 +1078,30 @@ async function SignalsResultsSection({
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-3"><span className={`${pill} ${side.klass}`}>{side.label}</span></td>
-                    <td className="px-3 py-3 text-slate-200" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
-                    <td className="px-3 py-3 text-slate-200">{formatUSD(it.baseline_median_amount_max)}</td>
-                    <td className="px-3 py-3 text-slate-200">{formatMultiple(it.unusual_multiple)}</td>
-                    <td className="px-3 py-3">
-                      <span className={`${pill} min-w-[7.75rem] justify-center gap-1.5 px-2.5 text-[11px] leading-none ${smart.klass}`}>
+                    <td className="px-2 py-3 xl:px-3"><span className={`${pill} max-w-full px-2.5 ${side.klass}`}>{side.label}</span></td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{formatUSD(it.baseline_median_amount_max)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{formatMultiple(it.unusual_multiple)}</td>
+                    <td className="px-2 py-3 xl:px-3">
+                      <span className={`${pill} min-w-[7.75rem] max-w-full justify-center gap-1.5 px-2 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}</span>
-                        <span className="opacity-80">{smart.label}</span>
+                        <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 xl:px-3">
                       {isInsider ? (
                         <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
                       ) : (
                         <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 xl:px-3">
                       <div className="w-full min-w-0">
                         <ConfirmHoverCell item={it} />
                       </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 xl:px-3">
                       <div
                         className="w-full min-w-0"
                         title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
