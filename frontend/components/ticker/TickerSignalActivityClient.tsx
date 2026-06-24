@@ -6,17 +6,33 @@ import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { ApiError, getTickerSignalsSummary, type SignalItem } from "@/lib/api";
-import { formatCurrency, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import {
+  chamberBadge,
+  formatCongressAffiliationText,
+  formatCurrency,
+  formatCurrencyRange,
+  formatDateShort,
+  formatTransactionLabel,
+  transactionTone,
+} from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
+import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 
 type GateReason = "auth" | "upgrade" | "unavailable";
 
-function signalTone(band?: string | null): "pos" | "neutral" | "neg" {
-  const value = (band ?? "").toLowerCase();
-  if (value === "strong" || value === "notable" || value === "exceptional" || value === "strong_plus") return "pos";
-  if (value === "mild" || value === "moderate") return "neutral";
-  return "neg";
+function signalKind(item: SignalItem): string {
+  return (item.kind ?? "").trim().toLowerCase();
+}
+
+function formatSignalStrengthText(band?: string | null): string {
+  const cleaned = (band ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "Signal";
+  const label = cleaned.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return `${label} signal`;
 }
 
 function gateFromError(error: unknown): { reason: GateReason; message: string } {
@@ -247,17 +263,24 @@ export function TickerSignalActivityClient({
         ) : (
           <ActivityScrollRegion>
             {visibleItems.slice(0, 20).map((signal) => {
-              const isInsiderSignal = signal.kind === "insider";
+              const kind = signalKind(signal);
+              const isInsiderSignal = kind === "insider";
+              const isCongressSignal = kind === "congress";
               const displayName = getInsiderDisplayName(signal.who) ?? "Unknown";
               const insiderProfileHref = isInsiderSignal ? insiderHref(displayName, signal.reporting_cik ?? null) : null;
               const price = readSignalNumber(signal, "estimated_price", "price");
               const pnl = readSignalNumber(signal, "pnl_pct", "pnlPct");
+              const insiderRole = isInsiderSignal ? resolveInsiderRoleBadge(signal.position) : null;
+              const congressChamber = isCongressSignal ? chamberBadge(signal.chamber) : null;
+              const hasCongressChamber = isCongressSignal && Boolean(signal.chamber?.trim());
+              const congressAffiliation = isCongressSignal ? formatCongressAffiliationText(signal.party, signal.state) : null;
+              const strengthLabel = formatSignalStrengthText(signal.smart_band);
 
               return (
                 <ActivityCard key={`${signal.kind}-${signal.event_id}-${signal.ts}`}>
                   <ActivityCardGrid
                     identity={
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         {isInsiderSignal && insiderProfileHref ? (
                           <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
                             {displayName}
@@ -265,8 +288,19 @@ export function TickerSignalActivityClient({
                         ) : (
                           <span className="text-sm font-semibold text-slate-100">{displayName}</span>
                         )}
-                        <Badge tone={isInsiderSignal ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
-                        <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
+                        {isInsiderSignal && insiderRole ? (
+                          <Badge tone={insiderRoleBadgeTone(insiderRole)} className="px-2 py-0.5 text-[10px]">{insiderRole}</Badge>
+                        ) : isCongressSignal && hasCongressChamber && congressChamber ? (
+                          <Badge tone={congressChamber.tone} className="px-2 py-0.5 text-[10px]">{congressChamber.label}</Badge>
+                        ) : isCongressSignal ? (
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Congress</span>
+                        ) : (
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{signal.kind ?? "Signal"}</span>
+                        )}
+                        {isCongressSignal && congressAffiliation ? (
+                          <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{congressAffiliation}</span>
+                        ) : null}
+                        <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
                       </div>
                     }
                     sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}

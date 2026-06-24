@@ -88,6 +88,25 @@ export function partyBadge(party?: string | null): { label: string; tone: BadgeT
   return { label: cleaned.slice(0, 6).toUpperCase(), tone: "neutral" };
 }
 
+export function formatCongressAffiliationText(party?: string | null, state?: string | null): string | null {
+  const cleanedParty = (party ?? "").trim().toLowerCase();
+  let partyLabel: string | null = null;
+  if (cleanedParty.startsWith("d")) partyLabel = "D";
+  else if (cleanedParty.startsWith("r")) partyLabel = "R";
+  else if (cleanedParty.includes("ind")) partyLabel = "I";
+  else if (cleanedParty && !["-", "--", "n/a", "na", "none", "null", "unknown"].includes(cleanedParty)) {
+    partyLabel = cleanedParty.slice(0, 6).toUpperCase();
+  }
+
+  const stateLabel = (state ?? "").trim().toUpperCase();
+  const cleanState = stateLabel && !["-", "--", "\u2014", "N/A", "NA", "NONE", "NULL", "UNKNOWN"].includes(stateLabel)
+    ? stateLabel
+    : null;
+
+  if (partyLabel && cleanState) return `${partyLabel}-${cleanState}`;
+  return partyLabel ?? cleanState;
+}
+
 export function memberTag(party?: string | null, state?: string | null) {
   const p = partyBadge(party).label;
   const s = state?.trim().toUpperCase();

@@ -19,8 +19,8 @@ const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
 
 const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
   { label: "S&P 500", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Nasdaq 100", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Dow Jones", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "NASDAQ", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Dow", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
   { label: "Russell 2000", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
@@ -140,6 +140,23 @@ function normalizeTimeframeLabel(value: string | null | undefined): string | und
   return trimmed;
 }
 
+function isInternalSnapshotMetaLabel(value?: string | null): boolean {
+  const lowered = (value ?? "").trim().toLowerCase();
+  return Boolean(lowered && (
+    lowered.includes("fred") ||
+    lowered.includes("cache") ||
+    lowered.includes("proxy") ||
+    lowered.includes("provider") ||
+    lowered.includes("backend")
+  ));
+}
+
+function publicSnapshotMetaLabel(value?: string | null): string | null {
+  if (!value || isInternalSnapshotMetaLabel(value)) return null;
+  const trimmed = value.trim();
+  return trimmed === "Latest available" ? "Latest" : trimmed;
+}
+
 function formatMacroMainValue(item: MacroSnapshotPoint): string {
   if (typeof item.value !== "number" || Number.isNaN(item.value)) return "Unavailable";
   const format = item.value_format ?? (item.unit_label === "%" || item.unit_label === "yield" ? "percent" : "number");
@@ -176,8 +193,11 @@ function formatMacroChange(item: MacroSnapshotPoint): string | null {
 }
 
 function formatMacroMeta(item: MacroSnapshotPoint): string {
-  const contextLabel = item.context_label && item.context_label !== "Latest available" ? item.context_label : null;
-  const bits = [formatDateShort(item.date ?? null), item.change_label, contextLabel].filter((value): value is string => Boolean(value));
+  const bits = [
+    formatDateShort(item.date ?? null),
+    publicSnapshotMetaLabel(item.change_label),
+    publicSnapshotMetaLabel(item.context_label),
+  ].filter((value): value is string => Boolean(value));
   return bits.length > 0 ? bits.join(" • ") : "—";
 }
 

@@ -3213,6 +3213,7 @@ export type SignalItem = {
   member_bioguide_id?: string;
   party?: string;
   chamber?: string;
+  state?: string | null;
   trade_type?: string;
   amount_min?: number;
   amount_max?: number;

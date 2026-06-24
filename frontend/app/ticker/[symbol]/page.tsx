@@ -24,6 +24,7 @@ import {
 } from "@/lib/styles";
 import {
   chamberBadge,
+  formatCongressAffiliationText,
   formatCurrency,
   formatCurrencyRange,
   formatDateShort,
@@ -775,11 +776,14 @@ function biasLabel(buys: number, sells: number): { label: string; tone: "pos" | 
   return { label: "Balanced", tone: "neutral" };
 }
 
-function signalTone(band?: string): "pos" | "neutral" | "neg" {
-  const value = (band ?? "").toLowerCase();
-  if (value === "strong" || value === "notable") return "pos";
-  if (value === "mild") return "neutral";
-  return "neg";
+function formatSignalStrengthText(band?: string | null): string {
+  const cleaned = (band ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "Signal";
+  const label = cleaned.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return `${label} signal`;
 }
 
 function signalGateForAuthenticatedFreeUser(): SignalGateState {
@@ -2694,8 +2698,7 @@ async function DeferredTickerContent({
                           ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
                           : null;
                         const chamber = chamberBadge(resolveCongressChamber(event));
-                        const party = partyBadge(resolveCongressParty(event));
-                        const state = resolveCongressState(event)?.toUpperCase() || "—";
+                        const affiliation = formatCongressAffiliationText(resolveCongressParty(event), resolveCongressState(event));
                         const signal = resolveSmartSignalValue(event as Record<string, unknown>);
                         const displayPrice = resolveCongressTradePrice(event);
                         const pnl = readNumeric(event.pnl_pct);
@@ -2713,8 +2716,7 @@ async function DeferredTickerContent({
                                     <span className="text-sm font-semibold text-slate-100">{memberName}</span>
                                   )}
                                   <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                                  <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                                  <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
+                                  {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
                                 </div>
                               }
                               sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
@@ -2853,8 +2855,30 @@ async function DeferredTickerContent({
                   <ActivityScrollRegion>
                     {signals.slice(0, 20).map((signal) => {
                       const isInsiderSignal = signal.kind === "insider";
-                      const insiderProfileHref = insiderHref(getInsiderDisplayName(signal.who), signal.reporting_cik ?? null);
+                      const isCongressSignal = signal.kind === "congress";
                       const sourceEvent = activityEventById.get(signal.event_id) ?? null;
+                      const insiderDisplay = sourceEvent && isInsiderSignal
+                        ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>)
+                        : null;
+                      const displayName = isInsiderSignal
+                        ? getInsiderDisplayName(signal.who, insiderDisplay?.insiderName) ?? "Unknown"
+                        : signal.who?.trim() || "Unknown";
+                      const insiderProfileHref = isInsiderSignal
+                        ? insiderHref(displayName, signal.reporting_cik ?? insiderDisplay?.reportingCik ?? null)
+                        : null;
+                      const insiderRoleBadge = isInsiderSignal
+                        ? resolveInsiderRoleBadge(signal.position ?? insiderDisplay?.role ?? null)
+                        : null;
+                      const congressChamberValue = isCongressSignal
+                        ? signal.chamber ?? (sourceEvent ? resolveCongressChamber(sourceEvent) : null)
+                        : null;
+                      const congressPartyValue = isCongressSignal
+                        ? signal.party ?? (sourceEvent ? resolveCongressParty(sourceEvent) : null)
+                        : null;
+                      const congressStateValue = isCongressSignal && sourceEvent ? resolveCongressState(sourceEvent) : null;
+                      const congressChamber = isCongressSignal ? chamberBadge(congressChamberValue) : null;
+                      const congressAffiliation = isCongressSignal ? formatCongressAffiliationText(congressPartyValue, congressStateValue) : null;
+                      const strengthLabel = formatSignalStrengthText(signal.smart_band);
                       const displayPrice =
                         sourceEvent && isInsiderSignal
                           ? resolveInsiderActivityDisplay(sourceEvent as Record<string, unknown>).price
@@ -2873,13 +2897,24 @@ async function DeferredTickerContent({
                             <div className="flex flex-wrap items-center gap-2">
                               {isInsiderSignal && insiderProfileHref ? (
                                 <Link href={insiderProfileHref} prefetch={false} className="text-sm font-semibold text-emerald-200">
-                                  {getInsiderDisplayName(signal.who) ?? "Unknown"}
+                                  {displayName}
                                 </Link>
                               ) : (
-                                <span className="text-sm font-semibold text-slate-100">{getInsiderDisplayName(signal.who) ?? "Unknown"}</span>
+                                <span className="text-sm font-semibold text-slate-100">{displayName}</span>
                               )}
-                              <Badge tone={signal.kind === "insider" ? "ind" : "house"}>{signal.kind ?? "signal"}</Badge>
-                              <Badge tone={signalTone(signal.smart_band)}>{signal.smart_band ?? "signal"}</Badge>
+                              {isInsiderSignal && insiderRoleBadge ? (
+                                <Badge tone={insiderRoleBadgeTone(insiderRoleBadge)} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                              ) : isCongressSignal && congressChamberValue && congressChamber ? (
+                                <Badge tone={congressChamber.tone} className="px-2 py-0.5 text-[10px]">{congressChamber.label}</Badge>
+                              ) : isCongressSignal ? (
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Congress</span>
+                              ) : (
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{signal.kind ?? "Signal"}</span>
+                              )}
+                              {isCongressSignal && congressAffiliation ? (
+                                <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{congressAffiliation}</span>
+                              ) : null}
+                              <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
                             </div>
                           }
                           sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
@@ -2949,9 +2984,9 @@ async function DeferredTickerContent({
                   const bias = biasLabel(participant.buys, participant.sells);
                   const chamberValue = participant.chamber ?? match?.chamber ?? null;
                   const partyValue = participant.party ?? match?.party ?? null;
-                  const state = (participant.state ?? match?.state)?.trim().toUpperCase() ?? null;
+                  const state = participant.state ?? match?.state ?? null;
                   const chamber = chamberBadge(chamberValue);
-                  const party = partyBadge(partyValue);
+                  const affiliation = formatCongressAffiliationText(partyValue, state);
                   const rowClassName = `${compactInteractiveSurfaceClassName} block px-3 py-2.5 text-sm`;
 
                   const content = (
@@ -2961,8 +2996,7 @@ async function DeferredTickerContent({
                           <span className={`block truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{participant.name}</span>
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                             {chamberValue ? <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge> : null}
-                            {partyValue ? <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge> : null}
-                            {state ? <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge> : null}
+                            {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
                           </div>
                         </div>
                         <div className="text-right">
@@ -3052,42 +3086,6 @@ async function DeferredTickerContent({
                   );
                 })}
           </ExpandableTickerSection>
-
-          <section className={cardClassName}>
-            <h2 className="text-lg font-semibold text-white">Historical Congress participants</h2>
-            <div className="mt-4 space-y-2.5">
-              {topMembers.length === 0 ? (
-                <InlineEmptyState message="No historical member profile data." />
-              ) : (
-                topMembers.slice(0, 5).map((member) => {
-                  const chamber = chamberBadge(member.chamber);
-                  const party = partyBadge(member.party);
-                  const state = member.state?.trim().toUpperCase() || "â€”";
-                  return (
-                    <Link
-                      key={member.member_id}
-                      href={memberHref({ name: member.name, memberId: member.bioguide_id })}
-                      prefetch={false}
-                      className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
-                    >
-                      <div className="min-w-0">
-                        <div className={`truncate text-sm font-semibold ${compactInteractiveTitleClassName}`}>{member.name}</div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
-                          <Badge tone={party.tone} className="px-2 py-0.5 text-[10px]">{party.label}</Badge>
-                          <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">{state}</Badge>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold tabular-nums text-slate-200">{member.trade_count}</span>
-                        <p className="text-[11px] text-slate-500">Trades</p>
-                      </div>
-                    </Link>
-                  );
-                })
-              )}
-            </div>
-          </section>
         </div>
       </div>
     </>

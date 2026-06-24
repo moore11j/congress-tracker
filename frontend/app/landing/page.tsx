@@ -179,7 +179,7 @@ const fallbackInsights: NewsItem[] = [
 const fallbackMarketSnapshot: MacroSnapshotResponse = {
   indexes: [
     { label: "S&P 500", symbol: "^GSPC", timeframe_label: "1D change" },
-    { label: "Nasdaq", symbol: "^IXIC", timeframe_label: "1D change" },
+    { label: "NASDAQ", symbol: "^IXIC", timeframe_label: "1D change" },
     { label: "Dow", symbol: "^DJI", timeframe_label: "1D change" },
   ],
   treasury: [
@@ -211,7 +211,7 @@ const curatedMarketSnapshotFallback = [
     subtitle: "Market breadth",
     rows: [
       ["S&P 500", "Index context"],
-      ["Nasdaq", "Growth tape"],
+      ["NASDAQ", "Growth tape"],
       ["Dow", "Blue-chip tape"],
     ],
   },
@@ -324,9 +324,43 @@ function formatMarketChange(value: number | null | undefined, suffix = "%"): str
   return `${sign}${value.toFixed(2)}${suffix}`;
 }
 
+function publicSnapshotMetaLabel(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const text = value?.trim();
+    if (!text) continue;
+    const lowered = text.toLowerCase();
+    if (
+      lowered.includes("fred") ||
+      lowered.includes("cache") ||
+      lowered.includes("proxy") ||
+      lowered.includes("provider") ||
+      lowered.includes("backend")
+    ) {
+      continue;
+    }
+    if (lowered === "latest available") return "Latest";
+    if (lowered === "1d change" || lowered === "eod change" || lowered === "daily change") return "1D";
+    if (lowered === "macro data") return "Latest";
+    return text;
+  }
+  return "Latest";
+}
+
+function publicUsIndexLabel(item: MacroSnapshotIndex): string {
+  const symbol = item.symbol?.trim().toUpperCase();
+  const label = item.label?.trim() ?? "";
+  const identity = `${label} ${symbol ?? ""}`.toLowerCase();
+  if (symbol === "SPY" || symbol === "^GSPC" || identity.includes("s&p 500")) return "S&P 500";
+  if (symbol === "QQQ" || symbol === "^IXIC" || identity.includes("nasdaq")) return "NASDAQ";
+  if (symbol === "DIA" || symbol === "^DJI" || identity.includes("dow")) return "Dow";
+  return label.replace(/\s*ETF\s+proxy\s*/gi, " ").replace(/\s+/g, " ").trim() || "Index";
+}
+
 function formatMacroChange(item: MacroSnapshotPoint): string {
   const value = item.change_value ?? item.change;
-  if (typeof value !== "number" || !Number.isFinite(value)) return item.change_label ?? "Latest available";
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return publicSnapshotMetaLabel(item.change_label, item.timeframe_label, item.context_label);
+  }
   const format = item.change_format ?? item.change_unit;
   const sign = value > 0 ? "+" : "";
   if (format === "bps") return `${sign}${value.toFixed(0)} bps`;
@@ -350,11 +384,11 @@ function insightImageUrl(item: NewsItem): string | null {
 
 function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
   return {
-    label: item.label,
+    label: publicUsIndexLabel(item),
     symbol: item.symbol,
     value: item.value,
     changePct: item.change_pct,
-    timeframeLabel: item.timeframe_label,
+    timeframeLabel: publicSnapshotMetaLabel(item.timeframe_label),
   };
 }
 
@@ -443,7 +477,7 @@ function InstrumentRows({ items }: { items: MarketInstrument[] }) {
         <div key={`${item.label}-${item.symbol ?? "na"}`} className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
-            <p className="mt-1 truncate font-mono text-xs text-slate-500">{item.symbol ?? item.timeframeLabel ?? "Latest available"}</p>
+            <p className="mt-1 truncate font-mono text-xs text-slate-500">{publicSnapshotMetaLabel(item.timeframeLabel)}</p>
           </div>
           <div className="shrink-0 text-right">
             <p className="font-mono text-sm font-semibold text-white">{formatMarketValue(item.value)}</p>
@@ -464,7 +498,7 @@ function MacroRows({ items }: { items: MacroSnapshotPoint[] }) {
           <div key={`${item.label}-${item.date ?? "na"}`} className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">{item.change_label ?? item.context_label ?? "Latest available"}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{publicSnapshotMetaLabel(item.change_label, item.timeframe_label, item.context_label)}</p>
             </div>
             <div className="shrink-0 text-right">
               <p className="font-mono text-sm font-semibold text-white">{formatMacroValue(item)}</p>
@@ -491,9 +525,9 @@ function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Market snapshot examples</p>
-            <p className="mt-2 text-sm leading-6 text-slate-400">A preview of the market context Walnut keeps warm inside the terminal.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">A preview of the market context Walnut surfaces inside the terminal.</p>
           </div>
-          <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Cache warming</span>
+          <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Preparing</span>
         </div>
         <div className="mt-5 grid gap-3 xl:grid-cols-3">
           {curatedMarketSnapshotFallback.map((card) => (
