@@ -17,19 +17,18 @@ US_INDEX_ETF_PROXIES = (
 )
 
 WORLD_ETF_PROXIES = (
-    ("Canada ETF Proxy", "EWC"),
-    ("United Kingdom ETF Proxy", "EWU"),
-    ("Japan ETF Proxy", "EWJ"),
-    ("Germany ETF Proxy", "EWG"),
-    ("France ETF Proxy", "EWQ"),
-    ("Australia ETF Proxy", "EWA"),
+    ("Canada", "VFV"),
+    ("United Kingdom", "ISF"),
+    ("Japan", "IJP"),
+    ("Germany", "EWG"),
+    ("China", "MCHI"),
 )
 
 COMMODITY_ETF_PROXIES = (
-    ("Gold ETF Proxy", "GLD"),
-    ("Silver ETF Proxy", "SLV"),
-    ("Oil ETF Proxy", "USO"),
-    ("Copper ETF Proxy", "CPER"),
+    ("Gold", "GLD"),
+    ("Silver", "SLV"),
+    ("Oil", "USO"),
+    ("Copper", "COPX"),
 )
 
 SECTOR_ETF_PROXIES = (

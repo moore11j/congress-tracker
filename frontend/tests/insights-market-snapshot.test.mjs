@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
 const marketSnapshot = read("components/insights/MarketSnapshot.tsx");
+const marketSnapshotLib = read("lib/marketSnapshot.ts");
 
 test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.match(marketSnapshot, /const worldIndexes = indexesToInstruments\(snapshot\.world_indexes, FALLBACK_WORLD_INDEXES\)/);
@@ -17,14 +18,14 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
 
   const order = [
-    'title="World Indexes"',
+    'title="Global Markets"',
     'title="Currencies"',
     'title="Commodities"',
     'title="Crypto"',
     'title="US Macro"',
     'title="US Treasury"',
-    'title="US Indexes"',
-    'title="US Sectors"',
+    'title="US Markets"',
+    'title="Sectors"',
   ].map((needle) => marketSnapshot.indexOf(needle));
   assert.deepEqual(
     order,
@@ -32,8 +33,9 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
     "snapshot cards should render in the requested row-major order",
   );
 
-  assert.match(marketSnapshot, /subtitle="1D average change"/);
-  assert.match(marketSnapshot, /subtitle="Yield and daily change"/);
+  assert.match(marketSnapshot, /subtitle="Coming Soon"/);
+  assert.match(marketSnapshot, /unavailableText="—"/);
+  assert.match(marketSnapshot, /subtitle="Yield and Daily Change"/);
   assert.match(marketSnapshot, /<MacroPointList items=\{economics\} showChange \/>/);
   assert.doesNotMatch(marketSnapshot, /1D change unavailable/);
   assert.doesNotMatch(marketSnapshot, /1D avg change/);
@@ -72,7 +74,39 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
 
 test("insights market snapshot hides provider and cache internals", () => {
   assert.doesNotMatch(marketSnapshot, /snapshot\.source/);
+  assert.doesNotMatch(marketSnapshot, /FRED/);
+  assert.doesNotMatch(marketSnapshot, /cache-first/i);
   assert.doesNotMatch(marketSnapshot, /cached/i);
   assert.doesNotMatch(marketSnapshot, /fmp/i);
+  assert.doesNotMatch(marketSnapshot, /Launch Disabled/);
+  assert.doesNotMatch(marketSnapshot, /Global ETF Proxies/);
+  assert.doesNotMatch(marketSnapshot, /Canada ETF Proxy/);
+  assert.doesNotMatch(marketSnapshot, /France ETF Proxy/);
+  assert.doesNotMatch(marketSnapshot, /EWC/);
+  assert.doesNotMatch(marketSnapshot, /EWQ/);
+  assert.doesNotMatch(marketSnapshot, /CPER/);
   assert.match(marketSnapshot, /Latest available/);
+
+  assert.doesNotMatch(marketSnapshotLib, /Global ETF Proxies/);
+  assert.doesNotMatch(marketSnapshotLib, /Launch Disabled/);
+  assert.doesNotMatch(marketSnapshotLib, /cached ETF/i);
+  assert.doesNotMatch(marketSnapshotLib, /Currency data is disabled/i);
+  assert.doesNotMatch(marketSnapshotLib, /Crypto data is disabled/i);
+  assert.doesNotMatch(marketSnapshotLib, /Canada ETF Proxy/);
+  assert.doesNotMatch(marketSnapshotLib, /France ETF Proxy/);
+  assert.doesNotMatch(marketSnapshotLib, /EWC/);
+  assert.doesNotMatch(marketSnapshotLib, /EWQ/);
+  assert.doesNotMatch(marketSnapshotLib, /CPER/);
+});
+
+test("insights market snapshot uses clean global and commodity instruments", () => {
+  for (const symbol of ["VFV", "ISF", "IJP", "EWG", "MCHI", "USO", "COPX"]) {
+    assert.match(marketSnapshot, new RegExp(`symbol: "${symbol}"`));
+    assert.match(marketSnapshotLib, new RegExp(`symbol: "${symbol}"`));
+  }
+
+  for (const label of ["Canada", "United Kingdom", "Japan", "Germany", "China", "Oil", "Copper"]) {
+    assert.match(marketSnapshot, new RegExp(`label: "${label}"`));
+    assert.match(marketSnapshotLib, new RegExp(`label: "${label}"`));
+  }
 });

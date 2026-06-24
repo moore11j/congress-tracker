@@ -10,25 +10,25 @@ type Props = {
 };
 
 const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada ETF Proxy", symbol: "EWC", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "United Kingdom ETF Proxy", symbol: "EWU", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Japan ETF Proxy", symbol: "EWJ", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Germany ETF Proxy", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "France ETF Proxy", symbol: "EWQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Canada", symbol: "VFV", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "United Kingdom", symbol: "ISF", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Japan", symbol: "IJP", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Germany", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "China", symbol: "MCHI", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
-  { label: "S&P 500 ETF Proxy", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Nasdaq 100 ETF Proxy", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Dow ETF Proxy", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Russell 2000 ETF Proxy", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "S&P 500", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Nasdaq 100", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Dow Jones", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Russell 2000", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold ETF Proxy", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver ETF Proxy", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Oil ETF Proxy", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper ETF Proxy", symbol: "CPER", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Oil", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper", symbol: "COPX", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
 ];
 
 const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -195,6 +195,10 @@ function deltaClassName(value: number | null | undefined): string {
   return "text-slate-400";
 }
 
+function isUnavailableInstrument(item: SnapshotInstrument): boolean {
+  return item.status === "unavailable" || item.status === "disabled" || item.value == null;
+}
+
 function SectionShell({
   title,
   subtitle,
@@ -220,7 +224,7 @@ function SectionShell({
             Open -&gt;
           </span>
         </div>
-        <p className="mt-1.5 text-[10px] font-medium uppercase leading-4 tracking-[0.18em] text-teal-300/60">{subtitle}</p>
+        <p className="mt-1.5 text-[10px] font-medium leading-4 tracking-[0.18em] text-teal-300/60">{subtitle}</p>
       </div>
       <div className="mt-4 min-h-0 flex-1">{children}</div>
     </Link>
@@ -233,8 +237,8 @@ function indexesToInstruments(items: MacroSnapshotIndex[] | undefined, fallback:
     const match = items.find((item) => item.label === fallbackItem.label || item.symbol === fallbackItem.symbol);
     if (!match) return fallbackItem;
     return {
-      label: match.label,
-      symbol: match.symbol,
+      label: fallbackItem.label,
+      symbol: fallbackItem.symbol ?? match.symbol,
       value: match.value,
       change_pct: match.change_pct ?? null,
       timeframe_label: normalizeTimeframeLabel(match.timeframe_label) ?? "Daily Change",
@@ -245,7 +249,17 @@ function indexesToInstruments(items: MacroSnapshotIndex[] | undefined, fallback:
 
 function instrumentsOrFallback(items: SnapshotInstrument[] | undefined, fallback: SnapshotInstrument[]): SnapshotInstrument[] {
   if (!items || items.length === 0) return fallback;
-  return fallback.map((fallbackItem) => items.find((item) => item.label === fallbackItem.label) ?? fallbackItem);
+  return fallback.map((fallbackItem) => {
+    const match = items.find((item) => item.label === fallbackItem.label || item.symbol === fallbackItem.symbol);
+    if (!match) return fallbackItem;
+    return {
+      ...match,
+      label: fallbackItem.label,
+      symbol: fallbackItem.symbol ?? match.symbol,
+      timeframe_label: normalizeTimeframeLabel(match.timeframe_label) ?? fallbackItem.timeframe_label,
+      unit_label: fallbackItem.unit_label ?? match.unit_label,
+    };
+  });
 }
 
 function pointsOrFallback(items: MacroSnapshotPoint[] | undefined, fallback: MacroSnapshotPoint[]): MacroSnapshotPoint[] {
@@ -253,11 +267,11 @@ function pointsOrFallback(items: MacroSnapshotPoint[] | undefined, fallback: Mac
   return fallback.map((fallbackItem) => items.find((item) => item.label === fallbackItem.label) ?? fallbackItem);
 }
 
-function InstrumentList({ items }: { items: SnapshotInstrument[] }) {
+function InstrumentList({ items, unavailableText = "Unavailable" }: { items: SnapshotInstrument[]; unavailableText?: string }) {
   return (
     <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${items.length}, minmax(0, 1fr))` }}>
       {items.map((item) => {
-        const unavailable = item.status === "unavailable" || item.value == null;
+        const unavailable = isUnavailableInstrument(item);
         const changeValue = item.change_pct ?? item.change;
         const changeText = item.change_pct != null ? formatPercent(item.change_pct) : formatSignedNumber(item.change);
 
@@ -269,9 +283,9 @@ function InstrumentList({ items }: { items: SnapshotInstrument[] }) {
             </div>
             <div className="shrink-0 text-right">
               <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>
-                {unavailable ? "Unavailable" : formatValue(item.value, valueDigits(item.value, item.unit_label))}
+                {unavailable ? unavailableText : formatValue(item.value, valueDigits(item.value, item.unit_label))}
               </div>
-              {changeText ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
+              {!unavailable && changeText ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
             </div>
           </div>
         );
@@ -340,26 +354,26 @@ export function MarketSnapshot({ snapshot }: Props) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
-          <p className="mt-2 text-sm text-slate-400">A compact cache-first read on market proxies, FRED macro data, US rates, and sector breadth.</p>
+          <p className="mt-2 text-sm text-slate-400">A quick view of global markets, rates, economic signals, and sector momentum.</p>
         </div>
         {updatedLabel ? <p className="text-xs text-slate-500 sm:text-right">{updatedLabel}</p> : null}
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <SectionShell title="Global ETF Proxies" subtitle="EOD Change" href="/insights/world-indexes">
+        <SectionShell title="Global Markets" subtitle="EOD Change" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" subtitle="Launch Disabled" href="/insights/currencies">
-          <InstrumentList items={currencies} />
+        <SectionShell title="Currencies" subtitle="Coming Soon" href="/insights/currencies">
+          <InstrumentList items={currencies} unavailableText="—" />
         </SectionShell>
 
-        <SectionShell title="Commodity ETF Proxies" subtitle="EOD Change" href="/insights/commodities">
+        <SectionShell title="Commodities" subtitle="EOD Change" href="/insights/commodities">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="Launch Disabled" href="/insights/crypto">
-          <InstrumentList items={crypto} />
+        <SectionShell title="Crypto" subtitle="Coming Soon" href="/insights/crypto">
+          <InstrumentList items={crypto} unavailableText="—" />
         </SectionShell>
 
         <SectionShell title="US Macro" subtitle="Macro Data" href="/insights/us-macro">
@@ -370,11 +384,11 @@ export function MarketSnapshot({ snapshot }: Props) {
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Market Proxies" subtitle="EOD Change" href="/insights/us-indexes">
+        <SectionShell title="US Markets" subtitle="EOD Change" href="/insights/us-indexes">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="Sector ETF Proxies" subtitle="EOD Change" href="/insights/us-sectors">
+        <SectionShell title="Sectors" subtitle="EOD Change" href="/insights/us-sectors">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

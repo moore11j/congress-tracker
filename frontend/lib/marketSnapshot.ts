@@ -36,30 +36,30 @@ export type MarketSnapshotDetailRow = {
 export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
   {
     slug: "world-indexes",
-    title: "Global ETF Proxies",
+    title: "Global Markets",
     subtitle: "EOD Change",
-    description: "Global market proxy moves from cached ETF prices.",
+    description: "Daily moves across major global markets.",
     kind: "instrument",
   },
   {
     slug: "currencies",
     title: "Currencies",
-    subtitle: "Launch Disabled",
-    description: "Currency data is disabled for launch until a licensed FX provider is added.",
+    subtitle: "Coming Soon",
+    description: "Major currency pairs are being prepared for this view.",
     kind: "instrument",
   },
   {
     slug: "commodities",
-    title: "Commodity ETF Proxies",
+    title: "Commodities",
     subtitle: "EOD Change",
-    description: "Commodity proxy moves from cached ETF prices.",
+    description: "Daily moves across gold, silver, oil, and copper.",
     kind: "instrument",
   },
   {
     slug: "crypto",
     title: "Crypto",
-    subtitle: "Launch Disabled",
-    description: "Crypto data is disabled for launch until a licensed crypto provider is added.",
+    subtitle: "Coming Soon",
+    description: "Major crypto pairs are being prepared for this view.",
     kind: "instrument",
   },
   {
@@ -78,40 +78,40 @@ export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
   },
   {
     slug: "us-indexes",
-    title: "US Market Proxies",
+    title: "US Markets",
     subtitle: "EOD Change",
-    description: "Major US market proxy moves from cached ETF prices.",
+    description: "Daily moves across major US markets.",
     kind: "instrument",
   },
   {
     slug: "us-sectors",
-    title: "Sector ETF Proxies",
+    title: "Sectors",
     subtitle: "EOD Change",
-    description: "Sector proxy moves from cached ETF prices.",
+    description: "Daily sector breadth across the US market.",
     kind: "sector",
   },
 ];
 
 export const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada ETF Proxy", symbol: "EWC", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "United Kingdom ETF Proxy", symbol: "EWU", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Japan ETF Proxy", symbol: "EWJ", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Germany ETF Proxy", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "France ETF Proxy", symbol: "EWQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Canada", symbol: "VFV", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "United Kingdom", symbol: "ISF", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Japan", symbol: "IJP", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Germany", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "China", symbol: "MCHI", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 export const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
-  { label: "S&P 500 ETF Proxy", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Nasdaq 100 ETF Proxy", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Dow ETF Proxy", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Russell 2000 ETF Proxy", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "S&P 500", symbol: "SPY", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Nasdaq 100", symbol: "QQQ", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Dow Jones", symbol: "DIA", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "Russell 2000", symbol: "IWM", timeframe_label: "EOD Change", status: "unavailable" },
 ];
 
 export const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold ETF Proxy", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver ETF Proxy", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Oil ETF Proxy", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper ETF Proxy", symbol: "CPER", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Oil", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper", symbol: "COPX", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
 ];
 
 export const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -296,6 +296,14 @@ export function deltaClassName(value: number | null | undefined): string {
   return "text-slate-400";
 }
 
+function isUnavailableInstrument(item: SnapshotInstrument): boolean {
+  return item.status === "unavailable" || item.status === "disabled" || item.value == null;
+}
+
+function isComingSoonCategory(slug: MarketSnapshotCategorySlug): boolean {
+  return slug === "currencies" || slug === "crypto";
+}
+
 function itemKey(item: { label?: string | null; symbol?: string | null; sector?: string | null }): string {
   return (item.symbol ?? item.label ?? item.sector ?? "").trim().toLowerCase();
 }
@@ -318,8 +326,8 @@ export function indexesToInstruments(items: MacroSnapshotIndex[] | undefined, fa
     const match = items.find((item) => item.label === fallbackItem.label || item.symbol === fallbackItem.symbol);
     if (!match) return fallbackItem;
     return {
-      label: match.label,
-      symbol: match.symbol,
+      label: fallbackItem.label,
+      symbol: fallbackItem.symbol ?? match.symbol,
       value: match.value,
       change_pct: match.change_pct ?? null,
       timeframe_label: normalizeTimeframeLabel(match.timeframe_label) ?? "Daily Change",
@@ -339,7 +347,17 @@ export function indexesToInstruments(items: MacroSnapshotIndex[] | undefined, fa
 
 export function instrumentsOrFallback(items: SnapshotInstrument[] | undefined, fallback: SnapshotInstrument[], includeAdditional = false): SnapshotInstrument[] {
   if (!items || items.length === 0) return fallback;
-  const ordered = fallback.map((fallbackItem) => items.find((item) => item.label === fallbackItem.label || item.symbol === fallbackItem.symbol) ?? fallbackItem);
+  const ordered = fallback.map((fallbackItem) => {
+    const match = items.find((item) => item.label === fallbackItem.label || item.symbol === fallbackItem.symbol);
+    if (!match) return fallbackItem;
+    return {
+      ...match,
+      label: fallbackItem.label,
+      symbol: fallbackItem.symbol ?? match.symbol,
+      timeframe_label: normalizeTimeframeLabel(match.timeframe_label) ?? fallbackItem.timeframe_label,
+      unit_label: fallbackItem.unit_label ?? match.unit_label,
+    };
+  });
   return includeAdditional ? appendAdditional(ordered, items) : ordered;
 }
 
@@ -352,11 +370,11 @@ export function pointsOrFallback(items: MacroSnapshotPoint[] | undefined, fallba
 export function categoryInstruments(snapshot: MacroSnapshotResponse, slug: MarketSnapshotCategorySlug, includeAdditional = false): SnapshotInstrument[] {
   switch (slug) {
     case "world-indexes":
-      return indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES, includeAdditional);
+      return indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES, false);
     case "currencies":
       return instrumentsOrFallback(snapshot.currencies, FALLBACK_CURRENCIES, includeAdditional);
     case "commodities":
-      return instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES, includeAdditional);
+      return instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES, false);
     case "crypto":
       return instrumentsOrFallback(snapshot.crypto, FALLBACK_CRYPTO, includeAdditional);
     case "us-indexes":
@@ -419,17 +437,18 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
 
   const instruments = categoryInstruments(snapshot, slug, true);
   if (instruments.length > 0) {
+    const comingSoon = isComingSoonCategory(slug);
     return instruments.map((item) => {
-      const unavailable = item.status === "unavailable" || item.value == null;
+      const unavailable = isUnavailableInstrument(item);
       const changeValue = item.change_pct ?? item.change;
       return {
         id: `${item.label}-${item.symbol ?? "na"}`,
         name: item.label,
         symbol: item.symbol,
-        valueText: unavailable ? "Unavailable" : formatValue(item.value, valueDigits(item.value, item.unit_label)),
-        changeText: item.change_pct != null ? formatPercent(item.change_pct) ?? "Unavailable" : formatSignedNumber(item.change) ?? "Unavailable",
+        valueText: comingSoon ? "—" : unavailable ? "Unavailable" : formatValue(item.value, valueDigits(item.value, item.unit_label)),
+        changeText: comingSoon ? "—" : item.change_pct != null ? formatPercent(item.change_pct) ?? "Unavailable" : formatSignedNumber(item.change) ?? "Unavailable",
         changeValue,
-        dateText: formatDateShort(asOf) ?? "-",
+        dateText: comingSoon ? "-" : formatDateShort(asOf) ?? "-",
         unitText: item.unit_label,
         unavailable,
       };

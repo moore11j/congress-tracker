@@ -971,7 +971,7 @@ async function SignalsResultsSection({
           </div>
         )}
       </div>
-      <div className="hidden min-w-0 max-w-full overflow-x-auto overscroll-x-contain md:block" style={{ WebkitOverflowScrolling: "touch" }}>
+      <div className="hidden min-w-0 max-w-full overflow-x-hidden md:block">
         <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[5rem]" />
