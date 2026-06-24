@@ -14,6 +14,8 @@ from app.services.congress_assets import classify_congress_disclosure_asset
 from app.utils.symbols import canonical_symbol
 
 CONGRESS_PARSER_VERSION = "official_congress_v1"
+_SANDISK_ISSUER_RE = re.compile(r"\bSAN\s*DISK\b|\bSANDISK\b", re.IGNORECASE)
+_ALLSTATE_ISSUER_RE = re.compile(r"\bALLSTATE\b", re.IGNORECASE)
 
 
 def _as_str(value: Any) -> str | None:
@@ -107,8 +109,20 @@ def parse_amount_range(value: Any) -> tuple[float | None, float | None]:
     return numbers[0], numbers[1]
 
 
+def _known_issuer_symbol(issuer_name: str | None) -> str | None:
+    issuer = (issuer_name or "").strip()
+    if not issuer:
+        return None
+    if _ALLSTATE_ISSUER_RE.search(issuer):
+        return "ALL"
+    if _SANDISK_ISSUER_RE.search(issuer):
+        return "SNDK"
+    return None
+
+
 def normalize_congress_symbol(raw_symbol: str | None, issuer_name: str | None = None, db: Session | None = None) -> tuple[str | None, str]:
     raw = (raw_symbol or "").strip()
+    known_issuer_symbol = _known_issuer_symbol(issuer_name)
     if db is not None:
         override = db.execute(
             select(SymbolResolutionOverride)
@@ -121,7 +135,7 @@ def normalize_congress_symbol(raw_symbol: str | None, issuer_name: str | None = 
             return override.normalized_symbol, "admin_override" if override.normalized_symbol else "admin_unresolved"
 
     if not raw or raw in {"--", "N/A", "n/a"}:
-        return None, "unresolved"
+        return (known_issuer_symbol, "resolved") if known_issuer_symbol else (None, "unresolved")
     upper = raw.upper().strip()
     share_class_variants = {
         "BRK.B": "BRK-B",
@@ -140,6 +154,14 @@ def normalize_congress_symbol(raw_symbol: str | None, issuer_name: str | None = 
         if len(suffix) == 1 and suffix.isalpha() and 1 <= len(base) <= 5:
             return f"{base}-{suffix}", "resolved"
     symbol = canonical_symbol(upper)
+    if known_issuer_symbol:
+        if symbol is None or symbol == known_issuer_symbol:
+            return known_issuer_symbol, "resolved"
+        if known_issuer_symbol == "ALL" and symbol == "SNDK":
+            return "ALL", "resolved"
+        return None, "issuer_symbol_conflict"
+    if symbol == "SNDK":
+        return None, "issuer_symbol_conflict"
     return (symbol, "resolved") if symbol else (None, "unresolved")
 
 
@@ -221,7 +243,7 @@ def normalize_congress_transaction(
     transaction_type_raw = _as_str(row.get("transaction_type") or row.get("transactionType") or row.get("type"))
     amount_range_raw = _as_str(row.get("amount") or row.get("amount_range") or row.get("amountRange"))
     amount_low, amount_high = parse_amount_range(amount_range_raw)
-    ticker_normalized, symbol_status = normalize_congress_symbol(ticker_raw, issuer_name, db)
+    ticker_normalized, symbol_status = normalize_congress_symbol(ticker_raw, issuer_name or security_name, db)
     asset_type_normalized = classify_congress_asset_type(
         raw_symbol=ticker_raw,
         security_name=security_name,

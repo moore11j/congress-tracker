@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 import app.ingest_house as house_module
 from app.backfill_events_from_trades import insert_missing_congress_events_from_transactions
 from app.db import Base
-from app.models import Event, Filing, GovernmentContractAction, Member, Security, Transaction
+from app.models import Event, Filing, GovernmentContractAction, Member, Security, SymbolResolutionOverride, TradeOutcome, Transaction
 from app.routers.events import list_events, list_ticker_events
 from app.services.congress_assets import parse_treasury_details
 from scripts.ops import reprocess_recent_non_equity_disclosures as reprocess_non_equity
@@ -27,9 +27,11 @@ def _session_factory():
         tables=[
             Member.__table__,
             Security.__table__,
+            SymbolResolutionOverride.__table__,
             Filing.__table__,
             Transaction.__table__,
             Event.__table__,
+            TradeOutcome.__table__,
             GovernmentContractAction.__table__,
         ],
     )
@@ -140,6 +142,70 @@ def test_congress_event_projection_is_transaction_level_and_idempotent(monkeypat
         assert payload["symbol"] != payload["event_type"]
         assert payload["company_name"] != payload["event_type"]
         assert cvs.event_date.date() == date(2026, 5, 15)
+    finally:
+        db.close()
+
+
+def test_house_ingest_guards_sndk_issuer_mismatches_and_sandisk_filter(monkeypatch):
+    Session = _session_factory()
+    base = {
+        "firstName": "Ro",
+        "lastName": "Khanna",
+        "office": "Ro Khanna",
+        "district": "CA17",
+        "party": "D",
+        "disclosureDate": "2026-02-06",
+        "link": "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/8221322.pdf",
+        "type": "purchase",
+        "owner": "spouse",
+        "amount": "$1,001 - $15,000",
+        "transactionDate": "2026-01-29",
+    }
+    rows = [
+        {**base, "symbol": "SNDK", "assetDescription": "ALLSTATE CORPORATION COMMON STOCK"},
+        {**base, "symbol": "", "assetDescription": "SANDISK LLC CMN"},
+        {**base, "symbol": "SNDK", "assetDescription": "WESTERN DIGITAL CORPORATION CMN"},
+    ]
+    _patch_house_source(monkeypatch, Session, rows)
+
+    result = house_module.ingest_house(pages=1, limit=100, sleep_s=0)
+    assert result["inserted"] == 3
+    assert result["symbol_conflict_skipped"] == 1
+
+    db = Session()
+    try:
+        assert db.query(Transaction).count() == 3
+        transactions = (
+            db.execute(select(Transaction, Security).join(Security, Security.id == Transaction.security_id))
+            .all()
+        )
+        by_name = {security.name: security.symbol for _tx, security in transactions}
+        assert by_name["ALLSTATE CORPORATION COMMON STOCK"] == "ALL"
+        assert by_name["SANDISK LLC CMN"] == "SNDK"
+
+        inserted = insert_missing_congress_events_from_transactions(db)
+        db.commit()
+        assert inserted == 2
+
+        events = db.execute(select(Event).order_by(Event.symbol)).scalars().all()
+        assert [event.symbol for event in events] == ["ALL", "SNDK"]
+        sndk_event = next(event for event in events if event.symbol == "SNDK")
+        sndk_payload = json.loads(sndk_event.payload_json)
+        assert sndk_payload["security_name"] == "SANDISK LLC CMN"
+
+        ticker_page = list_ticker_events(symbol="SNDK", db=db, limit=10)
+        assert [item.symbol for item in ticker_page.items] == ["SNDK"]
+        assert ticker_page.items[0].member_name == "Ro Khanna"
+
+        member_page = list_events(
+            db=db,
+            tape="congress",
+            symbol="SNDK",
+            member="Ro Khanna",
+            limit=10,
+            enrich_prices=False,
+        )
+        assert [item.symbol for item in member_page.items] == ["SNDK"]
     finally:
         db.close()
 

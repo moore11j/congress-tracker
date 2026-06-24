@@ -448,6 +448,56 @@ def test_congress_normalization_symbol_resolution_and_stable_hash():
     assert unresolved["symbol_resolution_status"] in {"unresolved", "private"}
     assert unresolved["symbol_resolution_status"] != "inactive"
 
+    allstate_with_bad_symbol = normalize_congress_transaction(
+        {
+            "assetDescription": "ALLSTATE CORPORATION COMMON STOCK",
+            "symbol": "SNDK",
+            "assetType": "Stock",
+            "transactionDate": "2026-06-01",
+        },
+        chamber="house",
+        source_provider="official_house",
+    )
+    assert allstate_with_bad_symbol["ticker_normalized"] == "ALL"
+
+    sandisk_without_symbol = normalize_congress_transaction(
+        {
+            "assetDescription": "SANDISK LLC CMN",
+            "symbol": "",
+            "assetType": "Stock",
+            "transactionDate": "2026-01-29",
+        },
+        chamber="house",
+        source_provider="official_house",
+    )
+    assert sandisk_without_symbol["ticker_normalized"] == "SNDK"
+    assert sandisk_without_symbol["symbol_resolution_status"] == "resolved"
+
+    sandisk_with_symbol = normalize_congress_transaction(
+        {
+            "assetDescription": "SANDISK CORPORATION - COMMON STOCK",
+            "symbol": "SNDK",
+            "assetType": "Stock",
+            "transactionDate": "2026-01-29",
+        },
+        chamber="house",
+        source_provider="official_house",
+    )
+    assert sandisk_with_symbol["ticker_normalized"] == "SNDK"
+
+    western_digital_with_bad_sndk = normalize_congress_transaction(
+        {
+            "assetDescription": "WESTERN DIGITAL CORPORATION CMN",
+            "symbol": "SNDK",
+            "assetType": "Stock",
+            "transactionDate": "2026-03-23",
+        },
+        chamber="house",
+        source_provider="official_house",
+    )
+    assert western_digital_with_bad_sndk["ticker_normalized"] is None
+    assert western_digital_with_bad_sndk["symbol_resolution_status"] == "issuer_symbol_conflict"
+
 
 def test_form4_xml_parses_codes_without_misclassifying_awards():
     parsed = parse_form4_xml(FORM4_SAMPLE, accession_number="0000320193-26-000001")

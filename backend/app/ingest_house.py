@@ -14,7 +14,7 @@ from app.db import SessionLocal
 from app.models import Filing, Member, Security, Transaction
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import classify_congress_disclosure_asset
-from app.utils.symbols import canonical_symbol
+from app.services.official_congress import normalize_congress_symbol
 
 FMP_BASE = "https://financialmodelingprep.com/stable/house-latest"
 DEFAULT_LIMIT = 100
@@ -354,7 +354,8 @@ def upsert_house_transaction_from_row(
         raw_symbol=raw_symbol,
     )
     non_equity = bool(classification) or _is_non_equity_security(asset_name, asset_class)
-    symbol = None if non_equity else canonical_symbol(raw_symbol)
+    resolved_symbol, symbol_status = normalize_congress_symbol(raw_symbol, asset_name, db)
+    symbol = None if non_equity else resolved_symbol
 
     security = None
     if symbol:
@@ -408,7 +409,7 @@ def upsert_house_transaction_from_row(
     report_date = filing_date
     lo, hi = _amount_to_range(row.get("amount") or row.get("amountRange"))
     desc = _safe_str(row.get("comment") or row.get("description"))
-    if non_equity and not desc:
+    if (non_equity or security is None) and not desc:
         desc = asset_name
 
     identity = _transaction_identity(
@@ -449,6 +450,8 @@ def upsert_house_transaction_from_row(
             "filing_created": filing_created,
             "duplicate_in_batch": duplicate_in_batch,
             "non_equity_symbol_skipped": bool(non_equity and raw_symbol and not symbol),
+            "symbol_resolution_status": symbol_status,
+            "symbol_conflict_skipped": symbol_status == "issuer_symbol_conflict",
         }
 
     seen_transaction_keys.add(identity)
@@ -475,6 +478,8 @@ def upsert_house_transaction_from_row(
         "filing_created": filing_created,
         "duplicate_in_batch": False,
         "non_equity_symbol_skipped": bool(non_equity and raw_symbol and not symbol),
+        "symbol_resolution_status": symbol_status,
+        "symbol_conflict_skipped": symbol_status == "issuer_symbol_conflict",
     }
 
 
@@ -492,6 +497,7 @@ def ingest_house(
     pages_processed = 0
     filings_created = 0
     non_equity_symbol_skipped = 0
+    symbol_conflict_skipped = 0
     latest_report_date: date | None = None
     filings_seen: set[int] = set()
     seen_transaction_keys: set[tuple] = set()
@@ -541,6 +547,8 @@ def ingest_house(
                     skipped += 1
                 if outcome.get("non_equity_symbol_skipped"):
                     non_equity_symbol_skipped += 1
+                if outcome.get("symbol_conflict_skipped"):
+                    symbol_conflict_skipped += 1
 
             if dry_run:
                 db.rollback()
@@ -564,6 +572,7 @@ def ingest_house(
             "filings_scanned": len(filings_seen),
             "filings_created": filings_created,
             "non_equity_symbol_skipped": non_equity_symbol_skipped,
+            "symbol_conflict_skipped": symbol_conflict_skipped,
             "latest_report_date": latest_report_date.isoformat() if latest_report_date else None,
             "pages_processed": pages_processed,
             "dry_run": dry_run,
