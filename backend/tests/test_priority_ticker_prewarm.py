@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -97,9 +97,129 @@ def test_priority_ticker_prewarm_skips_placeholder_symbols_before_selection(monk
         assert all(job.get("symbol") not in {"[SYMBOL]", "UNKNOWN", "SYMBOL"} for job in captured)
         assert result["attempted"] == result["symbol_count"] * 10
         assert "prewarm_ticker_invalid_symbol_skipped source=watchlist symbol=[SYMBOL]" in caplog.text
-        assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[SYMBOL]" in caplog.text
+        assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[SYMBOL]" not in caplog.text
         assert "prewarm_ticker_invalid_symbol_skipped source=popular symbol=UNKNOWN" in caplog.text
         assert "prewarm_ticker_invalid_symbol_skipped source=landing symbol=SYMBOL" in caplog.text
+    finally:
+        db.close()
+
+
+def test_recently_viewed_ticker_symbols_extracts_real_path_and_ignores_templates(caplog):
+    db = _db()
+    now = datetime.now(timezone.utc)
+    try:
+        db.add_all(
+            [
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/AAPL",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=1),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/[symbol]",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=2),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/portfolio",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=3),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/:symbol",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=4),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=5),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/NVDA?tab=financials",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=6),
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/AAPL",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=7),
+                ),
+            ]
+        )
+        db.commit()
+
+        with caplog.at_level("INFO", logger=queue_module.logger.name):
+            symbols = queue_module._recently_viewed_ticker_symbols(db, limit=10)
+
+        assert symbols == ["AAPL", "NVDA"]
+        assert "[symbol]" not in symbols
+        assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[symbol]" not in caplog.text
+    finally:
+        db.close()
+
+
+def test_priority_ticker_prewarm_counts_real_recently_viewed_tickers_without_template_noise(monkeypatch, caplog):
+    db = _db()
+    captured = []
+    now = datetime.now(timezone.utc)
+    try:
+        db.add_all(
+            [
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/AMD",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now,
+                ),
+                PageViewEvent(
+                    user_id=None,
+                    path="/ticker/[symbol]",
+                    normalized_path="/ticker/[symbol]",
+                    route_group="ticker",
+                    is_authenticated=False,
+                    created_at=now - timedelta(seconds=1),
+                ),
+            ]
+        )
+        db.commit()
+
+        def fake_enqueue(**kwargs):
+            captured.append(kwargs)
+            return True
+
+        monkeypatch.setattr(queue_module, "enqueue_data_enrichment_job", fake_enqueue)
+
+        with caplog.at_level("INFO", logger=queue_module.logger.name):
+            result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=2, popular_limit=0)
+
+        assert result["recently_viewed_symbol_count"] == 1
+        assert result["symbols"][0] == "AMD"
+        assert all(job.get("symbol") != "[symbol]" for job in captured)
+        assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[symbol]" not in caplog.text
     finally:
         db.close()
 

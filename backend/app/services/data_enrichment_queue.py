@@ -294,18 +294,36 @@ def _job_summary(row: DataEnrichmentJob) -> dict[str, Any]:
     }
 
 
+def _ticker_symbol_from_page_path(path: str | None) -> str | None:
+    clean_path = str(path or "").split("?", 1)[0].strip()
+    if not clean_path or "[" in clean_path or "]" in clean_path:
+        return None
+    if not clean_path.startswith("/ticker/"):
+        return None
+
+    raw = clean_path.removeprefix("/ticker/").strip()
+    if not raw or raw.startswith(":") or "[" in raw or "]" in raw:
+        return None
+    return raw
+
+
 def _recently_viewed_ticker_symbols(db: Session, *, limit: int) -> list[str]:
     rows = db.execute(
-        select(PageViewEvent.normalized_path)
-        .where(PageViewEvent.normalized_path.like("/ticker/%"))
+        select(PageViewEvent.path, PageViewEvent.normalized_path)
+        .where(
+            (PageViewEvent.normalized_path.like("/ticker/%"))
+            | (PageViewEvent.path.like("/ticker/%"))
+        )
         .where(PageViewEvent.created_at >= datetime.now(timezone.utc) - timedelta(days=7))
         .order_by(PageViewEvent.created_at.desc())
         .limit(max(1, limit * 4))
-    ).scalars().all()
+    ).all()
     symbols: list[str] = []
     seen: set[str] = set()
-    for path in rows:
-        raw = str(path or "").split("?", 1)[0].removeprefix("/ticker/").strip()
+    for path, _normalized_path in rows:
+        raw = _ticker_symbol_from_page_path(path)
+        if not raw:
+            continue
         symbol = _normalized_prewarm_symbol(raw, source="recently_viewed")
         if not symbol or symbol in seen:
             continue
