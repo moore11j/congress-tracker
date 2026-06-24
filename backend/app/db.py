@@ -2375,8 +2375,10 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
                         subreddits_json TEXT NOT NULL DEFAULT '[]',
+                        query_templates_json TEXT NOT NULL DEFAULT '[]',
                         minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
                         max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        recency TEXT NOT NULL DEFAULT 'week',
                         default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
                         include_disclosure BOOLEAN NOT NULL DEFAULT 1,
                         scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT 0,
@@ -2393,6 +2395,7 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         id INTEGER PRIMARY KEY,
                         campaign_id INTEGER,
                         platform TEXT NOT NULL,
+                        source_provider TEXT,
                         source_id TEXT,
                         source_url TEXT NOT NULL,
                         source_dedupe_key TEXT NOT NULL,
@@ -2493,8 +2496,10 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
                         subreddits_json TEXT NOT NULL DEFAULT '[]',
+                        query_templates_json TEXT NOT NULL DEFAULT '[]',
                         minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
                         max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        recency TEXT NOT NULL DEFAULT 'week',
                         default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
                         include_disclosure BOOLEAN NOT NULL DEFAULT true,
                         scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -2511,6 +2516,7 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         id SERIAL PRIMARY KEY,
                         campaign_id INTEGER,
                         platform TEXT NOT NULL,
+                        source_provider TEXT,
                         source_id TEXT,
                         source_url TEXT NOT NULL,
                         source_dedupe_key TEXT NOT NULL,
@@ -2585,6 +2591,24 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             )
 
         if conn.dialect.name == "sqlite":
+            existing_campaign_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(ai_marketing_campaigns)")).fetchall()
+                if len(row) > 1
+            }
+            for name, column_type in {
+                "query_templates_json": "TEXT NOT NULL DEFAULT '[]'",
+                "recency": "TEXT NOT NULL DEFAULT 'week'",
+            }.items():
+                if name not in existing_campaign_columns:
+                    conn.execute(text(f"ALTER TABLE ai_marketing_campaigns ADD COLUMN {name} {column_type}"))
+            existing_opportunity_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(ai_marketing_opportunities)")).fetchall()
+                if len(row) > 1
+            }
+            if "source_provider" not in existing_opportunity_columns:
+                conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN source_provider TEXT"))
             existing_suggestion_columns = {
                 row[1]
                 for row in conn.execute(text("PRAGMA table_info(ai_marketing_suggestions)")).fetchall()
@@ -2600,6 +2624,9 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                 if name not in existing_suggestion_columns:
                     conn.execute(text(f"ALTER TABLE ai_marketing_suggestions ADD COLUMN {name} {column_type}"))
         else:
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS query_templates_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recency TEXT NOT NULL DEFAULT 'week'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_provider TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS recommended_action TEXT NOT NULL DEFAULT 'reply'"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS reply_angle TEXT NOT NULL DEFAULT 'other'"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS value_added_insight TEXT NOT NULL DEFAULT ''"))

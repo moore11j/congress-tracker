@@ -18,6 +18,7 @@ from app.routers.ai_marketing import (
 )
 from app.services.ai_marketing import (
     AI_MARKETING_MODEL,
+    BING_SEARCH_API_KEY,
     OPENAI_API_KEY,
     REDDIT_CLIENT_ID,
     REDDIT_CLIENT_SECRET,
@@ -55,7 +56,14 @@ def _items_by_key(payload: dict):
 
 
 def _clear_env(monkeypatch):
-    for key in (OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT):
+    for key in (
+        OPENAI_API_KEY,
+        AI_MARKETING_MODEL,
+        REDDIT_CLIENT_ID,
+        REDDIT_CLIENT_SECRET,
+        REDDIT_USER_AGENT,
+        BING_SEARCH_API_KEY,
+    ):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -64,7 +72,10 @@ def _deprecated_provider_setting(db, key: str, value: str, *, is_secret: bool = 
     db.commit()
 
 
-@pytest.mark.parametrize("key", [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT])
+@pytest.mark.parametrize(
+    "key",
+    [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT, BING_SEARCH_API_KEY],
+)
 def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
     _clear_env(monkeypatch)
     db = _session()
@@ -82,7 +93,10 @@ def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
         db.close()
 
 
-@pytest.mark.parametrize("key", [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT])
+@pytest.mark.parametrize(
+    "key",
+    [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT, BING_SEARCH_API_KEY],
+)
 def test_admin_cannot_clear_provider_env_only_settings(monkeypatch, key):
     _clear_env(monkeypatch)
     db = _session()
@@ -125,6 +139,7 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
     monkeypatch.setenv(REDDIT_CLIENT_ID, "reddit-env-client")
     monkeypatch.setenv(REDDIT_CLIENT_SECRET, "reddit-env-secret")
     monkeypatch.setenv(REDDIT_USER_AGENT, "walnut-market-terminal/1.0")
+    monkeypatch.setenv(BING_SEARCH_API_KEY, "bing-env-key")
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
@@ -147,6 +162,7 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
         assert "reddit-env-secret" not in serialized
         assert "reddit-db-secret" not in serialized
         assert "walnut-market-terminal/1.0" not in serialized
+        assert "bing-env-key" not in serialized
     finally:
         db.close()
 
@@ -214,6 +230,7 @@ def test_missing_credentials_produce_helpful_warnings(monkeypatch):
         assert "Reddit client ID missing" in warnings
         assert "Reddit client secret missing" in warnings
         assert "Reddit user agent missing" in warnings
+        assert "Web search provider missing." in warnings
     finally:
         db.close()
 

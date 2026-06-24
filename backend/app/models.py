@@ -426,8 +426,10 @@ class AiMarketingCampaign(Base):
     keywords_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
     tickers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
     subreddits_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    query_templates_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
     minimum_relevance_score: Mapped[int] = mapped_column(default=60, server_default=text("60"), nullable=False)
     max_items_per_run: Mapped[int] = mapped_column(default=10, server_default=text("10"), nullable=False)
+    recency: Mapped[str] = mapped_column(Text, default="week", server_default="week", nullable=False)
     default_destination_page: Mapped[str] = mapped_column(Text, default="https://walnutmarkets.com", server_default="https://walnutmarkets.com", nullable=False)
     include_disclosure: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
     scheduled_digest_enabled: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
@@ -467,6 +469,7 @@ class AiMarketingOpportunity(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     campaign_id: Mapped[Optional[int]]
     platform: Mapped[str] = mapped_column(Text, nullable=False)
+    source_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)

@@ -39,8 +39,10 @@ type CampaignFormState = {
   keywords: string;
   tickers: string;
   subreddits: string;
+  query_templates: string;
   minimum_relevance_score: number;
   max_items_per_run: number;
+  recency: string;
   default_destination_page: string;
   include_disclosure: boolean;
   scheduled_digest_enabled: boolean;
@@ -56,9 +58,17 @@ const MODE_OPTIONS: Array<{ value: AdminAiMarketingMode; label: string }> = [
 ];
 
 const PLATFORM_OPTIONS: Array<{ value: AdminAiMarketingPlatform; label: string }> = [
-  { value: "reddit", label: "Reddit" },
+  { value: "web_search_reddit", label: "Reddit via Web Search" },
+  { value: "reddit", label: "Reddit API" },
   { value: "x_stub", label: "X stub" },
   { value: "facebook_manual", label: "Facebook manual" },
+];
+
+const RECENCY_OPTIONS = [
+  { value: "day", label: "Past day" },
+  { value: "week", label: "Past week" },
+  { value: "month", label: "Past month" },
+  { value: "any", label: "Any time" },
 ];
 
 const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: string }> = [
@@ -76,19 +86,22 @@ const SETTING_KEYS = [
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
+  "BING_SEARCH_API_KEY",
 ] as const;
 
 function emptyForm(): CampaignFormState {
   return {
-    name: "Reddit ticker replies",
+    name: "Reddit web-search replies",
     enabled: true,
     mode: "ticker_thread_assist",
-    platforms: ["reddit"],
+    platforms: ["web_search_reddit"],
     keywords: "stock research\ninsider buying\ncongress trades",
     tickers: "",
-    subreddits: "stocks\ninvesting\nwallstreetbets",
+    subreddits: "stocks\ninvesting\nSecurityAnalysis\nStockMarket\noptions",
+    query_templates: "site:reddit.com/r/{subreddit} {term}",
     minimum_relevance_score: 60,
     max_items_per_run: 10,
+    recency: "week",
     default_destination_page: "https://walnutmarkets.com",
     include_disclosure: true,
     scheduled_digest_enabled: false,
@@ -105,8 +118,10 @@ function formFromCampaign(campaign: AdminAiMarketingCampaign): CampaignFormState
     keywords: campaign.keywords.join("\n"),
     tickers: campaign.tickers.join("\n"),
     subreddits: campaign.subreddits.join("\n"),
+    query_templates: campaign.query_templates?.join("\n") ?? "",
     minimum_relevance_score: campaign.minimum_relevance_score,
     max_items_per_run: campaign.max_items_per_run,
+    recency: campaign.recency ?? "week",
     default_destination_page: campaign.default_destination_page,
     include_disclosure: campaign.include_disclosure,
     scheduled_digest_enabled: campaign.scheduled_digest_enabled,
@@ -122,8 +137,10 @@ function payloadFromForm(form: CampaignFormState): AdminAiMarketingCampaignPaylo
     keywords: splitList(form.keywords),
     tickers: splitList(form.tickers).map((ticker) => ticker.toUpperCase().replace(/^\$/, "")),
     subreddits: splitList(form.subreddits).map((subreddit) => subreddit.replace(/^r\//i, "")),
+    query_templates: splitList(form.query_templates),
     minimum_relevance_score: form.minimum_relevance_score,
     max_items_per_run: form.max_items_per_run,
+    recency: form.recency,
     default_destination_page: form.default_destination_page.trim() || "https://walnutmarkets.com",
     include_disclosure: form.include_disclosure,
     scheduled_digest_enabled: form.scheduled_digest_enabled,
@@ -375,6 +392,17 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         Use platform APIs and review each reply before posting. Avoid spam and always disclose affiliation when relevant.
       </section>
 
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <ProviderStatusCard label="Reddit API" status={config?.reddit_status ?? (config?.reddit_configured ? "configured" : "missing")} />
+          <ProviderStatusCard label="Web Search Reddit" status={config?.web_search_reddit_status ?? "missing"} />
+          <ProviderStatusCard label="Manual Text" status={config?.manual_text_status ?? "available"} />
+        </div>
+        <p className="mt-3 text-sm text-slate-400">
+          Uses search-provider snippets and URLs only. Does not scrape Reddit. Paste full thread text for better reply quality.
+        </p>
+      </section>
+
       {config?.warnings.length ? (
         <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-300">Credential warnings</h3>
@@ -546,6 +574,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
             <TextareaField label="Keywords" value={form.keywords} onChange={(value) => setForm((current) => ({ ...current, keywords: value }))} />
             <TextareaField label="Tickers" value={form.tickers} onChange={(value) => setForm((current) => ({ ...current, tickers: value }))} />
             <TextareaField label="Subreddits" value={form.subreddits} onChange={(value) => setForm((current) => ({ ...current, subreddits: value }))} />
+            <TextareaField label="Query templates" value={form.query_templates} onChange={(value) => setForm((current) => ({ ...current, query_templates: value }))} />
 
             <label className="text-sm">
               <span className="block font-medium text-slate-200">Minimum relevance score</span>
@@ -569,6 +598,19 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
                 onChange={(event) => setForm((current) => ({ ...current, max_items_per_run: Number(event.target.value) }))}
                 className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-white outline-none focus:border-emerald-300/50"
               />
+            </label>
+
+            <label className="text-sm">
+              <span className="block font-medium text-slate-200">Search recency</span>
+              <select
+                value={form.recency}
+                onChange={(event) => setForm((current) => ({ ...current, recency: event.target.value }))}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-white outline-none focus:border-emerald-300/50"
+              >
+                {RECENCY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </label>
 
             <label className="text-sm md:col-span-2">
@@ -797,6 +839,8 @@ function OpportunityRow({
   const hasSourceUrl = opportunity.metadata?.source_url_provided !== false;
   const rawSuggestionError = opportunity.metadata?.ai_suggestion_error;
   const suggestionError = typeof rawSuggestionError === "string" && rawSuggestionError.trim() ? rawSuggestionError.trim() : null;
+  const rawDiscoveryQuery = opportunity.metadata?.query;
+  const discoveryQuery = typeof rawDiscoveryQuery === "string" && rawDiscoveryQuery.trim() ? rawDiscoveryQuery.trim() : null;
   const emptySuggestionMessage = suggestionError ?? "No suggestion yet. Regenerate when ready.";
 
   return (
@@ -805,6 +849,7 @@ function OpportunityRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
             <Badge label={platformLabel(opportunity.platform)} />
+            {opportunity.source_provider ? <Badge label={platformLabel(opportunity.source_provider)} /> : null}
             <Badge label={opportunity.status} tone={statusTone(opportunity.status)} />
             {recommendedAction ? <Badge label={`Action: ${recommendedAction}`} tone={actionTone(recommendedAction)} /> : null}
             <ScoreBadge label="Relevance" value={suggestion?.relevance_score ?? opportunity.relevance_score} />
@@ -861,6 +906,8 @@ function OpportunityRow({
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3 text-sm text-slate-300">
           <p><span className="font-semibold text-slate-100">Recommended action:</span> {recommendedAction ?? "Pending"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Source provider:</span> {opportunity.source_provider ? platformLabel(opportunity.source_provider) : "Manual Text"}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Search query:</span> {discoveryQuery ?? "none"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Reply angle:</span> {suggestion?.reply_angle ?? "Pending"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Walnut feature:</span> {suggestion?.walnut_feature_to_mention || "none"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Value added:</span> {suggestion?.value_added_insight || "Pending"}</p>
@@ -906,6 +953,19 @@ function OpportunityRow({
         </button>
       </div>
     </article>
+  );
+}
+
+function ProviderStatusCard({ label, status }: { label: string; status: string }) {
+  const normalized = status.toLowerCase();
+  const tone = normalized === "configured" || normalized === "available" ? "good" : normalized === "pending" ? "warn" : "bad";
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-2">
+        <Badge label={statusLabel(status)} tone={tone} />
+      </div>
+    </div>
   );
 }
 
@@ -1001,9 +1061,15 @@ function actionTone(action: string): "muted" | "good" | "warn" | "bad" {
 }
 
 function platformLabel(platform: string) {
+  if (platform === "web_search_reddit") return "Reddit via Web Search";
   if (platform === "x_stub") return "X stub";
   if (platform === "facebook_manual") return "Facebook manual";
+  if (platform === "reddit") return "Reddit API";
   return platform.charAt(0).toUpperCase() + platform.slice(1);
+}
+
+function statusLabel(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function listOrNone(values?: string[] | null) {

@@ -1497,14 +1497,21 @@ export type AdminAiMarketingMode =
   | "pain_point_tool_alternative"
   | "manual_url_review";
 
-export type AdminAiMarketingPlatform = "reddit" | "x_stub" | "facebook_manual";
+export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "facebook_manual";
+export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
 export type AdminAiMarketingStatus = "new" | "emailed" | "dismissed" | "copied" | "archived";
 
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
   openai_model: string;
   reddit_configured: boolean;
+  reddit_status?: "pending" | "missing" | "configured" | string;
   reddit_missing: string[];
+  web_search_reddit_configured?: boolean;
+  web_search_reddit_status?: "missing" | "configured" | string;
+  web_search_reddit_provider?: string | null;
+  web_search_reddit_missing?: string[];
+  manual_text_status?: "available" | string;
   x_status: string;
   facebook_status: string;
   warnings: string[];
@@ -1547,8 +1554,10 @@ export type AdminAiMarketingCampaign = {
   keywords: string[];
   tickers: string[];
   subreddits: string[];
+  query_templates: string[];
   minimum_relevance_score: number;
   max_items_per_run: number;
+  recency: AdminAiMarketingRecency;
   default_destination_page: string;
   include_disclosure: boolean;
   scheduled_digest_enabled: boolean;
@@ -1592,6 +1601,7 @@ export type AdminAiMarketingOpportunity = {
   id: number;
   campaign_id?: number | null;
   platform: AdminAiMarketingPlatform | string;
+  source_provider?: string | null;
   source_id?: string | null;
   source_url: string;
   title: string;

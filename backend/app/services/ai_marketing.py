@@ -37,6 +37,9 @@ AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 REDDIT_CLIENT_ID = "REDDIT_CLIENT_ID"
 REDDIT_CLIENT_SECRET = "REDDIT_CLIENT_SECRET"
 REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
+BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
+WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
+WEB_SEARCH_PROVIDER_MISSING_MESSAGE = "Web search provider missing."
 
 CAMPAIGN_MODES = {
     "ticker_thread_assist",
@@ -46,7 +49,8 @@ CAMPAIGN_MODES = {
     "pain_point_tool_alternative",
     "manual_url_review",
 }
-PLATFORMS = {"reddit", "x_stub", "facebook_manual"}
+PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "facebook_manual"}
+CAMPAIGN_RECENCIES = {"any", "day", "week", "month"}
 OPPORTUNITY_STATUSES = {"new", "emailed", "dismissed", "copied", "archived"}
 INTENTS = {"question", "complaint", "trade_idea", "tool_search", "news_reaction", "other"}
 RECOMMENDED_ACTIONS = {"reply", "skip", "monitor"}
@@ -66,6 +70,7 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
+    BING_SEARCH_API_KEY: {"label": "Bing Search API Key", "is_secret": True, "required_for": "Web Search Reddit discovery"},
 }
 SECRET_SETTING_KEYS = {key for key, meta in AI_MARKETING_SETTINGS.items() if meta["is_secret"]}
 ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
@@ -75,6 +80,7 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
+        BING_SEARCH_API_KEY,
     }
 )
 PROVIDER_ENV_ONLY_MESSAGE = "Provider credentials are managed through server environment variables."
@@ -117,6 +123,17 @@ _COMMON_FALSE_TICKERS = {
     "COM",
     "YOLO",
 }
+DEFAULT_WEB_SEARCH_REDDIT_QUERY_TEMPLATES = [
+    "site:reddit.com/r/{subreddit} {term}",
+]
+DEFAULT_WEB_SEARCH_REDDIT_SUBREDDITS = [
+    "stocks",
+    "investing",
+    "SecurityAnalysis",
+    "StockMarket",
+    "options",
+]
+SHORT_SEARCH_SNIPPET_THRESHOLD = 80
 
 
 class MissingMarketingCredential(RuntimeError):
@@ -136,6 +153,7 @@ class SourceItem:
     source_id: str | None
     source_url: str
     title: str
+    source_provider: str | None = None
     excerpt: str | None = None
     author: str | None = None
     community: str | None = None
@@ -143,6 +161,14 @@ class SourceItem:
     comment_count: int | None = None
     source_created_at: datetime | None = None
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class WebSearchResult:
+    title: str
+    url: str
+    snippet: str | None = None
+    provider: str = "web_search"
 
 
 def marketing_model(db: Session | None = None) -> str:
@@ -264,6 +290,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         key: public_setting_payload(db, key) if db is not None else _public_setting_payload_without_db(key)
         for key in AI_MARKETING_SETTINGS
     }
+    web_search_status = web_search_provider_status(db)
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
@@ -275,20 +302,29 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         warnings.append("Reddit client secret missing")
     if not statuses[REDDIT_USER_AGENT]["configured"]:
         warnings.append("Reddit user agent missing")
+    if not web_search_status["configured"]:
+        warnings.append(WEB_SEARCH_PROVIDER_MISSING_MESSAGE)
     warnings.append("X is a stub only. No X API calls or posting are implemented.")
     warnings.append("Facebook is manual URL mode only. No Facebook scraping or posting is implemented.")
+    reddit_configured = all(
+        bool(statuses[key]["configured"])
+        for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
+    )
     return {
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
         "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
-        "reddit_configured": all(
-            bool(statuses[key]["configured"])
-            for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
-        ),
+        "reddit_configured": reddit_configured,
+        "reddit_status": "configured" if reddit_configured else "missing",
         "reddit_missing": [
             key
             for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
             if not statuses[key]["configured"]
         ],
+        "web_search_reddit_configured": bool(web_search_status["configured"]),
+        "web_search_reddit_status": "configured" if web_search_status["configured"] else "missing",
+        "web_search_reddit_provider": web_search_status["provider"],
+        "web_search_reddit_missing": web_search_status["missing"],
+        "manual_text_status": "available",
         "x_status": "stub",
         "facebook_status": "manual_url_only",
         "warnings": warnings,
@@ -315,6 +351,9 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
 
     minimum_relevance_score = _clamp_int(payload.get("minimum_relevance_score", 60), 0, 100)
     max_items_per_run = _clamp_int(payload.get("max_items_per_run", 10), 1, 50)
+    recency = str(payload.get("recency") or "week").strip().lower()
+    if recency not in CAMPAIGN_RECENCIES:
+        recency = "week"
     return {
         "name": name,
         "enabled": bool(payload.get("enabled", True)),
@@ -323,8 +362,10 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
         "keywords": _normalized_string_list(payload.get("keywords")),
         "tickers": _normalized_tickers(payload.get("tickers")),
         "subreddits": _normalized_subreddits(payload.get("subreddits")),
+        "query_templates": _normalized_query_templates(payload.get("query_templates")),
         "minimum_relevance_score": minimum_relevance_score,
         "max_items_per_run": max_items_per_run,
+        "recency": recency,
         "default_destination_page": _walnut_url_or_default(str(payload.get("default_destination_page") or "")),
         "include_disclosure": bool(payload.get("include_disclosure", True)),
         "scheduled_digest_enabled": bool(payload.get("scheduled_digest_enabled", False)),
@@ -341,8 +382,10 @@ def create_campaign(db: Session, payload: dict[str, Any]) -> AiMarketingCampaign
         keywords_json=_dump_list(normalized["keywords"]),
         tickers_json=_dump_list(normalized["tickers"]),
         subreddits_json=_dump_list(normalized["subreddits"]),
+        query_templates_json=_dump_list(normalized["query_templates"]),
         minimum_relevance_score=normalized["minimum_relevance_score"],
         max_items_per_run=normalized["max_items_per_run"],
+        recency=normalized["recency"],
         default_destination_page=normalized["default_destination_page"],
         include_disclosure=normalized["include_disclosure"],
         scheduled_digest_enabled=normalized["scheduled_digest_enabled"],
@@ -364,8 +407,10 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
     campaign.keywords_json = _dump_list(normalized["keywords"])
     campaign.tickers_json = _dump_list(normalized["tickers"])
     campaign.subreddits_json = _dump_list(normalized["subreddits"])
+    campaign.query_templates_json = _dump_list(normalized["query_templates"])
     campaign.minimum_relevance_score = normalized["minimum_relevance_score"]
     campaign.max_items_per_run = normalized["max_items_per_run"]
+    campaign.recency = normalized["recency"]
     campaign.default_destination_page = normalized["default_destination_page"]
     campaign.include_disclosure = normalized["include_disclosure"]
     campaign.scheduled_digest_enabled = normalized["scheduled_digest_enabled"]
@@ -384,8 +429,10 @@ def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
         "keywords": _load_list(campaign.keywords_json),
         "tickers": _load_list(campaign.tickers_json),
         "subreddits": _load_list(campaign.subreddits_json),
+        "query_templates": _load_list(campaign.query_templates_json),
         "minimum_relevance_score": int(campaign.minimum_relevance_score or 0),
         "max_items_per_run": int(campaign.max_items_per_run or 0),
+        "recency": campaign.recency or "week",
         "default_destination_page": campaign.default_destination_page or DEFAULT_DESTINATION_URL,
         "include_disclosure": bool(campaign.include_disclosure),
         "scheduled_digest_enabled": bool(campaign.scheduled_digest_enabled),
@@ -417,6 +464,7 @@ def opportunity_to_dict(
         "id": opportunity.id,
         "campaign_id": opportunity.campaign_id,
         "platform": opportunity.platform,
+        "source_provider": opportunity.source_provider,
         "source_id": opportunity.source_id,
         "source_url": opportunity.source_url,
         "title": opportunity.title,
@@ -499,6 +547,14 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
         except Exception:
             logger.exception("ai_marketing_reddit_search_failed campaign_id=%s", campaign.id)
             warnings.append("Reddit discovery failed. Check credentials, rate limits, and Reddit API availability.")
+    if WEB_SEARCH_REDDIT_SOURCE_PROVIDER in platforms:
+        try:
+            items.extend(WebSearchRedditSourceAdapter(db).search(campaign))
+        except MissingMarketingCredential as exc:
+            warnings.append(str(exc))
+        except Exception:
+            logger.exception("ai_marketing_web_search_reddit_failed campaign_id=%s", campaign.id)
+            warnings.append("Web Search Reddit discovery failed. Check provider credentials, quota, and API availability.")
 
     if "x_stub" in platforms:
         warnings.append("X is configured as a future official API stub only; no X discovery ran.")
@@ -564,6 +620,7 @@ def upsert_source_item(
     ).scalar_one_or_none()
     if opportunity:
         opportunity.campaign_id = campaign.id if campaign else opportunity.campaign_id
+        opportunity.source_provider = item.source_provider or opportunity.source_provider
         opportunity.title = _truncate(item.title, 500) or opportunity.title
         opportunity.excerpt = _truncate(item.excerpt, 1500)
         opportunity.source_score = item.source_score
@@ -579,6 +636,7 @@ def upsert_source_item(
     opportunity = AiMarketingOpportunity(
         campaign_id=campaign.id if campaign else None,
         platform=item.platform,
+        source_provider=_truncate(item.source_provider, 100),
         source_id=_truncate(item.source_id, 200),
         source_url=_truncate(item.source_url, 1000) or DEFAULT_DESTINATION_URL,
         source_dedupe_key=source_dedupe_key,
@@ -639,6 +697,7 @@ def create_manual_opportunity(
         platform=platform,
         source_id=f"manual:{_dedupe_key(source_key)}",
         source_url=source_url,
+        source_provider="admin_manual_text",
         title=title or "Manual URL review",
         excerpt=manual_text,
         metadata={
@@ -698,6 +757,7 @@ def generate_suggestion(
     model = marketing_model(db)
     campaign_payload = campaign_to_dict(campaign) if campaign else None
     platform = opportunity.platform
+    opportunity_metadata = _load_object(opportunity.raw_metadata_json)
     destination_hint = recommended_destination_url(
         mode=campaign.mode if campaign else "manual_url_review",
         platform=platform,
@@ -716,6 +776,7 @@ def generate_suggestion(
                         "campaign": campaign_payload,
                         "opportunity": {
                             "platform": opportunity.platform,
+                            "source_provider": opportunity.source_provider,
                             "source_url": opportunity.source_url,
                             "title": opportunity.title,
                             "excerpt": opportunity.excerpt,
@@ -726,6 +787,13 @@ def generate_suggestion(
                             "created_at": _iso(opportunity.source_created_at),
                             "matched_keywords": _load_list(opportunity.matched_keywords_json),
                             "matched_tickers": _load_list(opportunity.matched_tickers_json),
+                            "metadata": {
+                                "web_search_provider": opportunity_metadata.get("web_search_provider"),
+                                "discovery_query": opportunity_metadata.get("query"),
+                                "snippet_only": opportunity_metadata.get("snippet_only"),
+                                "snippet_character_count": opportunity_metadata.get("snippet_character_count"),
+                                "needs_manual_review": opportunity_metadata.get("needs_manual_review"),
+                            },
                         },
                         "routing_hint": destination_hint,
                     },
@@ -932,6 +1000,152 @@ def test_reddit_connection(db: Session) -> dict[str, Any]:
     return {"ok": True, "message": "Reddit OAuth connection succeeded."}
 
 
+def web_search_provider_status(db: Session | None = None) -> dict[str, Any]:
+    if resolved_setting_value(db, BING_SEARCH_API_KEY):
+        return {"configured": True, "provider": "bing", "missing": []}
+    return {"configured": False, "provider": None, "missing": [BING_SEARCH_API_KEY]}
+
+
+def resolve_web_search_provider(db: Session | None = None) -> "WebSearchProvider":
+    bing_key = resolved_setting_value(db, BING_SEARCH_API_KEY)
+    if bing_key:
+        return BingWebSearchProvider(bing_key)
+    raise MissingMarketingCredential(WEB_SEARCH_PROVIDER_MISSING_MESSAGE)
+
+
+class WebSearchProvider:
+    provider_name = "web_search"
+
+    def search(self, query: str, *, max_results: int, recency: str = "week") -> list[WebSearchResult]:
+        raise NotImplementedError
+
+
+class BingWebSearchProvider(WebSearchProvider):
+    provider_name = "bing"
+    endpoint = "https://api.bing.microsoft.com/v7.0/search"
+
+    def __init__(self, api_key: str) -> None:
+        self.api_key = api_key
+
+    def search(self, query: str, *, max_results: int, recency: str = "week") -> list[WebSearchResult]:
+        params: dict[str, Any] = {
+            "q": query,
+            "count": max(1, min(int(max_results or 10), 50)),
+            "responseFilter": "Webpages",
+            "safeSearch": "Moderate",
+            "textFormat": "Raw",
+        }
+        freshness = {"day": "Day", "week": "Week", "month": "Month"}.get(recency)
+        if freshness:
+            params["freshness"] = freshness
+        response = requests.get(
+            self.endpoint,
+            headers={"Ocp-Apim-Subscription-Key": self.api_key},
+            params=params,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError("Bing Web Search request failed.")
+        data = response.json()
+        values = data.get("webPages", {}).get("value", [])
+        if not isinstance(values, list):
+            return []
+        results: list[WebSearchResult] = []
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            url = str(value.get("url") or "").strip()
+            title = str(value.get("name") or "").strip()
+            if not url or not title:
+                continue
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    url=url,
+                    snippet=str(value.get("snippet") or "").strip() or None,
+                    provider=self.provider_name,
+                )
+            )
+        return results
+
+
+class WebSearchRedditSourceAdapter:
+    def __init__(self, db: Session | None = None) -> None:
+        self.db = db
+
+    def search(self, campaign: AiMarketingCampaign) -> list[SourceItem]:
+        provider = resolve_web_search_provider(self.db)
+        queries = self._queries_for_campaign(campaign)
+        if not queries:
+            return []
+
+        max_items = max(1, min(int(campaign.max_items_per_run or 10), 50))
+        items: list[SourceItem] = []
+        seen_urls: set[str] = set()
+        discovered_at = datetime.now(timezone.utc)
+        recency = campaign.recency or "week"
+        for query in queries:
+            if len(items) >= max_items:
+                break
+            remaining = max_items - len(items)
+            for result in provider.search(query, max_results=remaining, recency=recency):
+                normalized_url = _normalize_reddit_search_result_url(result.url)
+                if not normalized_url or normalized_url in seen_urls:
+                    continue
+                seen_urls.add(normalized_url)
+                snippet = _truncate(result.snippet, 800)
+                needs_manual_review = len(snippet or "") < SHORT_SEARCH_SNIPPET_THRESHOLD
+                items.append(
+                    SourceItem(
+                        platform="reddit",
+                        source_provider=WEB_SEARCH_REDDIT_SOURCE_PROVIDER,
+                        source_id=normalized_url,
+                        source_url=normalized_url,
+                        title=result.title,
+                        excerpt=snippet,
+                        community=_subreddit_from_reddit_url(normalized_url),
+                        metadata={
+                            "source_provider": WEB_SEARCH_REDDIT_SOURCE_PROVIDER,
+                            "web_search_provider": result.provider,
+                            "query": query,
+                            "snippet": snippet,
+                            "snippet_only": True,
+                            "snippet_character_count": len(snippet or ""),
+                            "needs_manual_review": needs_manual_review,
+                            "manual_review_reason": "short search-provider snippet" if needs_manual_review else None,
+                            "discovered_at": _iso(discovered_at),
+                            "stored_fields": ["title", "url", "snippet", "source/provider", "discovered_at"],
+                            "compliance": "Search-provider snippets and URLs only; Reddit page HTML was not fetched.",
+                        },
+                    )
+                )
+                if len(items) >= max_items:
+                    break
+        return items
+
+    @staticmethod
+    def _queries_for_campaign(campaign: AiMarketingCampaign) -> list[str]:
+        subreddits = _load_list(campaign.subreddits_json) or DEFAULT_WEB_SEARCH_REDDIT_SUBREDDITS
+        keywords = _load_list(campaign.keywords_json)
+        tickers = _load_list(campaign.tickers_json)
+        templates = _load_list(campaign.query_templates_json) or DEFAULT_WEB_SEARCH_REDDIT_QUERY_TEMPLATES
+        queries: list[str] = []
+        for subreddit in subreddits:
+            for keyword in keywords:
+                queries.extend(
+                    _render_search_query_template(template, subreddit=subreddit, keyword=keyword, ticker="", term=keyword)
+                    for template in templates
+                    if "{ticker}" not in template
+                )
+            for ticker in tickers:
+                queries.extend(
+                    _render_search_query_template(template, subreddit=subreddit, keyword="", ticker=ticker, term=ticker)
+                    for template in templates
+                    if "{keyword}" not in template
+                )
+        return [query for query in _dedupe_strings(queries) if query][:50]
+
+
 class RedditSourceAdapter:
     def __init__(self, db: Session | None = None) -> None:
         self.db = db
@@ -1004,6 +1218,7 @@ class RedditSourceAdapter:
                 items.append(
                     SourceItem(
                         platform="reddit",
+                        source_provider="reddit_api",
                         source_id=source_id,
                         source_url=source_url,
                         title=title,
@@ -1078,9 +1293,22 @@ def _digest_context(
     items_html: list[str] = []
     for index, opportunity in enumerate(opportunities, start=1):
         suggestion = latest.get(opportunity.id)
+        metadata = _load_object(opportunity.raw_metadata_json)
         reply = suggestion.suggested_reply if suggestion else "No AI suggestion generated yet."
         destination = suggestion.suggested_destination_url if suggestion else (opportunity.suggested_destination_url or DEFAULT_DESTINATION_URL)
         reason = (suggestion.short_reason if suggestion else opportunity.short_reason) or "No reasoning summary available."
+        snippet = opportunity.excerpt or "none"
+        query = str(metadata.get("query") or "manual").strip() or "manual"
+        needs_manual_review = bool(metadata.get("needs_manual_review")) or (
+            opportunity.source_provider == WEB_SEARCH_REDDIT_SOURCE_PROVIDER
+            and len(opportunity.excerpt or "") < SHORT_SEARCH_SNIPPET_THRESHOLD
+        )
+        manual_review_note = "Needs manual review." if needs_manual_review else ""
+        manual_review_html = (
+            "<p style=\"margin:0 0 8px 0;color:#92400e;font-weight:600;\">Needs manual review.</p>"
+            if needs_manual_review
+            else ""
+        )
         tickers = ", ".join(_load_list(opportunity.matched_tickers_json)) or "none"
         keywords = ", ".join(_load_list(opportunity.matched_keywords_json)) or "none"
         relevance = suggestion.relevance_score if suggestion else opportunity.relevance_score
@@ -1096,10 +1324,13 @@ def _digest_context(
             "\n".join(
                 [
                     f"{index}. {opportunity.title}",
-                    f"Platform/source: {opportunity.platform} / {opportunity.community or 'manual'}",
+                    f"Platform/source: {opportunity.platform} / {opportunity.source_provider or opportunity.community or 'manual'}",
                     f"Permalink: {opportunity.source_url}",
+                    f"Snippet: {snippet}",
+                    f"Search query: {query}",
                     f"Matched ticker/keywords: {tickers} / {keywords}",
                     f"Recommended action: {action}",
+                    manual_review_note,
                     f"Reply angle: {angle}",
                     f"Relevance score: {relevance if relevance is not None else 'pending'}",
                     f"Spam risk score: {spam if spam is not None else 'pending'}",
@@ -1113,10 +1344,13 @@ def _digest_context(
         items_html.append(
             "<div style=\"margin:18px 0;padding:14px;border:1px solid #d8e6ea;border-radius:7px;background:#f8fafc;\">"
             f"<h3 style=\"margin:0 0 8px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html.escape(opportunity.title)}</h3>"
-            f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(opportunity.platform)} / {html.escape(opportunity.community or 'manual')}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(opportunity.platform)} / {html.escape(opportunity.source_provider or opportunity.community or 'manual')}</p>"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source thread</a></p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Snippet: {html.escape(snippet)}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Search query: {html.escape(query)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Matched ticker/keywords: {html.escape(tickers)} / {html.escape(keywords)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Recommended action: {html.escape(action)} | Reply angle: {html.escape(angle)}</p>"
+            f"{manual_review_html}"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Relevance: {html.escape(str(relevance if relevance is not None else 'pending'))} | Spam risk: {html.escape(str(spam if spam is not None else 'pending'))}</p>"
             f"{destination_html}"
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(reply)}</pre>"
@@ -1159,7 +1393,10 @@ def _suggestion_system_prompt() -> str:
         "Include at most one Walnut link unless the thread clearly needs more. Never use spammy CTA language. "
         "Do not fake personal experience or pretend to be unaffiliated. No automated posting is happening; a human will review this. "
         "Avoid replies when spam risk is high. "
-        "Avoid replying to old or inactive threads unless relevance is very high."
+        "Avoid replying to old or inactive threads unless relevance is very high. "
+        "For source_provider='web_search_reddit', you only have a search-provider title, URL, and snippet. "
+        "Do not invent unseen Reddit post or comment details. If the snippet is thin, vague, or missing, use recommended_action='monitor' "
+        "and make suggested_reply start with 'Needs manual review -' instead of drafting a full reply."
     )
 
 
@@ -1527,6 +1764,56 @@ def _normalized_subreddits(value: Any) -> list[str]:
         if re.fullmatch(r"[A-Za-z0-9_]{2,40}", cleaned):
             result.append(cleaned)
     return _dedupe_strings(result)
+
+
+def _normalized_query_templates(value: Any) -> list[str]:
+    templates = []
+    for item in _normalized_string_list(value):
+        cleaned = re.sub(r"\s+", " ", item).strip()
+        if not cleaned:
+            continue
+        templates.append(_truncate(cleaned, 240) or "")
+    return [template for template in _dedupe_strings(templates) if template]
+
+
+def _render_search_query_template(template: str, *, subreddit: str, keyword: str, ticker: str, term: str) -> str:
+    rendered = template
+    replacements = {
+        "{subreddit}": subreddit,
+        "{keyword}": keyword,
+        "{ticker}": ticker,
+        "{term}": term,
+    }
+    for placeholder, value in replacements.items():
+        rendered = rendered.replace(placeholder, value)
+    return re.sub(r"\s+", " ", rendered).strip()
+
+
+def _normalize_reddit_search_result_url(value: str) -> str | None:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    host = parsed.netloc.lower()
+    if host == "redd.it" or host.endswith(".redd.it"):
+        path = "/" + "/".join(part for part in parsed.path.split("/") if part)
+        return urlunparse(("https", "redd.it", path.rstrip("/") or "/", "", "", ""))
+    if host != "reddit.com" and not host.endswith(".reddit.com"):
+        return None
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if not path_parts:
+        return None
+    if path_parts[0].lower() != "r":
+        return None
+    normalized_path = "/" + "/".join(path_parts)
+    return urlunparse(("https", "www.reddit.com", normalized_path.rstrip("/") or "/", "", "", ""))
+
+
+def _subreddit_from_reddit_url(value: str) -> str | None:
+    parsed = urlparse(value)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and parts[0].lower() == "r":
+        return parts[1]
+    return None
 
 
 def _normalized_string_list(value: Any, *, lowercase: bool = False) -> list[str]:

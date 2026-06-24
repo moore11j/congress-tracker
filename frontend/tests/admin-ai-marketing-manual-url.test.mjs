@@ -43,3 +43,20 @@ test("manual AI outreach API and errors preserve backend validation detail", () 
   assert.match(apiSource, /Array\.isArray\(detail\)/);
   assert.match(apiSource, /return messages\.join\(" "\)/);
 });
+
+test("AI outreach supports compliant Reddit web search campaigns", () => {
+  assert.match(viewSource, /Reddit via Web Search/);
+  assert.match(viewSource, /BING_SEARCH_API_KEY/);
+  assert.match(viewSource, /Query templates/);
+  assert.match(viewSource, /Search recency/);
+  assert.match(
+    viewSource,
+    /Uses search-provider snippets and URLs only\. Does not scrape Reddit\. Paste full thread text for better reply quality\./,
+  );
+  assert.match(viewSource, /ProviderStatusCard label="Reddit API"/);
+  assert.match(viewSource, /ProviderStatusCard label="Web Search Reddit"/);
+  assert.match(viewSource, /ProviderStatusCard label="Manual Text"/);
+  assert.match(apiSource, /"web_search_reddit"/);
+  assert.match(apiSource, /source_provider\?: string \| null/);
+  assert.match(apiSource, /query_templates: string\[\]/);
+});

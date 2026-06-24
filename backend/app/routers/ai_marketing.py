@@ -45,8 +45,10 @@ class CampaignPayload(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     tickers: list[str] = Field(default_factory=list)
     subreddits: list[str] = Field(default_factory=list)
+    query_templates: list[str] = Field(default_factory=list)
     minimum_relevance_score: int = Field(default=60, ge=0, le=100)
     max_items_per_run: int = Field(default=10, ge=1, le=50)
+    recency: str = Field(default="week", max_length=20)
     default_destination_page: str = Field(default="https://walnutmarkets.com", max_length=1000)
     include_disclosure: bool = True
     scheduled_digest_enabled: bool = False
@@ -60,8 +62,10 @@ class CampaignPatchPayload(BaseModel):
     keywords: list[str] | None = None
     tickers: list[str] | None = None
     subreddits: list[str] | None = None
+    query_templates: list[str] | None = None
     minimum_relevance_score: int | None = Field(default=None, ge=0, le=100)
     max_items_per_run: int | None = Field(default=None, ge=1, le=50)
+    recency: str | None = Field(default=None, max_length=20)
     default_destination_page: str | None = Field(default=None, max_length=1000)
     include_disclosure: bool | None = None
     scheduled_digest_enabled: bool | None = None

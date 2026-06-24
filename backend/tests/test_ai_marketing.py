@@ -377,6 +377,187 @@ def test_campaign_run_dedupes_source_items(monkeypatch):
         db.close()
 
 
+def test_web_search_provider_missing_returns_clear_admin_warning(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("BING_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+    monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("REDDIT_USER_AGENT", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(
+            _campaign_payload(platforms=["web_search_reddit"], query_templates=["site:reddit.com/r/{subreddit} {term}"]),
+            _request_for_user(admin),
+            db,
+        )
+
+        result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+
+        assert result["created"] == 0
+        assert "Web search provider missing." in result["warnings"]
+        assert all("Reddit discovery disabled" not in warning for warning in result["warnings"])
+        assert db.query(AiMarketingOpportunity).count() == 0
+    finally:
+        db.close()
+
+
+def test_web_search_results_create_deduped_reddit_opportunities_without_fetching_reddit(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("BING_SEARCH_API_KEY", "bing-test-key")
+    called_urls = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "webPages": {
+                    "value": [
+                        {
+                            "name": "NVDA insider buying discussion",
+                            "url": "https://www.reddit.com/r/stocks/comments/same/thread/?utm_source=search",
+                            "snippet": "How are people checking NVDA insider buying and Congress trades?",
+                        },
+                        {
+                            "name": "Duplicate NVDA thread",
+                            "url": "https://old.reddit.com/r/stocks/comments/same/thread/#comments",
+                            "snippet": "Same discussion through an old Reddit URL.",
+                        },
+                    ]
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        called_urls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", fake_get)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(
+            _campaign_payload(
+                platforms=["web_search_reddit"],
+                keywords=["insider buying"],
+                tickers=["NVDA"],
+                subreddits=["stocks"],
+                query_templates=["site:reddit.com/r/{subreddit} {term}"],
+                max_items_per_run=5,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        first = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+        second = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+
+        assert first["created"] == 1
+        assert second["created"] == 0
+        assert second["deduped"] == 1
+        assert db.query(AiMarketingOpportunity).count() == 1
+        opportunity = db.execute(select(AiMarketingOpportunity)).scalar_one()
+        assert opportunity.source_provider == "web_search_reddit"
+        assert opportunity.source_url == "https://www.reddit.com/r/stocks/comments/same/thread"
+        metadata = json.loads(opportunity.raw_metadata_json)
+        assert metadata["web_search_provider"] == "bing"
+        assert metadata["query"].startswith("site:reddit.com/r/stocks")
+        assert metadata["snippet_only"] is True
+        assert all("reddit.com" not in url for url in called_urls)
+    finally:
+        db.close()
+
+
+def test_web_search_openai_scoring_receives_title_snippet_and_url(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("BING_SEARCH_API_KEY", "bing-test-key")
+    captured = {}
+
+    class FakeSearchResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "webPages": {
+                    "value": [
+                        {
+                            "name": "Is there one page for NVDA research?",
+                            "url": "https://www.reddit.com/r/investing/comments/nvda/research_tools/",
+                            "snippet": "Looking for a way to compare NVDA filings, insider activity, and Congress trades.",
+                        }
+                    ]
+                }
+            }
+
+    class FakeOpenAIResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "relevance_score": 90,
+                                    "spam_risk_score": 12,
+                                    "detected_tickers": ["NVDA"],
+                                    "intent": "tool_search",
+                                    "recommended_action": "reply",
+                                    "reply_angle": "ticker_context",
+                                    "value_added_insight": "The search result asks for a ticker research workflow.",
+                                    "walnut_feature_to_mention": "NVDA ticker page with filings, insider activity, and Congress trades",
+                                    "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
+                                    "suggested_reply": "I'm building Walnut, so obvious bias, but this is exactly the kind of NVDA cross-check it helps with.",
+                                    "alternate_reply_more_direct": "",
+                                    "short_reason": "Relevant ticker research tooling request.",
+                                    "compliance_notes": "Uses search snippet only; review before posting.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", lambda *args, **kwargs: FakeSearchResponse())
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["payload"] = kwargs["json"]
+        return FakeOpenAIResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(
+            _campaign_payload(
+                platforms=["web_search_reddit"],
+                keywords=["research tools"],
+                tickers=["NVDA"],
+                subreddits=["investing"],
+                query_templates=["site:reddit.com/r/{subreddit} {term}"],
+                max_items_per_run=1,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+
+        prompt = json.loads(captured["payload"]["messages"][1]["content"])
+        opportunity_payload = prompt["opportunity"]
+        assert result["suggested"] == 1
+        assert opportunity_payload["source_provider"] == "web_search_reddit"
+        assert opportunity_payload["title"] == "Is there one page for NVDA research?"
+        assert opportunity_payload["excerpt"] == "Looking for a way to compare NVDA filings, insider activity, and Congress trades."
+        assert opportunity_payload["source_url"] == "https://www.reddit.com/r/investing/comments/nvda/research_tools"
+        assert opportunity_payload["metadata"]["snippet_only"] is True
+        assert opportunity_payload["metadata"]["discovery_query"].startswith("site:reddit.com/r/investing")
+    finally:
+        db.close()
+
+
 def test_openai_suggestion_returns_structured_payload_with_walnut_utm(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
