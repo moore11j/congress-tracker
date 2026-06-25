@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.main import ticker_government_contracts
-from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
+from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache, QuoteCache, TickerMeta
 from app.routers.screener import stock_screener_export
 from app.services.confirmation_score import get_confirmation_score_bundle_for_ticker
 from app.services.government_contracts import get_government_contracts_summaries_for_symbols
@@ -363,6 +363,59 @@ def test_screener_cache_applies_core_filters_before_fetch_cap(monkeypatch):
     assert response["total_available"] == 40
     assert response["returned"] == 40
     assert {row["symbol"] for row in response["items"]} == {f"TECH{index:03d}" for index in range(40)}
+
+
+def test_screener_core_price_sector_uses_broad_identity_price_universe(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: (_ for _ in ()).throw(AssertionError("cache-backed screener should not call provider")),
+    )
+    engine = _engine()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with Session(engine) as db:
+        for index in range(20):
+            symbol = f"TECH{index:02d}"
+            db.add(
+                TickerMeta(
+                    symbol=symbol,
+                    company_name=f"Technology {index}",
+                    exchange="NASDAQ",
+                    sector="Technology",
+                    industry="Software - Application",
+                    country="US",
+                )
+            )
+            db.add(QuoteCache(symbol=symbol, price=20 + index, asof_ts=now))
+        for index in range(3):
+            row = _fundamentals_cache_row(
+                f"TECH{index:02d}",
+                sector="Technology",
+                price=20 + index,
+                market_cap=100_000_000_000 - index,
+            )
+            row.trailing_pe = 18 + index
+            db.add(row)
+        db.commit()
+
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                page=1,
+                page_size=25,
+                price_min=1,
+                price_max=100,
+                sector="Technology",
+            ),
+        )
+
+    by_symbol = {row["symbol"]: row for row in response["items"]}
+    assert response["total_available"] == 20
+    assert response["returned"] == 20
+    assert set(by_symbol) == {f"TECH{index:02d}" for index in range(20)}
+    assert by_symbol["TECH00"]["trailing_pe"] == 18
+    assert by_symbol["TECH04"]["trailing_pe"] is None
+    assert by_symbol["TECH04"]["price"] == 24
 
 
 def test_screener_enriches_rows_with_canonical_confirmation_sources(monkeypatch):

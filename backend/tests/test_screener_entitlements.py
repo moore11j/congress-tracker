@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -8,7 +10,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import AppSetting, SavedScreen, SavedScreenSnapshot, UserAccount
+from app.models import AppSetting, QuoteCache, SavedScreen, SavedScreenSnapshot, TickerMeta, UserAccount
 from app.routers.saved_screens import (
     SavedScreenCreatePayload,
     create_saved_screen,
@@ -223,6 +225,48 @@ def test_free_screener_basic_access_is_capped_and_redacted(monkeypatch):
         assert response["access"]["intelligence_locked"] is True
         assert isinstance(response["items"][0]["confirmation"]["score"], int)
         assert response["items"][0]["confirmation"]["score"] >= 0
+    finally:
+        db.close()
+
+
+def test_free_screener_total_available_counts_before_result_cap(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: (_ for _ in ()).throw(AssertionError("cache-backed screener should not call provider")),
+    )
+    db = _session()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        for index in range(30):
+            symbol = f"CAP{index:02d}"
+            db.add(
+                TickerMeta(
+                    symbol=symbol,
+                    company_name=f"Cap Test {index}",
+                    exchange="NASDAQ",
+                    sector="Technology",
+                    industry="Software - Infrastructure",
+                    country="US",
+                )
+            )
+            db.add(QuoteCache(symbol=symbol, price=25 + index, asof_ts=now))
+        db.commit()
+
+        response = stock_screener(
+            request=_request("free"),
+            db=db,
+            page_size=25,
+            sector="Technology",
+            price_min=1,
+            price_max=100,
+        )
+
+        assert response["result_cap"] == 25
+        assert response["returned"] == 25
+        assert response["total_available"] == 30
+        assert response["has_next"] is False
     finally:
         db.close()
 

@@ -33,13 +33,17 @@ test("verified session guard uses auth/me before rendering protected children", 
   assert.match(guard, /const source = requireAdmin \? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard"/);
   assert.match(guard, /const verifySession = \(\) => getMe\(\{ force: true, source \}\)/);
   assert.match(guard, /clearLegacyAuthStorage\(\)/);
-  assert.match(guard, /const \[state, setState\] = useState<GuardState>\(initiallyAuthorized \? "authorized" : "checking"\)/);
-  assert.match(guard, /initiallyAuthorized && hasClientAuthHint\(\)/);
+  assert.match(guard, /let verifiedSessionInRuntime = false/);
+  assert.match(guard, /hasVerifiedSessionHint\(requireAdmin\)/);
+  assert.match(guard, /const hasVerifiedSessionRef = useRef\(state === "authorized"\)/);
+  assert.match(guard, /\(initiallyAuthorized \|\| hasVerifiedSessionRef\.current\) && hasClientAuthHint\(\)/);
+  assert.match(guard, /rememberVerifiedSession\(\)/);
+  assert.match(guard, /clearVerifiedSessionHint\(\)/);
   assert.match(guard, /await delay\(350\)/);
   assert.match(guard, /if \(state === "authorized"\) return <>\{children\}<\/>/);
   assert.match(guard, /router\.replace\(signInHref\)/);
   assert.match(guard, /data-auth-guard-state=\{state\}/);
-  assert.doesNotMatch(guard, /localStorage\.getItem|Authorization|Bearer|ct:authToken/);
+  assert.doesNotMatch(guard, /sessionStorage|localStorage\.getItem|Authorization|Bearer|ct:authToken/);
 });
 
 test("admin guard rejects non-admin users before admin shell renders", () => {

@@ -11,12 +11,12 @@ from math import isfinite
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import bindparam, inspect, select, text
+from sqlalchemy import and_, bindparam, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
 from app.entitlements import TierEntitlements, premium_required_error
-from app.models import PriceCache
+from app.models import FundamentalsCache, PriceCache, QuoteCache, TickerMeta
 from app.services.confirmation_score import (
     normalize_confirmation_state,
     redact_confirmation_bundle_sources,
@@ -250,6 +250,7 @@ FUNDAMENTAL_CACHE_FIELD_BY_ROW_FIELD = {
     "debt_equity": "debt_to_equity",
     "net_debt_ebitda": "net_debt_to_ebitda",
 }
+FUNDAMENTAL_ROW_FIELDS = tuple(spec.row_field for spec in FUNDAMENTAL_FILTER_SPECS)
 
 
 @dataclass(frozen=True)
@@ -409,6 +410,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
     sort_dir = "asc" if params.sort_dir == "asc" else "desc"
     dataset = _build_screener_dataset(db, params, requested_rows=_requested_rows(params, page=page, page_size=page_size))
     rows = dataset["rows"]
+    total_available = int(dataset.get("total_available") or len(rows))
 
     start = (page - 1) * page_size
     end = start + page_size
@@ -418,7 +420,7 @@ def build_screener_response(db: Session, params: ScreenerParams) -> dict[str, An
         "page": page,
         "page_size": page_size,
         "returned": len(paged),
-        "total_available": len(rows),
+        "total_available": total_available,
         "has_next": end < len(rows),
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
@@ -454,18 +456,20 @@ def build_screener_response_for_entitlements(
         rows = redact_options_flow_rows(rows)
     if not entitlements.has_feature("institutional_feed"):
         rows = redact_institutional_activity_rows(rows)
+    total_available = int(dataset.get("total_available") or len(rows))
 
     start = (page - 1) * page_size
     end = min(start + page_size, result_cap)
     paged = rows[start:end]
+    visible_total = min(len(rows), result_cap)
     overlay_availability = dataset["overlay_availability"]
     return {
         "items": paged,
         "page": page,
         "page_size": page_size,
         "returned": len(paged),
-        "total_available": min(len(rows), result_cap),
-        "has_next": end < min(len(rows), result_cap),
+        "total_available": total_available,
+        "has_next": end < visible_total,
         "sort": {"sort_by": sort, "sort_dir": sort_dir},
         "filters": _response_filters(params),
         "supported_filters": list(FMP_FILTER_MAP.keys()) + list(_intelligence_filter_keys()) + list(_technical_filter_keys()) + list(_fundamental_filter_keys()),
@@ -518,7 +522,20 @@ def _build_screener_dataset(
     government_contracts_min_amount = params.government_contracts_min_amount or 0.0
 
     cache_fetch_limit = MAX_FETCH_ROWS if _has_cache_filters(params) else fetch_limit
-    normalized_rows = cached_screener_rows(db, limit=cache_fetch_limit, filters=_cache_filters(params))
+    cache_filters = _cache_filters(params)
+    cached_rows = cached_screener_rows(db, limit=cache_fetch_limit, filters=cache_filters)
+    total_available: int | None = None
+    if _uses_broad_core_universe(params):
+        core_universe_rows, core_universe_total = _cached_core_universe_rows(
+            db,
+            limit=cache_fetch_limit,
+            filters=cache_filters,
+        )
+        normalized_rows = _merge_screener_rows(core_universe_rows, cached_rows)
+        if core_universe_total is not None:
+            total_available = max(core_universe_total, len(normalized_rows))
+    else:
+        normalized_rows = cached_rows
     if not normalized_rows:
         enqueue_data_enrichment_job(
             job_type="fundamentals_universe",
@@ -675,9 +692,18 @@ def _build_screener_dataset(
             len(rows),
             [row["symbol"] for row in rows[:10]],
         )
+    if (
+        total_available is None
+        or _has_technical_filters(params)
+        or _has_fundamental_filters(params)
+        or _has_intelligence_filters(params)
+        or _has_source_derived_filters(params)
+    ):
+        total_available = len(rows)
     rows.sort(key=lambda row: _sort_key(row, sort), reverse=sort_dir == "desc")
     return {
         "rows": rows,
+        "total_available": total_available,
         "overlay_availability": overlay_availability,
         "ignored_filters": ignored_filters,
         "feature_flags": feature_flags,
@@ -797,6 +823,177 @@ def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_ca
     ):
         requested_rows = min(MAX_FETCH_ROWS, row_cap)
     return requested_rows
+
+
+def _uses_broad_core_universe(params: ScreenerParams) -> bool:
+    return _has_core_filters(params) and not _has_fundamental_filters(params)
+
+
+def _merge_screener_rows(*row_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for rows in row_groups:
+        for row in rows:
+            symbol = normalize_symbol(row.get("symbol"))
+            if not symbol or symbol in merged:
+                continue
+            merged[symbol] = {**row, "symbol": symbol}
+    return list(merged.values())
+
+
+def _cached_core_universe_rows(
+    db: Session,
+    *,
+    limit: int,
+    filters: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], int | None]:
+    latest_dates = (
+        select(PriceCache.symbol.label("symbol"), func.max(PriceCache.date).label("latest_date"))
+        .group_by(PriceCache.symbol)
+        .subquery()
+    )
+    latest_prices = (
+        select(
+            PriceCache.symbol.label("symbol"),
+            PriceCache.close.label("close"),
+            PriceCache.volume.label("volume"),
+            PriceCache.day_volume.label("day_volume"),
+        )
+        .join(
+            latest_dates,
+            and_(
+                latest_dates.c.symbol == PriceCache.symbol,
+                latest_dates.c.latest_date == PriceCache.date,
+            ),
+        )
+        .subquery()
+    )
+    price_column = func.coalesce(QuoteCache.price, latest_prices.c.close, FundamentalsCache.price)
+    volume_column = func.coalesce(latest_prices.c.volume, latest_prices.c.day_volume, FundamentalsCache.volume)
+    columns = {
+        "symbol": TickerMeta.symbol.label("symbol"),
+        "company_name": func.coalesce(
+            TickerMeta.company_name,
+            FundamentalsCache.company_name,
+            TickerMeta.symbol,
+        ).label("company_name"),
+        "sector": func.coalesce(TickerMeta.sector, FundamentalsCache.sector).label("sector"),
+        "industry": func.coalesce(TickerMeta.industry, FundamentalsCache.industry).label("industry"),
+        "country": func.coalesce(TickerMeta.country, FundamentalsCache.country).label("country"),
+        "exchange": func.coalesce(TickerMeta.exchange, FundamentalsCache.exchange).label("exchange"),
+        "market_cap": FundamentalsCache.market_cap.label("market_cap"),
+        "price": price_column.label("price"),
+        "volume": volume_column.label("volume"),
+        "avg_volume": FundamentalsCache.avg_volume.label("avg_volume"),
+        "beta": FundamentalsCache.beta.label("beta"),
+        "dividend_yield": FundamentalsCache.dividend_yield.label("dividend_yield"),
+    }
+    for row_field in FUNDAMENTAL_ROW_FIELDS:
+        cache_field = FUNDAMENTAL_CACHE_FIELD_BY_ROW_FIELD.get(row_field, row_field)
+        columns[row_field] = getattr(FundamentalsCache, cache_field).label(row_field)
+
+    from_clause = (
+        TickerMeta.__table__
+        .outerjoin(QuoteCache.__table__, QuoteCache.symbol == TickerMeta.symbol)
+        .outerjoin(latest_prices, latest_prices.c.symbol == TickerMeta.symbol)
+        .outerjoin(
+            FundamentalsCache.__table__,
+            and_(
+                FundamentalsCache.symbol == TickerMeta.symbol,
+                FundamentalsCache.provider == "fmp",
+                FundamentalsCache.status == "ok",
+            ),
+        )
+    )
+    query = select(*columns.values()).select_from(from_clause)
+    query = _apply_core_universe_filters(
+        query,
+        filters,
+        price_column=price_column,
+        volume_column=volume_column,
+        identity_columns=columns,
+    )
+    query = query.order_by(
+        FundamentalsCache.market_cap.desc().nullslast(),
+        TickerMeta.symbol.asc(),
+    ).limit(max(1, int(limit)))
+
+    count_query = select(func.count()).select_from(from_clause)
+    count_query = _apply_core_universe_filters(
+        count_query,
+        filters,
+        price_column=price_column,
+        volume_column=volume_column,
+        identity_columns=columns,
+    )
+    try:
+        total = db.execute(count_query).scalar_one()
+        result = db.execute(query).mappings().all()
+    except Exception:
+        logger.exception("screener_core_universe_query_failed")
+        return [], None
+
+    rows: list[dict[str, Any]] = []
+    for record in result:
+        symbol = normalize_symbol(record.get("symbol"))
+        if not symbol:
+            continue
+        volume = _number(record.get("volume"))
+        avg_volume = _number(record.get("avg_volume"))
+        payload = dict(record)
+        payload["symbol"] = symbol
+        payload["company_name"] = payload.get("company_name") or symbol
+        payload["rel_volume"] = _relative_volume(volume, avg_volume)
+        payload["price_move_pct"] = None
+        payload["rsi"] = None
+        payload["macd_state"] = None
+        payload["trend_state"] = None
+        rows.append(payload)
+    return rows, int(total or 0)
+
+
+def _apply_core_universe_filters(
+    query,
+    filters: Mapping[str, Any],
+    *,
+    price_column,
+    volume_column,
+    identity_columns: Mapping[str, Any],
+):
+    query = _apply_core_universe_range_filter(
+        query,
+        FundamentalsCache.market_cap,
+        filters.get("market_cap_min"),
+        filters.get("market_cap_max"),
+    )
+    query = _apply_core_universe_range_filter(query, price_column, filters.get("price_min"), filters.get("price_max"))
+    query = _apply_core_universe_range_filter(query, volume_column, filters.get("volume_min"), None)
+    query = _apply_core_universe_range_filter(query, FundamentalsCache.beta, filters.get("beta_min"), filters.get("beta_max"))
+    query = _apply_core_universe_range_filter(
+        query,
+        FundamentalsCache.dividend_yield,
+        filters.get("dividend_yield_min"),
+        filters.get("dividend_yield_max"),
+    )
+    for field in ("sector", "industry", "country", "exchange"):
+        query = _apply_core_universe_text_filter(query, identity_columns[field], filters.get(field))
+    return query
+
+
+def _apply_core_universe_range_filter(query, column, minimum: Any, maximum: Any):
+    min_value = _number(minimum)
+    max_value = _number(maximum)
+    if min_value is not None:
+        query = query.where(column >= min_value)
+    if max_value is not None:
+        query = query.where(column <= max_value)
+    return query
+
+
+def _apply_core_universe_text_filter(query, column, value: Any):
+    expected_values = _normalized_filter_values(value)
+    if not expected_values:
+        return query
+    return query.where(func.lower(column).in_(sorted(expected_values)))
 
 
 def _has_cache_filters(params: ScreenerParams) -> bool:
