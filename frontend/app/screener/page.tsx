@@ -6,6 +6,7 @@ import { ScreenerEntitlementRefresh } from "@/components/screener/ScreenerEntitl
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { ScreenerExportButton } from "@/components/screener/ScreenerExportButton";
+import { ScreenerResultsAutoScroll } from "@/components/screener/ScreenerResultsAutoScroll";
 import { ScreenerResultsClient } from "@/components/screener/ScreenerResultsClient";
 import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOverlay";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
@@ -856,10 +857,11 @@ export default async function ScreenerPage({
   const fundamentalFiltersOpen = hasActiveFundamentalFilters(params);
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-8">
       <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
       <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
+      <ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey={requestUrl} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
@@ -964,7 +966,7 @@ export default async function ScreenerPage({
             {canUsePresets ? (
               <div className="mt-3 grid gap-2 lg:grid-cols-5">
                 {STARTER_PRESETS.map((preset) => (
-                  <Link key={preset.id} href={presetHref(params, preset.params)} className={presetLinkClassName} prefetch={false}>
+                  <Link key={preset.id} href={presetHref(params, preset.params)} className={presetLinkClassName} prefetch={false} data-screener-scroll-link="true">
                     <div className="text-sm font-semibold text-white">{preset.label}</div>
                     <div className="mt-1 text-xs leading-4 text-slate-400">{preset.description}</div>
                   </Link>
@@ -1307,7 +1309,7 @@ function ScreenerResults({
   const colSpan = 7 + activeColumns.length;
 
   return (
-    <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
+    <div id="screener-results" className={`${cardClassName} min-h-[34rem] scroll-mt-6 overflow-hidden p-0`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/50 px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>

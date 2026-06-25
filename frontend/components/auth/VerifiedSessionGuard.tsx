@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { clearLegacyAuthStorage, getMe, type AccountUser } from "@/lib/api";
+import { clearLegacyAuthStorage, getMe, hasClientAuthHint, type AccountUser, type MeResponse } from "@/lib/api";
 
 type GuardState = "checking" | "authorized" | "unauthenticated" | "forbidden";
 
@@ -10,6 +10,7 @@ type Props = {
   children: ReactNode;
   returnTo: string;
   requireAdmin?: boolean;
+  initiallyAuthorized?: boolean;
 };
 
 function loginHref(returnTo: string) {
@@ -18,6 +19,10 @@ function loginHref(returnTo: string) {
 
 function isAdminUser(user: AccountUser | null | undefined) {
   return Boolean(user && (user.is_admin || user.role === "admin" || user.entitlement_tier === "admin"));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function GuardStatePanel({
@@ -42,39 +47,60 @@ function GuardStatePanel({
   );
 }
 
-export function VerifiedSessionGuard({ children, returnTo, requireAdmin = false }: Props) {
+export function VerifiedSessionGuard({ children, returnTo, requireAdmin = false, initiallyAuthorized = false }: Props) {
   const router = useRouter();
-  const [state, setState] = useState<GuardState>("checking");
+  const [state, setState] = useState<GuardState>(initiallyAuthorized ? "authorized" : "checking");
   const signInHref = useMemo(() => loginHref(returnTo), [returnTo]);
 
   useEffect(() => {
     let alive = true;
-    clearLegacyAuthStorage();
-    setState("checking");
-    getMe({ force: true, source: requireAdmin ? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard" })
-      .then((response) => {
-        if (!alive) return;
-        if (!response.user) {
-          setState("unauthenticated");
-          router.replace(signInHref);
-          return;
-        }
-        if (requireAdmin && !isAdminUser(response.user)) {
-          setState("forbidden");
-          return;
-        }
-        setState("authorized");
-      })
-      .catch(() => {
-        if (!alive) return;
+    const source = requireAdmin ? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard";
+    const verifySession = () => getMe({ force: true, source });
+    const applySession = (response: MeResponse) => {
+      if (!alive) return;
+      if (!response.user) {
         setState("unauthenticated");
         router.replace(signInHref);
-      });
+        return;
+      }
+      if (requireAdmin && !isAdminUser(response.user)) {
+        setState("forbidden");
+        return;
+      }
+      setState("authorized");
+    };
+
+    clearLegacyAuthStorage();
+    if (!initiallyAuthorized) setState("checking");
+
+    const runVerification = async () => {
+      try {
+        applySession(await verifySession());
+      } catch {
+        if (!alive) return;
+        if (initiallyAuthorized && hasClientAuthHint()) {
+          await delay(350);
+          if (!alive) return;
+          try {
+            applySession(await verifySession());
+            return;
+          } catch {
+            // Fall through to the normal unauthorized path.
+          }
+        }
+        if (alive) {
+          setState("unauthenticated");
+          router.replace(signInHref);
+        }
+      }
+    };
+
+    void runVerification();
 
     return () => {
       alive = false;
     };
-  }, [requireAdmin, router, signInHref]);
+  }, [initiallyAuthorized, requireAdmin, router, signInHref]);
 
   if (state === "authorized") return <>{children}</>;
 

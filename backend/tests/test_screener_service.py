@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.main import ticker_government_contracts
-from app.models import Event, GovernmentContract, PriceCache
+from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.routers.screener import stock_screener_export
 from app.services.confirmation_score import get_confirmation_score_bundle_for_ticker
 from app.services.government_contracts import get_government_contracts_summaries_for_symbols
@@ -136,6 +136,31 @@ def _add_price_history(db: Session, symbol: str, closes: list[float]) -> None:
     start = (datetime.now(timezone.utc) - timedelta(days=len(closes))).date()
     for index, close in enumerate(closes):
         db.add(PriceCache(symbol=symbol, date=(start + timedelta(days=index)).isoformat(), close=float(close)))
+
+
+def _fundamentals_cache_row(
+    symbol: str,
+    *,
+    sector: str,
+    price: float,
+    market_cap: float,
+    company_name: str | None = None,
+) -> FundamentalsCache:
+    return FundamentalsCache(
+        symbol=symbol,
+        provider="fmp",
+        fetched_at=datetime.now(timezone.utc),
+        status="ok",
+        company_name=company_name or f"{symbol} Corp",
+        sector=sector,
+        industry="Software - Application",
+        country="US",
+        exchange="NASDAQ",
+        market_cap=market_cap,
+        price=price,
+        volume=1_500_000,
+        beta=1.0,
+    )
 
 
 def test_screener_maps_v1_filters_to_fmp_and_paginates(monkeypatch):
@@ -294,6 +319,50 @@ def test_screener_core_filters_are_parsed_emitted_and_locally_enforced(monkeypat
     assert response["items"][0]["dividend_yield"] == 2.5
     assert "market_cap_min" not in reset_response["filters"]
     assert "sector" not in reset_response["filters"]
+
+
+def test_screener_cache_applies_core_filters_before_fetch_cap(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.screener.fetch_company_screener",
+        lambda *, filters, limit: (_ for _ in ()).throw(AssertionError("cache-backed screener should not call provider")),
+    )
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add_all(
+            _fundamentals_cache_row(
+                f"BIG{index:03d}",
+                sector="Technology",
+                price=150,
+                market_cap=2_000_000_000_000 - index,
+            )
+            for index in range(500)
+        )
+        db.add_all(
+            _fundamentals_cache_row(
+                f"TECH{index:03d}",
+                sector="Technology",
+                price=20 + index,
+                market_cap=10_000_000_000 - index,
+            )
+            for index in range(40)
+        )
+        db.commit()
+
+        response = build_screener_response(
+            db,
+            ScreenerParams(
+                page=1,
+                page_size=50,
+                price_min=1,
+                price_max=100,
+                sector="Technology",
+            ),
+        )
+
+    assert response["total_available"] == 40
+    assert response["returned"] == 40
+    assert {row["symbol"] for row in response["items"]} == {f"TECH{index:03d}" for index in range(40)}
 
 
 def test_screener_enriches_rows_with_canonical_confirmation_sources(monkeypatch):

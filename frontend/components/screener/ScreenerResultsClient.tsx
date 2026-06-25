@@ -448,7 +448,7 @@ export function ScreenerResultsClient({
   const colSpan = 7 + activeColumns.length;
 
   return (
-    <div className={`${cardClassName} min-h-[34rem] overflow-hidden p-0`}>
+    <div id="screener-results" className={`${cardClassName} min-h-[34rem] scroll-mt-6 overflow-hidden p-0`}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/50 px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Results</h2>

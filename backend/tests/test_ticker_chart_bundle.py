@@ -398,6 +398,68 @@ def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):
     assert bundle["freshness"]["is_stale"] is False
 
 
+def test_ticker_chart_request_time_uses_alternate_source_when_dense_history_tail_is_stale(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("MASSIVE_API_KEY", "massive-test-key")
+    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    stale_day = expected - timedelta(days=6)
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    db.add(PriceCache(symbol="NVDA", date=stale_day.isoformat(), close=180.0))
+    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.commit()
+
+    fmp_rows = []
+    cursor = expected - timedelta(days=20)
+    idx = 0
+    while cursor <= stale_day:
+        if cursor.weekday() < 5:
+            fmp_rows.append({"date": cursor.isoformat(), "close": 180.0 + idx, "volume": 1_000_000 + idx})
+            idx += 1
+        cursor += timedelta(days=1)
+
+    massive_days = [
+        expected - timedelta(days=7),
+        expected - timedelta(days=6),
+        expected - timedelta(days=5),
+        expected - timedelta(days=1),
+        expected,
+    ]
+    massive_rows = [
+        {
+            "t": int(datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).timestamp() * 1000),
+            "c": 220.0 + idx,
+            "v": 2_000_000 + idx,
+        }
+        for idx, day in enumerate(massive_days)
+    ]
+    calls = []
+
+    def fake_fetch(url, params, retries=2):
+        calls.append(url)
+        if "historical-price-eod" in url and params.get("symbol") == "NVDA":
+            return _FakeResponse(200, fmp_rows)
+        if "/v2/aggs/ticker/NVDA/" in url:
+            return _FakeResponse(200, {"results": massive_rows})
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+    token = set_request_context({"path": "/api/tickers/NVDA/chart-bundle", "priority": "heavy"})
+    try:
+        bundle = _build_ticker_chart_bundle("NVDA", 30, db)
+    finally:
+        reset_request_context(token)
+
+    assert any("/v2/aggs/ticker/NVDA/" in url for url in calls)
+    assert bundle["prices"][-1] == {"date": expected.isoformat(), "close": 224.0}
+    assert bundle["status"] == "ok"
+    assert bundle["freshness"]["is_stale"] is False
+
+
 def test_ticker_chart_marks_stale_when_request_time_refresh_has_no_recent_data(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")

@@ -1109,8 +1109,6 @@ def _fetch_provider_eod_price_volume_series(
     allow_user_request: bool = False,
 ) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
-    if not api_key:
-        return {}, {}, None
 
     best_map: dict[str, float] = {}
     best_volume_map: dict[str, float] = {}
@@ -1118,45 +1116,62 @@ def _fetch_provider_eod_price_volume_series(
     saw_402 = False
     saw_429 = False
 
-    for candidate_symbol in symbol_variants(symbol):
-        for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
-            provider_payload = _fetch_provider_eod_payload(
-                endpoint,
-                candidate_symbol,
-                start_date,
-                end_date,
-                api_key,
-                allow_user_request=allow_user_request,
-            )
-            if provider_payload is None:
-                continue
-            status_code = getattr(provider_payload, "status_code", 200)
-            if status_code == 402:
-                saw_402 = True
-                break
-            if status_code == 429:
-                saw_429 = True
-                break
-            if status_code != 200:
-                continue
+    if api_key:
+        for candidate_symbol in symbol_variants(symbol):
+            for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
+                provider_payload = _fetch_provider_eod_payload(
+                    endpoint,
+                    candidate_symbol,
+                    start_date,
+                    end_date,
+                    api_key,
+                    allow_user_request=allow_user_request,
+                )
+                if provider_payload is None:
+                    continue
+                status_code = getattr(provider_payload, "status_code", 200)
+                if status_code == 402:
+                    saw_402 = True
+                    break
+                if status_code == 429:
+                    saw_429 = True
+                    break
+                if status_code != 200:
+                    continue
 
-            provider_map = _extract_close_series_from_payload(provider_payload, start_date, end_date)
-            volume_map = _extract_volume_series_from_payload(provider_payload, start_date, end_date)
-            if len(provider_map) > len(best_map) or (
-                len(provider_map) == len(best_map) and len(volume_map) > len(best_volume_map)
-            ):
-                best_map = provider_map
-                best_volume_map = volume_map
-                best_symbol = candidate_symbol
-            if provider_map and not is_sparse_daily_close_series(provider_map, start_date, end_date):
-                return provider_map, volume_map, candidate_symbol
+                provider_map = _extract_close_series_from_payload(provider_payload, start_date, end_date)
+                volume_map = _extract_volume_series_from_payload(provider_payload, start_date, end_date)
+                if len(provider_map) > len(best_map) or (
+                    len(provider_map) == len(best_map) and len(volume_map) > len(best_volume_map)
+                ):
+                    best_map = provider_map
+                    best_volume_map = volume_map
+                    best_symbol = candidate_symbol
+                if (
+                    provider_map
+                    and not _series_has_stale_tail(provider_map, end_date)
+                    and not is_sparse_daily_close_series(provider_map, start_date, end_date)
+                ):
+                    return provider_map, volume_map, candidate_symbol
 
     if saw_402:
         logger.info("price_lookup provider plan did not cover dense history symbol=%s", symbol)
     if saw_429:
         logger.info("price_lookup provider rate-limited dense history symbol=%s", symbol)
+    if best_map and _series_has_stale_tail(best_map, end_date):
+        logger.warning(
+            "price_lookup provider dense history stale tail symbol=%s provider_symbol=%s latest=%s expected=%s",
+            symbol,
+            best_symbol,
+            max(best_map),
+            end_date,
+        )
     massive_map, massive_volume_map, massive_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
-    if len(massive_map) > len(best_map):
+    if len(massive_map) > len(best_map) or (
+        massive_map
+        and _series_has_stale_tail(best_map, end_date)
+        and not _series_has_stale_tail(massive_map, end_date)
+    ):
         return massive_map, massive_volume_map, massive_symbol
     return best_map, best_volume_map, best_symbol
 

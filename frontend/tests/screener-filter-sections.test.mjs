@@ -6,7 +6,10 @@ import test from "node:test";
 const root = process.cwd();
 const page = fs.readFileSync(path.join(root, "app", "screener", "page.tsx"), "utf8");
 const section = fs.readFileSync(path.join(root, "components", "screener", "CollapsibleFilterSection.tsx"), "utf8");
+const autoScroll = fs.readFileSync(path.join(root, "components", "screener", "ScreenerResultsAutoScroll.tsx"), "utf8");
+const clientResults = fs.readFileSync(path.join(root, "components", "screener", "ScreenerResultsClient.tsx"), "utf8");
 const upgradeOverlay = fs.readFileSync(path.join(root, "components", "screener", "ScreenerUpgradeOverlay.tsx"), "utf8");
+const savedViews = fs.readFileSync(path.join(root, "components", "saved-views", "SavedViewsBar.tsx"), "utf8");
 const columns = fs.readFileSync(path.join(root, "lib", "screenerColumns.ts"), "utf8");
 
 test("screener filter sections persist user expansion state across runs", () => {
@@ -49,4 +52,15 @@ test("free screener gates premium filter groups without the top monitoring badge
   assert.match(page, /Options flow filters require Pro\./);
   assert.match(page, /Institutional activity filters require Pro\./);
   assert.doesNotMatch(page, /<ScreenerUpgradeOverlay\s+title="Intelligence screener filters"/);
+});
+
+test("screener explicit submit and apply actions scroll to results", () => {
+  assert.match(page, /<ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey=\{requestUrl\} \/>/);
+  assert.match(page, /data-screener-scroll-link="true"/);
+  assert.match(page, /id="screener-results"/);
+  assert.match(clientResults, /id="screener-results"/);
+  assert.match(autoScroll, /const resultsRef = useRef<HTMLElement \| null>\(null\)/);
+  assert.match(autoScroll, /form\.addEventListener\("submit", requestScreenerResultsScroll\)/);
+  assert.match(autoScroll, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
+  assert.match(savedViews, /if \(surface === "screener"\) requestScreenerResultsScroll\(\)/);
 });

@@ -30,9 +30,12 @@ test("middleware covers protected app routes while leaving public account flows 
 });
 
 test("verified session guard uses auth/me before rendering protected children", () => {
-  assert.match(guard, /getMe\(\{ force: true, source: requireAdmin \? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard" \}\)/);
+  assert.match(guard, /const source = requireAdmin \? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard"/);
+  assert.match(guard, /const verifySession = \(\) => getMe\(\{ force: true, source \}\)/);
   assert.match(guard, /clearLegacyAuthStorage\(\)/);
-  assert.match(guard, /const \[state, setState\] = useState<GuardState>\("checking"\)/);
+  assert.match(guard, /const \[state, setState\] = useState<GuardState>\(initiallyAuthorized \? "authorized" : "checking"\)/);
+  assert.match(guard, /initiallyAuthorized && hasClientAuthHint\(\)/);
+  assert.match(guard, /await delay\(350\)/);
   assert.match(guard, /if \(state === "authorized"\) return <>\{children\}<\/>/);
   assert.match(guard, /router\.replace\(signInHref\)/);
   assert.match(guard, /data-auth-guard-state=\{state\}/);
@@ -58,7 +61,7 @@ test("account and billing shells wait for verified backend session", () => {
 
 test("screener and backtesting shells wait for verified backend session", () => {
   assert.match(screenerPage, /const returnTo = buildReturnTo\("\/screener", sp\)/);
-  assert.match(screenerPage, /<VerifiedSessionGuard returnTo=\{returnTo\}>/);
+  assert.match(screenerPage, /<VerifiedSessionGuard returnTo=\{returnTo\} initiallyAuthorized=\{Boolean\(authToken\)\}>/);
   assert.match(screenerPage, /<ScreenerResultsClient/);
   assert.match(backtestingPage, /const returnTo = buildReturnTo\("\/backtesting", sp\)/);
   assert.match(backtestingPage, /<VerifiedSessionGuard returnTo=\{returnTo\}>/);

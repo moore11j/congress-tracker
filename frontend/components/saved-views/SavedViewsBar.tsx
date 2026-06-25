@@ -9,6 +9,7 @@ import { NotificationPreferences } from "@/components/notifications/Notification
 import { createSavedScreen, deleteSavedScreen, getEntitlements, listSavedScreens, updateSavedScreen } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
+import { requestScreenerResultsScroll } from "@/lib/screenerResultsScroll";
 import {
   emptySavedViewsStore,
   markSavedViewSeen,
@@ -468,6 +469,7 @@ export function SavedViewsBar({
     }
 
     const nextHref = `${pathname}${nextSearch ? `?${nextSearch}` : ""}`;
+    if (surface === "screener") requestScreenerResultsScroll();
     if (options?.replace) {
       router.replace(nextHref, { scroll: false });
       return;

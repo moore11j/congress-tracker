@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
@@ -359,16 +360,74 @@ def cache_row_to_screener_row(row: FundamentalsCache) -> dict[str, Any]:
     return payload
 
 
-def cached_screener_rows(db: Session, *, provider: str = PROVIDER, limit: int | None = None) -> list[dict[str, Any]]:
+def cached_screener_rows(
+    db: Session,
+    *,
+    provider: str = PROVIDER,
+    limit: int | None = None,
+    filters: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     query = (
         select(FundamentalsCache)
         .where(FundamentalsCache.provider == provider)
         .where(FundamentalsCache.status == "ok")
-        .order_by(FundamentalsCache.market_cap.desc().nullslast(), FundamentalsCache.symbol.asc())
     )
+    query = _apply_screener_cache_filters(query, filters or {})
+    query = query.order_by(FundamentalsCache.market_cap.desc().nullslast(), FundamentalsCache.symbol.asc())
     if limit is not None:
         query = query.limit(max(1, int(limit)))
     return [cache_row_to_screener_row(row) for row in db.execute(query).scalars().all()]
+
+
+def _apply_screener_cache_filters(query, filters: Mapping[str, Any]):
+    for field in ("market_cap", "price", "beta", "dividend_yield"):
+        query = _apply_cache_range_filter(
+            query,
+            getattr(FundamentalsCache, field),
+            filters.get(f"{field}_min"),
+            filters.get(f"{field}_max"),
+        )
+    query = _apply_cache_range_filter(query, FundamentalsCache.volume, filters.get("volume_min"), None)
+
+    for field in ("sector", "industry", "country", "exchange"):
+        query = _apply_cache_text_filter(query, getattr(FundamentalsCache, field), filters.get(field))
+
+    for field in FUNDAMENTAL_FIELD_NAMES:
+        query = _apply_cache_range_filter(
+            query,
+            getattr(FundamentalsCache, field),
+            filters.get(f"{field}_min"),
+            filters.get(f"{field}_max"),
+        )
+
+    return query
+
+
+def _apply_cache_range_filter(query, column, minimum: Any, maximum: Any):
+    min_value = _number(minimum)
+    max_value = _number(maximum)
+    if min_value is not None:
+        query = query.where(column >= min_value)
+    if max_value is not None:
+        query = query.where(column <= max_value)
+    return query
+
+
+def _apply_cache_text_filter(query, column, value: Any):
+    expected_values = _normalized_filter_values(value)
+    if not expected_values:
+        return query
+    return query.where(func.lower(column).in_(sorted(expected_values)))
+
+
+def _normalized_filter_values(value: Any) -> set[str]:
+    if not isinstance(value, str) or not value.strip():
+        return set()
+    return {
+        cleaned
+        for part in value.split(",")
+        if (cleaned := part.strip().lower()) and cleaned != "any"
+    }
 
 
 def cached_fundamentals_by_symbol(db: Session, symbols: list[str], *, provider: str = PROVIDER) -> dict[str, FundamentalsCache]:

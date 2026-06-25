@@ -243,6 +243,13 @@ FUNDAMENTAL_FILTER_SPECS: tuple[FundamentalFilterSpec, ...] = (
     FundamentalFilterSpec("fcf_margin", "fcf_margin"),
     FundamentalFilterSpec("earnings_yield", "earnings_yield"),
 )
+FUNDAMENTAL_CACHE_FIELD_BY_ROW_FIELD = {
+    "price_sales": "price_to_sales",
+    "ev_ebitda": "ev_to_ebitda",
+    "fcf": "free_cash_flow",
+    "debt_equity": "debt_to_equity",
+    "net_debt_ebitda": "net_debt_to_ebitda",
+}
 
 
 @dataclass(frozen=True)
@@ -510,8 +517,8 @@ def _build_screener_dataset(
     government_contracts_cutoff = (datetime.now(timezone.utc) - timedelta(days=government_contracts_lookback_days)).date()
     government_contracts_min_amount = params.government_contracts_min_amount or 0.0
 
-    cache_fetch_limit = MAX_FETCH_ROWS if _has_core_filters(params) else fetch_limit
-    normalized_rows = cached_screener_rows(db, limit=cache_fetch_limit)
+    cache_fetch_limit = MAX_FETCH_ROWS if _has_cache_filters(params) else fetch_limit
+    normalized_rows = cached_screener_rows(db, limit=cache_fetch_limit, filters=_cache_filters(params))
     if not normalized_rows:
         enqueue_data_enrichment_job(
             job_type="fundamentals_universe",
@@ -790,6 +797,28 @@ def _requested_rows(params: ScreenerParams, *, page: int, page_size: int, row_ca
     ):
         requested_rows = min(MAX_FETCH_ROWS, row_cap)
     return requested_rows
+
+
+def _has_cache_filters(params: ScreenerParams) -> bool:
+    return _has_core_filters(params) or _has_fundamental_filters(params)
+
+
+def _cache_filters(params: ScreenerParams) -> dict[str, Any]:
+    filters: dict[str, Any] = {}
+    for public_name in FMP_FILTER_MAP:
+        value = getattr(params, public_name)
+        if value is not None:
+            filters[public_name] = value
+
+    for spec in FUNDAMENTAL_FILTER_SPECS:
+        minimum, maximum = _fundamental_range(params, spec)
+        if minimum is None and maximum is None:
+            continue
+        cache_field = FUNDAMENTAL_CACHE_FIELD_BY_ROW_FIELD.get(spec.row_field, spec.row_field)
+        filters[f"{cache_field}_min"] = minimum
+        filters[f"{cache_field}_max"] = maximum
+
+    return filters
 
 
 def _allow_provider_screener_fallback() -> bool:
