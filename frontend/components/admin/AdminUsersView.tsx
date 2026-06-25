@@ -7,6 +7,7 @@ import {
   adminBatchUpdateUsers,
   adminClearUserPriceOverride,
   adminDeleteUser,
+  adminSendPasswordReset,
   adminSetPremium,
   adminSetUserPriceOverride,
   adminSuspendUser,
@@ -151,6 +152,7 @@ function UserActionMenu({
   suspend,
   setPriceOverride,
   clearPriceOverride,
+  sendPasswordReset,
   deleteUser,
 }: {
   anchor: HTMLButtonElement | null;
@@ -161,6 +163,7 @@ function UserActionMenu({
   suspend: (user: AccountUser, suspended: boolean) => void;
   setPriceOverride: (user: AccountUser) => Promise<void>;
   clearPriceOverride: (user: AccountUser) => void;
+  sendPasswordReset: (user: AccountUser) => void;
   deleteUser: (user: AccountUser) => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -257,6 +260,14 @@ function UserActionMenu({
         role="menuitem"
       >
         {user.is_suspended ? "Unsuspend" : "Suspend"}
+      </button>
+      <button
+        type="button"
+        onClick={() => onRun(() => sendPasswordReset(user))}
+        className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+        role="menuitem"
+      >
+        Send password reset
       </button>
       <button
         type="button"
@@ -507,6 +518,37 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
             onConfirm: () => runSuspend(user, false),
           },
     );
+  };
+
+  const runSendPasswordReset = async (user: AccountUser) => {
+    setBusy(true);
+    try {
+      await adminSendPasswordReset(user.id);
+      setStatus("Password reset email sent.");
+      return true;
+    } catch {
+      setStatus("Could not send password reset email.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendPasswordReset = (user: AccountUser) => {
+    setStatus(null);
+    setConfirmDialog({
+      eyebrow: "PASSWORD RESET",
+      title: "Send password reset?",
+      description: (
+        <>
+          Send password reset email to <span className="font-medium text-white">{displayEmail(user)}</span>?
+        </>
+      ),
+      confirmLabel: "Send password reset",
+      busyLabel: "Sending...",
+      tone: "neutral",
+      onConfirm: () => runSendPasswordReset(user),
+    });
   };
 
   const runDeleteUser = async (user: AccountUser) => {
@@ -972,6 +1014,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                         suspend={suspend}
                         setPriceOverride={setPriceOverride}
                         clearPriceOverride={clearPriceOverride}
+                        sendPasswordReset={sendPasswordReset}
                         deleteUser={deleteUser}
                       />
                     ) : null}

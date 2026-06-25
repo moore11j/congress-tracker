@@ -34,6 +34,9 @@ from app.auth import (
     require_admin_user,
     reset_token_hash,
     set_session_cookie,
+    session_cookie_domain,
+    session_cookie_samesite,
+    session_cookie_secure,
     sign_session_payload,
     verify_session_token,
     verify_password,
@@ -425,6 +428,14 @@ def _send_password_reset_instructions(db: Session, user: UserAccount, reset_url:
         return None
 
 
+def _issue_password_reset_for_user(db: Session, user: UserAccount) -> tuple[str, dict[str, Any] | None]:
+    token = secrets.token_urlsafe(32)
+    user.password_reset_token_hash = reset_token_hash(token)
+    user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    db.commit()
+    return token, _send_password_reset_instructions(db, user, _reset_url(token))
+
+
 def _format_password_changed_at(value: datetime) -> str:
     changed_at = value.astimezone(timezone.utc)
     return f"{changed_at:%B} {changed_at.day}, {changed_at:%Y at %I:%M %p UTC}"
@@ -594,6 +605,83 @@ def _email_domain(email: str | None) -> str:
     if "@" not in value:
         return "invalid"
     return value.rsplit("@", 1)[1] or "unknown"
+
+
+def _email_fingerprint(email: str | None) -> str:
+    normalized = normalize_email(email)
+    if not normalized:
+        return "missing"
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def _host_from_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return None
+    return (parsed.netloc or parsed.path.split("/", 1)[0]).lower() or None
+
+
+def _auth_user_agent_metadata(value: str | None) -> tuple[str, bool]:
+    ua = (value or "").lower()
+    is_mobile = any(marker in ua for marker in ("mobile", "iphone", "ipad", "android"))
+    if "crios" in ua or "chrome" in ua:
+        family = "chrome"
+    elif "fxios" in ua or "firefox" in ua:
+        family = "firefox"
+    elif "safari" in ua:
+        family = "safari"
+    elif ua:
+        family = "other"
+    else:
+        family = "unknown"
+    return family, is_mobile
+
+
+def _auth_request_id(request: Request | None) -> str:
+    if request is None:
+        return "none"
+    for header in ("x-request-id", "fly-request-id", "x-vercel-id"):
+        value = request.headers.get(header)
+        if value:
+            return value[:120]
+    return "none"
+
+
+def _log_auth_diagnostic(
+    flow: str,
+    result: str,
+    reason: str,
+    request: Request | None = None,
+    *,
+    user: UserAccount | None = None,
+    email: str | None = None,
+    set_cookie_attempted: bool = False,
+) -> None:
+    ua_family, mobile = _auth_user_agent_metadata(request.headers.get("user-agent") if request else None)
+    origin_host = _host_from_url(request.headers.get("origin") if request else None)
+    referer_host = _host_from_url(request.headers.get("referer") if request else None)
+    logger.info(
+        "auth_flow flow=%s result=%s reason=%s request_id=%s user_id=%s email_hash=%s "
+        "set_cookie_attempted=%s cookie_domain=%s cookie_path=/ cookie_samesite=%s cookie_secure=%s "
+        "ua_family=%s mobile=%s origin_host=%s referer_host=%s",
+        flow,
+        result,
+        reason,
+        _auth_request_id(request),
+        user.id if user else None,
+        _email_fingerprint(email or (user.email if user else None)),
+        set_cookie_attempted,
+        session_cookie_domain() or "host-only",
+        session_cookie_samesite(),
+        session_cookie_secure(),
+        ua_family,
+        mobile,
+        origin_host or "none",
+        referer_host or "none",
+    )
 
 
 def _split_name(value: str | None) -> tuple[str | None, str | None]:
@@ -2776,24 +2864,28 @@ def _auth_response_for_user(db: Session, user: UserAccount, response: Response |
 
 
 @router.post("/auth/login", dependencies=[Depends(rate_limit_auth_login)])
-def login(payload: LoginPayload, response: Response = None, db: Session = Depends(get_db)):
+def login(payload: LoginPayload, response: Response = None, db: Session = Depends(get_db), request: Request = None):
     response, db = _coerce_response_and_db(response, db)
     email = normalize_email(payload.email)
     existing = _account_lookup_by_active_email(db, email)
     deleted = _deleted_account_lookup_by_original_email(db, email) if not existing else None
     if deleted and _deleted_reactivation_window_active(deleted):
+        _log_auth_diagnostic("password_login", "rejected", "deleted_account", request, email=email)
         raise HTTPException(status_code=403, detail="This account was recently deleted. Check your email for the reactivation link or contact support.")
     existing_is_admin = is_admin_user(existing)
     admin_token_valid = _admin_token_matches(payload.admin_token)
-    if existing_is_admin and not (admin_token_valid or verify_password(payload.password, existing.password_hash if existing else None)):
-        raise HTTPException(status_code=401, detail="Admin token required for this account.")
-
-    if existing and existing.password_hash and not (admin_token_valid or verify_password(payload.password, existing.password_hash)):
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
-    if existing and not existing.password_hash and not (admin_token_valid or existing_is_admin):
-        raise HTTPException(status_code=401, detail="Set a password with the reset flow before signing in.")
     if not existing:
-        raise HTTPException(status_code=401, detail="No account exists for this email. Register first.")
+        _log_auth_diagnostic("password_login", "rejected", "invalid_credentials", request, email=email)
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+    password_ok = bool(existing.password_hash and verify_password(payload.password, existing.password_hash))
+    admin_token_ok = bool(existing_is_admin and admin_token_valid)
+    if existing.password_hash and not (password_ok or admin_token_ok):
+        _log_auth_diagnostic("password_login", "rejected", "invalid_credentials", request, user=existing, email=email)
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    if not existing.password_hash and not admin_token_ok:
+        _log_auth_diagnostic("password_login", "rejected", "invalid_credentials", request, user=existing, email=email)
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
     user = get_or_create_user(db, email=email, name=payload.name)
     if payload.name and not (user.first_name or user.last_name):
@@ -2803,6 +2895,7 @@ def login(payload: LoginPayload, response: Response = None, db: Session = Depend
     db.commit()
     db.refresh(user)
 
+    _log_auth_diagnostic("password_login", "authenticated", "session_created", request, user=user, set_cookie_attempted=True)
     return _auth_response_for_user(db, user, response)
 
 
@@ -2873,12 +2966,8 @@ def request_password_reset(payload: PasswordResetRequestPayload, db: Session = D
     if not user:
         return response
 
-    token = secrets.token_urlsafe(32)
-    user.password_reset_token_hash = reset_token_hash(token)
-    user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
-    db.commit()
+    token, _delivery = _issue_password_reset_for_user(db, user)
     reset_path = f"/reset-password?token={token}"
-    _send_password_reset_instructions(db, user, _reset_url(token))
     if _allow_insecure_reset_link_response():
         response["reset_path"] = reset_path
     return response
@@ -2987,14 +3076,16 @@ def _request_from_token(token: str) -> Request:
 
 
 @router.get("/auth/google/start")
-def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db)):
+def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db), request: Request = None):
     client_id = _google_client_id(db, prefer_env=True)
     if not client_id:
+        _log_auth_diagnostic("google_start", "rejected", "oauth_not_configured", request)
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
+    safe_return_to = _safe_app_return_path(return_to)
     state = sign_session_payload(
         {
             "kind": "google_oauth_state",
-            "return_to": _safe_app_return_path(return_to),
+            "return_to": safe_return_to,
             "exp": int(time.time()) + 600,
         }
     )
@@ -3007,6 +3098,7 @@ def google_auth_start(return_to: str | None = None, db: Session = Depends(get_db
         "access_type": "offline",
         "prompt": "select_account",
     }
+    _log_auth_diagnostic("google_start", "started", "authorization_url_created", request)
     return {"authorization_url": f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}", "state": state}
 
 
@@ -3099,7 +3191,7 @@ def upsert_google_user(db: Session, claims: dict[str, Any], *, expected_client_i
 
 
 @router.post("/auth/google/callback")
-def google_auth_callback(payload: GoogleCallbackPayload, response: Response = None, db: Session = Depends(get_db)):
+def google_auth_callback(payload: GoogleCallbackPayload, response: Response = None, db: Session = Depends(get_db), request: Request = None):
     auth_response, db = _coerce_response_and_db(response, db)
     parsed_state = verify_session_token(payload.state)
     if (
@@ -3107,10 +3199,12 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
         or parsed_state.get("kind") != "google_oauth_state"
         or int(parsed_state.get("exp") or 0) < int(time.time())
     ):
+        _log_auth_diagnostic("google_callback", "rejected", "invalid_state", request)
         raise HTTPException(status_code=401, detail="Invalid Google sign-in state.")
     client_id = _google_client_id(db, prefer_env=True)
     client_secret = _google_client_secret()
     if not client_id or not client_secret:
+        _log_auth_diagnostic("google_callback", "rejected", "oauth_not_configured", request)
         raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
 
     try:
@@ -3126,15 +3220,19 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
             timeout=20,
         )
     except requests.RequestException as exc:
+        _log_auth_diagnostic("google_callback", "rejected", "token_exchange_request_failed", request)
         raise HTTPException(status_code=502, detail="Google token exchange failed.") from exc
     if google_token_response.status_code >= 400:
-        raise HTTPException(status_code=401, detail=f"Google token exchange failed: {google_token_response.text[:300]}")
+        _log_auth_diagnostic("google_callback", "rejected", "token_exchange_rejected", request)
+        raise HTTPException(status_code=401, detail="Google token exchange failed.")
     try:
         token_payload = google_token_response.json()
     except ValueError as exc:
+        _log_auth_diagnostic("google_callback", "rejected", "token_exchange_invalid_response", request)
         raise HTTPException(status_code=502, detail="Google token exchange returned an invalid response.") from exc
     id_token = token_payload.get("id_token") if isinstance(token_payload, dict) else None
     if not isinstance(id_token, str):
+        _log_auth_diagnostic("google_callback", "rejected", "missing_id_token", request)
         raise HTTPException(status_code=401, detail="Google did not return an identity token.")
     claims = _verify_google_claims(db, _decode_jwt_payload(id_token), expected_client_id=client_id)
     is_new_user = not _google_user_exists_for_claims(db, claims)
@@ -3145,6 +3243,7 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
         _send_welcome_email(db, user)
     auth = _auth_response_for_user(db, user, auth_response)
     auth["return_to"] = _safe_app_return_path(str(parsed_state.get("return_to") or ""))
+    _log_auth_diagnostic("google_callback", "authenticated", "session_created", request, user=user, set_cookie_attempted=True)
     return auth
 
 
@@ -3152,6 +3251,11 @@ def google_auth_callback(payload: GoogleCallbackPayload, response: Response = No
 def me(request: Request, db: Session = Depends(get_db)):
     user = current_user(db, request, required=False)
     entitlements = entitlements_for_user(db, user) if user else current_entitlements(request, None)
+    if user:
+        _log_auth_diagnostic("auth_me", "authenticated", "session_valid", request, user=user)
+    else:
+        reason = "missing_cookie" if SESSION_COOKIE_NAME not in request.cookies else "invalid_session"
+        _log_auth_diagnostic("auth_me", "unauthenticated", reason, request)
     return {
         "user": serialize_user_self_profile(user) if user else None,
         "entitlements": entitlement_payload(entitlements, user=user),
@@ -5634,6 +5738,27 @@ def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, 
     db.commit()
     db.refresh(user)
     return _admin_user_row(user)
+
+
+@router.post("/admin/users/{user_id}/send-password-reset", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_send_password_reset(user_id: int, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    user = db.get(UserAccount, user_id)
+    if not user or _is_deleted_user(user):
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    _token, delivery = _issue_password_reset_for_user(db, user)
+    delivery_status = str((delivery or {}).get("status") or "failed").lower()
+    logger.info(
+        "admin_action action=password_reset_requested admin_user_id=%s target_user_id=%s timestamp=%s delivery_status=%s",
+        admin.id,
+        user.id,
+        datetime.now(timezone.utc).isoformat(),
+        delivery_status,
+    )
+    if delivery_status == "failed":
+        raise HTTPException(status_code=502, detail="Could not send password reset email.")
+    return {"status": "ok"}
 
 
 @router.delete("/admin/users/{user_id}", dependencies=[Depends(rate_limit_admin_mutation)])

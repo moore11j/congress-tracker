@@ -45,6 +45,7 @@ from app.routers.accounts import (
     AdminSubscriptionSyncPayload,
     SuspendPayload,
     admin_set_premium,
+    admin_send_password_reset,
     admin_subscription_debug,
     admin_sync_stripe_subscription,
     admin_settings,
@@ -622,6 +623,28 @@ def test_duplicate_email_password_register_does_not_send_welcome():
         ).scalars().all()
         assert len(welcome_deliveries) == 1
         assert welcome_deliveries[0].user_id == user.id
+    finally:
+        db.close()
+
+
+def test_public_login_wrong_password_is_generic_for_admin_and_missing_accounts():
+    db = _session()
+    try:
+        admin = _user(db, "admin-login@example.com", role="admin")
+        admin.password_hash = accounts_module.hash_password("Correctpass123!")
+        reader = _user(db, "reader-login@example.com")
+        reader.password_hash = accounts_module.hash_password("Readerpass123!")
+        db.commit()
+
+        for email in ("missing-login@example.com", "reader-login@example.com", "admin-login@example.com"):
+            with pytest.raises(HTTPException) as exc:
+                login(LoginPayload(email=email, password="Wrongpass123!"), db)
+            assert exc.value.status_code == 401
+            assert exc.value.detail == "Incorrect email or password."
+
+        signed_in = login(LoginPayload(email="admin-login@example.com", password="Correctpass123!"), db)
+        assert signed_in["authenticated"] is True
+        assert signed_in["user"]["email"] == "admin-login@example.com"
     finally:
         db.close()
 
@@ -3835,6 +3858,50 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
         result = admin_delete_user(reader.id, request, db)
         assert result["status"] == "deleted"
         assert db.get(UserAccount, reader.id) is None
+    finally:
+        db.close()
+
+
+def test_admin_can_send_user_password_reset_without_exposing_token(monkeypatch, caplog):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reset-target@example.com")
+        caplog.set_level(logging.INFO)
+
+        result = admin_send_password_reset(reader.id, _request_for_user(admin), db)
+
+        assert result == {"status": "ok"}
+        assert "token" not in result
+        db.refresh(reader)
+        assert reader.password_reset_token_hash
+        assert reader.password_reset_expires_at
+        delivery = db.execute(
+            select(EmailDelivery).where(EmailDelivery.template_key == "account.password_reset")
+        ).scalar_one()
+        assert delivery.user_id == reader.id
+        assert delivery.to_email == "reset-target@example.com"
+        assert delivery.idempotency_key == f"password-reset:{reader.id}:{reader.password_reset_token_hash}"
+        assert "reset_url" in (delivery.payload_json or "")
+        assert any("action=password_reset_requested" in record.getMessage() for record in caplog.records)
+    finally:
+        db.close()
+
+
+def test_non_admin_cannot_send_user_password_reset(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        reader = _user(db, "non-admin-reset@example.com")
+        target = _user(db, "reset-target-2@example.com")
+
+        with pytest.raises(HTTPException) as exc:
+            admin_send_password_reset(target.id, _request_for_user(reader), db)
+
+        assert exc.value.status_code == 403
+        db.refresh(target)
+        assert target.password_reset_token_hash is None
     finally:
         db.close()
 

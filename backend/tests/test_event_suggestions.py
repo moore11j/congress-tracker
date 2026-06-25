@@ -8,7 +8,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event
+from app.models import Event, Member
 from app.routers.events import (
     _member_insider_event_suggestions_query,
     _member_suggestions_query,
@@ -99,11 +99,26 @@ def test_member_insider_suggest_returns_insiders_with_company_context_from_paylo
         db.commit()
 
         response = suggest_member_insider(db=db, q="Tim", limit=10)
+        cik_response = suggest_member_insider(db=db, q="1214156", limit=10)
 
     item = next(item for item in response["items"] if item["category"] == "insider")
     assert item["value"] == "Tim Cook"
     assert item["label"] == "Tim Cook · Apple Inc. · AAPL · CEO"
     assert item["symbol"] == "AAPL"
+    cik_item = next(item for item in cik_response["items"] if item["category"] == "insider")
+    assert cik_item["reporting_cik"] == "0001214156"
+
+
+def test_member_insider_suggest_searches_congress_members_by_name_only():
+    with Session(_engine()) as db:
+        db.add(Member(bioguide_id="P000197", first_name="Nancy", last_name="Pelosi", chamber="House", party="D", state="CA"))
+        db.commit()
+
+        name_response = suggest_member_insider(db=db, q="pelosi", limit=10)
+        id_response = suggest_member_insider(db=db, q="P000197", limit=10)
+
+    assert any(item["category"] == "congress" and item["value"] == "Nancy Pelosi" for item in name_response["items"])
+    assert not any(item["category"] == "congress" for item in id_response["items"])
 
 
 def test_role_suggest_returns_canonical_aliases():

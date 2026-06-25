@@ -8,7 +8,9 @@ const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/
 const publicStaticPaths = new Set(["/landing", "/terms", "/privacy", "/faq"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE ??
+  process.env.API_BASE_URL ??
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
 const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);

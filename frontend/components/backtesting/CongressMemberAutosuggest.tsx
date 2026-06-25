@@ -11,38 +11,82 @@ type Props = {
   onChange: (value: MemberInsiderSuggestion | null) => void;
   disabled?: boolean;
   fallbackLabel?: string;
+  category?: "congress" | "insider";
+  onQueryChange?: (value: string) => void;
 };
 
 function isLegacyAlias(bioguideId?: string | null) {
   return (bioguideId ?? "").trim().toUpperCase().startsWith("FMP_");
 }
 
-function formatMemberLabel(suggestion: MemberInsiderSuggestion | null, fallbackLabel?: string) {
+function formatSuggestionLabel(suggestion: MemberInsiderSuggestion | null, fallbackLabel?: string) {
   if (suggestion?.label?.trim()) return suggestion.label.trim();
   if (suggestion?.value?.trim()) return suggestion.value.trim();
   return fallbackLabel?.trim() ?? "";
 }
 
-function dedupeSuggestions(items: MemberInsiderSuggestion[]) {
+function formatInputLabel(suggestion: MemberInsiderSuggestion | null, fallbackLabel?: string) {
+  if (suggestion?.category === "insider" && suggestion.value?.trim()) {
+    const cik = suggestion.reporting_cik?.trim();
+    return cik ? `${suggestion.value.trim()} (${cik})` : suggestion.value.trim();
+  }
+  return formatSuggestionLabel(suggestion, fallbackLabel);
+}
+
+function selectionKey(suggestion: MemberInsiderSuggestion | null, category: "congress" | "insider") {
+  if (category === "insider") return suggestion?.reporting_cik?.trim() ?? "";
+  return suggestion?.bioguide_id?.trim() ?? "";
+}
+
+function dedupeSuggestions(items: MemberInsiderSuggestion[], category: "congress" | "insider") {
   const deduped = new Map<string, MemberInsiderSuggestion>();
   for (const item of items) {
-    const bioguideId = (item.bioguide_id ?? "").trim().toUpperCase();
-    if (!bioguideId) continue;
-    const dedupeKey = `${formatMemberLabel(item).trim().toLowerCase()}|${(item.chamber ?? "").trim().toLowerCase()}`;
+    if (category === "insider") {
+      const reportingCik = (item.reporting_cik ?? "").trim();
+      if (!reportingCik) continue;
+      if (!deduped.has(reportingCik)) {
+        deduped.set(reportingCik, {
+          ...item,
+          reporting_cik: reportingCik,
+          label: formatSuggestionLabel(item),
+        });
+      }
+      continue;
+    }
+
+    const memberId = (item.bioguide_id ?? "").trim().toUpperCase();
+    if (!memberId) continue;
+    const dedupeKey = `${formatSuggestionLabel(item).trim().toLowerCase()}|${(item.chamber ?? "").trim().toLowerCase()}`;
     const existing = deduped.get(dedupeKey);
     if (!existing || (isLegacyAlias(existing.bioguide_id) && !isLegacyAlias(item.bioguide_id))) {
       deduped.set(dedupeKey, {
         ...item,
-        bioguide_id: bioguideId,
-        label: formatMemberLabel(item),
+        bioguide_id: memberId,
+        label: formatSuggestionLabel(item),
       });
     }
   }
   return Array.from(deduped.values());
 }
 
-export function CongressMemberAutosuggest({ value, onChange, disabled = false, fallbackLabel }: Props) {
-  const [query, setQuery] = useState(() => formatMemberLabel(value, fallbackLabel));
+function suggestionSubtitle(suggestion: MemberInsiderSuggestion, category: "congress" | "insider") {
+  if (category === "insider") {
+    return [
+      suggestion.reporting_cik ? `CIK ${suggestion.reporting_cik}` : null,
+      suggestion.symbol,
+      suggestion.company_name,
+      suggestion.role,
+    ].filter(Boolean).join(" - ");
+  }
+  return [
+    suggestion.chamber === "house" ? "House" : suggestion.chamber === "senate" ? "Senate" : suggestion.chamber,
+    suggestion.party,
+    suggestion.state,
+  ].filter(Boolean).join(" - ");
+}
+
+export function CongressMemberAutosuggest({ value, onChange, disabled = false, fallbackLabel, category = "congress", onQueryChange }: Props) {
+  const [query, setQuery] = useState(() => formatInputLabel(value, fallbackLabel));
   const [suggestions, setSuggestions] = useState<MemberInsiderSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,19 +95,22 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
   const rootRef = useRef<HTMLDivElement | null>(null);
   const debounceRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
+  const activeSelectionKey = selectionKey(value, category);
+  const placeholder = category === "insider" ? "Search by insider name or CIK" : "Search members by name";
+  const ariaLabel = category === "insider" ? "Insider" : "Member";
 
   useEffect(() => {
-    const nextLabel = formatMemberLabel(value, fallbackLabel);
-    if (value?.bioguide_id || nextLabel) {
+    const nextLabel = formatInputLabel(value, fallbackLabel);
+    if (activeSelectionKey || nextLabel) {
       setQuery(nextLabel);
     }
-  }, [fallbackLabel, value]);
+  }, [activeSelectionKey, fallbackLabel, value]);
 
   useEffect(() => {
     const trimmed = query.trim();
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
 
-    if (!trimmed || trimmed.length < MIN_QUERY_LENGTH || value?.bioguide_id) {
+    if (!trimmed || trimmed.length < MIN_QUERY_LENGTH || activeSelectionKey) {
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
@@ -79,7 +126,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
       try {
         const response = await suggestMemberInsiders(trimmed, 10);
         if (requestIdRef.current !== requestId) return;
-        const next = dedupeSuggestions(response.items.filter((item) => item.category === "congress" && item.bioguide_id));
+        const next = dedupeSuggestions(response.items.filter((item) => item.category === category), category);
         setSuggestions(next);
         setHighlightedIndex(next.length > 0 ? 0 : -1);
         setOpen(next.length > 0);
@@ -96,7 +143,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [query, value?.bioguide_id]);
+  }, [activeSelectionKey, category, query]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -110,7 +157,7 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
 
   function selectSuggestion(suggestion: MemberInsiderSuggestion) {
     onChange(suggestion);
-    setQuery(formatMemberLabel(suggestion));
+    setQuery(formatInputLabel(suggestion));
     setSuggestions([]);
     setOpen(false);
     setHighlightedIndex(-1);
@@ -122,7 +169,9 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
         value={query}
         onChange={(event) => {
           if (value) onChange(null);
-          setQuery(event.target.value);
+          const nextQuery = event.target.value;
+          onQueryChange?.(nextQuery);
+          setQuery(nextQuery);
         }}
         onFocus={() => {
           if (suggestions.length > 0) setOpen(true);
@@ -148,11 +197,11 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
             selectSuggestion(suggestions[highlightedIndex]);
           }
         }}
-        placeholder="Search members"
+        placeholder={placeholder}
         className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-3 text-sm text-white outline-none transition placeholder:text-slate-500/40 focus:border-white/20 disabled:cursor-not-allowed disabled:text-slate-500"
         disabled={disabled}
         autoComplete="off"
-        aria-label="Member"
+        aria-label={ariaLabel}
       />
 
       {open || (loading && query.trim().length >= MIN_QUERY_LENGTH) ? (
@@ -171,8 +220,8 @@ export function CongressMemberAutosuggest({ value, onChange, disabled = false, f
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => selectSuggestion(suggestion)}
                 >
-                  <div className="font-medium text-white">{formatMemberLabel(suggestion)}</div>
-                  {suggestion.chamber ? <div className="text-xs text-slate-400">{suggestion.chamber === "house" ? "House" : suggestion.chamber === "senate" ? "Senate" : suggestion.chamber}</div> : null}
+                  <div className="font-medium text-white">{formatSuggestionLabel(suggestion)}</div>
+                  {suggestionSubtitle(suggestion, category) ? <div className="text-xs text-slate-400">{suggestionSubtitle(suggestion, category)}</div> : null}
                 </button>
               ))
             : null}

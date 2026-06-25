@@ -616,7 +616,59 @@ def test_insider_buy_and_hold_holds_purchase_through_end_date():
 
         assert [position.symbol for position in result.positions] == ["AAPL"]
         assert result.positions[0].exit_date == "2024-03-01"
-        assert any("Buy and hold; sell transactions ignored" in assumption for assumption in result.assumptions)
+        assert any("Buy and hold; qualifying entries held through end" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_congress_buy_and_hold_holds_purchase_through_end_date():
+    db = _session()
+    try:
+        user = _user(db, "premium-congress-buy-hold@example.com")
+        event_dt = datetime.fromisoformat("2024-01-02T12:00:00+00:00")
+        db.add(
+            Event(
+                id=140,
+                event_type="congress_trade",
+                ts=event_dt,
+                event_date=event_dt,
+                symbol="AAPL",
+                source="congress",
+                trade_type="purchase",
+                amount_min=1000,
+                amount_max=5000,
+                payload_json=json.dumps({"symbol": "AAPL", "filing_date": "2024-01-02", "trade_type": "purchase"}),
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+                chamber="House",
+                party="D",
+            )
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-02-01", 110.0)
+        _price(db, "AAPL", "2024-03-01", 130.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-02-01", 101.0)
+        _price(db, "^GSPC", "2024-03-01", 102.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="congress",
+                source_scope="member",
+                member_id="P000197",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 3, 1),
+                hold_days=30,
+                buy_and_hold=True,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL"]
+        assert result.positions[0].exit_date == "2024-03-01"
+        assert any("Buy and hold; qualifying entries held through end" in assumption for assumption in result.assumptions)
     finally:
         db.close()
 

@@ -2885,15 +2885,7 @@ def suggest_member_insider(
 
     pattern = f"%{prefix.lower()}%"
     member_name_expr = func.trim(func.coalesce(Member.first_name, "") + " " + func.coalesce(Member.last_name, ""))
-    member_search_blob = func.lower(
-        member_name_expr
-        + " "
-        + func.coalesce(Member.state, "")
-        + " "
-        + func.coalesce(Member.party, "")
-        + " "
-        + func.coalesce(Member.bioguide_id, "")
-    )
+    member_search_blob = func.lower(member_name_expr)
     congress_rows = db.execute(
         select(
             Member.bioguide_id,

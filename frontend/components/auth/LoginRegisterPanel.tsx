@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
-import { ApiError, getGoogleAuthUrl, getMe, login, register, requestPasswordReset } from "@/lib/api";
+import { ApiError, getGoogleAuthUrl, getMe, login, register, requestPasswordReset, verifyAuthenticatedSession } from "@/lib/api";
 import { selectClassName } from "@/lib/styles";
 import { defaultPostLoginPath, reactivatedBillingPath, safeAppReturnPath } from "@/lib/returnPaths";
 
@@ -135,6 +135,9 @@ export function LoginRegisterPanel({
         await login({ email, password });
       }
       const destinationLabel = mode === "register" ? "account settings" : nextPath === defaultPostLoginPath ? "feed" : "requested page";
+      setLoadingLabel("Verifying session...");
+      setStatus("Verifying your session...");
+      await verifyAuthenticatedSession(mode === "register" ? "RegisterPanel" : "LoginPanel");
       setLoadingLabel(`Opening ${destinationLabel}...`);
       setStatus(`You're in. Opening the ${destinationLabel}...`);
       router.replace(destination);

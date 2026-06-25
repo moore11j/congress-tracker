@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { completeGoogleSignIn } from "@/lib/api";
+import { completeGoogleSignIn, verifyAuthenticatedSession } from "@/lib/api";
 import { defaultPostLoginPath, safeAppReturnPath } from "@/lib/returnPaths";
 
 export default function GoogleCallbackPage() {
@@ -26,7 +26,10 @@ export default function GoogleCallbackPage() {
       .then((response) => {
         const next = safeAppReturnPath(response.return_to);
         setReturnTo(next);
-        window.location.replace(next);
+        setStatus("Verifying your session...");
+        return verifyAuthenticatedSession("GoogleCallbackPage").then(() => {
+          window.location.replace(next);
+        });
       })
       .catch((error) => {
         setStatus(error instanceof Error ? error.message : "Unable to finish Google sign-in.");

@@ -770,7 +770,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
     if config.include_exempt_acquisitions:
         strategy_assumptions.append("Exempt acquisitions included")
     if config.buy_and_hold:
-        strategy_assumptions.append("Buy and hold; sell transactions ignored")
+        strategy_assumptions.append("Buy and hold; qualifying entries held through end")
     if strategy_assumptions:
         assumptions.append(f"Strategy assumptions: {'; '.join(strategy_assumptions)}")
 

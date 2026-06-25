@@ -5,6 +5,7 @@ import test from "node:test";
 
 const adminUsersViewPath = path.join(process.cwd(), "components", "admin", "AdminUsersView.tsx");
 const source = fs.readFileSync(adminUsersViewPath, "utf8");
+const apiSource = fs.readFileSync(path.join(process.cwd(), "lib", "api.ts"), "utf8");
 const adminSettingsPanel = fs.readFileSync(path.join(process.cwd(), "components", "admin", "AdminSettingsPanel.tsx"), "utf8");
 const accountDisplay = fs.readFileSync(path.join(process.cwd(), "lib", "accountDisplay.ts"), "utf8");
 const pageAnalyticsReport = fs.readFileSync(path.join(process.cwd(), "components", "admin", "PageAnalyticsReport.tsx"), "utf8");
@@ -72,4 +73,14 @@ test("admin user action menu guards against missing or detached anchors", () => 
   assert.match(source, /if \(!anchor\?\.isConnected\) return null;\s*const rect = anchor\.getBoundingClientRect\(\);/);
   assert.match(source, /const nextPosition = menuPosition\(anchor, menuRef\.current\?\.offsetHeight \?\? 260\);[\s\S]*if \(!nextPosition\) \{[\s\S]*onClose\(\);[\s\S]*return;/);
   assert.match(source, /const anchor = event\.currentTarget;[\s\S]*current\?\.userId === user\.id \? null : \{ userId: user\.id, anchor \}/);
+});
+
+test("admin user action menu can send password resets without exposing tokens", () => {
+  assert.match(source, /adminSendPasswordReset/);
+  assert.match(apiSource, /\/api\/admin\/users\/\$\{userId\}\/send-password-reset/);
+  assert.match(source, /Send password reset/);
+  assert.match(source, /Send password reset email to <span className="font-medium text-white">\{displayEmail\(user\)\}<\/span>\?/);
+  assert.match(source, /Password reset email sent\./);
+  assert.match(source, /Could not send password reset email\./);
+  assert.doesNotMatch(source, /reset_url|resetUrl|password_reset_token|token_hash/);
 });

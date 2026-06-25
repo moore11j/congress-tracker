@@ -51,7 +51,9 @@ function notifyAuthChanged() {
 }
 
 export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE ??
+  process.env.API_BASE_URL ??
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
 
@@ -163,7 +165,8 @@ export function normalizeEventType(uiValue: string | null | undefined): Normaliz
 }
 
 function buildApiUrl(path: string, params?: QueryParams) {
-  const url = new URL(path, API_BASE);
+  const base = typeof window === "undefined" ? API_BASE : window.location.origin;
+  const url = new URL(path, base);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value === null || value === undefined) return;
@@ -240,6 +243,11 @@ function rememberAuthenticatedSession() {
   document.cookie = `${authHintCookieName}=1; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
   resetClientApiCaches();
   notifyAuthChanged();
+}
+
+function traceAuthClientDiagnostic(flow: string, result: string, reason: string) {
+  if (!apiDebugEnabled()) return;
+  console.info("[ct-auth]", { flow, result, reason, route: typeof window !== "undefined" ? window.location.pathname : "server" });
 }
 
 function forgetAuthenticatedSession() {
@@ -1903,6 +1911,20 @@ export async function login(payload: { email: string; password?: string; name?: 
   return response;
 }
 
+export async function verifyAuthenticatedSession(source = "auth-login"): Promise<MeResponse> {
+  resetClientApiCaches();
+  const response = await getMe({ force: true, source });
+  if (!response.user) {
+    forgetAuthenticatedSession();
+    traceAuthClientDiagnostic(source, "unauthenticated", "post_login_auth_me_failed");
+    throw new Error("We couldn't keep you signed in. Please try again.");
+  }
+  traceAuthClientDiagnostic(source, "authenticated", "post_login_auth_me_ok");
+  rememberAuthenticatedSession();
+  rememberEntitlements(response.entitlements);
+  return response;
+}
+
 export async function register(payload: {
   first_name: string;
   last_name: string;
@@ -2604,6 +2626,12 @@ export async function adminSuspendUser(userId: number, suspended: boolean): Prom
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ suspended }),
+  });
+}
+
+export async function adminSendPasswordReset(userId: number): Promise<{ status: string }> {
+  return fetchJson<{ status: string }>(buildApiUrl(`/api/admin/users/${userId}/send-password-reset`), {
+    method: "POST",
   });
 }
 

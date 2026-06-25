@@ -33,6 +33,14 @@ const securityHeaders = [
   },
 ];
 
+const apiBase = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  process.env.API_BASE_URL ||
+  process.env.API_BASE ||
+  "https://congress-tracker-api.fly.dev"
+).replace(/\/+$/, "");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async headers() {
@@ -42,6 +50,16 @@ const nextConfig = {
         headers: securityHeaders,
       },
     ];
+  },
+  async rewrites() {
+    return {
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${apiBase}/api/:path*`,
+        },
+      ],
+    };
   },
 };
 

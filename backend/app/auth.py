@@ -100,6 +100,11 @@ def session_cookie_samesite() -> str:
     return configured if configured in {"lax", "strict", "none"} else "lax"
 
 
+def session_cookie_domain() -> str | None:
+    configured = os.getenv("APP_SESSION_COOKIE_DOMAIN", "").strip().lower()
+    return configured or None
+
+
 def allow_bearer_session_auth() -> bool:
     """Legacy session-token bearer auth is disabled by default and never normal production auth."""
     if _is_production_runtime():
@@ -166,6 +171,7 @@ def set_session_cookie(response: Response | None, token: str) -> None:
         max_age=max_age,
         expires=datetime.now(timezone.utc) + timedelta(seconds=max_age),
         path="/",
+        domain=session_cookie_domain(),
         secure=session_cookie_secure(),
         httponly=True,
         samesite=session_cookie_samesite(),
@@ -178,6 +184,7 @@ def clear_session_cookie(response: Response | None) -> None:
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
+        domain=session_cookie_domain(),
         secure=session_cookie_secure(),
         httponly=True,
         samesite=session_cookie_samesite(),
