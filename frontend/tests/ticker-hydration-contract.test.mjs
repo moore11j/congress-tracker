@@ -24,6 +24,20 @@ test("ticker chart checks hydration status before requesting chart bundle", () =
   assert.match(chart, /CHART_HYDRATION_DELAY_MS/);
 });
 
+test("ticker chart renders stale freshness as an updating state", () => {
+  const chart = read("components/ticker/PremiumTickerChart.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /export type TickerChartFreshness/);
+  assert.match(api, /freshness\?: TickerChartFreshness/);
+  assert.match(api, /status === "stale"/);
+  assert.match(chart, /freshnessBlocksChart/);
+  assert.match(chart, /Price chart updating/);
+  assert.match(chart, /Latest market data is temporarily unavailable\./);
+  assert.match(chart, /Updated through/);
+  assert.doesNotMatch(chart, /provider|cache|FMP|Polygon|Massive/i);
+});
+
 test("ticker context does not eagerly request heavy tab data on overview mount", () => {
   const card = read("components/ticker/TickerContextCard.tsx");
 

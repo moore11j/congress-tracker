@@ -50,9 +50,12 @@ def _enqueue_eod_refresh(symbol: str | None, date_key: str | None = None, *, rea
         priority=30,
     )
 _DEFAULT_APP_TIMEZONE = "America/Los_Angeles"
+_MARKET_TIMEZONE = "America/New_York"
 _DEFAULT_MAX_PRIOR_FALLBACK_DAYS = 7
 _DEFAULT_DAILY_SERIES_MIN_DENSITY = 0.55
 _PROVIDER_EOD_SERIES_CACHE_TTL_SECONDS = 15 * 60
+_DEFAULT_RECENT_REFRESH_TRADING_DAYS = 15
+_DEFAULT_EOD_READY_HOUR_ET = 18
 
 
 def _max_prior_fallback_days() -> int:
@@ -88,7 +91,8 @@ def _safe_cache_upsert(
     day_volume_value: float | None = None,
 ) -> bool:
     values: dict[str, Any] = {"symbol": symbol, "date": day, "close": close_value}
-    update_values: dict[str, Any] = {"close": close_value}
+    now = datetime.now(timezone.utc)
+    update_values: dict[str, Any] = {"close": close_value, "updated_at": now}
     if volume_value is not None:
         values["volume"] = volume_value
         update_values["volume"] = volume_value
@@ -268,6 +272,335 @@ def _daily_series_min_density() -> float:
     except ValueError:
         parsed = _DEFAULT_DAILY_SERIES_MIN_DENSITY
     return max(0.1, min(parsed, 0.95))
+
+
+def _observed_fixed_holiday(year: int, month: int, day: int) -> date:
+    holiday = date(year, month, day)
+    if holiday.weekday() == 5:
+        return holiday - timedelta(days=1)
+    if holiday.weekday() == 6:
+        return holiday + timedelta(days=1)
+    return holiday
+
+
+def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date:
+    cursor = date(year, month, 1)
+    while cursor.weekday() != weekday:
+        cursor += timedelta(days=1)
+    return cursor + timedelta(days=7 * (nth - 1))
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    cursor = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
+    while cursor.weekday() != weekday:
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def _easter_date(year: int) -> date:
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _us_market_holidays(year: int) -> set[date]:
+    return {
+        _observed_fixed_holiday(year, 1, 1),
+        _nth_weekday(year, 1, 0, 3),
+        _nth_weekday(year, 2, 0, 3),
+        _easter_date(year) - timedelta(days=2),
+        _last_weekday(year, 5, 0),
+        _observed_fixed_holiday(year, 6, 19),
+        _observed_fixed_holiday(year, 7, 4),
+        _nth_weekday(year, 9, 0, 1),
+        _nth_weekday(year, 11, 3, 4),
+        _observed_fixed_holiday(year, 12, 25),
+    }
+
+
+def is_market_trading_day(day: date) -> bool:
+    return day.weekday() < 5 and day not in _us_market_holidays(day.year)
+
+
+def previous_market_trading_day(day: date) -> date:
+    cursor = day - timedelta(days=1)
+    while not is_market_trading_day(cursor):
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def _recent_market_window_start(end_day: date, trading_days: int) -> date:
+    remaining = max(1, trading_days)
+    cursor = end_day
+    while remaining > 1:
+        cursor = previous_market_trading_day(cursor)
+        remaining -= 1
+    return cursor
+
+
+def _eod_ready_hour_et() -> int:
+    raw = os.getenv("PRICE_HISTORY_EOD_READY_HOUR_ET", "").strip()
+    try:
+        parsed = int(raw) if raw else _DEFAULT_EOD_READY_HOUR_ET
+    except ValueError:
+        parsed = _DEFAULT_EOD_READY_HOUR_ET
+    return max(14, min(parsed, 23))
+
+
+def get_expected_latest_market_date(now_utc: datetime | None = None) -> date:
+    """Latest completed trading session expected to have EOD chart data."""
+    try:
+        market_tz = ZoneInfo(_MARKET_TIMEZONE)
+    except Exception:
+        market_tz = timezone.utc
+    current_utc = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    if current_utc.tzinfo is None:
+        current_utc = current_utc.replace(tzinfo=timezone.utc)
+    local_now = current_utc.astimezone(market_tz)
+    candidate = local_now.date()
+    if is_market_trading_day(candidate) and local_now.hour < _eod_ready_hour_et():
+        candidate = previous_market_trading_day(candidate)
+    while not is_market_trading_day(candidate):
+        candidate = previous_market_trading_day(candidate)
+    return candidate
+
+
+def _is_foreground_request_context() -> bool:
+    context = get_request_context() or {}
+    path = str(context.get("path") or "")
+    return bool(path and path != "background")
+
+
+def latest_price_history_row(db: Session, symbol: str) -> dict[str, Any]:
+    status, normalized_symbol, classify_error = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {
+            "symbol": normalized_symbol,
+            "status": status,
+            "error": classify_error,
+            "latest_date": None,
+            "close": None,
+            "updated_at": None,
+        }
+
+    best: dict[str, Any] | None = None
+    for candidate_symbol in symbol_variants(normalized_symbol):
+        row = db.execute(
+            sqlalchemy_select(PriceCache.date, PriceCache.close, PriceCache.updated_at)
+            .where(PriceCache.symbol == candidate_symbol)
+            .order_by(PriceCache.date.desc())
+            .limit(1)
+        ).first()
+        if row is None:
+            continue
+        payload = {
+            "symbol": candidate_symbol,
+            "status": "ok",
+            "error": None,
+            "latest_date": str(row[0]),
+            "close": float(row[1]),
+            "updated_at": row[2],
+        }
+        if best is None or str(payload["latest_date"]) > str(best["latest_date"]):
+            best = payload
+
+    if best is not None:
+        return best
+    return {
+        "symbol": normalized_symbol,
+        "status": "missing",
+        "error": None,
+        "latest_date": None,
+        "close": None,
+        "updated_at": None,
+    }
+
+
+def is_price_history_stale(
+    db: Session,
+    symbol: str,
+    *,
+    expected_date: date | str | None = None,
+) -> dict[str, Any]:
+    expected = date.fromisoformat(expected_date) if isinstance(expected_date, str) else expected_date
+    expected = expected or get_expected_latest_market_date()
+    latest = latest_price_history_row(db, symbol)
+    latest_date = latest.get("latest_date")
+    is_stale = latest_date is None or str(latest_date) < expected.isoformat()
+    return {
+        "symbol": latest.get("symbol"),
+        "expected_latest_date": expected.isoformat(),
+        "latest_date": latest_date,
+        "latest_close": latest.get("close"),
+        "updated_at": latest.get("updated_at"),
+        "is_stale": is_stale,
+        "status": "stale" if is_stale and latest_date else "missing" if is_stale else "ok",
+    }
+
+
+def refresh_recent_price_history(
+    db: Session,
+    symbol: str,
+    *,
+    lookback_days: int = _DEFAULT_RECENT_REFRESH_TRADING_DAYS,
+    end_date: date | str | None = None,
+) -> dict[str, Any]:
+    status, normalized_symbol, classify_error = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {
+            "symbol": normalized_symbol,
+            "status": status,
+            "error": classify_error,
+            "start_date": None,
+            "end_date": None,
+            "rows": 0,
+        }
+
+    end_day = date.fromisoformat(end_date) if isinstance(end_date, str) else end_date
+    end_day = end_day or get_expected_latest_market_date()
+    start_day = _recent_market_window_start(end_day, max(1, min(int(lookback_days or 1), 45)))
+    start_key = start_day.isoformat()
+    end_key = end_day.isoformat()
+
+    provider_map, provider_volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(
+        normalized_symbol,
+        start_key,
+        end_key,
+        allow_user_request=True,
+    )
+    if not provider_map:
+        logger.warning(
+            "price_history_recent_refresh_no_data symbol=%s start=%s end=%s",
+            normalized_symbol,
+            start_key,
+            end_key,
+        )
+        return {
+            "symbol": normalized_symbol,
+            "status": "no_data",
+            "error": "no_recent_price_history",
+            "start_date": start_key,
+            "end_date": end_key,
+            "rows": 0,
+        }
+
+    cache_symbol = provider_symbol or normalized_symbol
+    wrote_any = False
+    for day, close_value in provider_map.items():
+        wrote_any = _safe_cache_upsert(db, cache_symbol, day, close_value, provider_volume_map.get(day)) or wrote_any
+    if wrote_any:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.warning(
+                "price_history_recent_refresh_commit_failed symbol=%s refresh_symbol=%s start=%s end=%s",
+                normalized_symbol,
+                cache_symbol,
+                start_key,
+                end_key,
+                exc_info=True,
+            )
+            raise
+
+    logger.info(
+        "price_history_recent_refresh_done symbol=%s refresh_symbol=%s rows=%s start=%s end=%s latest=%s",
+        normalized_symbol,
+        cache_symbol,
+        len(provider_map),
+        start_key,
+        end_key,
+        max(provider_map) if provider_map else None,
+    )
+    return {
+        "symbol": cache_symbol,
+        "status": "ok",
+        "error": None,
+        "start_date": start_key,
+        "end_date": end_key,
+        "rows": len(provider_map),
+        "latest_date": max(provider_map) if provider_map else None,
+    }
+
+
+def ensure_fresh_price_history(
+    db: Session,
+    symbol: str,
+    *,
+    expected_date: date | str | None = None,
+    lookback_days: int = _DEFAULT_RECENT_REFRESH_TRADING_DAYS,
+) -> dict[str, Any]:
+    expected = date.fromisoformat(expected_date) if isinstance(expected_date, str) else expected_date
+    expected = expected or get_expected_latest_market_date()
+    before = is_price_history_stale(db, symbol, expected_date=expected)
+    if not before["is_stale"]:
+        return {
+            **before,
+            "refresh_attempted": False,
+            "refresh_status": "not_needed",
+            "message": f"Updated through {before['latest_date']}.",
+        }
+
+    logger.warning(
+        "price_history_stale_detected symbol=%s latest=%s expected=%s",
+        symbol,
+        before.get("latest_date"),
+        expected.isoformat(),
+    )
+    refresh_status = "failed"
+    refresh_error = None
+    try:
+        refresh = refresh_recent_price_history(
+            db,
+            symbol,
+            lookback_days=lookback_days,
+            end_date=expected,
+        )
+        refresh_status = str(refresh.get("status") or "failed")
+        refresh_error = refresh.get("error")
+    except Exception as exc:
+        db.rollback()
+        refresh_error = exc.__class__.__name__
+        logger.warning(
+            "price_history_recent_refresh_failed symbol=%s latest=%s expected=%s",
+            symbol,
+            before.get("latest_date"),
+            expected.isoformat(),
+            exc_info=True,
+        )
+
+    after = is_price_history_stale(db, symbol, expected_date=expected)
+    if after["is_stale"]:
+        logger.warning(
+            "price_history_stale_after_refresh symbol=%s latest=%s expected=%s refresh_status=%s",
+            symbol,
+            after.get("latest_date"),
+            expected.isoformat(),
+            refresh_status,
+        )
+    return {
+        **after,
+        "refresh_attempted": True,
+        "refresh_status": refresh_status,
+        "refresh_error": refresh_error,
+        "message": (
+            f"Updated through {after['latest_date']}."
+            if not after["is_stale"] and after.get("latest_date")
+            else "Latest market data is temporarily unavailable."
+        ),
+    }
 
 
 def is_sparse_daily_close_series(price_map: dict[str, float], start_date: str, end_date: str) -> bool:
@@ -628,6 +961,8 @@ def _fetch_provider_eod_payload(
     start_date: str,
     end_date: str,
     api_key: str,
+    *,
+    allow_user_request: bool = False,
 ):
     cache_key = (endpoint, candidate_symbol, start_date, end_date)
     cached = _PROVIDER_EOD_SERIES_CACHE.get(cache_key)
@@ -637,7 +972,11 @@ def _fetch_provider_eod_payload(
     record_cache_miss(category=f"price:{endpoint}", symbol=candidate_symbol)
 
     try:
-        ensure_fmp_live_allowed(category=f"price:{endpoint}", symbol=candidate_symbol)
+        ensure_fmp_live_allowed(
+            category=f"price:{endpoint}",
+            symbol=candidate_symbol,
+            allow_user_request=allow_user_request,
+        )
     except ProviderUnavailable as exc:
         record_fallback(category=f"price:{endpoint}", symbol=candidate_symbol, reason=getattr(exc, "reason", "provider_unavailable"))
         return None
@@ -762,7 +1101,13 @@ def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str)
     return price_map, provider_symbol
 
 
-def _fetch_provider_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
+def _fetch_provider_eod_price_volume_series(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    allow_user_request: bool = False,
+) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         return {}, {}, None
@@ -775,7 +1120,14 @@ def _fetch_provider_eod_price_volume_series(symbol: str, start_date: str, end_da
 
     for candidate_symbol in symbol_variants(symbol):
         for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
-            provider_payload = _fetch_provider_eod_payload(endpoint, candidate_symbol, start_date, end_date, api_key)
+            provider_payload = _fetch_provider_eod_payload(
+                endpoint,
+                candidate_symbol,
+                start_date,
+                end_date,
+                api_key,
+                allow_user_request=allow_user_request,
+            )
             if provider_payload is None:
                 continue
             status_code = getattr(provider_payload, "status_code", 200)
@@ -839,7 +1191,7 @@ def get_daily_close_series_with_fallback(
     if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
         return cached_map
 
-    if (get_request_context() or {}).get("path"):
+    if _is_foreground_request_context():
         _enqueue_eod_refresh(
             normalized_symbol,
             reason="stale_or_missing_series",

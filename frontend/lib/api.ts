@@ -496,7 +496,7 @@ function normalizeTickerContentStatus(rawStatus: unknown, itemCount: number): Ti
   const status = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : "";
   if (status === "warming" || status === "pending") return "loading";
   if (status === "empty" || status === "no-data") return "no_data";
-  if (status === "ok" || status === "loading" || status === "no_data" || status === "unavailable") return status;
+  if (status === "ok" || status === "loading" || status === "no_data" || status === "unavailable" || status === "stale" || status === "updating") return status;
   return itemCount > 0 ? "ok" : "no_data";
 }
 
@@ -2803,12 +2803,21 @@ export type TickerChartQuote = {
   asof?: string | null;
 };
 
+export type TickerChartFreshness = {
+  status: "ok" | "stale" | "unavailable" | string;
+  is_stale: boolean;
+  latest_date: string | null;
+  expected_latest_date: string | null;
+  refresh_attempted?: boolean;
+  message?: string | null;
+};
+
 export type TickerChartBundle = {
   symbol: string | null;
   company_name?: string | null;
   resolution: "daily";
   days: number;
-  status?: "ok" | "loading" | "no_data" | "unavailable" | string;
+  status?: "ok" | "loading" | "no_data" | "unavailable" | "stale" | "updating" | string;
   start_date: string | null;
   end_date: string | null;
   points?: TickerPriceHistoryPoint[];
@@ -2823,6 +2832,9 @@ export type TickerChartBundle = {
   };
   markers: TickerChartMarker[];
   quote: TickerChartQuote;
+  freshness?: TickerChartFreshness;
+  benchmark_freshness?: TickerChartFreshness;
+  message?: string | null;
   available_symbols?: string[];
 };
 

@@ -109,6 +109,22 @@ def test_priority_ticker_prewarm_job_is_accepted_by_parser() -> None:
     assert args.job == "priority-ticker-prewarm"
 
 
+def test_market_data_refresh_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "market-data-refresh-daily"])
+
+    assert args.job == "market-data-refresh-daily"
+
+
+def test_scheduled_ingest_workflow_includes_market_data_refresh() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
+    contents = workflow.read_text()
+    crontab = Path(__file__).resolve().parents[1] / "crontab"
+
+    assert "market-data-refresh-daily" in contents
+    assert 'JOB_MODE="market-data-refresh-daily"' in contents
+    assert "market-data-refresh-daily" in crontab.read_text()
+
+
 def test_enrichment_queue_job_uses_bounded_env(monkeypatch) -> None:
     seen = {}
 

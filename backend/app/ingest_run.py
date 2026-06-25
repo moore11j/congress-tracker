@@ -23,13 +23,18 @@ from app.ingest_insider_trades import insider_ingest_run
 from app.ingest_institutional_buys import institutional_ingest_run
 from app.populate_fundamentals_cache import populate_fundamentals_cache
 from app.ingest_senate import ingest_senate
-from app.models import Event, TradeOutcome
+from app.models import Event, PriceCache, SavedScreenSnapshot, Security, TradeOutcome, WatchlistItem
 from app.security.redaction import safe_config_for_log
-from app.services.price_lookup import get_daily_close_series_with_fallback
+from app.services.price_lookup import (
+    ensure_fresh_price_history,
+    get_daily_close_series_with_fallback,
+    get_expected_latest_market_date,
+)
 from app.services.provider_usage import log_provider_budget_summary
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
+from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "government-contracts-daily",
             "government-contracts-weekly",
             "daily-repair",
+            "market-data-refresh-daily",
             "fundamentals-cache-daily",
             "enrichment-queue",
             "priority-ticker-prewarm",
@@ -225,6 +231,133 @@ def _warm_price_cache() -> dict[str, object]:
         "warmed_points": warmed_points,
     }
     logger.info("Finished price cache warm: %s", result)
+    return result
+
+
+def _add_unique_symbol(symbols: list[str], seen: set[str], raw_symbol: object, *, limit: int) -> None:
+    if len(symbols) >= limit:
+        return
+    normalized = normalize_symbol(str(raw_symbol)) if raw_symbol is not None else None
+    if not normalized or normalized in seen:
+        return
+    symbols.append(normalized)
+    seen.add(normalized)
+
+
+def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list[str]:
+    expected_key = expected_date.isoformat()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    priority_symbols = [
+        symbol.strip()
+        for symbol in os.getenv("MARKET_DATA_REFRESH_PRIORITY_SYMBOLS", "").split(",")
+        if symbol.strip()
+    ]
+    for symbol in [*priority_symbols, benchmark_symbol]:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    stale_cache_rows = db.execute(
+        select(PriceCache.symbol, func.max(PriceCache.date).label("latest_date"))
+        .group_by(PriceCache.symbol)
+        .having(func.max(PriceCache.date) < expected_key)
+        .order_by(func.max(PriceCache.date).asc(), PriceCache.symbol.asc())
+        .limit(max(1, limit))
+    ).all()
+    for symbol, _latest_date in stale_cache_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    since = datetime.now(timezone.utc) - timedelta(
+        days=int(os.getenv("MARKET_DATA_REFRESH_EVENT_LOOKBACK_DAYS", "365") or 365)
+    )
+    event_rows = db.execute(
+        select(func.upper(Event.symbol), func.max(func.coalesce(Event.event_date, Event.ts)).label("latest_ts"))
+        .where(Event.symbol.is_not(None))
+        .where(func.coalesce(Event.event_date, Event.ts) >= since)
+        .group_by(func.upper(Event.symbol))
+        .order_by(func.max(func.coalesce(Event.event_date, Event.ts)).desc())
+        .limit(max(1, limit))
+    ).all()
+    for symbol, _latest_ts in event_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    watchlist_rows = db.execute(
+        select(func.upper(Security.symbol))
+        .select_from(WatchlistItem)
+        .join(Security, Security.id == WatchlistItem.security_id)
+        .where(Security.symbol.is_not(None))
+        .group_by(func.upper(Security.symbol))
+        .limit(max(1, limit))
+    ).scalars().all()
+    for symbol in watchlist_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    saved_screen_rows = db.execute(
+        select(func.upper(SavedScreenSnapshot.ticker))
+        .where(SavedScreenSnapshot.ticker.is_not(None))
+        .group_by(func.upper(SavedScreenSnapshot.ticker))
+        .limit(max(1, limit))
+    ).scalars().all()
+    for symbol in saved_screen_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    return symbols
+
+
+def _run_market_data_refresh_job() -> dict[str, object]:
+    ensure_price_cache_volume_columns(engine)
+    expected_date = get_expected_latest_market_date()
+    lookback_days = int(os.getenv("MARKET_DATA_REFRESH_LOOKBACK_TRADING_DAYS", "15") or 15)
+    symbol_limit = int(os.getenv("MARKET_DATA_REFRESH_SYMBOL_LIMIT", "500") or 500)
+    failures: list[dict[str, object]] = []
+    refreshed = 0
+    stale_after = 0
+    symbols: list[str] = []
+
+    logger.info(
+        "market_data_refresh_start expected_latest_date=%s lookback_days=%s symbol_limit=%s",
+        expected_date.isoformat(),
+        lookback_days,
+        symbol_limit,
+    )
+    with SessionLocal() as db:
+        symbols = _market_data_refresh_symbols(db, expected_date=expected_date, limit=max(1, symbol_limit))
+        for symbol in symbols:
+            freshness = ensure_fresh_price_history(
+                db,
+                symbol,
+                expected_date=expected_date,
+                lookback_days=lookback_days,
+            )
+            if freshness.get("refresh_attempted"):
+                refreshed += 1
+            if freshness.get("is_stale"):
+                stale_after += 1
+                failure = {
+                    "symbol": symbol,
+                    "latest_date": freshness.get("latest_date"),
+                    "expected_latest_date": freshness.get("expected_latest_date"),
+                    "status": freshness.get("status"),
+                }
+                failures.append(failure)
+                logger.warning(
+                    "market_data_refresh_symbol_stale symbol=%s latest=%s expected=%s status=%s",
+                    symbol,
+                    failure["latest_date"],
+                    failure["expected_latest_date"],
+                    failure["status"],
+                )
+
+    result = {
+        "job": "market-data-refresh-daily",
+        "status": "partial" if failures else "ok",
+        "expected_latest_date": expected_date.isoformat(),
+        "symbol_count": len(symbols),
+        "refresh_attempted": refreshed,
+        "stale_after_refresh": stale_after,
+        "failures": failures[:25],
+    }
+    logger.info("market_data_refresh_finished result=%s", result)
     return result
 
 
@@ -768,6 +901,8 @@ def _run_job_payload(job: str) -> dict[str, object]:
         }
     if job == "daily-repair":
         return _run_daily_outcome_repair()
+    if job == "market-data-refresh-daily":
+        return _run_market_data_refresh_job()
     if job == "fundamentals-cache-daily":
         return {
             "job": job,
@@ -782,6 +917,7 @@ def _run_job_payload(job: str) -> dict[str, object]:
         "core": _run_core_job(),
         "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
         "daily_repair": _run_daily_outcome_repair(),
+        "market_data_refresh_daily": _run_market_data_refresh_job(),
     }
 
 

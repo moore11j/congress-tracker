@@ -251,13 +251,13 @@ def live_fmp_user_routes_enabled() -> bool:
     return False
 
 
-def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None) -> None:
+def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None, allow_user_request: bool = False) -> None:
     if _env_bool("FMP_PROVIDER_DISABLED", False):
         reason = "background_provider_disabled" if not _is_user_request() else "provider_disabled"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
 
-    if _is_user_request() and not live_fmp_user_routes_enabled():
+    if _is_user_request() and not allow_user_request and not live_fmp_user_routes_enabled():
         reason = "page_fetch_blocked"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)

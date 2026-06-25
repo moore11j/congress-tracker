@@ -14,12 +14,14 @@ on:
           - government-contracts-daily
           - government-contracts-weekly
           - daily-repair
+          - market-data-refresh-daily
           - all
   schedule:
     - cron: "5 13-23 * * 1-5" # Recent Congress filings hourly on US business days (UTC)
     - cron: "15 */8 * * *" # Core ingest every 8 hours (UTC)
     - cron: "45 13 * * *" # Daily government contracts ingest
     - cron: "25 16 * * *" # Daily post-ingest outcome repair sweep
+    - cron: "30 23 * * 1-5" # Daily market-data refresh after US close (UTC)
     - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
 
 concurrency:
@@ -52,6 +54,8 @@ jobs:
             JOB_MODE="government-contracts-daily"
           elif [ "${{ github.event.schedule }}" = "25 16 * * *" ]; then
             JOB_MODE="daily-repair"
+          elif [ "${{ github.event.schedule }}" = "30 23 * * 1-5" ]; then
+            JOB_MODE="market-data-refresh-daily"
           elif [ "${{ github.event.schedule }}" = "30 14 * * 1" ]; then
             JOB_MODE="government-contracts-weekly"
           else

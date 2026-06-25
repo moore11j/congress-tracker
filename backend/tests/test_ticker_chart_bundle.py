@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.main import _build_insider_stock_chart_bundle, _build_ticker_chart_bundle
 from app.models import Event, PriceCache
+from app.request_priority import reset_request_context, set_request_context
 from app.services.price_lookup import get_daily_close_series_with_fallback
 
 
@@ -356,3 +357,97 @@ def test_ticker_chart_bundle_computes_average_volume_from_daily_history(monkeypa
     expected = sum(row["volume"] for row in rows[-30:]) / 30
     assert bundle["quote"]["average_volume"] == expected
     assert full_calls == 1
+
+
+def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    stale_day = expected - timedelta(days=6)
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    db.add(PriceCache(symbol="AAPL", date=stale_day.isoformat(), close=190.0))
+    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.commit()
+
+    provider_rows = [
+        {"date": (expected - timedelta(days=offset)).isoformat(), "close": 200.0 - offset, "volume": 1_000_000}
+        for offset in range(4, -1, -1)
+    ]
+    calls = []
+
+    def fake_fetch(url, params, retries=2):
+        calls.append(params["symbol"])
+        if params["symbol"] == "AAPL":
+            return _FakeResponse(200, provider_rows)
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+    token = set_request_context({"path": "/api/tickers/AAPL/chart-bundle", "priority": "heavy"})
+    try:
+        bundle = _build_ticker_chart_bundle("AAPL", 30, db)
+    finally:
+        reset_request_context(token)
+
+    assert "AAPL" in calls
+    assert bundle["prices"][-1] == {"date": expected.isoformat(), "close": 200.0}
+    assert bundle["freshness"]["status"] == "ok"
+    assert bundle["freshness"]["is_stale"] is False
+
+
+def test_ticker_chart_marks_stale_when_request_time_refresh_has_no_recent_data(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    stale_day = expected - timedelta(days=6)
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+    db.add(PriceCache(symbol="SNDK", date=stale_day.isoformat(), close=42.0))
+    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.commit()
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", lambda *args, **kwargs: _FakeResponse(200, []))
+    token = set_request_context({"path": "/api/tickers/SNDK/chart-bundle", "priority": "heavy"})
+    try:
+        bundle = _build_ticker_chart_bundle("SNDK", 30, db)
+    finally:
+        reset_request_context(token)
+
+    assert bundle["prices"][-1] == {"date": stale_day.isoformat(), "close": 42.0}
+    assert bundle["status"] == "stale"
+    assert bundle["freshness"]["is_stale"] is True
+    assert bundle["freshness"]["latest_date"] == stale_day.isoformat()
+
+
+def test_daily_close_series_background_context_refreshes_instead_of_requeueing(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    end = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    start = end - timedelta(days=20)
+    provider_rows = [
+        {"date": (end - timedelta(days=offset)).isoformat(), "close": 120.0 - offset}
+        for offset in range(4, -1, -1)
+    ]
+    enqueued = []
+
+    def fake_fetch(url, params, retries=2):
+        if params["symbol"] == "MSFT":
+            return _FakeResponse(200, provider_rows)
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+    monkeypatch.setattr("app.services.price_lookup.enqueue_data_enrichment_job", lambda **kwargs: enqueued.append(kwargs))
+    token = set_request_context({"path": "background", "priority": "normal", "job_type": "price_series"})
+    try:
+        series = get_daily_close_series_with_fallback(db, "MSFT", start.isoformat(), end.isoformat())
+    finally:
+        reset_request_context(token)
+
+    assert series[max(series)] == 120.0
+    assert enqueued == []

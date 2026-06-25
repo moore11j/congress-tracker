@@ -136,11 +136,14 @@ from app.routers.signals import (
 )
 from app.clients.fmp import FMP_BASE_URL
 from app.services.price_lookup import (
+    ensure_fresh_price_history,
+    get_expected_latest_market_date,
     get_close_for_date_or_prior,
     get_daily_close_series_with_fallback,
     get_daily_volume_series_from_provider,
     get_eod_close,
     get_eod_close_series,
+    is_price_history_stale,
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db, quote_cache_get_many_with_age
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
@@ -223,7 +226,6 @@ from app.services.ticker_content_cache import db_ticker_content_cache_get, ticke
 from app.services.provider_usage import (
     ProviderUnavailable,
     ensure_fmp_live_allowed,
-    fallback_payload,
     reason_from_exception,
     record_cache_hit,
     record_cache_miss,
@@ -5256,7 +5258,7 @@ def _iso_utc_now() -> str:
 
 def _normalized_section_status(status: Any, *, has_items: bool = False) -> str:
     raw = str(status or "").strip().lower()
-    if raw in {"ok", "partial", "limited", "unavailable", "loading", "no_data"}:
+    if raw in {"ok", "partial", "limited", "unavailable", "loading", "no_data", "stale", "updating"}:
         return raw
     if raw in {"empty", "no-data"}:
         return "no_data"
@@ -7301,20 +7303,90 @@ def _build_ticker_chart_quote(
     }
 
 
+def _chart_freshness_payload(freshness: dict[str, Any]) -> dict[str, Any]:
+    latest_date = freshness.get("latest_date")
+    expected_date = freshness.get("expected_latest_date")
+    is_stale = bool(freshness.get("is_stale"))
+    if is_stale:
+        status = "stale" if latest_date else "unavailable"
+        message = "Latest market data is temporarily unavailable."
+    else:
+        status = "ok"
+        message = f"Updated through {latest_date}." if latest_date else "Latest market data is temporarily unavailable."
+    return {
+        "status": status,
+        "is_stale": is_stale,
+        "latest_date": latest_date,
+        "expected_latest_date": expected_date,
+        "refresh_attempted": bool(freshness.get("refresh_attempted")),
+        "message": message,
+    }
+
+
+def _chart_payload_status(freshness_payload: dict[str, Any], price_points: list[dict]) -> str:
+    if freshness_payload.get("is_stale"):
+        return "stale" if price_points else "unavailable"
+    return "ok" if price_points else "no_data"
+
+
+def _chart_payload_message(freshness_payload: dict[str, Any], price_points: list[dict]) -> str | None:
+    if freshness_payload.get("is_stale"):
+        latest_date = freshness_payload.get("latest_date")
+        return (
+            f"Price chart updating. Updated through {latest_date}."
+            if latest_date
+            else "Latest market data is temporarily unavailable."
+        )
+    if not price_points:
+        return "No daily price history available."
+    return freshness_payload.get("message") if isinstance(freshness_payload.get("message"), str) else None
+
+
+def _chart_recent_refresh_lookback_days() -> int:
+    try:
+        return max(5, min(45, int(os.getenv("PRICE_HISTORY_RECENT_REFRESH_TRADING_DAYS", "15") or 15)))
+    except ValueError:
+        return 15
+
+
 def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
-    end_date = datetime.now(timezone.utc).date()
+    expected_latest_date = get_expected_latest_market_date()
+    request_context = get_request_context() or {}
+    request_path = str(request_context.get("path") or "")
+    foreground_request = bool(request_path and request_path != "background")
+    if foreground_request:
+        ticker_freshness = ensure_fresh_price_history(
+            db,
+            sym,
+            expected_date=expected_latest_date,
+            lookback_days=_chart_recent_refresh_lookback_days(),
+        )
+        benchmark_freshness = ensure_fresh_price_history(
+            db,
+            _TICKER_BENCHMARK_SYMBOL,
+            expected_date=expected_latest_date,
+            lookback_days=_chart_recent_refresh_lookback_days(),
+        )
+    else:
+        ticker_freshness = is_price_history_stale(db, sym, expected_date=expected_latest_date)
+        benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
+
+    end_date = max(datetime.now(timezone.utc).date(), expected_latest_date)
     start_date = end_date - timedelta(days=max(days - 1, 0))
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
 
-    live_fetch_allowed = not (get_request_context() or {}).get("path")
+    live_fetch_allowed = not foreground_request
     series_loader = get_daily_close_series_with_fallback if live_fetch_allowed else get_eod_close_series
     ticker_map = series_loader(db, sym, start_key, end_key)
     benchmark_map = series_loader(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+    if live_fetch_allowed:
+        ticker_freshness = is_price_history_stale(db, sym, expected_date=expected_latest_date)
+        benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
@@ -7380,6 +7452,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
         volume_by_day = get_daily_volume_series_from_provider(sym, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
 
+    freshness_payload = _chart_freshness_payload(ticker_freshness)
+    benchmark_freshness_payload = _chart_freshness_payload(benchmark_freshness)
     return {
         "symbol": sym,
         "resolution": "daily",
@@ -7394,6 +7468,10 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
         "prices": price_points,
         "markers": markers,
         "quote": quote,
+        "freshness": freshness_payload,
+        "benchmark_freshness": benchmark_freshness_payload,
+        "status": _chart_payload_status(freshness_payload, price_points),
+        "message": _chart_payload_message(freshness_payload, price_points),
     }
 
 
@@ -7549,8 +7627,17 @@ def _build_insider_stock_chart_bundle(
 
 
 def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "provider_unavailable") -> dict:
+    sym = (symbol or "").upper().strip() or None
+    freshness = {
+        "status": "unavailable",
+        "is_stale": True,
+        "latest_date": None,
+        "expected_latest_date": get_expected_latest_market_date().isoformat(),
+        "refresh_attempted": False,
+        "message": "Latest market data is temporarily unavailable.",
+    }
     return {
-        "symbol": (symbol or "").upper().strip() or None,
+        "symbol": sym,
         "resolution": "daily",
         "days": days,
         "start_date": None,
@@ -7569,9 +7656,9 @@ def _chart_unavailable_payload(symbol: str | None, days: int, *, reason: str = "
             "beta": None,
             "asof": None,
         },
+        "freshness": freshness,
         "status": "unavailable",
-        "message": "Chart unavailable.",
-        **fallback_payload(reason=reason, message="Chart unavailable."),
+        "message": freshness["message"],
     }
 
 
@@ -7586,6 +7673,7 @@ def _cached_ticker_chart_fallback(symbol: str, days: int, db: Session, *, status
     prices = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
     quote = _build_ticker_chart_quote(db, sym, prices)
+    freshness = _chart_freshness_payload(is_price_history_stale(db, sym))
     payload = {
         "symbol": sym,
         "resolution": "daily",
@@ -7600,6 +7688,9 @@ def _cached_ticker_chart_fallback(symbol: str, days: int, db: Session, *, status
         "prices": prices,
         "markers": [],
         "quote": quote,
+        "freshness": freshness,
+        "status": _chart_payload_status(freshness, prices),
+        "message": _chart_payload_message(freshness, prices),
     }
     if not prices:
         payload["status"] = status
@@ -7662,6 +7753,10 @@ def ticker_chart_bundle(
     cache_key = f"chart-bundle:{sym}:{int(days)}"
     cached = _ticker_response_cache_get(_TICKER_CHART_BUNDLE_CACHE, cache_key)
     if cached is not None:
+        freshness = cached.get("freshness") if isinstance(cached.get("freshness"), dict) else {}
+        if freshness.get("is_stale") or cached.get("status") in {"stale", "unavailable"}:
+            cached = None
+    if cached is not None:
         _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=cached, started_at=started_at)
         return cached
     try:
@@ -7680,7 +7775,9 @@ def ticker_chart_bundle(
         payload = _normalize_ticker_chart_payload(_chart_unavailable_payload(sym, days, reason="provider_error"), requested_days=days)
         _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
         return payload
-    payload = _ticker_response_cache_set(_TICKER_CHART_BUNDLE_CACHE, cache_key, payload)
+    freshness = payload.get("freshness") if isinstance(payload.get("freshness"), dict) else {}
+    if not freshness.get("is_stale") and payload.get("status") not in {"stale", "unavailable"}:
+        payload = _ticker_response_cache_set(_TICKER_CHART_BUNDLE_CACHE, cache_key, payload)
     _log_ticker_endpoint_payload(symbol=sym, endpoint="chart-bundle", payload=payload, started_at=started_at)
     return payload
 
@@ -7727,8 +7824,16 @@ def ticker_price_history(
                 "start_date": None,
                 "end_date": None,
                 "points": [],
+                "freshness": {
+                    "status": "unavailable",
+                    "is_stale": True,
+                    "latest_date": None,
+                    "expected_latest_date": get_expected_latest_market_date().isoformat(),
+                    "refresh_attempted": False,
+                    "message": "Latest market data is temporarily unavailable.",
+                },
                 "status": "unavailable",
-                **fallback_payload(reason="provider_error", message="Chart unavailable."),
+                "message": "Latest market data is temporarily unavailable.",
             }
 
 
@@ -7737,16 +7842,28 @@ def _ticker_price_history_response(symbol: str, days: int, db: Session) -> dict:
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
-    end_date = datetime.now(timezone.utc).date()
+    expected_latest_date = get_expected_latest_market_date()
+    freshness = ensure_fresh_price_history(
+        db,
+        sym,
+        expected_date=expected_latest_date,
+        lookback_days=_chart_recent_refresh_lookback_days(),
+    )
+    freshness_payload = _chart_freshness_payload(freshness)
+    end_date = max(datetime.now(timezone.utc).date(), expected_latest_date)
     start_date = end_date - timedelta(days=max(days - 1, 0))
     points = get_eod_close_series(db, sym, start_date.isoformat(), end_date.isoformat())
+    price_points = [{"date": day, "close": close} for day, close in sorted(points.items())]
 
     return {
         "symbol": sym,
         "days": days,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "points": [{"date": day, "close": close} for day, close in sorted(points.items())],
+        "points": price_points,
+        "freshness": freshness_payload,
+        "status": _chart_payload_status(freshness_payload, price_points),
+        "message": _chart_payload_message(freshness_payload, price_points),
     }
 
 

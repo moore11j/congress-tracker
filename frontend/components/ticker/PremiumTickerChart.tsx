@@ -520,6 +520,35 @@ export function PremiumTickerChart({
     "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60",
     readout?.pinned ? "pointer-events-auto" : "",
   ].join(" ");
+  const freshness = bundle?.freshness;
+  const freshnessBlocksChart = Boolean(
+    bundle && (freshness?.is_stale || bundle.status === "stale" || bundle.status === "unavailable"),
+  );
+  const latestDateLabel = freshness?.latest_date ? formatDate(freshness.latest_date) : null;
+  const expectedDateLabel = freshness?.expected_latest_date ? formatDate(freshness.expected_latest_date) : null;
+
+  if (bundle && freshnessBlocksChart) {
+    return (
+      <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#07111d] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">Price chart updating</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              {latestDateLabel
+                ? `Updated through ${latestDateLabel}. Latest market data is temporarily unavailable.`
+                : "Latest market data is temporarily unavailable."}
+            </p>
+          </div>
+          {expectedDateLabel ? (
+            <span className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-100">
+              Expected through {expectedDateLabel}
+            </span>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
 
   if (!bundle || normalized.areaData.length === 0) {
     return (
