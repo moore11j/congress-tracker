@@ -45,6 +45,8 @@ class BacktestStrategyConfig(BaseModel):
     max_position_weight: float = Field(default=1.0, gt=0, le=1)
     weighting: WeightingMode = "equal"
     benchmark: str = DEFAULT_BENCHMARK
+    include_exempt_acquisitions: bool = False
+    buy_and_hold: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -151,6 +153,7 @@ class BacktestSignal:
     signal_date: date
     source_event_id: int | None = None
     source_label: str | None = None
+    is_exempt_acquisition: bool = False
 
 
 @dataclass(frozen=True)

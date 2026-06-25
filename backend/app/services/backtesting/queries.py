@@ -21,6 +21,8 @@ from app.utils.symbols import normalize_symbol, symbol_variants
 
 VISIBLE_SIGNAL_TRADE_SIDES = {"purchase", "p-purchase", "buy", "p"}
 MAX_PRICE_FALLBACK_TRADING_DAYS = 7
+EXEMPT_ACQUISITION_TRANSACTION_CODES = {"A", "M"}
+EXEMPT_ACQUISITION_NORMALIZED_TYPES = {"grant_award", "option_exercise_conversion"}
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,180 @@ def first_text(payload: dict[str, Any], *keys: str) -> str | None:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return None
+
+
+def _flatten_payload_text(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    values: list[tuple[str, str]] = []
+
+    def walk(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                child_path = f"{key}.{child_key}" if key else str(child_key)
+                walk(child_value, child_path)
+        elif isinstance(value, list):
+            for index, child_value in enumerate(value):
+                child_path = f"{key}.{index}" if key else str(index)
+                walk(child_value, child_path)
+        elif value is not None:
+            text = str(value).strip()
+            if text:
+                values.append((key, text))
+
+    walk(payload)
+    return values
+
+
+def _key_token(value: str) -> str:
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _first_nested_text(payload: dict[str, Any], *keys: str) -> str | None:
+    wanted = [_key_token(key) for key in keys]
+    for key, value in _flatten_payload_text(payload):
+        token = _key_token(key)
+        if any(token == item or token.endswith(item) or item in token for item in wanted):
+            return value
+    return None
+
+
+def _coerce_optional_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _insider_transaction_code(event: Event, payload: dict[str, Any]) -> str | None:
+    value = (
+        event.transaction_type
+        or first_text(payload, "transaction_code", "transactionCode", "transaction_type", "transactionType")
+        or _first_nested_text(
+            payload,
+            "transactionCode",
+            "transaction_code",
+            "transactionTypeCode",
+            "transaction_type_code",
+            "transactionCodingCode",
+            "transactionCoding.code",
+        )
+    )
+    normalized = (value or "").strip().upper()
+    if "-" in normalized:
+        normalized = normalized.split("-", 1)[0].strip()
+    return normalized or None
+
+
+def _insider_acquisition_disposition_code(payload: dict[str, Any]) -> str | None:
+    return _first_nested_text(
+        payload,
+        "transactionAcquiredDisposedCode",
+        "transaction_acquired_disposed_code",
+        "acquiredDisposedCode",
+        "acquisitionDispositionCode",
+        "acquisition_or_disposition",
+        "acquiredDisposed",
+        "acquired_disposed",
+    )
+
+
+def _insider_raw_side(event: Event, payload: dict[str, Any]) -> str | None:
+    return (
+        event.trade_type
+        or first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType")
+        or _first_nested_text(
+            payload,
+            "trade_type",
+            "tradeType",
+            "transaction_type",
+            "transactionType",
+            "transactionTypeCode",
+            "transaction_type_code",
+            "transactionCode",
+            "transaction_code",
+            "transactionCodingCode",
+            "transactionCoding.code",
+        )
+    )
+
+
+def _insider_side(event: Event, payload: dict[str, Any]) -> str | None:
+    side = normalize_trade_side(_insider_raw_side(event, payload))
+    if side in {"purchase", "sale"}:
+        return side
+    acquired_disposed = (_insider_acquisition_disposition_code(payload) or "").strip().lower()
+    if acquired_disposed in {"a", "acquired", "acquisition"}:
+        return "purchase"
+    if acquired_disposed in {"d", "disposed", "disposition"}:
+        return "sale"
+    return side
+
+
+def _insider_description_text(event: Event, payload: dict[str, Any]) -> str:
+    values = [
+        event.trade_type,
+        event.transaction_type,
+        first_text(payload, "trade_type", "tradeType", "transaction_type", "transactionType"),
+        first_text(payload, "transaction_code_description", "transactionCodeDescription"),
+        first_text(payload, "transaction_type_normalized", "transactionTypeNormalized"),
+        first_text(payload, "description", "transaction_description", "transactionDescription"),
+    ]
+    values.extend(value for _, value in _flatten_payload_text(payload))
+    return " ".join(str(value).strip().lower() for value in values if value is not None and str(value).strip())
+
+
+def is_exempt_acquisition(event: Event, payload: dict[str, Any]) -> bool:
+    side = _insider_side(event, payload)
+    description = _insider_description_text(event, payload)
+    acquired_disposed = (_insider_acquisition_disposition_code(payload) or "").strip().lower()
+    transaction_code = _insider_transaction_code(event, payload)
+    normalized_type = (
+        first_text(payload, "transaction_type_normalized", "transactionTypeNormalized")
+        or _first_nested_text(payload, "transaction_type_normalized", "transactionTypeNormalized")
+        or ""
+    ).strip().lower()
+    explicit_market = _coerce_optional_bool(payload.get("is_market_trade"))
+
+    if side == "sale" or acquired_disposed in {"d", "disposed", "disposition"}:
+        return False
+    if any(term in description for term in ("sale", "sell", "sold", "disposition", "disposed")):
+        return False
+    if transaction_code == "P" or explicit_market is True:
+        return False
+    if transaction_code in EXEMPT_ACQUISITION_TRANSACTION_CODES:
+        return True
+    if normalized_type in EXEMPT_ACQUISITION_NORMALIZED_TYPES:
+        return True
+    if acquired_disposed in {"a", "acquired", "acquisition"} and any(
+        term in description for term in ("exempt", "award", "grant", "exercise", "conversion", "acquisition")
+    ):
+        return True
+    return any(term in description for term in ("a-award", "grant", "award", "exempt acquisition"))
+
+
+def is_buy_like_entry(event: Event, payload: dict[str, Any], *, include_exempt_acquisitions: bool = False) -> bool:
+    side = normalize_trade_side(_insider_raw_side(event, payload))
+    if side in VISIBLE_SIGNAL_TRADE_SIDES:
+        return True
+    return include_exempt_acquisitions and is_exempt_acquisition(event, payload)
+
+
+def insider_source_label(payload: dict[str, Any], *, reporting_cik: str | None, exempt_acquisition: bool) -> str:
+    base_label = first_text(payload, "insider_name", "insiderName", "reporting_owner_name", "reportingOwnerName") or reporting_cik or "Insider"
+    if not exempt_acquisition:
+        return base_label
+    raw_label = (
+        first_text(payload, "transaction_code_description", "transactionCodeDescription")
+        or first_text(payload, "transaction_type", "transactionType")
+        or first_text(payload, "trade_type", "tradeType")
+        or _first_nested_text(payload, "transactionCode", "transaction_code")
+        or "Exempt acquisition"
+    )
+    return f"{base_label} - Exempt acquisition ({raw_label})"
 
 
 def parse_iso_date(value: str | None) -> date | None:
@@ -395,8 +571,12 @@ def load_insider_signals(db: Session, config: BacktestStrategyConfig) -> list[Ba
     signals: list[BacktestSignal] = []
     for row in rows:
         payload = parse_payload(row.payload_json)
-        side = normalize_trade_side(row.trade_type or first_text(payload, "trade_type", "transaction_type", "transactionType"))
-        if side not in VISIBLE_SIGNAL_TRADE_SIDES:
+        exempt_acquisition = is_exempt_acquisition(row, payload)
+        if not is_buy_like_entry(
+            row,
+            payload,
+            include_exempt_acquisitions=config.include_exempt_acquisitions,
+        ):
             continue
         reporting_cik = event_reporting_cik(payload)
         if target_cik and reporting_cik != target_cik:
@@ -410,7 +590,12 @@ def load_insider_signals(db: Session, config: BacktestStrategyConfig) -> list[Ba
                 symbol=symbol,
                 signal_date=entry_date,
                 source_event_id=row.id,
-                source_label=(first_text(payload, "insider_name", "insiderName") or reporting_cik or "Insider"),
+                source_label=insider_source_label(
+                    payload,
+                    reporting_cik=reporting_cik,
+                    exempt_acquisition=exempt_acquisition,
+                ),
+                is_exempt_acquisition=exempt_acquisition,
             )
         )
     return signals

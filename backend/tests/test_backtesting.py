@@ -42,6 +42,29 @@ def _price(db: Session, symbol: str, day: str, close: float) -> None:
     db.add(PriceCache(symbol=symbol, date=day, close=close))
 
 
+def _insider_event(
+    *,
+    event_id: int,
+    symbol: str,
+    trade_type: str | None,
+    payload: dict,
+    day: str,
+) -> Event:
+    event_dt = datetime.fromisoformat(f"{day}T12:00:00+00:00")
+    return Event(
+        id=event_id,
+        event_type="insider_trade",
+        ts=event_dt,
+        event_date=event_dt,
+        symbol=symbol,
+        source="insider",
+        trade_type=trade_type,
+        amount_min=1000,
+        amount_max=5000,
+        payload_json=json.dumps(payload),
+    )
+
+
 def _watchlist(db: Session, *, user_id: int, name: str, symbols: list[str]) -> Watchlist:
     watchlist = Watchlist(name=name, owner_user_id=user_id)
     db.add(watchlist)
@@ -431,6 +454,277 @@ def test_signal_exit_missing_close_uses_prior_fallback_without_skip():
         assert result.positions[0].exit_date == "2024-01-31"
         assert result.summary.skipped_positions_count == 0
         assert result.summary.price_fallback_positions_count == 1
+    finally:
+        db.close()
+
+
+def test_insider_exempt_acquisition_default_stays_strict():
+    db = _session()
+    try:
+        user = _user(db, "premium-strict-exempt@example.com")
+        db.add_all(
+            [
+                _insider_event(
+                    event_id=101,
+                    symbol="AAPL",
+                    trade_type="a-award",
+                    day="2024-01-02",
+                    payload={
+                        "symbol": "AAPL",
+                        "filing_date": "2024-01-02",
+                        "transaction_date": "2024-01-02",
+                        "transaction_code": "A",
+                        "transaction_code_description": "Grant or award",
+                        "acquired_disposed": "A",
+                        "is_market_trade": False,
+                        "reporting_cik": "0001234567",
+                    },
+                ),
+                _insider_event(
+                    event_id=102,
+                    symbol="AAPL",
+                    trade_type="sale",
+                    day="2024-01-10",
+                    payload={
+                        "symbol": "AAPL",
+                        "filing_date": "2024-01-10",
+                        "transaction_date": "2024-01-10",
+                        "transaction_code": "S",
+                        "reporting_cik": "0001234567",
+                    },
+                ),
+            ]
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-02-01", 120.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-02-01", 101.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 2, 10),
+                hold_days=30,
+            ),
+            user_id=user.id,
+        )
+
+        assert result.positions == []
+        assert not any("Strategy assumptions:" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_insider_include_exempt_acquisitions_opens_award_position():
+    db = _session()
+    try:
+        user = _user(db, "premium-include-exempt@example.com")
+        db.add(
+            _insider_event(
+                event_id=103,
+                symbol="AAPL",
+                trade_type="a-award",
+                day="2024-01-02",
+                payload={
+                    "symbol": "AAPL",
+                    "filing_date": "2024-01-02",
+                    "transaction_date": "2024-01-02",
+                    "transaction_code": "A",
+                    "transaction_code_description": "Grant or award",
+                    "acquired_disposed": "A",
+                    "is_market_trade": False,
+                    "reporting_cik": "0001234567",
+                    "insider_name": "Example Insider",
+                },
+            )
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-02-01", 120.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-02-01", 101.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 2, 10),
+                hold_days=30,
+                include_exempt_acquisitions=True,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL"]
+        assert "Exempt acquisition" in (result.positions[0].source_label or "")
+        assert any("Exempt acquisitions included" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_insider_buy_and_hold_holds_purchase_through_end_date():
+    db = _session()
+    try:
+        user = _user(db, "premium-buy-hold@example.com")
+        db.add_all(
+            [
+                _insider_event(
+                    event_id=104,
+                    symbol="AAPL",
+                    trade_type="purchase",
+                    day="2024-01-02",
+                    payload={"symbol": "AAPL", "filing_date": "2024-01-02", "reporting_cik": "0001234567"},
+                ),
+                _insider_event(
+                    event_id=105,
+                    symbol="AAPL",
+                    trade_type="sale",
+                    day="2024-01-05",
+                    payload={"symbol": "AAPL", "filing_date": "2024-01-05", "reporting_cik": "0001234567"},
+                ),
+            ]
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-02-01", 110.0)
+        _price(db, "AAPL", "2024-03-01", 130.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-02-01", 101.0)
+        _price(db, "^GSPC", "2024-03-01", 102.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 3, 1),
+                hold_days=30,
+                buy_and_hold=True,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL"]
+        assert result.positions[0].exit_date == "2024-03-01"
+        assert any("Buy and hold; sell transactions ignored" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_insider_exempt_acquisition_buy_and_hold_combined():
+    db = _session()
+    try:
+        user = _user(db, "premium-combined-exempt@example.com")
+        db.add_all(
+            [
+                _insider_event(
+                    event_id=106,
+                    symbol="AAPL",
+                    trade_type="m-exempt",
+                    day="2024-01-02",
+                    payload={
+                        "symbol": "AAPL",
+                        "filing_date": "2024-01-02",
+                        "transaction_date": "2024-01-02",
+                        "transaction_type": "M-EXEMPT",
+                        "transaction_code": "M",
+                        "acquired_disposed": "A",
+                        "is_market_trade": False,
+                        "reporting_cik": "0001234567",
+                    },
+                ),
+                _insider_event(
+                    event_id=107,
+                    symbol="AAPL",
+                    trade_type="sale",
+                    day="2024-01-10",
+                    payload={"symbol": "AAPL", "filing_date": "2024-01-10", "reporting_cik": "0001234567"},
+                ),
+            ]
+        )
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-03-01", 125.0)
+        _price(db, "^GSPC", "2024-01-02", 100.0)
+        _price(db, "^GSPC", "2024-03-01", 102.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 3, 1),
+                hold_days=30,
+                include_exempt_acquisitions=True,
+                buy_and_hold=True,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL"]
+        assert result.positions[0].exit_date == "2024-03-01"
+        assert any("Exempt acquisitions included; Buy and hold" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_insider_sell_only_symbol_does_not_poison_valid_purchase():
+    db = _session()
+    try:
+        user = _user(db, "premium-sell-only-valid-buy@example.com")
+        db.add_all(
+            [
+                _insider_event(
+                    event_id=108,
+                    symbol="MSFT",
+                    trade_type="sale",
+                    day="2024-01-02",
+                    payload={"symbol": "MSFT", "filing_date": "2024-01-02", "reporting_cik": "0001234567"},
+                ),
+                _insider_event(
+                    event_id=109,
+                    symbol="AAPL",
+                    trade_type="purchase",
+                    day="2024-01-03",
+                    payload={"symbol": "AAPL", "filing_date": "2024-01-03", "reporting_cik": "0001234567"},
+                ),
+            ]
+        )
+        _price(db, "AAPL", "2024-01-03", 100.0)
+        _price(db, "AAPL", "2024-02-02", 115.0)
+        _price(db, "MSFT", "2024-01-02", 200.0)
+        _price(db, "MSFT", "2024-02-01", 210.0)
+        _price(db, "^GSPC", "2024-01-03", 100.0)
+        _price(db, "^GSPC", "2024-02-02", 101.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="insider",
+                source_scope="insider",
+                insider_cik="0001234567",
+                start_date=date(2024, 1, 1),
+                end_date=date(2024, 2, 10),
+                hold_days=30,
+            ),
+            user_id=user.id,
+        )
+
+        assert [position.symbol for position in result.positions] == ["AAPL"]
+        assert result.summary.trade_count == 1
     finally:
         db.close()
 

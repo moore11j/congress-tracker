@@ -196,6 +196,17 @@ function summaryGroups(result: BacktestRunResponse | null) {
   };
 }
 
+function strategyAssumptionLine(result: BacktestRunResponse | null) {
+  return result?.assumptions.find((assumption) => assumption.startsWith("Strategy assumptions:")) ?? null;
+}
+
+function emptyPositionsMessage(view: BacktestingView) {
+  if (view === "insider") {
+    return "No qualifying entries found. This insider may only have exempt acquisitions or sell transactions in the selected range. Try enabling Include exempt acquisitions or Buy and hold.";
+  }
+  return "No qualifying positions found for this strategy and date range.";
+}
+
 function extractErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
     if (error.message.includes("premium_required")) return "Portfolio backtesting is currently a Premium feature.";
@@ -364,6 +375,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [insiderScope, setInsiderScope] = useState<string>(initialQuery?.scope === "insider" ? "insider" : "all_insiders");
   const [insiderCik, setInsiderCik] = useState<string>(initialQuery?.insider_cik || "");
+  const [includeExemptAcquisitions, setIncludeExemptAcquisitions] = useState(false);
+  const [buyAndHold, setBuyAndHold] = useState(false);
   const [customRows, setCustomRows] = useState<CustomTickerRow[]>(initialTickerRows);
   const [tickerProfiles, setTickerProfiles] = useState<TickerProfilesMap>({});
   const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(initialQuery?.lookback_days, initialPresets.defaults.lookback_days));
@@ -408,6 +421,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
 
   const startDate = useMemo(() => shiftIsoDate(today, Math.max(lookbackDays - 1, 0)), [lookbackDays, today]);
   const summary = summaryGroups(result);
+  const strategyAssumptions = strategyAssumptionLine(result);
+  const noPositionsMessage = emptyPositionsMessage(view);
   const customAllocationState = useMemo(() => customAllocationSummary(customRows), [customRows]);
   const selectedTickerSymbols = useMemo(() => customRows.map((row) => row.symbol), [customRows]);
 
@@ -531,6 +546,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       max_position_weight: presets.defaults.max_position_weight,
       weighting: "equal",
       benchmark: "^GSPC",
+      include_exempt_acquisitions: view === "insider" ? includeExemptAcquisitions : false,
+      buy_and_hold: view === "insider" ? buyAndHold : false,
     };
 
     if (view === "watchlist") {
@@ -560,7 +577,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       strategy_type: "custom_tickers",
       tickers: customRows.map((row) => ({ symbol: row.symbol, allocation_pct: parseAllocationInput(row.allocationInput) })),
     };
-  }, [congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
+  }, [buyAndHold, congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, includeExemptAcquisitions, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
 
   const helperText =
     entitlementsLoading ? null
@@ -650,6 +667,16 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               <>
                 <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Scope<select value={insiderScope} onChange={(event) => setInsiderScope(event.target.value)} className={selectClassName} disabled={!canRun}>{presets.source_scopes.insider.map((scope) => <option key={scope.key} value={scope.key}>{scope.label}</option>)}</select></label>
                 <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Insider CIK<input value={insiderCik} onChange={(event) => setInsiderCik(event.target.value)} className={inputClassName} placeholder="0001234567" disabled={!canRun || insiderScope !== "insider"} /></label>
+                <div className="grid gap-3 md:col-span-2">
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-3 text-sm text-slate-300">
+                    <input type="checkbox" checked={includeExemptAcquisitions} onChange={(event) => setIncludeExemptAcquisitions(event.target.checked)} disabled={!canRun} className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-emerald-400" />
+                    <span><span className="font-semibold text-white">Include exempt acquisitions</span><span className="mt-1 block text-xs leading-5 text-slate-500">Include exempt insider acquisitions, grants, awards, and similar non-open-market transactions as position entries when available.</span></span>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-3 text-sm text-slate-300">
+                    <input type="checkbox" checked={buyAndHold} onChange={(event) => setBuyAndHold(event.target.checked)} disabled={!canRun} className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-emerald-400" />
+                    <span><span className="font-semibold text-white">Buy and hold</span><span className="mt-1 block text-xs leading-5 text-slate-500">Ignore sell transactions and hold qualifying entries through the end of the backtest period.</span></span>
+                  </label>
+                </div>
               </>
             ) : null}
 
@@ -714,7 +741,8 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             </div>
           ) : result ? (
             <div className="space-y-5">
-              {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-4 text-sm text-slate-300">No qualifying positions found for this strategy and date range.</div> : null}
+              {strategyAssumptions ? <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/[0.06] px-4 py-3 text-sm text-emerald-50">{strategyAssumptions}</div> : null}
+              {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-4 text-sm text-slate-300">{noPositionsMessage}</div> : null}
               <div><p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Primary Metrics</p><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{summary.primary.map((item) => <MetricCard key={item.label} item={item} />)}</div></div>
               <div><p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Secondary Metrics</p><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{summary.secondary.map((item) => <MetricCard key={item.label} item={item} />)}</div></div>
               <div className="flex flex-wrap gap-2 text-xs text-slate-300"><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Start {formatPrice(result.summary.start_balance)}</span><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Total Contributed {formatPrice(result.summary.total_contributions)}</span><span className="rounded-full border border-white/10 bg-slate-950/60 px-3 py-1">Benchmark End {formatPrice(result.summary.benchmark_ending_balance)}</span></div>
@@ -722,7 +750,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               <BacktestChart timeline={result.timeline} />
               <div className="min-w-0 max-w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Positions</h3><p className="mt-1 text-xs text-slate-500">Position returns are individual trade returns. Portfolio returns are capital-weighted and may be much lower than individual winners.</p></div><span className="text-xs text-slate-500">{result.positions.length} rows</span></div>
-                {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">No qualifying positions found for this strategy and date range.</div> : <div className="min-w-0 max-w-full overflow-x-auto"><div className="max-h-[400px] overflow-y-auto"><table className="min-w-full divide-y divide-white/10 text-sm"><thead className="sticky top-0 z-10 bg-[#101827]"><tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500"><th className="pb-3 pr-4 font-medium">Symbol</th><th className="pb-3 pr-4 font-medium">Entry</th><th className="pb-3 pr-4 font-medium">Exit</th><th className="pb-3 pr-4 font-medium">Entry Px</th><th className="pb-3 pr-4 font-medium">Exit Px</th><th className="pb-3 pr-4 font-medium">Return</th><th className="pb-3 font-medium">Source</th></tr></thead><tbody className="divide-y divide-white/5">{result.positions.map((position) => <tr key={`${position.symbol}-${position.entry_date}-${position.source_event_id ?? "static"}`} className="text-slate-200"><td className="py-3 pr-4 font-semibold text-white">{position.symbol}</td><td className="py-3 pr-4">{formatDate(position.entry_date)}</td><td className="py-3 pr-4">{formatDate(position.exit_date)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.entry_price)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.exit_price)}</td><td className={`py-3 pr-4 font-semibold tabular-nums ${toneClass(position.return_pct)}`}>{pct(position.return_pct)}</td><td className="py-3 text-slate-400">{position.source_label || (position.source_event_id ? `Event #${position.source_event_id}` : "Current universe")}{position.price_fallback_used ? <span className="ml-2 rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-100">Fallback</span> : null}</td></tr>)}</tbody></table></div></div>}
+                {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">{noPositionsMessage}</div> : <div className="min-w-0 max-w-full overflow-x-auto"><div className="max-h-[400px] overflow-y-auto"><table className="min-w-full divide-y divide-white/10 text-sm"><thead className="sticky top-0 z-10 bg-[#101827]"><tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500"><th className="pb-3 pr-4 font-medium">Symbol</th><th className="pb-3 pr-4 font-medium">Entry</th><th className="pb-3 pr-4 font-medium">Exit</th><th className="pb-3 pr-4 font-medium">Entry Px</th><th className="pb-3 pr-4 font-medium">Exit Px</th><th className="pb-3 pr-4 font-medium">Return</th><th className="pb-3 font-medium">Source</th></tr></thead><tbody className="divide-y divide-white/5">{result.positions.map((position) => <tr key={`${position.symbol}-${position.entry_date}-${position.source_event_id ?? "static"}`} className="text-slate-200"><td className="py-3 pr-4 font-semibold text-white">{position.symbol}</td><td className="py-3 pr-4">{formatDate(position.entry_date)}</td><td className="py-3 pr-4">{formatDate(position.exit_date)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.entry_price)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.exit_price)}</td><td className={`py-3 pr-4 font-semibold tabular-nums ${toneClass(position.return_pct)}`}>{pct(position.return_pct)}</td><td className="py-3 text-slate-400">{position.source_label || (position.source_event_id ? `Event #${position.source_event_id}` : "Current universe")}{position.price_fallback_used ? <span className="ml-2 rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-100">Fallback</span> : null}</td></tr>)}</tbody></table></div></div>}
               </div>
               <AssumptionsPanel skippedPositionsCount={result.summary.skipped_positions_count} priceFallbackPositionsCount={result.summary.price_fallback_positions_count} />
             </div>

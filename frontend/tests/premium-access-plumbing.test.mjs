@@ -203,6 +203,10 @@ test("backtesting workbench preserves full workflow controls", () => {
   assert.match(backtestingWorkbench, /Screens/);
   assert.match(backtestingWorkbench, /Signals/);
   assert.match(backtestingWorkbench, /Congress Strategy/);
+  assert.match(backtestingWorkbench, /Include exempt acquisitions/);
+  assert.match(backtestingWorkbench, /Buy and hold/);
+  assert.match(backtestingWorkbench, /include_exempt_acquisitions: view === "insider" \? includeExemptAcquisitions : false/);
+  assert.match(backtestingWorkbench, /buy_and_hold: view === "insider" \? buyAndHold : false/);
   assert.match(backtestingWorkbench, /Portfolio Settings/);
   assert.match(backtestingWorkbench, /Run Backtest/);
 });

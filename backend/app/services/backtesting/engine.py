@@ -433,6 +433,7 @@ def build_signal_positions(
     end_date: date,
     hold_days: int,
     source_label: str | None = None,
+    buy_and_hold: bool = False,
 ) -> PositionBuildResult:
     positions: list[ResolvedPosition] = []
     skipped: list[SkippedPosition] = []
@@ -468,8 +469,8 @@ def build_signal_positions(
             )
             continue
 
-        planned_exit_date = entry_date + timedelta(days=hold_days)
-        truncated = planned_exit_date > end_date
+        planned_exit_date = end_date if buy_and_hold else entry_date + timedelta(days=hold_days)
+        truncated = buy_and_hold or planned_exit_date > end_date
         exit_target_date = end_date if truncated else planned_exit_date
         exit_point = nearest_price_on_date(
             exit_target_date,
@@ -765,6 +766,13 @@ def _base_assumptions(config: BacktestStrategyConfig) -> list[str]:
 def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | None = None) -> BacktestRunResponse:
     benchmark_symbol = DEFAULT_BENCHMARK
     assumptions = _base_assumptions(config)
+    strategy_assumptions: list[str] = []
+    if config.include_exempt_acquisitions:
+        strategy_assumptions.append("Exempt acquisitions included")
+    if config.buy_and_hold:
+        strategy_assumptions.append("Buy and hold; sell transactions ignored")
+    if strategy_assumptions:
+        assumptions.append(f"Strategy assumptions: {'; '.join(strategy_assumptions)}")
 
     positions: list[ResolvedPosition] = []
     skipped: list[SkippedPosition] = []
@@ -827,6 +835,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
                 price_histories=price_histories,
                 end_date=config.end_date,
                 hold_days=config.hold_days,
+                buy_and_hold=config.buy_and_hold,
             )
             positions = position_result.positions
             skipped = position_result.skipped
@@ -863,6 +872,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
             price_histories=price_histories,
             end_date=config.end_date,
             hold_days=config.hold_days,
+            buy_and_hold=config.buy_and_hold,
         )
         positions = position_result.positions
         skipped = position_result.skipped

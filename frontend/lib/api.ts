@@ -931,6 +931,8 @@ export type BacktestRunRequest = {
   max_position_weight?: number;
   weighting: "equal";
   benchmark: "^GSPC";
+  include_exempt_acquisitions?: boolean;
+  buy_and_hold?: boolean;
 };
 
 export type BacktestSummary = {
