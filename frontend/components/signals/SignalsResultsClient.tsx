@@ -135,8 +135,6 @@ export function SignalsResultsClient({
   card,
   pill,
   activeSort,
-  confirmationSortHref,
-  freshnessSortHref,
   canBacktest,
   upgradeUrl,
 }: {
@@ -152,8 +150,6 @@ export function SignalsResultsClient({
   card: string;
   pill: string;
   activeSort: string;
-  confirmationSortHref: string;
-  freshnessSortHref: string;
   canBacktest: boolean;
   upgradeUrl: string;
 }) {
@@ -377,7 +373,7 @@ export function SignalsResultsClient({
               <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-client-header-confirmation"
-                  label={<Link href={confirmationSortHref} prefetch={false} title="Confirmation" aria-label="Confirmation" className="hover:text-white">Conf.</Link>}
+                  label={<span title="Confirmation">Conf.</span>}
                   description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
                   align="right"
                 />
@@ -385,7 +381,7 @@ export function SignalsResultsClient({
               <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-client-header-freshness"
-                  label={<Link href={freshnessSortHref} prefetch={false} title="Freshness" aria-label="Freshness" className="hover:text-white">Fresh</Link>}
+                  label={<span title="Freshness">Fresh</span>}
                   description={SIGNALS_COLUMN_DEFINITIONS.freshness}
                   align="right"
                 />

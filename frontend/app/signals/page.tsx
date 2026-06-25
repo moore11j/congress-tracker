@@ -11,9 +11,9 @@ import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
-import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SIGNALS_COLUMN_DEFINITIONS, SignalColumnHeaderTooltip } from "@/components/signals/SignalColumnHeaderTooltip";
+import { SignalsFiltersClient } from "@/components/signals/SignalsFiltersClient";
 import { Suspense } from "react";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 
@@ -183,30 +183,6 @@ function clampMinConfirmationSources(value: string): 0 | 2 | 3 | 4 {
 function isTrue(v: string): boolean {
   const s = v.toLowerCase();
   return s === "true" || s === "1" || s === "yes" || s === "on";
-}
-
-function buildPageHref(params: {
-  mode: string;
-  side: string;
-  limit: number;
-  debug: boolean;
-  sort: string;
-  confirmationBand: ConfirmationBandFilter;
-  confirmationDirection: ConfirmationDirectionFilter;
-  minConfirmationSources: number;
-  multiSourceOnly: boolean;
-}): string {
-  const u = new URL("https://local/signals");
-  u.searchParams.set("mode", params.mode);
-  u.searchParams.set("side", params.side);
-  u.searchParams.set("limit", String(params.limit));
-  u.searchParams.set("sort", params.sort);
-  if (params.confirmationBand !== "all") u.searchParams.set("confirmation_band", params.confirmationBand);
-  if (params.confirmationDirection !== "all") u.searchParams.set("confirmation_direction", params.confirmationDirection);
-  if (params.minConfirmationSources > 0) u.searchParams.set("min_confirmation_sources", String(params.minConfirmationSources));
-  if (params.multiSourceOnly) u.searchParams.set("multi_source_only", "1");
-  if (params.debug) u.searchParams.set("debug", "true");
-  return u.pathname + u.search;
 }
 
 function buildSignalsUrl(
@@ -387,29 +363,24 @@ function confirmationDrivers(item: SignalItem): string[] {
 
 function SignalsSortLink({
   label,
-  href,
   active,
   title,
 }: {
   label: string;
-  href?: string;
   active: boolean;
   title?: string;
 }) {
-  if (!href) return <span title={title}>{label}</span>;
   return (
-    <Link
-      href={href}
-      prefetch={false}
+    <span
       title={title}
       aria-label={title}
-      className={`inline-flex items-center gap-1 transition hover:text-white ${active ? "text-emerald-100" : ""}`}
+      className={`inline-flex items-center gap-1 ${active ? "text-emerald-100" : ""}`}
     >
       {label}
       <span className={`text-[10px] font-semibold normal-case tracking-normal ${active ? "text-emerald-300/80" : "text-slate-600"}`}>
         {active ? "desc" : ""}
       </span>
-    </Link>
+    </span>
   );
 }
 
@@ -503,26 +474,7 @@ export default async function SignalsPage({
 
   const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
-  const btn =
-    "inline-flex items-center justify-center rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-slate-900/60";
-  const btnActive = "border-emerald-500/40 text-emerald-200 bg-emerald-500/10";
-  const btnIdle = "border-slate-800 text-slate-200 bg-slate-950/30";
-  const filterRow = "flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-2";
-  const filterGroup = "flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/30 p-1 sm:inline-flex sm:rounded-full";
   const activeMinConfirmationSources = multiSourceOnly && minConfirmationSources < 2 ? 2 : minConfirmationSources;
-  const pageHref = (overrides: Partial<Parameters<typeof buildPageHref>[0]>) =>
-    buildPageHref({
-      mode,
-      side,
-      limit,
-      debug,
-      sort,
-      confirmationBand,
-      confirmationDirection,
-      minConfirmationSources,
-      multiSourceOnly,
-      ...overrides,
-    });
 
   return (
     <VerifiedSessionGuard returnTo={returnTo}>
@@ -535,166 +487,20 @@ export default async function SignalsPage({
         </p>
       </div>
 
-      {/* Controls */}
-      <div className={`mt-6 p-4 ${card}`}>
-        <div className="space-y-3">
-          <div className={filterRow}>
-            <div className="text-xs text-slate-400">Mode</div>
-            <div className={filterGroup}>
-              {([
-                ["all", "ALL"],
-                ["congress", "CONGRESS"],
-                ["insider", "INSIDER"],
-              ] as const).map(([m, label]) => (
-                <Link
-                  key={m}
-                  href={pageHref({ mode: m })}
-                  prefetch={false}
-                  className={`${btn} ${mode === m ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400">Side</div>
-            <div className={filterGroup}>
-              {([
-                ["all", "All"],
-                ["buy", "Buy"],
-                ["sell", "Sell"],
-                ["buy_or_sell", "Buy/Sell"],
-              ] as const).map(([s, label]) => (
-                <Link
-                  key={s}
-                  href={pageHref({ side: s })}
-                  prefetch={false}
-                  className={`${btn} ${side === s ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400 sm:ml-2">Sort</div>
-            <div className={filterGroup}>
-              {([
-                ["multiple", "MULTIPLE"],
-                ["smart", "CONVICTION"],
-                ["confirmation", "CONFIRM"],
-                ["freshness", "FRESH"],
-                ["recent", "RECENT"],
-                ["amount", "AMOUNT"],
-              ] as const).map(([s, label]) => (
-                <Link
-                  key={s}
-                  href={pageHref({ sort: s })}
-                  prefetch={false}
-                  className={`${btn} ${sort === s ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className={filterRow}>
-            <div className="text-xs text-slate-400">Confirm</div>
-            <div className={filterGroup}>
-              {([
-                ["all", "All"],
-                ["strong_plus", "Strong+"],
-                ["exceptional", "Exceptional"],
-                ["moderate", "Moderate"],
-              ] as const).map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={pageHref({ confirmationBand: value })}
-                  prefetch={false}
-                  className={`${btn} ${confirmationBand === value ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400">Direction</div>
-            <div className={filterGroup}>
-              {([
-                ["all", "All"],
-                ["bullish", "Bull"],
-                ["bearish", "Bear"],
-                ["mixed", "Mixed"],
-              ] as const).map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={pageHref({ confirmationDirection: value })}
-                  prefetch={false}
-                  className={`${btn} ${confirmationDirection === value ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400">Sources</div>
-            <div className={filterGroup}>
-              {([
-                [0, "Any"],
-                [2, "2+"],
-                [3, "3+"],
-              ] as const).map(([value, label]) => (
-                <Link
-                  key={value}
-                  href={pageHref({ minConfirmationSources: value, multiSourceOnly: value >= 2 })}
-                  prefetch={false}
-                  className={`${btn} ${activeMinConfirmationSources === value ? btnActive : btnIdle}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
-            <div className="text-xs text-slate-400 sm:ml-2">Limit</div>
-            <div className="flex max-w-full flex-wrap items-center gap-2">
-              {[25, 50, 100].map((l) => (
-                <Link
-                  key={l}
-                  href={pageHref({ limit: l })}
-                  prefetch={false}
-                  className={`${btn} ${limit === l ? btnActive : btnIdle}`}
-                >
-                  {l}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-        <SavedViewsBar
-          surface="signals"
-          restoreOnLoad={true}
-          defaultParams={SIGNALS_SYSTEM_DEFAULT_PARAMS}
-          paramKeys={["mode", "side", "limit", "sort", "debug", "symbol", "confirmation_band", "confirmation_direction", "min_confirmation_sources", "multi_source_only"]}
-          rightSlot={
-            <>
-              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-                mode <span className="text-white">{mode}</span>
-              </span>
-              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-                side <span className="text-white">{side}</span>
-              </span>
-              <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-                sort <span className="text-white">{sort}</span>
-              </span>
-              {confirmationBand !== "all" || confirmationDirection !== "all" || activeMinConfirmationSources > 0 ? (
-                <span className={`${pill} border-cyan-400/25 text-cyan-100 bg-cyan-400/10`}>
-                  confirm <span className="text-white">{confirmationBand !== "all" ? confirmationBand : confirmationDirection !== "all" ? confirmationDirection : `${activeMinConfirmationSources}+ src`}</span>
-                </span>
-              ) : null}
-            </>
-          }
-        />
-      </div>
+      <SignalsFiltersClient
+        mode={mode}
+        side={side}
+        limit={limit}
+        debug={debug}
+        sort={sort}
+        confirmationBand={confirmationBand}
+        confirmationDirection={confirmationDirection}
+        minConfirmationSources={activeMinConfirmationSources}
+        multiSourceOnly={multiSourceOnly}
+        card={card}
+        pill={pill}
+        defaultParams={SIGNALS_SYSTEM_DEFAULT_PARAMS}
+      />
 
       {/* Table */}
       <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">
@@ -717,8 +523,6 @@ export default async function SignalsPage({
             card={card}
             pill={pill}
             activeSort={sort}
-            confirmationSortHref={pageHref({ sort: "confirmation" })}
-            freshnessSortHref={pageHref({ sort: "freshness" })}
             canBacktest={hasEntitlement(entitlements, "backtesting")}
             upgradeUrl={entitlements.upgrade_url || "/pricing"}
           />
@@ -755,8 +559,6 @@ async function SignalsResultsSection({
   card,
   pill,
   activeSort,
-  confirmationSortHref,
-  freshnessSortHref,
   canBacktest,
   upgradeUrl,
 }: {
@@ -773,8 +575,6 @@ async function SignalsResultsSection({
   card: string;
   pill: string;
   activeSort: string;
-  confirmationSortHref: string;
-  freshnessSortHref: string;
   canBacktest: boolean;
   upgradeUrl: string;
 }) {
@@ -795,8 +595,6 @@ async function SignalsResultsSection({
         card={card}
         pill={pill}
         activeSort={activeSort}
-        confirmationSortHref={confirmationSortHref}
-        freshnessSortHref={freshnessSortHref}
         canBacktest={canBacktest}
         upgradeUrl={upgradeUrl}
       />
@@ -1008,7 +806,7 @@ async function SignalsResultsSection({
               <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-header-confirmation"
-                  label={<SignalsSortLink label="Conf." href={confirmationSortHref} active={activeSort === "confirmation"} title="Confirmation" />}
+                  label={<SignalsSortLink label="Conf." active={activeSort === "confirmation"} title="Confirmation" />}
                   description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
                   align="right"
                 />
@@ -1016,7 +814,7 @@ async function SignalsResultsSection({
               <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
                 <SignalColumnHeaderTooltip
                   id="signals-header-freshness"
-                  label={<SignalsSortLink label="Fresh" href={freshnessSortHref} active={activeSort === "freshness"} title="Freshness" />}
+                  label={<SignalsSortLink label="Fresh" active={activeSort === "freshness"} title="Freshness" />}
                   description={SIGNALS_COLUMN_DEFINITIONS.freshness}
                   align="right"
                 />

@@ -771,9 +771,15 @@ function pnlClass(value: number): string {
 
 function biasLabel(buys: number, sells: number): { label: string; tone: "pos" | "neg" | "neutral" } {
   if (buys === 0 && sells === 0) return { label: "No side data", tone: "neutral" };
-  if (buys > sells) return { label: "Buy-leaning", tone: "pos" };
-  if (sells > buys) return { label: "Sell-leaning", tone: "neg" };
+  if (buys > sells) return { label: "BUY LEANING", tone: "pos" };
+  if (sells > buys) return { label: "SELL LEANING", tone: "neg" };
   return { label: "Balanced", tone: "neutral" };
+}
+
+function biasTextClass(tone: "pos" | "neg" | "neutral"): string {
+  if (tone === "pos") return "text-emerald-300";
+  if (tone === "neg") return "text-rose-300";
+  return "text-slate-400";
 }
 
 function formatSignalStrengthText(band?: string | null): string {
@@ -3005,7 +3011,7 @@ async function DeferredTickerContent({
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <Badge tone={bias.tone} className="px-2 py-0.5 text-[10px]">{bias.label}</Badge>
+                        <span className={`font-semibold tabular-nums ${biasTextClass(bias.tone)}`}>{bias.label}</span>
                         <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                           {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
                         </span>
@@ -3055,7 +3061,7 @@ async function DeferredTickerContent({
                         </div>
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <Badge tone={bias.tone} className="px-2 py-0.5 text-[10px]">{bias.label}</Badge>
+                        <span className={`font-semibold tabular-nums ${biasTextClass(bias.tone)}`}>{bias.label}</span>
                         <span className={`font-semibold tabular-nums ${participant.netFlow >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                           {participant.netFlow >= 0 ? "+" : "-"}${formatCompactUsd(Math.abs(participant.netFlow))}
                         </span>
