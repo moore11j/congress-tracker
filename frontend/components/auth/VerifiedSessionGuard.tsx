@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { clearLegacyAuthStorage, getMe, hasClientAuthHint, type AccountUser, type MeResponse } from "@/lib/api";
+import { ApiError, clearLegacyAuthStorage, getMe, hasClientAuthHint, type AccountUser, type MeResponse } from "@/lib/api";
 
 type GuardState = "checking" | "authorized" | "unauthenticated" | "forbidden";
 
@@ -40,6 +40,10 @@ function clearVerifiedSessionHint() {
   verifiedSessionInRuntime = false;
 }
 
+function isDefinitiveAuthFailure(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 function GuardStatePanel({
   state,
   title,
@@ -74,13 +78,16 @@ export function VerifiedSessionGuard({ children, returnTo, requireAdmin = false,
     let alive = true;
     const source = requireAdmin ? "VerifiedSessionGuardAdmin" : "VerifiedSessionGuard";
     const verifySession = () => getMe({ force: true, source });
+    const redirectToSignIn = () => {
+      hasVerifiedSessionRef.current = false;
+      clearVerifiedSessionHint();
+      setState("unauthenticated");
+      router.replace(signInHref);
+    };
     const applySession = (response: MeResponse) => {
       if (!alive) return;
       if (!response.user) {
-        hasVerifiedSessionRef.current = false;
-        clearVerifiedSessionHint();
-        setState("unauthenticated");
-        router.replace(signInHref);
+        redirectToSignIn();
         return;
       }
       if (requireAdmin && !isAdminUser(response.user)) {
@@ -103,24 +110,20 @@ export function VerifiedSessionGuard({ children, returnTo, requireAdmin = false,
     const runVerification = async () => {
       try {
         applySession(await verifySession());
-      } catch {
+      } catch (error) {
         if (!alive) return;
+        let definitiveAuthFailure = isDefinitiveAuthFailure(error);
         if ((initiallyAuthorized || hasVerifiedSessionRef.current) && hasClientAuthHint()) {
           await delay(350);
           if (!alive) return;
           try {
             applySession(await verifySession());
             return;
-          } catch {
-            // Fall through to the normal unauthorized path.
+          } catch (retryError) {
+            definitiveAuthFailure = definitiveAuthFailure || isDefinitiveAuthFailure(retryError);
           }
         }
-        if (alive) {
-          hasVerifiedSessionRef.current = false;
-          clearVerifiedSessionHint();
-          setState("unauthenticated");
-          router.replace(signInHref);
-        }
+        if (alive && definitiveAuthFailure) redirectToSignIn();
       }
     };
 
@@ -156,8 +159,8 @@ export function VerifiedSessionGuard({ children, returnTo, requireAdmin = false,
   return (
     <GuardStatePanel
       state="checking"
-      title="Checking session"
-      body="Verifying your Walnut session before loading this workspace."
+      title="Verifying access"
+      body="Confirming your Walnut access before loading this workspace."
     />
   );
 }

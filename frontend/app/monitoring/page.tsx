@@ -11,7 +11,7 @@ export default async function MonitoringPage() {
   const watchlists = authToken ? await listWatchlists(authToken).catch(() => []) : [];
 
   return (
-    <VerifiedSessionGuard returnTo="/monitoring">
+    <VerifiedSessionGuard returnTo="/monitoring" initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-8">
         <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>

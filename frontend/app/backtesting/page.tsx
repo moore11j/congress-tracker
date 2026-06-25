@@ -97,7 +97,7 @@ export default async function BacktestingPage({ searchParams }: Props) {
     : [entitlementsFromTierHint(authState.entitlementHint), fallbackPresets()];
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <BacktestingWorkbench
         initialEntitlements={entitlements}
         initialPresets={presets}

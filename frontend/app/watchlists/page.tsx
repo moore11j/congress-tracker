@@ -12,7 +12,7 @@ export default async function WatchlistsPage() {
   const watchlists = authToken ? await listWatchlists(authToken).catch(() => []) : [];
 
   return (
-    <VerifiedSessionGuard returnTo="/watchlists">
+    <VerifiedSessionGuard returnTo="/watchlists" initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>

@@ -39,7 +39,7 @@ test("top nav no longer exposes Watchlists while account dropdown does below Inb
 });
 
 test("logged-out account nav points to login registration", () => {
-  assert.match(accountNav, /const label = useMemo\(\(\) => \(user \? `Hello, \$\{displayName\(user\)\}!` : !loaded && initialAuthHint \? "Checking session\.\.\." : "Login \/ Register"\), \[initialAuthHint, loaded, user\]\);/);
+  assert.match(accountNav, /const label = useMemo\(\(\) => \(user \? `Hello, \$\{displayName\(user\)\}!` : !loaded && initialAuthHint \? "Account" : "Login \/ Register"\), \[initialAuthHint, loaded, user\]\);/);
   assert.match(accountNav, /if \(!user && authUnavailable\) \{[\s\S]*?<Link[\s\S]*?href="\/login"[\s\S]*?>[\s\S]*?\{label\}[\s\S]*?<\/Link>/);
   assert.doesNotMatch(accountNav, /authUnavailable \? "Account"/);
 });

@@ -373,7 +373,7 @@ export default async function CongressTraderLeaderboardPage({
   const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-6">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">LEADERBOARDS</div>

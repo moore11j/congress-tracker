@@ -477,7 +477,7 @@ export default async function SignalsPage({
   const activeMinConfirmationSources = multiSourceOnly && minConfirmationSources < 2 ? 2 : minConfirmationSources;
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>

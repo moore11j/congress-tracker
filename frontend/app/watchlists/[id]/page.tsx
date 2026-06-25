@@ -44,7 +44,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const watchlist = await getWatchlist(watchlistId, authToken).catch(() => null);
   if (!watchlist) {
     return (
-      <VerifiedSessionGuard returnTo={returnTo}>
+      <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
         <WatchlistDetailClient watchlistId={watchlistId} initialState={initialState} />
       </VerifiedSessionGuard>
     );
@@ -83,7 +83,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
       : (activity.items as EventItem[]).map(eventToFeedItem);
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
       <WatchlistDetailContent
         watchlist={watchlist}
         confirmationEvents={confirmationEvents}
