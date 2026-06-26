@@ -2690,8 +2690,60 @@ def test_paid_user_cannot_create_second_checkout_subscription(monkeypatch):
             assert exc.status_code == 409
             assert exc.detail["code"] == "active_subscription_exists"
             assert exc.detail["message"] == "You already have an active subscription. Use Manage billing to change plans."
+            assert exc.detail["action"] == "manage_billing"
+            assert exc.detail["redirect_path"] == "/account/billing"
         else:
             raise AssertionError("Expected paid checkout to be blocked")
+    finally:
+        db.close()
+
+
+def test_free_user_with_stale_test_customer_can_create_live_checkout(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_live_premium_monthly")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path == "customers/cus_test_stale":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Stripe request failed: No such customer: 'cus_test_stale'; "
+                    "a similar object exists in test mode, but a live mode key was used to make this request."
+                ),
+            )
+        if path == "customers":
+            return {"id": "cus_live_replacement"}
+        if path == "checkout/sessions":
+            return {"id": "cs_live_replacement", "url": "https://checkout.stripe.com/live"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "checkout-stale-free@example.com", tier="free")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.entitlement_tier = "free"
+        user.subscription_plan = "premium"
+        user.subscription_status = "active"
+        user.stripe_customer_id = "cus_test_stale"
+        user.stripe_subscription_id = "sub_test_stale"
+        user.stripe_price_id = "price_test_stale"
+        db.commit()
+
+        response = create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="premium", interval="monthly"), db)
+
+        assert response["id"] == "cs_live_replacement"
+        assert response["url"] == "https://checkout.stripe.com/live"
+        assert [call[0] for call in calls] == ["customers/cus_test_stale", "customers", "checkout/sessions"]
+        db.refresh(user)
+        assert user.entitlement_tier == "free"
+        assert user.subscription_plan == "free"
+        assert user.subscription_status == "free"
+        assert user.stripe_customer_id == "cus_live_replacement"
+        assert user.stripe_subscription_id is None
+        assert user.stripe_price_id is None
     finally:
         db.close()
 

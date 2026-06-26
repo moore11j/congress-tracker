@@ -120,6 +120,9 @@ test("pricing actions render current plan states from fresh account entitlements
   assert.match(actions, /const opensBillingPortal = !isCurrentPlan && \(hasManagedSubscription \|\| isDowngrade\);/);
   assert.match(actions, /: isDowngrade\s*\?\s*"border-white\/10 bg-slate-900\/70 text-slate-200 hover:border-white\/20 hover:text-white"/);
   assert.match(actions, /createCustomerPortalSession/);
+  assert.match(actions, /checkoutConflictRedirectPath/);
+  assert.match(actions, /payload\.code !== "active_subscription_exists"/);
+  assert.match(actions, /window\.location\.href = redirectPath/);
   assert.match(actions, /disabled=\{disabled\}/);
 });
 

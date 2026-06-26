@@ -2490,6 +2490,27 @@ def _stripe_customer_sync_payload(user: UserAccount, *, validate_location: bool)
     return payload
 
 
+def _stripe_http_error_message(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("detail")
+        return str(message or detail)
+    return str(detail or "")
+
+
+def _recoverable_stale_stripe_customer_error(exc: HTTPException) -> bool:
+    message = _stripe_http_error_message(exc).lower()
+    return "no such customer" in message or "similar object exists in test mode" in message
+
+
+def _clear_stale_free_stripe_state(user: UserAccount) -> None:
+    user.stripe_customer_id = None
+    user.stripe_subscription_id = None
+    user.stripe_price_id = None
+    user.subscription_interval = None
+    _clear_paid_entitlement(user, status="free")
+
+
 def _sync_stripe_customer_for_billing(db: Session, user: UserAccount) -> str:
     tax_settings = _stripe_tax_settings(db)
     readiness = stripe_tax_billing_readiness(db, _billing_location_payload(user))
@@ -2505,7 +2526,21 @@ def _sync_stripe_customer_for_billing(db: Session, user: UserAccount) -> str:
 
     payload = _stripe_customer_sync_payload(user, validate_location=bool(tax_settings["automatic_tax_enabled"]))
     if user.stripe_customer_id:
-        customer = _stripe_post(f"customers/{user.stripe_customer_id}", payload)
+        try:
+            customer = _stripe_post(f"customers/{user.stripe_customer_id}", payload)
+        except HTTPException as exc:
+            if _has_paid_entitlement_marker(user) or not _recoverable_stale_stripe_customer_error(exc):
+                raise
+            logger.warning("stripe_customer_stale_free_state_recovered user_id=%s", user.id)
+            _clear_stale_free_stripe_state(user)
+            db.flush()
+            customer = _stripe_post("customers", payload)
+            customer_id = str(customer.get("id") or "").strip()
+            if not customer_id:
+                raise HTTPException(status_code=502, detail="Stripe did not return a customer id.")
+            user.stripe_customer_id = customer_id
+            db.commit()
+            db.refresh(user)
     else:
         customer = _stripe_post("customers", payload)
         customer_id = str(customer.get("id") or "").strip()
@@ -2742,13 +2777,19 @@ def _has_actual_paid_access(user: UserAccount, now: datetime) -> bool:
     return subscription_policy_tier(user, now=now) != "free"
 
 
+def _has_paid_entitlement_marker(user: UserAccount) -> bool:
+    paid_tiers = {"premium", "pro"}
+    return normalize_tier(user.manual_tier_override) in paid_tiers or normalize_tier(user.entitlement_tier) in paid_tiers
+
+
 def _has_checkout_blocking_subscription(user: UserAccount) -> bool:
     status = (user.subscription_status or "").strip().lower()
     if status in CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES:
-        return True
+        return _has_paid_entitlement_marker(user)
     return bool(
         user.stripe_subscription_id
         and status
+        and _has_paid_entitlement_marker(user)
         and status not in {"canceled", "cancelled", "free", "unpaid", "incomplete_expired"}
     )
 
@@ -3497,6 +3538,8 @@ def create_checkout_session(
             detail={
                 "code": "active_subscription_exists",
                 "message": "You already have an active subscription. Use Manage billing to change plans.",
+                "action": "manage_billing",
+                "redirect_path": "/account/billing",
             },
         )
     readiness = billing_readiness(checkout_tier=tier, checkout_interval=billing_interval)

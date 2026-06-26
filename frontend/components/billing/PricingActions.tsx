@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { createCheckoutSession, createCustomerPortalSession, type AccountUser } from "@/lib/api";
+import { ApiError, createCheckoutSession, createCustomerPortalSession, type AccountUser } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
 
 type PricingActionsProps = {
@@ -47,6 +47,17 @@ function actionForPlan(currentTier: PlanTier, targetTier: PlanTier): PlanAction 
 function labelForAction(action: PlanAction, targetTier: PlanTier) {
   if (action === "current") return "Current plan";
   return `${action === "downgrade" ? "Downgrade" : "Upgrade"} to ${planNames[targetTier]}`;
+}
+
+function checkoutConflictRedirectPath(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const detail = error.detail;
+  if (!detail || typeof detail !== "object") return null;
+  const payload = detail as { code?: unknown; redirect_path?: unknown };
+  if (payload.code !== "active_subscription_exists") return null;
+  return typeof payload.redirect_path === "string" && payload.redirect_path.startsWith("/")
+    ? payload.redirect_path
+    : "/account/billing";
 }
 
 export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel, user, entitlements, accountLoading = false }: PricingActionsProps) {
@@ -96,6 +107,11 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
       }
       setStatus("Stripe did not return a checkout URL.");
     } catch (error) {
+      const redirectPath = checkoutConflictRedirectPath(error);
+      if (redirectPath) {
+        window.location.href = redirectPath;
+        return;
+      }
       setStatus(error instanceof Error ? error.message : "Unable to start checkout.");
     } finally {
       setLoading(false);
