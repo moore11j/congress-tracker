@@ -17,7 +17,7 @@ python scripts/check_env_usage.py
 - Production DB is PostgreSQL through `DATABASE_URL`. Do not touch SQLite files.
 - Email template sender fields are already authoritative in `backend/app/services/email_delivery.py`: `EmailTemplate.from_email`, `from_name`, and `reply_to` win; env vars are fallback only when template fields are blank.
 - Current frontend code reads `NEXT_PUBLIC_API_BASE`, not the preferred `NEXT_PUBLIC_API_BASE_URL`. `NEXT_PUBLIC_API_BASE_URL` exists only in `LOCAL_DEV.md`.
-- Stripe code uses canonical `STRIPE_PRICE_ID_PREMIUM_*` and `STRIPE_PRICE_ID_PRO_*` names, with legacy `STRIPE_PRICE_ID_MONTHLY`, `STRIPE_PRICE_ID_ANNUAL`, and `STRIPE_PRICE_ID` aliases still supported.
+- Stripe code uses canonical `STRIPE_PRICE_ID_PREMIUM_*` and `STRIPE_PRICE_ID_PRO_*` names. Legacy price aliases are ignored/rejected when `STRIPE_SECRET_KEY` is live mode.
 - Deployed Fly has legacy/not-read vars: `APP_FRONTEND_URL`, `MARKETING_SITE_URL`, `STRIPE_CHECKOUT_SUCCESS_URL`, and `STRIPE_CHECKOUT_CANCEL_URL`.
 
 ## Deployed Backend Fly Secrets
@@ -97,10 +97,10 @@ Email policy status: implemented. `EmailTemplate.from_name`, `from_email`, and `
 | `STRIPE_PRICE_ID_PREMIUM_ANNUAL` | billing readiness, accounts admin | Required for Premium annual | none | Yes | canonical | Keep |
 | `STRIPE_PRICE_ID_PRO_MONTHLY` | billing readiness, accounts admin | Required for Pro monthly | none | Yes | canonical | Keep |
 | `STRIPE_PRICE_ID_PRO_ANNUAL` | billing readiness, accounts admin | Required for Pro annual | none | Yes | canonical | Keep |
-| `STRIPE_PRICE_ID_MONTHLY` | billing readiness | Legacy fallback | none | Yes as Premium monthly fallback | duplicate of `STRIPE_PRICE_ID_PREMIUM_MONTHLY` | Remove after checkout smoke |
-| `STRIPE_PRICE_ID_ANNUAL` | billing readiness | Legacy fallback | none | Yes as Premium annual fallback | duplicate of `STRIPE_PRICE_ID_PREMIUM_ANNUAL` | Remove after checkout smoke |
-| `STRIPE_PRICE_ID` | billing readiness/tests | Legacy fallback | none | Not deployed | old default price | Do not add |
-| `STRIPE_PRO_PRICE_ID`, `STRIPE_PRO_PRICE_ID_MONTHLY`, `STRIPE_PRO_PRICE_ID_ANNUAL` | billing readiness/tests | Legacy fallback | none | Not deployed | old Pro aliases | Do not add |
+| `STRIPE_PRICE_ID_MONTHLY` | billing readiness | Legacy fallback outside live mode | none | Rejected with `sk_live` | duplicate of `STRIPE_PRICE_ID_PREMIUM_MONTHLY` | Remove before live checkout |
+| `STRIPE_PRICE_ID_ANNUAL` | billing readiness | Legacy fallback outside live mode | none | Rejected with `sk_live` | duplicate of `STRIPE_PRICE_ID_PREMIUM_ANNUAL` | Remove before live checkout |
+| `STRIPE_PRICE_ID` | billing readiness/tests | Legacy fallback outside live mode | none | Rejected with `sk_live` | old default price | Do not add |
+| `STRIPE_PRO_PRICE_ID`, `STRIPE_PRO_PRICE_ID_MONTHLY`, `STRIPE_PRO_PRICE_ID_ANNUAL` | billing readiness/tests | Legacy fallback outside live mode | none | Rejected with `sk_live` | old Pro aliases | Do not add |
 | `STRIPE_PRICE_PREMIUM_MONTHLY`, `STRIPE_PRICE_PREMIUM_ANNUAL`, `STRIPE_PRICE_PRO_MONTHLY`, `STRIPE_PRICE_PRO_ANNUAL` | searched | n/a | n/a | No code references | not used | Do not add |
 | `STRIPE_CUSTOMER_PORTAL_RETURN_URL` | accounts router | Optional | generated app billing URL | Yes | app URL override | Keep; must be `app.walnutmarkets.com` |
 | `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL` | deployed Fly only | Not read | generated in code | No repo use | legacy deployed vars | Remove after checkout smoke |
@@ -228,9 +228,9 @@ These deployed Fly names are not read anywhere in the repo:
 fly secrets unset APP_FRONTEND_URL MARKETING_SITE_URL STRIPE_CHECKOUT_CANCEL_URL STRIPE_CHECKOUT_SUCCESS_URL -a congress-tracker-api
 ```
 
-### Remove after checkout smoke verifies canonical Stripe prices
+### Remove before enabling live Stripe checkout
 
-Canonical premium price IDs are already deployed. These legacy names duplicate them and are fallback aliases:
+Canonical price IDs are required in live mode. These legacy names are rejected when `STRIPE_SECRET_KEY` starts with `sk_live`:
 
 ```bash
 fly secrets unset STRIPE_PRICE_ID_ANNUAL STRIPE_PRICE_ID_MONTHLY -a congress-tracker-api

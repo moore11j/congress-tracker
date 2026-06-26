@@ -186,7 +186,7 @@ def test_auth_email_links_use_walnut_markets_app_host_in_production(monkeypatch)
     assert _reset_url("reset-token") == "https://app.walnutmarkets.com/reset-password?token=reset-token"
 
 
-def test_successful_stripe_checkout_grants_premium_access(monkeypatch):
+def test_checkout_completed_links_stripe_ids_without_granting_paid_access(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     db = _session()
     try:
@@ -209,14 +209,16 @@ def test_successful_stripe_checkout_grants_premium_access(monkeypatch):
         db.refresh(user)
 
         assert result["status"] == "processed"
-        assert user.entitlement_tier == "premium"
         assert user.stripe_customer_id == "cus_123"
-        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+        assert user.stripe_subscription_id == "sub_123"
+        assert user.subscription_status == "checkout_completed"
+        assert user.entitlement_tier == "free"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
     finally:
         db.close()
 
 
-def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
+def test_failed_unpaid_and_deleted_subscription_remove_premium_access(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.delenv("STRIPE_PAYMENT_FAILURE_GRACE_DAYS", raising=False)
     db = _session()
@@ -243,6 +245,24 @@ def test_failed_and_deleted_subscription_remove_premium_access(monkeypatch):
         assert failed_expiry <= datetime.now(timezone.utc)
         assert user.entitlement_tier == "free"
         assert current_entitlements(_request_for_user(user), db).tier == "free"
+
+        user.entitlement_tier = "premium"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.access_expires_at = datetime.now(timezone.utc) + timedelta(days=25)
+        db.commit()
+        process_stripe_event(
+            db,
+            {
+                "id": "evt_unpaid",
+                "type": "customer.subscription.updated",
+                "data": {"object": {"object": "subscription", "id": "sub_456", "customer": "cus_456", "status": "unpaid"}},
+            },
+        )
+        db.refresh(user)
+        assert user.subscription_status == "unpaid"
+        assert user.access_expires_at is None
+        assert user.entitlement_tier == "free"
 
         user.entitlement_tier = "premium"
         user.subscription_status = "active"
@@ -1747,6 +1767,28 @@ def test_billing_readiness_uses_selected_checkout_plan(monkeypatch):
     assert pro_annual["checkout"]["missing_env_vars"] == ["STRIPE_PRICE_ID_PRO_ANNUAL"]
 
 
+def test_live_billing_readiness_ignores_legacy_price_aliases(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_hidden")
+    monkeypatch.delenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", raising=False)
+    monkeypatch.setenv("STRIPE_PRICE_ID_MONTHLY", "price_legacy_test_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+
+    readiness = billing_readiness(checkout_tier="premium", checkout_interval="monthly")
+
+    assert readiness["secret_key_mode"] == "live"
+    assert readiness["price_ids"]["premium_monthly"] == "missing"
+    assert readiness["checkout"]["ready"] is False
+    assert readiness["checkout"]["missing_env_vars"] == ["STRIPE_PRICE_ID_PREMIUM_MONTHLY"]
+    assert readiness["legacy_price_env_vars_present"] == ["STRIPE_PRICE_ID_MONTHLY"]
+    assert {error["code"] for error in readiness["live_mode_errors"]} == {
+        "live_missing_required_env_vars",
+        "live_legacy_price_env_vars_present",
+    }
+
+
 def test_admin_reports_summary_requires_admin(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     db = _session()
@@ -3090,6 +3132,7 @@ def test_duplicate_subscription_updated_event_remains_idempotent(monkeypatch):
 
 def test_concurrent_duplicate_stripe_event_runs_side_effects_once(monkeypatch, tmp_path):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_race")
     db_path = tmp_path / "stripe-idempotency.db"
     engine = create_engine(
         f"sqlite:///{db_path}",
@@ -3117,14 +3160,17 @@ def test_concurrent_duplicate_stripe_event_runs_side_effects_once(monkeypatch, t
     monkeypatch.setattr(accounts_module, "_sync_user_subscription", slow_sync)
     event = {
         "id": "evt_concurrent_duplicate",
-        "type": "checkout.session.completed",
+        "type": "customer.subscription.updated",
         "data": {
             "object": {
-                "object": "checkout.session",
+                "object": "subscription",
+                "id": "sub_race",
                 "customer": "cus_race",
-                "subscription": "sub_race",
                 "customer_email": "race-stripe@example.com",
+                "status": "active",
+                "current_period_end": 1_893_456_000,
                 "metadata": {"user_id": str(user_id), "email": "race-stripe@example.com"},
+                "items": {"data": [{"price": {"id": "price_race", "recurring": {"interval": "month"}}}]},
             }
         },
     }
@@ -3168,6 +3214,7 @@ def test_concurrent_duplicate_stripe_event_runs_side_effects_once(monkeypatch, t
 
 def test_failed_stripe_event_records_safe_failed_status_and_can_retry(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_retry")
     db = _session()
     original_sync = accounts_module._sync_user_subscription
 
@@ -3178,14 +3225,17 @@ def test_failed_stripe_event_records_safe_failed_status_and_can_retry(monkeypatc
         user = _user(db, "retry-stripe@example.com")
         event = {
             "id": "evt_retry_after_failure",
-            "type": "checkout.session.completed",
+            "type": "customer.subscription.updated",
             "data": {
                 "object": {
-                    "object": "checkout.session",
+                    "object": "subscription",
+                    "id": "sub_retry",
                     "customer": "cus_retry",
-                    "subscription": "sub_retry",
                     "customer_email": user.email,
+                    "status": "active",
+                    "current_period_end": 1_893_456_000,
                     "metadata": {"user_id": str(user.id), "email": user.email},
+                    "items": {"data": [{"price": {"id": "price_retry", "recurring": {"interval": "month"}}}]},
                 }
             },
         }

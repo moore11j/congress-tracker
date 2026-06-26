@@ -46,6 +46,19 @@ _ENV_KEYS = (
     "STRIPE_PRICE_ID_PREMIUM_ANNUAL",
     "STRIPE_PRICE_ID_PRO_MONTHLY",
     "STRIPE_PRICE_ID_PRO_ANNUAL",
+    "STRIPE_PRICE_ID",
+    "STRIPE_PRICE_ID_MONTHLY",
+    "STRIPE_PRICE_ID_ANNUAL",
+    "STRIPE_PRO_PRICE_ID",
+    "STRIPE_PRO_PRICE_ID_MONTHLY",
+    "STRIPE_PRO_PRICE_ID_ANNUAL",
+    "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+    "FRONTEND_BASE_URL",
+    "FRONTEND_APP_URL",
+    "APP_BASE_URL",
+    "NEXT_PUBLIC_APP_BASE_URL",
+    "NEXT_PUBLIC_APP_URL",
+    "STRIPE_CUSTOMER_PORTAL_RETURN_URL",
     "SMTP_HOST",
     "CT_ALLOW_ADMIN_QUERY_TOKEN",
     "CT_ALLOW_DEBUG_QUERY_TOKEN",
@@ -190,6 +203,69 @@ def test_stripe_billing_auto_enabled_by_canonical_env(monkeypatch, caplog):
     assert any("billing_enabled=True" in record.getMessage() for record in caplog.records)
     assert all("sk_live_redacted" not in record.getMessage() for record in caplog.records)
     assert all("whsec_redacted" not in record.getMessage() for record in caplog.records)
+
+
+def test_live_stripe_key_requires_all_canonical_billing_values(monkeypatch, caplog):
+    _safe_production_env(monkeypatch)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_redacted")
+
+    with caplog.at_level(logging.ERROR, logger="app.security.startup_checks"):
+        with pytest.raises(StartupSecurityError, match="STRIPE_WEBHOOK_SECRET"):
+            validate_startup_security_config()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("stripe_live_readiness_failed" in message for message in messages)
+    assert any("STRIPE_PRICE_ID_PREMIUM_MONTHLY" in message for message in messages)
+    assert all("sk_live_redacted" not in message for message in messages)
+
+
+def test_live_stripe_key_rejects_test_publishable_key(monkeypatch, caplog):
+    _safe_production_env(monkeypatch)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_redacted")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_redacted")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+    monkeypatch.setenv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_redacted")
+
+    with caplog.at_level(logging.ERROR, logger="app.security.startup_checks"):
+        with pytest.raises(StartupSecurityError, match="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY|live_backend_test_publishable_key"):
+            validate_startup_security_config()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("live_backend_test_publishable_key" in message for message in messages)
+    assert all("pk_test_redacted" not in message for message in messages)
+
+
+@pytest.mark.parametrize("frontend_base_url", ["http://localhost:3000", "https://www.walnut-intel.com"])
+def test_live_stripe_key_rejects_unsafe_checkout_return_urls(monkeypatch, frontend_base_url):
+    _clear_security_env(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("FRONTEND_BASE_URL", frontend_base_url)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_redacted")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_redacted")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+
+    with pytest.raises(StartupSecurityError, match="live_unsafe_checkout_return_urls"):
+        validate_startup_security_config()
+
+
+def test_live_stripe_key_rejects_legacy_price_aliases(monkeypatch):
+    _safe_production_env(monkeypatch)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_redacted")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_redacted")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "price_premium_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_MONTHLY", "price_pro_monthly")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
+    monkeypatch.setenv("STRIPE_PRICE_ID_MONTHLY", "price_legacy_test")
+
+    with pytest.raises(StartupSecurityError, match="STRIPE_PRICE_ID_MONTHLY"):
+        validate_startup_security_config()
 
 
 def test_webhook_ready_with_secret_pair_without_price_or_frontend_config(monkeypatch):

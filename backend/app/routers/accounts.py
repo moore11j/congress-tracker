@@ -4242,6 +4242,35 @@ def _sync_user_subscription(
     return user
 
 
+def _link_checkout_session_for_pending_subscription(db: Session, obj: dict[str, Any], *, stripe_price_id: str | None = None) -> UserAccount | None:
+    user = _find_user_for_stripe_object(db, obj)
+    if not user:
+        metadata = _extract_metadata(obj)
+        email = _extract_customer_email(obj, metadata)
+        if email:
+            user = get_or_create_user(db, email=email)
+    if not user:
+        return None
+
+    customer = _stripe_object_id(obj.get("customer"))
+    subscription = _extract_subscription_id(obj)
+    _release_stripe_identifiers_from_deleted_users(db, user, customer_id=customer, subscription_id=subscription)
+    if customer:
+        user.stripe_customer_id = customer
+    if subscription:
+        user.stripe_subscription_id = subscription
+    if stripe_price_id:
+        user.stripe_price_id = stripe_price_id
+    status = (user.subscription_status or "").strip().lower()
+    if status not in PAID_SUBSCRIPTION_STATUSES and status not in PAYMENT_GRACE_SUBSCRIPTION_STATUSES:
+        user.subscription_status = "checkout_completed"
+    if normalize_tier(user.subscription_plan) not in {"premium", "pro"}:
+        user.subscription_plan = "free"
+    user.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return user
+
+
 def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, price_id: str | None = None) -> dict[str, Any]:
     metadata = _extract_metadata(obj)
     item_resolution = _select_subscription_item_price(obj) if obj.get("object") == "subscription" else {}
@@ -4414,17 +4443,9 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
         synced_user: UserAccount | None = None
         logged_price_id: str | None = None
         if event_type == "checkout.session.completed":
-            subscription = _stripe_subscription_from_event_object(obj) or obj
-            resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(subscription)
+            _resolved_tier, _billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
             logged_price_id = price_id
-            synced_user = _sync_user_subscription(
-                db,
-                obj=subscription,
-                status=str(subscription.get("status") or "active"),
-                tier=resolved_tier,
-                billing_interval=billing_interval,
-                stripe_price_id=price_id,
-            )
+            synced_user = _link_checkout_session_for_pending_subscription(db, obj, stripe_price_id=price_id)
         elif event_type in {"invoice.paid", "invoice.payment_succeeded", "invoice.payment.paid"}:
             snapshot = _persist_billing_snapshot(db, obj)
             subscription = _stripe_subscription_from_event_object(obj)

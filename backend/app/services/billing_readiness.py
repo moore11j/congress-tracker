@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 STRIPE_BILLING_ENABLE_FLAGS = (
     "BILLING_ENABLED",
@@ -20,14 +21,44 @@ STRIPE_CANONICAL_PRICE_ENV_VARS = (
     "STRIPE_PRICE_ID_PRO_MONTHLY",
     "STRIPE_PRICE_ID_PRO_ANNUAL",
 )
+STRIPE_LEGACY_PRICE_ENV_VARS = (
+    "STRIPE_PRICE_ID",
+    "STRIPE_PRICE_ID_MONTHLY",
+    "STRIPE_PRICE_ID_ANNUAL",
+    "STRIPE_PRO_PRICE_ID",
+    "STRIPE_PRO_PRICE_ID_MONTHLY",
+    "STRIPE_PRO_PRICE_ID_ANNUAL",
+)
 STRIPE_BILLING_REQUIRED_ENV_VARS = (
     *STRIPE_WEBHOOK_REQUIRED_ENV_VARS,
     *STRIPE_CANONICAL_PRICE_ENV_VARS,
 )
+AUTH_APP_FRONTEND_HOST = "app.walnutmarkets.com"
+AUTH_APP_FRONTEND_DEFAULT_URL = f"https://{AUTH_APP_FRONTEND_HOST}"
+UNSAFE_LIVE_CHECKOUT_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "walnut-intel.com",
+    "www.walnut-intel.com",
+    "app.walnut-intel.com",
+}
+_NONPRODUCTION_ENVS = {"local", "dev", "development", "test", "testing", "ci"}
 
 
 def _env(name: str) -> str:
     return os.getenv(name, "").strip()
+
+
+def _env_url(name: str) -> str | None:
+    value = _env(name).rstrip("/")
+    return value or None
+
+
+def _url_host(value: str | None) -> str:
+    if not value:
+        return ""
+    return (urlparse(value).hostname or "").strip().lower()
 
 
 def _env_price_id(*names: str) -> str | None:
@@ -36,6 +67,36 @@ def _env_price_id(*names: str) -> str | None:
         if value.startswith("price_"):
             return value
     return None
+
+
+def stripe_secret_key_mode() -> str:
+    secret = _env("STRIPE_SECRET_KEY")
+    if not secret:
+        return "missing"
+    if secret.startswith("sk_live"):
+        return "live"
+    if secret.startswith("sk_test"):
+        return "test"
+    return "unknown"
+
+
+def stripe_publishable_key_mode() -> str:
+    key = _env("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY")
+    if not key:
+        return "missing"
+    if key.startswith("pk_live"):
+        return "live"
+    if key.startswith("pk_test"):
+        return "test"
+    return "unknown"
+
+
+def _live_secret_configured() -> bool:
+    return stripe_secret_key_mode() == "live"
+
+
+def _configured_legacy_price_env_vars() -> list[str]:
+    return [name for name in STRIPE_LEGACY_PRICE_ENV_VARS if _env(name)]
 
 
 def _normalize_tier(value: str | None) -> str:
@@ -60,17 +121,18 @@ def stripe_price_label(billing_interval: str | None = None, tier: str | None = N
 def stripe_price_id(billing_interval: str | None = None, tier: str | None = None) -> str | None:
     interval = (billing_interval or "").strip().lower()
     normalized_tier = _normalize_tier(tier)
+    live_mode = _live_secret_configured()
     if normalized_tier == "pro":
         if interval == "annual":
-            return _env_price_id("STRIPE_PRICE_ID_PRO_ANNUAL", "STRIPE_PRO_PRICE_ID_ANNUAL", "STRIPE_PRO_PRICE_ID")
+            return _env_price_id("STRIPE_PRICE_ID_PRO_ANNUAL") if live_mode else _env_price_id("STRIPE_PRICE_ID_PRO_ANNUAL", "STRIPE_PRO_PRICE_ID_ANNUAL", "STRIPE_PRO_PRICE_ID")
         if interval == "monthly":
-            return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID_MONTHLY", "STRIPE_PRO_PRICE_ID")
-        return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID", "STRIPE_PRO_PRICE_ID_MONTHLY")
+            return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY") if live_mode else _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID_MONTHLY", "STRIPE_PRO_PRICE_ID")
+        return _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY") if live_mode else _env_price_id("STRIPE_PRICE_ID_PRO_MONTHLY", "STRIPE_PRO_PRICE_ID", "STRIPE_PRO_PRICE_ID_MONTHLY")
     if interval == "annual":
-        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "STRIPE_PRICE_ID_ANNUAL", "STRIPE_PRICE_ID")
+        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_ANNUAL") if live_mode else _env_price_id("STRIPE_PRICE_ID_PREMIUM_ANNUAL", "STRIPE_PRICE_ID_ANNUAL", "STRIPE_PRICE_ID")
     if interval == "monthly":
-        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID_MONTHLY", "STRIPE_PRICE_ID")
-    return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID", "STRIPE_PRICE_ID_MONTHLY")
+        return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY") if live_mode else _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID_MONTHLY", "STRIPE_PRICE_ID")
+    return _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY") if live_mode else _env_price_id("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "STRIPE_PRICE_ID", "STRIPE_PRICE_ID_MONTHLY")
 
 
 def _billing_price_readiness() -> dict[str, dict[str, Any]]:
@@ -96,6 +158,88 @@ def _dedupe_missing_env_vars(values: list[str]) -> list[str]:
         if value and value not in missing:
             missing.append(value)
     return missing
+
+
+def _app_environment() -> str:
+    return (_env("APP_ENV") or _env("ENV") or _env("NODE_ENV")).lower()
+
+
+def _frontend_base_url() -> str:
+    return os.getenv("FRONTEND_BASE_URL", "http://localhost:3000").strip().rstrip("/") or "http://localhost:3000"
+
+
+def _authenticated_app_frontend_base_url() -> str:
+    for name in ("FRONTEND_APP_URL", "APP_BASE_URL", "NEXT_PUBLIC_APP_BASE_URL", "NEXT_PUBLIC_APP_URL", "FRONTEND_BASE_URL"):
+        value = _env_url(name)
+        if _url_host(value) == AUTH_APP_FRONTEND_HOST:
+            return value
+    if _app_environment() in _NONPRODUCTION_ENVS:
+        return _frontend_base_url()
+    return AUTH_APP_FRONTEND_DEFAULT_URL
+
+
+def checkout_success_url() -> str:
+    return f"{_authenticated_app_frontend_base_url()}/account/billing?checkout=success"
+
+
+def checkout_cancel_url() -> str:
+    return f"{_authenticated_app_frontend_base_url()}/pricing?checkout=cancelled"
+
+
+def customer_portal_return_url() -> str:
+    configured = _env_url("STRIPE_CUSTOMER_PORTAL_RETURN_URL")
+    if _url_host(configured) == AUTH_APP_FRONTEND_HOST:
+        return configured
+    return f"{_authenticated_app_frontend_base_url()}/account/billing?portal_return=1"
+
+
+def _unsafe_live_checkout_url(url: str) -> dict[str, str] | None:
+    host = _url_host(url)
+    if not host:
+        return {"host": "", "reason": "missing_host"}
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return {"host": host, "reason": "localhost"}
+    if host == "walnut-intel.com" or host.endswith(".walnut-intel.com"):
+        return {"host": host, "reason": "walnut-intel.com"}
+    if host in UNSAFE_LIVE_CHECKOUT_HOSTS:
+        return {"host": host, "reason": "unsafe_host"}
+    return None
+
+
+def _checkout_url_readiness() -> dict[str, Any]:
+    urls = {
+        "success_url": checkout_success_url(),
+        "cancel_url": checkout_cancel_url(),
+        "customer_portal_return_url": customer_portal_return_url(),
+    }
+    unsafe = []
+    for name in ("success_url", "cancel_url"):
+        issue = _unsafe_live_checkout_url(urls[name])
+        if issue:
+            unsafe.append({"name": name, **issue})
+    return {
+        **urls,
+        "unsafe_live_checkout_urls": unsafe,
+        "ready_for_live_mode": not unsafe,
+    }
+
+
+def _stripe_live_mode_errors(full_missing: list[str], url_readiness: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _live_secret_configured():
+        return []
+    errors: list[dict[str, Any]] = []
+    missing_live = [name for name in STRIPE_BILLING_REQUIRED_ENV_VARS if name in full_missing]
+    if missing_live:
+        errors.append({"code": "live_missing_required_env_vars", "missing_env_vars": missing_live})
+    legacy_price_env_vars = _configured_legacy_price_env_vars()
+    if legacy_price_env_vars:
+        errors.append({"code": "live_legacy_price_env_vars_present", "env_vars": legacy_price_env_vars})
+    if stripe_publishable_key_mode() == "test":
+        errors.append({"code": "live_backend_test_publishable_key", "env_var": "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"})
+    unsafe_urls = list(url_readiness.get("unsafe_live_checkout_urls") or [])
+    if unsafe_urls:
+        errors.append({"code": "live_unsafe_checkout_return_urls", "urls": unsafe_urls})
+    return errors
 
 
 def billing_readiness(
@@ -131,6 +275,10 @@ def billing_readiness(
     checkout_missing = _dedupe_missing_env_vars(checkout_missing)
 
     selected_price = prices.get(selected_checkout_key) if selected_checkout_key else None
+    url_readiness = _checkout_url_readiness()
+    key_mode = stripe_secret_key_mode()
+    publishable_key_mode = stripe_publishable_key_mode()
+    live_mode_errors = _stripe_live_mode_errors(full_missing, url_readiness)
     return {
         "overall": {
             "ready": not full_missing,
@@ -157,11 +305,18 @@ def billing_readiness(
         },
         "price_ids": price_ids,
         "prices": prices,
+        "urls": url_readiness,
         "missing_env_vars": full_missing,
         "missing_price_env_vars": missing_price_env_vars,
         "missing_price_ids": [key for key, value in prices.items() if not value["configured"]],
         "billing_enabled": not full_missing,
         "required_env_vars": list(STRIPE_BILLING_REQUIRED_ENV_VARS),
+        "secret_key_mode": key_mode,
+        "publishable_key_mode": publishable_key_mode,
+        "live_mode": key_mode == "live",
+        "live_mode_ready": not live_mode_errors,
+        "live_mode_errors": live_mode_errors,
+        "legacy_price_env_vars_present": _configured_legacy_price_env_vars(),
     }
 
 
@@ -176,9 +331,17 @@ def missing_stripe_webhook_env_vars() -> list[str]:
 def log_billing_readiness(logger: logging.Logger, *, context: str, readiness: dict[str, Any] | None = None) -> dict[str, Any]:
     result = readiness or billing_readiness()
     logger.info(
-        "stripe_billing_readiness context=%s billing_enabled=%s missing_env_vars=%s",
+        "stripe_billing_readiness context=%s billing_enabled=%s secret_key_mode=%s live_mode_ready=%s missing_env_vars=%s",
         context,
         result["billing_enabled"],
+        result.get("secret_key_mode"),
+        result.get("live_mode_ready"),
         result["missing_env_vars"],
     )
+    if result.get("live_mode_errors"):
+        logger.error(
+            "stripe_live_readiness_error context=%s error_codes=%s",
+            context,
+            [error.get("code") for error in result.get("live_mode_errors", [])],
+        )
     return result

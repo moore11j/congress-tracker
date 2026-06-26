@@ -245,10 +245,33 @@ def validate_password_reset_config() -> None:
 
 
 def validate_stripe_config() -> None:
+    readiness = log_stripe_billing_readiness(context="startup")
+    live_errors = list(readiness.get("live_mode_errors") or [])
+    if live_errors:
+        codes = [str(error.get("code") or "unknown") for error in live_errors if isinstance(error, dict)]
+        details: list[str] = []
+        for error in live_errors:
+            if not isinstance(error, dict):
+                continue
+            code = str(error.get("code") or "unknown")
+            names = error.get("missing_env_vars") or error.get("env_vars")
+            if isinstance(names, list) and names:
+                details.append(f"{code}({', '.join(str(name) for name in names)})")
+            elif isinstance(error.get("env_var"), str) and error.get("env_var"):
+                details.append(f"{code}({error['env_var']})")
+            elif isinstance(error.get("urls"), list) and error.get("urls"):
+                hosts = [
+                    f"{item.get('name')}={item.get('host')}"
+                    for item in error["urls"]
+                    if isinstance(item, dict)
+                ]
+                details.append(f"{code}({', '.join(hosts)})" if hosts else code)
+            else:
+                details.append(code)
+        logger.error("stripe_live_readiness_failed error_codes=%s details=%s", codes, details)
+        raise StartupSecurityError(f"Stripe live-mode readiness failed: {'; '.join(details)}.")
     if not is_production():
         return
-
-    readiness = log_stripe_billing_readiness(context="startup")
     if not readiness["billing_enabled"]:
         return
 
