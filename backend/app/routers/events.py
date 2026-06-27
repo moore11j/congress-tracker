@@ -82,6 +82,11 @@ EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS = float(os.getenv("EVENTS_RESPONSE_DEDUPE_WA
 _EVENTS_RESPONSE_CACHE: dict[str, tuple[float, EventsPage | EventsPageDebug]] = {}
 _EVENTS_RESPONSE_INFLIGHT: dict[str, dict[str, object]] = {}
 _EVENTS_RESPONSE_CACHE_LOCK = threading.Lock()
+INSIDER_SUMMARY_CACHE_TTL_SECONDS = int(os.getenv("INSIDER_SUMMARY_CACHE_TTL_SECONDS", "60") or 60)
+INSIDER_SUMMARY_DEDUPE_WAIT_SECONDS = float(os.getenv("INSIDER_SUMMARY_DEDUPE_WAIT_SECONDS", "5") or 5)
+_INSIDER_SUMMARY_CACHE: dict[str, tuple[float, dict]] = {}
+_INSIDER_SUMMARY_INFLIGHT: dict[str, dict[str, object]] = {}
+_INSIDER_SUMMARY_CACHE_LOCK = threading.Lock()
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Defense",
     "Department of Health and Human Services",
@@ -331,6 +336,87 @@ def _events_response_cache_finalize(
         with _EVENTS_RESPONSE_CACHE_LOCK:
             _EVENTS_RESPONSE_INFLIGHT.pop(cache_key, None)
     return payload
+
+
+def _insider_summary_cache_ttl_seconds() -> int:
+    return max(0, min(300, INSIDER_SUMMARY_CACHE_TTL_SECONDS))
+
+
+def _insider_summary_cache_key(reporting_cik: str, lookback_days: int, issuer: str | None) -> str | None:
+    if _insider_summary_cache_ttl_seconds() <= 0:
+        return None
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        return None
+    issuer_key = normalize_cik(issuer) or normalize_symbol(issuer) or (issuer or "").strip().upper()
+    return "insider_summary:" + json.dumps(
+        {"cik": normalized_cik, "lookback_days": int(lookback_days), "issuer": issuer_key},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _insider_summary_cache_get(cache_key: str | None) -> dict | None:
+    if not cache_key:
+        return None
+    now = monotonic()
+    with _INSIDER_SUMMARY_CACHE_LOCK:
+        cached = _INSIDER_SUMMARY_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _INSIDER_SUMMARY_CACHE.pop(cache_key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _insider_summary_inflight_start(cache_key: str | None) -> tuple[dict[str, object] | None, bool]:
+    if not cache_key:
+        return None, False
+    with _INSIDER_SUMMARY_CACHE_LOCK:
+        state = _INSIDER_SUMMARY_INFLIGHT.get(cache_key)
+        if state is not None:
+            return state, False
+        state = {"event": threading.Event(), "result": None, "error": None}
+        _INSIDER_SUMMARY_INFLIGHT[cache_key] = state
+        return state, True
+
+
+def _insider_summary_cache_finalize(
+    cache_key: str | None,
+    inflight_state: dict[str, object] | None,
+    inflight_leader: bool,
+    payload: dict,
+) -> dict:
+    if cache_key:
+        stored = copy.deepcopy(payload)
+        with _INSIDER_SUMMARY_CACHE_LOCK:
+            _INSIDER_SUMMARY_CACHE[cache_key] = (monotonic() + _insider_summary_cache_ttl_seconds(), stored)
+    if inflight_leader and inflight_state is not None:
+        inflight_state["result"] = copy.deepcopy(payload)
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event):
+            event.set()
+        with _INSIDER_SUMMARY_CACHE_LOCK:
+            _INSIDER_SUMMARY_INFLIGHT.pop(cache_key or "", None)
+    return payload
+
+
+def _insider_summary_inflight_error(
+    cache_key: str | None,
+    inflight_state: dict[str, object] | None,
+    inflight_leader: bool,
+    exc: BaseException,
+) -> None:
+    if not inflight_leader or inflight_state is None:
+        return
+    inflight_state["error"] = exc
+    event = inflight_state.get("event")
+    if isinstance(event, threading.Event):
+        event.set()
+    with _INSIDER_SUMMARY_CACHE_LOCK:
+        _INSIDER_SUMMARY_INFLIGHT.pop(cache_key or "", None)
 
 
 def _is_legacy_member_alias(member_id: str | None) -> bool:
@@ -4056,10 +4142,23 @@ def insider_summary(
     lookback_days: int = Query(90),
     issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
+    cache_key = _insider_summary_cache_key(reporting_cik, lookback_days, issuer)
+    cached_response = _insider_summary_cache_get(cache_key)
+    if cached_response is not None:
+        return cached_response
+    inflight_state, inflight_leader = _insider_summary_inflight_start(cache_key)
+    if cache_key and not inflight_leader and inflight_state is not None:
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event) and event.wait(timeout=max(INSIDER_SUMMARY_DEDUPE_WAIT_SECONDS, 0)):
+            if inflight_state.get("error") is not None:
+                raise inflight_state["error"]
+            result = inflight_state.get("result")
+            if isinstance(result, dict):
+                return copy.deepcopy(result)
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     if not matched:
-        return {
+        return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, {
             "reporting_cik": normalized_cik,
             "insider_name": None,
             "primary_company_name": None,
@@ -4075,7 +4174,7 @@ def insider_summary(
             "net_flow": 0,
             "latest_filing_date": None,
             "latest_transaction_date": None,
-        }
+        })
 
     buy_count = 0
     sell_count = 0
@@ -4161,7 +4260,7 @@ def insider_summary(
         fallback_name = _insider_display_name(matched[0][0], latest_payload)
         fallback_role = _insider_role(latest_payload)
 
-    return {
+    return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, {
         "reporting_cik": normalized_cik,
         "insider_name": (max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else fallback_name),
         "primary_company_name": primary_company_name,
@@ -4177,7 +4276,7 @@ def insider_summary(
         "net_flow": round(gross_buy_value - gross_sell_value, 2),
         "latest_filing_date": latest_filing_date,
         "latest_transaction_date": latest_transaction_date,
-    }
+    })
 
 
 @router.get("/insiders/{reporting_cik}/trades", dependencies=[Depends(rate_limit_provider_backed)])

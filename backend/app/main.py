@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import copy
 import json
@@ -20,7 +21,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, OperationalError, TimeoutError as SATimeoutError
@@ -2290,6 +2291,9 @@ _HEAVY_ROUTE_MAX_CONCURRENCY = int(os.getenv("HEAVY_ROUTE_MAX_CONCURRENCY", "2")
 _HEAVY_ROUTE_SEMAPHORE = threading.BoundedSemaphore(max(_HEAVY_ROUTE_MAX_CONCURRENCY, 1))
 _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
+_PUBLIC_GET_RESPONSE_CACHE: dict[str, tuple[float, int, dict[str, str], bytes]] = {}
+_PUBLIC_GET_RESPONSE_INFLIGHT: dict[str, asyncio.Event] = {}
+_PUBLIC_GET_RESPONSE_CACHE_LOCK = threading.Lock()
 _TICKER_CHART_INFLIGHT: dict[str, dict] = {}
 _TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
 _CSRF_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -2364,6 +2368,45 @@ def _csrf_origin_check_required(request: Request) -> bool:
     if request.url.path in _CSRF_EXEMPT_PATHS:
         return False
     return SESSION_COOKIE_NAME in request.cookies
+
+
+def _public_get_cache_ttl_seconds() -> int:
+    try:
+        return max(0, min(60, int(os.getenv("PUBLIC_GET_RESPONSE_CACHE_TTL_SECONDS", "12") or 12)))
+    except ValueError:
+        return 12
+
+
+def _public_get_cache_dedupe_wait_seconds() -> float:
+    try:
+        return max(0.0, min(5.0, float(os.getenv("PUBLIC_GET_RESPONSE_CACHE_DEDUPE_WAIT_SECONDS", "3") or 3)))
+    except ValueError:
+        return 3.0
+
+
+def _is_public_get_cacheable_path(path: str) -> bool:
+    lower_path = (path or "").rstrip("/").lower()
+    if lower_path in {"/api/feed", "/api/events", "/api/search/suggest"}:
+        return True
+    parts = [part for part in lower_path.split("/") if part]
+    if len(parts) == 3 and parts[:2] == ["api", "tickers"]:
+        return True
+    if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] == "chart-bundle":
+        return True
+    if len(parts) == 4 and parts[:2] == ["api", "insiders"] and parts[3] == "summary":
+        return True
+    return False
+
+
+def _public_get_cache_key(request: Request) -> str | None:
+    if request.method.upper() != "GET":
+        return None
+    if _public_get_cache_ttl_seconds() <= 0:
+        return None
+    if not _is_public_get_cacheable_path(request.url.path):
+        return None
+    query_items = sorted((key, value) for key, value in request.query_params.multi_items())
+    return json.dumps([request.url.path.rstrip("/"), query_items], separators=(",", ":"), sort_keys=True)
 
 
 @contextmanager
@@ -2476,6 +2519,84 @@ async def log_slow_requests(request: Request, call_next):
         if heavy_slot_acquired:
             _HEAVY_ROUTE_SEMAPHORE.release()
         reset_request_context(context_token)
+
+
+@app.middleware("http")
+async def public_get_response_cache(request: Request, call_next):
+    cache_key = _public_get_cache_key(request)
+    inflight_event: asyncio.Event | None = None
+    inflight_leader = False
+    if cache_key:
+        now = time.time()
+        with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+            cached = _PUBLIC_GET_RESPONSE_CACHE.get(cache_key)
+            if cached is not None:
+                expires_at, status_code, headers, body = cached
+                if expires_at > now:
+                    logger.info("public_get_response_cache_hit path=%s", request.url.path)
+                    hit_headers = dict(headers)
+                    hit_headers["x-walnut-public-cache"] = "hit"
+                    return Response(content=body, status_code=status_code, headers=hit_headers)
+                _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
+            inflight_event = _PUBLIC_GET_RESPONSE_INFLIGHT.get(cache_key)
+            if inflight_event is None:
+                inflight_event = asyncio.Event()
+                _PUBLIC_GET_RESPONSE_INFLIGHT[cache_key] = inflight_event
+                inflight_leader = True
+
+        if not inflight_leader and inflight_event is not None:
+            try:
+                await asyncio.wait_for(inflight_event.wait(), timeout=_public_get_cache_dedupe_wait_seconds())
+            except asyncio.TimeoutError:
+                pass
+            else:
+                now = time.time()
+                with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+                    cached = _PUBLIC_GET_RESPONSE_CACHE.get(cache_key)
+                    if cached is not None:
+                        expires_at, status_code, headers, body = cached
+                        if expires_at > now:
+                            logger.info("public_get_response_cache_hit path=%s", request.url.path)
+                            hit_headers = dict(headers)
+                            hit_headers["x-walnut-public-cache"] = "hit"
+                            return Response(content=body, status_code=status_code, headers=hit_headers)
+                        _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
+
+    try:
+        response = await call_next(request)
+    except BaseException:
+        if cache_key and inflight_leader and inflight_event is not None:
+            with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+                _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
+            inflight_event.set()
+        raise
+    if not cache_key or response.status_code != 200:
+        if cache_key and inflight_leader and inflight_event is not None:
+            with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+                _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
+            inflight_event.set()
+        return response
+    headers = {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() not in {"content-length", "set-cookie"}
+    }
+    body = b""
+    async for chunk in response.body_iterator:
+        body += bytes(chunk)
+    headers["x-walnut-public-cache"] = "store"
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
+            time.time() + _public_get_cache_ttl_seconds(),
+            response.status_code,
+            headers,
+            body,
+        )
+        _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
+    if inflight_leader and inflight_event is not None:
+        inflight_event.set()
+    logger.info("public_get_response_cache_store path=%s bytes=%s", request.url.path, len(body))
+    return Response(content=body, status_code=response.status_code, headers=headers)
 
 
 @app.exception_handler(SATimeoutError)

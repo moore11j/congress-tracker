@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import copy
+import json
+import os
+import threading
+import time
 from datetime import datetime, timezone
 from re import sub
 
@@ -20,9 +25,91 @@ from app.services.screener import (
 )
 
 router = APIRouter(tags=["screener"])
+_SCREENER_RESPONSE_CACHE: dict[str, tuple[float, dict]] = {}
+_SCREENER_RESPONSE_INFLIGHT: dict[str, dict[str, object]] = {}
+_SCREENER_RESPONSE_LOCK = threading.Lock()
 
 
-@router.get("/screener", dependencies=[Depends(rate_limit_provider_backed)])
+def _screener_response_cache_ttl_seconds() -> int:
+    try:
+        return max(0, min(120, int(os.getenv("SCREENER_RESPONSE_CACHE_TTL_SECONDS", "30") or 30)))
+    except ValueError:
+        return 30
+
+
+def _screener_response_dedupe_wait_seconds() -> float:
+    try:
+        return max(0.0, min(10.0, float(os.getenv("SCREENER_RESPONSE_DEDUPE_WAIT_SECONDS", "5") or 5)))
+    except ValueError:
+        return 5.0
+
+
+def _screener_response_cache_key(request: Request, entitlements) -> str | None:
+    if _screener_response_cache_ttl_seconds() <= 0:
+        return None
+    query_items = sorted((key, value) for key, value in request.query_params.multi_items())
+    entitlement_key = {
+        "tier": getattr(entitlements, "tier", "free"),
+        "rank": getattr(entitlements, "rank", 0),
+        "features": sorted(getattr(entitlements, "features", []) or []),
+        "limits": getattr(entitlements, "limits", {}) or {},
+    }
+    return "screener:" + json.dumps(
+        {"query": query_items, "entitlements": entitlement_key},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _screener_response_cache_get(cache_key: str | None) -> dict | None:
+    if not cache_key:
+        return None
+    now = time.time()
+    with _SCREENER_RESPONSE_LOCK:
+        cached = _SCREENER_RESPONSE_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _SCREENER_RESPONSE_CACHE.pop(cache_key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _screener_response_inflight_start(cache_key: str | None) -> tuple[dict[str, object] | None, bool]:
+    if not cache_key:
+        return None, False
+    with _SCREENER_RESPONSE_LOCK:
+        state = _SCREENER_RESPONSE_INFLIGHT.get(cache_key)
+        if state is not None:
+            return state, False
+        state = {"event": threading.Event(), "result": None, "error": None}
+        _SCREENER_RESPONSE_INFLIGHT[cache_key] = state
+        return state, True
+
+
+def _screener_response_cache_finalize(
+    cache_key: str | None,
+    inflight_state: dict[str, object] | None,
+    inflight_leader: bool,
+    payload: dict,
+) -> dict:
+    if cache_key:
+        stored = copy.deepcopy(payload)
+        with _SCREENER_RESPONSE_LOCK:
+            _SCREENER_RESPONSE_CACHE[cache_key] = (time.time() + _screener_response_cache_ttl_seconds(), stored)
+    if inflight_leader and inflight_state is not None:
+        inflight_state["result"] = copy.deepcopy(payload)
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event):
+            event.set()
+        with _SCREENER_RESPONSE_LOCK:
+            _SCREENER_RESPONSE_INFLIGHT.pop(cache_key or "", None)
+    return payload
+
+
+@router.get("/screener")
 def stock_screener(
     request: Request,
     db: Session = Depends(get_db),
@@ -203,10 +290,41 @@ def stock_screener(
         earnings_yield_max=earnings_yield_max,
     )
     require_screener_intelligence_access(params, entitlements)
+    cache_key = _screener_response_cache_key(request, entitlements)
+    cached_response = _screener_response_cache_get(cache_key)
+    if cached_response is not None:
+        return cached_response
+    inflight_state, inflight_leader = _screener_response_inflight_start(cache_key)
+    if cache_key and not inflight_leader and inflight_state is not None:
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event) and event.wait(timeout=_screener_response_dedupe_wait_seconds()):
+            if inflight_state.get("error") is not None:
+                raise inflight_state["error"]
+            result = inflight_state.get("result")
+            if isinstance(result, dict):
+                return copy.deepcopy(result)
+    rate_limit_provider_backed(request)
     try:
-        return build_screener_response_for_entitlements(db, params, entitlements=entitlements)
+        payload = build_screener_response_for_entitlements(db, params, entitlements=entitlements)
+        return _screener_response_cache_finalize(cache_key, inflight_state, inflight_leader, payload)
     except FMPClientError as exc:
+        if inflight_leader and inflight_state is not None:
+            inflight_state["error"] = HTTPException(status_code=502, detail=str(exc))
+            event = inflight_state.get("event")
+            if isinstance(event, threading.Event):
+                event.set()
+            with _SCREENER_RESPONSE_LOCK:
+                _SCREENER_RESPONSE_INFLIGHT.pop(cache_key or "", None)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        if inflight_leader and inflight_state is not None:
+            inflight_state["error"] = exc
+            event = inflight_state.get("event")
+            if isinstance(event, threading.Event):
+                event.set()
+            with _SCREENER_RESPONSE_LOCK:
+                _SCREENER_RESPONSE_INFLIGHT.pop(cache_key or "", None)
+        raise
 
 
 @router.get("/screener/export.csv", dependencies=[Depends(rate_limit_export)])

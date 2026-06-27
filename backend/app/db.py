@@ -1090,9 +1090,27 @@ def ensure_provider_control_schema(bind=engine) -> None:
                     "provider_priority": "INTEGER",
                 },
             }
+            existing_columns = {
+                table_name: set()
+                for table_name in table_columns
+            }
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name IN ('provider_settings', 'events')
+                    """
+                )
+            ).fetchall()
+            for table_name, column_name in rows:
+                if table_name in existing_columns:
+                    existing_columns[table_name].add(column_name)
             for table_name, columns in table_columns.items():
                 for column, spec in columns.items():
-                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column} {spec}"))
+                    if column not in existing_columns.get(table_name, set()):
+                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column} {spec}"))
         else:
             table_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")

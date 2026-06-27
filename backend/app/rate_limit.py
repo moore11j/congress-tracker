@@ -104,6 +104,14 @@ def rate_limit_enabled() -> bool:
     return os.getenv("RATE_LIMIT_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or default)
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 def reset_rate_limiter_for_tests() -> None:
     rate_limiter.reset()
 
@@ -207,7 +215,8 @@ def rate_limit_admin_export(request: Request, db: Session = Depends(get_db)) -> 
 
 def rate_limit_provider_backed(request: Request) -> None:
     actor_key = _request_actor_key_from_token(request)
-    _check("provider_backed", [RateLimitRule("provider_backed_actor", 60, 60, actor_key)])
+    limit = _env_int("PROVIDER_BACKED_RATE_LIMIT_PER_MINUTE", 60, minimum=10, maximum=600)
+    _check("provider_backed", [RateLimitRule("provider_backed_actor", limit, 60, actor_key)])
 
 
 def rate_limit_backtest_run(request: Request, db: Session = Depends(get_db)) -> None:

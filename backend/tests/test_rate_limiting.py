@@ -21,6 +21,7 @@ from app.rate_limit import (
     rate_limit_export,
     rate_limit_password_reset_confirm,
     rate_limit_password_reset_request,
+    rate_limit_provider_backed,
     rate_limit_register,
     reset_rate_limiter_for_tests,
 )
@@ -193,6 +194,19 @@ def test_register_limiter_returns_429_after_threshold():
 
     with pytest.raises(HTTPException) as raised:
         rate_limit_register(_request(payload={"email": "another@example.com"}))
+
+    _assert_429(raised.value)
+
+
+def test_provider_backed_limiter_threshold_is_configurable(monkeypatch):
+    monkeypatch.setenv("PROVIDER_BACKED_RATE_LIMIT_PER_MINUTE", "10")
+    request = _request(method="GET", path="/api/screener", ip="203.0.113.77")
+
+    for _ in range(10):
+        rate_limit_provider_backed(request)
+
+    with pytest.raises(HTTPException) as raised:
+        rate_limit_provider_backed(request)
 
     _assert_429(raised.value)
 
