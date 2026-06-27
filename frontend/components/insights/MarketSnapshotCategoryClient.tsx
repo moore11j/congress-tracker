@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getInsightsMacroSnapshot } from "@/lib/api";
+import { getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
 import {
+  applyInsightsOverview,
   deltaClassName,
   formatSnapshotUpdatedAt,
   marketSnapshotDetailRows,
@@ -124,9 +125,16 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
 
   useEffect(() => {
     const controller = new AbortController();
-    getInsightsMacroSnapshot({ signal: controller.signal })
-      .then((payload) => {
-        if (!controller.signal.aborted) setSnapshot(payload);
+    Promise.allSettled([
+      getInsightsMacroSnapshot({ signal: controller.signal }),
+      getInsightsOverview({ signal: controller.signal }),
+    ])
+      .then(([snapshotResult, overviewResult]) => {
+        if (controller.signal.aborted) return;
+        const base = snapshotResult.status === "fulfilled" ? snapshotResult.value : { ...EMPTY_SNAPSHOT, status: "unavailable" };
+        const merged = overviewResult.status === "fulfilled" ? applyInsightsOverview(base, overviewResult.value) : base;
+        setSnapshot(merged);
+        setFailed(snapshotResult.status === "rejected" && overviewResult.status === "rejected");
       })
       .catch(() => {
         if (!controller.signal.aborted) {

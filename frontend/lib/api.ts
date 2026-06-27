@@ -5,6 +5,7 @@ import type {
   ConfirmationScoreBundle,
   FeedResponse,
   InsightsNewsResponse,
+  InsightsOverviewResponse,
   MacroSnapshotResponse,
   MemberProfile,
   MonitoringCounts,
@@ -4448,6 +4449,24 @@ export async function getInsightsMacroSnapshot(params?: {
       next: { revalidate: 0 },
       signal,
       source: "InsightsSnapshot",
+    }),
+  );
+}
+
+export async function getInsightsOverview(params?: {
+  authToken?: string | null;
+  signal?: AbortSignal;
+}): Promise<InsightsOverviewResponse> {
+  const url = buildApiUrl("/api/insights/overview");
+  return clientCachedJson<InsightsOverviewResponse>(
+    `insights-overview:${url}:${params?.authToken ? "auth" : "anon"}`,
+    params?.signal,
+    (signal) => fetchJson<InsightsOverviewResponse>(url, {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: "InsightsOverview",
     }),
   );
 }

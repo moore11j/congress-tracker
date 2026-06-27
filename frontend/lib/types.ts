@@ -365,6 +365,8 @@ export type MacroSnapshotIndex = {
   timeframe_label?: string | null;
   is_proxy?: boolean;
   source?: string | null;
+  date?: string | null;
+  status?: "ok" | "unavailable" | string;
 };
 
 export type MacroSnapshotPoint = {
@@ -391,6 +393,30 @@ export type SnapshotInstrument = {
   timeframe_label: string;
   unit_label?: string | null;
   status?: "ok" | "unavailable" | string;
+  date?: string | null;
+};
+
+export type InsightsQuoteGroup = "global_markets" | "commodities" | "currencies" | "crypto";
+
+export type InsightsQuoteItem = {
+  group: InsightsQuoteGroup;
+  label: string;
+  symbol: string;
+  display_symbol: string;
+  price: number | null;
+  change: number | null;
+  change_percent: number | null;
+  volume: number | null;
+  as_of: string | null;
+  status: "ok" | "unavailable";
+};
+
+export type InsightsOverviewResponse = {
+  global_markets: InsightsQuoteItem[];
+  commodities: InsightsQuoteItem[];
+  currencies: InsightsQuoteItem[];
+  crypto: InsightsQuoteItem[];
+  updated_at: string | null;
 };
 
 export type SectorPerformancePoint = {
@@ -409,6 +435,7 @@ export type MacroSnapshotResponse = {
   sector_performance: SectorPerformancePoint[];
   status: "ok" | "partial" | "unavailable" | string;
   generated_at: string;
+  updated_at?: string | null;
   as_of?: string | null;
   stale?: boolean;
   source?: string | null;

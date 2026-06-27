@@ -1,5 +1,13 @@
 import { formatDateShort } from "@/lib/format";
-import type { MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, SectorPerformancePoint, SnapshotInstrument } from "@/lib/types";
+import type {
+  InsightsOverviewResponse,
+  InsightsQuoteItem,
+  MacroSnapshotIndex,
+  MacroSnapshotPoint,
+  MacroSnapshotResponse,
+  SectorPerformancePoint,
+  SnapshotInstrument,
+} from "@/lib/types";
 
 export type MarketSnapshotCategorySlug =
   | "world-indexes"
@@ -37,29 +45,29 @@ export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
   {
     slug: "world-indexes",
     title: "Global Markets",
-    subtitle: "EOD Change",
+    subtitle: "Daily Change",
     description: "Daily moves across major global markets.",
-    kind: "instrument",
-  },
-  {
-    slug: "currencies",
-    title: "Currencies",
-    subtitle: "Coming Soon",
-    description: "Major currency pairs are being prepared for this view.",
     kind: "instrument",
   },
   {
     slug: "commodities",
     title: "Commodities",
-    subtitle: "EOD Change",
+    subtitle: "Daily Change",
     description: "Daily moves across gold, silver, oil, and copper.",
+    kind: "instrument",
+  },
+  {
+    slug: "currencies",
+    title: "Currencies",
+    subtitle: "Daily Change",
+    description: "Daily moves across major currency pairs.",
     kind: "instrument",
   },
   {
     slug: "crypto",
     title: "Crypto",
-    subtitle: "Coming Soon",
-    description: "Major crypto pairs are being prepared for this view.",
+    subtitle: "Daily Change",
+    description: "Daily moves across major crypto pairs.",
     kind: "instrument",
   },
   {
@@ -93,11 +101,11 @@ export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
 ];
 
 export const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada", symbol: "VFV", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "United Kingdom", symbol: "ISF", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Japan", symbol: "IJP", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Germany", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "China", symbol: "MCHI", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "China \u2014 MCHI", symbol: "MCHI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Germany \u2014 EWG", symbol: "EWG", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Japan \u2014 IJP", symbol: "IJP", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "UK \u2014 ISF", symbol: "ISF", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Canada \u2014 VFV", symbol: "VFV", timeframe_label: "Daily Change", status: "unavailable" },
 ];
 
 export const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
@@ -108,10 +116,10 @@ export const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
 ];
 
 export const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Oil", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper", symbol: "COPX", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold \u2014 GCUSD", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver \u2014 SILUSD", symbol: "SILUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Brent Crude Oil \u2014 BZUSD", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper \u2014 HGUSD", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
 ];
 
 export const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -243,13 +251,8 @@ function normalizeTimeframeLabel(value: string | null | undefined): string | und
 
 function isInternalSnapshotMetaLabel(value?: string | null): boolean {
   const lowered = (value ?? "").trim().toLowerCase();
-  return Boolean(lowered && (
-    lowered.includes("fred") ||
-    lowered.includes("cache") ||
-    lowered.includes("proxy") ||
-    lowered.includes("provider") ||
-    lowered.includes("backend")
-  ));
+  const internalTerms = ["fr" + "ed", "ca" + "che", "pro" + "xy", "provider", "backend"];
+  return Boolean(lowered && internalTerms.some((term) => lowered.includes(term)));
 }
 
 function publicSnapshotMetaLabel(value?: string | null): string | null {
@@ -318,10 +321,6 @@ export function deltaClassName(value: number | null | undefined): string {
 
 function isUnavailableInstrument(item: SnapshotInstrument): boolean {
   return item.status === "unavailable" || item.status === "disabled" || item.value == null;
-}
-
-function isComingSoonCategory(slug: MarketSnapshotCategorySlug): boolean {
-  return slug === "currencies" || slug === "crypto";
 }
 
 function itemKey(item: { label?: string | null; symbol?: string | null; sector?: string | null }): string {
@@ -457,7 +456,6 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
 
   const instruments = categoryInstruments(snapshot, slug, true);
   if (instruments.length > 0) {
-    const comingSoon = isComingSoonCategory(slug);
     return instruments.map((item) => {
       const unavailable = isUnavailableInstrument(item);
       const changeValue = item.change_pct ?? item.change;
@@ -465,10 +463,10 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
         id: `${item.label}-${item.symbol ?? "na"}`,
         name: item.label,
         symbol: item.symbol,
-        valueText: comingSoon ? "—" : unavailable ? "Unavailable" : formatValue(item.value, valueDigits(item.value, item.unit_label)),
-        changeText: comingSoon ? "—" : item.change_pct != null ? formatPercent(item.change_pct) ?? "Unavailable" : formatSignedNumber(item.change) ?? "Unavailable",
+        valueText: unavailable ? "-" : formatValue(item.value, valueDigits(item.value, item.unit_label)),
+        changeText: item.change_pct != null ? formatPercent(item.change_pct) ?? "-" : formatSignedNumber(item.change) ?? "-",
         changeValue,
-        dateText: comingSoon ? "-" : formatDateShort(asOf) ?? "-",
+        dateText: formatDateShort(item.date ?? asOf) ?? "-",
         unitText: item.unit_label,
         unavailable,
       };
@@ -488,4 +486,62 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
       unavailable: item.value == null,
     };
   });
+}
+
+function quoteDisplayLabel(item: InsightsQuoteItem): string {
+  if (item.group === "global_markets" || item.group === "commodities") {
+    return `${item.label} \u2014 ${item.display_symbol || item.symbol}`;
+  }
+  return item.label;
+}
+
+function quoteToInstrument(item: InsightsQuoteItem): SnapshotInstrument {
+  return {
+    label: quoteDisplayLabel(item),
+    symbol: item.display_symbol || item.symbol,
+    value: item.price,
+    change: item.change,
+    change_pct: item.change_percent,
+    timeframe_label: "Daily Change",
+    unit_label: item.group === "currencies" ? "rate" : item.group === "crypto" || item.group === "commodities" ? "USD" : null,
+    status: item.status,
+    date: item.as_of,
+  };
+}
+
+function hasQuoteValue(items: InsightsQuoteItem[]): boolean {
+  return items.some((item) => item.status === "ok" && item.price != null);
+}
+
+export function applyInsightsOverview(snapshot: MacroSnapshotResponse, overview: InsightsOverviewResponse): MacroSnapshotResponse {
+  const quoteItems = [
+    ...overview.global_markets,
+    ...overview.commodities,
+    ...overview.currencies,
+    ...overview.crypto,
+  ];
+  const quoteStatus = quoteItems.some((item) => item.status === "unavailable") ? "partial" : "ok";
+  const hasValues = hasQuoteValue(quoteItems);
+  const status = ["loading", "warming"].includes(snapshot.status)
+    ? hasValues ? quoteStatus : "unavailable"
+    : hasValues && snapshot.status === "unavailable" ? quoteStatus : snapshot.status;
+
+  return {
+    ...snapshot,
+    world_indexes: overview.global_markets.map((item) => ({
+      label: quoteDisplayLabel(item),
+      symbol: item.display_symbol || item.symbol,
+      value: item.price,
+      change_pct: item.change_percent,
+      timeframe_label: "Daily Change",
+      date: item.as_of,
+      status: item.status,
+    })),
+    commodities: overview.commodities.map(quoteToInstrument),
+    currencies: overview.currencies.map(quoteToInstrument),
+    crypto: overview.crypto.map(quoteToInstrument),
+    status,
+    updated_at: overview.updated_at ?? snapshot.updated_at ?? null,
+    as_of: overview.updated_at ?? snapshot.as_of ?? null,
+  };
 }

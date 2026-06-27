@@ -220,6 +220,7 @@ from app.services.monitoring_alerts import (
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
+from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
@@ -8530,6 +8531,11 @@ def insights_macro_snapshot(db: Session = Depends(get_db)):
 @app.get("/api/insights/snapshot")
 def insights_snapshot(db: Session = Depends(get_db)):
     return get_insights_snapshot(db)
+
+
+@app.get("/api/insights/overview", dependencies=[Depends(rate_limit_provider_backed)])
+def insights_overview(db: Session = Depends(get_db)):
+    return get_insights_quote_overview(db)
 
 
 @app.get("/api/tickers/{symbol}/news")

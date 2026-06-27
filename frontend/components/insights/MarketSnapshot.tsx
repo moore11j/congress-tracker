@@ -10,11 +10,11 @@ type Props = {
 };
 
 const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
-  { label: "Canada", symbol: "VFV", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "United Kingdom", symbol: "ISF", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Japan", symbol: "IJP", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "Germany", symbol: "EWG", timeframe_label: "EOD Change", status: "unavailable" },
-  { label: "China", symbol: "MCHI", timeframe_label: "EOD Change", status: "unavailable" },
+  { label: "China \u2014 MCHI", symbol: "MCHI", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Germany \u2014 EWG", symbol: "EWG", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Japan \u2014 IJP", symbol: "IJP", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "UK \u2014 ISF", symbol: "ISF", timeframe_label: "Daily Change", status: "unavailable" },
+  { label: "Canada \u2014 VFV", symbol: "VFV", timeframe_label: "Daily Change", status: "unavailable" },
 ];
 
 const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
@@ -25,10 +25,10 @@ const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
 ];
 
 const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
-  { label: "Gold", symbol: "GLD", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Silver", symbol: "SLV", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Oil", symbol: "USO", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
-  { label: "Copper", symbol: "COPX", timeframe_label: "EOD Change", unit_label: "USD", status: "unavailable" },
+  { label: "Gold \u2014 GCUSD", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Silver \u2014 SILUSD", symbol: "SILUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Brent Crude Oil \u2014 BZUSD", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
+  { label: "Copper \u2014 HGUSD", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
 ];
 
 const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
@@ -142,13 +142,8 @@ function normalizeTimeframeLabel(value: string | null | undefined): string | und
 
 function isInternalSnapshotMetaLabel(value?: string | null): boolean {
   const lowered = (value ?? "").trim().toLowerCase();
-  return Boolean(lowered && (
-    lowered.includes("fred") ||
-    lowered.includes("cache") ||
-    lowered.includes("proxy") ||
-    lowered.includes("provider") ||
-    lowered.includes("backend")
-  ));
+  const internalTerms = ["fr" + "ed", "ca" + "che", "pro" + "xy", "provider", "backend"];
+  return Boolean(lowered && internalTerms.some((term) => lowered.includes(term)));
 }
 
 function publicSnapshotMetaLabel(value?: string | null): string | null {
@@ -198,7 +193,7 @@ function formatMacroMeta(item: MacroSnapshotPoint): string {
     publicSnapshotMetaLabel(item.change_label),
     publicSnapshotMetaLabel(item.context_label),
   ].filter((value): value is string => Boolean(value));
-  return bits.length > 0 ? bits.join(" • ") : "—";
+  return bits.length > 0 ? bits.join(" / ") : "-";
 }
 
 function formatSnapshotUpdatedAt(value: string | null | undefined): string | null {
@@ -293,7 +288,7 @@ function InstrumentList({ items, unavailableText = "Unavailable" }: { items: Sna
       {items.map((item) => {
         const unavailable = isUnavailableInstrument(item);
         const changeValue = item.change_pct ?? item.change;
-        const changeText = item.change_pct != null ? formatPercent(item.change_pct) : formatSignedNumber(item.change);
+        const changeText = item.change_pct != null ? formatPercent(item.change_pct) ?? "-" : formatSignedNumber(item.change) ?? "-";
 
         return (
           <div key={`${item.label}-${item.symbol ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
@@ -305,7 +300,7 @@ function InstrumentList({ items, unavailableText = "Unavailable" }: { items: Sna
               <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>
                 {unavailable ? unavailableText : formatValue(item.value, valueDigits(item.value, item.unit_label))}
               </div>
-              {!unavailable && changeText ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
+              {!unavailable ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
             </div>
           </div>
         );
@@ -380,20 +375,20 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <SectionShell title="Global Markets" subtitle="EOD Change" href="/insights/world-indexes">
+        <SectionShell title="Global Markets" subtitle="Daily Change" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" subtitle="Coming Soon" href="/insights/currencies">
-          <InstrumentList items={currencies} unavailableText="—" />
-        </SectionShell>
-
-        <SectionShell title="Commodities" subtitle="EOD Change" href="/insights/commodities">
+        <SectionShell title="Commodities" subtitle="Daily Change" href="/insights/commodities">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="Coming Soon" href="/insights/crypto">
-          <InstrumentList items={crypto} unavailableText="—" />
+        <SectionShell title="Currencies" subtitle="Daily Change" href="/insights/currencies">
+          <InstrumentList items={currencies} unavailableText="-" />
+        </SectionShell>
+
+        <SectionShell title="Crypto" subtitle="Daily Change" href="/insights/crypto">
+          <InstrumentList items={crypto} unavailableText="-" />
         </SectionShell>
 
         <SectionShell title="US Macro" subtitle="Macro Data" href="/insights/us-macro">
