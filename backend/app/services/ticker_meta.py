@@ -302,6 +302,14 @@ def _is_public_request_context() -> bool:
     return route.startswith("/api/") and not route.startswith("/api/admin/")
 
 
+def _release_read_transaction(db: Session, *, reason: str) -> None:
+    try:
+        if db.in_transaction():
+            db.rollback()
+    except Exception:
+        logger.debug("ticker_meta transaction release failed reason=%s", reason, exc_info=True)
+
+
 def _ticker_meta_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -409,6 +417,7 @@ def get_ticker_meta(
                 _enqueue_ticker_meta_refresh(symbol, reason=reason)
 
         if stale_or_missing and allow_refresh and not _is_public_request_context():
+            _release_read_transaction(db, reason="ticker_meta_provider_refresh")
             resolved: dict[str, tuple[str | None, str | None, str | None, str | None, str | None]] = {}
             for symbol in stale_or_missing:
                 normalized_symbol = normalize_symbol(symbol)

@@ -687,7 +687,7 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
             if name and name.strip()
         }
     )
-    if not member_ids and not insider_ciks and not insider_names:
+    if not member_ids and not insider_names:
         return {}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
@@ -717,29 +717,36 @@ def _member_net_30d_map(db: Session, events: list[Event]) -> dict[str, float]:
         ).all()
         result.update({f"member:{member_id}": float(value or 0) for member_id, value in rows if member_id})
 
-    if insider_ciks or insider_names:
-        payload_lower = func.lower(func.coalesce(Event.payload_json, ""))
-        clauses = []
-        if insider_ciks:
-            clauses.extend(payload_lower.like(f"%{cik.lower()}%") for cik in insider_ciks)
-        if insider_names:
-            clauses.append(func.lower(Event.member_name).in_([name.lower() for name in insider_names]))
+    if insider_names:
+        insider_name_keys = [name.lower() for name in insider_names]
+        insider_name_expr = func.lower(Event.member_name)
         rows = db.execute(
-            select(Event)
+            select(insider_name_expr.label("insider_name_key"), net_30d)
             .where(Event.event_type == "insider_trade")
             .where(Event.ts >= cutoff)
-            .where(or_(*clauses))
-        ).scalars().all()
-        for event in rows:
-            key = _actor_net_30d_key(event)
-            if not key:
+            .where(insider_name_expr.in_(insider_name_keys))
+            .group_by(insider_name_expr)
+        ).all()
+        result.update(
+            {
+                f"insider_name:{name_key}": float(value or 0)
+                for name_key, value in rows
+                if name_key
+            }
+        )
+        for event in events:
+            if event.event_type != "insider_trade":
                 continue
-            side = (event.trade_type or "").strip().lower()
-            amount = float(event.amount_max or 0)
-            if side in {"purchase", "buy"}:
-                result[key] = result.get(key, 0.0) + amount
-            elif side in {"sale", "sell"}:
-                result[key] = result.get(key, 0.0) - amount
+            payload = _parse_event_payload(event)
+            cik = _event_reporting_cik(payload)
+            name = _insider_display_name(event, payload)
+            if not cik or not name:
+                continue
+            name_value = result.get(f"insider_name:{name.strip().casefold()}")
+            if name_value is not None:
+                result[f"insider:{cik}"] = name_value
+    elif insider_ciks:
+        logger.debug("insider_net_30d_skipped reason=no_indexed_identity cik_count=%s", len(insider_ciks))
 
     return result
 

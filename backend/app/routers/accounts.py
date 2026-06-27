@@ -4278,6 +4278,13 @@ def _sync_user_subscription(
             period_end = now
     if period_end:
         user.access_expires_at = period_end
+    if (
+        status in PAID_SUBSCRIPTION_STATUSES
+        and resolved_tier in {"premium", "pro"}
+        and user.manual_tier_override is not None
+        and normalize_tier(user.manual_tier_override) == "free"
+    ):
+        user.manual_tier_override = None
     policy_tier = subscription_policy_tier(user, now=now)
     user.entitlement_tier = policy_tier
     user.updated_at = now

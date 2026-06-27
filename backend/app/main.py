@@ -2661,9 +2661,20 @@ def _startup_step_skipped(name: str, reason: str) -> None:
     logger.info("startup_step_skipped name=%s reason=%s", name, reason)
 
 
+def _is_postgres_lock_timeout(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "locknotavailable" in message or "lock timeout" in message or "canceling statement due to lock timeout" in message
+
+
 def _run_required_startup_step(name: str, fn) -> None:
-    with _startup_step(name, critical=True):
-        fn()
+    try:
+        with _startup_step(name, critical=True):
+            fn()
+    except OperationalError as exc:
+        if (name == "database_base_metadata_create_all" or name.startswith("schema_")) and _is_postgres_lock_timeout(exc):
+            logger.warning("startup_step_skipped name=%s critical=true reason=postgres_lock_timeout", name)
+            return
+        raise
 
 
 def _run_optional_startup_step(name: str, fn) -> None:

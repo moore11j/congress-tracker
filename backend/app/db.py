@@ -122,6 +122,39 @@ OPTIONAL_PERFORMANCE_INDEXES: tuple[OptionalIndexSpec, ...] = (
             "ON events ((lower(member_name)))"
         ),
     ),
+    OptionalIndexSpec(
+        name="ix_events_symbol_type_effective_ts_id",
+        table="events",
+        sqlite_sql=(
+            "CREATE INDEX IF NOT EXISTS ix_events_symbol_type_effective_ts_id "
+            "ON events (symbol, event_type, coalesce(event_date, ts) DESC, id DESC)"
+        ),
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_events_symbol_type_effective_ts_id "
+            "ON events (symbol, event_type, (coalesce(event_date, ts)) DESC, id DESC)"
+        ),
+    ),
+    OptionalIndexSpec(
+        name="ix_events_symbol_effective_ts_id",
+        table="events",
+        sqlite_sql=(
+            "CREATE INDEX IF NOT EXISTS ix_events_symbol_effective_ts_id "
+            "ON events (symbol, coalesce(event_date, ts) DESC, id DESC)"
+        ),
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_events_symbol_effective_ts_id "
+            "ON events (symbol, (coalesce(event_date, ts)) DESC, id DESC)"
+        ),
+    ),
+    OptionalIndexSpec(
+        name="ix_events_insider_payload_json_trgm",
+        table="events",
+        sqlite_sql="CREATE INDEX IF NOT EXISTS ix_events_insider_payload_json_trgm ON events (payload_json)",
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_events_insider_payload_json_trgm "
+            "ON events USING gin (payload_json gin_trgm_ops) WHERE event_type = 'insider_trade'"
+        ),
+    ),
 )
 
 

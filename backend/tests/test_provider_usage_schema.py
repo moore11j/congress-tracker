@@ -45,7 +45,19 @@ def test_optional_performance_indexes_index_optional_tables_when_requested():
     engine = create_engine("sqlite:///:memory:", future=True)
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE members (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)"))
-        conn.execute(text("CREATE TABLE events (id INTEGER PRIMARY KEY, member_name TEXT)"))
+        conn.execute(
+            text(
+                "CREATE TABLE events ("
+                "id INTEGER PRIMARY KEY, "
+                "member_name TEXT, "
+                "symbol TEXT, "
+                "event_type TEXT, "
+                "event_date TIMESTAMP, "
+                "ts TIMESTAMP, "
+                "payload_json TEXT"
+                ")"
+            )
+        )
 
     result = ensure_optional_performance_indexes(engine)
 
@@ -57,10 +69,13 @@ def test_optional_performance_indexes_index_optional_tables_when_requested():
             ).fetchall()
         }
 
-    assert result["attempted"] == 2
-    assert result["completed"] == 2
+    assert result["attempted"] == 5
+    assert result["completed"] == 5
     assert "ix_members_name_lower" in indexes
     assert "ix_events_member_name_lower" in indexes
+    assert "ix_events_symbol_type_effective_ts_id" in indexes
+    assert "ix_events_symbol_effective_ts_id" in indexes
+    assert "ix_events_insider_payload_json_trgm" in indexes
 
 
 def test_optional_performance_index_lock_timeout_logs_and_continues(caplog):

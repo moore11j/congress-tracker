@@ -2852,6 +2852,56 @@ def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypa
         db.close()
 
 
+def test_subscription_updated_clears_stale_free_manual_override_for_paid_stripe_state(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    db = _session()
+    try:
+        user = _user(db, "stale-free-override@example.com")
+        user.manual_tier_override = "free"
+        user.entitlement_tier = "premium"
+        user.subscription_plan = "premium"
+        user.subscription_status = "active"
+        user.stripe_customer_id = "cus_stale_free_override"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_stale_free_override",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_stale_free_override",
+                        "customer": "cus_stale_free_override",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "items": {
+                            "data": [
+                                {
+                                    "price": {
+                                        "id": "price_premium_monthly",
+                                        "recurring": {"interval": "month"},
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+        db.refresh(user)
+
+        assert result["status"] == "processed"
+        assert user.manual_tier_override is None
+        assert user.entitlement_tier == "premium"
+        assert user.subscription_plan == "premium"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+    finally:
+        db.close()
+
+
 def test_subscription_updated_portal_change_premium_to_pro_uses_current_item_price(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_portal_premium")

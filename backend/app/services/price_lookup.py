@@ -383,6 +383,14 @@ def _is_foreground_request_context() -> bool:
     return bool(path and path != "background")
 
 
+def _release_read_transaction(db: Session, *, reason: str) -> None:
+    try:
+        if db.in_transaction():
+            db.rollback()
+    except Exception:
+        logger.debug("price_lookup transaction release failed reason=%s", reason, exc_info=True)
+
+
 def latest_price_history_row(db: Session, symbol: str) -> dict[str, Any]:
     status, normalized_symbol, classify_error = classify_symbol(symbol)
     if status != "eligible" or not normalized_symbol:
@@ -561,6 +569,7 @@ def ensure_fresh_price_history(
     )
     refresh_status = "failed"
     refresh_error = None
+    _release_read_transaction(db, reason="price_history_recent_refresh")
     try:
         refresh = refresh_recent_price_history(
             db,
@@ -800,6 +809,7 @@ def get_eod_close_with_meta(
             _enqueue_eod_refresh(candidate_symbol, normalized_date, reason=reason)
             return {"close": None, "status": reason, "error": reason, "symbol": candidate_symbol}
 
+        _release_read_transaction(db, reason="price_eod_provider_fetch")
         response = _fetch_with_backoff(
             f"{FMP_BASE_URL}/historical-price-eod/full",
             {
@@ -1207,6 +1217,7 @@ def get_daily_close_series_with_fallback(
         return cached_map
 
     if _is_foreground_request_context():
+        _release_read_transaction(db, reason="price_series_foreground_enqueue")
         _enqueue_eod_refresh(
             normalized_symbol,
             reason="stale_or_missing_series",
@@ -1215,7 +1226,7 @@ def get_daily_close_series_with_fallback(
         return cached_map
 
     if release_connection_before_provider:
-        db.close()
+        _release_read_transaction(db, reason="price_series_provider_fetch")
 
     provider_map, provider_volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(normalized_symbol, start_key, end_key)
     if provider_map and _series_has_stale_tail(provider_map, end_key):
