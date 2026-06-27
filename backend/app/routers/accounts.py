@@ -1366,6 +1366,14 @@ def _charge_receipt_url(invoice: dict[str, Any]) -> str | None:
     return _stripe_artifact_url(invoice.get("receipt_url"))
 
 
+def _invoice_has_stripe_documents(invoice: dict[str, Any]) -> bool:
+    return bool(
+        _stripe_artifact_url(invoice.get("hosted_invoice_url"))
+        or _stripe_artifact_url(invoice.get("invoice_pdf"))
+        or _charge_receipt_url(invoice)
+    )
+
+
 def _stripe_billing_documents(row: BillingTransaction) -> dict[str, Any]:
     invoice = _billing_payload(row)
     hosted_invoice_url = _stripe_artifact_url(invoice.get("hosted_invoice_url"))
@@ -1375,6 +1383,7 @@ def _stripe_billing_documents(row: BillingTransaction) -> dict[str, Any]:
     return {
         "invoice_number": str(invoice.get("number") or "").strip() or None,
         "hosted_invoice_url": hosted_invoice_url,
+        "invoice_pdf": invoice_pdf_url,
         "invoice_pdf_url": invoice_pdf_url,
         "receipt_url": receipt_url,
         "has_stripe_document": has_document,
@@ -2481,7 +2490,7 @@ def _stripe_customer_sync_payload(user: UserAccount, *, validate_location: bool)
     payload: dict[str, Any] = {
         "email": user.email,
         "name": user.name or _display_name(user.first_name, user.last_name) or user.email,
-        "metadata[user_id]": user.id,
+        "metadata[user_id]": str(user.id),
         "metadata[email]": user.email,
     }
     payload.update(_stripe_address_payload(user))
@@ -3549,6 +3558,7 @@ def create_checkout_session(
 
     customer_id = _sync_stripe_customer_for_billing(db, user)
     tax_settings = _stripe_tax_settings(db)
+    user_id = str(user.id)
     data: dict[str, Any] = {
         "mode": "subscription",
         "line_items[0][price]": price_id,
@@ -3556,15 +3566,15 @@ def create_checkout_session(
         "success_url": _checkout_success_url(),
         "cancel_url": _checkout_cancel_url(),
         "customer": customer_id,
-        "client_reference_id": str(user.id),
-        "metadata[user_id]": user.id,
+        "client_reference_id": user_id,
+        "metadata[user_id]": user_id,
         "metadata[email]": user.email,
         "metadata[plan]": tier,
         "metadata[interval]": billing_interval,
         "metadata[billing_interval]": billing_interval,
         "metadata[tier]": tier,
         "metadata[price_id]": price_id,
-        "subscription_data[metadata][user_id]": user.id,
+        "subscription_data[metadata][user_id]": user_id,
         "subscription_data[metadata][email]": user.email,
         "subscription_data[metadata][plan]": tier,
         "subscription_data[metadata][interval]": billing_interval,
@@ -4003,10 +4013,34 @@ def _refund_status(invoice: dict[str, Any]) -> str | None:
     return "none"
 
 
+def _stripe_invoice_with_documents(invoice: dict[str, Any]) -> dict[str, Any]:
+    invoice_id = _stripe_object_id(invoice.get("id"))
+    if not invoice_id or _invoice_has_stripe_documents(invoice) or not _stripe_secret_key():
+        return invoice
+    try:
+        expanded = _stripe_get(
+            f"invoices/{invoice_id}",
+            {
+                "expand[]": [
+                    "charge",
+                    "payment_intent",
+                    "payment_intent.latest_charge",
+                ]
+            },
+        )
+    except HTTPException:
+        logger.warning("stripe_invoice_document_fetch_failed invoice_id=%s", invoice_id, exc_info=True)
+        return invoice
+    if not isinstance(expanded, dict) or _stripe_object_id(expanded.get("id")) != invoice_id:
+        return invoice
+    return {**invoice, **expanded}
+
+
 def _persist_billing_snapshot(db: Session, invoice: dict[str, Any]) -> BillingTransaction | None:
     invoice_id = _stripe_object_id(invoice.get("id"))
     if not invoice_id:
         return None
+    invoice = _stripe_invoice_with_documents(invoice)
     user = _find_user_for_stripe_object(db, invoice)
     service_start, service_end = _invoice_service_period(invoice)
     tax_amount, tax_breakdown_json = _invoice_tax_breakdown(invoice)

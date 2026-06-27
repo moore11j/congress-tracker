@@ -2748,6 +2748,44 @@ def test_free_user_with_stale_test_customer_can_create_live_checkout(monkeypatch
         db.close()
 
 
+def test_checkout_updates_existing_customer_email_before_session(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_live_premium_monthly")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path == "customers/cus_missing_email":
+            return {"id": "cus_missing_email"}
+        if path == "checkout/sessions":
+            return {"id": "cs_live_email", "url": "https://checkout.stripe.com/live-email"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "receipt-ready@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_missing_email"
+        db.commit()
+
+        response = create_checkout_session(_request_for_user(user), CheckoutSessionPayload(plan="premium", interval="monthly"), db)
+
+        assert response["url"] == "https://checkout.stripe.com/live-email"
+        customer_call = calls[0]
+        checkout_call = calls[1]
+        assert customer_call[0] == "customers/cus_missing_email"
+        assert customer_call[1]["email"] == "receipt-ready@example.com"
+        assert customer_call[1]["metadata[user_id]"] == str(user.id)
+        assert customer_call[1]["metadata[email]"] == "receipt-ready@example.com"
+        assert checkout_call[0] == "checkout/sessions"
+        assert checkout_call[1]["customer"] == "cus_missing_email"
+        assert checkout_call[1]["metadata[email]"] == "receipt-ready@example.com"
+        assert checkout_call[1]["subscription_data[metadata][email]"] == "receipt-ready@example.com"
+    finally:
+        db.close()
+
+
 def test_checkout_session_maps_all_plan_intervals_to_price_ids(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
@@ -2785,9 +2823,13 @@ def test_checkout_session_maps_all_plan_intervals_to_price_ids(monkeypatch):
             assert checkout_call[0] == "checkout/sessions"
             assert checkout_call[1]["line_items[0][price]"] == price_id
             assert checkout_call[1]["client_reference_id"] == str(user.id)
-            assert checkout_call[1]["metadata[user_id]"] == user.id
+            assert checkout_call[1]["metadata[user_id]"] == str(user.id)
+            assert checkout_call[1]["metadata[email]"] == "four-prices@example.com"
+            assert checkout_call[1]["metadata[plan]"] == plan
             assert checkout_call[1]["metadata[price_id]"] == price_id
-            assert checkout_call[1]["subscription_data[metadata][user_id]"] == user.id
+            assert checkout_call[1]["subscription_data[metadata][user_id]"] == str(user.id)
+            assert checkout_call[1]["subscription_data[metadata][email]"] == "four-prices@example.com"
+            assert checkout_call[1]["subscription_data[metadata][plan]"] == plan
             assert checkout_call[1]["subscription_data[metadata][price_id]"] == price_id
             assert checkout_call[1]["metadata[tier]"] == plan
             assert checkout_call[1]["metadata[billing_interval]"] == interval
@@ -3747,12 +3789,130 @@ def test_invoice_paid_persists_stripe_derived_billing_snapshot(monkeypatch):
         assert not documented["transaction_id"].startswith("in_")
         assert documented["documents"]["invoice_number"] == "INV-2026-0001"
         assert documented["documents"]["hosted_invoice_url"] == "https://invoice.stripe.com/i/acct_test/in_123"
+        assert documented["documents"]["invoice_pdf"] == "https://pay.stripe.com/invoice/acct_test/in_123/pdf"
         assert documented["documents"]["invoice_pdf_url"] == "https://pay.stripe.com/invoice/acct_test/in_123/pdf"
         assert documented["documents"]["receipt_url"] == "https://pay.stripe.com/receipts/acct_test/ch_123"
         assert documented["documents"]["has_stripe_document"] is True
         assert fallback["documents"]["invoice_number"] is None
         assert fallback["documents"]["has_stripe_document"] is False
         assert fallback["documents"]["hosted_invoice_url"] is None
+    finally:
+        db.close()
+
+
+def test_invoice_paid_fetches_expanded_invoice_for_receipt_links(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_live_premium_monthly")
+    db = _session()
+    get_calls = []
+
+    def fake_stripe_get(path, params=None):
+        get_calls.append((path, params or {}))
+        if path == "invoices/in_fetch_docs":
+            return {
+                "id": "in_fetch_docs",
+                "object": "invoice",
+                "customer": "cus_fetch_docs",
+                "subscription": "sub_fetch_docs",
+                "customer_email": "invoice-docs@example.com",
+                "description": "Premium monthly subscription",
+                "subtotal": 2000,
+                "total": 2000,
+                "currency": "usd",
+                "status": "paid",
+                "number": "INV-LIVE-0001",
+                "hosted_invoice_url": "https://invoice.stripe.com/i/acct_live/in_fetch_docs",
+                "invoice_pdf": "https://pay.stripe.com/invoice/acct_live/in_fetch_docs/pdf",
+                "payment_intent": {
+                    "id": "pi_fetch_docs",
+                    "latest_charge": {
+                        "id": "ch_fetch_docs",
+                        "receipt_url": "https://pay.stripe.com/receipts/acct_live/ch_fetch_docs",
+                    },
+                },
+                "charge": {
+                    "id": "ch_fetch_docs",
+                    "receipt_url": "https://pay.stripe.com/receipts/acct_live/ch_fetch_docs",
+                },
+                "created": 1_800_000_000,
+                "status_transitions": {"paid_at": 1_800_000_100},
+                "lines": {
+                    "data": [
+                        {
+                            "description": "Premium monthly subscription",
+                            "period": {"start": 1_800_000_000, "end": 1_802_592_000},
+                            "price": {
+                                "id": "price_live_premium_monthly",
+                                "recurring": {"interval": "month"},
+                            },
+                        }
+                    ]
+                },
+            }
+        if path == "subscriptions/sub_fetch_docs":
+            return {
+                "id": "sub_fetch_docs",
+                "object": "subscription",
+                "customer": "cus_fetch_docs",
+                "status": "active",
+                "current_period_end": 1_802_592_000,
+                "items": {"data": [{"price": {"id": "price_live_premium_monthly", "recurring": {"interval": "month"}}}]},
+            }
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    try:
+        user = _user(db, "invoice-docs@example.com")
+        user.stripe_customer_id = "cus_fetch_docs"
+        user.stripe_subscription_id = "sub_fetch_docs"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_invoice_fetch_docs",
+                "type": "invoice.paid",
+                "data": {
+                    "object": {
+                        "id": "in_fetch_docs",
+                        "object": "invoice",
+                        "customer": "cus_fetch_docs",
+                        "subscription": "sub_fetch_docs",
+                        "customer_email": "invoice-docs@example.com",
+                        "status": "paid",
+                        "payment_intent": "pi_fetch_docs",
+                        "charge": "ch_fetch_docs",
+                        "lines": {
+                            "data": [
+                                {
+                                    "price": {
+                                        "id": "price_live_premium_monthly",
+                                        "recurring": {"interval": "month"},
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result["status"] == "processed"
+        assert [call[0] for call in get_calls] == ["invoices/in_fetch_docs", "subscriptions/sub_fetch_docs"]
+        assert set(get_calls[0][1]["expand[]"]) == {
+            "charge",
+            "payment_intent",
+            "payment_intent.latest_charge",
+        }
+        history = account_billing_history(_request_for_user(user), db, limit=10)
+        documented = history["items"][0]
+        assert documented["documents"]["invoice_number"] == "INV-LIVE-0001"
+        assert documented["documents"]["hosted_invoice_url"] == "https://invoice.stripe.com/i/acct_live/in_fetch_docs"
+        assert documented["documents"]["invoice_pdf"] == "https://pay.stripe.com/invoice/acct_live/in_fetch_docs/pdf"
+        assert documented["documents"]["invoice_pdf_url"] == "https://pay.stripe.com/invoice/acct_live/in_fetch_docs/pdf"
+        assert documented["documents"]["receipt_url"] == "https://pay.stripe.com/receipts/acct_live/ch_fetch_docs"
+        assert documented["documents"]["has_stripe_document"] is True
     finally:
         db.close()
 
