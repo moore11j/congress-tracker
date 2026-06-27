@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
 import re
+import threading
 from datetime import date, datetime, timedelta, timezone
-from time import perf_counter
+from time import monotonic, perf_counter
 from types import SimpleNamespace
 from typing import Annotated
 
@@ -75,6 +77,11 @@ FEED_OUTCOME_RETRY_STATUSES = {
 }
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
+EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "10") or 10)
+EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS = float(os.getenv("EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS", "3") or 3)
+_EVENTS_RESPONSE_CACHE: dict[str, tuple[float, EventsPage | EventsPageDebug]] = {}
+_EVENTS_RESPONSE_INFLIGHT: dict[str, dict[str, object]] = {}
+_EVENTS_RESPONSE_CACHE_LOCK = threading.Lock()
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Defense",
     "Department of Health and Human Services",
@@ -200,6 +207,130 @@ def _events_debug_enabled(db: Session, request: Request | None, requested: bool 
     except Exception:
         return False
     return is_admin_user(user)
+
+
+def _events_response_cache_ttl_seconds() -> int:
+    return max(0, min(60, EVENTS_RESPONSE_CACHE_TTL_SECONDS))
+
+
+def _events_response_cache_key(
+    *,
+    request: Request | None,
+    debug_enabled: bool,
+    include_total: bool,
+    enrich_prices: bool,
+    combined_symbols: list[str],
+    type_list: list[str],
+    tape_value: str | None,
+    since: str | None,
+    member: str | None,
+    member_id: str | None,
+    chamber_value: str | None,
+    party_value: str | None,
+    asset_filter_value: str,
+    trade_value: str | None,
+    transaction_type: str | None,
+    role: str | None,
+    ownership: str | None,
+    department: str | None,
+    min_amount: float | None,
+    max_amount: float | None,
+    filed_after_max: float | None,
+    pnl_min: float | None,
+    pnl_max: float | None,
+    signal_min: float | None,
+    whale: bool | None,
+    recent_days: int | None,
+    cursor: str | None,
+    limit: int,
+    page_size: int | None,
+    offset: int,
+) -> str | None:
+    if request is None and not _is_production_runtime():
+        return None
+    if debug_enabled or include_total:
+        return None
+    if _events_response_cache_ttl_seconds() <= 0:
+        return None
+    key_parts = {
+        "symbols": tuple(sorted(combined_symbols)),
+        "types": tuple(sorted(type_list)),
+        "enrich_prices": bool(enrich_prices),
+        "tape": tape_value,
+        "since": since,
+        "member": (member or "").strip().casefold(),
+        "member_id": (member_id or "").strip().casefold(),
+        "chamber": chamber_value,
+        "party": party_value,
+        "asset": asset_filter_value.strip().casefold(),
+        "trade": trade_value,
+        "transaction": (transaction_type or "").strip().casefold(),
+        "role": (role or "").strip().casefold(),
+        "ownership": (ownership or "").strip().casefold(),
+        "department": (department or "").strip().casefold(),
+        "min": min_amount,
+        "max": max_amount,
+        "filed_after": filed_after_max,
+        "pnl_min": pnl_min,
+        "pnl_max": pnl_max,
+        "signal_min": signal_min,
+        "whale": bool(whale),
+        "recent_days": recent_days,
+        "cursor": cursor,
+        "limit": limit,
+        "page_size": page_size,
+        "offset": offset,
+    }
+    return "events:" + json.dumps(key_parts, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _events_response_cache_get(cache_key: str | None) -> EventsPage | EventsPageDebug | None:
+    if not cache_key:
+        return None
+    now = monotonic()
+    with _EVENTS_RESPONSE_CACHE_LOCK:
+        cached = _EVENTS_RESPONSE_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _EVENTS_RESPONSE_CACHE.pop(cache_key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _events_response_inflight_start(cache_key: str | None) -> tuple[dict[str, object] | None, bool]:
+    if not cache_key:
+        return None, False
+    now = monotonic()
+    with _EVENTS_RESPONSE_CACHE_LOCK:
+        state = _EVENTS_RESPONSE_INFLIGHT.get(cache_key)
+        if state is not None and now - float(state.get("started_at") or 0.0) <= EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS:
+            return state, False
+        state = {"event": threading.Event(), "result": None, "started_at": now}
+        _EVENTS_RESPONSE_INFLIGHT[cache_key] = state
+        return state, True
+
+
+def _events_response_cache_finalize(
+    cache_key: str | None,
+    inflight_state: dict[str, object] | None,
+    inflight_leader: bool,
+    payload: EventsPage | EventsPageDebug,
+) -> EventsPage | EventsPageDebug:
+    if not cache_key:
+        return payload
+    stored = copy.deepcopy(payload)
+    with _EVENTS_RESPONSE_CACHE_LOCK:
+        _EVENTS_RESPONSE_CACHE[cache_key] = (monotonic() + _events_response_cache_ttl_seconds(), stored)
+    if inflight_leader and inflight_state is not None:
+        inflight_state["result"] = copy.deepcopy(payload)
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event):
+            event.set()
+        with _EVENTS_RESPONSE_CACHE_LOCK:
+            _EVENTS_RESPONSE_INFLIGHT.pop(cache_key, None)
+    return payload
 
 
 def _is_legacy_member_alias(member_id: str | None) -> bool:
@@ -3338,6 +3469,61 @@ def list_events(
 
     display_filter_active = pnl_min is not None or pnl_max is not None or signal_min is not None
     candidate_limit = min(max(limit * 10, limit), 500) if display_filter_active else limit
+    response_cache_key = _events_response_cache_key(
+        request=request,
+        debug_enabled=debug_enabled,
+        include_total=include_total,
+        enrich_prices=enrich_prices,
+        combined_symbols=combined_symbols,
+        type_list=type_list,
+        tape_value=tape_value,
+        since=since,
+        member=member,
+        member_id=member_id,
+        chamber_value=chamber_value,
+        party_value=party_value,
+        asset_filter_value=asset_filter_value,
+        trade_value=trade_value,
+        transaction_type=transaction_type,
+        role=role,
+        ownership=ownership,
+        department=department,
+        min_amount=min_amount,
+        max_amount=max_amount,
+        filed_after_max=filed_after_max,
+        pnl_min=pnl_min,
+        pnl_max=pnl_max,
+        signal_min=signal_min,
+        whale=whale,
+        recent_days=recent_days,
+        cursor=cursor,
+        limit=limit,
+        page_size=page_size,
+        offset=offset,
+    )
+    cached_response = _events_response_cache_get(response_cache_key)
+    if cached_response is not None:
+        logger.info("events_response_cache_hit symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
+        _log_events_request_summary(
+            started_at=started_at,
+            item_count=len(cached_response.items),
+            total=cached_response.total,
+            include_total=include_total,
+            enrich_prices=enrich_prices,
+            limit=limit,
+            page_size=page_size,
+            offset=offset,
+        )
+        return cached_response
+    inflight_state, inflight_leader = _events_response_inflight_start(response_cache_key)
+    if response_cache_key and not inflight_leader and inflight_state is not None:
+        event = inflight_state.get("event")
+        if isinstance(event, threading.Event) and event.wait(timeout=max(EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS, 0)):
+            result = inflight_state.get("result")
+            if isinstance(result, (EventsPage, EventsPageDebug)):
+                logger.info("events_response_dedupe_hit symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
+                return copy.deepcopy(result)
+        logger.info("events_response_dedupe_timeout symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
 
     if cursor:
         cursor_ts, cursor_id = _parse_cursor(cursor)
@@ -3422,7 +3608,12 @@ def list_events(
                 page_size=page_size,
                 offset=offset,
             )
-            return EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload)
+            return _events_response_cache_finalize(
+                response_cache_key,
+                inflight_state,
+                inflight_leader,
+                EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload),
+            )
         _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
         _log_events_request_summary(
             started_at=started_at,
@@ -3434,7 +3625,7 @@ def list_events(
             page_size=page_size,
             offset=offset,
         )
-        return page
+        return _events_response_cache_finalize(response_cache_key, inflight_state, inflight_leader, page)
 
     rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
     event_ids = [event.id for event in rows]
@@ -3558,7 +3749,12 @@ def list_events(
             page_size=page_size,
             offset=offset,
         )
-        return EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload)
+        return _events_response_cache_finalize(
+            response_cache_key,
+            inflight_state,
+            inflight_leader,
+            EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload),
+        )
 
     _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
     _log_events_request_summary(
@@ -3571,7 +3767,12 @@ def list_events(
         page_size=page_size,
         offset=offset,
     )
-    return EventsPageDebug(items=items, total=total, limit=limit, offset=offset)
+    return _events_response_cache_finalize(
+        response_cache_key,
+        inflight_state,
+        inflight_leader,
+        EventsPageDebug(items=items, total=total, limit=limit, offset=offset),
+    )
 
 
 @router.get("/tickers/{symbol}/events", response_model=EventsPage, dependencies=[Depends(rate_limit_provider_backed)])

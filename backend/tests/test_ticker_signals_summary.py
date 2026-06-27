@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -27,12 +29,14 @@ def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS[tier])
     monkeypatch.setattr(main_module, "require_feature", lambda *args, **kwargs: None)
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
+    main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
 
 
 def _mock_logged_out_signal_context(monkeypatch):
     monkeypatch.setattr(main_module, "current_user", lambda *args, **kwargs: None)
     monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS["free"])
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
+    main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
 
 
 def _event(
@@ -207,6 +211,70 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatch):
+    _mock_signal_auth(monkeypatch)
+    query_started = threading.Event()
+    release_query = threading.Event()
+    query_call_count = 0
+    query_lock = threading.Lock()
+
+    def fake_query(**kwargs):
+        nonlocal query_call_count
+        with query_lock:
+            query_call_count += 1
+        query_started.set()
+        assert release_query.wait(timeout=2)
+        return [
+            SimpleNamespace(
+                model_dump=lambda mode="json": {
+                    "symbol": kwargs["symbol"],
+                    "ts": "2026-06-12T12:00:00Z",
+                    "smart_score": 82,
+                }
+            )
+        ]
+
+    monkeypatch.setattr(main_module, "_query_unified_signals", fake_query)
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {"confirmation_score_bundle": _full_source_confirmation_bundle(symbol)},
+    )
+
+    responses: list[dict] = []
+    errors: list[BaseException] = []
+
+    def run_request():
+        try:
+            responses.append(ticker_signals_summary(object(), "NVDA", side="all", limit=3, lookback_days=30, db=object()))
+        except BaseException as exc:
+            errors.append(exc)
+
+    leader = threading.Thread(target=run_request)
+    follower = threading.Thread(target=run_request)
+    leader.start()
+    assert query_started.wait(timeout=2)
+    follower.start()
+    time.sleep(0.05)
+    release_query.set()
+    leader.join(timeout=2)
+    follower.join(timeout=2)
+
+    assert not leader.is_alive()
+    assert not follower.is_alive()
+    assert errors == []
+    assert query_call_count == 1
+    assert len(responses) == 2
+    assert [response["symbol"] for response in responses] == ["NVDA", "NVDA"]
+    assert [response["latest_signal_score"] for response in responses] == [82, 82]
+    assert main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT == {}
 
 
 def test_ticker_signals_summary_logged_out_returns_public_context_with_locked_paid_sources(monkeypatch):

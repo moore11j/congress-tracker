@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import app.routers.events as events_module
 from app.db import Base
 from app.models import Event, GovernmentContractAction, Security, TradeOutcome
 from app.routers.events import list_events
@@ -23,6 +24,11 @@ def _stub_enrichment(monkeypatch) -> None:
     monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+
+
+def _clear_events_response_cache() -> None:
+    events_module._EVENTS_RESPONSE_CACHE.clear()
+    events_module._EVENTS_RESPONSE_INFLIGHT.clear()
 
 
 def _event(event_id: int, event_type: str, **kwargs) -> Event:
@@ -291,4 +297,52 @@ def test_feed_events_expose_actor_and_ticker_net_30d(monkeypatch):
         assert by_id[42].member_net_30d == 10_000
         assert by_id[42].symbol_net_30d == 7_000
     finally:
+        db.close()
+
+
+def test_list_events_caches_production_http_read_path(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        first_ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                1,
+                "congress_trade",
+                ts=first_ts,
+                event_date=first_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        request = object()
+        first_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=True)
+        assert [item.id for item in first_page.items] == [1]
+
+        second_ts = datetime(2026, 5, 20, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                2,
+                "congress_trade",
+                ts=second_ts,
+                event_date=second_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        cached_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=True)
+        assert [item.id for item in cached_page.items] == [1]
+
+        _clear_events_response_cache()
+        uncached_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=True)
+        assert [item.id for item in uncached_page.items] == [2, 1]
+    finally:
+        _clear_events_response_cache()
         db.close()
