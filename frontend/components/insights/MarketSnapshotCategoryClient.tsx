@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
+import { getInsightsCategoryNews, getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
 import {
   applyInsightsOverview,
   deltaClassName,
@@ -12,7 +12,8 @@ import {
   type MarketSnapshotCategory,
   type MarketSnapshotCategorySlug,
 } from "@/lib/marketSnapshot";
-import type { MacroSnapshotResponse } from "@/lib/types";
+import type { InsightsNewsResponse, MacroSnapshotResponse } from "@/lib/types";
+import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { cardClassName, ghostButtonClassName } from "@/lib/styles";
 
 type Props = {
@@ -57,6 +58,20 @@ function CategorySkeleton({ category }: Props) {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function NewsSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div key={index} className="rounded-2xl border border-white/10 bg-slate-950/55 px-4 py-3">
+          <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
+          <div className="mt-3 h-3 w-1/2 animate-pulse rounded bg-white/10" />
+          <div className="mt-3 h-3 w-full animate-pulse rounded bg-white/10" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -121,6 +136,7 @@ function MobileRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows
 
 export function MarketSnapshotCategoryClient({ category }: Props) {
   const [snapshot, setSnapshot] = useState<MacroSnapshotResponse | null>(null);
+  const [news, setNews] = useState<InsightsNewsResponse | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -144,6 +160,28 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setNews(null);
+    getInsightsCategoryNews(category.slug, { page: 0, limit: 20, signal: controller.signal })
+      .then((payload) => {
+        if (!controller.signal.aborted) setNews(payload);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setNews({
+            items: [],
+            status: "warming",
+            message: "Headlines are warming. Check back shortly.",
+            page: 0,
+            limit: 20,
+            has_next: false,
+          });
+        }
+      });
+    return () => controller.abort();
+  }, [category.slug]);
 
   const rows = useMemo(
     () => (snapshot ? marketSnapshotDetailRows(snapshot, category.slug as MarketSnapshotCategorySlug) : []),
@@ -188,6 +226,25 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
             <DesktopRows rows={rows} />
             <MobileRows rows={rows} />
           </>
+        )}
+      </section>
+
+      <section className={cardClassName}>
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold text-white">{category.title} Headlines</h2>
+          <p className="mt-1 text-sm text-slate-400">Recent headlines connected to this market view.</p>
+        </div>
+        {news ? (
+          <NewsArticleList
+            items={news.items}
+            status={news.status}
+            message={news.message}
+            emptyMessage={`No recent ${category.title.toLowerCase()} headlines found.`}
+            showImage={false}
+            compact
+          />
+        ) : (
+          <NewsSkeleton />
         )}
       </section>
     </div>

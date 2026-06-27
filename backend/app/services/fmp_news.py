@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 NewsStatus = Literal["ok", "empty", "unavailable"]
 GENERAL_NEWS_TTL_SECONDS = 15 * 60
+INSIGHTS_CATEGORY_NEWS_TTL_SECONDS = 15 * 60
 STOCK_NEWS_TTL_SECONDS = 15 * 60
 PRESS_RELEASES_TTL_SECONDS = 30 * 60
 SEC_FILINGS_TTL_SECONDS = 60 * 60
@@ -47,6 +48,7 @@ PROVIDER_TIMEOUT_SECONDS = 8
 SYMBOL_SCAN_MAX_PAGES = 2
 SYMBOL_SCAN_MAX_ITEMS = 100
 GENERAL_UNAVAILABLE_MESSAGE = "Market data is temporarily unavailable."
+INSIGHTS_CATEGORY_UNAVAILABLE_MESSAGE = "Headlines are temporarily unavailable."
 TICKER_CONTEXT_UNAVAILABLE_MESSAGE = "Data temporarily unavailable."
 TICKER_NEWS_EMPTY_MESSAGE = "No recent news found for this ticker."
 TICKER_NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable."
@@ -105,6 +107,32 @@ _BEARISH_KEYWORDS = (
     "lowers",
     "bankruptcy",
     "layoffs",
+)
+
+INSIGHTS_CATEGORY_NEWS_ENDPOINTS = {
+    "world-indexes": "news/general-latest",
+    "us-macro": "news/stock-latest",
+    "us-treasury": "news/stock-latest",
+    "us-indexes": "news/stock-latest",
+    "us-sectors": "news/stock-latest",
+    "crypto": "news/crypto-latest",
+    "currencies": "news/forex-latest",
+    "commodities": "news/general-latest",
+}
+
+COMMODITY_NEWS_TERMS = (
+    "commodity",
+    "commodities",
+    "gold",
+    "silver",
+    "copper",
+    "brent",
+    "crude",
+    "oil",
+    "natural gas",
+    "wheat",
+    "corn",
+    "soybean",
 )
 
 _CACHE: dict[str, tuple[float, float, float, dict[str, Any]]] = {}
@@ -760,6 +788,21 @@ def _normalize_general_article(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _normalize_category_article(row: dict[str, Any], category: str) -> dict[str, Any] | None:
+    item = _normalize_general_article(row)
+    if not item:
+        return None
+    return {**item, "source": f"insights_{category.replace('-', '_')}_news"}
+
+
+def _matches_commodity_terms(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "summary", "symbol")
+    ).lower()
+    return any(term in text for term in COMMODITY_NEWS_TERMS)
+
+
 def _normalize_stock_article(row: dict[str, Any], *, symbol: str, strict_symbol_filter: bool) -> dict[str, Any] | None:
     title = _trimmed(row.get("title"))
     url = _trimmed(row.get("url"))
@@ -991,6 +1034,50 @@ def get_general_news(*, page: int = 0, limit: int = 20) -> dict[str, Any]:
     items.sort(key=_sort_key, reverse=True)
     payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
     return _cache_set(cache_key, payload, ttl_seconds=GENERAL_NEWS_TTL_SECONDS, category="news:general")
+
+
+def get_insights_category_news(category: str, *, page: int = 0, limit: int = 20) -> dict[str, Any]:
+    category_key = (category or "").strip().lower()
+    endpoint = INSIGHTS_CATEGORY_NEWS_ENDPOINTS.get(category_key)
+    bounded_page = max(int(page or 0), 0)
+    bounded_limit = max(1, min(int(limit or 20), 50))
+    if not endpoint:
+        return _payload_from_items([], page=bounded_page, limit=bounded_limit, has_next=False)
+
+    provider_limit = bounded_limit
+    usage_category = f"news:insights:{category_key}"
+    cache_key = _cache_key("insights-category-news", {"category": category_key, "page": bounded_page, "limit": bounded_limit})
+    cached = _cache_get(cache_key, category=usage_category)
+    if cached is not None:
+        return cached
+    record_cache_miss(category=usage_category)
+
+    try:
+        rows, supported = _request_rows(
+            endpoint,
+            params={"page": bounded_page, "limit": provider_limit},
+        )
+        if not supported:
+            raise FMPNewsUnavailable(INSIGHTS_CATEGORY_UNAVAILABLE_MESSAGE)
+    except FMPNewsUnavailable as exc:
+        reason = reason_from_exception(exc)
+        record_fallback(category=usage_category, reason=reason)
+        stale = _cache_get_stale(cache_key, category=usage_category)
+        if stale is not None:
+            stale_payload, age = stale
+            record_fallback(category=usage_category, reason=reason, cache_age_seconds=age)
+            return _stale_payload(stale_payload, reason=reason, message=INSIGHTS_CATEGORY_UNAVAILABLE_MESSAGE, age_seconds=age)
+        if _is_public_request_context():
+            return _warming_payload(page=bounded_page, limit=bounded_limit)
+        payload = _unavailable_payload(page=bounded_page, limit=bounded_limit, message=INSIGHTS_CATEGORY_UNAVAILABLE_MESSAGE, reason=reason)
+        return _cache_set(cache_key, payload, ttl_seconds=INSIGHTS_CATEGORY_NEWS_TTL_SECONDS, category=usage_category)
+
+    items = _dedupe_by_url(list(filter(None, (_normalize_category_article(row, category_key) for row in rows))))
+    if category_key == "commodities":
+        items = [item for item in items if _matches_commodity_terms(item)]
+    items.sort(key=_sort_key, reverse=True)
+    payload = _payload_from_items(items[:bounded_limit], page=bounded_page, limit=bounded_limit, has_next=len(items) > bounded_limit)
+    return _cache_set(cache_key, payload, ttl_seconds=INSIGHTS_CATEGORY_NEWS_TTL_SECONDS, category=usage_category)
 
 
 def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, Any]:

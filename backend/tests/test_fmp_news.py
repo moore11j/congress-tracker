@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.main import list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
+from app.main import list_insights_category_news, list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
 from app.models import InsightsSnapshot
 from app.services.insights_snapshots import refresh_insights_headlines
 from app.services.fmp_market_snapshot import (
@@ -19,7 +19,7 @@ from app.services.fmp_market_snapshot import (
     clear_macro_snapshot_cache,
     get_macro_snapshot,
 )
-from app.services.fmp_news import clear_news_cache, get_general_news
+from app.services.fmp_news import clear_news_cache, get_general_news, get_insights_category_news
 
 
 class _FakeResponse:
@@ -85,6 +85,82 @@ def test_insights_news_uses_general_latest_and_returns_has_next(monkeypatch):
     assert response["items"][0]["source"] == "fmp_general_news"
     assert response["items"][0]["image_url"] == "https://example.com/macro.jpg"
     assert response["items"][0]["market_read"] == "neutral"
+
+
+def test_insights_category_news_uses_configured_latest_endpoints(monkeypatch):
+    clear_news_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    seen: list[tuple[str, dict]] = []
+
+    expected = {
+        "world-indexes": "/stable/news/general-latest",
+        "us-macro": "/stable/news/stock-latest",
+        "us-treasury": "/stable/news/stock-latest",
+        "us-indexes": "/stable/news/stock-latest",
+        "us-sectors": "/stable/news/stock-latest",
+        "crypto": "/stable/news/crypto-latest",
+        "currencies": "/stable/news/forex-latest",
+    }
+
+    def fake_get(url, params=None, timeout=30):
+        seen.append((url, params or {}))
+        return _FakeResponse(
+            200,
+            [
+                {
+                    "title": "Market headline",
+                    "site": "Reuters",
+                    "publishedDate": "2026-06-27T15:30:00Z",
+                    "url": f"https://example.com/{len(seen)}",
+                    "text": "Markets moved today.",
+                }
+            ],
+        )
+
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    for category, endpoint_suffix in expected.items():
+        response = get_insights_category_news(category, page=0, limit=20)
+        assert response["status"] == "ok"
+        assert response["items"][0]["title"] == "Market headline"
+        assert seen[-1][0].endswith(endpoint_suffix)
+        assert seen[-1][1]["page"] == 0
+        assert seen[-1][1]["limit"] == 20
+
+
+def test_insights_commodities_news_filters_general_latest(monkeypatch):
+    clear_news_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+
+    def fake_get(url, params=None, timeout=30):
+        assert url.endswith("/stable/news/general-latest")
+        return _FakeResponse(
+            200,
+            [
+                {
+                    "title": "Gold rises as investors watch dollar",
+                    "site": "Reuters",
+                    "publishedDate": "2026-06-27T15:30:00Z",
+                    "url": "https://example.com/gold",
+                    "text": "Silver and copper also moved.",
+                },
+                {
+                    "title": "Software earnings preview",
+                    "site": "AP",
+                    "publishedDate": "2026-06-27T14:30:00Z",
+                    "url": "https://example.com/software",
+                    "text": "Large-cap technology shares were mixed.",
+                },
+            ],
+        )
+
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+
+    response = list_insights_category_news("commodities", page=0, limit=20)
+
+    assert response["status"] == "ok"
+    assert [item["title"] for item in response["items"]] == ["Gold rises as investors watch dollar"]
+    assert "test-key" not in str(response)
 
 
 def test_insights_news_route_reads_durable_cache_without_provider_call(monkeypatch):

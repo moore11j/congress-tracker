@@ -4435,6 +4435,27 @@ export async function getInsightsNews(params?: {
   );
 }
 
+export async function getInsightsCategoryNews(category: string, params?: {
+  limit?: number;
+  page?: number;
+  authToken?: string | null;
+  signal?: AbortSignal;
+}): Promise<InsightsNewsResponse> {
+  return fetchJson<InsightsNewsResponse>(
+    buildApiUrl(`/api/insights/news/${encodeURIComponent(category)}`, {
+      limit: params?.limit,
+      page: params?.page,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "InsightsCategoryNews",
+    },
+  );
+}
+
 export async function getInsightsMacroSnapshot(params?: {
   authToken?: string | null;
   signal?: AbortSignal;

@@ -221,7 +221,7 @@ from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
-from app.services.fmp_news import get_press_releases, get_sec_filings, get_stock_news
+from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
@@ -8521,6 +8521,15 @@ def list_insights_news(
     db: Session = Depends(get_db),
 ):
     return get_insights_headlines(db, page=page, limit=limit)
+
+
+@app.get("/api/insights/news/{category}", dependencies=[Depends(rate_limit_provider_backed)])
+def list_insights_category_news(
+    category: str,
+    page: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+):
+    return get_insights_category_news(category, page=page, limit=limit)
 
 
 @app.get("/api/insights/macro-snapshot", dependencies=[Depends(rate_limit_provider_backed)])

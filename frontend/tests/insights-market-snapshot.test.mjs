@@ -21,7 +21,11 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
   assert.match(insightsClient, /getInsightsOverview/);
   assert.match(categoryClient, /getInsightsOverview/);
+  assert.match(categoryClient, /getInsightsCategoryNews\(category\.slug/);
+  assert.match(categoryClient, /NewsArticleList/);
+  assert.match(categoryClient, /\{category\.title\} Headlines/);
   assert.match(api, /\/api\/insights\/overview/);
+  assert.match(api, /\/api\/insights\/news\/\$\{encodeURIComponent\(category\)\}/);
 
   const order = [
     'title="Global Markets"',
@@ -86,6 +90,9 @@ test("insights market snapshot hides provider and internal source terms", () => 
     assert.doesNotMatch(source, /proxy/i);
     assert.doesNotMatch(source, /launch disabled/i);
   }
+
+  assert.doesNotMatch(api, /financialmodelingprep/i);
+  assert.doesNotMatch(api, /apikey/i);
 
   for (const source of [marketSnapshot, marketSnapshotLib]) {
     assert.doesNotMatch(source, /Global ETF Proxies/);
