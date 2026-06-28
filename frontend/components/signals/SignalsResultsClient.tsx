@@ -14,6 +14,11 @@ import {
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
+import {
+  mobileResultsScrollFrameClassName,
+  resultsTableFrameClassName,
+  stickyResultsTableHeaderClassName,
+} from "@/components/ui/resultsTableFrame";
 import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SIGNALS_COLUMN_DEFINITIONS, SignalColumnHeaderTooltip } from "@/components/signals/SignalColumnHeaderTooltip";
@@ -218,7 +223,7 @@ export function SignalsResultsClient({
           </Link>
         )}
       </div>
-      <div className="max-w-full overflow-hidden md:hidden">
+      <div className={`${mobileResultsScrollFrameClassName} md:hidden`}>
         {loading || items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
             {loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}
@@ -336,7 +341,7 @@ export function SignalsResultsClient({
           </div>
         )}
       </div>
-      <div className="hidden min-w-0 max-w-full overflow-x-hidden md:block">
+      <div className={`${resultsTableFrameClassName(items.length, { always: true })} hidden min-w-0 md:block`}>
         <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[5rem]" />
@@ -351,7 +356,7 @@ export function SignalsResultsClient({
             <col className="w-[5.75rem]" />
             <col className="w-[5rem]" />
           </colgroup>
-          <thead className="whitespace-nowrap bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+          <thead className={`${stickyResultsTableHeaderClassName} whitespace-nowrap bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
               <th className="px-2 py-3 text-left xl:px-3">Time</th>
               <th className="px-2 py-3 text-left xl:px-3">Ticker</th>

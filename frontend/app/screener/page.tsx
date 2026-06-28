@@ -33,6 +33,7 @@ import {
   subtlePrimaryButtonClassName,
   tickerMonoLinkClassName,
 } from "@/lib/styles";
+import { resultsTableFrameClassName, stickyResultsTableHeaderClassName } from "@/components/ui/resultsTableFrame";
 import { tickerHref } from "@/lib/ticker";
 
 export const dynamic = "force-dynamic";
@@ -1341,9 +1342,9 @@ function ScreenerResults({
         </div>
       </div>
 
-      <div className="overflow-x-auto overflow-y-hidden">
+      <div className={resultsTableFrameClassName(rows.length)}>
         <table className="min-w-full border-collapse text-sm">
-          <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+          <thead className={`${stickyResultsTableHeaderClassName} bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
               <SortHeader params={params} sort="symbol" label="Symbol" />
               <th className="px-3 py-2.5 text-left">Company</th>

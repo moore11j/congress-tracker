@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { ApiError, getScreener, type ScreenerApiActivityOverlay, type ScreenerApiResponse, type ScreenerApiRow } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
+import { resultsTableFrameClassName, stickyResultsTableHeaderClassName } from "@/components/ui/resultsTableFrame";
 import type { ScreenerColumnKey } from "@/lib/screenerColumns";
 import { ghostButtonClassName, tickerMonoLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
@@ -468,9 +469,9 @@ export function ScreenerResultsClient({
         </div>
       </div>
 
-      <div className="overflow-x-auto overflow-y-hidden">
+      <div className={resultsTableFrameClassName(rows.length)}>
         <table className="min-w-full border-collapse text-sm">
-          <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
+          <thead className={`${stickyResultsTableHeaderClassName} bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
               <SortHeader params={params} sort="symbol" label="Symbol" />
               <th className="px-3 py-2.5 text-left">Company</th>

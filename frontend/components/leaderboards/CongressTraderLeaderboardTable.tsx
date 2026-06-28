@@ -9,6 +9,7 @@ import { chamberBadge, partyBadge } from "@/lib/format";
 import { insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
+import { resultsTableFrameClassName, stickyResultsTableHeaderClassName } from "@/components/ui/resultsTableFrame";
 import { tickerHref } from "@/lib/ticker";
 
 function pct(value: number | null | undefined, digits = 1): string {
@@ -152,7 +153,7 @@ function LeaderboardTableHeader({
   const isPortfolioMode = performanceModel === "portfolio";
 
   return (
-    <thead className="border-b border-white/10 bg-slate-950/70 text-xs uppercase tracking-wide">
+    <thead className={`${stickyResultsTableHeaderClassName} border-b border-white/10 bg-slate-950 text-xs uppercase tracking-wide`}>
       <tr>
         <th className="px-4 py-3 text-slate-400">Rank</th>
         <th className="px-4 py-3 text-slate-400">{isInsiderMode ? "Insider" : "Member"}</th>
@@ -257,7 +258,7 @@ export function CongressTraderLeaderboardTable({
 
   return (
     <>
-      <div className="overflow-x-auto">
+      <div className={resultsTableFrameClassName(data.rows.length)}>
         <table className="min-w-full text-left text-sm [font-variant-numeric:tabular-nums]">
           <LeaderboardTableHeader
             sort={sort}
