@@ -1,18 +1,58 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { WatchlistCreateForm } from "@/components/watchlists/WatchlistCreateForm";
 import { WatchlistList } from "@/components/watchlists/WatchlistList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { getEntitlements, hasClientAuthHint, listWatchlists } from "@/lib/api";
+import { addToWatchlist, getEntitlements, hasClientAuthHint, listWatchlists } from "@/lib/api";
 import { defaultEntitlements, type Entitlements } from "@/lib/entitlements";
 import { cardClassName } from "@/lib/styles";
 import type { WatchlistSummary } from "@/lib/types";
+import { normalizeTickerSymbol } from "@/lib/ticker";
+import { nextDefaultWatchlistName } from "@/lib/watchlistNames";
 
 type Props = {
   initialWatchlists: WatchlistSummary[];
   initialAuthPending?: boolean;
 };
+
+type PendingTickerIntent = {
+  symbol: string;
+  returnTo: string | null;
+};
+
+const pendingTickerIntentMaxAgeMs = 15 * 60 * 1000;
+const pendingWatchlistToastKey = "watchlist:create-toast";
+
+function safeInternalReturnTo(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
+function pendingTickerIntentFromSearchParams(searchParams: URLSearchParams): PendingTickerIntent | null {
+  if (searchParams.get("create") !== "1" || searchParams.get("intent") !== "addTicker") return null;
+  const symbol = normalizeTickerSymbol(searchParams.get("symbol"));
+  if (!symbol) return null;
+
+  const createdAt = Number(searchParams.get("createdAt") ?? 0);
+  if (Number.isFinite(createdAt) && createdAt > 0 && Date.now() - createdAt > pendingTickerIntentMaxAgeMs) {
+    return null;
+  }
+
+  return {
+    symbol,
+    returnTo: safeInternalReturnTo(searchParams.get("returnTo")),
+  };
+}
+
+function rememberWatchlistToast(message: string) {
+  try {
+    window.sessionStorage.setItem(pendingWatchlistToastKey, message);
+  } catch {
+    // Ignore private browsing or storage denial; the detail page still loads.
+  }
+}
 
 function WatchlistsSkeleton() {
   return (
@@ -40,9 +80,17 @@ function WatchlistsSkeleton() {
 }
 
 export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = false }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
+  const searchParamsString = searchParams.toString();
+  const pendingTickerIntent = useMemo(
+    () => pendingTickerIntentFromSearchParams(new URLSearchParams(searchParamsString)),
+    [searchParamsString],
+  );
+  const defaultName = useMemo(() => nextDefaultWatchlistName(watchlists), [watchlists]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +128,25 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
     setWatchlists(next);
   };
 
+  const handleCreated = async (created: WatchlistSummary) => {
+    if (!pendingTickerIntent) {
+      await refreshWatchlists();
+      return;
+    }
+
+    try {
+      await addToWatchlist(created.id, pendingTickerIntent.symbol);
+    } catch {
+      rememberWatchlistToast(`Watchlist created, but we couldn't add ${pendingTickerIntent.symbol}. Please try again.`);
+    }
+
+    router.push(`/watchlists/${created.id}`);
+  };
+
+  const cancelPendingIntent = () => {
+    router.push(pendingTickerIntent?.returnTo ?? "/watchlists");
+  };
+
   if (entitlementsLoading) {
     return <WatchlistsSkeleton />;
   }
@@ -87,9 +154,12 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
       <WatchlistCreateForm
-        onCreated={refreshWatchlists}
+        onCreated={handleCreated}
+        onCancelPendingIntent={pendingTickerIntent ? cancelPendingIntent : undefined}
         watchlistCount={watchlists.length}
         entitlements={entitlements}
+        defaultName={defaultName}
+        pendingTickerSymbol={pendingTickerIntent?.symbol}
       />
       <div className={cardClassName}>
         <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 import { ConfirmationMonitoringPanel } from "@/components/watchlists/ConfirmationMonitoringRefreshButton";
@@ -23,11 +24,35 @@ type Props = {
   initialData: RecentActivityData;
 };
 
+const pendingWatchlistToastKey = "watchlist:create-toast";
+
 export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData }: Props) {
   const unseenCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
+  const [createToast, setCreateToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const message = window.sessionStorage.getItem(pendingWatchlistToastKey);
+      if (message) {
+        setCreateToast(message);
+        window.sessionStorage.removeItem(pendingWatchlistToastKey);
+      }
+    } catch {
+      // Storage can be unavailable; the detail page itself is still usable.
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
+      {createToast ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-rose-300/40 bg-rose-300/10 px-4 py-3 text-sm font-medium text-rose-100"
+        >
+          {createToast}
+        </div>
+      ) : null}
+
       <div className="grid w-full min-w-0 items-center gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlist</p>

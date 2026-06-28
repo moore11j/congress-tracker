@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
@@ -9,6 +9,7 @@ import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
 import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
+import { normalizeTickerSymbol } from "@/lib/ticker";
 
 type Props = {
   symbol: string;
@@ -66,7 +67,7 @@ function rememberWatchlist(watchlist: WatchlistSummary) {
 }
 
 function normalizedSymbolValue(symbol: string | null | undefined) {
-  return (symbol ?? "").trim().toUpperCase();
+  return normalizeTickerSymbol(symbol) ?? "";
 }
 
 function watchlistHasSymbol(watchlist: WatchlistSummary, symbol: string) {
@@ -153,6 +154,7 @@ function CompactWatchlistGlyph({ added }: { added: boolean }) {
 }
 
 export function AddTickerToWatchlist({ symbol, variant = "default", align = "right" }: Props) {
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [watchlists, setWatchlists] = useState<WatchlistSummary[]>([]);
@@ -170,9 +172,12 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const normalizedSymbol = symbol.trim().toUpperCase();
+  const normalizedSymbol = normalizedSymbolValue(symbol);
   const searchParamsString = searchParams.toString();
   const returnTo = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`;
+  const createWatchlistHref = normalizedSymbol
+    ? `/watchlists?create=1&intent=addTicker&symbol=${encodeURIComponent(normalizedSymbol)}&returnTo=${encodeURIComponent(returnTo)}&createdAt=${Date.now()}`
+    : "/watchlists";
 
   const showToast = useCallback((message: string, tone: WatchlistToast["tone"] = watchlistToastTone(message)) => {
     setToast({ message, tone });
@@ -370,6 +375,10 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           addSymbolToWatchlist(items[0].id, items[0].name, { closeOnSuccess: true, entitlementsOverride: nextEntitlements });
           return;
         }
+        if (items.length === 0) {
+          router.push(createWatchlistHref);
+          return;
+        }
         openPickerWithWatchlists(items);
       } catch (err) {
         if (isAuthError(err)) {
@@ -486,7 +495,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
             <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
               <p>No watchlist found. Create one first.</p>
               <Link
-                href="/watchlists"
+                href={createWatchlistHref}
                 className="mt-3 inline-flex rounded-xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
               >
                 Create watchlist
