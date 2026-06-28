@@ -351,6 +351,32 @@ class StripeWebhookEvent(Base):
     )
 
 
+class AdminBillingOverrideAuditLog(Base):
+    __tablename__ = "admin_billing_override_audit_log"
+    __table_args__ = (
+        Index("ix_admin_billing_override_target_created", "target_user_id", "created_at"),
+        Index("ix_admin_billing_override_admin_created", "admin_user_id", "created_at"),
+        Index("ix_admin_billing_override_status_created", "stripe_sync_status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    admin_user_id: Mapped[Optional[int]]
+    admin_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_user_id: Mapped[int]
+    target_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    override_type: Mapped[str] = mapped_column(Text)
+    previous_state_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
+    requested_state_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_sync_status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
 class EmailTemplate(Base):
     __tablename__ = "email_templates"
     __table_args__ = (

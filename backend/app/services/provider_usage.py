@@ -14,7 +14,7 @@ from app.request_priority import get_request_context
 logger = logging.getLogger(__name__)
 
 PROVIDER = "fmp"
-DEFAULT_CALLS_PER_MINUTE = 750
+DEFAULT_CALLS_PER_MINUTE = 500
 _EVENT_LIMIT = 500
 _WINDOW_SECONDS = 60.0
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -764,7 +764,7 @@ def _content_diagnostics(summary: dict[str, Any], *, enrichment_queue: dict[str,
 
 def _recommendation(summary: dict[str, Any]) -> str:
     if summary.get("status") == "critical":
-        return "Approaching FMP Premium limit. Reduce refresh frequency or upgrade bandwidth."
+        return "Approaching FMP Enterprise limit. Reduce refresh frequency or upgrade bandwidth."
     if summary.get("totals", {}).get("fallbacks"):
         return "Some sections are falling back. Check refresh jobs and cache coverage before increasing traffic."
     if summary.get("cache_hit_rate") is not None and summary["cache_hit_rate"] < 85:

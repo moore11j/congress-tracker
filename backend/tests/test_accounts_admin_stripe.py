@@ -20,7 +20,7 @@ from app.auth import SESSION_COOKIE_NAME, admin_emails, sign_session_payload
 from app.db import Base
 from app.entitlements import current_entitlements, seed_feature_gates, seed_plan_prices
 from app.main import WatchlistPayload, create_watchlist
-from app.models import AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, StripeWebhookEvent, UserAccount, Watchlist
+from app.models import AdminBillingOverrideAuditLog, AppSetting, BillingTransaction, EmailDelivery, PageViewEvent, StripeWebhookEvent, UserAccount, Watchlist
 from app.routers import accounts as accounts_module
 from app.services.billing_reminders import run_billing_expiry_reminders
 from app.routers.accounts import (
@@ -36,6 +36,7 @@ from app.routers.accounts import (
     PasswordResetRequestPayload,
     PasswordChangePayload,
     DeleteAccountPayload,
+    PriceOverridePayload,
     ReactivateAccountPayload,
     PlanLimitPayload,
     PlanPricePayload,
@@ -45,6 +46,7 @@ from app.routers.accounts import (
     AdminSubscriptionSyncPayload,
     SuspendPayload,
     admin_set_premium,
+    admin_set_user_price_override,
     admin_send_password_reset,
     admin_subscription_debug,
     admin_sync_stripe_subscription,
@@ -2894,7 +2896,7 @@ def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypa
         db.close()
 
 
-def test_subscription_updated_clears_stale_free_manual_override_for_paid_stripe_state(monkeypatch):
+def test_subscription_updated_preserves_admin_free_manual_override_for_paid_stripe_state(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
     db = _session()
@@ -2936,10 +2938,10 @@ def test_subscription_updated_clears_stale_free_manual_override_for_paid_stripe_
         db.refresh(user)
 
         assert result["status"] == "processed"
-        assert user.manual_tier_override is None
-        assert user.entitlement_tier == "premium"
+        assert user.manual_tier_override == "free"
+        assert user.entitlement_tier == "free"
         assert user.subscription_plan == "premium"
-        assert current_entitlements(_request_for_user(user), db).tier == "premium"
+        assert current_entitlements(_request_for_user(user), db).tier == "free"
     finally:
         db.close()
 
@@ -4152,7 +4154,29 @@ def test_cancel_keeps_paid_access_and_reactivate_clears_period_end_cancel(monkey
 
 def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_admin_premium")
     db = _session()
+    stripe_calls: list[tuple[str, str, dict, str | None]] = []
+
+    def fake_stripe_get(path, params=None):
+        stripe_calls.append(("GET", path, dict(params or {}), None))
+        if path == "customers":
+            return {"data": []}
+        if path == "subscriptions":
+            return {"data": []}
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    def fake_stripe_post(path, data, *, idempotency_key=None):
+        stripe_calls.append(("POST", path, dict(data), idempotency_key))
+        if path == "customers":
+            return {"id": "cus_admin_manage"}
+        if path == "customers/cus_admin_manage":
+            return {"id": "cus_admin_manage"}
+        raise AssertionError(f"Unexpected Stripe POST path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
     try:
         admin = _user(db, "admin@example.com", role="admin")
         reader = _user(db, "reader@example.com")
@@ -4166,10 +4190,249 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
 
         suspended = admin_suspend_user(reader.id, SuspendPayload(suspended=True), request, db)
         assert suspended["is_suspended"] is True
+        assert any(call[0] == "POST" and call[1] == "customers" for call in stripe_calls)
+        assert any(call[3] and call[3].startswith("admin-billing:user-") for call in stripe_calls if call[0] == "POST")
 
         result = admin_delete_user(reader.id, request, db)
         assert result["status"] == "deleted"
         assert db.get(UserAccount, reader.id) is None
+    finally:
+        db.close()
+
+
+def test_admin_plan_override_syncs_to_stripe_before_local_state_changes(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_admin_premium_monthly")
+    db = _session()
+    calls: list[tuple[str, str, dict, str | None]] = []
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "plan-sync@example.com")
+
+        def fake_stripe_get(path, params=None):
+            calls.append(("GET", path, dict(params or {}), None))
+            if path == "customers":
+                return {"data": []}
+            if path == "subscriptions":
+                return {"data": []}
+            raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+        def fake_stripe_post(path, data, *, idempotency_key=None):
+            db.refresh(reader)
+            assert reader.manual_tier_override is None
+            assert reader.entitlement_tier == "free"
+            calls.append(("POST", path, dict(data), idempotency_key))
+            if path == "customers":
+                return {"id": "cus_plan_sync"}
+            raise AssertionError(f"Unexpected Stripe POST path {path}")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+
+        result = admin_set_premium(reader.id, ManualPremiumPayload(tier="premium"), _request_for_user(admin), db)
+        db.refresh(reader)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert result["manual_tier_override"] == "premium"
+        assert reader.entitlement_tier == "premium"
+        assert reader.stripe_customer_id == "cus_plan_sync"
+        customer_call = next(call for call in calls if call[0] == "POST" and call[1] == "customers")
+        assert customer_call[2]["metadata[walnut_admin_plan_override]"] == "premium"
+        assert customer_call[2]["metadata[walnut_admin_plan_price_id]"] == "price_admin_premium_monthly"
+        assert customer_call[3] is not None
+        assert customer_call[3].startswith(f"admin-billing:user-{reader.id}:plan:")
+        assert audit.override_type == "plan"
+        assert audit.stripe_sync_status == "succeeded"
+        assert audit.stripe_customer_id == "cus_plan_sync"
+        assert audit.error_message is None
+        assert "sk_test_hidden" not in audit.previous_state_json + audit.requested_state_json
+    finally:
+        db.close()
+
+
+def test_admin_plan_override_failure_leaves_local_state_unchanged_and_audits_safely(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_admin_premium_monthly")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "plan-fail@example.com")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", lambda path, params=None: {"data": []})
+
+        def fail_stripe_post(path, data, *, idempotency_key=None):
+            raise HTTPException(status_code=502, detail="Stripe request failed: raw provider detail")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fail_stripe_post)
+
+        with pytest.raises(HTTPException) as exc:
+            admin_set_premium(reader.id, ManualPremiumPayload(tier="premium"), _request_for_user(admin), db)
+
+        db.refresh(reader)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert exc.value.status_code == 502
+        assert exc.value.detail["message"] == "Could not sync this change to Stripe. No local billing change was saved."
+        assert reader.manual_tier_override is None
+        assert reader.entitlement_tier == "free"
+        assert audit.override_type == "plan"
+        assert audit.stripe_sync_status == "failed"
+        assert audit.error_message == "stripe_sync_failed_status_502"
+        assert "raw provider detail" not in audit.error_message
+        assert "sk_test_hidden" not in audit.previous_state_json + audit.requested_state_json + (audit.error_message or "")
+    finally:
+        db.close()
+
+
+def test_admin_price_override_syncs_to_stripe_metadata_without_creating_prices(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+    calls: list[tuple[str, str, dict, str | None]] = []
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "price-sync@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_price_sync"
+        reader.stripe_subscription_id = "sub_price_sync"
+        db.commit()
+
+        def fake_stripe_get(path, params=None):
+            calls.append(("GET", path, dict(params or {}), None))
+            if path == "subscriptions/sub_price_sync":
+                return {
+                    "object": "subscription",
+                    "id": "sub_price_sync",
+                    "customer": "cus_price_sync",
+                    "status": "active",
+                    "items": {"data": []},
+                }
+            raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+        def fake_stripe_post(path, data, *, idempotency_key=None):
+            calls.append(("POST", path, dict(data), idempotency_key))
+            if path == "customers/cus_price_sync":
+                return {"id": "cus_price_sync"}
+            if path == "subscriptions/sub_price_sync":
+                return {"id": "sub_price_sync", "customer": "cus_price_sync"}
+            raise AssertionError(f"Unexpected Stripe POST path {path}")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+
+        result = admin_set_user_price_override(
+            reader.id,
+            PriceOverridePayload(monthly_price_override=1495, annual_price_override=14995, override_currency="USD", override_note="support note"),
+            _request_for_user(admin),
+            db,
+        )
+        db.refresh(reader)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert result["monthly_price_override"] == 1495
+        assert reader.monthly_price_override == 1495
+        assert reader.annual_price_override == 14995
+        post_paths = [call[1] for call in calls if call[0] == "POST"]
+        assert post_paths == ["customers/cus_price_sync", "subscriptions/sub_price_sync"]
+        assert "prices" not in post_paths
+        assert "subscription_items" not in post_paths
+        customer_metadata = calls[1][2]
+        subscription_metadata = calls[2][2]
+        assert customer_metadata["metadata[walnut_admin_price_override_monthly]"] == "1495"
+        assert subscription_metadata["metadata[walnut_admin_price_override_annual]"] == "14995"
+        assert audit.override_type == "price"
+        assert audit.stripe_subscription_id == "sub_price_sync"
+        assert audit.stripe_sync_status == "succeeded"
+    finally:
+        db.close()
+
+
+def test_admin_price_override_failure_does_not_save_local_override(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "price-fail@example.com")
+
+        with pytest.raises(HTTPException) as exc:
+            admin_set_user_price_override(
+                reader.id,
+                PriceOverridePayload(monthly_price_override=995, override_currency="USD"),
+                _request_for_user(admin),
+                db,
+            )
+
+        db.refresh(reader)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert exc.value.status_code == 503
+        assert exc.value.detail["message"] == "Could not sync this change to Stripe. No local billing change was saved."
+        assert reader.monthly_price_override is None
+        assert reader.override_currency is None
+        assert audit.override_type == "price"
+        assert audit.stripe_sync_status == "failed"
+        assert audit.error_message == "stripe_sync_failed_status_503"
+    finally:
+        db.close()
+
+
+def test_admin_suspension_and_unsuspension_sync_to_stripe_with_stable_idempotency(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+    calls: list[tuple[str, str, dict, str | None]] = []
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "suspend-sync@example.com")
+        reader.stripe_customer_id = "cus_suspend_sync"
+        reader.stripe_subscription_id = "sub_suspend_sync"
+        db.commit()
+
+        def fake_stripe_get(path, params=None):
+            calls.append(("GET", path, dict(params or {}), None))
+            if path == "subscriptions/sub_suspend_sync":
+                return {
+                    "object": "subscription",
+                    "id": "sub_suspend_sync",
+                    "customer": "cus_suspend_sync",
+                    "status": "active",
+                    "items": {"data": []},
+                }
+            raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+        def fake_stripe_post(path, data, *, idempotency_key=None):
+            calls.append(("POST", path, dict(data), idempotency_key))
+            if path == "customers/cus_suspend_sync":
+                return {"id": "cus_suspend_sync"}
+            if path == "subscriptions/sub_suspend_sync":
+                return {"id": "sub_suspend_sync", "customer": "cus_suspend_sync"}
+            raise AssertionError(f"Unexpected Stripe POST path {path}")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+
+        first = admin_suspend_user(reader.id, SuspendPayload(suspended=True), _request_for_user(admin), db)
+        second = admin_suspend_user(reader.id, SuspendPayload(suspended=True), _request_for_user(admin), db)
+        restored = admin_suspend_user(reader.id, SuspendPayload(suspended=False), _request_for_user(admin), db)
+        db.refresh(reader)
+
+        post_calls = [call for call in calls if call[0] == "POST"]
+        assert first["is_suspended"] is True
+        assert second["is_suspended"] is True
+        assert restored["is_suspended"] is False
+        assert reader.is_suspended is False
+        assert post_calls[0][2]["metadata[walnut_admin_suspended]"] == "true"
+        assert post_calls[1][2]["metadata[walnut_admin_suspended]"] == "true"
+        assert post_calls[4][2]["metadata[walnut_admin_suspended]"] == "false"
+        assert post_calls[0][3] == post_calls[2][3]
+        assert post_calls[1][3] == post_calls[3][3]
+        assert all(call[1] != "subscriptions" for call in post_calls)
+        assert all("subscription_items" not in call[1] for call in post_calls)
+        audits = db.execute(select(AdminBillingOverrideAuditLog).order_by(AdminBillingOverrideAuditLog.id.asc())).scalars().all()
+        assert [row.stripe_sync_status for row in audits] == ["succeeded", "succeeded", "succeeded"]
+        assert all(row.override_type == "suspension" for row in audits)
     finally:
         db.close()
 

@@ -272,6 +272,23 @@ def test_provider_usage_summary_reports_warning_status(monkeypatch):
     reset_provider_usage()
 
 
+def test_provider_usage_default_plan_assumption_is_enterprise_500(monkeypatch):
+    reset_provider_usage()
+    monkeypatch.delenv("FMP_PLAN_CALLS_PER_MINUTE", raising=False)
+    monkeypatch.delenv("FMP_CALLS_PER_MINUTE", raising=False)
+    monkeypatch.delenv("FMP_SOFT_LIMIT_PER_MINUTE", raising=False)
+    monkeypatch.delenv("FMP_HARD_LIMIT_PER_MINUTE", raising=False)
+    monkeypatch.delenv("FMP_CALLS_PER_MINUTE_SOFT_LIMIT", raising=False)
+    monkeypatch.delenv("FMP_CALLS_PER_MINUTE_HARD_LIMIT", raising=False)
+
+    summary = provider_usage_summary()
+
+    assert summary["configured_calls_per_minute"] == 500
+    assert summary["budget"]["plan_calls_per_minute"] == 500
+    assert summary["budget"]["hard_limit_per_minute"] == 500
+    reset_provider_usage()
+
+
 def test_provider_usage_honors_soft_and_hard_budget_aliases(monkeypatch):
     reset_provider_usage()
     monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")

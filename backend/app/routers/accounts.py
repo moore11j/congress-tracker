@@ -60,7 +60,7 @@ from app.entitlements import (
     set_plan_price,
     set_feature_gate,
 )
-from app.models import AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PageViewEvent, PlanPrice, StripeWebhookEvent, UserAccount, Watchlist
+from app.models import AdminBillingOverrideAuditLog, AppSetting, BillingTransaction, EmailDelivery, EmailTemplate, PageViewEvent, PlanPrice, StripeWebhookEvent, UserAccount, Watchlist
 from app.rate_limit import (
     rate_limit_admin_export,
     rate_limit_admin_mutation,
@@ -88,6 +88,7 @@ from app.services.provider_usage import provider_usage_summary
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
+ADMIN_BILLING_SYNC_FAILURE_MESSAGE = "Could not sync this change to Stripe. No local billing change was saved."
 
 
 class LoginPayload(BaseModel):
@@ -1859,6 +1860,348 @@ def _apply_price_override(user: UserAccount, payload: PriceOverridePayload | Non
     user.override_note = (payload.override_note or "").strip() or None
 
 
+def _price_override_requested_state(payload: PriceOverridePayload | None = None, *, clear: bool = False) -> dict[str, Any]:
+    if clear:
+        return {
+            "clear_price_override": True,
+            "monthly_price_override": None,
+            "annual_price_override": None,
+            "override_currency": None,
+        }
+    if payload is None:
+        return {}
+    return {
+        "monthly_price_override": payload.monthly_price_override,
+        "annual_price_override": payload.annual_price_override,
+        "override_currency": (payload.override_currency or "USD").strip().upper()[:8] or "USD",
+        "override_note": (payload.override_note or "").strip() or None,
+    }
+
+
+def _admin_billing_previous_state(user: UserAccount) -> dict[str, Any]:
+    return {
+        "manual_tier_override": user.manual_tier_override,
+        "entitlement_tier": user.entitlement_tier,
+        "subscription_plan": user.subscription_plan,
+        "subscription_status": user.subscription_status,
+        "subscription_interval": user.subscription_interval,
+        "is_suspended": bool(user.is_suspended),
+        "monthly_price_override": user.monthly_price_override,
+        "annual_price_override": user.annual_price_override,
+        "override_currency": user.override_currency,
+        "stripe_customer_id": user.stripe_customer_id,
+        "stripe_subscription_id": user.stripe_subscription_id,
+    }
+
+
+def _admin_billing_override_type(requested_override: dict[str, Any]) -> str:
+    kinds: list[str] = []
+    if "plan" in requested_override:
+        kinds.append("plan")
+    if "price_override" in requested_override or requested_override.get("clear_price_override"):
+        kinds.append("price")
+    if "suspended" in requested_override:
+        kinds.append("suspension")
+    if not kinds:
+        return "none"
+    return kinds[0] if len(kinds) == 1 else "combined"
+
+
+def _admin_billing_requested_state(user: UserAccount, requested_override: dict[str, Any]) -> dict[str, Any]:
+    state: dict[str, Any] = {"target_user_id": user.id}
+    if "plan" in requested_override:
+        state["manual_tier_override"] = requested_override.get("plan")
+    if "price_override" in requested_override:
+        state.update(requested_override.get("price_override") or {})
+    if requested_override.get("clear_price_override"):
+        state.update(_price_override_requested_state(clear=True))
+    if "suspended" in requested_override:
+        state["is_suspended"] = bool(requested_override.get("suspended"))
+    return state
+
+
+def _admin_billing_state_hash(state: dict[str, Any]) -> str:
+    payload = json.dumps(state, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _admin_billing_request_action_id(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    value = (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-correlation-id")
+        or request.headers.get("idempotency-key")
+        or ""
+    ).strip()
+    return value[:80] or None
+
+
+def _admin_billing_idempotency_key(
+    user: UserAccount,
+    override_type: str,
+    requested_state: dict[str, Any],
+    *,
+    action_id: str | None = None,
+) -> str:
+    state_hash = _admin_billing_state_hash(requested_state)
+    parts = ["admin-billing", f"user-{user.id}", override_type, state_hash]
+    if action_id:
+        parts.append(hashlib.sha256(action_id.encode("utf-8")).hexdigest()[:16])
+    return ":".join(parts)[:240]
+
+
+def _admin_billing_safe_error(exc: BaseException) -> str:
+    if isinstance(exc, HTTPException):
+        return f"stripe_sync_failed_status_{exc.status_code}"
+    return f"stripe_sync_failed_{exc.__class__.__name__}"
+
+
+def _admin_billing_sync_exception(exc: BaseException) -> HTTPException:
+    status_code = exc.status_code if isinstance(exc, HTTPException) and exc.status_code in {400, 401, 403, 404, 409, 422, 503} else 502
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "code": "admin_billing_stripe_sync_failed",
+            "message": ADMIN_BILLING_SYNC_FAILURE_MESSAGE,
+        },
+    )
+
+
+def _record_admin_billing_override_audit(
+    db: Session,
+    *,
+    admin_actor: UserAccount,
+    user: UserAccount,
+    override_type: str,
+    previous_state: dict[str, Any],
+    requested_state: dict[str, Any],
+    stripe_customer_id: str | None,
+    stripe_subscription_id: str | None,
+    stripe_sync_status: str,
+    error_message: str | None = None,
+) -> AdminBillingOverrideAuditLog:
+    row = AdminBillingOverrideAuditLog(
+        admin_user_id=admin_actor.id,
+        admin_email=normalize_email(admin_actor.email),
+        target_user_id=user.id,
+        target_email=normalize_email(user.email),
+        override_type=override_type,
+        previous_state_json=json.dumps(previous_state, sort_keys=True, default=str),
+        requested_state_json=json.dumps(requested_state, sort_keys=True, default=str),
+        stripe_customer_id=stripe_customer_id,
+        stripe_subscription_id=stripe_subscription_id,
+        stripe_sync_status=stripe_sync_status,
+        error_message=error_message,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _metadata_value(value: Any) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)[:500]
+
+
+def _admin_plan_override_price_metadata(user: UserAccount, target_plan: str | None) -> dict[str, str | None]:
+    tier = normalize_tier(target_plan)
+    if tier not in {"premium", "pro"}:
+        return {"tier": tier if target_plan is not None else None, "billing_interval": None, "price_id": None}
+    interval = _normalize_subscription_interval(user.subscription_interval) or "monthly"
+    price_id = _stripe_price_id(interval, tier)
+    if not price_id:
+        raise HTTPException(status_code=503, detail="Stripe price ID is not configured for this admin plan override.")
+    return {"tier": tier, "billing_interval": interval, "price_id": price_id}
+
+
+def _admin_billing_metadata(
+    user: UserAccount,
+    *,
+    admin_actor: UserAccount,
+    override_type: str,
+    requested_state: dict[str, Any],
+    plan_price_metadata: dict[str, str | None],
+) -> dict[str, Any]:
+    state_hash = _admin_billing_state_hash(requested_state)
+    metadata: dict[str, Any] = {
+        "metadata[walnut_admin_override]": "true",
+        "metadata[walnut_admin_override_type]": override_type,
+        "metadata[walnut_admin_override_state_hash]": state_hash,
+        "metadata[walnut_admin_override_user_id]": str(user.id),
+        "metadata[walnut_admin_override_actor_id]": str(admin_actor.id),
+    }
+    if "manual_tier_override" in requested_state:
+        metadata["metadata[walnut_admin_plan_override]"] = _metadata_value(requested_state.get("manual_tier_override"))
+        metadata["metadata[walnut_admin_plan_price_id]"] = _metadata_value(plan_price_metadata.get("price_id"))
+        metadata["metadata[walnut_admin_plan_interval]"] = _metadata_value(plan_price_metadata.get("billing_interval"))
+    if "monthly_price_override" in requested_state or "annual_price_override" in requested_state:
+        metadata["metadata[walnut_admin_price_override_monthly]"] = _metadata_value(requested_state.get("monthly_price_override"))
+        metadata["metadata[walnut_admin_price_override_annual]"] = _metadata_value(requested_state.get("annual_price_override"))
+        metadata["metadata[walnut_admin_price_override_currency]"] = _metadata_value(requested_state.get("override_currency"))
+    if "is_suspended" in requested_state:
+        metadata["metadata[walnut_admin_suspended]"] = _metadata_value(bool(requested_state.get("is_suspended")))
+    return metadata
+
+
+def _stripe_current_subscription_for_admin_override(user: UserAccount, customer_id: str | None) -> dict[str, Any] | None:
+    if user.stripe_subscription_id:
+        return _stripe_get(
+            f"subscriptions/{user.stripe_subscription_id}",
+            {"expand[]": "items.data.price"},
+        )
+    if not customer_id:
+        return None
+    subscriptions = _stripe_get(
+        "subscriptions",
+        {"customer": customer_id, "status": "all", "limit": 10, "expand[]": "data.items.data.price"},
+    )
+    data = [item for item in subscriptions.get("data") or [] if isinstance(item, dict)]
+    if not data:
+        return None
+    return sorted(data, key=_stripe_subscription_sort_key, reverse=True)[0]
+
+
+def _ensure_stripe_customer_for_admin_override(
+    user: UserAccount,
+    *,
+    metadata: dict[str, Any],
+    idempotency_key: str,
+    preferred_customer_id: str | None = None,
+) -> str:
+    if not _stripe_secret_key():
+        raise HTTPException(status_code=503, detail="Stripe secret key is not configured.")
+    customer_id = preferred_customer_id or _stripe_customer_for_user(user)
+    payload = _stripe_customer_sync_payload(user, validate_location=False)
+    payload.update(metadata)
+    if customer_id:
+        customer = _stripe_post(
+            f"customers/{customer_id}",
+            payload,
+            idempotency_key=f"{idempotency_key}:customer",
+        )
+        return _stripe_object_id(customer.get("id")) or customer_id
+    customer = _stripe_post(
+        "customers",
+        payload,
+        idempotency_key=f"{idempotency_key}:customer",
+    )
+    created_customer_id = _stripe_object_id(customer.get("id"))
+    if not created_customer_id:
+        raise HTTPException(status_code=502, detail="Stripe did not return a customer id.")
+    return created_customer_id
+
+
+def _apply_admin_billing_stripe_links(user: UserAccount, sync_result: dict[str, Any] | None) -> None:
+    if not sync_result:
+        return
+    customer_id = sync_result.get("stripe_customer_id")
+    subscription_id = sync_result.get("stripe_subscription_id")
+    if customer_id and not user.stripe_customer_id:
+        user.stripe_customer_id = str(customer_id)
+    if subscription_id and not user.stripe_subscription_id:
+        user.stripe_subscription_id = str(subscription_id)
+
+
+def sync_admin_billing_override_to_stripe(
+    db: Session,
+    *,
+    user: UserAccount,
+    requested_override: dict[str, Any],
+    admin_actor: UserAccount,
+    request: Request | None = None,
+) -> dict[str, Any]:
+    override_type = _admin_billing_override_type(requested_override)
+    if override_type == "none":
+        return {}
+    previous_state = _admin_billing_previous_state(user)
+    requested_state = _admin_billing_requested_state(user, requested_override)
+    plan_price_metadata: dict[str, str | None] = {}
+    customer_id: str | None = None
+    subscription_id: str | None = None
+    try:
+        if "manual_tier_override" in requested_state:
+            plan_price_metadata = _admin_plan_override_price_metadata(user, requested_state.get("manual_tier_override"))
+            if plan_price_metadata.get("price_id"):
+                requested_state["stripe_price_id"] = plan_price_metadata["price_id"]
+                requested_state["stripe_price_interval"] = plan_price_metadata["billing_interval"]
+        idempotency_key = _admin_billing_idempotency_key(
+            user,
+            override_type,
+            requested_state,
+            action_id=_admin_billing_request_action_id(request),
+        )
+        metadata = _admin_billing_metadata(
+            user,
+            admin_actor=admin_actor,
+            override_type=override_type,
+            requested_state=requested_state,
+            plan_price_metadata=plan_price_metadata,
+        )
+        subscription = _stripe_current_subscription_for_admin_override(user, None) if user.stripe_subscription_id else None
+        subscription_customer_id = _stripe_object_id(subscription.get("customer")) if subscription else None
+        customer_id = _ensure_stripe_customer_for_admin_override(
+            user,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+            preferred_customer_id=subscription_customer_id,
+        )
+        if subscription is None:
+            subscription = _stripe_current_subscription_for_admin_override(user, customer_id)
+        if subscription:
+            subscription_id = _stripe_object_id(subscription.get("id"))
+            if subscription_id:
+                _stripe_post(
+                    f"subscriptions/{subscription_id}",
+                    metadata,
+                    idempotency_key=f"{idempotency_key}:subscription",
+                )
+        _record_admin_billing_override_audit(
+            db,
+            admin_actor=admin_actor,
+            user=user,
+            override_type=override_type,
+            previous_state=previous_state,
+            requested_state=requested_state,
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=subscription_id,
+            stripe_sync_status="succeeded",
+        )
+        return {
+            "override_type": override_type,
+            "stripe_customer_id": customer_id,
+            "stripe_subscription_id": subscription_id,
+            "stripe_sync_status": "succeeded",
+        }
+    except Exception as exc:
+        safe_error = _admin_billing_safe_error(exc)
+        logger.warning(
+            "admin_billing_override_stripe_sync_failed admin_user_id=%s target_user_id=%s override_type=%s error=%s",
+            admin_actor.id,
+            user.id,
+            override_type,
+            safe_error,
+        )
+        db.rollback()
+        _record_admin_billing_override_audit(
+            db,
+            admin_actor=admin_actor,
+            user=user,
+            override_type=override_type,
+            previous_state=previous_state,
+            requested_state=requested_state,
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=subscription_id,
+            stripe_sync_status="failed",
+            error_message=safe_error,
+        )
+        db.commit()
+        raise _admin_billing_sync_exception(exc) from exc
+
+
 def _admin_user_search_id(value: str) -> int | None:
     cleaned = value.strip().upper()
     if cleaned.startswith("U-"):
@@ -2420,14 +2763,16 @@ def _google_redirect_uri() -> str:
     return f"{_authenticated_app_frontend_base_url()}/auth/google/callback"
 
 
-def _stripe_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
+def _stripe_post(path: str, data: dict[str, Any], *, idempotency_key: str | None = None) -> dict[str, Any]:
     secret = _stripe_secret_key()
     if not secret:
         raise HTTPException(status_code=503, detail="Stripe secret key is not configured.")
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
     response = requests.post(
         f"https://api.stripe.com/v1/{path.lstrip('/')}",
         auth=(secret, ""),
         data=data,
+        headers=headers,
         timeout=20,
     )
     if response.status_code >= 400:
@@ -4312,15 +4657,10 @@ def _sync_user_subscription(
             period_end = now
     if period_end:
         user.access_expires_at = period_end
-    if (
-        status in PAID_SUBSCRIPTION_STATUSES
-        and resolved_tier in {"premium", "pro"}
-        and user.manual_tier_override is not None
-        and normalize_tier(user.manual_tier_override) == "free"
-    ):
-        user.manual_tier_override = None
-    policy_tier = subscription_policy_tier(user, now=now)
-    user.entitlement_tier = policy_tier
+    if user.manual_tier_override is not None:
+        user.entitlement_tier = normalize_tier(user.manual_tier_override)
+    else:
+        user.entitlement_tier = subscription_policy_tier(user, now=now)
     user.updated_at = now
     db.flush()
     return user
@@ -5752,13 +6092,24 @@ def admin_update_stripe_tax_settings(
 
 @router.post("/admin/users/{user_id}/premium", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Request, db: Session = Depends(get_db)):
-    require_admin_user(db, request)
+    admin = require_admin_user(db, request)
     user = db.get(UserAccount, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    sync_result = sync_admin_billing_override_to_stripe(
+        db,
+        user=user,
+        requested_override={"plan": payload.tier},
+        admin_actor=admin,
+        request=request,
+    )
+    _apply_admin_billing_stripe_links(user, sync_result)
     user.manual_tier_override = payload.tier
     if payload.tier:
         user.entitlement_tier = payload.tier
+    else:
+        user.entitlement_tier = subscription_policy_tier(user)
+    user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
     return _admin_user_row(user)
@@ -5771,10 +6122,18 @@ def admin_set_user_price_override(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    require_admin_user(db, request)
+    admin = require_admin_user(db, request)
     user = db.get(UserAccount, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    sync_result = sync_admin_billing_override_to_stripe(
+        db,
+        user=user,
+        requested_override={"price_override": _price_override_requested_state(payload)},
+        admin_actor=admin,
+        request=request,
+    )
+    _apply_admin_billing_stripe_links(user, sync_result)
     _apply_price_override(user, payload)
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -5784,10 +6143,18 @@ def admin_set_user_price_override(
 
 @router.delete("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_clear_user_price_override(user_id: int, request: Request, db: Session = Depends(get_db)):
-    require_admin_user(db, request)
+    admin = require_admin_user(db, request)
     user = db.get(UserAccount, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    sync_result = sync_admin_billing_override_to_stripe(
+        db,
+        user=user,
+        requested_override={"clear_price_override": True},
+        admin_actor=admin,
+        request=request,
+    )
+    _apply_admin_billing_stripe_links(user, sync_result)
     _apply_price_override(user, None, clear=True)
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -5806,6 +6173,26 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
     for user in users:
         if user.id == admin.id and payload.suspended is True:
             raise HTTPException(status_code=400, detail="Admin cannot suspend the current admin session.")
+    updated_users: list[UserAccount] = []
+    for user in users:
+        requested_override: dict[str, Any] = {}
+        if payload.tier is not None:
+            requested_override["plan"] = payload.tier
+        if payload.suspended is not None:
+            requested_override["suspended"] = payload.suspended
+        if payload.clear_price_override:
+            requested_override["clear_price_override"] = True
+        elif payload.price_override is not None:
+            requested_override["price_override"] = _price_override_requested_state(payload.price_override)
+
+        sync_result = sync_admin_billing_override_to_stripe(
+            db,
+            user=user,
+            requested_override=requested_override,
+            admin_actor=admin,
+            request=request,
+        )
+        _apply_admin_billing_stripe_links(user, sync_result)
         if payload.tier is not None:
             user.manual_tier_override = payload.tier
             user.entitlement_tier = payload.tier
@@ -5816,17 +6203,19 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
         elif payload.price_override is not None:
             _apply_price_override(user, payload.price_override)
         user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+        updated_users.append(user)
         changed += 1
-    db.commit()
-    billing_rows = _latest_billing_rows_by_user(db, users)
-    paid_rows = _successful_billing_rows_by_user(db, users)
+    billing_rows = _latest_billing_rows_by_user(db, updated_users)
+    paid_rows = _successful_billing_rows_by_user(db, updated_users)
     plan_prices = _plan_price_lookup(db)
     return {
         "status": "ok",
         "updated": changed,
         "items": [
             _admin_user_row(user, latest_billing_row=billing_rows.get(user.id), billing_rows=paid_rows.get(user.id), plan_prices=plan_prices)
-            for user in users
+            for user in updated_users
         ],
     }
 
@@ -5839,7 +6228,16 @@ def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, 
     user = db.get(UserAccount, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    sync_result = sync_admin_billing_override_to_stripe(
+        db,
+        user=user,
+        requested_override={"suspended": payload.suspended},
+        admin_actor=admin,
+        request=request,
+    )
+    _apply_admin_billing_stripe_links(user, sync_result)
     user.is_suspended = payload.suspended
+    user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
     return _admin_user_row(user)

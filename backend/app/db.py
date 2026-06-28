@@ -2128,6 +2128,45 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
                     "ON user_accounts (reactivation_token_hash)"
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS admin_billing_override_audit_log (
+                        id INTEGER PRIMARY KEY,
+                        admin_user_id INTEGER,
+                        admin_email TEXT,
+                        target_user_id INTEGER NOT NULL,
+                        target_email TEXT,
+                        override_type TEXT NOT NULL,
+                        previous_state_json TEXT NOT NULL DEFAULT '{}',
+                        requested_state_json TEXT NOT NULL DEFAULT '{}',
+                        stripe_customer_id TEXT,
+                        stripe_subscription_id TEXT,
+                        stripe_sync_status TEXT NOT NULL DEFAULT 'pending',
+                        error_message TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_target_created "
+                    "ON admin_billing_override_audit_log (target_user_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_admin_created "
+                    "ON admin_billing_override_audit_log (admin_user_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_status_created "
+                    "ON admin_billing_override_audit_log (stripe_sync_status, created_at)"
+                )
+            )
             return
 
         if dialect_name == "postgresql":
@@ -2151,6 +2190,45 @@ def ensure_user_account_billing_schema(bind=engine) -> None:
                 text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_accounts_reactivation_token "
                     "ON user_accounts (reactivation_token_hash)"
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS admin_billing_override_audit_log (
+                        id BIGSERIAL PRIMARY KEY,
+                        admin_user_id INTEGER,
+                        admin_email TEXT,
+                        target_user_id INTEGER NOT NULL,
+                        target_email TEXT,
+                        override_type TEXT NOT NULL,
+                        previous_state_json TEXT NOT NULL DEFAULT '{}',
+                        requested_state_json TEXT NOT NULL DEFAULT '{}',
+                        stripe_customer_id TEXT,
+                        stripe_subscription_id TEXT,
+                        stripe_sync_status TEXT NOT NULL DEFAULT 'pending',
+                        error_message TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_target_created "
+                    "ON admin_billing_override_audit_log (target_user_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_admin_created "
+                    "ON admin_billing_override_audit_log (admin_user_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_admin_billing_override_status_created "
+                    "ON admin_billing_override_audit_log (stripe_sync_status, created_at)"
                 )
             )
 

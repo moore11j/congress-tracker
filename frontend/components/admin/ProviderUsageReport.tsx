@@ -40,7 +40,7 @@ export function ProviderUsageReport() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-white">Provider Usage</h2>
-          <p className="mt-1 text-sm text-slate-400">FMP Premium guardrails, cache pressure, throttles, and top consumers.</p>
+          <p className="mt-1 text-sm text-slate-400">FMP Enterprise guardrails, cache pressure, throttles, and top consumers.</p>
         </div>
         <span className={`rounded-md border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusClasses(data?.status)}`}>
           {data?.status ?? "loading"}
@@ -53,12 +53,12 @@ export function ProviderUsageReport() {
         <>
           {data.warnings.length ? (
             <div className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100">
-              {data.recommendation || "Approaching FMP Premium limit. Reduce refresh frequency or upgrade bandwidth."}
+              {data.recommendation || "Approaching FMP Enterprise limit. Reduce refresh frequency or upgrade bandwidth."}
             </div>
           ) : null}
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Plan assumption" value={`Premium / ${data.configured_calls_per_minute} calls per minute`} />
+            <Metric label="Plan assumption" value={`Enterprise / ${data.configured_calls_per_minute} calls per minute`} />
             <Metric label="Calls last minute" value={String(data.calls_last_minute)} />
             <Metric label="Calls today" value={String(data.calls_today)} />
             <Metric label="Cache hit rate" value={formatPercent(data.cache_hit_rate)} />
@@ -130,7 +130,7 @@ export function ProviderUsageReport() {
         </>
       ) : (
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Plan assumption" value="Premium / 750 calls per minute" />
+          <Metric label="Plan assumption" value="Enterprise / 500 calls per minute" />
           <Metric label="Calls last minute" value="loading" />
           <Metric label="Calls today" value="loading" />
           <Metric label="Cache hit rate" value="loading" />

@@ -10,6 +10,7 @@ const adminSettingsPanel = fs.readFileSync(path.join(process.cwd(), "components"
 const accountDisplay = fs.readFileSync(path.join(process.cwd(), "lib", "accountDisplay.ts"), "utf8");
 const pageAnalyticsReport = fs.readFileSync(path.join(process.cwd(), "components", "admin", "PageAnalyticsReport.tsx"), "utf8");
 const pageAnalyticsTracker = fs.readFileSync(path.join(process.cwd(), "components", "PageAnalyticsTracker.tsx"), "utf8");
+const providerUsageReport = fs.readFileSync(path.join(process.cwd(), "components", "admin", "ProviderUsageReport.tsx"), "utf8");
 
 test("admin users table renders distinct billing amount columns near plan", () => {
   assert.match(source, /<th className="px-3 py-3">Plan<\/th>\s*<th className="px-3 py-3">Billing interval<\/th>\s*<th className="px-3 py-3">Current price<\/th>\s*<th className="px-3 py-3">Total paid<\/th>\s*<th className="px-3 py-3">Last payment<\/th>/);
@@ -50,6 +51,14 @@ test("admin reports include first-party page analytics", () => {
   assert.match(adminSettingsPanel, /<PageAnalyticsReport \/>/);
   assert.match(pageAnalyticsReport, /getAdminPageAnalytics\(\{ period, limit: 30 \}\)/);
   assert.match(pageAnalyticsReport, /Page analytics/);
+});
+
+test("admin provider usage uses Enterprise 500 calls per minute assumption", () => {
+  assert.match(providerUsageReport, /FMP Enterprise guardrails/);
+  assert.match(providerUsageReport, /Enterprise \/ \$\{data\.configured_calls_per_minute\} calls per minute/);
+  assert.match(providerUsageReport, /Enterprise \/ 500 calls per minute/);
+  assert.doesNotMatch(providerUsageReport, /Premium \/ 750 calls per minute/);
+  assert.doesNotMatch(providerUsageReport, /FMP Premium/);
 });
 
 test("page analytics tracker strips query strings and sends route events", () => {
