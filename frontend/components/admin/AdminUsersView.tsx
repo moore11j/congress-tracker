@@ -14,6 +14,7 @@ import {
   downloadAdminUsers,
   getAdminUsers,
   type AccountUser,
+  type AdminPlanPriceMode,
   type AdminUserAdminFilter,
   type AdminUserPlanFilter,
   type AdminUserSortBy,
@@ -59,6 +60,18 @@ type ConfirmAction = {
 type ActionMenuState = {
   userId: number;
   anchor: HTMLButtonElement | null;
+};
+
+type SubscriptionPriceDialogState = {
+  user: AccountUser;
+  tier: "premium" | "pro";
+};
+
+type SubscriptionPriceDraft = {
+  mode: AdminPlanPriceMode;
+  amount: string;
+  currency: string;
+  interval: "month" | "year";
 };
 
 function formatDate(value?: string | null) {
@@ -321,6 +334,13 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const [overrideDraft, setOverrideDraft] = useState({ monthly: "", annual: "", currency: "USD", note: "" });
   const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
   const [actionMenu, setActionMenu] = useState<ActionMenuState | null>(null);
+  const [subscriptionPriceDialog, setSubscriptionPriceDialog] = useState<SubscriptionPriceDialogState | null>(null);
+  const [subscriptionPriceDraft, setSubscriptionPriceDraft] = useState<SubscriptionPriceDraft>({
+    mode: "free_admin_grant",
+    amount: "",
+    currency: "USD",
+    interval: "month",
+  });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -400,16 +420,61 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
     }
   };
 
-  const setPremium = async (user: AccountUser, tier: "free" | "premium" | "pro" | null) => {
+  const subscriptionPricePayload = () => {
+    if (subscriptionPriceDraft.mode !== "custom") {
+      return { price_mode: subscriptionPriceDraft.mode };
+    }
+    const amountCents = Math.round(Number(subscriptionPriceDraft.amount) * 100);
+    if (!Number.isFinite(amountCents) || amountCents < 0) {
+      throw new Error("Enter a non-negative custom subscription price.");
+    }
+    return {
+      price_mode: "custom" as const,
+      custom_price: {
+        amount_cents: amountCents,
+        currency: subscriptionPriceDraft.currency || "USD",
+        interval: subscriptionPriceDraft.interval,
+      },
+    };
+  };
+
+  const runSetPremium = async (
+    user: AccountUser,
+    tier: "free" | "premium" | "pro" | null,
+    price?: ReturnType<typeof subscriptionPricePayload>,
+  ) => {
     setBusy(true);
     try {
-      await adminSetPremium(user.id, tier);
+      await adminSetPremium(user.id, tier, price);
       await refreshUsers();
       setStatus(tier ? `${user.email} set to ${tier}.` : `${user.email} manual override cleared.`);
+      return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update user.");
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const setPremium = async (user: AccountUser, tier: "free" | "premium" | "pro" | null) => {
+    if (tier === "premium" || tier === "pro") {
+      setStatus(null);
+      setSubscriptionPriceDraft({ mode: "free_admin_grant", amount: "", currency: "USD", interval: "month" });
+      setSubscriptionPriceDialog({ user, tier });
+      return;
+    }
+    await runSetPremium(user, tier);
+  };
+
+  const confirmSubscriptionPrice = async () => {
+    if (!subscriptionPriceDialog) return;
+    setStatus(null);
+    try {
+      const ok = await runSetPremium(subscriptionPriceDialog.user, subscriptionPriceDialog.tier, subscriptionPricePayload());
+      if (ok) setSubscriptionPriceDialog(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update user.");
     }
   };
 
@@ -586,6 +651,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const runBatchUpdate = async (action: BatchAction, userIds: number[]) => {
     const payload: Parameters<typeof adminBatchUpdateUsers>[0] = { user_ids: userIds };
     if (action === "premium" || action === "pro" || action === "free") payload.tier = action;
+    if (action === "premium" || action === "pro") payload.price_mode = "free_admin_grant";
     if (action === "suspend") payload.suspended = true;
     if (action === "unsuspend") payload.suspended = false;
     if (action === "clear_override") payload.clear_price_override = true;
@@ -1088,6 +1154,96 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
         onConfirm={handleConfirmDialogConfirm}
       >
         {status ? <p className="text-sm text-rose-300">{status}</p> : null}
+      </WalnutConfirmDialog>
+
+      <WalnutConfirmDialog
+        open={Boolean(subscriptionPriceDialog)}
+        eyebrow="PLAN OVERRIDE"
+        title="Set subscription price"
+        description={
+          <>
+            Choose how this {subscriptionPriceDialog?.tier === "pro" ? "Pro" : "Premium"} subscription should be represented in Stripe.
+          </>
+        }
+        confirmLabel={busy ? "Saving..." : "Save subscription"}
+        tone="success"
+        isBusy={busy}
+        onClose={() => {
+          setSubscriptionPriceDialog(null);
+          setStatus(null);
+        }}
+        onConfirm={confirmSubscriptionPrice}
+      >
+        <div className="space-y-3 text-sm text-slate-200">
+          <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-slate-950/70 p-3">
+            <input
+              type="radio"
+              name="admin-subscription-price-mode"
+              checked={subscriptionPriceDraft.mode === "default"}
+              onChange={() => setSubscriptionPriceDraft((current) => ({ ...current, mode: "default" }))}
+              className="mt-1 accent-emerald-300"
+            />
+            <span>
+              <span className="block font-semibold text-white">Default plan price</span>
+              <span className="text-xs text-slate-400">Use the configured Stripe price for this plan.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-slate-950/70 p-3">
+            <input
+              type="radio"
+              name="admin-subscription-price-mode"
+              checked={subscriptionPriceDraft.mode === "custom"}
+              onChange={() => setSubscriptionPriceDraft((current) => ({ ...current, mode: "custom" }))}
+              className="mt-1 accent-emerald-300"
+            />
+            <span className="w-full">
+              <span className="block font-semibold text-white">Custom price</span>
+              <span className="text-xs text-slate-400">Create an admin-specific recurring Stripe price.</span>
+              {subscriptionPriceDraft.mode === "custom" ? (
+                <span className="mt-3 grid gap-2 sm:grid-cols-[1fr_6rem_7rem]">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={subscriptionPriceDraft.amount}
+                    onChange={(event) => setSubscriptionPriceDraft((current) => ({ ...current, amount: event.target.value }))}
+                    placeholder="Amount"
+                    className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                  />
+                  <input
+                    value={subscriptionPriceDraft.currency}
+                    onChange={(event) => setSubscriptionPriceDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
+                    maxLength={8}
+                    placeholder="USD"
+                    className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                  />
+                  <select
+                    value={subscriptionPriceDraft.interval}
+                    onChange={(event) => setSubscriptionPriceDraft((current) => ({ ...current, interval: event.target.value as "month" | "year" }))}
+                    className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                  >
+                    <option value="month">Monthly</option>
+                    <option value="year">Annual</option>
+                  </select>
+                </span>
+              ) : null}
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-slate-950/70 p-3">
+            <input
+              type="radio"
+              name="admin-subscription-price-mode"
+              checked={subscriptionPriceDraft.mode === "free_admin_grant"}
+              onChange={() => setSubscriptionPriceDraft((current) => ({ ...current, mode: "free_admin_grant" }))}
+              className="mt-1 accent-emerald-300"
+            />
+            <span>
+              <span className="block font-semibold text-white">Free admin grant</span>
+              <span className="text-xs text-slate-400">Use the configured zero-dollar recurring Stripe price.</span>
+            </span>
+          </label>
+          {status ? <p className="text-sm text-rose-300">{status}</p> : null}
+        </div>
       </WalnutConfirmDialog>
     </section>
   );

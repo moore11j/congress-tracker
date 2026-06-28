@@ -2618,11 +2618,22 @@ export async function getPlanConfig(): Promise<PlanConfig> {
   });
 }
 
-export async function adminSetPremium(userId: number, tier: "free" | "premium" | "pro" | null): Promise<AccountUser> {
+export type AdminPlanPriceMode = "default" | "custom" | "free_admin_grant";
+
+export type AdminPlanPricePayload = {
+  price_mode?: AdminPlanPriceMode | null;
+  custom_price?: {
+    amount_cents: number;
+    currency: string;
+    interval: "month" | "year" | "monthly" | "annual";
+  } | null;
+};
+
+export async function adminSetPremium(userId: number, tier: "free" | "premium" | "pro" | null, price?: AdminPlanPricePayload): Promise<AccountUser> {
   return fetchJson<AccountUser>(buildApiUrl(`/api/admin/users/${userId}/premium`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tier }),
+    body: JSON.stringify({ tier, ...(price || {}) }),
   });
 }
 
@@ -2700,6 +2711,8 @@ export async function adminBatchUpdateUsers(payload: {
   suspended?: boolean | null;
   price_override?: PriceOverridePayload | null;
   clear_price_override?: boolean;
+  price_mode?: AdminPlanPriceMode | null;
+  custom_price?: AdminPlanPricePayload["custom_price"];
 }): Promise<{ status: string; updated: number; items: AccountUser[] }> {
   return fetchJson(buildApiUrl("/api/admin/users/batch"), {
     method: "POST",

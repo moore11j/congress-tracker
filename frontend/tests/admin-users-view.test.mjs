@@ -46,6 +46,24 @@ test("admin users search renders with filters and debounces requests", () => {
   assert.match(source, /downloadAdminUsers\(format, \{[\s\S]*\.\.\.query,[\s\S]*page: undefined,[\s\S]*page_size: undefined/);
 });
 
+test("admin paid-plan override opens subscription price modal", () => {
+  assert.match(source, /title="Set subscription price"/);
+  assert.match(source, /Choose how this \{subscriptionPriceDialog\?\.tier === "pro" \? "Pro" : "Premium"\} subscription should be represented in Stripe/);
+  assert.match(source, /Default plan price/);
+  assert.match(source, /Custom price/);
+  assert.match(source, /Free admin grant/);
+  assert.match(source, /setSubscriptionPriceDialog\(\{ user, tier \}\)/);
+});
+
+test("admin paid-plan override sends explicit Stripe price mode payloads", () => {
+  assert.match(apiSource, /export type AdminPlanPriceMode = "default" \| "custom" \| "free_admin_grant";/);
+  assert.match(apiSource, /body: JSON\.stringify\(\{ tier, \.\.\.\(price \|\| \{\}\) \}\)/);
+  assert.match(source, /return \{ price_mode: subscriptionPriceDraft\.mode \};/);
+  assert.match(source, /price_mode: "custom" as const/);
+  assert.match(source, /custom_price: \{[\s\S]*amount_cents: amountCents,[\s\S]*currency: subscriptionPriceDraft\.currency \|\| "USD",[\s\S]*interval: subscriptionPriceDraft\.interval/);
+  assert.match(source, /payload\.price_mode = "free_admin_grant";/);
+});
+
 test("admin reports include first-party page analytics", () => {
   assert.match(adminSettingsPanel, /import \{ PageAnalyticsReport \} from "@\/components\/admin\/PageAnalyticsReport";/);
   assert.match(adminSettingsPanel, /<PageAnalyticsReport \/>/);

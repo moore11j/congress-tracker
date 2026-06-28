@@ -88,7 +88,9 @@ from app.services.provider_usage import provider_usage_summary
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
-ADMIN_BILLING_SYNC_FAILURE_MESSAGE = "Could not sync this change to Stripe. No local billing change was saved."
+ADMIN_BILLING_SYNC_FAILURE_MESSAGE = "Couldn't create/update the Stripe subscription. No local plan change was saved."
+ADMIN_PLAN_PRICE_MODES = {"default", "custom", "free_admin_grant"}
+ADMIN_BILLING_PAID_TIERS = {"premium", "pro"}
 
 
 class LoginPayload(BaseModel):
@@ -165,8 +167,16 @@ class NotificationSettingsPayload(BaseModel):
     signals_notifications: bool
 
 
+class AdminCustomPricePayload(BaseModel):
+    amount_cents: int = Field(ge=0, le=10000000)
+    currency: str = Field(default="USD", min_length=3, max_length=8)
+    interval: str = Field(default="month", max_length=16)
+
+
 class ManualPremiumPayload(BaseModel):
     tier: Literal["free", "premium", "pro"] | None = None
+    price_mode: Literal["default", "custom", "free_admin_grant"] | None = None
+    custom_price: AdminCustomPricePayload | None = None
 
 
 class SuspendPayload(BaseModel):
@@ -186,6 +196,8 @@ class AdminBatchUsersPayload(BaseModel):
     suspended: bool | None = None
     price_override: PriceOverridePayload | None = None
     clear_price_override: bool = False
+    price_mode: Literal["default", "custom", "free_admin_grant"] | None = None
+    custom_price: AdminCustomPricePayload | None = None
 
 
 class FeatureGatePayload(BaseModel):
@@ -594,6 +606,8 @@ def _deleted_reactivation_window_active(user: UserAccount, *, now: datetime | No
 def _clear_paid_entitlement(user: UserAccount, *, status: str = "free", clear_access_expiry: bool = True) -> None:
     user.subscription_status = status
     user.subscription_plan = "free"
+    if normalize_tier(user.manual_tier_override) in ADMIN_BILLING_PAID_TIERS:
+        user.manual_tier_override = None
     user.entitlement_tier = "free"
     user.subscription_cancel_at_period_end = False
     if clear_access_expiry:
@@ -1911,6 +1925,12 @@ def _admin_billing_requested_state(user: UserAccount, requested_override: dict[s
     state: dict[str, Any] = {"target_user_id": user.id}
     if "plan" in requested_override:
         state["manual_tier_override"] = requested_override.get("plan")
+        target_plan = normalize_tier(requested_override.get("plan"))
+        if target_plan in ADMIN_BILLING_PAID_TIERS:
+            state["price_mode"] = _admin_plan_price_mode(requested_override.get("price_mode"))
+            custom_price = _admin_custom_price_state(requested_override.get("custom_price"))
+            if custom_price:
+                state["custom_price"] = custom_price
     if "price_override" in requested_override:
         state.update(requested_override.get("price_override") or {})
     if requested_override.get("clear_price_override"):
@@ -1955,6 +1975,45 @@ def _admin_billing_safe_error(exc: BaseException) -> str:
     if isinstance(exc, HTTPException):
         return f"stripe_sync_failed_status_{exc.status_code}"
     return f"stripe_sync_failed_{exc.__class__.__name__}"
+
+
+def _admin_plan_price_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in ADMIN_PLAN_PRICE_MODES else "free_admin_grant"
+
+
+def _admin_custom_price_state(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, BaseModel):
+        raw = value.model_dump()
+    elif isinstance(value, dict):
+        raw = value
+    else:
+        return None
+    try:
+        amount_cents = int(raw.get("amount_cents"))
+    except (TypeError, ValueError):
+        amount_cents = -1
+    if amount_cents < 0:
+        return None
+    currency = str(raw.get("currency") or "USD").strip().upper()[:8] or "USD"
+    interval = _normalize_subscription_interval(str(raw.get("interval") or "")) or "monthly"
+    return {"amount_cents": amount_cents, "currency": currency, "interval": interval}
+
+
+def _admin_free_grant_price_env_name(tier: str) -> str:
+    normalized = "pro" if normalize_tier(tier) == "pro" else "premium"
+    return f"STRIPE_{normalized.upper()}_ADMIN_FREE_PRICE_ID"
+
+
+def _admin_free_grant_price_id(tier: str) -> str | None:
+    value = os.getenv(_admin_free_grant_price_env_name(tier), "").strip()
+    return value if value.startswith("price_") else None
+
+
+def _stripe_recurring_interval(interval: SubscriptionInterval) -> str:
+    return "year" if interval == "annual" else "month"
 
 
 def _admin_billing_sync_exception(exc: BaseException) -> HTTPException:
@@ -2038,6 +2097,13 @@ def _admin_billing_metadata(
         metadata["metadata[walnut_admin_plan_override]"] = _metadata_value(requested_state.get("manual_tier_override"))
         metadata["metadata[walnut_admin_plan_price_id]"] = _metadata_value(plan_price_metadata.get("price_id"))
         metadata["metadata[walnut_admin_plan_interval]"] = _metadata_value(plan_price_metadata.get("billing_interval"))
+        metadata["metadata[admin_override]"] = "true"
+        metadata["metadata[created_by_admin]"] = "true"
+        metadata["metadata[admin_override_plan]"] = _metadata_value(requested_state.get("manual_tier_override"))
+        metadata["metadata[target_plan]"] = _metadata_value(requested_state.get("manual_tier_override"))
+        metadata["metadata[admin_override_price_mode]"] = _metadata_value(requested_state.get("price_mode"))
+        metadata["metadata[app_user_id]"] = str(user.id)
+        metadata["metadata[user_id]"] = str(user.id)
     if "monthly_price_override" in requested_state or "annual_price_override" in requested_state:
         metadata["metadata[walnut_admin_price_override_monthly]"] = _metadata_value(requested_state.get("monthly_price_override"))
         metadata["metadata[walnut_admin_price_override_annual]"] = _metadata_value(requested_state.get("annual_price_override"))
@@ -2095,6 +2161,294 @@ def _ensure_stripe_customer_for_admin_override(
     return created_customer_id
 
 
+def _stripe_subscription_is_admin_update_candidate(subscription: dict[str, Any] | None) -> bool:
+    if not subscription:
+        return False
+    status = str(subscription.get("status") or "").strip().lower()
+    return status in {"active", "trialing", "past_due", "incomplete"}
+
+
+def _stripe_subscription_is_paid_active(subscription: dict[str, Any] | None) -> bool:
+    if not subscription:
+        return False
+    status = str(subscription.get("status") or "").strip().lower()
+    return status in PAID_SUBSCRIPTION_STATUSES
+
+
+def _stripe_live_subscription_for_admin_override(user: UserAccount, customer_id: str | None) -> dict[str, Any] | None:
+    if user.stripe_subscription_id:
+        subscription = _stripe_get(
+            f"subscriptions/{user.stripe_subscription_id}",
+            {"expand[]": "items.data.price"},
+        )
+        if _stripe_subscription_is_admin_update_candidate(subscription):
+            return subscription
+    if not customer_id:
+        return None
+    subscriptions = _stripe_get(
+        "subscriptions",
+        {"customer": customer_id, "status": "all", "limit": 10, "expand[]": "data.items.data.price"},
+    )
+    data = [item for item in subscriptions.get("data") or [] if isinstance(item, dict) and _stripe_subscription_is_admin_update_candidate(item)]
+    if not data:
+        return None
+    return sorted(data, key=_stripe_subscription_sort_key, reverse=True)[0]
+
+
+def _admin_plan_subscription_metadata(
+    user: UserAccount,
+    *,
+    admin_actor: UserAccount,
+    target_plan: str,
+    price_mode: str,
+    billing_interval: SubscriptionInterval,
+    stripe_price_id: str,
+) -> dict[str, Any]:
+    return {
+        "metadata[user_id]": str(user.id),
+        "metadata[email]": user.email,
+        "metadata[plan]": target_plan,
+        "metadata[tier]": target_plan,
+        "metadata[interval]": billing_interval,
+        "metadata[billing_interval]": billing_interval,
+        "metadata[price_id]": stripe_price_id,
+        "metadata[created_by_admin]": "true",
+        "metadata[admin_override]": "true",
+        "metadata[target_plan]": target_plan,
+        "metadata[admin_override_plan]": target_plan,
+        "metadata[admin_override_price_mode]": price_mode,
+        "metadata[admin_override_actor]": str(admin_actor.id),
+        "metadata[app_user_id]": str(user.id),
+    }
+
+
+def _admin_default_plan_price_id(target_plan: str, billing_interval: SubscriptionInterval) -> str:
+    price_id = _stripe_price_id(billing_interval, target_plan)
+    if not price_id:
+        raise HTTPException(status_code=503, detail=f"Stripe price ID is not configured for {target_plan} {billing_interval}.")
+    return price_id
+
+
+def _stripe_product_id_for_plan_price(target_plan: str, billing_interval: SubscriptionInterval) -> str:
+    default_price_id = _admin_default_plan_price_id(target_plan, billing_interval)
+    price = _stripe_get(f"prices/{default_price_id}", {"expand[]": "product"})
+    product_id = _stripe_object_id(price.get("product"))
+    if not product_id:
+        raise HTTPException(status_code=503, detail="Stripe product is not configured for this admin custom price.")
+    return product_id
+
+
+def _create_admin_custom_price(
+    user: UserAccount,
+    *,
+    admin_actor: UserAccount,
+    target_plan: str,
+    custom_price: dict[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    billing_interval = custom_price.get("interval") if custom_price.get("interval") in {"monthly", "annual"} else "monthly"
+    product_id = _stripe_product_id_for_plan_price(target_plan, billing_interval)
+    amount_cents = int(custom_price["amount_cents"])
+    currency = str(custom_price.get("currency") or "USD").strip().lower()[:8] or "usd"
+    metadata = _admin_plan_subscription_metadata(
+        user,
+        admin_actor=admin_actor,
+        target_plan=target_plan,
+        price_mode="custom",
+        billing_interval=billing_interval,
+        stripe_price_id="pending",
+    )
+    payload: dict[str, Any] = {
+        "unit_amount": amount_cents,
+        "currency": currency,
+        "recurring[interval]": _stripe_recurring_interval(billing_interval),
+        "product": product_id,
+        "nickname": f"Admin {target_plan} override {currency.upper()} {amount_cents / 100:.2f} / {billing_interval}",
+        **metadata,
+    }
+    price = _stripe_post("prices", payload, idempotency_key=f"{idempotency_key}:price")
+    price_id = _stripe_object_id(price.get("id"))
+    if not price_id:
+        raise HTTPException(status_code=502, detail="Stripe did not return a custom price id.")
+    return {
+        "price_id": price_id,
+        "billing_interval": billing_interval,
+        "amount_cents": amount_cents,
+        "currency": currency.upper(),
+    }
+
+
+def _resolve_admin_subscription_price(
+    user: UserAccount,
+    *,
+    admin_actor: UserAccount,
+    target_plan: str,
+    price_mode: str,
+    custom_price: dict[str, Any] | None,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    if price_mode == "custom":
+        if not custom_price:
+            raise HTTPException(status_code=422, detail="Custom admin subscription price is required.")
+        return _create_admin_custom_price(
+            user,
+            admin_actor=admin_actor,
+            target_plan=target_plan,
+            custom_price=custom_price,
+            idempotency_key=idempotency_key,
+        )
+    billing_interval = _normalize_subscription_interval(user.subscription_interval) or "monthly"
+    if price_mode == "default":
+        return {
+            "price_id": _admin_default_plan_price_id(target_plan, billing_interval),
+            "billing_interval": billing_interval,
+            "amount_cents": None,
+            "currency": None,
+        }
+    free_price_id = _admin_free_grant_price_id(target_plan)
+    if not free_price_id:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{_admin_free_grant_price_env_name(target_plan)} is required for free admin grants.",
+        )
+    return {
+        "price_id": free_price_id,
+        "billing_interval": billing_interval,
+        "amount_cents": 0,
+        "currency": None,
+    }
+
+
+def _admin_subscription_response_state(subscription: dict[str, Any], *, target_plan: str, billing_interval: SubscriptionInterval, stripe_price_id: str) -> dict[str, Any]:
+    status = str(subscription.get("status") or "unknown").strip().lower() or "unknown"
+    period_end = _datetime_from_epoch(subscription.get("current_period_end"))
+    current_amount, current_currency = _subscription_item_amount_currency(subscription)
+    return {
+        "stripe_subscription_id": _stripe_object_id(subscription.get("id")),
+        "subscription_status": status,
+        "subscription_plan": target_plan,
+        "subscription_interval": billing_interval,
+        "stripe_price_id": stripe_price_id,
+        "access_expires_at": period_end,
+        "subscription_cancel_at_period_end": bool(subscription.get("cancel_at_period_end")),
+        "current_plan_amount_cents": current_amount,
+        "current_plan_currency": current_currency,
+    }
+
+
+def _create_or_update_admin_subscription(
+    user: UserAccount,
+    *,
+    admin_actor: UserAccount,
+    customer_id: str,
+    target_plan: str,
+    price_mode: str,
+    price_resolution: dict[str, Any],
+    metadata: dict[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    price_id = str(price_resolution["price_id"])
+    billing_interval = price_resolution["billing_interval"]
+    subscription_metadata = {
+        **metadata,
+        **_admin_plan_subscription_metadata(
+            user,
+            admin_actor=admin_actor,
+            target_plan=target_plan,
+            price_mode=price_mode,
+            billing_interval=billing_interval,
+            stripe_price_id=price_id,
+        ),
+    }
+    subscription = _stripe_live_subscription_for_admin_override(user, customer_id)
+    if subscription:
+        subscription_id = _stripe_object_id(subscription.get("id"))
+        if not subscription_id:
+            raise HTTPException(status_code=502, detail="Stripe did not return a subscription id.")
+        selected_item = _select_subscription_item_price(subscription)
+        payload: dict[str, Any] = {
+            **subscription_metadata,
+            "cancel_at_period_end": "false",
+        }
+        item_id = selected_item.get("selected_item_id")
+        if item_id:
+            payload["items[0][id]"] = item_id
+        payload["items[0][price]"] = price_id
+        if price_mode == "free_admin_grant":
+            payload["proration_behavior"] = "none"
+        else:
+            payload["payment_behavior"] = "error_if_incomplete"
+        updated = _stripe_post(
+            f"subscriptions/{subscription_id}",
+            payload,
+            idempotency_key=f"{idempotency_key}:subscription-update",
+        )
+        if not _stripe_object_id(updated.get("id")):
+            updated["id"] = subscription_id
+        subscription = updated
+    else:
+        payload = {
+            "customer": customer_id,
+            "items[0][price]": price_id,
+            "cancel_at_period_end": "false",
+            **subscription_metadata,
+        }
+        if price_mode != "free_admin_grant":
+            payload["payment_behavior"] = "error_if_incomplete"
+        subscription = _stripe_post(
+            "subscriptions",
+            payload,
+            idempotency_key=f"{idempotency_key}:subscription-create",
+        )
+    if not _stripe_subscription_is_paid_active(subscription):
+        raise HTTPException(status_code=502, detail="Stripe subscription is not active after admin override.")
+    return _admin_subscription_response_state(
+        subscription,
+        target_plan=target_plan,
+        billing_interval=billing_interval,
+        stripe_price_id=price_id,
+    )
+
+
+def _cancel_admin_subscription_for_free(
+    user: UserAccount,
+    *,
+    customer_id: str | None,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    subscription = _stripe_live_subscription_for_admin_override(user, customer_id)
+    if not subscription:
+        return {
+            "stripe_subscription_id": None,
+            "subscription_status": "free",
+            "subscription_plan": "free",
+            "subscription_interval": None,
+            "stripe_price_id": None,
+            "access_expires_at": None,
+            "subscription_cancel_at_period_end": False,
+            "current_plan_amount_cents": None,
+            "current_plan_currency": None,
+        }
+    subscription_id = _stripe_object_id(subscription.get("id"))
+    if not subscription_id:
+        raise HTTPException(status_code=502, detail="Stripe did not return a subscription id.")
+    canceled = _stripe_delete(
+        f"subscriptions/{subscription_id}",
+        idempotency_key=f"{idempotency_key}:subscription-cancel",
+    )
+    return {
+        "stripe_subscription_id": subscription_id,
+        "subscription_status": str(canceled.get("status") or "canceled").strip().lower() or "canceled",
+        "subscription_plan": "free",
+        "subscription_interval": None,
+        "stripe_price_id": None,
+        "access_expires_at": None,
+        "subscription_cancel_at_period_end": False,
+        "current_plan_amount_cents": None,
+        "current_plan_currency": None,
+    }
+
+
 def _apply_admin_billing_stripe_links(user: UserAccount, sync_result: dict[str, Any] | None) -> None:
     if not sync_result:
         return
@@ -2104,6 +2458,22 @@ def _apply_admin_billing_stripe_links(user: UserAccount, sync_result: dict[str, 
         user.stripe_customer_id = str(customer_id)
     if subscription_id and not user.stripe_subscription_id:
         user.stripe_subscription_id = str(subscription_id)
+    if "stripe_price_id" in sync_result:
+        user.stripe_price_id = sync_result.get("stripe_price_id")
+    if sync_result.get("subscription_status"):
+        user.subscription_status = str(sync_result["subscription_status"])
+    if sync_result.get("subscription_plan"):
+        user.subscription_plan = normalize_tier(sync_result["subscription_plan"])
+    if sync_result.get("subscription_interval") in {"monthly", "annual"}:
+        user.subscription_interval = sync_result.get("subscription_interval")
+    if "access_expires_at" in sync_result:
+        user.access_expires_at = sync_result.get("access_expires_at")
+    if "subscription_cancel_at_period_end" in sync_result:
+        user.subscription_cancel_at_period_end = bool(sync_result.get("subscription_cancel_at_period_end"))
+    if "current_plan_amount_cents" in sync_result and sync_result.get("current_plan_amount_cents") is not None:
+        user.current_plan_amount_cents = int(sync_result["current_plan_amount_cents"])
+    if sync_result.get("current_plan_currency"):
+        user.current_plan_currency = str(sync_result["current_plan_currency"]).upper()
 
 
 def sync_admin_billing_override_to_stripe(
@@ -2122,12 +2492,20 @@ def sync_admin_billing_override_to_stripe(
     plan_price_metadata: dict[str, str | None] = {}
     customer_id: str | None = None
     subscription_id: str | None = None
+    subscription_state: dict[str, Any] = {}
     try:
+        raw_target_plan = requested_state.get("manual_tier_override") if "manual_tier_override" in requested_state else None
+        target_plan = normalize_tier(raw_target_plan) if raw_target_plan is not None else None
+        price_mode = _admin_plan_price_mode(requested_state.get("price_mode"))
+        custom_price = _admin_custom_price_state(requested_state.get("custom_price"))
         if "manual_tier_override" in requested_state:
-            plan_price_metadata = _admin_plan_override_price_metadata(user, requested_state.get("manual_tier_override"))
-            if plan_price_metadata.get("price_id"):
-                requested_state["stripe_price_id"] = plan_price_metadata["price_id"]
-                requested_state["stripe_price_interval"] = plan_price_metadata["billing_interval"]
+            if target_plan in ADMIN_BILLING_PAID_TIERS:
+                plan_price_metadata = {"tier": target_plan, "billing_interval": _normalize_subscription_interval(user.subscription_interval) or "monthly", "price_id": None}
+            else:
+                plan_price_metadata = _admin_plan_override_price_metadata(user, requested_state.get("manual_tier_override"))
+                if plan_price_metadata.get("price_id"):
+                    requested_state["stripe_price_id"] = plan_price_metadata["price_id"]
+                    requested_state["stripe_price_interval"] = plan_price_metadata["billing_interval"]
         idempotency_key = _admin_billing_idempotency_key(
             user,
             override_type,
@@ -2141,24 +2519,76 @@ def sync_admin_billing_override_to_stripe(
             requested_state=requested_state,
             plan_price_metadata=plan_price_metadata,
         )
-        subscription = _stripe_current_subscription_for_admin_override(user, None) if user.stripe_subscription_id else None
-        subscription_customer_id = _stripe_object_id(subscription.get("customer")) if subscription else None
-        customer_id = _ensure_stripe_customer_for_admin_override(
-            user,
-            metadata=metadata,
-            idempotency_key=idempotency_key,
-            preferred_customer_id=subscription_customer_id,
-        )
-        if subscription is None:
-            subscription = _stripe_current_subscription_for_admin_override(user, customer_id)
-        if subscription:
-            subscription_id = _stripe_object_id(subscription.get("id"))
-            if subscription_id:
-                _stripe_post(
-                    f"subscriptions/{subscription_id}",
-                    metadata,
-                    idempotency_key=f"{idempotency_key}:subscription",
+        if target_plan in ADMIN_BILLING_PAID_TIERS:
+            customer_id = _ensure_stripe_customer_for_admin_override(
+                user,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+                preferred_customer_id=None,
+            )
+            price_resolution = _resolve_admin_subscription_price(
+                user,
+                admin_actor=admin_actor,
+                target_plan=target_plan,
+                price_mode=price_mode,
+                custom_price=custom_price,
+                idempotency_key=idempotency_key,
+            )
+            requested_state["price_mode"] = price_mode
+            requested_state["stripe_price_id"] = price_resolution["price_id"]
+            requested_state["stripe_price_interval"] = price_resolution["billing_interval"]
+            if price_resolution.get("amount_cents") is not None:
+                requested_state["stripe_price_amount_cents"] = price_resolution.get("amount_cents")
+            if price_resolution.get("currency"):
+                requested_state["stripe_price_currency"] = price_resolution.get("currency")
+            subscription_state = _create_or_update_admin_subscription(
+                user,
+                admin_actor=admin_actor,
+                customer_id=customer_id,
+                target_plan=target_plan,
+                price_mode=price_mode,
+                price_resolution=price_resolution,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+            )
+            subscription_id = subscription_state.get("stripe_subscription_id")
+        elif target_plan == "free":
+            subscription: dict[str, Any] | None = None
+            if user.stripe_subscription_id:
+                subscription = _stripe_current_subscription_for_admin_override(user, None)
+            subscription_customer_id = _stripe_object_id(subscription.get("customer")) if subscription else None
+            if user.stripe_customer_id or user.stripe_subscription_id or _stripe_secret_key():
+                customer_id = _ensure_stripe_customer_for_admin_override(
+                    user,
+                    metadata=metadata,
+                    idempotency_key=idempotency_key,
+                    preferred_customer_id=subscription_customer_id,
                 )
+            subscription_state = _cancel_admin_subscription_for_free(
+                user,
+                customer_id=customer_id,
+                idempotency_key=idempotency_key,
+            )
+            subscription_id = subscription_state.get("stripe_subscription_id")
+        else:
+            subscription = _stripe_current_subscription_for_admin_override(user, None) if user.stripe_subscription_id else None
+            subscription_customer_id = _stripe_object_id(subscription.get("customer")) if subscription else None
+            customer_id = _ensure_stripe_customer_for_admin_override(
+                user,
+                metadata=metadata,
+                idempotency_key=idempotency_key,
+                preferred_customer_id=subscription_customer_id,
+            )
+            if subscription is None:
+                subscription = _stripe_current_subscription_for_admin_override(user, customer_id)
+            if subscription:
+                subscription_id = _stripe_object_id(subscription.get("id"))
+                if subscription_id:
+                    _stripe_post(
+                        f"subscriptions/{subscription_id}",
+                        metadata,
+                        idempotency_key=f"{idempotency_key}:subscription",
+                    )
         _record_admin_billing_override_audit(
             db,
             admin_actor=admin_actor,
@@ -2175,6 +2605,7 @@ def sync_admin_billing_override_to_stripe(
             "stripe_customer_id": customer_id,
             "stripe_subscription_id": subscription_id,
             "stripe_sync_status": "succeeded",
+            **subscription_state,
         }
     except Exception as exc:
         safe_error = _admin_billing_safe_error(exc)
@@ -2772,6 +3203,32 @@ def _stripe_post(path: str, data: dict[str, Any], *, idempotency_key: str | None
         f"https://api.stripe.com/v1/{path.lstrip('/')}",
         auth=(secret, ""),
         data=data,
+        headers=headers,
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        message = "Stripe request failed."
+        try:
+            parsed = response.json()
+            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
+            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
+                message = f"Stripe request failed: {stripe_error['message']}"
+        except ValueError:
+            pass
+        raise HTTPException(status_code=502, detail=message)
+    parsed = response.json()
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _stripe_delete(path: str, data: dict[str, Any] | None = None, *, idempotency_key: str | None = None) -> dict[str, Any]:
+    secret = _stripe_secret_key()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Stripe secret key is not configured.")
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+    response = requests.delete(
+        f"https://api.stripe.com/v1/{path.lstrip('/')}",
+        auth=(secret, ""),
+        data=data or {},
         headers=headers,
         timeout=20,
     )
@@ -4238,8 +4695,16 @@ def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Lite
             mapping_result,
         )
     metadata = _extract_metadata(obj)
-    metadata_tier = normalize_tier(metadata.get("tier") or metadata.get("plan"))
+    metadata_tier = normalize_tier(metadata.get("admin_override_plan") or metadata.get("target_plan") or metadata.get("tier") or metadata.get("plan"))
     metadata_interval = _normalize_subscription_interval(str(metadata.get("billing_interval") or metadata.get("interval") or ""))
+    admin_override = str(metadata.get("admin_override") or metadata.get("walnut_admin_override") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if obj.get("object") == "subscription" and admin_override and metadata_tier in ADMIN_BILLING_PAID_TIERS:
+        return (
+            metadata_tier,  # type: ignore[return-value]
+            _extract_subscription_interval(obj) or metadata_interval,
+            price_id,
+            {**mapping_result, "tier": metadata_tier, "billing_interval": _extract_subscription_interval(obj) or metadata_interval, "matched": False, "reason": "admin_override_metadata"},
+        )
     if obj.get("object") == "subscription" and price_id:
         return (
             None,
@@ -4602,6 +5067,14 @@ def _sync_user_subscription(
 
     customer = _stripe_object_id(obj.get("customer"))
     subscription = _extract_subscription_id(obj) or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
+    if (
+        subscription
+        and user.stripe_subscription_id
+        and str(subscription) != str(user.stripe_subscription_id)
+        and normalize_tier(user.manual_tier_override) in ADMIN_BILLING_PAID_TIERS
+    ):
+        db.flush()
+        return user
     period_end = access_expires_at or _datetime_from_epoch(obj.get("current_period_end"))
     resolved_from_price_tier, resolved_from_price_interval, resolved_price_id, _mapping_result = _resolve_tier_interval_from_stripe_object(obj)
     _release_stripe_identifiers_from_deleted_users(db, user, customer_id=customer, subscription_id=str(subscription) if subscription else None)
@@ -6099,7 +6572,11 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
     sync_result = sync_admin_billing_override_to_stripe(
         db,
         user=user,
-        requested_override={"plan": payload.tier},
+        requested_override={
+            "plan": payload.tier,
+            "price_mode": payload.price_mode,
+            "custom_price": payload.custom_price.model_dump() if payload.custom_price else None,
+        },
         admin_actor=admin,
         request=request,
     )
@@ -6178,6 +6655,8 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
         requested_override: dict[str, Any] = {}
         if payload.tier is not None:
             requested_override["plan"] = payload.tier
+            requested_override["price_mode"] = payload.price_mode
+            requested_override["custom_price"] = payload.custom_price.model_dump() if payload.custom_price else None
         if payload.suspended is not None:
             requested_override["suspended"] = payload.suspended
         if payload.clear_price_override:
