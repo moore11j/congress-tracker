@@ -5463,6 +5463,44 @@ def _normalize_ticker_financials_payload(payload: dict[str, Any]) -> dict[str, A
     estimates_subsection = subsections.get("analyst_estimates") if isinstance(subsections.get("analyst_estimates"), dict) else {}
     valuation_subsection = subsections.get("valuation") if isinstance(subsections.get("valuation"), dict) else {}
     health_subsection = subsections.get("health") if isinstance(subsections.get("health"), dict) else {}
+    valuation_data = valuation_subsection.get("data") if isinstance(valuation_subsection.get("data"), dict) else {}
+    valuation_metrics = cleaned.get("valuation_metrics") if isinstance(cleaned.get("valuation_metrics"), dict) else None
+    if valuation_metrics is None and isinstance(valuation_data.get("valuation_metrics"), dict):
+        valuation_metrics = valuation_data.get("valuation_metrics")
+    if valuation_metrics is None:
+        forward_pe_source = summary.get("forwardPESource") if summary.get("forwardPESource") is not None else valuation_data.get("forwardPESource")
+        raw_forward_pe = summary.get("forwardPE") if summary.get("forwardPE") is not None else valuation_data.get("forwardPE")
+        forward_pe = raw_forward_pe if forward_pe_source in {"price_over_estimated_eps", "implied_from_forward_peg"} else None
+        forward_peg = summary.get("forwardPEG") if summary.get("forwardPEG") is not None else valuation_data.get("forwardPEG")
+        expected_growth = (
+            summary.get("expectedEpsGrowthRatePercent")
+            if summary.get("expectedEpsGrowthRatePercent") is not None
+            else valuation_data.get("expectedEpsGrowthRatePercent")
+        )
+        valuation_metrics = {
+            "forward_pe": forward_pe,
+            "forward_pe_source": forward_pe_source,
+            "forward_peg": forward_peg,
+            "expected_eps_growth_rate_percent": expected_growth,
+            "as_of": valuation_data.get("as_of"),
+            "status": "ok" if any(value is not None for value in (forward_pe, forward_peg, expected_growth)) else "unavailable",
+        }
+    if valuation_metrics.get("forward_pe_source") not in {"price_over_estimated_eps", "implied_from_forward_peg"}:
+        valuation_metrics = {**valuation_metrics, "forward_pe": None, "forward_pe_source": None}
+    valuation_metrics["status"] = (
+        "ok"
+        if any(
+            valuation_metrics.get(key) is not None
+            for key in ("forward_pe", "forward_peg", "expected_eps_growth_rate_percent")
+        )
+        else "unavailable"
+    )
+    cleaned["valuation_metrics"] = valuation_metrics
+    summary["forwardPE"] = valuation_metrics.get("forward_pe")
+    summary["forwardPESource"] = valuation_metrics.get("forward_pe_source")
+    summary["forwardPEG"] = valuation_metrics.get("forward_peg")
+    summary["expectedEpsGrowthRatePercent"] = valuation_metrics.get("expected_eps_growth_rate_percent")
+    cleaned["summary"] = summary
     cleaned["section_statuses"] = legacy_section_statuses
     cleaned["sections"] = {
         "income": income_subsection.get("data") or {
@@ -5476,9 +5514,14 @@ def _normalize_ticker_financials_payload(payload: dict[str, Any]) -> dict[str, A
         "analyst_estimates": estimates_subsection.get("data") or (
             cleaned.get("forecasts") if isinstance(cleaned.get("forecasts"), dict) else {"nextQuarter": None, "nextFiscalYear": None}
         ),
-        "valuation": valuation_subsection.get("data") or {
+        "valuation": valuation_data or {
             "trailingPE": summary.get("trailingPE"),
-            "forwardPE": summary.get("forwardPE"),
+            "forwardPE": valuation_metrics.get("forward_pe"),
+            "forwardPESource": valuation_metrics.get("forward_pe_source"),
+            "forwardPEG": valuation_metrics.get("forward_peg"),
+            "expectedEpsGrowthRatePercent": valuation_metrics.get("expected_eps_growth_rate_percent"),
+            "valuation_metrics": valuation_metrics,
+            **valuation_metrics,
         },
         "health": health_subsection.get("data") or (
             cleaned.get("health") if isinstance(cleaned.get("health"), dict) else {}

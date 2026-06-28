@@ -634,10 +634,10 @@ function FinancialSection({ title, action, children }: { title: string; action?:
   );
 }
 
-function SummaryTile({ label, value, tone, muted }: { label: string; value: string; tone?: "pos" | "neg" | "neutral"; muted?: boolean }) {
+function SummaryTile({ label, value, tone, muted, tooltip }: { label: string; value: string; tone?: "pos" | "neg" | "neutral"; muted?: boolean; tooltip?: string }) {
   const toneClass = muted ? "text-slate-500" : tone === "pos" ? "text-emerald-300" : tone === "neg" ? "text-rose-300" : "text-slate-100";
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
+    <div className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5" title={tooltip}>
       <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{label}</p>
       <p className={`mt-1 truncate text-sm font-semibold tabular-nums ${toneClass}`}>{value}</p>
     </div>
@@ -655,8 +655,8 @@ function UnavailableState({ message = EMPTY_MESSAGE }: { message?: string }) {
 export function TickerFinancialsSkeleton() {
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-        {Array.from({ length: 6 }, (_, index) => (
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+        {Array.from({ length: 7 }, (_, index) => (
           <div key={index} className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5">
             <SkeletonBlock className="h-2 w-20" />
             <SkeletonBlock className="mt-2 h-4 w-24" />
@@ -674,6 +674,14 @@ export function TickerFinancialsSkeleton() {
 
 export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse | null }) {
   const summary = data?.summary;
+  const valuationSection = data?.subsections?.valuation?.data;
+  const valuationMetrics = data?.valuation_metrics ?? valuationSection?.valuation_metrics ?? null;
+  const forwardPeSource = summary?.forwardPESource ?? valuationMetrics?.forward_pe_source ?? valuationSection?.forward_pe_source ?? null;
+  const rawForwardPeValue = summary?.forwardPE ?? valuationMetrics?.forward_pe ?? valuationSection?.forward_pe ?? null;
+  const forwardPeValue = forwardPeSource === "price_over_estimated_eps" || forwardPeSource === "implied_from_forward_peg" ? rawForwardPeValue : null;
+  const forwardPeg = summary?.forwardPEG ?? valuationMetrics?.forward_peg ?? valuationSection?.forward_peg ?? null;
+  const forwardPeLabel = forwardPeSource === "implied_from_forward_peg" ? "Implied Forward P/E" : "Forward P/E";
+  const forwardPeTooltip = forwardPeSource === "implied_from_forward_peg" ? "Estimated from Forward PEG and analyst EPS growth." : undefined;
   const annual = Array.isArray(data?.annual) ? data.annual : [];
   const quarterly = Array.isArray(data?.quarterly) ? data.quarterly : [];
   const earnings = Array.isArray(data?.earnings) ? data.earnings : [];
@@ -686,7 +694,8 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
       isFiniteNumber(summary?.netIncomeTtm) ||
       isFiniteNumber(summary?.epsTtm) ||
       isFiniteNumber(summary?.trailingPE) ||
-      isFiniteNumber(summary?.forwardPE) ||
+      isFiniteNumber(forwardPeValue) ||
+      (isFiniteNumber(forwardPeg) && forwardPeg > 0) ||
       isFiniteNumber(summary?.grossMargin) ||
       isFiniteNumber(summary?.operatingMargin) ||
       isFiniteNumber(summary?.freeCashFlowTtm) ||
@@ -725,12 +734,13 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
         <SummaryTile label="Revenue TTM" value={formatCompactCurrency(summary?.revenueTtm)} />
         <SummaryTile label="Net Income TTM" value={formatCompactCurrency(summary?.netIncomeTtm)} tone={isFiniteNumber(summary?.netIncomeTtm) && summary.netIncomeTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="EPS TTM" value={formatEps(summary?.epsTtm)} tone={isFiniteNumber(summary?.epsTtm) && summary.epsTtm < 0 ? "neg" : "pos"} />
         <SummaryTile label="Trailing P/E" value={formatMultiple(summary?.trailingPE)} muted={!isFiniteNumber(summary?.trailingPE)} />
-        <SummaryTile label="Forward P/E" value={formatMultiple(summary?.forwardPE)} muted={!isFiniteNumber(summary?.forwardPE)} />
+        <SummaryTile label={forwardPeLabel} value={formatMultiple(forwardPeValue)} muted={!isFiniteNumber(forwardPeValue)} tooltip={forwardPeTooltip} />
+        {isFiniteNumber(forwardPeg) && forwardPeg > 0 ? <SummaryTile label="Forward PEG" value={formatRatio(forwardPeg)} /> : null}
         <SummaryTile label="Next Earnings" value={formatDateShort(summary?.nextEarningsDate ?? null)} />
       </div>
 

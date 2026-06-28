@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -14,7 +15,7 @@ import requests
 
 from app.clients.fmp import FMP_BASE_URL
 from app.db import IS_SQLITE, SessionLocal
-from app.models import TickerFinancialsCache
+from app.models import QuoteCache, TickerFinancialsCache
 from app.request_priority import get_request_context
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.provider_usage import (
@@ -40,9 +41,40 @@ AGGREGATE_TIMEOUT_SECONDS = 6
 FINANCIALS_MAX_WORKERS = 5
 UNAVAILABLE_MESSAGE = "Financial data is not available for this ticker yet."
 TEMPORARILY_UNAVAILABLE_MESSAGE = "Financial data is temporarily unavailable."
+EPS_ESTIMATE_KEYS = (
+    "estimatedEpsAvg",
+    "estimatedEPSAvg",
+    "epsAvg",
+    "epsAverage",
+    "estimatedEps",
+    "estimatedEPS",
+    "epsEstimate",
+    "epsEstimated",
+    "estimatedEarning",
+    "estimate",
+)
+FORWARD_PEG_KEYS = (
+    "forwardPriceToEarningsGrowthRatio",
+    "forwardPriceEarningsGrowthRatio",
+    "forwardPEG",
+    "forwardPeg",
+    "forward_pe_growth",
+)
+MAX_REASONABLE_IMPLIED_FORWARD_PE = 500.0
 
 _CACHE: dict[str, tuple[float, float, float, dict[str, Any]]] = {}
 _CACHE_LOCK = Lock()
+
+
+def _empty_valuation_metrics() -> dict[str, Any]:
+    return {
+        "forward_pe": None,
+        "forward_pe_source": None,
+        "forward_peg": None,
+        "expected_eps_growth_rate_percent": None,
+        "as_of": None,
+        "status": "unavailable",
+    }
 
 
 class TickerFinancialsUnavailable(RuntimeError):
@@ -283,6 +315,10 @@ def _numeric(row: dict[str, Any], *keys: str) -> float | None:
             if parsed == parsed:
                 return parsed
     return None
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and math.isfinite(float(value))
 
 
 def _date_key(row: dict[str, Any]) -> str | None:
@@ -532,21 +568,153 @@ def _next_estimate(rows: list[dict[str, Any]], *, period_type: Literal["annual",
     return sorted(source, key=lambda item: item.get("date") or item.get("period") or "")[0 if future else -1]
 
 
-def _forward_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any]], forecast: dict[str, Any] | None) -> float | None:
-    for row in ratio_rows + quote_rows:
-        value = _numeric(row, "forwardPE", "forwardPe", "forwardPERatio", "forwardPriceEarningsRatio", "forwardP/E")
-        if value is not None and value > 0:
-            return value
+def _quote_cache_price(symbol: str) -> dict[str, Any] | None:
+    db = SessionLocal()
+    try:
+        row = db.get(QuoteCache, symbol)
+        if row is None or not _is_finite_number(row.price) or float(row.price) <= 0:
+            return None
+        asof = row.asof_ts
+        asof_text = None
+        if isinstance(asof, datetime):
+            if asof.tzinfo is None:
+                asof = asof.replace(tzinfo=timezone.utc)
+            asof_text = asof.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        return {"price": float(row.price), "as_of": asof_text, "source": "quote_cache"}
+    except Exception:
+        logger.info("ticker_financials quote cache read failed symbol=%s", symbol, exc_info=True)
+        return None
+    finally:
+        db.close()
 
-    price = None
+
+def _latest_price(quote_rows: list[dict[str, Any]], cached_quote: dict[str, Any] | None = None) -> tuple[float | None, str | None]:
+    if cached_quote:
+        price = cached_quote.get("price")
+        if _is_finite_number(price) and float(price) > 0:
+            return float(price), _trimmed(cached_quote.get("as_of"))
     for row in quote_rows:
         price = _numeric(row, "price", "currentPrice", "close", "previousClose")
-        if price is not None:
-            break
-    eps_estimate = forecast.get("epsEstimate") if forecast else None
-    if price is not None and isinstance(eps_estimate, (int, float)) and eps_estimate > 0:
-        return price / float(eps_estimate)
-    return None
+        if price is not None and price > 0:
+            return price, _date_key(row)
+    return None, None
+
+
+def _annual_eps_estimate_points(rows: list[dict[str, Any]], *, today: date | None = None) -> list[dict[str, Any]]:
+    today = today or date.today()
+    points: list[dict[str, Any]] = []
+    for row in rows:
+        row_date = _date_key(row)
+        fiscal_year_text = _fiscal_year(row, row_date)
+        fiscal_year = int(fiscal_year_text) if fiscal_year_text and fiscal_year_text.isdigit() else None
+        eps = _numeric(row, *EPS_ESTIMATE_KEYS)
+        if eps is None:
+            continue
+        is_fresh = False
+        if row_date:
+            is_fresh = row_date >= today.isoformat()
+        elif fiscal_year is not None:
+            is_fresh = fiscal_year >= today.year
+        points.append(
+            {
+                "date": row_date,
+                "fiscal_year": fiscal_year,
+                "period": _trimmed(row.get("period")),
+                "eps": eps,
+                "is_fresh": is_fresh,
+            }
+        )
+    return sorted(
+        points,
+        key=lambda item: (
+            item["fiscal_year"] if item["fiscal_year"] is not None else 9999,
+            item["date"] or "",
+            item["period"] or "",
+        ),
+    )
+
+
+def _forward_peg(ratio_rows: list[dict[str, Any]], *, symbol: str) -> tuple[float | None, str | None]:
+    available_keys: set[str] = set()
+    saw_forward_peg_key = False
+    for row in ratio_rows:
+        available_keys.update(str(key) for key in row.keys())
+        if any(key in row for key in FORWARD_PEG_KEYS):
+            saw_forward_peg_key = True
+    for row in reversed(_latest_rows(ratio_rows, len(ratio_rows))):
+        value = _numeric(row, *FORWARD_PEG_KEYS)
+        if value is not None and value > 0:
+            return value, _date_key(row)
+    if ratio_rows and not saw_forward_peg_key:
+        logger.warning(
+            "ticker_financials forward_peg_field_missing symbol=%s available_ratio_keys=%s",
+            symbol,
+            sorted(available_keys)[:80],
+        )
+    return None, None
+
+
+def _expected_eps_growth_rate_percent(annual_estimate_rows: list[dict[str, Any]], *, today: date | None = None) -> tuple[float | None, str | None]:
+    points = [point for point in _annual_eps_estimate_points(annual_estimate_rows, today=today) if point["is_fresh"]]
+    if len(points) < 2:
+        return None, None
+    current_point = points[0]
+    next_point = points[1]
+    current_eps = current_point["eps"]
+    next_eps = next_point["eps"]
+    if not (_is_finite_number(current_eps) and _is_finite_number(next_eps)):
+        return None, next_point.get("date") or current_point.get("date")
+    if current_eps <= 0 or next_eps <= 0:
+        return None, next_point.get("date") or current_point.get("date")
+    growth = ((float(next_eps) - float(current_eps)) / abs(float(current_eps))) * 100
+    if not math.isfinite(growth) or growth <= 0:
+        return None, next_point.get("date") or current_point.get("date")
+    return growth, next_point.get("date") or current_point.get("date")
+
+
+def _valuation_metrics(
+    *,
+    symbol: str,
+    quote_rows: list[dict[str, Any]],
+    ratio_rows: list[dict[str, Any]],
+    annual_estimate_rows: list[dict[str, Any]],
+    cached_quote: dict[str, Any] | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    price, price_as_of = _latest_price(quote_rows, cached_quote)
+    eps_points = [point for point in _annual_eps_estimate_points(annual_estimate_rows, today=today) if point["is_fresh"]]
+    next_eps_point = next((point for point in eps_points if point["eps"] > 0), None)
+    forward_pe = None
+    forward_pe_source = None
+    as_of = next_eps_point.get("date") if next_eps_point else price_as_of
+    if price is not None and next_eps_point is not None:
+        forward_pe = price / float(next_eps_point["eps"])
+        forward_pe_source = "price_over_estimated_eps"
+
+    forward_peg, peg_as_of = _forward_peg(ratio_rows, symbol=symbol)
+    expected_growth, growth_as_of = _expected_eps_growth_rate_percent(annual_estimate_rows, today=today)
+    if forward_pe is None and forward_peg is not None and expected_growth is not None:
+        implied_forward_pe = forward_peg * expected_growth
+        if (
+            math.isfinite(implied_forward_pe)
+            and implied_forward_pe > 0
+            and implied_forward_pe <= MAX_REASONABLE_IMPLIED_FORWARD_PE
+        ):
+            forward_pe = implied_forward_pe
+            forward_pe_source = "implied_from_forward_peg"
+            as_of = growth_as_of or peg_as_of or as_of
+
+    if as_of is None:
+        as_of = growth_as_of or peg_as_of or price_as_of
+
+    return {
+        "forward_pe": forward_pe,
+        "forward_pe_source": forward_pe_source,
+        "forward_peg": forward_peg,
+        "expected_eps_growth_rate_percent": expected_growth,
+        "as_of": as_of,
+        "status": "ok" if any(value is not None for value in (forward_pe, forward_peg, expected_growth)) else "unavailable",
+    }
 
 
 def _trailing_pe(quote_rows: list[dict[str, Any]], ratio_rows: list[dict[str, Any]]) -> float | None:
@@ -663,12 +831,25 @@ def _subsection(
 
 def _unavailable_subsections(*, loading: bool = False, reason_code: str = "provider_unavailable") -> dict[str, dict[str, Any]]:
     status = "loading" if loading else "unavailable"
+    valuation_metrics = _empty_valuation_metrics()
     return {
         "income": _subsection(status=status, reason_code=reason_code, data={"annual": [], "quarterly": []}),
         "cash_flow": _subsection(status=status, reason_code=reason_code, data={"annual": [], "quarterly": []}),
         "earnings": _subsection(status=status, reason_code=reason_code, data=[]),
         "analyst_estimates": _subsection(status=status, reason_code=reason_code, data={"nextQuarter": None, "nextFiscalYear": None}),
-        "valuation": _subsection(status=status, reason_code=reason_code, data={"trailingPE": None, "forwardPE": None}),
+        "valuation": _subsection(
+            status=status,
+            reason_code=reason_code,
+            data={
+                "trailingPE": None,
+                "forwardPE": None,
+                "forwardPESource": None,
+                "forwardPEG": None,
+                "expectedEpsGrowthRatePercent": None,
+                "valuation_metrics": valuation_metrics,
+                **valuation_metrics,
+            },
+        ),
         "health": _subsection(status=status, reason_code=reason_code, data={}),
     }
 
@@ -686,6 +867,9 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
             "epsTtm": None,
             "trailingPE": None,
             "forwardPE": None,
+            "forwardPESource": None,
+            "forwardPEG": None,
+            "expectedEpsGrowthRatePercent": None,
             "grossMargin": None,
             "operatingMargin": None,
             "nextEarningsDate": None,
@@ -703,6 +887,7 @@ def _unavailable(symbol: str, *, message: str = UNAVAILABLE_MESSAGE, reason: str
             "nextQuarter": None,
             "nextFiscalYear": None,
         },
+        "valuation_metrics": _empty_valuation_metrics(),
         "health": {},
         "sections": {
             "income": "unavailable",
@@ -786,7 +971,7 @@ def _section_for_key(key: str) -> str:
         return "earnings"
     if key.endswith("_estimates"):
         return "analyst_estimates"
-    if key in {"quote", "ratios_ttm", "key_metrics_ttm"}:
+    if key in {"quote", "ratios", "ratios_ttm", "key_metrics_ttm"}:
         return "valuation"
     return key
 
@@ -802,8 +987,9 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
         "earnings": ("earnings", {"page": 0, "limit": 16}),
         "earnings_calendar": ("earnings-calendar", {"page": 0, "limit": 32}),
         "quarterly_estimates": ("analyst-estimates", {"period": "quarter", "page": 0, "limit": 8}),
-        "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 8}),
+        "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 10}),
         "quote": ("quote", {}),
+        "ratios": ("ratios", {"page": 0, "limit": 10}),
         "ratios_ttm": ("ratios-ttm", {}),
         "key_metrics_ttm": ("key-metrics-ttm", {}),
     }
@@ -932,6 +1118,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     quarterly_estimates = rows_by_key["quarterly_estimates"]
     annual_estimates = rows_by_key["annual_estimates"]
     quote_rows = rows_by_key["quote"]
+    forward_ratio_rows = rows_by_key["ratios"]
     ratio_rows = rows_by_key["ratios_ttm"]
     metrics_rows = rows_by_key["key_metrics_ttm"]
 
@@ -958,13 +1145,20 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
         "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),
     }
-    forward_pe = _forward_pe(quote_rows, ratio_rows, forecasts["nextFiscalYear"])
+    valuation_metrics = _valuation_metrics(
+        symbol=normalized_symbol,
+        quote_rows=quote_rows,
+        ratio_rows=forward_ratio_rows,
+        annual_estimate_rows=annual_estimates,
+        cached_quote=_quote_cache_price(normalized_symbol),
+    )
+    forward_pe = valuation_metrics["forward_pe"]
     trailing_pe = _trailing_pe(quote_rows, ratio_rows)
     health = _normalize_health(ratio_rows, metrics_rows, quarterly_balance or annual_balance)
     has_health_data = _has_health_data(health)
 
     has_core_data = bool(annual or quarterly)
-    has_valuation_data = forward_pe is not None or trailing_pe is not None
+    has_valuation_data = forward_pe is not None or trailing_pe is not None or valuation_metrics["status"] == "ok"
     has_any_financial_data = has_core_data or bool(earnings) or has_valuation_data or has_health_data
     if not has_any_financial_data:
         message = TEMPORARILY_UNAVAILABLE_MESSAGE if failed_keys else UNAVAILABLE_MESSAGE
@@ -989,7 +1183,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     cash_failed = bool({"annual_cash", "quarterly_cash"} & failed_keys)
     health_failed = bool({"annual_balance", "quarterly_balance", "ratios_ttm", "key_metrics_ttm"} & failed_keys)
     forecasts_failed = bool({"quarterly_estimates", "annual_estimates"} & failed_keys)
-    valuation_failed = bool({"quote", "ratios_ttm", "key_metrics_ttm"} & failed_keys)
+    valuation_failed = bool({"quote", "ratios", "ratios_ttm", "key_metrics_ttm", "annual_estimates"} & failed_keys)
     forecasts_available = bool(forecasts["nextQuarter"] or forecasts["nextFiscalYear"])
     sections = {
         "income": _section_status(failed=income_failed, has_rows=has_core_data, partial=bool(annual) != bool(quarterly)),
@@ -1029,7 +1223,15 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "valuation": _subsection(
             status=_subsection_status(failed=valuation_failed, has_data=has_valuation_data),
             reason_code=failed_section_reasons.get("valuation"),
-            data={"trailingPE": trailing_pe, "forwardPE": forward_pe},
+            data={
+                "trailingPE": trailing_pe,
+                "forwardPE": forward_pe,
+                "forwardPESource": valuation_metrics["forward_pe_source"],
+                "forwardPEG": valuation_metrics["forward_peg"],
+                "expectedEpsGrowthRatePercent": valuation_metrics["expected_eps_growth_rate_percent"],
+                "valuation_metrics": valuation_metrics,
+                **valuation_metrics,
+            },
         ),
         "health": _subsection(
             status=_subsection_status(failed=health_failed, has_data=has_health_data),
@@ -1052,6 +1254,9 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
             "epsTtm": _sum_latest(quarterly, "eps"),
             "trailingPE": trailing_pe,
             "forwardPE": forward_pe,
+            "forwardPESource": valuation_metrics["forward_pe_source"],
+            "forwardPEG": valuation_metrics["forward_peg"],
+            "expectedEpsGrowthRatePercent": valuation_metrics["expected_eps_growth_rate_percent"],
             "grossMargin": _latest_value(quarterly, "grossMargin") or _latest_value(annual, "grossMargin"),
             "operatingMargin": _latest_value(quarterly, "operatingMargin") or _latest_value(annual, "operatingMargin"),
             "nextEarningsDate": _next_earnings_date(earnings_rows),
@@ -1066,6 +1271,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
         "quarterly": quarterly,
         "earnings": earnings,
         "forecasts": forecasts,
+        "valuation_metrics": valuation_metrics,
         "health": health,
         "sections": sections,
         "subsections": subsections,

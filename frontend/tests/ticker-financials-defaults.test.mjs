@@ -27,6 +27,13 @@ test("ticker financials keep core data visible when estimates are unavailable", 
   assert.doesNotMatch(financialsPanel, /\bFMP\b|provider|402|plan|endpoint failure/i);
 });
 
+test("ticker financials keep forward pe and forward peg labels distinct", () => {
+  assert.match(financialsPanel, /forwardPeSource === "implied_from_forward_peg" \? "Implied Forward P\/E" : "Forward P\/E"/);
+  assert.match(financialsPanel, /Estimated from Forward PEG and analyst EPS growth\./);
+  assert.match(financialsPanel, /<SummaryTile label="Forward PEG" value=\{formatRatio\(forwardPeg\)\} \/>/);
+  assert.doesNotMatch(financialsPanel, /forwardPriceToEarningsGrowthRatio[^]*label=\{?"Forward P\/E/);
+});
+
 test("ticker financials client accepts normalized section data", () => {
   assert.match(tickerContextCard, /const sections = response\.sections && typeof response\.sections === "object" \? response\.sections : \{\};/);
   assert.match(tickerContextCard, /sections\.income/);

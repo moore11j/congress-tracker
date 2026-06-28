@@ -2962,6 +2962,26 @@ export type TickerFinancialSubsection<T = unknown> = {
   data?: T;
 };
 
+export type TickerForwardPESource = "price_over_estimated_eps" | "implied_from_forward_peg" | null;
+
+export type TickerValuationMetrics = {
+  forward_pe?: number | null;
+  forward_pe_source?: TickerForwardPESource;
+  forward_peg?: number | null;
+  expected_eps_growth_rate_percent?: number | null;
+  as_of?: string | null;
+  status?: "ok" | "unavailable" | string;
+};
+
+export type TickerValuationSection = TickerValuationMetrics & {
+  trailingPE?: number | null;
+  forwardPE?: number | null;
+  forwardPESource?: TickerForwardPESource;
+  forwardPEG?: number | null;
+  expectedEpsGrowthRatePercent?: number | null;
+  valuation_metrics?: TickerValuationMetrics;
+};
+
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
@@ -2975,6 +2995,9 @@ export type TickerFinancialsResponse = {
     epsTtm?: number | null;
     trailingPE?: number | null;
     forwardPE?: number | null;
+    forwardPESource?: TickerForwardPESource;
+    forwardPEG?: number | null;
+    expectedEpsGrowthRatePercent?: number | null;
     grossMargin?: number | null;
     operatingMargin?: number | null;
     nextEarningsDate?: string | null;
@@ -2989,6 +3012,7 @@ export type TickerFinancialsResponse = {
   quarterly: TickerFinancialsPoint[];
   earnings: TickerEarningsPoint[];
   forecasts?: TickerFinancialForecasts | null;
+  valuation_metrics?: TickerValuationMetrics | null;
   health?: Record<string, unknown>;
   section_statuses?: {
     income?: "ok" | "partial" | "unavailable" | string;
@@ -3006,7 +3030,7 @@ export type TickerFinancialsResponse = {
     cash_flow?: TickerFinancialSubsection;
     earnings?: TickerFinancialSubsection<TickerEarningsPoint[]>;
     analyst_estimates?: TickerFinancialSubsection<TickerFinancialForecasts>;
-    valuation?: TickerFinancialSubsection<{ trailingPE?: number | null; forwardPE?: number | null }>;
+    valuation?: TickerFinancialSubsection<TickerValuationSection>;
     health?: TickerFinancialSubsection<Record<string, unknown>>;
   };
   updatedAt: string;

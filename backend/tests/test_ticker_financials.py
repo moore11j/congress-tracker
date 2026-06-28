@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import requests
 
 import app.services.ticker_financials as financials_module
@@ -26,8 +28,89 @@ class _FakeResponse:
             raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
+def test_valuation_metrics_calculates_forward_pe_from_price_over_estimated_eps():
+    metrics = financials_module._valuation_metrics(
+        symbol="AAPL",
+        quote_rows=[{"price": 170.0}],
+        ratio_rows=[{"date": "2026-09-30", "forwardPriceToEarningsGrowthRatio": 1.9}],
+        annual_estimate_rows=[{"date": "2026-09-30", "fiscalYear": "2026", "estimatedEpsAvg": 6.8}],
+        today=date(2026, 6, 1),
+    )
+
+    assert metrics["forward_pe"] == 25.0
+    assert metrics["forward_pe_source"] == "price_over_estimated_eps"
+    assert metrics["forward_peg"] == 1.9
+    assert metrics["status"] == "ok"
+
+
+def test_valuation_metrics_implies_forward_pe_from_forward_peg_and_eps_growth():
+    metrics = financials_module._valuation_metrics(
+        symbol="AAPL",
+        quote_rows=[],
+        ratio_rows=[{"date": "2026-09-30", "forwardPriceToEarningsGrowthRatio": 1.5}],
+        annual_estimate_rows=[
+            {"date": "2026-09-30", "fiscalYear": "2026", "epsAvg": 5.0},
+            {"date": "2027-09-30", "fiscalYear": "2027", "epsAvg": 6.0},
+        ],
+        today=date(2026, 6, 1),
+    )
+
+    assert metrics["forward_pe"] == 30.0
+    assert metrics["forward_pe_source"] == "implied_from_forward_peg"
+    assert metrics["expected_eps_growth_rate_percent"] == 20.0
+    assert metrics["forward_peg"] == 1.5
+
+
+def test_valuation_metrics_missing_eps_returns_unavailable():
+    metrics = financials_module._valuation_metrics(
+        symbol="AAPL",
+        quote_rows=[{"price": 170.0}],
+        ratio_rows=[],
+        annual_estimate_rows=[{"date": "2026-09-30", "fiscalYear": "2026", "revenueAvg": 410_000_000_000}],
+        today=date(2026, 6, 1),
+    )
+
+    assert metrics["forward_pe"] is None
+    assert metrics["forward_pe_source"] is None
+    assert metrics["status"] == "unavailable"
+
+
+def test_valuation_metrics_zero_or_negative_eps_returns_unavailable():
+    for eps in (0.0, -1.0):
+        metrics = financials_module._valuation_metrics(
+            symbol="AAPL",
+            quote_rows=[{"price": 170.0}],
+            ratio_rows=[],
+            annual_estimate_rows=[{"date": "2026-09-30", "fiscalYear": "2026", "estimatedEpsAvg": eps}],
+            today=date(2026, 6, 1),
+        )
+
+        assert metrics["forward_pe"] is None
+        assert metrics["forward_pe_source"] is None
+        assert metrics["status"] == "unavailable"
+
+
+def test_valuation_metrics_negative_eps_growth_does_not_imply_forward_pe():
+    metrics = financials_module._valuation_metrics(
+        symbol="AAPL",
+        quote_rows=[],
+        ratio_rows=[{"date": "2026-09-30", "forwardPriceToEarningsGrowthRatio": 2.0}],
+        annual_estimate_rows=[
+            {"date": "2026-09-30", "fiscalYear": "2026", "estimatedEpsAvg": 10.0},
+            {"date": "2027-09-30", "fiscalYear": "2027", "estimatedEpsAvg": 8.0},
+        ],
+        today=date(2026, 6, 1),
+    )
+
+    assert metrics["forward_pe"] is None
+    assert metrics["forward_pe_source"] is None
+    assert metrics["expected_eps_growth_rate_percent"] is None
+    assert metrics["forward_peg"] == 2.0
+
+
 def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch):
     clear_financials_cache()
+    monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)
 
     def fake_get(url, params=None, timeout=30):
         assert timeout == 5
@@ -175,6 +258,8 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
             )
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 170.0}])
+        if url.endswith("/stable/ratios"):
+            return _FakeResponse(200, [{"date": "2026-09-30", "forwardPriceToEarningsGrowthRatio": 1.9}])
         if url.endswith("/stable/ratios-ttm"):
             return _FakeResponse(200, [{"priceToEarningsRatioTTM": 27.4}])
         if url.endswith("/stable/key-metrics-ttm"):
@@ -194,6 +279,11 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert round(response["summary"]["epsTtm"], 2) == 6.2
     assert response["summary"]["trailingPE"] == 27.4
     assert response["summary"]["forwardPE"] == 25.0
+    assert response["summary"]["forwardPESource"] == "price_over_estimated_eps"
+    assert response["summary"]["forwardPEG"] == 1.9
+    assert response["valuation_metrics"]["forward_pe"] == 25.0
+    assert response["valuation_metrics"]["forward_pe_source"] == "price_over_estimated_eps"
+    assert response["valuation_metrics"]["forward_peg"] == 1.9
     assert response["summary"]["latestQuarter"] == "Q2 2026"
     assert round(response["quarterly"][-1]["grossMargin"], 1) == 46.0
     assert response["annual"][-1]["period"] == "2025"
@@ -217,6 +307,7 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
 
 def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(monkeypatch):
     clear_financials_cache()
+    monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)
     calls = {"count": 0}
 
     def fake_get(url, params=None, timeout=30):
@@ -304,6 +395,8 @@ def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(m
             return _FakeResponse(402, {"message": "Restricted Endpoint"})
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 80.0}])
+        if url.endswith("/stable/ratios"):
+            return _FakeResponse(200, [])
         if url.endswith("/stable/ratios-ttm"):
             return _FakeResponse(200, [{"priceToEarningsRatioTTM": 44.0, "currentRatioTTM": 2.0}])
         if url.endswith("/stable/key-metrics-ttm"):
@@ -363,6 +456,8 @@ def test_ticker_financials_public_endpoint_reads_prewarmed_db_cache(monkeypatch)
             return _FakeResponse(402, {"message": "Restricted Endpoint"})
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 80.0}])
+        if url.endswith("/stable/ratios"):
+            return _FakeResponse(200, [])
         if url.endswith("/stable/ratios-ttm"):
             return _FakeResponse(200, [{"priceToEarningsRatioTTM": 44.0}])
         return _FakeResponse(200, [])

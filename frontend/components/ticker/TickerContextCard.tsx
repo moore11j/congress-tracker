@@ -14,6 +14,8 @@ import {
   type PressReleasesResponse,
   type SecFilingsResponse,
   type TickerFinancialsResponse,
+  type TickerValuationMetrics,
+  type TickerValuationSection,
 } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import { cardClassName } from "@/lib/styles";
@@ -179,9 +181,29 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
   const incomeSection = sections.income && typeof sections.income === "object" ? (sections.income as { annual?: unknown; quarterly?: unknown }) : null;
   const earningsSection = Array.isArray(sections.earnings) ? sections.earnings : null;
   const estimatesSection = sections.analyst_estimates && typeof sections.analyst_estimates === "object" ? (sections.analyst_estimates as TickerFinancialsResponse["forecasts"]) : null;
-  const valuationSection = sections.valuation && typeof sections.valuation === "object" ? (sections.valuation as { trailingPE?: number | null; forwardPE?: number | null }) : null;
-  const healthSection = sections.health && typeof sections.health === "object" ? (sections.health as { debtToEquity?: number | null; currentRatio?: number | null; assetRatio?: number | null }) : null;
+  const valuationSection = sections.valuation && typeof sections.valuation === "object" ? (sections.valuation as TickerValuationSection) : null;
   const summary = response.summary && typeof response.summary === "object" ? response.summary : {};
+  const valuationMetrics =
+    response.valuation_metrics && typeof response.valuation_metrics === "object"
+      ? response.valuation_metrics
+      : valuationSection?.valuation_metrics && typeof valuationSection.valuation_metrics === "object"
+        ? valuationSection.valuation_metrics
+        : ({
+            forward_pe: summary.forwardPE ?? valuationSection?.forwardPE ?? valuationSection?.forward_pe ?? null,
+            forward_pe_source: summary.forwardPESource ?? valuationSection?.forwardPESource ?? valuationSection?.forward_pe_source ?? null,
+            forward_peg: summary.forwardPEG ?? valuationSection?.forwardPEG ?? valuationSection?.forward_peg ?? null,
+            expected_eps_growth_rate_percent:
+              summary.expectedEpsGrowthRatePercent ??
+              valuationSection?.expectedEpsGrowthRatePercent ??
+              valuationSection?.expected_eps_growth_rate_percent ??
+              null,
+            as_of: valuationSection?.as_of ?? null,
+            status:
+              summary.forwardPE ?? valuationSection?.forwardPE ?? valuationSection?.forward_pe ?? summary.forwardPEG ?? valuationSection?.forwardPEG ?? valuationSection?.forward_peg
+                ? "ok"
+                : "unavailable",
+          } satisfies TickerValuationMetrics);
+  const healthSection = sections.health && typeof sections.health === "object" ? (sections.health as { debtToEquity?: number | null; currentRatio?: number | null; assetRatio?: number | null }) : null;
   return {
     ...response,
     symbol: response.symbol || symbol,
@@ -190,11 +212,16 @@ function normalizeFinancialsResponse(symbol: string, response: TickerFinancialsR
     summary: {
       ...summary,
       trailingPE: summary.trailingPE ?? valuationSection?.trailingPE ?? null,
-      forwardPE: summary.forwardPE ?? valuationSection?.forwardPE ?? null,
+      forwardPE: summary.forwardPE ?? valuationSection?.forwardPE ?? valuationMetrics.forward_pe ?? null,
+      forwardPESource: summary.forwardPESource ?? valuationSection?.forwardPESource ?? valuationMetrics.forward_pe_source ?? null,
+      forwardPEG: summary.forwardPEG ?? valuationSection?.forwardPEG ?? valuationMetrics.forward_peg ?? null,
+      expectedEpsGrowthRatePercent:
+        summary.expectedEpsGrowthRatePercent ?? valuationSection?.expectedEpsGrowthRatePercent ?? valuationMetrics.expected_eps_growth_rate_percent ?? null,
       debtToEquity: summary.debtToEquity ?? healthSection?.debtToEquity ?? null,
       currentRatio: summary.currentRatio ?? healthSection?.currentRatio ?? null,
       assetRatio: summary.assetRatio ?? healthSection?.assetRatio ?? null,
     },
+    valuation_metrics: valuationMetrics,
     annual: Array.isArray(response.annual) ? response.annual : Array.isArray(incomeSection?.annual) ? (incomeSection.annual as TickerFinancialsResponse["annual"]) : [],
     quarterly: Array.isArray(response.quarterly) ? response.quarterly : Array.isArray(incomeSection?.quarterly) ? (incomeSection.quarterly as TickerFinancialsResponse["quarterly"]) : [],
     earnings: Array.isArray(response.earnings) ? response.earnings : (earningsSection as TickerFinancialsResponse["earnings"] | null) ?? [],
