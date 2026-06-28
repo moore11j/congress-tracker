@@ -24,10 +24,11 @@ import {
 import { formatAccessLabel, formatUserDisplayId } from "@/lib/accountDisplay";
 
 const STATUS_OPTIONS = [
-  { value: "", label: "All" },
+  { value: "", label: "All non-deleted" },
   { value: "active", label: "Active" },
-  { value: "deleted", label: "Deleted" },
   { value: "suspended", label: "Suspended" },
+  { value: "deleted", label: "Deleted" },
+  { value: "all_with_deleted", label: "All including deleted" },
   { value: "trialing", label: "Trialing" },
   { value: "past_due", label: "Past due" },
   { value: "payment_failed", label: "Payment failed" },
@@ -619,9 +620,15 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const runDeleteUser = async (user: AccountUser) => {
     setBusy(true);
     try {
-      await adminDeleteUser(user.id);
+      const result = await adminDeleteUser(user.id);
       await refreshUsers();
-      setStatus(`${user.email} deleted.`);
+      const cleanup = result.stripe_cleanup;
+      const stripeStatus = cleanup?.customer_deleted
+        ? " Stripe customer deleted."
+        : cleanup?.customer_retained
+          ? " Stripe customer retained for billing history."
+          : "";
+      setStatus(`${user.email} deleted.${stripeStatus}`);
       return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to delete user.");
@@ -639,6 +646,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
       description: (
         <>
           Delete <span className="font-medium text-white">{user.email}</span>? This removes the account record.
+          {user.subscription_status || user.current_plan !== "free" ? " Stripe customer cleanup will run before the account is removed." : ""}
         </>
       ),
       confirmLabel: "Delete user",

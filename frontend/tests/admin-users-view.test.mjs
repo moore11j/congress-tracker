@@ -40,6 +40,8 @@ test("admin users billing helpers preserve currency and monthly annual labels", 
 });
 test("admin users search renders with filters and debounces requests", () => {
   assert.match(source, /<span className="block font-medium text-slate-200">Search<\/span>[\s\S]*placeholder="Search ID, name, or email\.\.\."/);
+  assert.match(source, /\{ value: "", label: "All non-deleted" \}/);
+  assert.match(source, /\{ value: "all_with_deleted", label: "All including deleted" \}/);
   assert.match(source, /window\.setTimeout\(\(\) => \{[\s\S]*setPage\(1\);[\s\S]*setDebouncedSearch\(search\.trim\(\)\);[\s\S]*\}, 300\)/);
   assert.match(source, /search: debouncedSearch \|\| undefined/);
   assert.match(source, /onChange=\{\(event\) => setSearch\(event\.target\.value\)\}/);
@@ -95,6 +97,17 @@ test("admin panel refresh forwards active Users tab refresh token", () => {
   assert.match(adminSettingsPanel, /<AdminUsersView refreshToken=\{usersRefreshToken\} \/>/);
   assert.match(source, /export function AdminUsersView\(\{ refreshToken = 0 \}: AdminUsersViewProps\)/);
   assert.match(source, /\}, \[query, refreshToken\]\);/);
+  assert.match(adminSettingsPanel, /<StripeRow label="Webhook events" value=\{missingList\(settings\.stripe\.webhook_events\)\} \/>/);
+});
+
+test("admin delete surfaces Stripe customer cleanup result", () => {
+  assert.match(apiSource, /export type AdminDeleteUserResponse = \{/);
+  assert.match(apiSource, /delete_stripe_customer: deleteStripeCustomer \? "true" : "false"/);
+  assert.match(apiSource, /fetchJson<AdminDeleteUserResponse>/);
+  assert.match(source, /const result = await adminDeleteUser\(user\.id\)/);
+  assert.match(source, /Stripe customer deleted\./);
+  assert.match(source, /Stripe customer retained for billing history\./);
+  assert.match(source, /Stripe customer cleanup will run before the account is removed\./);
 });
 
 test("admin user action menu guards against missing or detached anchors", () => {

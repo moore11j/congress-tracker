@@ -465,6 +465,7 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
                 <StripeRow label="Pro monthly" value={settings.stripe.price_ids?.pro_monthly ?? settings.stripe.pro_monthly_price_id ?? "missing"} />
                 <StripeRow label="Pro annual" value={settings.stripe.price_ids?.pro_annual ?? settings.stripe.pro_annual_price_id ?? "missing"} />
                 <StripeRow label="Webhook URL" value={settings.stripe.webhook_url} />
+                <StripeRow label="Webhook events" value={missingList(settings.stripe.webhook_events)} />
                 <StripeRow label="Portal return URL" value={settings.stripe.portal_return_url} />
                 <StripeRow label="Success URL" value={settings.stripe.success_url} />
                 <StripeRow label="Cancel URL" value={settings.stripe.cancel_url} />

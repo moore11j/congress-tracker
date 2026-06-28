@@ -2113,13 +2113,16 @@ def _record_admin_billing_override_audit(
     return row
 
 
-def _admin_delete_stripe_customer_enabled() -> bool:
-    if _is_production_env():
-        return False
-    return os.getenv("CT_ADMIN_DELETE_STRIPE_CUSTOMER_ON_ADMIN_DELETE", "").strip().lower() in {"1", "true", "yes", "on"}
+def _admin_delete_stripe_customer_enabled(delete_stripe_customer: bool | None = None) -> bool:
+    if delete_stripe_customer is not None:
+        return bool(delete_stripe_customer)
+    configured = os.getenv("CT_ADMIN_DELETE_STRIPE_CUSTOMER_ON_ADMIN_DELETE", "").strip().lower()
+    if configured:
+        return configured in {"1", "true", "yes", "on"}
+    return True
 
 
-def _admin_delete_stripe_cleanup(user: UserAccount) -> dict[str, Any]:
+def _admin_delete_stripe_cleanup(user: UserAccount, *, delete_stripe_customer: bool | None = None) -> dict[str, Any]:
     has_stripe_reference = bool(user.stripe_customer_id or user.stripe_subscription_id)
     if not _stripe_secret_key():
         if has_stripe_reference:
@@ -2129,6 +2132,7 @@ def _admin_delete_stripe_cleanup(user: UserAccount) -> dict[str, Any]:
             "stripe_customer_id": None,
             "subscriptions_cancelled": [],
             "customer_deleted": False,
+            "customer_retained": False,
         }
 
     customer_ids: list[str] = []
@@ -2187,19 +2191,23 @@ def _admin_delete_stripe_cleanup(user: UserAccount) -> dict[str, Any]:
         cancelled.append(subscription_id)
 
     customer_deleted = False
-    if customer_ids and _admin_delete_stripe_customer_enabled():
+    customer_retained = False
+    if customer_ids and _admin_delete_stripe_customer_enabled(delete_stripe_customer):
         for customer_id in customer_ids:
             _stripe_delete(
                 f"customers/{customer_id}",
                 idempotency_key=f"admin-delete-user:{user.id}:customer:{customer_id}",
             )
         customer_deleted = True
+    elif customer_ids:
+        customer_retained = True
 
     return {
-        "cleanup_status": "succeeded",
+        "cleanup_status": "customer_deleted" if customer_deleted else ("customer_retained" if customer_retained else "succeeded"),
         "stripe_customer_id": customer_ids[0] if customer_ids else None,
         "subscriptions_cancelled": cancelled,
         "customer_deleted": customer_deleted,
+        "customer_retained": customer_retained,
     }
 
 
@@ -2804,6 +2812,7 @@ def _admin_user_filtered_query(
         pattern = f"%{normalized_search.lower()}%"
         search_conditions = [
             func.lower(func.coalesce(UserAccount.email, "")).like(pattern),
+            func.lower(func.coalesce(UserAccount.original_email, "")).like(pattern),
             func.lower(func.coalesce(UserAccount.name, "")).like(pattern),
             func.lower(func.coalesce(UserAccount.first_name, "")).like(pattern),
             func.lower(func.coalesce(UserAccount.last_name, "")).like(pattern),
@@ -2823,7 +2832,9 @@ def _admin_user_filtered_query(
 
     normalized_status = (status or "").strip().lower()
     if normalized_status:
-        if normalized_status == "deleted":
+        if normalized_status in {"all_with_deleted", "include_deleted"}:
+            pass
+        elif normalized_status == "deleted":
             conditions.append(UserAccount.deleted_at.is_not(None))
         elif normalized_status == "suspended":
             conditions.append(UserAccount.deleted_at.is_(None))
@@ -2836,6 +2847,8 @@ def _admin_user_filtered_query(
             conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(False))
             conditions.append(func.lower(UserAccount.subscription_status) == normalized_status)
+    else:
+        conditions.append(UserAccount.deleted_at.is_(None))
 
     country_code = (country or "").strip().upper()
     if country_code:
@@ -3547,6 +3560,7 @@ def _stripe_config_status() -> dict[str, Any]:
             "pro_annual": "STRIPE_PRICE_ID_PRO_ANNUAL",
         },
         "webhook_secret": "configured" if webhook else "missing",
+        "webhook_events": readiness["webhooks"].get("recommended_events", []),
         "portal_return_url": _customer_portal_return_url(),
         "success_url": _checkout_success_url(),
         "cancel_url": _checkout_cancel_url(),
@@ -5234,12 +5248,11 @@ def _sync_user_subscription(
     status = (status or "unknown").strip().lower() or "unknown"
     user = _find_user_for_stripe_object(db, obj)
     if not user:
-        metadata = _extract_metadata(obj)
-        email = _extract_customer_email(obj, metadata)
-        if email:
-            user = get_or_create_user(db, email=email)
-    if not user:
         return None
+    if _is_deleted_user(user):
+        _clear_paid_entitlement(user, status="deleted")
+        db.flush()
+        return user
 
     customer = _stripe_object_id(obj.get("customer"))
     subscription = _extract_subscription_id(obj) or (obj.get("id") if str(obj.get("object")) == "subscription" else None)
@@ -5321,12 +5334,11 @@ def _sync_user_subscription(
 def _link_checkout_session_for_pending_subscription(db: Session, obj: dict[str, Any], *, stripe_price_id: str | None = None) -> UserAccount | None:
     user = _find_user_for_stripe_object(db, obj)
     if not user:
-        metadata = _extract_metadata(obj)
-        email = _extract_customer_email(obj, metadata)
-        if email:
-            user = get_or_create_user(db, email=email)
-    if not user:
         return None
+    if _is_deleted_user(user):
+        _clear_paid_entitlement(user, status="deleted")
+        db.flush()
+        return user
 
     customer = _stripe_object_id(obj.get("customer"))
     subscription = _extract_subscription_id(obj)
@@ -5347,11 +5359,30 @@ def _link_checkout_session_for_pending_subscription(db: Session, obj: dict[str, 
     return user
 
 
+def _sync_stripe_customer_deleted(db: Session, obj: dict[str, Any]) -> UserAccount | None:
+    customer_id = _stripe_object_id(obj.get("id") or obj.get("customer"))
+    if not customer_id:
+        return None
+    user = db.execute(select(UserAccount).where(UserAccount.stripe_customer_id == customer_id)).scalar_one_or_none()
+    if not user:
+        return None
+    _clear_paid_entitlement(user, status="deleted")
+    user.stripe_customer_id = None
+    user.stripe_subscription_id = None
+    user.stripe_price_id = None
+    user.subscription_interval = None
+    user.current_plan_amount_cents = None
+    user.current_plan_currency = None
+    user.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return user
+
+
 def _stripe_event_log_context(obj: dict[str, Any], user: UserAccount | None, *, price_id: str | None = None) -> dict[str, Any]:
     metadata = _extract_metadata(obj)
     item_resolution = _select_subscription_item_price(obj) if obj.get("object") == "subscription" else {}
     return {
-        "customer_id": _stripe_object_id(obj.get("customer")),
+        "customer_id": _stripe_object_id(obj.get("customer")) or (_stripe_object_id(obj.get("id")) if obj.get("object") == "customer" else None),
         "subscription_id": _extract_subscription_id(obj) or (obj.get("id") if obj.get("object") == "subscription" else None),
         "checkout_session_id": obj.get("id") if obj.get("object") == "checkout.session" else None,
         "client_reference_id": obj.get("client_reference_id"),
@@ -5562,6 +5593,8 @@ def process_stripe_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:
             resolved_tier, billing_interval, price_id, _mapping = _resolve_tier_interval_from_stripe_object(obj)
             logged_price_id = price_id
             synced_user = _sync_user_subscription(db, obj=obj, status=status, tier=resolved_tier, billing_interval=billing_interval, stripe_price_id=price_id)
+        elif event_type == "customer.deleted":
+            synced_user = _sync_stripe_customer_deleted(db, obj)
         elif event_type == "customer.subscription.deleted":
             synced_user = _sync_user_subscription(db, obj=obj, status="deleted")
         elif event_type == "customer.subscription.paused":
@@ -6235,7 +6268,12 @@ def admin_settings(request: Request, db: Session = Depends(get_db), include_user
     require_admin_user(db, request)
     user_limit = 100
     users = (
-        db.execute(select(UserAccount).order_by(UserAccount.created_at.desc(), UserAccount.id.desc()).limit(user_limit + 1)).scalars().all()
+        db.execute(
+            select(UserAccount)
+            .where(UserAccount.deleted_at.is_(None))
+            .order_by(UserAccount.created_at.desc(), UserAccount.id.desc())
+            .limit(user_limit + 1)
+        ).scalars().all()
         if include_users
         else []
     )
@@ -6923,7 +6961,12 @@ def admin_send_password_reset(user_id: int, request: Request, db: Session = Depe
 
 
 @router.delete("/admin/users/{user_id}", dependencies=[Depends(rate_limit_admin_mutation)])
-def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+def admin_delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    delete_stripe_customer: bool = Query(True),
+):
     admin = require_admin_user(db, request)
     if admin.id == user_id:
         raise HTTPException(status_code=400, detail="Admin cannot delete the current admin session.")
@@ -6933,7 +6976,7 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
     previous_state = _admin_billing_previous_state(user)
     cleanup_result: dict[str, Any] = {}
     try:
-        cleanup_result = _admin_delete_stripe_cleanup(user)
+        cleanup_result = _admin_delete_stripe_cleanup(user, delete_stripe_customer=delete_stripe_customer)
     except HTTPException as exc:
         db.rollback()
         requested_state = {
@@ -6973,6 +7016,7 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
             "stripe_cleanup_status": cleanup_result.get("cleanup_status"),
             "subscriptions_cancelled_count": len(cleanup_result.get("subscriptions_cancelled") or []),
             "customer_deleted": bool(cleanup_result.get("customer_deleted")),
+            "customer_retained": bool(cleanup_result.get("customer_retained")),
         },
         stripe_customer_id=cleanup_result.get("stripe_customer_id") or user.stripe_customer_id,
         stripe_subscription_id=user.stripe_subscription_id,
@@ -6987,6 +7031,7 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
             "status": cleanup_result.get("cleanup_status"),
             "subscriptions_cancelled": len(cleanup_result.get("subscriptions_cancelled") or []),
             "customer_deleted": bool(cleanup_result.get("customer_deleted")),
+            "customer_retained": bool(cleanup_result.get("customer_retained")),
         },
     }
 

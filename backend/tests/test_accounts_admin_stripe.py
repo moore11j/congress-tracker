@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import HTTPException, Response
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -1782,6 +1782,8 @@ def test_admin_settings_reports_billing_readiness_and_missing_price_ids(monkeypa
         assert stripe["overall"]["ready"] is False
         assert stripe["checkout"]["ready"] is False
         assert stripe["webhooks"]["ready"] is True
+        assert "customer.deleted" in stripe["webhooks"]["recommended_events"]
+        assert "customer.deleted" in stripe["webhook_events"]
         assert stripe["secret_key"] == "configured"
         assert stripe["webhook_secret"] == "configured"
         assert stripe["price_ids"] == {
@@ -2014,6 +2016,80 @@ def test_admin_users_filters_and_paginates(monkeypatch):
         )
         assert admin_response["total"] == 1
         assert admin_response["items"][0]["is_admin"] is True
+    finally:
+        db.close()
+
+
+def test_admin_users_excludes_deleted_by_default_and_exports(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        active = _user(db, "active-default@example.com")
+        deleted = _user(db, "deleted-default@example.com")
+        deleted.deleted_at = datetime.now(timezone.utc)
+        deleted.original_email = "deleted-original@example.com"
+        db.commit()
+
+        default_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+        deleted_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status="deleted",
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+        all_response = admin_users(
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status="all_with_deleted",
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+            page=1,
+            page_size=25,
+        )
+        export = admin_users_export(
+            "xlsx",
+            _request_for_user(admin),
+            db,
+            plan="all",
+            status=None,
+            country=None,
+            admin="non_admin",
+            sort_by="email",
+            sort_dir="asc",
+        )
+
+        assert default_response["total"] == 1
+        assert [item["email"] for item in default_response["items"]] == [active.email]
+        assert deleted_response["total"] == 1
+        assert deleted_response["items"][0]["status"] == "deleted"
+        assert deleted_response["items"][0]["original_email"] == "deleted-original@example.com"
+        assert all_response["total"] == 2
+        with zipfile.ZipFile(BytesIO(export.body)) as workbook:
+            sheet_xml = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert "active-default@example.com" in sheet_xml
+        assert "deleted-default@example.com" not in sheet_xml
+        assert "deleted-original@example.com" not in sheet_xml
     finally:
         db.close()
 
@@ -3317,6 +3393,124 @@ def test_webhook_prefers_active_user_over_deleted_stripe_ghost(monkeypatch):
         db.close()
 
 
+def test_customer_deleted_webhook_clears_billing_without_recreating_user(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    db = _session()
+    try:
+        user = _user(db, "customer-deleted@example.com", tier="premium")
+        user.stripe_customer_id = "cus_deleted_event"
+        user.stripe_subscription_id = "sub_deleted_event"
+        user.stripe_price_id = "price_deleted_event"
+        user.subscription_status = "active"
+        user.subscription_plan = "premium"
+        user.subscription_interval = "monthly"
+        user.current_plan_amount_cents = 1995
+        user.current_plan_currency = "USD"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_customer_deleted",
+                "type": "customer.deleted",
+                "data": {"object": {"object": "customer", "id": "cus_deleted_event", "deleted": True}},
+            },
+        )
+        db.refresh(user)
+        duplicate = process_stripe_event(
+            db,
+            {
+                "id": "evt_customer_deleted_duplicate_payload",
+                "type": "customer.deleted",
+                "data": {"object": {"object": "customer", "id": "cus_deleted_event", "deleted": True}},
+            },
+        )
+
+        assert result["status"] == "processed"
+        assert duplicate["status"] == "processed"
+        assert user.stripe_customer_id is None
+        assert user.stripe_subscription_id is None
+        assert user.stripe_price_id is None
+        assert user.subscription_status == "deleted"
+        assert user.subscription_plan == "free"
+        assert user.entitlement_tier == "free"
+        assert db.execute(select(func.count()).select_from(UserAccount)).scalar_one() == 1
+    finally:
+        db.close()
+
+
+def test_subscription_webhook_for_deleted_user_does_not_restore_paid_or_recreate(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_deleted_webhook")
+    db = _session()
+    try:
+        deleted = _user(db, "deleted+44+late@example.com", tier="premium")
+        deleted.original_email = "late@example.com"
+        deleted.deleted_at = datetime.now(timezone.utc)
+        deleted.stripe_customer_id = "cus_late_deleted"
+        deleted.stripe_subscription_id = "sub_late_deleted"
+        db.commit()
+
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_late_deleted_subscription",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_late_deleted",
+                        "customer": "cus_late_deleted",
+                        "customer_email": "late@example.com",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"price": {"id": "price_deleted_webhook", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+        db.refresh(deleted)
+
+        assert result["status"] == "processed"
+        assert deleted.deleted_at is not None
+        assert deleted.entitlement_tier == "free"
+        assert deleted.subscription_plan == "free"
+        assert deleted.subscription_status == "deleted"
+        assert db.execute(select(func.count()).select_from(UserAccount)).scalar_one() == 1
+    finally:
+        db.close()
+
+
+def test_stripe_webhook_does_not_create_user_from_customer_email(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_no_create")
+    db = _session()
+    try:
+        result = process_stripe_event(
+            db,
+            {
+                "id": "evt_no_create_from_stripe",
+                "type": "customer.subscription.updated",
+                "data": {
+                    "object": {
+                        "object": "subscription",
+                        "id": "sub_no_create",
+                        "customer": "cus_no_create",
+                        "customer_email": "stripe-only@example.com",
+                        "status": "active",
+                        "current_period_end": 1_893_456_000,
+                        "items": {"data": [{"price": {"id": "price_no_create", "recurring": {"interval": "month"}}}]},
+                    }
+                },
+            },
+        )
+
+        assert result["status"] == "processed"
+        assert db.execute(select(func.count()).select_from(UserAccount)).scalar_one() == 0
+    finally:
+        db.close()
+
+
 def test_unmapped_subscription_price_does_not_grant_paid_access(monkeypatch, caplog):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_known")
@@ -4322,6 +4516,8 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
         if path == "subscriptions/sub_admin_manage":
             subscription_status = "canceled"
             return {"id": "sub_admin_manage", "status": "canceled"}
+        if path == "customers/cus_admin_manage":
+            return {"id": "cus_admin_manage", "object": "customer", "deleted": True}
         raise AssertionError(f"Unexpected Stripe DELETE path {path}")
 
     monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
@@ -4347,7 +4543,9 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
 
         result = admin_delete_user(reader.id, request, db)
         assert result["status"] == "deleted"
+        assert result["stripe_cleanup"]["customer_deleted"] is True
         assert db.get(UserAccount, reader.id) is None
+        assert any(call[0] == "DELETE" and call[1] == "customers/cus_admin_manage" for call in stripe_calls)
     finally:
         db.close()
 
@@ -4373,7 +4571,7 @@ def test_admin_delete_user_without_stripe_reference_succeeds_and_audits(monkeypa
         db.close()
 
 
-def test_admin_delete_user_cancels_active_stripe_subscription_before_local_delete(monkeypatch):
+def test_admin_delete_user_deletes_stripe_customer_after_canceling_active_subscription(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     db = _session()
@@ -4391,6 +4589,8 @@ def test_admin_delete_user_cancels_active_stripe_subscription_before_local_delet
         calls.append(("DELETE", path, dict(data or {}), idempotency_key))
         if path == "subscriptions/sub_delete":
             return {"id": "sub_delete", "status": "canceled"}
+        if path == "customers/cus_delete":
+            return {"id": "cus_delete", "object": "customer", "deleted": True}
         raise AssertionError(f"Unexpected Stripe DELETE path {path}")
 
     monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
@@ -4409,18 +4609,22 @@ def test_admin_delete_user_cancels_active_stripe_subscription_before_local_delet
 
         assert result["status"] == "deleted"
         assert result["stripe_cleanup"]["subscriptions_cancelled"] == 1
+        assert result["stripe_cleanup"]["customer_deleted"] is True
+        assert result["stripe_cleanup"]["customer_retained"] is False
         assert db.get(UserAccount, reader.id) is None
         assert ("DELETE", "subscriptions/sub_delete", {}, f"admin-delete-user:{reader.id}:subscription:sub_delete") in calls
+        assert ("DELETE", "customers/cus_delete", {}, f"admin-delete-user:{reader.id}:customer:cus_delete") in calls
         assert audit.override_type == "delete"
         assert audit.stripe_sync_status == "succeeded"
         assert audit.stripe_customer_id == "cus_delete"
         assert '"subscriptions_cancelled_count": 1' in audit.requested_state_json
+        assert '"customer_deleted": true' in audit.requested_state_json
         assert "sk_test_hidden" not in audit.previous_state_json + audit.requested_state_json
     finally:
         db.close()
 
 
-def test_admin_delete_user_with_stripe_customer_and_no_subscription_does_not_error(monkeypatch):
+def test_admin_delete_user_with_stripe_customer_and_no_subscription_deletes_customer(monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     db = _session()
@@ -4434,6 +4638,8 @@ def test_admin_delete_user_with_stripe_customer_and_no_subscription_does_not_err
 
     def fake_stripe_delete(path, data=None, *, idempotency_key=None):
         calls.append(("DELETE", path))
+        if path == "customers/cus_no_sub_delete":
+            return {"id": "cus_no_sub_delete", "object": "customer", "deleted": True}
         raise AssertionError(f"Unexpected Stripe DELETE path {path}")
 
     monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
@@ -4448,8 +4654,53 @@ def test_admin_delete_user_with_stripe_customer_and_no_subscription_does_not_err
 
         assert result["status"] == "deleted"
         assert result["stripe_cleanup"]["subscriptions_cancelled"] == 0
+        assert result["stripe_cleanup"]["customer_deleted"] is True
         assert db.get(UserAccount, reader.id) is None
         assert ("GET", "subscriptions") in calls
+        assert ("DELETE", "customers/cus_no_sub_delete") in calls
+    finally:
+        db.close()
+
+
+def test_reregister_after_admin_delete_starts_with_clean_account(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions":
+            return {"data": []}
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    def fake_stripe_delete(path, data=None, *, idempotency_key=None):
+        if path == "customers/cus_reregister_delete":
+            return {"id": "cus_reregister_delete", "object": "customer", "deleted": True}
+        raise AssertionError(f"Unexpected Stripe DELETE path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_delete", fake_stripe_delete)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "reregister-admin-delete@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_reregister_delete"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        db.commit()
+        old_id = reader.id
+
+        result = admin_delete_user(reader.id, _request_for_user(admin), db)
+        assert db.get(UserAccount, old_id) is None
+        registered = register(_register_payload("reregister-admin-delete@example.com"), db)
+        new_user = db.get(UserAccount, registered["user"]["id"])
+
+        assert result["stripe_cleanup"]["customer_deleted"] is True
+        assert new_user is not None
+        assert new_user.email == "reregister-admin-delete@example.com"
+        assert new_user.stripe_customer_id is None
+        assert new_user.stripe_subscription_id is None
+        assert new_user.entitlement_tier == "free"
+        assert registered["dev_verification_url"].startswith("http://localhost:3000/account/verify-email?token=")
     finally:
         db.close()
 

@@ -759,6 +759,7 @@ export type StripeConfigStatus = {
     ready: boolean;
     status: "ready" | "not_ready" | string;
     missing_env_vars: string[];
+    recommended_events?: string[];
   };
   missing_env_vars?: string[];
   missing_price_env_vars?: string[];
@@ -799,6 +800,7 @@ export type StripeConfigStatus = {
   success_url: string;
   cancel_url: string;
   webhook_url: string;
+  webhook_events?: string[];
   notes: string;
 };
 
@@ -1400,6 +1402,17 @@ export type AdminProviderUsageResponse = {
     fundamentals_ok_rows?: number;
     fundamentals_avg_volume_rows?: number;
     technical_price_history_symbols?: number;
+  };
+};
+
+export type AdminDeleteUserResponse = {
+  status: string;
+  user_id: number;
+  stripe_cleanup?: {
+    status?: string | null;
+    subscriptions_cancelled?: number;
+    customer_deleted?: boolean;
+    customer_retained?: boolean;
   };
 };
 
@@ -2652,8 +2665,8 @@ export async function adminSendPasswordReset(userId: number): Promise<{ status: 
   });
 }
 
-export async function adminDeleteUser(userId: number): Promise<void> {
-  return fetchNoContent(buildApiUrl(`/api/admin/users/${userId}`), { method: "DELETE" });
+export async function adminDeleteUser(userId: number, deleteStripeCustomer = true): Promise<AdminDeleteUserResponse> {
+  return fetchJson<AdminDeleteUserResponse>(buildApiUrl(`/api/admin/users/${userId}`, { delete_stripe_customer: deleteStripeCustomer ? "true" : "false" }), { method: "DELETE" });
 }
 
 export async function adminUpdateFeatureGate(featureKey: string, requiredTier: "free" | "premium" | "pro"): Promise<FeatureGate> {

@@ -33,6 +33,24 @@ STRIPE_BILLING_REQUIRED_ENV_VARS = (
     *STRIPE_WEBHOOK_REQUIRED_ENV_VARS,
     *STRIPE_CANONICAL_PRICE_ENV_VARS,
 )
+STRIPE_RECOMMENDED_WEBHOOK_EVENTS = (
+    "checkout.session.completed",
+    "customer.deleted",
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+    "customer.subscription.paused",
+    "invoice.paid",
+    "invoice.payment_succeeded",
+    "invoice.payment.paid",
+    "invoice.payment_failed",
+    "invoice.payment_action_required",
+    "invoice.voided",
+    "invoice.marked_uncollectible",
+    "charge.refunded",
+    "refund.created",
+    "refund.updated",
+)
 AUTH_APP_FRONTEND_HOST = "app.walnutmarkets.com"
 AUTH_APP_FRONTEND_DEFAULT_URL = f"https://{AUTH_APP_FRONTEND_HOST}"
 UNSAFE_LIVE_CHECKOUT_HOSTS = {
@@ -297,6 +315,7 @@ def billing_readiness(
             "ready": not webhook_missing,
             "status": "ready" if not webhook_missing else "not_ready",
             "missing_env_vars": webhook_missing,
+            "recommended_events": list(STRIPE_RECOMMENDED_WEBHOOK_EVENTS),
         },
         "stripe_api": {
             "ready": bool(secret),
