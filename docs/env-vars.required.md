@@ -23,7 +23,7 @@ Required for production runtime:
 | `INSIGHTS_DATA_MODE` | Insights data source mode | Default is `builder_safe`; use cached EOD ETF proxies plus FRED macro cache and avoid FMP add-on endpoints. See `docs/runbooks/insights_data_sources.md` before changing after an FMP plan upgrade. |
 | `FMP_ALLOW_BOUNDED_TICKER_REFRESH` | Bounded ticker hydration refresh | Keep if live bounded refresh is enabled. |
 | `FMP_BACKGROUND_REFRESH_ENABLED` | Background refresh kill switch | Keep for queue safety. |
-| `FMP_PLAN_CALLS_PER_MINUTE` | FMP plan budget | Canonical budget var. |
+| `FMP_PLAN_CALLS_PER_MINUTE` | FMP operational plan budget | Canonical budget var; Admin Provider Usage reports the Enterprise / 500 contract assumption separately from live guardrails. |
 | `FMP_SOFT_LIMIT_PER_MINUTE` | Soft provider budget | Canonical budget var. |
 | `FMP_HARD_LIMIT_PER_MINUTE` | Hard provider budget | Canonical budget var. |
 | `DATA_ENRICHMENT_QUEUE_ENABLED` | Cron queue gate | Also set in `backend/fly.toml`. |

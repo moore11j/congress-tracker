@@ -14,6 +14,12 @@ function statusClasses(status?: string) {
   return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
 }
 
+function planAssumptionValue(data?: AdminProviderUsageResponse | null) {
+  const plan = data?.plan_assumption?.name || "Enterprise";
+  const calls = data?.plan_assumption?.calls_per_minute ?? 500;
+  return `${plan} / ${calls} calls per minute`;
+}
+
 export function ProviderUsageReport() {
   const [data, setData] = useState<AdminProviderUsageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +64,7 @@ export function ProviderUsageReport() {
           ) : null}
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Plan assumption" value={`Enterprise / ${data.configured_calls_per_minute} calls per minute`} />
+            <Metric label="Plan assumption" value={planAssumptionValue(data)} />
             <Metric label="Calls last minute" value={String(data.calls_last_minute)} />
             <Metric label="Calls today" value={String(data.calls_today)} />
             <Metric label="Cache hit rate" value={formatPercent(data.cache_hit_rate)} />
@@ -130,7 +136,7 @@ export function ProviderUsageReport() {
         </>
       ) : (
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Plan assumption" value="Enterprise / 500 calls per minute" />
+          <Metric label="Plan assumption" value={planAssumptionValue()} />
           <Metric label="Calls last minute" value="loading" />
           <Metric label="Calls today" value="loading" />
           <Metric label="Cache hit rate" value="loading" />

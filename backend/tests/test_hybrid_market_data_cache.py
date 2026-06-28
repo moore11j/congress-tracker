@@ -284,6 +284,7 @@ def test_provider_usage_default_plan_assumption_is_enterprise_500(monkeypatch):
     summary = provider_usage_summary()
 
     assert summary["configured_calls_per_minute"] == 500
+    assert summary["plan_assumption"] == {"name": "Enterprise", "calls_per_minute": 500}
     assert summary["budget"]["plan_calls_per_minute"] == 500
     assert summary["budget"]["hard_limit_per_minute"] == 500
     reset_provider_usage()
@@ -310,6 +311,7 @@ def test_provider_usage_honors_soft_and_hard_budget_aliases(monkeypatch):
 
     summary = provider_usage_summary()
     assert summary["configured_calls_per_minute"] == 300
+    assert summary["plan_assumption"] == {"name": "Enterprise", "calls_per_minute": 500}
     assert summary["budget"]["soft_limit_per_minute"] == 90
     assert summary["budget"]["hard_limit_per_minute"] == 2
     assert summary["totals"]["throttles"] == 1

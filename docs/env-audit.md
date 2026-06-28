@@ -120,7 +120,7 @@ Email policy status: implemented. `EmailTemplate.from_name`, `from_email`, and `
 | `FMP_TICKER_REFRESH_LOCK_TTL_SECONDS` | `ticker_hydration.py` | Optional | `60` | Yes | none | Keep |
 | `FMP_TICKER_REFRESH_WATCHLIST_ONLY` | `ticker_hydration.py` | Optional | `false` | Yes | none | Keep |
 | `FMP_BACKGROUND_REFRESH_ENABLED` | enrichment worker/service | Optional | `true` | Yes | background kill switch | Keep |
-| `FMP_PLAN_CALLS_PER_MINUTE` | `provider_usage.py` | Optional | `750` | Yes | replaces `FMP_CALLS_PER_MINUTE` | Keep |
+| `FMP_PLAN_CALLS_PER_MINUTE` | `provider_usage.py` | Optional | `500` | Yes | replaces `FMP_CALLS_PER_MINUTE`; live guardrails may be lower than the Enterprise report assumption | Keep |
 | `FMP_SOFT_LIMIT_PER_MINUTE` | `provider_usage.py` | Optional | 80% of plan | Yes | replaces `FMP_CALLS_PER_MINUTE_SOFT_LIMIT` | Keep |
 | `FMP_HARD_LIMIT_PER_MINUTE` | `provider_usage.py` | Optional | plan or legacy soft | Yes | replaces `FMP_CALLS_PER_MINUTE_HARD_LIMIT` | Keep |
 | `FMP_CALLS_PER_MINUTE`, `FMP_CALLS_PER_MINUTE_SOFT_LIMIT`, `FMP_CALLS_PER_MINUTE_HARD_LIMIT`, `FMP_CALLS_PER_MINUTE_WARN_LIMIT` | `provider_usage.py` | Optional legacy aliases | defaults | Yes if set | legacy budget names | Do not add; migrate to canonical names |

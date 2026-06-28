@@ -1321,6 +1321,10 @@ export type AdminProviderUsageResponse = {
   live_page_fetch_enabled: boolean;
   status: "ok" | "warning" | "critical";
   configured_calls_per_minute: number;
+  plan_assumption?: {
+    name?: string | null;
+    calls_per_minute?: number | null;
+  };
   calls_last_minute: number;
   calls_today: number;
   call_windows?: {

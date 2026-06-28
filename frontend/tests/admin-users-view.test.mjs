@@ -55,8 +55,10 @@ test("admin reports include first-party page analytics", () => {
 
 test("admin provider usage uses Enterprise 500 calls per minute assumption", () => {
   assert.match(providerUsageReport, /FMP Enterprise guardrails/);
-  assert.match(providerUsageReport, /Enterprise \/ \$\{data\.configured_calls_per_minute\} calls per minute/);
-  assert.match(providerUsageReport, /Enterprise \/ 500 calls per minute/);
+  assert.match(providerUsageReport, /function planAssumptionValue/);
+  assert.match(providerUsageReport, /data\?\.plan_assumption\?\.name \|\| "Enterprise"/);
+  assert.match(providerUsageReport, /data\?\.plan_assumption\?\.calls_per_minute \?\? 500/);
+  assert.match(providerUsageReport, /<Metric label="Plan assumption" value=\{planAssumptionValue\(data\)\}/);
   assert.doesNotMatch(providerUsageReport, /Premium \/ 750 calls per minute/);
   assert.doesNotMatch(providerUsageReport, /FMP Premium/);
 });

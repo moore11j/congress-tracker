@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "fmp"
 DEFAULT_CALLS_PER_MINUTE = 500
+REPORT_PLAN_NAME = "Enterprise"
+REPORT_PLAN_CALLS_PER_MINUTE = 500
 _EVENT_LIMIT = 500
 _WINDOW_SECONDS = 60.0
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -492,6 +494,10 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
             "generated_at": _now_iso(),
             "started_at": datetime.fromtimestamp(_STATE.started_at, tz=timezone.utc).isoformat(),
             "configured_calls_per_minute": limits["plan_calls_per_minute"],
+            "plan_assumption": {
+                "name": REPORT_PLAN_NAME,
+                "calls_per_minute": REPORT_PLAN_CALLS_PER_MINUTE,
+            },
             "calls_last_minute": calls_last_minute,
             "budget": {
                 **limits,
