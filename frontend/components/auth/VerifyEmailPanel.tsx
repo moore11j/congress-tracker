@@ -14,10 +14,10 @@ export function VerifyEmailPanel({ token }: { token?: string }) {
     if (!token) return;
     let cancelled = false;
     verifyEmail(token)
-      .then(() => {
+      .then((response) => {
         if (cancelled) return;
         setState("verified");
-        setStatus("Email verified. Opening account settings...");
+        setStatus(response.status === "already_verified" ? "Email already verified. Opening account settings..." : "Email verified. Opening account settings...");
         window.setTimeout(() => {
           window.location.replace("/account/settings?verified=1");
         }, 900);

@@ -29,8 +29,10 @@ export type EntitlementFeature =
   | "api_webhooks";
 
 export type Entitlements = {
+  plan?: EntitlementTier;
   tier: EntitlementTier;
   effective_tier?: EntitlementTier;
+  source?: "stripe_subscription" | "admin_subscription" | "manual_override" | "free" | "suspended" | "admin";
   is_admin?: boolean;
   limits: Record<EntitlementFeature, number>;
   features: EntitlementFeature[];

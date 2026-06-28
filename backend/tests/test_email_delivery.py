@@ -599,6 +599,7 @@ def test_account_sender_prefers_expected_global_env_names(monkeypatch):
                 "first_name": "Ada",
                 "verification_url": "https://app.walnutmarkets.com/account/verify-email?token=redacted",
                 "expires_minutes": 1440,
+                "expires_label": "24 hours",
             },
             category="account",
         )
@@ -606,6 +607,8 @@ def test_account_sender_prefers_expected_global_env_names(monkeypatch):
         assert captured["From"] == "Walnut Support <support@walnutmarkets.com>"
         assert captured["ReplyTo"] == "support@walnutmarkets.com"
         assert captured["Subject"] == "Verify your Walnut email"
+        assert "This link expires in 24 hours." in captured["TextBody"]
+        assert "1440 minutes" not in captured["TextBody"]
     finally:
         db.close()
 

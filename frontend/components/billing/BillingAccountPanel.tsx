@@ -132,7 +132,7 @@ export function BillingAccountPanel() {
           setUser(response.user);
           setEntitlements(response.entitlements);
           await loadBillingHistory();
-          if ((fromCheckout && paidTier(response.user, response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
+          if ((fromCheckout && paidTier(response.user, response.entitlements.effective_tier ?? response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
             setReturnSyncStatus("synced");
             return;
           }
@@ -454,7 +454,7 @@ function paidAccessThrough(user: AccountUser | null) {
   const date = new Date(user.access_expires_at);
   if (Number.isNaN(date.getTime()) || date <= new Date()) return null;
   const status = (user.subscription_status || "").toLowerCase();
-  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  const tier = (user.current_plan || user.subscription_plan || user.entitlement_tier || "").toLowerCase();
   if (["active", "trialing"].includes(status) || tier === "premium" || tier === "pro") return user.access_expires_at;
   return null;
 }
@@ -464,12 +464,12 @@ function isNonRenewingPaid(user: AccountUser | null) {
   const date = new Date(user.access_expires_at);
   if (Number.isNaN(date.getTime()) || date <= new Date()) return false;
   const status = (user.subscription_status || "").toLowerCase();
-  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  const tier = (user.current_plan || user.subscription_plan || user.entitlement_tier || "").toLowerCase();
   return ["active", "trialing"].includes(status) && (tier === "premium" || tier === "pro");
 }
 
 function displayPlanName(user: AccountUser | null) {
-  const plan = (user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
+  const plan = (user?.current_plan || user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
   if (plan === "pro") return "Pro";
   if (plan === "premium") return "Premium";
   return "paid";

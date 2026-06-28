@@ -47,6 +47,7 @@ from app.entitlements import (
     PAID_SUBSCRIPTION_STATUSES,
     PAYMENT_GRACE_SUBSCRIPTION_STATUSES,
     REVOKED_SUBSCRIPTION_STATUSES,
+    effective_user_tier,
     subscription_policy_tier,
     stripe_payment_failure_grace_days,
     plan_config_payload,
@@ -91,6 +92,7 @@ logger = logging.getLogger(__name__)
 ADMIN_BILLING_SYNC_FAILURE_MESSAGE = "Couldn't create/update the Stripe subscription. No local plan change was saved."
 ADMIN_PLAN_PRICE_MODES = {"default", "custom", "free_admin_grant"}
 ADMIN_BILLING_PAID_TIERS = {"premium", "pro"}
+ADMIN_DELETE_CANCELABLE_SUBSCRIPTION_STATUSES = {*PAID_SUBSCRIPTION_STATUSES, *PAYMENT_GRACE_SUBSCRIPTION_STATUSES, "incomplete"}
 
 
 class LoginPayload(BaseModel):
@@ -377,8 +379,62 @@ def _issue_email_verification(db: Session, user: UserAccount) -> str:
     return token
 
 
-def _send_verification_email(db: Session, user: UserAccount, verification_url: str) -> dict[str, Any] | None:
+def format_expiry_duration(minutes: int) -> str:
     try:
+        value = max(1, int(minutes))
+    except (TypeError, ValueError):
+        value = 1
+    if value >= 60 and value % 60 == 0:
+        hours = value // 60
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    return f"{value} minute" if value == 1 else f"{value} minutes"
+
+
+def _ensure_verification_email_expiry_copy(db: Session) -> None:
+    template = db.execute(
+        select(EmailTemplate).where(EmailTemplate.template_key == "account.verify_email")
+    ).scalar_one_or_none()
+    if not template:
+        return
+    changed = False
+    replacements = {
+        "This link expires in {{expires_minutes}} minutes.": "This link expires in {{expires_label}}.",
+        "This verification link expires in {{expires_minutes}} minutes.": "This verification link expires in {{expires_label}}.",
+    }
+    for field in ("body_text", "body_html"):
+        value = getattr(template, field, None)
+        if not value:
+            continue
+        updated = value
+        for old, new in replacements.items():
+            updated = updated.replace(old, new)
+        if updated != value:
+            setattr(template, field, updated)
+            changed = True
+    variables = _loads_list(template.variables_json)
+    if "expires_label" not in variables:
+        variables.append("expires_label")
+        template.variables_json = json.dumps(variables)
+        changed = True
+    if changed:
+        template.updated_at = datetime.now(timezone.utc)
+        db.flush()
+
+
+def _loads_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _send_verification_email(db: Session, user: UserAccount, verification_url: str) -> dict[str, Any] | None:
+    expires_minutes = 24 * 60
+    try:
+        _ensure_verification_email_expiry_copy(db)
         return send_email(
             db,
             to_email=user.email,
@@ -386,7 +442,8 @@ def _send_verification_email(db: Session, user: UserAccount, verification_url: s
             context={
                 "first_name": _user_first_name(user),
                 "verification_url": verification_url,
-                "expires_minutes": 24 * 60,
+                "expires_minutes": expires_minutes,
+                "expires_label": format_expiry_duration(expires_minutes),
             },
             user_id=user.id,
             category="account",
@@ -1525,9 +1582,7 @@ def _sales_ledger_rows(
 
 
 def _effective_user_plan(user: UserAccount) -> str:
-    if is_admin_user(user):
-        return "admin"
-    return (user.manual_tier_override or user.entitlement_tier or user.subscription_plan or "free").strip().lower() or "free"
+    return effective_user_tier(user)
 
 
 def _admin_user_status(user: UserAccount) -> str:
@@ -1692,7 +1747,7 @@ def _admin_user_billing_summary(
     billing_rows: list[BillingTransaction] | None = None,
     plan_prices: dict[tuple[str, SubscriptionInterval], tuple[int, str]] | None = None,
 ) -> dict[str, Any]:
-    tier = normalize_tier(user.manual_tier_override or user.entitlement_tier or user.subscription_plan)
+    tier = normalize_tier(_effective_user_plan(user))
     has_paid_access = tier in {"premium", "pro"} or _has_actual_paid_access(user, datetime.now(timezone.utc))
     payments = _billing_payment_summary(billing_rows)
     if not has_paid_access:
@@ -2056,6 +2111,96 @@ def _record_admin_billing_override_audit(
     db.add(row)
     db.flush()
     return row
+
+
+def _admin_delete_stripe_customer_enabled() -> bool:
+    if _is_production_env():
+        return False
+    return os.getenv("CT_ADMIN_DELETE_STRIPE_CUSTOMER_ON_ADMIN_DELETE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _admin_delete_stripe_cleanup(user: UserAccount) -> dict[str, Any]:
+    has_stripe_reference = bool(user.stripe_customer_id or user.stripe_subscription_id)
+    if not _stripe_secret_key():
+        if has_stripe_reference:
+            raise HTTPException(status_code=503, detail="Stripe cleanup is not configured.")
+        return {
+            "cleanup_status": "skipped_no_stripe_reference",
+            "stripe_customer_id": None,
+            "subscriptions_cancelled": [],
+            "customer_deleted": False,
+        }
+
+    customer_ids: list[str] = []
+    if user.stripe_customer_id:
+        customer_ids.append(str(user.stripe_customer_id))
+    else:
+        customers = _stripe_get("customers", {"email": normalize_email(user.email), "limit": 3})
+        matches = [
+            str(customer_id)
+            for customer in (customers.get("data") or [])
+            if isinstance(customer, dict)
+            for customer_id in [_stripe_object_id(customer.get("id"))]
+            if customer_id
+        ]
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="Multiple Stripe customers match this email.")
+        customer_ids.extend(matches)
+
+    subscriptions_by_id: dict[str, dict[str, Any]] = {}
+    if user.stripe_subscription_id:
+        try:
+            subscription = _stripe_get(
+                f"subscriptions/{user.stripe_subscription_id}",
+                {"expand[]": "items.data.price"},
+            )
+            subscription_id = _stripe_object_id(subscription.get("id")) or str(user.stripe_subscription_id)
+            subscriptions_by_id[subscription_id] = subscription
+            customer_id = _stripe_object_id(subscription.get("customer"))
+            if customer_id and customer_id not in customer_ids:
+                customer_ids.append(customer_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+
+    for customer_id in customer_ids:
+        subscriptions = _stripe_get(
+            "subscriptions",
+            {"customer": customer_id, "status": "all", "limit": 100, "expand[]": "data.items.data.price"},
+        )
+        for subscription in subscriptions.get("data") or []:
+            if not isinstance(subscription, dict):
+                continue
+            subscription_id = _stripe_object_id(subscription.get("id"))
+            if subscription_id:
+                subscriptions_by_id[subscription_id] = subscription
+
+    cancelled: list[str] = []
+    for subscription_id, subscription in subscriptions_by_id.items():
+        status = str(subscription.get("status") or "").strip().lower()
+        if status not in ADMIN_DELETE_CANCELABLE_SUBSCRIPTION_STATUSES:
+            continue
+        _stripe_delete(
+            f"subscriptions/{subscription_id}",
+            idempotency_key=f"admin-delete-user:{user.id}:subscription:{subscription_id}",
+        )
+        cancelled.append(subscription_id)
+
+    customer_deleted = False
+    if customer_ids and _admin_delete_stripe_customer_enabled():
+        for customer_id in customer_ids:
+            _stripe_delete(
+                f"customers/{customer_id}",
+                idempotency_key=f"admin-delete-user:{user.id}:customer:{customer_id}",
+            )
+        customer_deleted = True
+
+    return {
+        "cleanup_status": "succeeded",
+        "stripe_customer_id": customer_ids[0] if customer_ids else None,
+        "subscriptions_cancelled": cancelled,
+        "customer_deleted": customer_deleted,
+    }
 
 
 def _metadata_value(value: Any) -> str:
@@ -3047,6 +3192,14 @@ def _stripe_price_mapping() -> dict[str, dict[str, str]]:
                     "billing_interval": interval,
                     "env_name": _stripe_price_env_name(interval, tier),
                 }
+        admin_free_price_id = _admin_free_grant_price_id(tier)
+        if admin_free_price_id:
+            mapping[admin_free_price_id] = {
+                "tier": tier,
+                "billing_interval": "monthly",
+                "env_name": _admin_free_grant_price_env_name(tier),
+                "price_mode": "free_admin_grant",
+            }
     return mapping
 
 
@@ -3901,23 +4054,41 @@ def resend_email_verification(
 
 @router.get("/account/verify-email")
 @router.post("/account/verify-email")
-def verify_email(token: str = Query(min_length=16, max_length=240), db: Session = Depends(get_db)):
+def verify_email(token: str = Query(default="", max_length=240), db: Session = Depends(get_db)):
     token_hash = reset_token_hash(token)
     user = db.execute(
         select(UserAccount).where(UserAccount.email_verification_token_hash == token_hash)
     ).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_verification_link",
+                "message": "This verification link is invalid. Please request a new one.",
+            },
+        )
     if _is_deleted_user(user):
-        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_verification_link",
+                "message": "This verification link is invalid. Please request a new one.",
+            },
+        )
+    if user.email_verified_at is not None:
+        return {"status": "already_verified", "email": user.email, "email_verified_at": user.email_verified_at}
     expires_at = _aware_utc(user.email_verification_expires_at)
     if not expires_at or expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "expired_verification_link",
+                "message": "This verification link has expired. Please request a new one.",
+            },
+        )
 
     now = datetime.now(timezone.utc)
-    user.email_verified_at = user.email_verified_at or now
-    user.email_verification_token_hash = None
-    user.email_verification_expires_at = None
+    user.email_verified_at = now
     user.updated_at = now
     db.commit()
     return {"status": "verified", "email": user.email, "email_verified_at": user.email_verified_at}
@@ -4688,9 +4859,14 @@ def _resolve_tier_interval_from_stripe_object(obj: dict[str, Any]) -> tuple[Lite
         price_id = _extract_subscription_price_id(obj)
         mapping_result = _stripe_price_mapping_result(price_id)
     if mapping_result.get("matched"):
+        resolved_interval = (
+            item_resolution.get("billing_interval")
+            if item_resolution and item_resolution.get("billing_interval") in {"monthly", "annual"}
+            else mapping_result["billing_interval"]
+        )
         return (
             mapping_result["tier"],  # type: ignore[return-value]
-            mapping_result["billing_interval"],  # type: ignore[return-value]
+            resolved_interval,  # type: ignore[return-value]
             str(mapping_result["price_id"]),
             mapping_result,
         )
@@ -5130,10 +5306,13 @@ def _sync_user_subscription(
             period_end = now
     if period_end:
         user.access_expires_at = period_end
-    if user.manual_tier_override is not None:
+    stripe_policy_tier = subscription_policy_tier(user, now=now)
+    if stripe_policy_tier in ADMIN_BILLING_PAID_TIERS:
+        user.entitlement_tier = stripe_policy_tier
+    elif user.manual_tier_override is not None:
         user.entitlement_tier = normalize_tier(user.manual_tier_override)
     else:
-        user.entitlement_tier = subscription_policy_tier(user, now=now)
+        user.entitlement_tier = stripe_policy_tier
     user.updated_at = now
     db.flush()
     return user
@@ -6751,9 +6930,65 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
     user = db.get(UserAccount, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+    previous_state = _admin_billing_previous_state(user)
+    cleanup_result: dict[str, Any] = {}
+    try:
+        cleanup_result = _admin_delete_stripe_cleanup(user)
+    except HTTPException as exc:
+        db.rollback()
+        requested_state = {
+            "action": "admin_delete_user",
+            "stripe_cleanup_status": "failed",
+            "safe_error": _admin_billing_safe_error(exc),
+        }
+        _record_admin_billing_override_audit(
+            db,
+            admin_actor=admin,
+            user=user,
+            override_type="delete",
+            previous_state=previous_state,
+            requested_state=requested_state,
+            stripe_customer_id=user.stripe_customer_id,
+            stripe_subscription_id=user.stripe_subscription_id,
+            stripe_sync_status="failed",
+            error_message=_admin_billing_safe_error(exc),
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=exc.status_code if exc.status_code in {409, 422, 503} else 502,
+            detail={
+                "code": "admin_delete_stripe_cleanup_failed",
+                "message": "Couldn't clean up Stripe billing for this user. No local deletion was saved.",
+            },
+        ) from exc
+
+    _record_admin_billing_override_audit(
+        db,
+        admin_actor=admin,
+        user=user,
+        override_type="delete",
+        previous_state=previous_state,
+        requested_state={
+            "action": "admin_delete_user",
+            "stripe_cleanup_status": cleanup_result.get("cleanup_status"),
+            "subscriptions_cancelled_count": len(cleanup_result.get("subscriptions_cancelled") or []),
+            "customer_deleted": bool(cleanup_result.get("customer_deleted")),
+        },
+        stripe_customer_id=cleanup_result.get("stripe_customer_id") or user.stripe_customer_id,
+        stripe_subscription_id=user.stripe_subscription_id,
+        stripe_sync_status="succeeded",
+    )
     db.delete(user)
     db.commit()
-    return {"status": "deleted", "user_id": user_id}
+    return {
+        "status": "deleted",
+        "user_id": user_id,
+        "stripe_cleanup": {
+            "status": cleanup_result.get("cleanup_status"),
+            "subscriptions_cancelled": len(cleanup_result.get("subscriptions_cancelled") or []),
+            "customer_deleted": bool(cleanup_result.get("customer_deleted")),
+        },
+    }
 
 
 @router.patch("/admin/feature-gates/{feature_key}", dependencies=[Depends(rate_limit_admin_mutation)])

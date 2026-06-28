@@ -90,9 +90,12 @@ from app.routers.accounts import (
     update_account_profile,
     stripe_tax_billing_readiness,
     _google_client_id,
+    format_expiry_duration,
     _reset_url,
     _verification_url,
+    resend_email_verification,
     upsert_google_user,
+    verify_email,
 )
 from app.routers.notifications import NotificationSubscriptionPayload, put_notification_subscription
 
@@ -1149,6 +1152,63 @@ def test_register_verification_email_failure_does_not_fail_account_creation(monk
         assert registered["email_verification_required"] is True
     finally:
         db.close()
+
+
+def test_email_verification_link_resend_and_safe_states(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    db = _session()
+    try:
+        registered = register(_register_payload("reader-verify@example.com"), db)
+        user = db.get(UserAccount, registered["user"]["id"])
+        assert user is not None
+        token = registered["dev_verification_url"].split("token=", 1)[1]
+
+        verified = verify_email(token, db)
+        db.refresh(user)
+        settings = account_settings(_request_for_user(user), db)["user"]
+
+        assert verified["status"] == "verified"
+        assert user.email_verified_at is not None
+        assert settings["email_verified"] is True
+        assert settings["email_verification_required"] is False
+
+        second_click = verify_email(token, db)
+        assert second_click["status"] == "already_verified"
+
+        resent_user_response = register(_register_payload("reader-resend-verify@example.com"), db)
+        resent_user = db.get(UserAccount, resent_user_response["user"]["id"])
+        assert resent_user is not None
+        resend = resend_email_verification(_request_for_user(resent_user), None, db)
+        assert resend["email_verification_required"] is True
+        resent_token = resend["dev_verification_url"].split("token=", 1)[1]
+        assert verify_email(resent_token, db)["status"] == "verified"
+
+        with pytest.raises(HTTPException) as invalid:
+            verify_email("short", db)
+        assert invalid.value.status_code == 400
+        assert invalid.value.detail["code"] == "invalid_verification_link"
+        assert invalid.value.detail["message"] == "This verification link is invalid. Please request a new one."
+
+        expired_response = register(_register_payload("reader-expired-verify@example.com"), db)
+        expired_user = db.get(UserAccount, expired_response["user"]["id"])
+        assert expired_user is not None
+        expired_token = expired_response["dev_verification_url"].split("token=", 1)[1]
+        expired_user.email_verification_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+        with pytest.raises(HTTPException) as expired:
+            verify_email(expired_token, db)
+        assert expired.value.status_code == 400
+        assert expired.value.detail["code"] == "expired_verification_link"
+        assert expired.value.detail["message"] == "This verification link has expired. Please request a new one."
+    finally:
+        db.close()
+
+
+def test_verification_expiry_duration_copy_is_human_readable():
+    assert format_expiry_duration(60) == "1 hour"
+    assert format_expiry_duration(90) == "90 minutes"
+    assert format_expiry_duration(1440) == "24 hours"
+    assert format_expiry_duration(2880) == "48 hours"
 
 
 def test_password_reset_mismatch_returns_422_and_keeps_token(monkeypatch):
@@ -2896,7 +2956,67 @@ def test_subscription_updated_maps_configured_price_ids_to_entitlements(monkeypa
         db.close()
 
 
-def test_subscription_updated_preserves_admin_free_manual_override_for_paid_stripe_state(monkeypatch):
+def test_subscription_updated_maps_admin_free_price_ids_to_entitlements(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID", "price_admin_premium_free")
+    monkeypatch.setenv("STRIPE_PRO_ADMIN_FREE_PRICE_ID", "price_admin_pro_free")
+    db = _session()
+    try:
+        cases = [
+            ("admin-premium-free@example.com", "price_admin_premium_free", "premium"),
+            ("admin-pro-free@example.com", "price_admin_pro_free", "pro"),
+        ]
+        for index, (email, price_id, tier) in enumerate(cases, start=1):
+            user = _user(db, email)
+            user.password_hash = "hashed-password"
+            user.stripe_customer_id = f"cus_admin_free_{index}"
+            db.commit()
+
+            result = process_stripe_event(
+                db,
+                {
+                    "id": f"evt_admin_free_{index}",
+                    "type": "customer.subscription.updated",
+                    "data": {
+                        "object": {
+                            "object": "subscription",
+                            "id": f"sub_admin_free_{index}",
+                            "customer": f"cus_admin_free_{index}",
+                            "status": "active",
+                            "current_period_end": 1_893_456_000,
+                            "items": {
+                                "data": [
+                                    {
+                                        "price": {
+                                            "id": price_id,
+                                            "unit_amount": 0,
+                                            "currency": "usd",
+                                            "recurring": {"interval": "month"},
+                                        }
+                                    }
+                                ]
+                            },
+                        }
+                    },
+                },
+            )
+            db.refresh(user)
+            entitlements = current_entitlements(_request_for_user(user), db)
+            me_payload = me(_request_for_user(user), db)
+
+            assert result["status"] == "processed"
+            assert result["mapped_plan"] == tier
+            assert user.entitlement_tier == tier
+            assert user.subscription_plan == tier
+            assert user.stripe_price_id == price_id
+            assert entitlements.tier == tier
+            assert me_payload["entitlements"]["tier"] == tier
+            assert me_payload["entitlements"]["source"] == "admin_subscription"
+    finally:
+        db.close()
+
+
+def test_subscription_updated_prefers_paid_stripe_state_over_stale_manual_free_override(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
     db = _session()
@@ -2939,9 +3059,9 @@ def test_subscription_updated_preserves_admin_free_manual_override_for_paid_stri
 
         assert result["status"] == "processed"
         assert user.manual_tier_override == "free"
-        assert user.entitlement_tier == "free"
+        assert user.entitlement_tier == "premium"
         assert user.subscription_plan == "premium"
-        assert current_entitlements(_request_for_user(user), db).tier == "free"
+        assert current_entitlements(_request_for_user(user), db).tier == "premium"
     finally:
         db.close()
 
@@ -4228,6 +4348,150 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
         result = admin_delete_user(reader.id, request, db)
         assert result["status"] == "deleted"
         assert db.get(UserAccount, reader.id) is None
+    finally:
+        db.close()
+
+
+def test_admin_delete_user_without_stripe_reference_succeeds_and_audits(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "delete-no-stripe@example.com")
+
+        result = admin_delete_user(reader.id, _request_for_user(admin), db)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert result["status"] == "deleted"
+        assert result["stripe_cleanup"]["status"] == "skipped_no_stripe_reference"
+        assert db.get(UserAccount, reader.id) is None
+        assert audit.override_type == "delete"
+        assert audit.stripe_sync_status == "succeeded"
+        assert '"stripe_cleanup_status": "skipped_no_stripe_reference"' in audit.requested_state_json
+    finally:
+        db.close()
+
+
+def test_admin_delete_user_cancels_active_stripe_subscription_before_local_delete(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+    calls: list[tuple[str, str, dict, str | None]] = []
+
+    def fake_stripe_get(path, params=None):
+        calls.append(("GET", path, dict(params or {}), None))
+        if path == "subscriptions/sub_delete":
+            return {"id": "sub_delete", "object": "subscription", "customer": "cus_delete", "status": "active"}
+        if path == "subscriptions":
+            return {"data": [{"id": "sub_delete", "object": "subscription", "customer": "cus_delete", "status": "active"}]}
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    def fake_stripe_delete(path, data=None, *, idempotency_key=None):
+        calls.append(("DELETE", path, dict(data or {}), idempotency_key))
+        if path == "subscriptions/sub_delete":
+            return {"id": "sub_delete", "status": "canceled"}
+        raise AssertionError(f"Unexpected Stripe DELETE path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_delete", fake_stripe_delete)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "delete-active-sub@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_delete"
+        reader.stripe_subscription_id = "sub_delete"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        db.commit()
+
+        result = admin_delete_user(reader.id, _request_for_user(admin), db)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert result["status"] == "deleted"
+        assert result["stripe_cleanup"]["subscriptions_cancelled"] == 1
+        assert db.get(UserAccount, reader.id) is None
+        assert ("DELETE", "subscriptions/sub_delete", {}, f"admin-delete-user:{reader.id}:subscription:sub_delete") in calls
+        assert audit.override_type == "delete"
+        assert audit.stripe_sync_status == "succeeded"
+        assert audit.stripe_customer_id == "cus_delete"
+        assert '"subscriptions_cancelled_count": 1' in audit.requested_state_json
+        assert "sk_test_hidden" not in audit.previous_state_json + audit.requested_state_json
+    finally:
+        db.close()
+
+
+def test_admin_delete_user_with_stripe_customer_and_no_subscription_does_not_error(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+    calls: list[tuple[str, str]] = []
+
+    def fake_stripe_get(path, params=None):
+        calls.append(("GET", path))
+        if path == "subscriptions":
+            return {"data": []}
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    def fake_stripe_delete(path, data=None, *, idempotency_key=None):
+        calls.append(("DELETE", path))
+        raise AssertionError(f"Unexpected Stripe DELETE path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_delete", fake_stripe_delete)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "delete-no-sub@example.com")
+        reader.stripe_customer_id = "cus_no_sub_delete"
+        db.commit()
+
+        result = admin_delete_user(reader.id, _request_for_user(admin), db)
+
+        assert result["status"] == "deleted"
+        assert result["stripe_cleanup"]["subscriptions_cancelled"] == 0
+        assert db.get(UserAccount, reader.id) is None
+        assert ("GET", "subscriptions") in calls
+    finally:
+        db.close()
+
+
+def test_admin_delete_user_stripe_cleanup_failure_keeps_local_user_and_audits(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    db = _session()
+
+    def fake_stripe_get(path, params=None):
+        if path == "subscriptions/sub_fail_delete":
+            return {"id": "sub_fail_delete", "object": "subscription", "customer": "cus_fail_delete", "status": "active"}
+        if path == "subscriptions":
+            return {"data": [{"id": "sub_fail_delete", "object": "subscription", "customer": "cus_fail_delete", "status": "active"}]}
+        raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+    def fake_stripe_delete(path, data=None, *, idempotency_key=None):
+        raise HTTPException(status_code=502, detail="raw provider detail sk_test_hidden")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+    monkeypatch.setattr("app.routers.accounts._stripe_delete", fake_stripe_delete)
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "delete-fails@example.com", tier="premium")
+        reader.stripe_customer_id = "cus_fail_delete"
+        reader.stripe_subscription_id = "sub_fail_delete"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            admin_delete_user(reader.id, _request_for_user(admin), db)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert exc.value.status_code == 502
+        assert exc.value.detail["code"] == "admin_delete_stripe_cleanup_failed"
+        assert db.get(UserAccount, reader.id) is not None
+        assert audit.override_type == "delete"
+        assert audit.stripe_sync_status == "failed"
+        assert audit.error_message == "stripe_sync_failed_status_502"
+        assert "raw provider detail" not in audit.error_message
+        assert "sk_test_hidden" not in audit.previous_state_json + audit.requested_state_json + (audit.error_message or "")
     finally:
         db.close()
 

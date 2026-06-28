@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user, is_admin_user
 from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, SavedScreen, UserAccount, Watchlist
+from app.services.billing_readiness import stripe_price_id
 
 TierName = Literal["free", "premium", "pro", "admin"]
 PlanTierName = Literal["free", "premium", "pro"]
 BillingInterval = Literal["monthly", "annual"]
+EffectivePlanSource = Literal["stripe_subscription", "admin_subscription", "manual_override", "free", "suspended", "admin"]
 FeatureKey = Literal[
     "signals",
     "leaderboards",
@@ -608,6 +610,34 @@ REVOKED_SUBSCRIPTION_STATUSES = {
 }
 
 
+def _env_price_id(name: str) -> str | None:
+    value = os.getenv(name, "").strip()
+    return value if value.startswith("price_") else None
+
+
+def _configured_admin_free_price_tier(price_id: str | None) -> PlanTierName | None:
+    cleaned = str(price_id or "").strip()
+    if not cleaned:
+        return None
+    admin_free_prices = {
+        _env_price_id("STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID"): "premium",
+        _env_price_id("STRIPE_PRO_ADMIN_FREE_PRICE_ID"): "pro",
+    }
+    mapped = admin_free_prices.get(cleaned)
+    return mapped if mapped in {"premium", "pro"} else None
+
+
+def configured_stripe_price_tier(price_id: str | None) -> PlanTierName | None:
+    cleaned = str(price_id or "").strip()
+    if not cleaned:
+        return None
+    for tier in ("premium", "pro"):
+        for interval in ("monthly", "annual"):
+            if cleaned == stripe_price_id(interval, tier):
+                return tier
+    return _configured_admin_free_price_tier(cleaned)
+
+
 def stripe_payment_failure_grace_days() -> int:
     raw = os.getenv("STRIPE_PAYMENT_FAILURE_GRACE_DAYS", "0").strip()
     try:
@@ -634,6 +664,10 @@ def subscription_policy_tier(user: UserAccount, *, now: datetime | None = None) 
     status = (user.subscription_status or "").strip().lower()
     paid_through = _aware_utc(user.access_expires_at)
     subscription_tier = normalize_tier(user.subscription_plan)
+    if subscription_tier not in {"premium", "pro"}:
+        price_tier = configured_stripe_price_tier(user.stripe_price_id)
+        if price_tier in {"premium", "pro"}:
+            subscription_tier = price_tier
     if subscription_tier not in {"premium", "pro"}:
         entitlement_tier = normalize_tier(user.entitlement_tier)
         if entitlement_tier in {"premium", "pro"}:
@@ -991,12 +1025,21 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         return normalize_tier(os.getenv("CT_DEFAULT_TIER"))
     if is_admin_user(user):
         return "admin"
+    if user.is_suspended:
+        return "free"
+    if stripe_managed_subscription(user):
+        subscription_tier = subscription_policy_tier(user)
+        if subscription_tier in {"premium", "pro"}:
+            return subscription_tier
+        if user.manual_tier_override is None:
+            return "free"
+    if user.manual_tier_override is not None:
+        manual_tier = normalize_tier(user.manual_tier_override)
+        if manual_tier in {"premium", "pro"}:
+            return manual_tier
+        return "free"
     if user.password_hash and user.email_verified_at is None:
         return "free"
-    if user.manual_tier_override:
-        return normalize_tier(user.manual_tier_override)
-    if stripe_managed_subscription(user):
-        return subscription_policy_tier(user)
     entitlement_tier = normalize_tier(user.entitlement_tier)
     if entitlement_tier in {"premium", "pro"}:
         return entitlement_tier
@@ -1007,6 +1050,22 @@ def effective_user_tier(user: UserAccount | None) -> TierName:
         if user.subscription_plan and subscription_tier == "free":
             return "free"
         return "premium"
+    return "free"
+
+
+def effective_user_plan_source(user: UserAccount | None) -> EffectivePlanSource:
+    if user is None:
+        return "free"
+    if is_admin_user(user):
+        return "admin"
+    if user.is_suspended:
+        return "suspended"
+    if stripe_managed_subscription(user):
+        subscription_tier = subscription_policy_tier(user)
+        if subscription_tier in {"premium", "pro"}:
+            return "admin_subscription" if _configured_admin_free_price_tier(user.stripe_price_id) else "stripe_subscription"
+    if user.manual_tier_override is not None and normalize_tier(user.manual_tier_override) in {"premium", "pro"}:
+        return "manual_override"
     return "free"
 
 
@@ -1066,8 +1125,10 @@ def current_entitlements(request: Request, db: Session | None = None) -> TierEnt
 
 def entitlement_payload(entitlements: TierEntitlements, *, user: UserAccount | None = None) -> dict[str, Any]:
     return {
+        "plan": entitlements.tier,
         "tier": entitlements.tier,
         "effective_tier": entitlements.tier,
+        "source": effective_user_plan_source(user),
         "is_admin": is_admin_user(user),
         "limits": entitlements.limits,
         "features": sorted(entitlements.features),

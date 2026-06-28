@@ -36,11 +36,12 @@ function isAdmin(user: AccountLike | null | undefined, entitlements?: Entitlemen
 
 function normalizedTier(user: AccountLike | null | undefined, entitlements?: Entitlements | null) {
   const raw =
+    entitlements?.effective_tier ||
+    entitlements?.tier ||
     user?.plan ||
     user?.manual_tier_override ||
     user?.entitlement_tier ||
     user?.subscription_plan ||
-    entitlements?.tier ||
     "free";
   const tier = String(raw).trim().toLowerCase();
   return tier === "pro" || tier === "premium" || tier === "admin" ? tier : "free";

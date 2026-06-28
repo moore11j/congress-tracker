@@ -30,6 +30,7 @@ function normalizedPlanTier(value?: string | null): PlanTier | null {
 
 function currentPlanTier(user: AccountUser | null, entitlements: Entitlements | null): PlanTier {
   return (
+    normalizedPlanTier(entitlements?.effective_tier) ??
     normalizedPlanTier(entitlements?.tier) ??
     normalizedPlanTier(user?.entitlement_tier) ??
     normalizedPlanTier(user?.current_plan) ??

@@ -370,12 +370,12 @@ function isNonRenewingPaid(user: AccountUser | null) {
   const date = new Date(user.access_expires_at);
   if (Number.isNaN(date.getTime()) || date <= new Date()) return false;
   const status = (user.subscription_status || "").toLowerCase();
-  const tier = (user.subscription_plan || user.entitlement_tier || "").toLowerCase();
+  const tier = (user.current_plan || user.subscription_plan || user.entitlement_tier || "").toLowerCase();
   return ["active", "trialing"].includes(status) && (tier === "premium" || tier === "pro");
 }
 
 function displayPlanName(user: AccountUser | null) {
-  const plan = (user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
+  const plan = (user?.current_plan || user?.subscription_plan || user?.entitlement_tier || "paid").toLowerCase();
   if (plan === "pro") return "Pro";
   if (plan === "premium") return "Premium";
   return "paid";

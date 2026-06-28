@@ -233,7 +233,8 @@ function requestInitWithEntitlements(init?: ApiRequestInit): RequestInit {
 
 function rememberEntitlements(entitlements: Entitlements | null | undefined) {
   if (typeof window === "undefined" || !entitlements) return;
-  const tier = entitlements.tier === "admin" || entitlements.tier === "pro" || entitlements.tier === "premium" ? entitlements.tier : "free";
+  const effectiveTier = entitlements.effective_tier ?? entitlements.tier;
+  const tier = effectiveTier === "admin" || effectiveTier === "pro" || effectiveTier === "premium" ? effectiveTier : "free";
   window.localStorage.setItem(entitlementTierStorageKey, tier);
   document.cookie = `${entitlementHintCookieName}=${tier}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
 }
@@ -2146,8 +2147,8 @@ export async function refreshBillingSubscription(): Promise<BillingRefreshRespon
   return response;
 }
 
-export async function verifyEmail(token: string): Promise<{ status: string; email: string; email_verified_at?: string | null }> {
-  const response = await fetchJson<{ status: string; email: string; email_verified_at?: string | null }>(
+export async function verifyEmail(token: string): Promise<{ status: "verified" | "already_verified" | string; email: string; email_verified_at?: string | null }> {
+  const response = await fetchJson<{ status: "verified" | "already_verified" | string; email: string; email_verified_at?: string | null }>(
     buildApiUrl("/api/account/verify-email", { token }),
     { method: "POST" },
   );

@@ -233,12 +233,12 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         "reply_to": SUPPORT_EMAIL,
         "subject": "Verify your Walnut email",
         "preheader": "Verify your email address for Walnut Market Terminal.",
-        "variables": ["first_name", "verification_url", "expires_minutes"],
+        "variables": ["first_name", "verification_url", "expires_minutes", "expires_label"],
         "body_text": walnut_email_text(
             greeting="Hello {{first_name}},",
             intro="Welcome to Walnut. Verify your email to secure your account and enable account notifications.",
             sections=[
-                "This link expires in {{expires_minutes}} minutes.",
+                "This link expires in {{expires_label}}.",
                 "If you did not create this account, you can ignore this message.",
             ],
             cta_label="Verify email",
@@ -252,7 +252,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Hello {{first_name}}, welcome to Walnut. Verify your email to secure your account and enable account notifications.",
             content_html=walnut_info_card(
                 "Expires",
-                "This verification link expires in {{expires_minutes}} minutes. If you did not create this account, you can ignore this message.",
+                "This verification link expires in {{expires_label}}. If you did not create this account, you can ignore this message.",
             ),
             cta_label="Verify email",
             cta_url="verification_url",
