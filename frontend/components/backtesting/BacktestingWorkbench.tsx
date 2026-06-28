@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { BacktestChart } from "@/components/backtesting/BacktestChart";
 import { CongressMemberAutosuggest } from "@/components/backtesting/CongressMemberAutosuggest";
@@ -21,7 +22,8 @@ import type {
 import { getBacktestPresets, getCongressTraderLeaderboard, getEntitlements, getSignalsAll, getTickerProfiles, hasClientAuthHint, runBacktest } from "@/lib/api";
 import { hasEntitlement, type Entitlements } from "@/lib/entitlements";
 import type { TickerProfilesMap } from "@/lib/types";
-import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
+import { cardClassName, inputClassName, selectClassName, subtlePrimaryButtonClassName, tickerMonoLinkClassName } from "@/lib/styles";
+import { tickerHref } from "@/lib/ticker";
 
 type Props = {
   initialEntitlements: Entitlements;
@@ -233,6 +235,18 @@ function LockIcon() {
   );
 }
 
+function BacktestPositionSymbol({ symbol }: { symbol?: string | null }) {
+  const label = (symbol ?? "").trim();
+  const href = tickerHref(label);
+  if (!label) return <span className="text-slate-500">-</span>;
+  if (!href) return <span className="font-mono text-slate-300">{label}</span>;
+  return (
+    <Link href={href} prefetch={false} title={`Open ${label} ticker page`} className={`inline-block max-w-[7rem] truncate align-bottom ${tickerMonoLinkClassName}`}>
+      {label}
+    </Link>
+  );
+}
+
 function MetricCard({ item }: { item: SummaryItem }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -257,15 +271,13 @@ function ResultSkeleton() {
   );
 }
 
-function AssumptionsPanel({ skippedPositionsCount, priceFallbackPositionsCount }: { skippedPositionsCount?: number; priceFallbackPositionsCount?: number }) {
+function AssumptionsPanel({ skippedPositionsCount }: { skippedPositionsCount?: number }) {
   const hasSkippedPositions = skippedPositionsCount != null && Number.isFinite(skippedPositionsCount) && skippedPositionsCount > 0;
-  const hasFallbackUsage = priceFallbackPositionsCount != null && Number.isFinite(priceFallbackPositionsCount) && priceFallbackPositionsCount > 0;
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
       <h3 className="text-sm font-semibold text-slate-300">Assumptions &amp; Notes</h3>
-      {hasFallbackUsage ? <div className="mt-3 rounded-lg border border-sky-200/10 bg-sky-300/[0.05] px-3 py-2 text-xs leading-5 text-sky-50/85">Price fallback used for {formatInteger(priceFallbackPositionsCount)} positions where exact-date closes were unavailable.</div> : null}
-      {hasSkippedPositions ? <div className="mt-3 rounded-lg border border-amber-200/10 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5 text-amber-50/85">{formatInteger(skippedPositionsCount)} positions were still skipped after bounded price fallback could not find a valid close.</div> : null}
+      {hasSkippedPositions ? <div className="mt-3 rounded-lg border border-amber-200/10 bg-amber-300/[0.05] px-3 py-2 text-xs leading-5 text-amber-50/85">{formatInteger(skippedPositionsCount)} positions were unavailable because no valid close was found.</div> : null}
       <ul className="mt-3 list-disc space-y-2 pl-5 text-xs leading-5 text-slate-400">
         {ASSUMPTIONS_AND_NOTES.map((assumption) => (
           <li key={assumption}>{assumption}</li>
@@ -757,9 +769,9 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               <BacktestChart timeline={result.timeline} />
               <div className="min-w-0 max-w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Positions</h3><p className="mt-1 text-xs text-slate-500">Position returns are individual trade returns. Portfolio returns are capital-weighted and may be much lower than individual winners.</p></div><span className="text-xs text-slate-500">{result.positions.length} rows</span></div>
-                {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">{noPositionsMessage}</div> : <div className="min-w-0 max-w-full overflow-x-auto"><div className="max-h-[400px] overflow-y-auto"><table className="min-w-full divide-y divide-white/10 text-sm"><thead className="sticky top-0 z-10 bg-[#101827]"><tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500"><th className="pb-3 pr-4 font-medium">Symbol</th><th className="pb-3 pr-4 font-medium">Entry</th><th className="pb-3 pr-4 font-medium">Exit</th><th className="pb-3 pr-4 font-medium">Entry Px</th><th className="pb-3 pr-4 font-medium">Exit Px</th><th className="pb-3 pr-4 font-medium">Return</th><th className="pb-3 font-medium">Source</th></tr></thead><tbody className="divide-y divide-white/5">{result.positions.map((position) => <tr key={`${position.symbol}-${position.entry_date}-${position.source_event_id ?? "static"}`} className="text-slate-200"><td className="py-3 pr-4 font-semibold text-white">{position.symbol}</td><td className="py-3 pr-4">{formatDate(position.entry_date)}</td><td className="py-3 pr-4">{formatDate(position.exit_date)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.entry_price)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.exit_price)}</td><td className={`py-3 pr-4 font-semibold tabular-nums ${toneClass(position.return_pct)}`}>{pct(position.return_pct)}</td><td className="py-3 text-slate-400">{position.source_label || (position.source_event_id ? `Event #${position.source_event_id}` : "Current universe")}{position.price_fallback_used ? <span className="ml-2 rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-100">Fallback</span> : null}</td></tr>)}</tbody></table></div></div>}
+                {result.positions.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-400">{noPositionsMessage}</div> : <div className="min-w-0 max-w-full overflow-x-auto"><div className="max-h-[400px] overflow-y-auto"><table className="min-w-full divide-y divide-white/10 text-sm"><thead className="sticky top-0 z-10 bg-[#101827]"><tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-500"><th className="pb-3 pr-4 font-medium">Symbol</th><th className="pb-3 pr-4 font-medium">Entry</th><th className="pb-3 pr-4 font-medium">Exit</th><th className="pb-3 pr-4 font-medium">Entry Px</th><th className="pb-3 pr-4 font-medium">Exit Px</th><th className="pb-3 pr-4 font-medium">Return</th><th className="pb-3 font-medium">Source</th></tr></thead><tbody className="divide-y divide-white/5">{result.positions.map((position) => <tr key={`${position.symbol}-${position.entry_date}-${position.source_event_id ?? "static"}`} className="text-slate-200"><td className="py-3 pr-4 font-semibold text-white"><BacktestPositionSymbol symbol={position.symbol} /></td><td className="py-3 pr-4">{formatDate(position.entry_date)}</td><td className="py-3 pr-4">{formatDate(position.exit_date)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.entry_price)}</td><td className="py-3 pr-4 tabular-nums">{formatPrice(position.exit_price)}</td><td className={`py-3 pr-4 font-semibold tabular-nums ${toneClass(position.return_pct)}`}>{pct(position.return_pct)}</td><td className="py-3 text-slate-400">{position.source_label || (position.source_event_id ? `Event #${position.source_event_id}` : "Current universe")}</td></tr>)}</tbody></table></div></div>}
               </div>
-              <AssumptionsPanel skippedPositionsCount={result.summary.skipped_positions_count} priceFallbackPositionsCount={result.summary.price_fallback_positions_count} />
+              <AssumptionsPanel skippedPositionsCount={result.summary.skipped_positions_count} />
             </div>
           ) : (
             <div className="space-y-4">

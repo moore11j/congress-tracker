@@ -10,6 +10,7 @@ const frameUtil = read("components/ui/resultsTableFrame.ts");
 const screenerPage = read("app/screener/page.tsx");
 const screenerClient = read("components/screener/ScreenerResultsClient.tsx");
 const leaderboardPage = read("app/leaderboards/congress-traders/page.tsx");
+const leaderboardFiltersClient = read("components/leaderboards/CongressTraderLeaderboardFiltersClient.tsx");
 const leaderboardTable = read("components/leaderboards/CongressTraderLeaderboardTable.tsx");
 const leaderboardClient = read("components/leaderboards/CongressTraderLeaderboardClientResults.tsx");
 const signalsPage = read("app/signals/page.tsx");
@@ -35,8 +36,9 @@ test("screener uses pagination plus an internal scroll frame for long selected p
 
 test("leaderboard long result sets use the shared internal scroll frame", () => {
   assert.match(leaderboardPage, /const LIMIT_OPTIONS = \[10, 25, 50, 100\] as const/);
-  assert.match(leaderboardPage, /LIMIT_OPTIONS\.map\(\(option\) =>/);
-  assert.match(leaderboardPage, /limit: option/);
+  assert.match(leaderboardFiltersClient, /LIMIT_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardFiltersClient, /updateDraftFilters\(\{ limit: option \}\)/);
+  assert.match(leaderboardFiltersClient, /Apply filters/);
   assert.match(leaderboardTable, /resultsTableFrameClassName\(data\.rows\.length\)/);
   assert.match(leaderboardTable, /stickyResultsTableHeaderClassName/);
   assert.match(leaderboardClient, /limit,/);
@@ -45,8 +47,9 @@ test("leaderboard long result sets use the shared internal scroll frame", () => 
 test("signals results are capped without reducing fetched or rendered rows", () => {
   assert.match(signalsPage, /getSignalsAll\(\{[\s\S]*?limit,/);
   assert.match(signalsClient, /getSignalsAll\(\{[\s\S]*?limit,/);
-  assert.match(signalsPage, /resultsTableFrameClassName\(items\.length, \{ always: true \}\)/);
-  assert.match(signalsClient, /resultsTableFrameClassName\(items\.length, \{ always: true \}\)/);
+  assert.match(signalsPage, /signalsResultsScrollFrameClassName/);
+  assert.match(signalsClient, /signalsResultsScrollFrameClassName/);
+  assert.match(frameUtil, /signalsResultsScrollFrameClassName =\s*"max-w-full overflow-x-hidden overflow-y-auto/);
   assert.match(signalsPage, /mobileResultsScrollFrameClassName/);
   assert.match(signalsClient, /mobileResultsScrollFrameClassName/);
   assert.match(signalsPage, /items\.map\(\(it\) =>/);

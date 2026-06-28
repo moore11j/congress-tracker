@@ -16,7 +16,7 @@ import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayN
 import { memberHref } from "@/lib/memberSlug";
 import {
   mobileResultsScrollFrameClassName,
-  resultsTableFrameClassName,
+  signalsResultsScrollFrameClassName,
   stickyResultsTableHeaderClassName,
 } from "@/components/ui/resultsTableFrame";
 import { tickerHref } from "@/lib/ticker";
@@ -341,7 +341,7 @@ export function SignalsResultsClient({
           </div>
         )}
       </div>
-      <div className={`${resultsTableFrameClassName(items.length, { always: true })} hidden min-w-0 md:block`}>
+      <div className={`${signalsResultsScrollFrameClassName} hidden min-w-0 md:block`}>
         <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[5rem]" />

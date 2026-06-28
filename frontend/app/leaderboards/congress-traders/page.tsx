@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
+import { CongressTraderLeaderboardFiltersClient } from "@/components/leaderboards/CongressTraderLeaderboardFiltersClient";
 import { CongressTraderLeaderboardClientResults } from "@/components/leaderboards/CongressTraderLeaderboardClientResults";
 import { CongressTraderLeaderboardStatusState, CongressTraderLeaderboardTable } from "@/components/leaderboards/CongressTraderLeaderboardTable";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
@@ -37,8 +38,6 @@ const PORTFOLIO_LOOKBACK_OPTIONS = [
 ] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
-const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
-const INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only.";
 const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = [
   "alpha_pct",
@@ -176,18 +175,6 @@ function buildSortHrefs(params: {
       }),
     ]),
   ) as Partial<Record<CongressTraderLeaderboardSort, string>>;
-}
-
-function pillClassName(active: boolean): string {
-  return `rounded-full border px-3 py-1 text-xs font-semibold transition ${
-    active
-      ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
-      : "border-white/15 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]"
-  }`;
-}
-
-function disabledPillClassName(): string {
-  return "cursor-not-allowed rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 text-xs font-semibold text-slate-500 opacity-60";
 }
 
 function LeaderboardResultsFallback() {
@@ -383,163 +370,15 @@ export default async function CongressTraderLeaderboardPage({
         </p>
       </div>
 
-      <div className={`${cardClassName} grid gap-3 md:grid-cols-[max-content_max-content_max-content_max-content]`}>
-        <div className="space-y-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Universe</div>
-          <div className="flex flex-wrap items-center gap-1">
-            {SOURCE_MODE_OPTIONS.map((option) => {
-              const label = option === "congress" ? "Congress" : "Insiders";
-              const active = sourceMode === option;
-              const targetPerformanceModel =
-                option === "insiders"
-                  ? "outcomes"
-                  : active
-                    ? performanceModel
-                    : "portfolio";
-              const targetSort = targetPerformanceModel === "portfolio" ? "alpha_pct" : "avg_alpha";
-              const targetChamber = option === "insiders" ? "all" : chamber;
-              return (
-                <Link
-                  key={option}
-                  href={buildUrl({
-                    lookback_days: lookbackDays,
-                    chamber: targetChamber,
-                    source_mode: option,
-                    performance_model: targetPerformanceModel,
-                    sort: active ? sort : targetSort,
-                    min_trades: minTrades,
-                    limit,
-                  })}
-                  className={pillClassName(active)}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance Model</div>
-          <div className="flex flex-wrap items-center gap-1">
-            {PERFORMANCE_MODEL_OPTIONS.map((option) => {
-              const label = option === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
-              const active = performanceModel === option;
-              if (isInsiderMode && option === "portfolio") {
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    disabled
-                    aria-disabled="true"
-                    title={INSIDER_PORTFOLIO_DISABLED_TITLE}
-                    className={disabledPillClassName()}
-                  >
-                    {label}
-                  </button>
-                );
-              }
-              const targetSort = option === "portfolio" ? "alpha_pct" : "avg_alpha";
-              const targetSourceMode = option === "portfolio" ? "congress" : sourceMode;
-              const targetLookbackDays = option === "portfolio" ? 365 : normalizeTradeLookback(lookbackDays);
-              return (
-                <Link
-                  key={option}
-                  href={buildUrl({
-                    lookback_days: targetLookbackDays,
-                    chamber,
-                    source_mode: targetSourceMode,
-                    performance_model: option,
-                    sort: active ? sort : targetSort,
-                    min_trades: minTrades,
-                    limit,
-                  })}
-                  className={pillClassName(active)}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-        {isPortfolioMode ? (
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
-            <div className="flex flex-wrap items-center gap-1">
-              {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
-                const active = lookbackDays === option.days;
-                return (
-                  <Link
-                    key={option.days}
-                    href={buildUrl({
-                      lookback_days: option.days,
-                      chamber: "all",
-                      source_mode: "congress",
-                      performance_model: "portfolio",
-                      sort: "alpha_pct",
-                      min_trades: minTrades,
-                      limit,
-                    })}
-                    className={pillClassName(active)}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Trade Outcomes Window</div>
-            <div className="flex flex-wrap items-center gap-1">
-              {TRADE_LOOKBACK_OPTIONS.map((option) => {
-                const active = lookbackDays === option.days;
-                return (
-                  <Link
-                    key={option.days}
-                    href={buildUrl({
-                      lookback_days: option.days,
-                      chamber,
-                      source_mode: sourceMode,
-                      performance_model: "outcomes",
-                      sort,
-                      min_trades: minTrades,
-                      limit,
-                    })}
-                    className={pillClassName(active)}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        <div className="space-y-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Rows</div>
-          <div className="flex flex-wrap items-center gap-1">
-            {LIMIT_OPTIONS.map((option) => {
-              const active = limit === option;
-              return (
-                <Link
-                  key={option}
-                  href={buildUrl({
-                    lookback_days: lookbackDays,
-                    chamber,
-                    source_mode: sourceMode,
-                    performance_model: performanceModel,
-                    sort,
-                    min_trades: minTrades,
-                    limit: option,
-                  })}
-                  className={pillClassName(active)}
-                >
-                  {option}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      <CongressTraderLeaderboardFiltersClient
+        lookbackDays={lookbackDays}
+        chamber={chamber}
+        sourceMode={sourceMode}
+        performanceModel={performanceModel}
+        sort={sort}
+        minTrades={minTrades}
+        limit={limit}
+      />
 
       <Suspense key={resultsKey} fallback={<LeaderboardResultsFallback />}>
         <LeaderboardResultsSection

@@ -17,7 +17,7 @@ import { SignalsFiltersClient } from "@/components/signals/SignalsFiltersClient"
 import { Suspense } from "react";
 import {
   mobileResultsScrollFrameClassName,
-  resultsTableFrameClassName,
+  signalsResultsScrollFrameClassName,
   stickyResultsTableHeaderClassName,
 } from "@/components/ui/resultsTableFrame";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
@@ -774,7 +774,7 @@ async function SignalsResultsSection({
           </div>
         )}
       </div>
-      <div className={`${resultsTableFrameClassName(items.length, { always: true })} hidden min-w-0 md:block`}>
+      <div className={`${signalsResultsScrollFrameClassName} hidden min-w-0 md:block`}>
         <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
           <colgroup>
             <col className="w-[5rem]" />

@@ -14,7 +14,13 @@ test("frontend ticker API calls normalize and encode route symbols", () => {
   const ticker = read("lib/ticker.ts");
 
   assert.match(ticker, /function normalizeTickerSymbol/);
-  assert.match(ticker, /\["\[SYMBOL\]", "SYMBOL", "UNKNOWN", "NULL", "NONE"\]/);
+  assert.match(ticker, /const invalidTickerSymbols = new Set/);
+  assert.match(ticker, /"N\/A", "NA", "\[SYMBOL\]", "SYMBOL", "UNKNOWN", "NULL", "NONE"/);
+  assert.match(ticker, /export function tickerRouteSymbol/);
+  assert.match(ticker, /validTickerSymbolPattern\.test\(normalized\)/);
+  assert.match(ticker, /normalized\.replace\(\/\[\.\/\]\/g, "-"\)/);
+  assert.match(ticker, /const routeSymbol = tickerRouteSymbol\(symbol\)/);
+  assert.match(ticker, /return `\/ticker\/\$\{encodeURIComponent\(routeSymbol\)\}`/);
   assert.match(api, /import \{ normalizeTickerSymbol \} from "@\/lib\/ticker";/);
   assert.match(api, /function tickerPathSymbol\(symbol: string\)/);
   assert.match(api, /encodeURIComponent\(normalizeTickerSymbol\(symbol\) \?\? symbol\.trim\(\)\)/);

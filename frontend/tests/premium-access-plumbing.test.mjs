@@ -10,6 +10,7 @@ const signalsPage = read("app/signals/page.tsx");
 const screenerPage = read("app/screener/page.tsx");
 const leaderboardPage = read("app/leaderboards/congress-traders/page.tsx");
 const leaderboardTable = read("components/leaderboards/CongressTraderLeaderboardTable.tsx");
+const leaderboardFiltersClient = read("components/leaderboards/CongressTraderLeaderboardFiltersClient.tsx");
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
 const congressMemberAutosuggest = read("components/backtesting/CongressMemberAutosuggest.tsx");
 const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx");
@@ -46,38 +47,42 @@ test("screener page preserves presets, filter sections, and workflow controls", 
 });
 
 test("leaderboard page uses compact segmented control groups", () => {
-  assert.match(leaderboardPage, /Congress/);
-  assert.match(leaderboardPage, /Insiders/);
-  assert.match(leaderboardPage, /Universe/);
-  assert.match(leaderboardPage, /Performance Model/);
-  assert.match(leaderboardPage, /Trade Outcomes/);
-  assert.match(leaderboardPage, /Portfolio Simulation/);
-  assert.match(leaderboardPage, /Simulation Window/);
-  assert.match(leaderboardPage, /Rows/);
-  assert.doesNotMatch(leaderboardPage, /<select/);
-  assert.doesNotMatch(leaderboardPage, /selectClassName/);
-  assert.doesNotMatch(leaderboardPage, />\s*Apply\s*</);
+  assert.match(leaderboardFiltersClient, /Congress/);
+  assert.match(leaderboardFiltersClient, /Insiders/);
+  assert.match(leaderboardFiltersClient, /Universe/);
+  assert.match(leaderboardFiltersClient, /Performance Model/);
+  assert.match(leaderboardFiltersClient, /Trade Outcomes/);
+  assert.match(leaderboardFiltersClient, /Portfolio Simulation/);
+  assert.match(leaderboardFiltersClient, /Simulation Window/);
+  assert.match(leaderboardFiltersClient, /Rows/);
+  assert.match(leaderboardFiltersClient, /Apply filters/);
+  assert.match(leaderboardPage, /CongressTraderLeaderboardFiltersClient/);
+  assert.doesNotMatch(leaderboardFiltersClient, /<select/);
+  assert.doesNotMatch(leaderboardFiltersClient, /selectClassName/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
 });
 
-test("leaderboard row limit defaults to 10 and changes immediately via URL links", () => {
+test("leaderboard row limit defaults to 10 and applies through the filter button", () => {
   assert.match(leaderboardPage, /const LIMIT_OPTIONS = \[10, 25, 50, 100\] as const/);
+  assert.match(leaderboardFiltersClient, /const LIMIT_OPTIONS = \[10, 25, 50, 100\] as const/);
   assert.match(leaderboardPage, /function parseLimit\(raw: string, fallback = 10\)/);
   assert.match(leaderboardPage, /return LIMIT_OPTIONS\.includes\(parsed as \(typeof LIMIT_OPTIONS\)\[number\]\) \? parsed : fallback/);
   assert.match(leaderboardPage, /const limit = parseLimit\(getParam\(sp, "limit"\)\)/);
-  assert.match(leaderboardPage, /LIMIT_OPTIONS\.map\(\(option\) =>/);
-  assert.match(leaderboardPage, /limit: option/);
+  assert.match(leaderboardFiltersClient, /LIMIT_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardFiltersClient, /onClick=\{\(\) => updateDraftFilters\(\{ limit: option \}\)\}/);
+  assert.match(leaderboardFiltersClient, /router\.push\(buildLeaderboardHref\(pathname, searchParamsString, nextFilters\), \{ scroll: false \}\)/);
   assert.match(leaderboardPage, /url\.searchParams\.set\("limit", String\(params\.limit\)\)/);
+  assert.match(leaderboardFiltersClient, /params\.set\("limit", String\(nextFilters\.limit\)\)/);
   assert.doesNotMatch(leaderboardPage, /isPortfolioMode \? 100 : 10/);
   assert.doesNotMatch(leaderboardPage, /limit: 100/);
 });
 
 test("leaderboard limit is applied across congress, portfolio, and insider data fetches", () => {
-  assert.match(leaderboardPage, /source_mode: option/);
-  assert.match(leaderboardPage, /performance_model: option/);
+  assert.match(leaderboardFiltersClient, /sourceMode: option/);
+  assert.match(leaderboardFiltersClient, /performanceModel: option/);
   assert.match(leaderboardPage, /performanceModel === "portfolio"/);
-  assert.match(leaderboardPage, /const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel\[\] = \["outcomes", "portfolio"\]/);
-  assert.match(leaderboardPage, /sourceMode === "insiders"/);
+  assert.match(leaderboardFiltersClient, /const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel\[\] = \["outcomes", "portfolio"\]/);
+  assert.match(leaderboardFiltersClient, /sourceMode === "insiders"/);
   assert.match(leaderboardPage, /limit,\s*authToken/s);
   assert.match(leaderboardResultsClient, /limit,/);
   assert.match(leaderboardResultsClient, /source_mode: sourceMode/);
@@ -90,6 +95,7 @@ test("leaderboard defaults Congress to portfolio while forcing insiders to trade
   assert.match(leaderboardPage, /return "portfolio"/);
   assert.match(leaderboardPage, /params\.performance_model \?\? "portfolio"/);
   assert.match(leaderboardPage, /params\.source_mode === "congress" \? params\.performance_model \?\? "portfolio" : "outcomes"/);
+  assert.match(leaderboardFiltersClient, /filters\.sourceMode === "congress" \? filters\.performanceModel : "outcomes"/);
   assert.match(leaderboardPage, /sourceMode === "insiders" && rawPerformanceModel\.trim\(\)\.toLowerCase\(\) === "portfolio"/);
   assert.match(leaderboardPage, /redirect\(buildUrl/);
   assert.match(leaderboardPage, /source_mode: "insiders"/);
@@ -97,31 +103,31 @@ test("leaderboard defaults Congress to portfolio while forcing insiders to trade
 });
 
 test("leaderboard keeps trade-outcome lookback links for insider mode", () => {
-  assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS/);
+  assert.match(leaderboardFiltersClient, /TRADE_LOOKBACK_OPTIONS/);
   assert.match(leaderboardPage, /const LOOKBACK_OPTIONS = \[30, 90, 180, 365, 1095\] as const/);
-  assert.match(leaderboardPage, /\{ label: "30D", days: 30 \}/);
-  assert.match(leaderboardPage, /\{ label: "90D", days: 90 \}/);
-  assert.match(leaderboardPage, /\{ label: "180D", days: 180 \}/);
-  assert.match(leaderboardPage, /\{ label: "1Y", days: 365 \}/);
-  assert.match(leaderboardPage, /\{ label: "3Y", days: 1095 \}/);
+  assert.match(leaderboardFiltersClient, /\{ label: "30D", days: 30 \}/);
+  assert.match(leaderboardFiltersClient, /\{ label: "90D", days: 90 \}/);
+  assert.match(leaderboardFiltersClient, /\{ label: "180D", days: 180 \}/);
+  assert.match(leaderboardFiltersClient, /\{ label: "1Y", days: 365 \}/);
+  assert.match(leaderboardFiltersClient, /\{ label: "3Y", days: 1095 \}/);
   assert.match(leaderboardPage, /LOOKBACK_OPTIONS\.includes\(parsed as \(typeof LOOKBACK_OPTIONS\)\[number\]\) \? parsed : 365/);
-  assert.match(leaderboardPage, /Trade Outcomes Window/);
-  assert.match(leaderboardPage, /TRADE_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
-  assert.match(leaderboardPage, /lookback_days: option\.days/);
-  assert.match(leaderboardPage, /source_mode: sourceMode/);
-  assert.match(leaderboardPage, /performance_model: "outcomes"/);
+  assert.match(leaderboardFiltersClient, /Trade Outcomes Window/);
+  assert.match(leaderboardFiltersClient, /TRADE_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardFiltersClient, /lookbackDays: option\.days/);
+  assert.match(leaderboardResultsClient, /source_mode: sourceMode/);
+  assert.match(leaderboardFiltersClient, /performanceModel: "outcomes"/);
   assert.match(leaderboardPage, /params\.source_mode === "congress" \? params\.performance_model \?\? "portfolio" : "outcomes"/);
   assert.match(leaderboardPage, /url\.searchParams\.set\("source_mode", params\.source_mode\)/);
   assert.match(leaderboardPage, /url\.searchParams\.set\("performance_model", performanceModel\)/);
 });
 
 test("leaderboard disables portfolio simulation under insiders without a navigation link", () => {
-  assert.match(leaderboardPage, /INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only\."/);
-  assert.match(leaderboardPage, /if \(isInsiderMode && option === "portfolio"\) \{/);
-  assert.match(leaderboardPage, /<button\s+key=\{option\}\s+type="button"\s+disabled\s+aria-disabled="true"\s+title=\{INSIDER_PORTFOLIO_DISABLED_TITLE\}/);
-  assert.match(leaderboardPage, /className=\{disabledPillClassName\(\)\}/);
-  assert.match(leaderboardPage, /if \(isInsiderMode && option === "portfolio"\) \{[\s\S]*?<button[\s\S]*?disabled[\s\S]*?<\/button>[\s\S]*?\}\s*const targetSort/);
-  assert.match(leaderboardPage, /const targetSourceMode = option === "portfolio" \? "congress" : sourceMode/);
+  assert.match(leaderboardFiltersClient, /INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only\."/);
+  assert.match(leaderboardFiltersClient, /if \(draftIsInsiderMode && option === "portfolio"\) \{/);
+  assert.match(leaderboardFiltersClient, /<button\s+key=\{option\}\s+type="button"\s+disabled\s+aria-disabled="true"\s+title=\{INSIDER_PORTFOLIO_DISABLED_TITLE\}/);
+  assert.match(leaderboardFiltersClient, /className=\{disabledPillClassName\(\)\}/);
+  assert.match(leaderboardFiltersClient, /if \(draftIsInsiderMode && option === "portfolio"\) \{[\s\S]*?<button[\s\S]*?disabled[\s\S]*?<\/button>[\s\S]*?\}\s*const targetSort/);
+  assert.match(leaderboardFiltersClient, /const targetSourceMode = option === "portfolio" \? "congress" : draftFilters\.sourceMode/);
 });
 
 test("leaderboard portfolio mode stays Congress-only and supports all public window endpoint contracts", () => {
@@ -136,12 +142,13 @@ test("leaderboard portfolio mode stays Congress-only and supports all public win
   assert.match(leaderboardPage, /parsePortfolioLookback/);
   assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.some\(\(option\) => option\.days === parsed\) \? parsed : 365/);
   assert.match(leaderboardPage, /normalizePortfolioLookback/);
-  assert.match(leaderboardPage, /const targetLookbackDays = option === "portfolio" \? 365 : normalizeTradeLookback\(lookbackDays\)/);
-  assert.match(leaderboardPage, /Simulation Window/);
-  assert.match(leaderboardPage, /PORTFOLIO_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(leaderboardFiltersClient, /const targetLookbackDays = option === "portfolio" \? 365 : normalizeTradeLookback\(draftFilters\.lookbackDays\)/);
+  assert.match(leaderboardFiltersClient, /Simulation Window/);
+  assert.match(leaderboardFiltersClient, /PORTFOLIO_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
   assert.match(leaderboardPage, /parseLimit\(getParam\(sp, "limit"\)\)/);
   assert.match(leaderboardPage, /limit,/);
   assert.match(leaderboardPage, /mode", "realistic_disclosure_lag"/);
+  assert.match(leaderboardFiltersClient, /mode", "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /mode: performanceModel === "portfolio" \? "realistic_disclosure_lag"/);
   assert.match(leaderboardPage, /min_trades: performanceModel === "portfolio" \? undefined : minTrades/);
   assert.match(leaderboardResultsClient, /performance_model: performanceModel/);
