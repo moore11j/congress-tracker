@@ -332,8 +332,8 @@ export function GlobalSearch() {
 
       {mobileOpen ? (
         <div className="fixed inset-x-3 top-3 z-[1400] lg:hidden">
-          <div className="relative rounded-lg border border-white/15 bg-slate-950/98 p-2 shadow-2xl shadow-black/50">
-            <SearchIcon className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <div className="relative">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
               ref={mobileInputRef}
               value={query}
