@@ -7,7 +7,7 @@ import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
-import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
+import { ghostButtonClassName, inputClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 import { WalnutModal } from "@/components/ui/WalnutModal";
 
@@ -431,7 +431,11 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
                   />
                 </label>
                 <div className="flex gap-2">
-                  <button type="submit" disabled={isPending} className={`${primaryButtonClassName} flex-1 rounded-xl py-2`}>
+                  <button
+                    type="submit"
+                    disabled={isPending}
+                    className={`${subtlePrimaryButtonClassName} flex-1 disabled:cursor-wait disabled:border-emerald-400/25 disabled:bg-emerald-500/10 disabled:text-emerald-100/70 disabled:opacity-70`}
+                  >
                     {isPending ? "Creating..." : "Create and add"}
                   </button>
                   {watchlists.length > 0 ? (
