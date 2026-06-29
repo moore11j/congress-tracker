@@ -28,6 +28,21 @@ test("feed cards distinguish actor and ticker net flow labels", () => {
   assert.match(card, /\(isInsider \|\| isCongress\) && symbol && symbolNet30d !== null/);
 });
 
+test("feed gain/loss tooltip uses simplified percentage copy", () => {
+  const card = read("components/feed/FeedCard.tsx");
+  const copy = read("lib/gainLossCopy.ts");
+  const expectedBody =
+    "This percentage represents the unrealized gain or loss since the trade date. It measures the difference between the trade price and the current market price. For example, a gain occurs if the current market price rises after a buy, or falls after a sale. Conversely, a loss occurs if the price falls after a buy, or rises after a sale.";
+
+  assert.match(copy, /export const feedGainLossLabel = "Gain \/ loss \(%\)";/);
+  assert.ok(copy.includes(expectedBody));
+  assert.doesNotMatch(copy, /hypothetical copied trade|copied it/);
+
+  assert.match(card, /title=\{feedGainLossLabel\}/);
+  assert.match(card, /label: "Trade price"/);
+  assert.doesNotMatch(card, /label: "Entry"/);
+});
+
 test("global search UI advertises insider search and renders insider grouping", () => {
   const search = read("components/GlobalSearch.tsx");
 

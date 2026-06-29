@@ -22,7 +22,7 @@ import { formatCompanyName } from "@/lib/companyName";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
-import { feedGainLossTooltip, gainLossLabel, gainLossShortLabel } from "@/lib/gainLossCopy";
+import { feedGainLossLabel, feedGainLossTooltip, gainLossShortLabel } from "@/lib/gainLossCopy";
 import {
   parseInsiderNumber,
   resolveInsiderDisplayPrice,
@@ -513,7 +513,7 @@ export function FeedCard({
   const outcomeStatusLabel = safeOutcomeStatusLabel(hasPnl, pnlSource, outcomeIsUnavailable);
   const outcomeDetails = [
     congressEstimatedPrice !== null || insiderPrice !== null
-      ? { label: "Entry", value: formatMoneyPrecise((congressEstimatedPrice ?? insiderPrice) as number) }
+      ? { label: "Trade price", value: formatMoneyPrecise((congressEstimatedPrice ?? insiderPrice) as number) }
       : null,
     latestPrice !== null ? { label: "Latest", value: formatMoneyPrecise(latestPrice) } : null,
     congressEstimatedShares !== null || insiderShares !== null
@@ -521,9 +521,7 @@ export function FeedCard({
       : null,
     { label: "Status", value: outcomeStatusLabel },
   ].filter((detail): detail is TooltipDetail => detail !== null);
-  const outcomeTooltipBody = hasPnl
-    ? feedGainLossTooltip
-    : `${feedGainLossTooltip} ${missingPnlLabel}. Ranges can make returns approximate.`;
+  const outcomeTooltipBody = feedGainLossTooltip;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -1014,7 +1012,7 @@ export function FeedCard({
 
                 <div className="text-center lg:text-right">
                   {pnl !== null ? (
-                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={gainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
+                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
                       <span className="inline-flex flex-col items-center lg:items-end">
                         <span
                           className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -1035,7 +1033,7 @@ export function FeedCard({
                       </span>
                     </FeedInfoTooltip>
                   ) : (
-                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={gainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
+                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
                       <div className="inline-flex flex-col items-center lg:items-end">
                         <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
                         <span className="mt-1">
@@ -1081,7 +1079,7 @@ export function FeedCard({
 
               <div className="text-center md:text-right">
                 {pnl !== null ? (
-                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={gainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
+                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
                     <span className="inline-flex flex-col items-center md:items-end">
                       <span
                         className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
@@ -1102,7 +1100,7 @@ export function FeedCard({
                     </span>
                   </FeedInfoTooltip>
                 ) : (
-                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={gainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
+                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
                     <div className="inline-flex flex-col items-center md:items-end">
                       <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
                       <span className="mt-1">
