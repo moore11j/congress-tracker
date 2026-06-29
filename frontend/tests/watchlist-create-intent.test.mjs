@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
 const addTickerToWatchlist = read("components/watchlists/AddTickerToWatchlist.tsx");
+const watchlistsPage = read("app/watchlists/page.tsx");
 const watchlistsDashboard = read("components/watchlists/WatchlistsDashboard.tsx");
 const watchlistCreateForm = read("components/watchlists/WatchlistCreateForm.tsx");
 const watchlistDetailContent = read("components/watchlists/WatchlistDetailContent.tsx");
@@ -42,7 +43,16 @@ test("watchlist creation consumes pending ticker intent and lands on detail rout
   assert.match(watchlistsDashboard, /await addToWatchlist\(created\.id, pendingTickerIntent\.symbol\)/);
   assert.match(watchlistsDashboard, /router\.push\(`\/watchlists\/\$\{created\.id\}`\)/);
   assert.match(watchlistsDashboard, /rememberWatchlistToast\(`Watchlist created, but we couldn't add \$\{pendingTickerIntent\.symbol\}\. Please try again\.`\)/);
-  assert.match(watchlistsDashboard, /if \(!pendingTickerIntent\) \{\s*await refreshWatchlists\(\);\s*return;\s*\}/);
+  assert.match(watchlistsDashboard, /if \(!pendingTickerIntent\) \{\s*await refreshWatchlists\(\);\s*setIsCreateOpen\(false\);\s*return;\s*\}/);
+});
+
+test("watchlists page uses top create action and clearer section copy", () => {
+  assert.match(watchlistsPage, />Monitor tickers<\/h1>/);
+  assert.doesNotMatch(watchlistsPage, /Monitor ticker themes/);
+  assert.match(watchlistsDashboard, />\s*Create watchlist\s*<\/button>[\s\S]*Back to feed/);
+  assert.match(watchlistsDashboard, /<WatchlistCreateForm[\s\S]*open=\{isCreateOpen\}/);
+  assert.match(watchlistsDashboard, />Your watchlists<\/h2>/);
+  assert.doesNotMatch(watchlistsDashboard, /Existing watchlists/);
 });
 
 test("pending ticker flow has a visible failure message without final query params", () => {
@@ -52,12 +62,19 @@ test("pending ticker flow has a visible failure message without final query para
   assert.match(watchlistDetailContent, /role="alert"/);
 });
 
-test("watchlist create form asks for a name and passes created id to callbacks", () => {
-  assert.match(watchlistCreateForm, />Name your watchlist<\/h2>/);
+test("watchlist create modal asks for a name and passes created id to callbacks", () => {
+  assert.match(watchlistCreateForm, /<WalnutModal[\s\S]*title="Name your watchlist"/);
+  assert.match(watchlistCreateForm, /allowEscapeClose=\{false\}/);
+  assert.match(watchlistCreateForm, /initialFocusRef=\{inputRef\}/);
+  assert.match(watchlistCreateForm, /placeholder="Watchlist name"/);
+  assert.match(watchlistCreateForm, />\s*Cancel\s*<\/button>/);
+  assert.match(watchlistCreateForm, /\{isPending \? "Creating\.\.\." : "OK"\}/);
+  assert.match(watchlistCreateForm, /form=\{formId\}/);
   assert.match(watchlistCreateForm, /const created = await createWatchlist\(trimmed\)/);
   assert.match(watchlistCreateForm, /await onCreated\?\.\(created\)/);
   assert.match(watchlistCreateForm, /Creating this watchlist will add \{pendingTickerSymbol\}/);
   assert.doesNotMatch(watchlistCreateForm, />Create a watchlist<\/h2>/);
+  assert.doesNotMatch(watchlistCreateForm, /e\.g\. Election Cycle Momentum/);
 });
 
 test("default watchlist numbering uses active names and lowest available number", () => {
@@ -73,4 +90,11 @@ test("watchlist list display uses visible ordering instead of database ids", () 
   assert.match(watchlistList, /watchlists\.map\(\(watchlist, index\) =>/);
   assert.match(watchlistList, />#\{index \+ 1\}<\/span>/);
   assert.doesNotMatch(watchlistList, />#\{watchlist\.id\}<\/span>/);
+});
+
+test("watchlist row actions are visible on mobile and hover-revealed on desktop", () => {
+  assert.match(watchlistList, /opacity-100[\s\S]*lg:opacity-0[\s\S]*lg:group-hover:opacity-100/);
+  assert.match(watchlistList, /inline-flex min-h-10[\s\S]*Rename/);
+  assert.match(watchlistList, /inline-flex h-10 w-10[\s\S]*>\s*X\s*<\/button>/);
+  assert.match(watchlistList, /className="min-w-0 flex-1 py-1"/);
 });

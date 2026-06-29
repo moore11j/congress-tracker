@@ -1,16 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import {
+  cancelDialogButtonClass,
+  successDialogButtonClass,
+} from "@/components/ui/WalnutConfirmDialog";
+import { WalnutModal } from "@/components/ui/WalnutModal";
 import { createWatchlist } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
-import { inputClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
+import { inputClassName } from "@/lib/styles";
 import type { WatchlistSummary } from "@/lib/types";
 
 type Props = {
+  open: boolean;
+  onClose: () => void;
   onCreated?: (created: WatchlistSummary) => Promise<void> | void;
-  onCancelPendingIntent?: () => void;
   watchlistCount: number;
   entitlements?: Entitlements;
   defaultName: string;
@@ -18,17 +24,20 @@ type Props = {
 };
 
 export function WatchlistCreateForm({
+  open,
+  onClose,
   onCreated,
-  onCancelPendingIntent,
   watchlistCount,
   entitlements = defaultEntitlements,
   defaultName,
   pendingTickerSymbol = null,
 }: Props) {
+  const formId = useId();
   const [name, setName] = useState(defaultName);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const lastDefaultNameRef = useRef(defaultName);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setName((current) => {
@@ -37,6 +46,19 @@ export function WatchlistCreateForm({
       return shouldUseNextDefault ? defaultName : current;
     });
   }, [defaultName]);
+
+  useEffect(() => {
+    if (!open) {
+      setError(null);
+    }
+  }, [open]);
+
+  const handleClose = () => {
+    if (isPending) return;
+    setName(defaultName);
+    setError(null);
+    onClose();
+  };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -62,6 +84,7 @@ export function WatchlistCreateForm({
         const created = await createWatchlist(trimmed);
         await onCreated?.(created);
         setName(defaultName);
+        setError(null);
       } catch (err) {
         const message = err instanceof Error ? err.message : "";
         setError(
@@ -74,51 +97,62 @@ export function WatchlistCreateForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
-      <div>
-        <h2 className="text-lg font-semibold text-white">Name your watchlist</h2>
-        <p className="text-sm text-slate-400">Organize tickers you want to monitor closely.</p>
-      </div>
-      <input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="e.g. Election Cycle Momentum"
-        className={inputClassName}
-      />
-      {pendingTickerSymbol ? (
-        <p className="text-sm text-emerald-100">Creating this watchlist will add {pendingTickerSymbol}.</p>
-      ) : null}
-      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-      {!hasEntitlement(entitlements, "watchlists") || watchlistCount >= limitFor(entitlements, "watchlists") ? (
-        <UpgradePrompt
-          title="More watchlists are a Premium workflow"
-          body={
-            hasEntitlement(entitlements, "watchlists")
-              ? `Free includes ${formatInteger(limitFor(entitlements, "watchlists"))} watchlists so the core monitoring flow stays useful.`
-              : "Watchlist creation is currently a Premium feature."
-          }
-          compact={true}
-        />
-      ) : null}
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          className={subtlePrimaryButtonClassName}
-          disabled={isPending}
-        >
-          {isPending ? "Creating..." : "Create watchlist"}
-        </button>
-        {pendingTickerSymbol && onCancelPendingIntent ? (
+    <WalnutModal
+      open={open}
+      title="Name your watchlist"
+      description="Organize tickers you want to monitor closely."
+      onClose={handleClose}
+      closeLabel="Cancel create watchlist"
+      isBusy={isPending}
+      allowEscapeClose={false}
+      initialFocusRef={inputRef}
+      tone="success"
+      panelClassName="max-w-md"
+      footer={
+        <>
           <button
             type="button"
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
+            className={cancelDialogButtonClass}
             disabled={isPending}
-            onClick={onCancelPendingIntent}
+            onClick={handleClose}
           >
             Cancel
           </button>
+          <button
+            type="submit"
+            form={formId}
+            className={`inline-flex h-10 items-center justify-center rounded-xl border px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${successDialogButtonClass}`}
+            disabled={isPending}
+          >
+            {isPending ? "Creating..." : "OK"}
+          </button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} className="space-y-3">
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Watchlist name"
+          className={inputClassName}
+        />
+        {pendingTickerSymbol ? (
+          <p className="text-sm text-emerald-100">Creating this watchlist will add {pendingTickerSymbol}.</p>
         ) : null}
-      </div>
-    </form>
+        {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+        {!hasEntitlement(entitlements, "watchlists") || watchlistCount >= limitFor(entitlements, "watchlists") ? (
+          <UpgradePrompt
+            title="More watchlists are a Premium workflow"
+            body={
+              hasEntitlement(entitlements, "watchlists")
+                ? `Free includes ${formatInteger(limitFor(entitlements, "watchlists"))} watchlists so the core monitoring flow stays useful.`
+                : "Watchlist creation is currently a Premium feature."
+            }
+            compact={true}
+          />
+        ) : null}
+      </form>
+    </WalnutModal>
   );
 }

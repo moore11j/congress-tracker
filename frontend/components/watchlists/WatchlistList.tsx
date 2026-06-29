@@ -93,20 +93,20 @@ export function WatchlistList({ items }: Props) {
         return (
         <div
           key={watchlist.id}
-          className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 rounded-2xl px-4 py-3 text-sm`}
+          className={`${compactInteractiveSurfaceClassName} flex items-start justify-between gap-3 rounded-2xl px-4 py-3 text-sm`}
         >
-          <Link href={`/watchlists/${watchlist.id}`} prefetch={false} className="flex-1">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500">#{index + 1}</span>
-              <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
+          <Link href={`/watchlists/${watchlist.id}`} prefetch={false} className="min-w-0 flex-1 py-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="shrink-0 text-xs text-slate-500">#{index + 1}</span>
+              <span className={`min-w-0 max-w-full truncate font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
               {unreadCount > 0 ? (
-                <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
+                <span className="shrink-0 rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
                   {unreadCount} new
                 </span>
               ) : null}
             </div>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               aria-label={`Rename watchlist ${watchlist.name}`}
@@ -116,7 +116,7 @@ export function WatchlistList({ items }: Props) {
                 setError(null);
               }}
               disabled={isPending}
-              className="text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-emerald-300"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-xs font-semibold text-slate-300 opacity-100 transition hover:bg-white/[0.06] hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/30 disabled:opacity-40 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
             >
               Rename
             </button>
@@ -128,9 +128,9 @@ export function WatchlistList({ items }: Props) {
                 setPendingDelete(watchlist);
               }}
               disabled={isPending}
-              className="text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-400"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-sm font-semibold text-slate-300 opacity-100 transition hover:bg-rose-400/10 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/30 disabled:opacity-40 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
             >
-              ✕
+              X
             </button>
           </div>
         </div>

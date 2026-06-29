@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { WatchlistCreateForm } from "@/components/watchlists/WatchlistCreateForm";
@@ -7,7 +8,7 @@ import { WatchlistList } from "@/components/watchlists/WatchlistList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { addToWatchlist, getEntitlements, hasClientAuthHint, listWatchlists } from "@/lib/api";
 import { defaultEntitlements, type Entitlements } from "@/lib/entitlements";
-import { cardClassName } from "@/lib/styles";
+import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { WatchlistSummary } from "@/lib/types";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 import { nextDefaultWatchlistName } from "@/lib/watchlistNames";
@@ -56,12 +57,10 @@ function rememberWatchlistToast(message: string) {
 
 function WatchlistsSkeleton() {
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]" aria-busy="true" aria-live="polite">
-      <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
-        <SkeletonBlock className="h-5 w-40" />
-        <SkeletonBlock className="mt-3 h-4 w-full max-w-sm" />
-        <SkeletonBlock className="mt-5 h-11 w-full" />
-        <SkeletonBlock className="mt-3 h-10 w-36" />
+    <div className="space-y-5" aria-busy="true" aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SkeletonBlock className="h-10 w-40 rounded-2xl" />
+        <SkeletonBlock className="h-10 w-32 rounded-2xl" />
       </div>
       <div className={cardClassName}>
         <SkeletonBlock className="h-5 w-44" />
@@ -85,6 +84,7 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
   const [watchlists, setWatchlists] = useState(initialWatchlists);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [entitlementsLoading, setEntitlementsLoading] = useState(initialAuthPending);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const searchParamsString = searchParams.toString();
   const pendingTickerIntent = useMemo(
     () => pendingTickerIntentFromSearchParams(new URLSearchParams(searchParamsString)),
@@ -123,6 +123,12 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
     };
   }, []);
 
+  useEffect(() => {
+    if (pendingTickerIntent) {
+      setIsCreateOpen(true);
+    }
+  }, [pendingTickerIntent]);
+
   const refreshWatchlists = async () => {
     const next = await listWatchlists();
     setWatchlists(next);
@@ -131,6 +137,7 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
   const handleCreated = async (created: WatchlistSummary) => {
     if (!pendingTickerIntent) {
       await refreshWatchlists();
+      setIsCreateOpen(false);
       return;
     }
 
@@ -140,6 +147,7 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
       rememberWatchlistToast(`Watchlist created, but we couldn't add ${pendingTickerIntent.symbol}. Please try again.`);
     }
 
+    setIsCreateOpen(false);
     router.push(`/watchlists/${created.id}`);
   };
 
@@ -147,22 +155,42 @@ export function WatchlistsDashboard({ initialWatchlists, initialAuthPending = fa
     router.push(pendingTickerIntent?.returnTo ?? "/watchlists");
   };
 
+  const closeCreateModal = () => {
+    setIsCreateOpen(false);
+    if (pendingTickerIntent) {
+      cancelPendingIntent();
+    }
+  };
+
   if (entitlementsLoading) {
     return <WatchlistsSkeleton />;
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          className={subtlePrimaryButtonClassName}
+          onClick={() => setIsCreateOpen(true)}
+        >
+          Create watchlist
+        </button>
+        <Link href="/?mode=all" className={ghostButtonClassName}>
+          Back to feed
+        </Link>
+      </div>
       <WatchlistCreateForm
+        open={isCreateOpen}
+        onClose={closeCreateModal}
         onCreated={handleCreated}
-        onCancelPendingIntent={pendingTickerIntent ? cancelPendingIntent : undefined}
         watchlistCount={watchlists.length}
         entitlements={entitlements}
         defaultName={defaultName}
         pendingTickerSymbol={pendingTickerIntent?.symbol}
       />
       <div className={cardClassName}>
-        <h2 className="text-lg font-semibold text-white">Existing watchlists</h2>
+        <h2 className="text-lg font-semibold text-white">Your watchlists</h2>
         <p className="mt-1 text-sm text-slate-400">
           Open a list to see recent activity across its tickers.
         </p>
