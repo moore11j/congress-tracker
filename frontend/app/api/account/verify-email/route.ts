@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { buildBackendProxyHeaders } from "../proxy";
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -29,11 +30,7 @@ export async function POST(request: NextRequest) {
 
   const response = await fetch(url.toString(), {
     method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      cookie: request.headers.get("cookie") ?? "",
-    },
+    headers: buildBackendProxyHeaders(request, { fallbackRefererPath: "/account/verify-email" }),
     body: JSON.stringify({ token }),
     cache: "no-store",
   });

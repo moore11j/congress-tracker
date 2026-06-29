@@ -6,6 +6,7 @@ import test from "node:test";
 const apiSource = fs.readFileSync(path.join(process.cwd(), "lib", "api.ts"), "utf8");
 const verifyPanel = fs.readFileSync(path.join(process.cwd(), "components", "auth", "VerifyEmailPanel.tsx"), "utf8");
 const verificationNotice = fs.readFileSync(path.join(process.cwd(), "components", "auth", "EmailVerificationNotice.tsx"), "utf8");
+const proxyHelper = fs.readFileSync(path.join(process.cwd(), "app", "api", "account", "proxy.ts"), "utf8");
 const verifyRoute = fs.readFileSync(path.join(process.cwd(), "app", "api", "account", "verify-email", "route.ts"), "utf8");
 const resendRoute = fs.readFileSync(path.join(process.cwd(), "app", "api", "account", "resend-verification", "route.ts"), "utf8");
 
@@ -33,6 +34,7 @@ test("Next verify route redirects browser GET and proxies POST to backend verify
   assert.match(verifyRoute, /export async function POST\(request: NextRequest\)/);
   assert.match(verifyRoute, /new URL\("\/api\/account\/verify-email", API_BASE\)/);
   assert.match(verifyRoute, /method:\s*"POST"/);
+  assert.match(verifyRoute, /buildBackendProxyHeaders\(request,\s*\{\s*fallbackRefererPath:\s*"\/account\/verify-email"\s*\}\)/);
   assert.match(verifyRoute, /body:\s*JSON\.stringify\(\{\s*token\s*\}\)/);
 });
 
@@ -41,6 +43,21 @@ test("resend route proxies only to resend verification endpoint", () => {
   assert.match(resendRoute, /\/api\/account\/resend-verification/);
   assert.doesNotMatch(resendRoute, /\/api\/account\/verify-email/);
   assert.match(resendRoute, /method:\s*"POST"/);
+  assert.match(resendRoute, /buildBackendProxyHeaders\(request,\s*\{\s*fallbackRefererPath:\s*"\/account\/settings"\s*\}\)/);
+});
+
+test("account API proxy builds CSRF-safe backend headers", () => {
+  assert.match(proxyHelper, /const DEFAULT_APP_ORIGIN = "https:\/\/app\.walnutmarkets\.com"/);
+  assert.match(proxyHelper, /const CSRF_TOKEN_HEADERS = \["x-csrf-token", "x-xsrf-token"\]/);
+  assert.match(proxyHelper, /"content-type": "application\/json"/);
+  assert.match(proxyHelper, /headers\.set\("cookie", cookie\)/);
+  assert.match(proxyHelper, /headers\.set\("authorization", authorization\)/);
+  assert.match(proxyHelper, /trustedHeaderOrigin\(request\.headers\.get\("origin"\), trustedOrigins\)/);
+  assert.match(proxyHelper, /trustedHeaderOrigin\(request\.headers\.get\("referer"\), trustedOrigins\)/);
+  assert.match(proxyHelper, /configuredAppOrigin\(\) \?\?/);
+  assert.match(proxyHelper, /appOriginFromRequestUrl\(request\) \?\?/);
+  assert.match(proxyHelper, /trustedReferer\(request\.headers\.get\("referer"\), trustedOrigins\) \?\?/);
+  assert.match(proxyHelper, /trustedOrigins\.has\(origin\)/);
 });
 
 test("VerifyEmailPanel verifies only with a token and refreshes account state on success", () => {
