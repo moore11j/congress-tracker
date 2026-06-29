@@ -2162,8 +2162,12 @@ export async function refreshBillingSubscription(): Promise<BillingRefreshRespon
 
 export async function verifyEmail(token: string): Promise<{ status: "verified" | "already_verified" | string; email: string; email_verified_at?: string | null }> {
   const response = await fetchJson<{ status: "verified" | "already_verified" | string; email: string; email_verified_at?: string | null }>(
-    buildApiUrl("/api/account/verify-email", { token }),
-    { method: "POST" },
+    buildApiUrl("/api/account/verify-email"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    },
   );
   resetClientApiCaches();
   notifyAuthChanged();

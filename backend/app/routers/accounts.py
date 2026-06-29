@@ -131,6 +131,10 @@ class ResendVerificationPayload(BaseModel):
     email: str | None = Field(default=None, min_length=3, max_length=320)
 
 
+class VerifyEmailPayload(BaseModel):
+    token: str | None = None
+
+
 class GoogleCallbackPayload(BaseModel):
     code: str = Field(min_length=1)
     state: str = Field(min_length=1)
@@ -452,6 +456,35 @@ def _send_verification_email(db: Session, user: UserAccount, verification_url: s
     except Exception:
         logger.warning("verification_email_failed email_domain=%s", _email_domain(user.email), exc_info=True)
         return None
+
+
+def _verification_token_log_context(token: str | None) -> dict[str, Any]:
+    cleaned = str(token or "").strip()
+    token_hash = reset_token_hash(cleaned) if cleaned else ""
+    return {
+        "token_length": len(cleaned),
+        "token_hash_prefix": token_hash[:12] if token_hash else "missing",
+    }
+
+
+def _log_email_verification_flow(
+    request: Request | None,
+    *,
+    action: str,
+    outcome: str,
+    token: str | None = None,
+    user_id: int | None = None,
+) -> None:
+    token_context = _verification_token_log_context(token)
+    logger.info(
+        "email_verification_flow action=%s method=%s outcome=%s user_id=%s token_length=%s token_hash_prefix=%s",
+        action,
+        request.method if request else "direct",
+        outcome,
+        user_id,
+        token_context["token_length"],
+        token_context["token_hash_prefix"],
+    )
 
 
 def _terminal_url() -> str:
@@ -4047,18 +4080,22 @@ def resend_email_verification(
         "message": "If verification is required for that email, verification instructions have been sent.",
     }
     if not target_email:
+        _log_email_verification_flow(request, action="resend", outcome="missing_auth")
         raise HTTPException(status_code=401, detail="Sign in required.")
     if requester and normalize_email(requester.email) != target_email and not is_admin_user(requester):
+        _log_email_verification_flow(request, action="resend", outcome="forbidden", user_id=requester.id)
         raise HTTPException(status_code=403, detail="Cannot resend verification for another account.")
 
     user = _account_lookup_by_active_email(db, target_email)
     if not user or user.email_verified_at is not None:
+        _log_email_verification_flow(request, action="resend", outcome="already_verified_or_not_found", user_id=user.id if user else None)
         return response
 
     token = _issue_email_verification(db, user)
     db.commit()
     verification_url = _verification_url(token)
     _send_verification_email(db, user, verification_url)
+    _log_email_verification_flow(request, action="resend", outcome="sent", token=token, user_id=user.id)
     if requester and user.id == requester.id:
         response["email_verification_required"] = True
     if _allow_insecure_verification_link_response():
@@ -4068,12 +4105,28 @@ def resend_email_verification(
 
 @router.get("/account/verify-email")
 @router.post("/account/verify-email")
-def verify_email(token: str = Query(default="", max_length=240), db: Session = Depends(get_db)):
-    token_hash = reset_token_hash(token)
+def verify_email(
+    token: str = Query(default=""),
+    db: Session = Depends(get_db),
+    payload: VerifyEmailPayload | None = None,
+    request: Request = None,
+):
+    token_value = str((payload.token if payload and payload.token else token) or "").strip()
+    if not token_value or len(token_value) > 240:
+        _log_email_verification_flow(request, action="verify", outcome="invalid_malformed", token=token_value)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_verification_link",
+                "message": "This verification link is invalid. Please request a new one.",
+            },
+        )
+    token_hash = reset_token_hash(token_value)
     user = db.execute(
         select(UserAccount).where(UserAccount.email_verification_token_hash == token_hash)
     ).scalar_one_or_none()
     if not user:
+        _log_email_verification_flow(request, action="verify", outcome="token_not_found", token=token_value)
         raise HTTPException(
             status_code=400,
             detail={
@@ -4082,6 +4135,7 @@ def verify_email(token: str = Query(default="", max_length=240), db: Session = D
             },
         )
     if _is_deleted_user(user):
+        _log_email_verification_flow(request, action="verify", outcome="deleted_user", token=token_value, user_id=user.id)
         raise HTTPException(
             status_code=400,
             detail={
@@ -4090,9 +4144,11 @@ def verify_email(token: str = Query(default="", max_length=240), db: Session = D
             },
         )
     if user.email_verified_at is not None:
+        _log_email_verification_flow(request, action="verify", outcome="already_verified", token=token_value, user_id=user.id)
         return {"status": "already_verified", "email": user.email, "email_verified_at": user.email_verified_at}
     expires_at = _aware_utc(user.email_verification_expires_at)
     if not expires_at or expires_at < datetime.now(timezone.utc):
+        _log_email_verification_flow(request, action="verify", outcome="expired", token=token_value, user_id=user.id)
         raise HTTPException(
             status_code=400,
             detail={
@@ -4105,6 +4161,7 @@ def verify_email(token: str = Query(default="", max_length=240), db: Session = D
     user.email_verified_at = now
     user.updated_at = now
     db.commit()
+    _log_email_verification_flow(request, action="verify", outcome="success", token=token_value, user_id=user.id)
     return {"status": "verified", "email": user.email, "email_verified_at": user.email_verified_at}
 
 

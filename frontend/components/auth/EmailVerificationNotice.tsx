@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { resendVerificationEmail, type AccountUser } from "@/lib/api";
+import { ApiError, resendVerificationEmail, type AccountUser } from "@/lib/api";
+
+function resendFailureMessage(error: unknown) {
+  if (error instanceof ApiError && error.status === 401) return "Sign in to request a new verification link.";
+  return "We could not send a new verification link. Please try again.";
+}
 
 export function EmailVerificationBadge({ user }: { user: AccountUser | null }) {
   if (!user) return null;
@@ -32,7 +37,7 @@ export function EmailVerificationBanner({ user }: { user: AccountUser | null }) 
       const response = await resendVerificationEmail();
       setStatus(response.message);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to resend verification email.");
+      setStatus(resendFailureMessage(error));
     } finally {
       setBusy(false);
     }

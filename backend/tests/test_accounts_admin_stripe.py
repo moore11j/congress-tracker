@@ -45,6 +45,7 @@ from app.routers.accounts import (
     StripeTaxSettingsPayload,
     AdminSubscriptionSyncPayload,
     SuspendPayload,
+    VerifyEmailPayload,
     admin_set_premium,
     admin_set_user_price_override,
     admin_send_password_reset,
@@ -187,7 +188,10 @@ def test_auth_email_links_use_walnut_markets_app_host_in_production(monkeypatch)
     monkeypatch.setenv("APP_BASE_URL", "https://app.walnutmarkets.com")
     monkeypatch.setenv("FRONTEND_BASE_URL", "https://www.walnut-intel.com")
 
-    assert _verification_url("verify-token") == "https://app.walnutmarkets.com/account/verify-email?token=verify-token"
+    verification_url = _verification_url("verify-token")
+    assert verification_url == "https://app.walnutmarkets.com/account/verify-email?token=verify-token"
+    assert "/api/account/verify-email" not in verification_url
+    assert "walnut-intel.com" not in verification_url
     assert _reset_url("reset-token") == "https://app.walnutmarkets.com/reset-password?token=reset-token"
 
 
@@ -1174,6 +1178,13 @@ def test_email_verification_link_resend_and_safe_states(monkeypatch):
 
         second_click = verify_email(token, db)
         assert second_click["status"] == "already_verified"
+        already_verified_resend = resend_email_verification(_request_for_user(user), None, db)
+        assert already_verified_resend["status"] == "ok"
+        assert "dev_verification_url" not in already_verified_resend
+
+        body_token_response = register(_register_payload("reader-body-verify@example.com"), db)
+        body_token = body_token_response["dev_verification_url"].split("token=", 1)[1]
+        assert verify_email("", db, VerifyEmailPayload(token=body_token))["status"] == "verified"
 
         resent_user_response = register(_register_payload("reader-resend-verify@example.com"), db)
         resent_user = db.get(UserAccount, resent_user_response["user"]["id"])
