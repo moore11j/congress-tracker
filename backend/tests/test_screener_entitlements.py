@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import AppSetting, QuoteCache, SavedScreen, SavedScreenSnapshot, TickerMeta, UserAccount
+from app.models import AppSetting, FeatureGate, QuoteCache, SavedScreen, SavedScreenSnapshot, TickerMeta, UserAccount
 from app.routers.saved_screens import (
     SavedScreenCreatePayload,
     create_saved_screen,
@@ -25,6 +25,7 @@ from app.services.saved_screen_monitoring import refresh_due_saved_screen_monito
 @pytest.fixture(autouse=True)
 def _allow_provider_screener_fallback(monkeypatch):
     monkeypatch.setenv("SCREENER_PROVIDER_FALLBACK", "1")
+    monkeypatch.setenv("SCREENER_RESPONSE_CACHE_TTL_SECONDS", "0")
 
 
 def _session():
@@ -38,7 +39,7 @@ def _request(tier: str | None = None) -> Request:
     headers = []
     if tier:
         headers.append((b"x-ct-entitlement-tier", tier.encode("utf-8")))
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers, "query_string": b""})
 
 
 def _user(db: Session, email: str, *, tier: str = "free", role: str = "user") -> UserAccount:
@@ -52,7 +53,13 @@ def _user(db: Session, email: str, *, tier: str = "free", role: str = "user") ->
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request(
-        {"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]}
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())],
+            "query_string": b"",
+        }
     )
 
 
@@ -406,7 +413,7 @@ def test_screener_accepts_small_page_size_with_plan_caps(monkeypatch):
         db.close()
 
 
-def test_free_screener_export_requires_premium(monkeypatch):
+def test_screener_export_lock_message_uses_configured_required_plan(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     monkeypatch.setattr(
@@ -415,13 +422,23 @@ def test_free_screener_export_requires_premium(monkeypatch):
     )
     db = _session()
     try:
+        db.add(FeatureGate(feature_key="screener_csv_export", required_tier="pro", description="Export screener results."))
+        db.commit()
         try:
-            stock_screener_export(request=_request("free"), db=db)
+            stock_screener_export(request=_request("premium"), db=db)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "screener_csv_export"
+            assert exc.detail["message"] == "CSV export is a Pro feature."
         else:
-            raise AssertionError("Expected premium-required response")
+            raise AssertionError("Expected pro-required response")
+
+        response = stock_screener(request=_request("premium"), db=db, page_size=5)
+        assert response["access"]["csv_export_locked"] is True
+        assert response["access"]["csv_export_required_plan"] == "pro"
+
+        export_response = stock_screener_export(request=_request("pro"), db=db, filename_prefix=None)
+        assert export_response.headers["x-screener-exported-rows"] == "1"
     finally:
         db.close()
 

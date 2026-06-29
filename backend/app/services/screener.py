@@ -15,7 +15,7 @@ from sqlalchemy import and_, bindparam, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.clients.fmp import fetch_company_screener
-from app.entitlements import TierEntitlements, premium_required_error
+from app.entitlements import TierEntitlements, premium_required_error, required_tier_for_feature
 from app.models import FundamentalsCache, PriceCache, QuoteCache, TickerMeta
 from app.services.confirmation_score import (
     normalize_confirmation_state,
@@ -487,6 +487,7 @@ def build_screener_response_for_entitlements(
             "saved_screens_limit": entitlements.limit("screener_saved_screens"),
             "monitoring_locked": not entitlements.has_feature("screener_monitoring"),
             "csv_export_locked": not entitlements.has_feature("screener_csv_export"),
+            "csv_export_required_plan": required_tier_for_feature(db, "screener_csv_export"),
             "feature_flags": dataset["feature_flags"],
         },
     }

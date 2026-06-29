@@ -4304,6 +4304,7 @@ export type ScreenerApiResponse = {
     presets_locked?: boolean;
     monitoring_locked?: boolean;
     csv_export_locked?: boolean;
+    csv_export_required_plan?: "free" | "premium" | "pro" | string;
     saved_screens_limit?: number;
   };
 };

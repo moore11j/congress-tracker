@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.fmp import FMPClientError
 from app.db import get_db
-from app.entitlements import current_entitlements, require_feature
+from app.entitlements import current_entitlements, require_feature, required_tier_for_feature
 from app.rate_limit import rate_limit_export, rate_limit_provider_backed
 from app.services.screener import (
     DEFAULT_PAGE_SIZE,
@@ -418,7 +418,12 @@ def stock_screener_export(
 ):
     entitlements = current_entitlements(request, db)
     require_feature(entitlements, "screener", message="The stock screener is included with your plan.")
-    require_feature(entitlements, "screener_csv_export", message="CSV export is included with Premium.")
+    csv_export_required_tier = required_tier_for_feature(db, "screener_csv_export")
+    require_feature(
+        entitlements,
+        "screener_csv_export",
+        message=f"CSV export is a {csv_export_required_tier.title()} feature.",
+    )
     params = _build_screener_params(
         _query_params=_request_query_params(request),
         page=1,

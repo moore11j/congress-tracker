@@ -62,7 +62,9 @@ function loadWatchlistsOnce() {
 
 function rememberWatchlist(watchlist: WatchlistSummary) {
   const current = watchlistsCache ?? [];
-  watchlistsCache = current.some((item) => item.id === watchlist.id) ? current : [...current, watchlist];
+  watchlistsCache = current.some((item) => item.id === watchlist.id)
+    ? current.map((item) => (item.id === watchlist.id ? watchlist : item))
+    : [...current, watchlist];
   watchlistsCacheAt = Date.now();
 }
 
@@ -257,6 +259,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         setStatus(message);
         showToast(message);
         if (options?.closeOnSuccess) setOpen(false);
+        router.push(`/watchlists/${watchlistId}`);
       } catch (err) {
         const message = cleanWatchlistError(err);
         setStatus(message);
@@ -265,12 +268,16 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         setAddingWatchlistId(null);
       }
     });
-  }, [entitlements, normalizedSymbol, showToast]);
+  }, [entitlements, normalizedSymbol, router, showToast]);
 
   const handleWatchlistRowClick = (watchlist: WatchlistSummary) => {
     if (addingWatchlistId !== null) return;
     if (watchlistHasSymbol(watchlist, normalizedSymbol)) {
-      showToast(`${normalizedSymbol} is already in ${watchlist.name}.`, "info");
+      const message = `${normalizedSymbol} is already in ${watchlist.name}.`;
+      setStatus(message);
+      showToast(message, "info");
+      setOpen(false);
+      router.push(`/watchlists/${watchlist.id}`);
       return;
     }
     addSymbolToWatchlist(watchlist.id, watchlist.name);
@@ -313,6 +320,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         const message = `Added ${normalizedSymbol} to ${created.name}.`;
         setStatus(message);
         showToast(message);
+        router.push(`/watchlists/${created.id}`);
       } catch (err) {
         const message = cleanWatchlistError(err);
         setStatus(message);
@@ -363,18 +371,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
         const items = await loadWatchlistsOnce();
         setWatchlists(items);
         setLoaded(true);
-        const matchingWatchlist = items.find((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol));
-        setAdded(Boolean(matchingWatchlist));
-
-        if (matchingWatchlist) {
-          showToast(`${normalizedSymbol} is already in ${matchingWatchlist.name}.`, "info");
-          return;
-        }
-        if (items.length === 1) {
-          setEntitlements(nextEntitlements);
-          addSymbolToWatchlist(items[0].id, items[0].name, { closeOnSuccess: true, entitlementsOverride: nextEntitlements });
-          return;
-        }
+        setAdded(items.some((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol)));
         if (items.length === 0) {
           router.push(createWatchlistHref);
           return;
@@ -475,7 +472,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
                       key={watchlist.id}
                       type="button"
                       onClick={() => handleWatchlistRowClick(watchlist)}
-                      disabled={isInWatchlist || addingWatchlistId !== null}
+                      disabled={addingWatchlistId !== null}
                       className={`flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition ${
                         isInWatchlist
                           ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100"
@@ -484,7 +481,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
                     >
                       <span className="min-w-0 truncate">{watchlist.name}</span>
                       <span className={`ml-3 shrink-0 text-xs font-semibold ${isInWatchlist ? "text-emerald-200" : "text-slate-300"}`}>
-                        {isAdding ? "Adding..." : isInWatchlist ? "Added" : "Add"}
+                        {isAdding ? "Adding..." : isInWatchlist ? "View" : "Add"}
                       </span>
                     </button>
                   );

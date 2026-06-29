@@ -712,6 +712,18 @@ def _effective_required_tier(feature_key: FeatureKey, configured_tier: str | Non
     return normalized
 
 
+def required_tier_for_feature(db: Session | None, feature_key: FeatureKey) -> TierName:
+    configured_tier = DEFAULT_FEATURE_GATES[feature_key]["required_tier"]
+    if db is not None:
+        try:
+            row = db.get(FeatureGate, feature_key)
+        except OperationalError:
+            row = None
+        if row and row.required_tier:
+            configured_tier = row.required_tier
+    return _effective_required_tier(feature_key, configured_tier)
+
+
 def seed_feature_gates(db: Session) -> None:
     changed = False
     for feature_key, config in DEFAULT_FEATURE_GATES.items():

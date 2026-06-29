@@ -12,8 +12,9 @@ import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOve
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
-import { API_BASE, getEntitlements } from "@/lib/api";
+import { API_BASE, getEntitlements, getPlanConfig, type PlanConfig } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
+import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement, limitFor } from "@/lib/entitlements";
 import {
   FUNDAMENTAL_PARAM_KEYS,
@@ -164,6 +165,7 @@ type ScreenerResponse = {
     saved_screens_limit: number;
     monitoring_locked: boolean;
     csv_export_locked: boolean;
+    csv_export_required_plan?: "free" | "premium" | "pro" | string;
     feature_flags?: Record<string, boolean>;
   };
 };
@@ -407,6 +409,27 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   ...TECHNICAL_PARAM_KEYS,
   ...FUNDAMENTAL_PARAM_KEYS,
 ]);
+
+const planTierLabels: Record<"free" | "premium" | "pro", string> = {
+  free: "Free",
+  premium: "Premium",
+  pro: "Pro",
+};
+
+function normalizedPlanTier(value: string | null | undefined): "free" | "premium" | "pro" | null {
+  if (value === "free" || value === "premium" || value === "pro") return value;
+  return null;
+}
+
+function featureRequiredPlanLabel(planConfig: PlanConfig, featureKey: string) {
+  const feature = planConfig.features.find((item) => item.feature_key === featureKey);
+  return planTierLabels[normalizedPlanTier(feature?.required_tier) ?? "premium"];
+}
+
+function csvExportRequiredPlanLabel(planConfig: PlanConfig, data?: ScreenerResponse | null) {
+  const tier = normalizedPlanTier(data?.access?.csv_export_required_plan);
+  return tier ? planTierLabels[tier] : featureRequiredPlanLabel(planConfig, "screener_csv_export");
+}
 const STARTER_PRESETS = [
   {
     id: "large_caps_congress",
@@ -827,6 +850,7 @@ export default async function ScreenerPage({
   const entitlements = authToken
     ? await getEntitlements(authToken).catch(() => defaultEntitlements)
     : entitlementsFromTierHint(authState.entitlementHint);
+  const planConfig = await getPlanConfig().catch(() => defaultPlanConfig);
   const params = currentParams(sp);
   const requestUrl = buildApiUrl(params);
   const sort = String(params.sort ?? "relevance");
@@ -845,6 +869,8 @@ export default async function ScreenerPage({
     canUseScreener && authToken
       ? await loadScreenerPayload(requestUrl, authToken)
       : { data: null, errorMessage: canUseScreener ? "Sign in required." : null };
+  const csvExportPlanLabel = csvExportRequiredPlanLabel(planConfig, screenerPayload.data);
+  const csvExportLockedReason = `CSV export is a ${csvExportPlanLabel} feature.`;
   const overlayAvailability = screenerPayload.data?.overlay_availability ?? overlayAvailabilityDefaults();
   const optionsFlowFilterable = canUseOptionsFlow && overlayAvailability?.options_flow?.filterable === true;
   const institutionalActivityFilterable = canUseInstitutionalActivity && overlayAvailability?.institutional_activity?.filterable === true;
@@ -921,7 +947,8 @@ export default async function ScreenerPage({
                 params={params}
                 filenamePrefix="screener"
                 locked={!canExportCsv}
-                lockedReason="CSV export is included with Premium, along with larger result caps and saved screen monitoring."
+                lockedReason={csvExportLockedReason}
+                requiredPlanLabel={csvExportPlanLabel}
               />
               {canUseMonitoring ? (
                 <Link href="/monitoring" className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs`} prefetch={false}>

@@ -15,9 +15,22 @@ test("add-to-watchlist modal distinguishes focused rows from saved membership", 
   assert.match(componentSource, /normalizedSymbolValue\(item\) === normalized/);
   assert.match(componentSource, /const isInWatchlist = watchlistHasSymbol\(watchlist, normalizedSymbol\)/);
   assert.match(componentSource, /onClick=\{\(\) => handleWatchlistRowClick\(watchlist\)\}/);
-  assert.match(componentSource, /isInWatchlist \? "Added" : "Add"/);
+  assert.match(componentSource, /isInWatchlist \? "View" : "Add"/);
   assert.doesNotMatch(componentSource, />Selected</);
   assert.doesNotMatch(componentSource, /Add to selected watchlist/);
+});
+
+test("add-to-watchlist opens chooser for existing watchlists instead of auto-adding", () => {
+  assert.match(componentSource, /openPickerWithWatchlists\(items\)/);
+  assert.doesNotMatch(componentSource, /items\.length === 1[\s\S]*?addSymbolToWatchlist\(items\[0\]\.id/);
+  assert.match(componentSource, /router\.push\(`\/watchlists\/\$\{watchlistId\}`\)/);
+  assert.match(componentSource, /router\.push\(`\/watchlists\/\$\{created\.id\}`\)/);
+});
+
+test("duplicate watchlist rows remain selectable as view actions", () => {
+  assert.match(componentSource, /setStatus\(message\);[\s\S]*?showToast\(message, "info"\);[\s\S]*?router\.push\(`\/watchlists\/\$\{watchlist\.id\}`\)/);
+  assert.match(componentSource, /disabled=\{addingWatchlistId !== null\}/);
+  assert.doesNotMatch(componentSource, /disabled=\{isInWatchlist \|\| addingWatchlistId !== null\}/);
 });
 
 test("add-to-watchlist trigger guards mobile feed taps from navigation and focus scroll", () => {

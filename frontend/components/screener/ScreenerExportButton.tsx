@@ -10,6 +10,7 @@ type Props = {
   filenamePrefix?: string;
   locked?: boolean;
   lockedReason?: string;
+  requiredPlanLabel?: string;
 };
 
 function saveBlob(blob: Blob, filename: string) {
@@ -27,12 +28,15 @@ export function ScreenerExportButton({
   params,
   filenamePrefix = "screener",
   locked = false,
-  lockedReason = "CSV export is included with Premium.",
+  lockedReason,
+  requiredPlanLabel = "Pro",
 }: Props) {
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"default" | "error">("default");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const planLabel = requiredPlanLabel.trim() || "Pro";
+  const resolvedLockedReason = lockedReason?.trim() || `CSV export is a ${planLabel} feature.`;
 
   useEffect(() => {
     if (!status) return;
@@ -65,7 +69,7 @@ export function ScreenerExportButton({
         disabled={exporting}
         className={`${ghostButtonClassName} rounded-lg px-3 py-2 text-xs ${exporting ? "cursor-wait opacity-70" : ""}`}
       >
-        {exporting ? "Exporting..." : locked ? "Export CSV · Premium" : "Export CSV"}
+        {exporting ? "Exporting..." : locked ? `Export CSV - ${planLabel}` : "Export CSV"}
       </button>
       {status ? (
         <div className={`text-[11px] ${statusTone === "error" ? "text-rose-300" : "text-slate-400"}`}>{status}</div>
@@ -75,7 +79,7 @@ export function ScreenerExportButton({
           <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-300">Premium</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-300">{planLabel}</p>
                 <h2 className="mt-2 text-lg font-semibold">Export screener results</h2>
               </div>
               <button
@@ -87,7 +91,7 @@ export function ScreenerExportButton({
               </button>
             </div>
             <div className="mt-4">
-              <UpgradePrompt title="Export screener results with Premium" body={lockedReason} compact={true} />
+              <UpgradePrompt title={`Export screener results with ${planLabel}`} body={resolvedLockedReason} compact={true} />
             </div>
           </div>
         </div>

@@ -10,6 +10,7 @@ const addTickerToWatchlist = read("components/watchlists/AddTickerToWatchlist.ts
 const watchlistsDashboard = read("components/watchlists/WatchlistsDashboard.tsx");
 const watchlistCreateForm = read("components/watchlists/WatchlistCreateForm.tsx");
 const watchlistDetailContent = read("components/watchlists/WatchlistDetailContent.tsx");
+const watchlistList = read("components/watchlists/WatchlistList.tsx");
 const watchlistNamesSource = read("lib/watchlistNames.ts");
 
 function loadWatchlistNameHelper() {
@@ -66,4 +67,10 @@ test("default watchlist numbering uses active names and lowest available number"
   assert.equal(nextDefaultWatchlistName([{ name: "Watchlist 1" }]), "Watchlist 2");
   assert.equal(nextDefaultWatchlistName([{ name: "Watchlist 1" }, { name: "Watchlist 3" }]), "Watchlist 2");
   assert.equal(nextDefaultWatchlistName([{ name: "AI Stocks" }]), "Watchlist 1");
+});
+
+test("watchlist list display uses visible ordering instead of database ids", () => {
+  assert.match(watchlistList, /watchlists\.map\(\(watchlist, index\) =>/);
+  assert.match(watchlistList, />#\{index \+ 1\}<\/span>/);
+  assert.doesNotMatch(watchlistList, />#\{watchlist\.id\}<\/span>/);
 });

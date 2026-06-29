@@ -88,7 +88,7 @@ export function WatchlistList({ items }: Props) {
   return (
     <div className="space-y-3">
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-      {watchlists.map((watchlist) => {
+      {watchlists.map((watchlist, index) => {
         const unreadCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
         return (
         <div
@@ -97,7 +97,7 @@ export function WatchlistList({ items }: Props) {
         >
           <Link href={`/watchlists/${watchlist.id}`} prefetch={false} className="flex-1">
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-500">#{watchlist.id}</span>
+              <span className="text-xs text-slate-500">#{index + 1}</span>
               <span className={`font-medium ${compactInteractiveTitleClassName}`}>{watchlist.name}</span>
               {unreadCount > 0 ? (
                 <span className="rounded-lg border border-emerald-300/30 bg-emerald-300/15 px-2 py-0.5 text-xs font-semibold text-emerald-100">
