@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { WalnutModal } from "@/components/ui/WalnutModal";
 import { downloadScreenerCsv } from "@/lib/api";
 import { ghostButtonClassName } from "@/lib/styles";
 
@@ -74,28 +75,17 @@ export function ScreenerExportButton({
       {status ? (
         <div className={`text-[11px] ${statusTone === "error" ? "text-rose-300" : "text-slate-400"}`}>{status}</div>
       ) : null}
-      {upgradeOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-300">{planLabel}</p>
-                <h2 className="mt-2 text-lg font-semibold">Export screener results</h2>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
-                onClick={() => setUpgradeOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-4">
-              <UpgradePrompt title={`Export screener results with ${planLabel}`} body={resolvedLockedReason} compact={true} />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WalnutModal
+        open={upgradeOpen}
+        title="Export screener results"
+        eyebrow={planLabel}
+        tone="warning"
+        onClose={() => setUpgradeOpen(false)}
+        closeLabel="Close export upgrade prompt"
+        panelClassName="max-w-md"
+      >
+        <UpgradePrompt title={`Export screener results with ${planLabel}`} body={resolvedLockedReason} compact={true} />
+      </WalnutModal>
     </div>
   );
 }

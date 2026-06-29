@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { addToWatchlist, createWatchlist, getEntitlements, listWatchlists } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import type { WatchlistSummary } from "@/lib/types";
 import { ghostButtonClassName, inputClassName, primaryButtonClassName } from "@/lib/styles";
 import { normalizeTickerSymbol } from "@/lib/ticker";
+import { WalnutModal } from "@/components/ui/WalnutModal";
 
 type Props = {
   symbol: string;
@@ -103,40 +103,6 @@ function watchlistToastTone(message: string): WatchlistToast["tone"] {
   return "success";
 }
 
-function computePanelStyle(root: HTMLDivElement | null, align: "left" | "right"): CSSProperties {
-  const fallback: CSSProperties = {
-    left: 16,
-    maxHeight: "min(420px, calc(100vh - 2rem))",
-    top: 64,
-    width: "calc(100vw - 2rem)",
-  };
-  if (typeof window === "undefined" || !root) return fallback;
-
-  const rect = root.getBoundingClientRect();
-  const margin = 16;
-  const width = Math.min(352, window.innerWidth - margin * 2);
-  const preferredLeft = align === "left" ? rect.left : rect.right - width;
-  const left = Math.min(Math.max(margin, preferredLeft), window.innerWidth - width - margin);
-  const belowSpace = window.innerHeight - rect.bottom - margin - 8;
-  const aboveSpace = rect.top - margin - 8;
-
-  if (belowSpace < 280 && aboveSpace > belowSpace) {
-    return {
-      bottom: window.innerHeight - rect.top + 8,
-      left,
-      maxHeight: Math.max(120, Math.min(420, aboveSpace)),
-      width,
-    };
-  }
-
-  return {
-    left,
-    maxHeight: Math.max(120, Math.min(420, belowSpace)),
-    top: rect.bottom + 8,
-    width,
-  };
-}
-
 function CompactWatchlistGlyph({ added }: { added: boolean }) {
   if (added) {
     return (
@@ -170,10 +136,10 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
   const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
   const [added, setAdded] = useState(false);
   const [addingWatchlistId, setAddingWatchlistId] = useState<number | null>(null);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const [isPending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const newWatchlistInputRef = useRef<HTMLInputElement | null>(null);
   const normalizedSymbol = normalizedSymbolValue(symbol);
   const searchParamsString = searchParams.toString();
   const returnTo = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`;
@@ -190,42 +156,6 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     const timeoutId = window.setTimeout(() => setToast(null), 4200);
     return () => window.clearTimeout(timeoutId);
   }, [toast]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (!rootRef.current?.contains(target)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-
-    const updatePanelPosition = () => {
-      setPanelStyle(computePanelStyle(rootRef.current, align));
-    };
-
-    updatePanelPosition();
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
-    };
-  }, [align, open]);
 
   const addSymbolToWatchlist = useCallback((watchlistId: number, watchlistName?: string, options?: { closeOnSuccess?: boolean; entitlementsOverride?: Entitlements }) => {
     if (!Number.isFinite(watchlistId)) return;
@@ -334,9 +264,8 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
     setAdded(items.some((watchlist) => watchlistHasSymbol(watchlist, normalizedSymbol)));
     setLoaded(true);
     setEntitlementsLoaded(true);
-    setPanelStyle(computePanelStyle(rootRef.current, align));
     setOpen(true);
-  }, [align, normalizedSymbol]);
+  }, [normalizedSymbol]);
 
   const handleTriggerClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -350,7 +279,6 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
       return;
     }
 
-    setPanelStyle(computePanelStyle(rootRef.current, align));
     setLoaded(false);
     setEntitlementsLoaded(false);
     setAddingWatchlistId(null);
@@ -434,28 +362,16 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
       >
         {variant === "compact" ? <CompactWatchlistGlyph added={added} /> : added ? "Saved" : "Add to watchlist"}
       </button>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label={`Add ${normalizedSymbol} to watchlist`}
-          style={panelStyle}
-          className="fixed z-40 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-3xl border border-white/10 bg-slate-950/95 p-4 text-left shadow-2xl shadow-black/40 backdrop-blur"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Watchlist</p>
-              <h3 className="mt-1 text-sm font-semibold text-white">Save {normalizedSymbol}</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-xs font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
-              aria-label="Close watchlist picker"
-            >
-              X
-            </button>
-          </div>
-
+      <WalnutModal
+        open={open}
+        title={`Save ${normalizedSymbol}`}
+        eyebrow="Watchlist"
+        tone="success"
+        onClose={() => setOpen(false)}
+        closeLabel="Close watchlist picker"
+        isBusy={addingWatchlistId !== null || isPending}
+        initialFocusRef={creating ? newWatchlistInputRef : undefined}
+      >
           {!entitlementsLoaded || (entitlements.user && !loaded) ? (
             <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-400">
               Loading watchlists...
@@ -506,6 +422,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
                 <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   New watchlist
                   <input
+                    ref={newWatchlistInputRef}
                     value={newWatchlistName}
                     onChange={(event) => setNewWatchlistName(event.target.value)}
                     className={`${inputClassName} rounded-xl`}
@@ -541,8 +458,7 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           </div>
 
           {status ? <p className="mt-3 text-xs text-slate-400">{status}</p> : null}
-        </div>
-      ) : null}
+      </WalnutModal>
       {toast ? (
         <div className="pointer-events-none fixed inset-x-3 top-4 z-[100] flex justify-center sm:inset-x-auto sm:right-4 sm:justify-end">
           <div
@@ -563,26 +479,16 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
           </div>
         </div>
       ) : null}
-      {authGateOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Watchlists</p>
-                <h2 className="mt-2 text-lg font-semibold">Create a free account</h2>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
-                onClick={() => setAuthGateOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              Create a free account or log in to save tickers to watchlists and keep your monitoring workflow synced.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
+      <WalnutModal
+        open={authGateOpen}
+        title="Create a free account"
+        eyebrow="Watchlists"
+        tone="success"
+        onClose={() => setAuthGateOpen(false)}
+        closeLabel="Close account prompt"
+        description="Create a free account or log in to save tickers to watchlists and keep your monitoring workflow synced."
+        footer={
+          <>
               <Link
                 href={`/login?return_to=${encodeURIComponent(returnTo)}`}
                 className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
@@ -595,10 +501,9 @@ export function AddTickerToWatchlist({ symbol, variant = "default", align = "rig
               >
                 Create account
               </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          </>
+        }
+      />
     </div>
   );
 }

@@ -178,9 +178,9 @@ export function AccountNav() {
         onFocus={(event) => {
           if (event.currentTarget.matches(":focus-visible")) setMenuOpen(true);
         }}
-        className="relative block px-2 py-1 pr-5 text-slate-100 transition hover:text-white"
+        className="relative flex max-w-[12rem] items-center px-2 py-1 pr-5 text-slate-100 transition hover:text-white sm:max-w-none"
       >
-        {label}
+        <span className="min-w-0 truncate">{label}</span>
         {unreadCount > 0 ? (
           <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white shadow-lg shadow-red-950/40">
             {unreadLabel}

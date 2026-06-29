@@ -1809,6 +1809,13 @@ def test_admin_settings_reports_billing_readiness_and_missing_price_ids(monkeypa
             "STRIPE_PRICE_ID_PRO_MONTHLY",
             "STRIPE_PRICE_ID_PRO_ANNUAL",
         ]
+        assert stripe["admin_free_grants"]["ready"] is False
+        assert stripe["admin_free_grants"]["prices"]["premium"]["configured"] is False
+        assert stripe["admin_free_grants"]["prices"]["pro"]["configured"] is False
+        assert stripe["missing_admin_free_price_env_vars"] == [
+            "STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID",
+            "STRIPE_PRO_ADMIN_FREE_PRICE_ID",
+        ]
         assert "sk_test_hidden" not in json.dumps(stripe)
         assert "whsec_hidden" not in json.dumps(stripe)
     finally:
@@ -4925,6 +4932,150 @@ def test_admin_plan_override_updates_existing_subscription_item_without_duplicat
         assert reader.stripe_price_id == "price_admin_pro_monthly"
         assert [call[1] for call in calls if call[0] == "POST"].count("subscriptions") == 0
         assert [call[1] for call in calls if call[0] == "POST"].count("subscriptions/sub_existing_sub") == 1
+    finally:
+        db.close()
+
+
+def test_admin_free_grant_upgrades_and_downgrades_existing_subscription_item(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID", "price_admin_premium_free")
+    monkeypatch.setenv("STRIPE_PRO_ADMIN_FREE_PRICE_ID", "price_admin_pro_free")
+    db = _session()
+    calls: list[tuple[str, str, dict, str | None]] = []
+    current_price = "price_admin_premium_free"
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "free-grant-upgrade@example.com", tier="premium")
+        reader.manual_tier_override = "premium"
+        reader.stripe_customer_id = "cus_admin_free_upgrade"
+        reader.stripe_subscription_id = "sub_admin_free_upgrade"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        reader.stripe_price_id = "price_admin_premium_free"
+        db.commit()
+
+        def subscription_payload(price_id: str) -> dict:
+            return {
+                "id": "sub_admin_free_upgrade",
+                "object": "subscription",
+                "customer": "cus_admin_free_upgrade",
+                "status": "active",
+                "current_period_end": 1_893_456_000,
+                "items": {
+                    "data": [
+                        {
+                            "id": "si_admin_free_upgrade",
+                            "price": {
+                                "id": price_id,
+                                "unit_amount": 0,
+                                "currency": "usd",
+                                "recurring": {"interval": "month"},
+                            },
+                        }
+                    ]
+                },
+            }
+
+        def fake_stripe_get(path, params=None):
+            calls.append(("GET", path, dict(params or {}), None))
+            if path == "subscriptions/sub_admin_free_upgrade":
+                return subscription_payload(current_price)
+            raise AssertionError(f"Unexpected Stripe GET path {path}")
+
+        def fake_stripe_post(path, data, *, idempotency_key=None):
+            nonlocal current_price
+            calls.append(("POST", path, dict(data), idempotency_key))
+            if path == "customers/cus_admin_free_upgrade":
+                return {"id": "cus_admin_free_upgrade"}
+            if path == "subscriptions/sub_admin_free_upgrade":
+                assert data["items[0][id]"] == "si_admin_free_upgrade"
+                assert data["proration_behavior"] == "none"
+                assert data["metadata[admin_override_price_mode]"] == "free_admin_grant"
+                current_price = data["items[0][price]"]
+                return subscription_payload(current_price)
+            raise AssertionError(f"Unexpected Stripe POST path {path}")
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", fake_stripe_get)
+        monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+
+        upgraded = admin_set_premium(
+            reader.id,
+            ManualPremiumPayload(tier="pro", price_mode="free_admin_grant"),
+            _request_for_user(admin),
+            db,
+        )
+        db.refresh(reader)
+
+        assert upgraded["manual_tier_override"] == "pro"
+        assert reader.subscription_plan == "pro"
+        assert reader.stripe_price_id == "price_admin_pro_free"
+        assert current_entitlements(_request_for_user(reader), db).tier == "pro"
+
+        downgraded = admin_set_premium(
+            reader.id,
+            ManualPremiumPayload(tier="premium", price_mode="free_admin_grant"),
+            _request_for_user(admin),
+            db,
+        )
+        db.refresh(reader)
+
+        assert downgraded["manual_tier_override"] == "premium"
+        assert reader.subscription_plan == "premium"
+        assert reader.stripe_price_id == "price_admin_premium_free"
+        assert current_entitlements(_request_for_user(reader), db).tier == "premium"
+        assert [call[1] for call in calls if call[0] == "POST"].count("subscriptions") == 0
+        assert [
+            call[2]["items[0][price]"]
+            for call in calls
+            if call[0] == "POST" and call[1] == "subscriptions/sub_admin_free_upgrade"
+        ] == ["price_admin_pro_free", "price_admin_premium_free"]
+    finally:
+        db.close()
+
+
+def test_admin_free_grant_missing_pro_price_fails_without_stripe_mutation(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID", "price_admin_premium_free")
+    monkeypatch.delenv("STRIPE_PRO_ADMIN_FREE_PRICE_ID", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        reader = _user(db, "missing-pro-free-grant@example.com", tier="premium")
+        reader.manual_tier_override = "premium"
+        reader.stripe_customer_id = "cus_missing_pro_free"
+        reader.stripe_subscription_id = "sub_missing_pro_free"
+        reader.subscription_status = "active"
+        reader.subscription_plan = "premium"
+        reader.stripe_price_id = "price_admin_premium_free"
+        db.commit()
+
+        monkeypatch.setattr("app.routers.accounts._stripe_get", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Stripe should not be read before setup validation.")))
+        monkeypatch.setattr("app.routers.accounts._stripe_post", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Stripe should not be mutated before setup validation.")))
+
+        with pytest.raises(HTTPException) as exc:
+            admin_set_premium(
+                reader.id,
+                ManualPremiumPayload(tier="pro", price_mode="free_admin_grant"),
+                _request_for_user(admin),
+                db,
+            )
+
+        db.refresh(reader)
+        audit = db.execute(select(AdminBillingOverrideAuditLog)).scalar_one()
+
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "admin_free_price_not_configured"
+        assert exc.value.detail["message"] == "Pro admin free Stripe price is not configured."
+        assert exc.value.detail["missing_env_vars"] == ["STRIPE_PRO_ADMIN_FREE_PRICE_ID"]
+        assert reader.manual_tier_override == "premium"
+        assert reader.entitlement_tier == "premium"
+        assert reader.subscription_plan == "premium"
+        assert reader.stripe_price_id == "price_admin_premium_free"
+        assert audit.override_type == "plan"
+        assert audit.stripe_sync_status == "failed"
+        assert audit.error_message == "admin_free_price_not_configured"
     finally:
         db.close()
 

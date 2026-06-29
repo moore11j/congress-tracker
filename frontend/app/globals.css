@@ -4,12 +4,32 @@
 
 :root {
   color-scheme: dark;
+  --app-header-height: 64px;
+}
+
+html,
+body {
+  max-width: 100%;
 }
 
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 * {
   @apply border-white/10;
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

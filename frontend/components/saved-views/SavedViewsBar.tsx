@@ -6,6 +6,7 @@ import type { FormEvent, ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
+import { WalnutModal } from "@/components/ui/WalnutModal";
 import { createSavedScreen, deleteSavedScreen, getEntitlements, listSavedScreens, updateSavedScreen } from "@/lib/api";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
@@ -261,6 +262,7 @@ export function SavedViewsBar({
   const [authResolved, setAuthResolved] = useState(false);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
   const restoreAttemptedRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const surfaceKey = scopedSavedViewSurfaceKey(surface, scopeKey);
   const isLoggedIn = Boolean(entitlements.user);
   const isServerManagedSurface = surface === "screener";
@@ -998,23 +1000,26 @@ export function SavedViewsBar({
         <div className="mt-3 text-[11px] text-slate-500">{usageCopy}</div>
       ) : null}
 
-      {nameModalMode ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <form onSubmit={onNameSubmit} className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-100 shadow-xl">
-            <h2 className="text-lg font-semibold">
-              {nameModalMode === "rename" ? `Rename ${viewNoun}` : nameModalMode === "save-as" ? `Save as new ${viewNoun}` : `Save ${viewNoun}`}
-            </h2>
+      <WalnutModal
+        open={Boolean(nameModalMode)}
+        title={nameModalMode === "rename" ? `Rename ${viewNoun}` : nameModalMode === "save-as" ? `Save as new ${viewNoun}` : `Save ${viewNoun}`}
+        onClose={closeNameModal}
+        closeLabel={`Close ${viewNoun} name dialog`}
+        initialFocusRef={nameInputRef}
+        panelClassName="max-w-md"
+      >
+          <form onSubmit={onNameSubmit}>
             <label htmlFor={`saved-view-name-${surface}`} className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-400">
               {viewNoun === "screen" ? "Screen" : "View"} name
             </label>
             <input
+              ref={nameInputRef}
               id={`saved-view-name-${surface}`}
               value={nameValue}
               onChange={(event) => {
                 setNameValue(event.target.value);
                 setNameError(null);
               }}
-              autoFocus
               className="mt-2 w-full rounded-full border border-white/10 bg-slate-950 px-4 py-2 text-sm text-slate-100"
             />
             {nameError ? <p className="mt-3 text-sm text-rose-300">{nameError}</p> : null}
@@ -1031,17 +1036,25 @@ export function SavedViewsBar({
               </button>
             </div>
           </form>
-        </div>
-      ) : null}
+      </WalnutModal>
 
-      {deleteTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-100 shadow-xl">
-            <h2 className="text-lg font-semibold">Delete {viewNoun}?</h2>
-            <p className="mt-2 text-sm text-slate-300">
+      <WalnutModal
+        open={Boolean(deleteTarget)}
+        title={`Delete ${viewNoun}?`}
+        tone="danger"
+        onClose={() => setDeleteTarget(null)}
+        closeLabel={`Close delete ${viewNoun} dialog`}
+        description={
+          deleteTarget ? (
+            <>
               This will remove <span className="font-medium text-white">{deleteTarget.name}</span> from your saved {viewNounPlural}.
-            </p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
+            </>
+          ) : null
+        }
+        panelClassName="max-w-md"
+        footer={
+          deleteTarget ? (
+            <>
               <button
                 type="button"
                 className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 hover:border-white/30"
@@ -1056,86 +1069,58 @@ export function SavedViewsBar({
               >
                 Delete {viewNoun}
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </>
+          ) : null
+        }
+      />
 
-      {notifyTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">Notify me</h2>
-                <p className="mt-1 text-sm text-slate-400">{notifyTarget.name}</p>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
-                onClick={() => setNotifyTarget(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-4">
-              <NotificationPreferences
-                sourceType="saved_view"
-                sourceId={notifyTarget.id}
-                sourceName={notifyTarget.name}
-                sourcePayload={{
-                  id: notifyTarget.id,
-                  surface: notifyTarget.surface,
-                  scopeKey: notifyTarget.scopeKey,
-                  params: notifyTarget.params,
-                  lastSeenAt: notifyTarget.lastSeenAt ?? null,
-                }}
-                compact={true}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WalnutModal
+        open={Boolean(notifyTarget)}
+        title="Notify me"
+        description={notifyTarget ? <span className="text-slate-400">{notifyTarget.name}</span> : undefined}
+        onClose={() => setNotifyTarget(null)}
+        closeLabel="Close notification settings"
+        panelClassName="max-w-md"
+      >
+        {notifyTarget ? (
+          <NotificationPreferences
+            sourceType="saved_view"
+            sourceId={notifyTarget.id}
+            sourceName={notifyTarget.name}
+            sourcePayload={{
+              id: notifyTarget.id,
+              surface: notifyTarget.surface,
+              scopeKey: notifyTarget.scopeKey,
+              params: notifyTarget.params,
+              lastSeenAt: notifyTarget.lastSeenAt ?? null,
+            }}
+            compact={true}
+          />
+        ) : null}
+      </WalnutModal>
 
-      {upgradeReason ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-lg font-semibold">Saved view limit reached</h2>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
-                onClick={() => setUpgradeReason(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-4">
-              <UpgradePrompt title="Save more views with Premium" body={upgradeReason} compact={true} />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WalnutModal
+        open={Boolean(upgradeReason)}
+        title="Saved view limit reached"
+        tone="warning"
+        onClose={() => setUpgradeReason(null)}
+        closeLabel="Close saved view upgrade prompt"
+        panelClassName="max-w-md"
+      >
+        {upgradeReason ? <UpgradePrompt title="Save more views with Premium" body={upgradeReason} compact={true} /> : null}
+      </WalnutModal>
 
-      {authGateOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-slate-900 p-5 text-slate-100 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">{savedLabel}</p>
-                <h2 className="mt-2 text-lg font-semibold">Create a free account</h2>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 text-sm text-slate-300 hover:text-white"
-                onClick={() => setAuthGateOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              Create a free account to save {viewNounPlural} and sync your research setup.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
+      <WalnutModal
+        open={authGateOpen}
+        title="Create a free account"
+        eyebrow={savedLabel}
+        tone="success"
+        onClose={() => setAuthGateOpen(false)}
+        closeLabel="Close account prompt"
+        description={`Create a free account to save ${viewNounPlural} and sync your research setup.`}
+        panelClassName="max-w-md"
+        footer={
+          <>
               <Link
                 href={`/login?return_to=${encodeURIComponent(`${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`)}`}
                 className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white"
@@ -1148,10 +1133,9 @@ export function SavedViewsBar({
               >
                 Create account
               </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          </>
+        }
+      />
     </div>
   );
 }

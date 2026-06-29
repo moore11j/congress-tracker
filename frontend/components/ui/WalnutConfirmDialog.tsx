@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { WalnutModal } from "@/components/ui/WalnutModal";
 
 type DialogTone = "success" | "danger" | "neutral";
 
@@ -17,12 +18,6 @@ type Props = {
   isBusy?: boolean;
   children?: ReactNode;
   confirmDisabled?: boolean;
-};
-
-const eyebrowClassName: Record<DialogTone, string> = {
-  success: "text-emerald-200",
-  danger: "text-rose-200",
-  neutral: "text-slate-300",
 };
 
 export const cancelDialogButtonClass =
@@ -57,50 +52,21 @@ export function WalnutConfirmDialog({
   children,
   confirmDisabled = false,
 }: Props) {
-  const titleId = useId();
-  const descriptionId = useId();
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isBusy) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [isBusy, onClose, open]);
-
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      aria-describedby={description ? descriptionId : undefined}
-      onClick={() => {
-        if (!isBusy) onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900/95 p-5 text-slate-100 shadow-2xl shadow-black/50"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {eyebrow ? (
-          <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${eyebrowClassName[tone]}`}>{eyebrow}</p>
-        ) : null}
-        <h2 id={titleId} className={eyebrow ? "mt-2 text-lg font-semibold text-white" : "text-lg font-semibold text-white"}>
-          {title}
-        </h2>
-        {description ? (
-          <div id={descriptionId} className="mt-2 text-sm leading-6 text-slate-300">
-            {description}
-          </div>
-        ) : null}
-        {children ? <div className="mt-4">{children}</div> : null}
-        <div className="mt-5 flex flex-wrap justify-end gap-3">
+    <WalnutModal
+      open={open}
+      title={title}
+      eyebrow={eyebrow}
+      description={description}
+      onClose={onClose}
+      closeLabel="Close dialog"
+      isBusy={isBusy}
+      tone={tone}
+      panelClassName="max-w-md"
+      footer={
+        <>
           <button
             type="button"
             onClick={onClose}
@@ -117,8 +83,10 @@ export function WalnutConfirmDialog({
           >
             {confirmLabel}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </WalnutModal>
   );
 }

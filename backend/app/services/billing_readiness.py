@@ -21,6 +21,10 @@ STRIPE_CANONICAL_PRICE_ENV_VARS = (
     "STRIPE_PRICE_ID_PRO_MONTHLY",
     "STRIPE_PRICE_ID_PRO_ANNUAL",
 )
+STRIPE_ADMIN_FREE_PRICE_ENV_VARS = (
+    "STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID",
+    "STRIPE_PRO_ADMIN_FREE_PRICE_ID",
+)
 STRIPE_LEGACY_PRICE_ENV_VARS = (
     "STRIPE_PRICE_ID",
     "STRIPE_PRICE_ID_MONTHLY",
@@ -170,6 +174,21 @@ def _billing_price_readiness() -> dict[str, dict[str, Any]]:
     return prices
 
 
+def _admin_free_price_readiness() -> dict[str, dict[str, Any]]:
+    prices: dict[str, dict[str, Any]] = {}
+    for tier, env_name in (
+        ("premium", "STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID"),
+        ("pro", "STRIPE_PRO_ADMIN_FREE_PRICE_ID"),
+    ):
+        prices[tier] = {
+            "label": f"{tier.capitalize()} admin free grant",
+            "tier": tier,
+            "env_name": env_name,
+            "configured": bool(_env_price_id(env_name)),
+        }
+    return prices
+
+
 def _dedupe_missing_env_vars(values: list[str]) -> list[str]:
     missing: list[str] = []
     for value in values:
@@ -268,8 +287,12 @@ def billing_readiness(
     secret = _env("STRIPE_SECRET_KEY")
     webhook = _env("STRIPE_WEBHOOK_SECRET")
     prices = _billing_price_readiness()
+    admin_free_prices = _admin_free_price_readiness()
     price_ids = {key: value["price_id"] for key, value in prices.items()}
     missing_price_env_vars = [value["env_name"] for value in prices.values() if not value["configured"]]
+    missing_admin_free_price_env_vars = [
+        value["env_name"] for value in admin_free_prices.values() if not value["configured"]
+    ]
     full_missing = _dedupe_missing_env_vars(
         ([] if secret else ["STRIPE_SECRET_KEY"])
         + ([] if webhook else ["STRIPE_WEBHOOK_SECRET"])
@@ -324,12 +347,20 @@ def billing_readiness(
         },
         "price_ids": price_ids,
         "prices": prices,
+        "admin_free_grants": {
+            "ready": not missing_admin_free_price_env_vars,
+            "status": "ready" if not missing_admin_free_price_env_vars else "not_ready",
+            "missing_env_vars": missing_admin_free_price_env_vars,
+            "prices": admin_free_prices,
+        },
         "urls": url_readiness,
         "missing_env_vars": full_missing,
         "missing_price_env_vars": missing_price_env_vars,
+        "missing_admin_free_price_env_vars": missing_admin_free_price_env_vars,
         "missing_price_ids": [key for key, value in prices.items() if not value["configured"]],
         "billing_enabled": not full_missing,
         "required_env_vars": list(STRIPE_BILLING_REQUIRED_ENV_VARS),
+        "admin_free_price_env_vars": list(STRIPE_ADMIN_FREE_PRICE_ENV_VARS),
         "secret_key_mode": key_mode,
         "publishable_key_mode": publishable_key_mode,
         "live_mode": key_mode == "live",
@@ -350,11 +381,12 @@ def missing_stripe_webhook_env_vars() -> list[str]:
 def log_billing_readiness(logger: logging.Logger, *, context: str, readiness: dict[str, Any] | None = None) -> dict[str, Any]:
     result = readiness or billing_readiness()
     logger.info(
-        "stripe_billing_readiness context=%s billing_enabled=%s secret_key_mode=%s live_mode_ready=%s missing_env_vars=%s",
+        "stripe_billing_readiness context=%s billing_enabled=%s secret_key_mode=%s live_mode_ready=%s admin_free_grants_ready=%s missing_env_vars=%s",
         context,
         result["billing_enabled"],
         result.get("secret_key_mode"),
         result.get("live_mode_ready"),
+        result.get("admin_free_grants", {}).get("ready"),
         result["missing_env_vars"],
     )
     if result.get("live_mode_errors"):

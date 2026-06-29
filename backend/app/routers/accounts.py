@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import zipfile
@@ -93,6 +94,7 @@ ADMIN_BILLING_SYNC_FAILURE_MESSAGE = "Couldn't create/update the Stripe subscrip
 ADMIN_PLAN_PRICE_MODES = {"default", "custom", "free_admin_grant"}
 ADMIN_BILLING_PAID_TIERS = {"premium", "pro"}
 ADMIN_DELETE_CANCELABLE_SUBSCRIPTION_STATUSES = {*PAID_SUBSCRIPTION_STATUSES, *PAYMENT_GRACE_SUBSCRIPTION_STATUSES, "incomplete"}
+STRIPE_LOG_REDACTION_PATTERN = re.compile(r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9_]+|\bprice_[A-Za-z0-9_]+")
 
 
 class LoginPayload(BaseModel):
@@ -2061,6 +2063,13 @@ def _admin_billing_idempotency_key(
 
 def _admin_billing_safe_error(exc: BaseException) -> str:
     if isinstance(exc, HTTPException):
+        if isinstance(exc.detail, dict):
+            code = str(exc.detail.get("code") or "").strip()
+            if code == "admin_free_price_not_configured":
+                return code
+            stripe_code = str(exc.detail.get("stripe_code") or "").strip()
+            if stripe_code:
+                return f"stripe_sync_failed_{stripe_code[:80]}"
         return f"stripe_sync_failed_status_{exc.status_code}"
     return f"stripe_sync_failed_{exc.__class__.__name__}"
 
@@ -2095,9 +2104,32 @@ def _admin_free_grant_price_env_name(tier: str) -> str:
     return f"STRIPE_{normalized.upper()}_ADMIN_FREE_PRICE_ID"
 
 
+def _admin_free_grant_plan_label(tier: str) -> str:
+    return "Pro" if normalize_tier(tier) == "pro" else "Premium"
+
+
 def _admin_free_grant_price_id(tier: str) -> str | None:
     value = os.getenv(_admin_free_grant_price_env_name(tier), "").strip()
     return value if value.startswith("price_") else None
+
+
+def _admin_free_grant_price_setup_error(tier: str) -> HTTPException:
+    env_name = _admin_free_grant_price_env_name(tier)
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "admin_free_price_not_configured",
+            "message": f"{_admin_free_grant_plan_label(tier)} admin free Stripe price is not configured.",
+            "missing_env_vars": [env_name],
+        },
+    )
+
+
+def _require_admin_free_grant_price_id(tier: str) -> str:
+    price_id = _admin_free_grant_price_id(tier)
+    if not price_id:
+        raise _admin_free_grant_price_setup_error(tier)
+    return price_id
 
 
 def _stripe_recurring_interval(interval: SubscriptionInterval) -> str:
@@ -2105,6 +2137,9 @@ def _stripe_recurring_interval(interval: SubscriptionInterval) -> str:
 
 
 def _admin_billing_sync_exception(exc: BaseException) -> HTTPException:
+    if isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
+        if exc.detail.get("code") == "admin_free_price_not_configured":
+            return HTTPException(status_code=503, detail=exc.detail)
     status_code = exc.status_code if isinstance(exc, HTTPException) and exc.status_code in {400, 401, 403, 404, 409, 422, 503} else 502
     return HTTPException(
         status_code=status_code,
@@ -2113,6 +2148,29 @@ def _admin_billing_sync_exception(exc: BaseException) -> HTTPException:
             "message": ADMIN_BILLING_SYNC_FAILURE_MESSAGE,
         },
     )
+
+
+def _redact_stripe_log_message(value: Any) -> str:
+    message = str(value or "").strip()
+    if not message:
+        return ""
+    return STRIPE_LOG_REDACTION_PATTERN.sub("[REDACTED]", message)[:500]
+
+
+def _admin_billing_stripe_log_context(exc: BaseException) -> dict[str, str]:
+    code = str(getattr(exc, "stripe_error_code", "") or "").strip()
+    message = str(getattr(exc, "stripe_error_message", "") or "").strip()
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, dict):
+            code = code or str(detail.get("stripe_code") or "").strip()
+            message = message or str(detail.get("stripe_message") or detail.get("message") or "").strip()
+        elif isinstance(detail, str) and "stripe" in detail.lower():
+            message = message or detail
+    return {
+        "stripe_error_code": code[:120] or "none",
+        "stripe_error_message": _redact_stripe_log_message(message) or "none",
+    }
 
 
 def _record_admin_billing_override_audit(
@@ -2491,12 +2549,7 @@ def _resolve_admin_subscription_price(
             "amount_cents": None,
             "currency": None,
         }
-    free_price_id = _admin_free_grant_price_id(target_plan)
-    if not free_price_id:
-        raise HTTPException(
-            status_code=503,
-            detail=f"{_admin_free_grant_price_env_name(target_plan)} is required for free admin grants.",
-        )
+    free_price_id = _require_admin_free_grant_price_id(target_plan)
     return {
         "price_id": free_price_id,
         "billing_interval": billing_interval,
@@ -2684,6 +2737,8 @@ def sync_admin_billing_override_to_stripe(
         target_plan = normalize_tier(raw_target_plan) if raw_target_plan is not None else None
         price_mode = _admin_plan_price_mode(requested_state.get("price_mode"))
         custom_price = _admin_custom_price_state(requested_state.get("custom_price"))
+        if target_plan in ADMIN_BILLING_PAID_TIERS and price_mode == "free_admin_grant":
+            _require_admin_free_grant_price_id(target_plan)
         if "manual_tier_override" in requested_state:
             if target_plan in ADMIN_BILLING_PAID_TIERS:
                 plan_price_metadata = {"tier": target_plan, "billing_interval": _normalize_subscription_interval(user.subscription_interval) or "monthly", "price_id": None}
@@ -2795,12 +2850,15 @@ def sync_admin_billing_override_to_stripe(
         }
     except Exception as exc:
         safe_error = _admin_billing_safe_error(exc)
+        stripe_log_context = _admin_billing_stripe_log_context(exc)
         logger.warning(
-            "admin_billing_override_stripe_sync_failed admin_user_id=%s target_user_id=%s override_type=%s error=%s",
+            "admin_billing_override_stripe_sync_failed admin_user_id=%s target_user_id=%s override_type=%s error=%s stripe_error_code=%s stripe_error_message=%s",
             admin_actor.id,
             user.id,
             override_type,
             safe_error,
+            stripe_log_context["stripe_error_code"],
+            stripe_log_context["stripe_error_message"],
         )
         db.rollback()
         _record_admin_billing_override_audit(
@@ -3393,6 +3451,27 @@ def _google_redirect_uri() -> str:
     return f"{_authenticated_app_frontend_base_url()}/auth/google/callback"
 
 
+def _stripe_request_failed_exception(response: requests.Response) -> HTTPException:
+    message = "Stripe request failed."
+    stripe_code = ""
+    stripe_message = ""
+    try:
+        parsed = response.json()
+        stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
+        if isinstance(stripe_error, dict):
+            stripe_code = str(stripe_error.get("code") or stripe_error.get("type") or "").strip()
+            raw_message = stripe_error.get("message")
+            if isinstance(raw_message, str) and raw_message:
+                stripe_message = raw_message
+                message = f"Stripe request failed: {raw_message}"
+    except ValueError:
+        pass
+    exc = HTTPException(status_code=502, detail=message)
+    setattr(exc, "stripe_error_code", stripe_code)
+    setattr(exc, "stripe_error_message", stripe_message or message)
+    return exc
+
+
 def _stripe_post(path: str, data: dict[str, Any], *, idempotency_key: str | None = None) -> dict[str, Any]:
     secret = _stripe_secret_key()
     if not secret:
@@ -3406,15 +3485,7 @@ def _stripe_post(path: str, data: dict[str, Any], *, idempotency_key: str | None
         timeout=20,
     )
     if response.status_code >= 400:
-        message = "Stripe request failed."
-        try:
-            parsed = response.json()
-            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
-            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
-                message = f"Stripe request failed: {stripe_error['message']}"
-        except ValueError:
-            pass
-        raise HTTPException(status_code=502, detail=message)
+        raise _stripe_request_failed_exception(response)
     parsed = response.json()
     return parsed if isinstance(parsed, dict) else {}
 
@@ -3432,15 +3503,7 @@ def _stripe_delete(path: str, data: dict[str, Any] | None = None, *, idempotency
         timeout=20,
     )
     if response.status_code >= 400:
-        message = "Stripe request failed."
-        try:
-            parsed = response.json()
-            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
-            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
-                message = f"Stripe request failed: {stripe_error['message']}"
-        except ValueError:
-            pass
-        raise HTTPException(status_code=502, detail=message)
+        raise _stripe_request_failed_exception(response)
     parsed = response.json()
     return parsed if isinstance(parsed, dict) else {}
 
@@ -3456,15 +3519,7 @@ def _stripe_get(path: str, params: dict[str, Any] | None = None) -> dict[str, An
         timeout=20,
     )
     if response.status_code >= 400:
-        message = "Stripe request failed."
-        try:
-            parsed = response.json()
-            stripe_error = parsed.get("error") if isinstance(parsed, dict) else None
-            if isinstance(stripe_error, dict) and isinstance(stripe_error.get("message"), str):
-                message = f"Stripe request failed: {stripe_error['message']}"
-        except ValueError:
-            pass
-        raise HTTPException(status_code=502, detail=message)
+        raise _stripe_request_failed_exception(response)
     parsed = response.json()
     return parsed if isinstance(parsed, dict) else {}
 
@@ -3575,7 +3630,9 @@ def _stripe_config_status() -> dict[str, Any]:
         "readiness": readiness,
         "missing_env_vars": readiness["missing_env_vars"],
         "missing_price_env_vars": readiness["missing_price_env_vars"],
+        "missing_admin_free_price_env_vars": readiness["missing_admin_free_price_env_vars"],
         "missing_price_ids": readiness["missing_price_ids"],
+        "admin_free_grants": readiness["admin_free_grants"],
         "secret_key": "configured" if secret else "missing",
         "price_id": readiness["price_ids"]["premium_monthly"],
         "monthly_price_id": readiness["price_ids"]["premium_monthly"],
@@ -3592,13 +3649,17 @@ def _stripe_config_status() -> dict[str, Any]:
             "pro_monthly": "STRIPE_PRICE_ID_PRO_MONTHLY",
             "pro_annual": "STRIPE_PRICE_ID_PRO_ANNUAL",
         },
+        "admin_free_price_env_vars": {
+            "premium": "STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID",
+            "pro": "STRIPE_PRO_ADMIN_FREE_PRICE_ID",
+        },
         "webhook_secret": "configured" if webhook else "missing",
         "webhook_events": readiness["webhooks"].get("recommended_events", []),
         "portal_return_url": _customer_portal_return_url(),
         "success_url": _checkout_success_url(),
         "cancel_url": _checkout_cancel_url(),
         "webhook_url": f"{_api_base_url()}/api/billing/stripe/webhook",
-        "notes": "Secrets are read from environment variables. Price IDs use STRIPE_PRICE_ID_PREMIUM_MONTHLY, STRIPE_PRICE_ID_PREMIUM_ANNUAL, STRIPE_PRICE_ID_PRO_MONTHLY, and STRIPE_PRICE_ID_PRO_ANNUAL.",
+        "notes": "Secrets are read from environment variables. Paid price IDs use STRIPE_PRICE_ID_PREMIUM_MONTHLY, STRIPE_PRICE_ID_PREMIUM_ANNUAL, STRIPE_PRICE_ID_PRO_MONTHLY, and STRIPE_PRICE_ID_PRO_ANNUAL. Admin free grants use configured/missing status for STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID and STRIPE_PRO_ADMIN_FREE_PRICE_ID.",
     }
 
 
