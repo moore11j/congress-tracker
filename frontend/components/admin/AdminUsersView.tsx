@@ -25,9 +25,9 @@ import { formatAccessLabel, formatUserDisplayId } from "@/lib/accountDisplay";
 
 const STATUS_OPTIONS = [
   { value: "", label: "All non-deleted" },
-  { value: "active", label: "Active" },
-  { value: "suspended", label: "Suspended" },
-  { value: "deleted", label: "Deleted" },
+  { value: "active", label: "Account active" },
+  { value: "suspended", label: "Account suspended" },
+  { value: "deleted", label: "Account deleted" },
   { value: "all_with_deleted", label: "All including deleted" },
   { value: "trialing", label: "Trialing" },
   { value: "past_due", label: "Past due" },
@@ -43,7 +43,7 @@ const SORT_OPTIONS: Array<{ value: AdminUserSortBy; label: string }> = [
   { value: "name", label: "Name" },
   { value: "country", label: "Country" },
   { value: "plan", label: "Plan" },
-  { value: "status", label: "Status" },
+  { value: "status", label: "Account status" },
 ];
 
 type BatchAction = "premium" | "pro" | "free" | "suspend" | "unsuspend" | "override" | "clear_override";
@@ -82,6 +82,34 @@ function formatDate(value?: string | null) {
 
 function compactStatus(value?: string | null) {
   return (value || "active").replaceAll("_", " ");
+}
+
+function titleStatus(value?: string | null) {
+  const cleaned = compactStatus(value).trim();
+  return cleaned ? cleaned.replace(/\b\w/g, (char) => char.toUpperCase()) : "Active";
+}
+
+function displayAccountStatus(user: AccountUser) {
+  if (user.is_deleted || user.deleted_at) return "Deleted";
+  if (user.is_suspended) return "Suspended";
+  return titleStatus(user.status || "active");
+}
+
+function displayStripeStatus(user: AccountUser) {
+  return titleStatus(user.subscription_status || "none");
+}
+
+function planActionLabel(tier: "free" | "premium" | "pro" | null) {
+  if (tier === "premium") return "Premium";
+  if (tier === "pro") return "Pro";
+  if (tier === "free") return "Free";
+  return "manual override";
+}
+
+function hasPriceOverride(user: AccountUser) {
+  return user.monthly_price_override !== null && user.monthly_price_override !== undefined
+    || user.annual_price_override !== null && user.annual_price_override !== undefined
+    || Boolean(user.override_note);
 }
 
 function displayName(user: AccountUser) {
@@ -257,15 +285,7 @@ function UserActionMenu({
         className="block w-full px-3 py-1.5 text-left text-amber-100 hover:bg-slate-900"
         role="menuitem"
       >
-        Downgrade
-      </button>
-      <button
-        type="button"
-        onClick={() => onRun(() => setPremium(user, null))}
-        className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
-        role="menuitem"
-      >
-        Clear plan
+        Set Free
       </button>
       <button
         type="button"
@@ -289,15 +309,17 @@ function UserActionMenu({
         className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
         role="menuitem"
       >
-        Save override
+        Save Price Override
       </button>
       <button
         type="button"
+        disabled={!hasPriceOverride(user)}
         onClick={() => onRun(() => clearPriceOverride(user))}
-        className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900"
+        title={hasPriceOverride(user) ? "Clear custom billing price metadata." : "No manual price override to clear."}
+        className="block w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-900 disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:bg-transparent"
         role="menuitem"
       >
-        Clear override
+        Clear Price Override
       </button>
       <button
         type="button"
@@ -392,6 +414,19 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
 
   const resetPage = () => setPage(1);
 
+  const applyAdminUserRows = (updatedRows: AccountUser | AccountUser[]) => {
+    const rowsToApply = Array.isArray(updatedRows) ? updatedRows : [updatedRows];
+    if (rowsToApply.length === 0) return;
+    setUsers((current) => {
+      if (!current) return current;
+      const updatedById = new Map(rowsToApply.map((row) => [row.id, row]));
+      return {
+        ...current,
+        items: current.items.map((row) => updatedById.get(row.id) ?? row),
+      };
+    });
+  };
+
   const refreshUsers = async () => {
     setBusy(true);
     try {
@@ -446,9 +481,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   ) => {
     setBusy(true);
     try {
-      await adminSetPremium(user.id, tier, price);
+      const updated = await adminSetPremium(user.id, tier, price);
+      applyAdminUserRows(updated);
       await refreshUsers();
-      setStatus(tier ? `${user.email} set to ${tier}.` : `${user.email} manual override cleared.`);
+      setStatus(tier ? `${user.email} set to ${planActionLabel(tier)}.` : `${user.email} manual override cleared.`);
       return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update user.");
@@ -463,6 +499,23 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
       setStatus(null);
       setSubscriptionPriceDraft({ mode: "free_admin_grant", amount: "", currency: "USD", interval: "month" });
       setSubscriptionPriceDialog({ user, tier });
+      return;
+    }
+    if (tier === "free") {
+      setStatus(null);
+      setConfirmDialog({
+        eyebrow: "SET FREE",
+        title: "Set this user to Free?",
+        description: (
+          <>
+            This will cancel the current Premium/Pro subscription or admin grant for <span className="font-medium text-white">{user.email}</span>.
+          </>
+        ),
+        confirmLabel: "Set Free",
+        busyLabel: "Setting Free...",
+        tone: "danger",
+        onConfirm: () => runSetPremium(user, "free"),
+      });
       return;
     }
     await runSetPremium(user, tier);
@@ -496,7 +549,8 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const setPriceOverride = async (user: AccountUser) => {
     setBusy(true);
     try {
-      await adminSetUserPriceOverride(user.id, overridePayload());
+      const updated = await adminSetUserPriceOverride(user.id, overridePayload());
+      applyAdminUserRows(updated);
       await refreshUsers();
       setStatus(`Billing override metadata saved for ${user.email}.`);
     } catch (error) {
@@ -509,9 +563,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const runClearPriceOverride = async (user: AccountUser) => {
     setBusy(true);
     try {
-      await adminClearUserPriceOverride(user.id);
+      const updated = await adminClearUserPriceOverride(user.id);
+      applyAdminUserRows(updated);
       await refreshUsers();
-      setStatus(`Billing override metadata cleared for ${user.email}.`);
+      setStatus(`Price override cleared for ${user.email}.`);
       return true;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to clear price override.");
@@ -522,16 +577,20 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   };
 
   const clearPriceOverride = (user: AccountUser) => {
+    if (!hasPriceOverride(user)) {
+      setStatus(`No manual price override to clear for ${user.email}.`);
+      return;
+    }
     setStatus(null);
     setConfirmDialog({
-      eyebrow: "CLEAR OVERRIDE",
-      title: "Clear billing override?",
+      eyebrow: "CLEAR PRICE OVERRIDE",
+      title: "Clear price override?",
       description: (
         <>
-          Remove custom billing override settings for <span className="font-medium text-white">{user.email}</span>.
+          Remove only custom price override metadata for <span className="font-medium text-white">{user.email}</span>. Their plan will not change.
         </>
       ),
-      confirmLabel: "Clear override",
+      confirmLabel: "Clear Price Override",
       busyLabel: "Clearing...",
       tone: "danger",
       onConfirm: () => runClearPriceOverride(user),
@@ -541,7 +600,8 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
   const runSuspend = async (user: AccountUser, suspended: boolean) => {
     setBusy(true);
     try {
-      await adminSuspendUser(user.id, suspended);
+      const updated = await adminSuspendUser(user.id, suspended);
+      applyAdminUserRows(updated);
       await refreshUsers();
       setStatus(suspended ? `${user.email} suspended.` : `${user.email} unsuspended.`);
       return true;
@@ -674,6 +734,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
     setBusy(true);
     try {
       const result = await adminBatchUpdateUsers(payload);
+      applyAdminUserRows(result.items);
       await refreshUsers();
       setSelectedIds([]);
       setStatus(`Batch update complete for ${result.updated} users.`);
@@ -709,11 +770,11 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
         tone: "success",
       },
       free: {
-        eyebrow: "BATCH DOWNGRADE",
-        title: "Downgrade selected users to Free?",
-        description: `This will reduce access for ${count} selected ${noun}.`,
-        confirmLabel: "Downgrade users",
-        busyLabel: "Downgrading...",
+        eyebrow: "BATCH SET FREE",
+        title: "Set selected users to Free?",
+        description: `This will cancel current Premium/Pro subscriptions or admin grants for ${count} selected ${noun}.`,
+        confirmLabel: "Set Free",
+        busyLabel: "Setting Free...",
         tone: "danger",
       },
       suspend: {
@@ -741,10 +802,10 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
         tone: "success",
       },
       clear_override: {
-        eyebrow: "CLEAR OVERRIDES",
-        title: "Clear overrides for selected users?",
-        description: `Remove custom billing override settings for ${count} selected ${noun}.`,
-        confirmLabel: "Clear overrides",
+        eyebrow: "CLEAR PRICE OVERRIDES",
+        title: "Clear price overrides for selected users?",
+        description: `Remove only custom price override metadata for ${count} selected ${noun}. Plans will not change.`,
+        confirmLabel: "Clear Price Overrides",
         busyLabel: "Clearing...",
         tone: "danger",
       },
@@ -841,7 +902,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
         </label>
 
         <label className="text-sm">
-          <span className="block font-medium text-slate-200">Status</span>
+          <span className="block font-medium text-slate-200">Account status</span>
           <select
             value={statusFilter}
             onChange={(event) => {
@@ -955,11 +1016,11 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
           <span className="text-sm font-semibold text-slate-200">{selectedCount} selected</span>
           <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("premium")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Premium</button>
           <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("pro")} className="rounded-lg border border-cyan-300/30 px-2 py-1 text-xs font-semibold text-cyan-100 disabled:opacity-50">Batch Pro</button>
-          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("free")} className="rounded-lg border border-amber-300/30 px-2 py-1 text-xs font-semibold text-amber-100 disabled:opacity-50">Batch Downgrade</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("free")} className="rounded-lg border border-amber-300/30 px-2 py-1 text-xs font-semibold text-amber-100 disabled:opacity-50">Batch Set Free</button>
           <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("suspend")} className="rounded-lg border border-rose-300/30 px-2 py-1 text-xs font-semibold text-rose-100 disabled:opacity-50">Batch Suspend</button>
           <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("unsuspend")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Unsuspend</button>
           <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("override")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Batch Price Override</button>
-          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("clear_override")} className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Clear Overrides</button>
+          <button type="button" disabled={busy || selectedCount === 0} onClick={() => batchUpdate("clear_override")} title="Clears only custom price override metadata; plans do not change." className="rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold text-slate-200 disabled:opacity-50">Clear Price Overrides</button>
         </div>
         <div className="mt-3 grid gap-2 md:grid-cols-[8rem_8rem_6rem_1fr]">
           <input type="number" min={0} step="0.01" value={overrideDraft.monthly} onChange={(event) => setOverrideDraft((current) => ({ ...current, monthly: event.target.value }))} placeholder="Monthly $" className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-300/50" />
@@ -1000,7 +1061,7 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
               <th className="px-3 py-3">Current price</th>
               <th className="px-3 py-3">Total paid</th>
               <th className="px-3 py-3">Last payment</th>
-              <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Account status</th>
               <th className="px-3 py-3">Deleted at</th>
               <th className="px-3 py-3">Reactivation deadline</th>
               <th className="px-3 py-3">Reactivation expired</th>
@@ -1044,12 +1105,12 @@ export function AdminUsersView({ refreshToken = 0 }: AdminUsersViewProps) {
                 <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayCurrentPlanPrice(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayTotalPaid(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-100">{displayLastPayment(user)}</td>
-                <td className="whitespace-nowrap px-3 py-3">{user.subscription_state_label || compactStatus(user.status || (user.is_suspended ? "suspended" : user.subscription_status))}</td>
+                <td className="whitespace-nowrap px-3 py-3">{displayAccountStatus(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.deleted_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.reactivation_expires_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.reactivation_expired ? "Yes" : "No"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.deletion_plan || "-"}</td>
-                <td className="whitespace-nowrap px-3 py-3">{compactStatus(user.subscription_status)}</td>
+                <td className="whitespace-nowrap px-3 py-3">{displayStripeStatus(user)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{user.subscription_cancel_at_period_end ? "Yes" : "No"}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.current_period_end || user.access_expires_at)}</td>
                 <td className="whitespace-nowrap px-3 py-3">{formatDate(user.created_at)}</td>

@@ -1148,7 +1148,7 @@ ADMIN_USER_COLUMNS: tuple[tuple[str, str], ...] = (
     ("current plan price", "current_plan_display"),
     ("total paid", "total_paid_display"),
     ("last payment", "last_payment_display"),
-    ("status", "status"),
+    ("account status", "status"),
     ("deleted at", "deleted_at"),
     ("reactivation deadline", "reactivation_expires_at"),
     ("reactivation expired", "reactivation_expired"),
@@ -1625,7 +1625,7 @@ def _admin_user_status(user: UserAccount) -> str:
         return "deleted"
     if user.is_suspended:
         return "suspended"
-    return (user.subscription_status or "active").strip().lower() or "active"
+    return "active"
 
 
 def _plan_price_lookup(db: Session) -> dict[tuple[str, SubscriptionInterval], tuple[int, str]]:
@@ -1831,7 +1831,7 @@ def _admin_user_billing_summary(
                 **payments,
             }
 
-    if user.current_plan_amount_cents is not None and int(user.current_plan_amount_cents) > 0:
+    if user.current_plan_amount_cents is not None and int(user.current_plan_amount_cents) >= 0:
         amount = int(user.current_plan_amount_cents)
         currency = (user.current_plan_currency or "USD").upper()
         display = _subscription_price_display(amount, currency)
@@ -1947,6 +1947,17 @@ def _admin_user_row(
         }
     )
     return payload
+
+
+def _admin_user_row_with_billing(db: Session, user: UserAccount) -> dict[str, Any]:
+    billing_rows = _latest_billing_rows_by_user(db, [user])
+    paid_rows = _successful_billing_rows_by_user(db, [user])
+    return _admin_user_row(
+        user,
+        latest_billing_row=billing_rows.get(user.id),
+        billing_rows=paid_rows.get(user.id),
+        plan_prices=_plan_price_lookup(db),
+    )
 
 
 def _apply_price_override(user: UserAccount, payload: PriceOverridePayload | None, *, clear: bool = False) -> None:
@@ -2933,7 +2944,6 @@ def _admin_user_filtered_query(
         elif normalized_status == "active":
             conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(False))
-            conditions.append(or_(UserAccount.subscription_status.is_(None), func.lower(UserAccount.subscription_status) == "active"))
         else:
             conditions.append(UserAccount.deleted_at.is_(None))
             conditions.append(UserAccount.is_suspended.is_(False))
@@ -2986,7 +2996,11 @@ def _admin_user_rows(
         "name": UserAccount.name,
         "country": UserAccount.country,
         "plan": func.coalesce(UserAccount.manual_tier_override, UserAccount.entitlement_tier, "free"),
-        "status": func.coalesce(UserAccount.subscription_status, "active"),
+        "status": case(
+            (UserAccount.deleted_at.is_not(None), "deleted"),
+            (UserAccount.is_suspended.is_(True), "suspended"),
+            else_="active",
+        ),
     }
     sort_column = sort_columns[sort_by]
     ordered = query.order_by(sort_column.asc() if sort_dir == "asc" else sort_column.desc(), UserAccount.id.desc())
@@ -6924,7 +6938,7 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _admin_user_row(user)
+    return _admin_user_row_with_billing(db, user)
 
 
 @router.patch("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -6950,7 +6964,7 @@ def admin_set_user_price_override(
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _admin_user_row(user)
+    return _admin_user_row_with_billing(db, user)
 
 
 @router.delete("/admin/users/{user_id}/price-override", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -6971,7 +6985,7 @@ def admin_clear_user_price_override(user_id: int, request: Request, db: Session 
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _admin_user_row(user)
+    return _admin_user_row_with_billing(db, user)
 
 
 @router.post("/admin/users/batch", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -7054,7 +7068,7 @@ def admin_suspend_user(user_id: int, payload: SuspendPayload, request: Request, 
     user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
-    return _admin_user_row(user)
+    return _admin_user_row_with_billing(db, user)
 
 
 @router.post("/admin/users/{user_id}/send-password-reset", dependencies=[Depends(rate_limit_admin_mutation)])

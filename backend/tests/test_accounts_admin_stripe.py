@@ -4510,12 +4510,14 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
         raise AssertionError(f"Unexpected Stripe GET path {path}")
 
     def fake_stripe_post(path, data, *, idempotency_key=None):
+        nonlocal subscription_status
         stripe_calls.append(("POST", path, dict(data), idempotency_key))
         if path == "customers":
             return {"id": "cus_admin_manage"}
         if path == "customers/cus_admin_manage":
             return {"id": "cus_admin_manage"}
         if path == "subscriptions":
+            subscription_status = "active"
             return {
                 "id": "sub_admin_manage",
                 "object": "subscription",
@@ -4548,14 +4550,40 @@ def test_admin_can_upgrade_downgrade_suspend_and_delete_user(monkeypatch):
 
         upgraded = admin_set_premium(reader.id, ManualPremiumPayload(tier="premium"), request, db)
         assert upgraded["manual_tier_override"] == "premium"
+        assert upgraded["plan"] == "premium"
+        assert upgraded["status"] == "active"
+        assert upgraded["subscription_status"] == "active"
+        assert upgraded["current_plan_amount_cents"] == 0
+        assert upgraded["current_plan_display"] == "USD $0.00 / month"
 
         downgraded = admin_set_premium(reader.id, ManualPremiumPayload(tier="free"), request, db)
         assert downgraded["manual_tier_override"] == "free"
+        assert downgraded["plan"] == "free"
+        assert downgraded["status"] == "active"
+        assert downgraded["subscription_status"] == "canceled"
         assert any(call[0] == "POST" and call[1] == "subscriptions" for call in stripe_calls)
         assert any(call[0] == "DELETE" and call[1] == "subscriptions/sub_admin_manage" for call in stripe_calls)
+        active_rows_after_set_free = admin_users(request, db, search="reader@example.com", status="active", page=1, page_size=25)["items"]
+        assert len(active_rows_after_set_free) == 1
+        assert active_rows_after_set_free[0]["status"] == "active"
+        assert active_rows_after_set_free[0]["subscription_status"] == "canceled"
+
+        restored_plan = admin_set_premium(reader.id, ManualPremiumPayload(tier="premium"), request, db)
+        assert restored_plan["manual_tier_override"] == "premium"
+        assert restored_plan["plan"] == "premium"
+        assert restored_plan["status"] == "active"
+        assert restored_plan["subscription_status"] == "active"
+        assert restored_plan["current_plan_amount_cents"] == 0
+        assert restored_plan["current_plan_display"] == "USD $0.00 / month"
 
         suspended = admin_suspend_user(reader.id, SuspendPayload(suspended=True), request, db)
         assert suspended["is_suspended"] is True
+        assert suspended["status"] == "suspended"
+        assert suspended["subscription_status"] == "active"
+        restored_access = admin_suspend_user(reader.id, SuspendPayload(suspended=False), request, db)
+        assert restored_access["is_suspended"] is False
+        assert restored_access["status"] == "active"
+        assert restored_access["subscription_status"] == "active"
         assert any(call[0] == "POST" and call[1] == "customers" for call in stripe_calls)
         assert any(call[3] and call[3].startswith("admin-billing:user-") for call in stripe_calls if call[0] == "POST")
 

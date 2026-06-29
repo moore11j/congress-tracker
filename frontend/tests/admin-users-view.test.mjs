@@ -21,6 +21,50 @@ test("admin users table renders distinct billing amount columns near plan", () =
   assert.match(source, /colSpan=\{25\}/);
 });
 
+test("admin users free action uses honest Set Free copy", () => {
+  assert.match(source, />\s*Set Free\s*<\/button>/);
+  assert.match(source, />Batch Set Free<\/button>/);
+  assert.match(source, /eyebrow: "SET FREE"/);
+  assert.match(source, /title: "Set this user to Free\?"/);
+  assert.match(source, /This will cancel the current Premium\/Pro subscription or admin grant/);
+  assert.match(source, /eyebrow: "BATCH SET FREE"/);
+  assert.match(source, /title: "Set selected users to Free\?"/);
+  assert.match(source, /setStatus\(tier \? `\$\{user\.email\} set to \$\{planActionLabel\(tier\)\}\.`/);
+  assert.doesNotMatch(source, /Downgrade/);
+  assert.doesNotMatch(source, /Batch Downgrade/);
+});
+
+test("admin users clear action is explicit price override metadata only", () => {
+  assert.match(source, /Save Price Override/);
+  assert.match(source, /Clear Price Override/);
+  assert.match(source, /No manual price override to clear/);
+  assert.match(source, /Remove only custom price override metadata/);
+  assert.match(source, /Plans will not change/);
+  assert.match(source, /disabled=\{!hasPriceOverride\(user\)\}/);
+  assert.doesNotMatch(source, /Clear plan/);
+  assert.doesNotMatch(source, /Clear Overrides/);
+  assert.doesNotMatch(source, /Clear override/);
+});
+
+test("admin users separates account status from Stripe status", () => {
+  assert.match(source, /<span className="block font-medium text-slate-200">Account status<\/span>/);
+  assert.match(source, /<th className="px-3 py-3">Account status<\/th>/);
+  assert.match(source, /<th className="px-3 py-3">Stripe status<\/th>/);
+  assert.match(source, /displayAccountStatus\(user\)/);
+  assert.match(source, /displayStripeStatus\(user\)/);
+  assert.match(source, /function displayAccountStatus\(user: AccountUser\)/);
+  assert.match(source, /function displayStripeStatus\(user: AccountUser\)/);
+  assert.doesNotMatch(source, /subscription_state_label \|\|/);
+});
+
+test("admin users applies returned action rows before refetching list", () => {
+  assert.match(source, /const applyAdminUserRows = \(updatedRows: AccountUser \| AccountUser\[\]\) =>/);
+  assert.match(source, /items: current\.items\.map\(\(row\) => updatedById\.get\(row\.id\) \?\? row\)/);
+  assert.match(source, /const updated = await adminSetPremium\(user\.id, tier, price\);[\s\S]*applyAdminUserRows\(updated\);[\s\S]*await refreshUsers\(\);/);
+  assert.match(source, /const updated = await adminSuspendUser\(user\.id, suspended\);[\s\S]*applyAdminUserRows\(updated\);[\s\S]*await refreshUsers\(\);/);
+  assert.match(source, /const result = await adminBatchUpdateUsers\(payload\);[\s\S]*applyAdminUserRows\(result\.items\);[\s\S]*await refreshUsers\(\);/);
+});
+
 test("admin users table renders display-safe User ID before User Name", () => {
   assert.match(source, /<th className="px-3 py-3">User ID<\/th>\s*<th className="px-3 py-3">User name<\/th>/);
   assert.match(source, /formatUserDisplayId\(user\)/);
