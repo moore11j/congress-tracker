@@ -69,7 +69,24 @@ export type FeedItem = {
     repeat_congress_30d: boolean;
     repeat_insider_30d: boolean;
   } | null;
-  kind?: "congress_trade" | "congress_treasury_trade" | "congress_crypto_trade" | "insider_trade" | "institutional_buy" | "government_contract" | "event";
+  kind?:
+    | "congress_trade"
+    | "congress_treasury_trade"
+    | "congress_crypto_trade"
+    | "insider_trade"
+    | "institutional_buy"
+    | "institutional_accumulation"
+    | "institutional_distribution"
+    | "new_institutional_position"
+    | "major_holder_reduction"
+    | "major_holder_exit"
+    | "cluster_accumulation"
+    | "cluster_distribution"
+    | "smart_money_confirmation"
+    | "crowded_long"
+    | "contrarian_accumulation"
+    | "government_contract"
+    | "event";
   insider?: {
     name: string;
     ownership?: string | null;

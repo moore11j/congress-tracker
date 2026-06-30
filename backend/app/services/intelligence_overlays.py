@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import MetaData, Table, func, inspect, select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, InstitutionalTransaction
+from app.models import AppSetting
 from app.services.government_contracts import (
     DEFAULT_GOVERNMENT_CONTRACTS_LOOKBACK_DAYS,
     DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
@@ -16,11 +16,15 @@ from app.services.government_contracts import (
     get_government_contracts_summaries_for_symbols,
     get_government_contracts_summary,
 )
+from app.services.institutional_activity import (
+    get_institutional_activity_summaries_for_symbols as get_13f_activity_summaries_for_symbols,
+    unavailable_institutional_summary,
+)
 from app.services.options_flow import OptionsFlowObservation, summarize_options_flow
 from app.utils.symbols import normalize_symbol
 
 DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS = 30
-DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS = 90
+DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS = 30
 
 
 def load_intelligence_feature_flags(db: Session) -> dict[str, bool]:
@@ -86,7 +90,7 @@ def get_institutional_activity_summary(
         lookback_days=lookback_days,
     )
     normalized = normalize_symbol(symbol)
-    return summaries.get(normalized or "", _not_configured_institutional_summary())
+    return summaries.get(normalized or "", unavailable_institutional_summary(normalized, status="no_data"))
 
 
 def get_institutional_activity_summaries_for_symbols(
@@ -96,100 +100,12 @@ def get_institutional_activity_summaries_for_symbols(
     lookback_days: int = DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
     feature_enabled: bool = True,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    normalized_symbols = sorted({normalize_symbol(symbol) for symbol in symbols if normalize_symbol(symbol)})
-    if not normalized_symbols:
-        return {}, _institutional_availability(status="not_configured", enabled=feature_enabled)
-
-    if not feature_enabled:
-        disabled = {symbol: _not_configured_institutional_summary() for symbol in normalized_symbols}
-        return disabled, _institutional_availability(status="disabled", enabled=False)
-
-    inspector = inspect(db.get_bind())
-    if not inspector.has_table(InstitutionalTransaction.__tablename__):
-        disabled = {symbol: _not_configured_institutional_summary() for symbol in normalized_symbols}
-        return disabled, _institutional_availability(status="not_configured", enabled=True)
-
-    total_rows = db.execute(select(func.count()).select_from(InstitutionalTransaction)).scalar() or 0
-    if int(total_rows) <= 0:
-        disabled = {symbol: _not_configured_institutional_summary() for symbol in normalized_symbols}
-        return disabled, _institutional_availability(status="not_configured", enabled=True)
-
-    bounded_lookback = max(1, min(int(lookback_days or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS), 365))
-    since_date = datetime.now(timezone.utc).date() - timedelta(days=bounded_lookback)
-    activity_date = func.coalesce(InstitutionalTransaction.report_date, InstitutionalTransaction.filing_date)
-    rows = db.execute(
-        select(
-            func.upper(InstitutionalTransaction.symbol).label("symbol"),
-            InstitutionalTransaction.source,
-            InstitutionalTransaction.institution_name,
-            InstitutionalTransaction.institution_cik,
-            InstitutionalTransaction.market_value,
-            InstitutionalTransaction.change_in_shares,
-            InstitutionalTransaction.filing_date,
-            InstitutionalTransaction.report_date,
-        )
-        .where(InstitutionalTransaction.symbol.is_not(None))
-        .where(func.upper(InstitutionalTransaction.symbol).in_(normalized_symbols))
-        .where(activity_date >= since_date)
-        .order_by(func.upper(InstitutionalTransaction.symbol), activity_date.desc())
-    ).all()
-
-    grouped: dict[str, list[Any]] = defaultdict(list)
-    for row in rows:
-        symbol = normalize_symbol(row.symbol)
-        if symbol:
-            grouped[symbol].append(row)
-
-    results: dict[str, dict[str, Any]] = {}
-    for symbol in normalized_symbols:
-        symbol_rows = grouped.get(symbol, [])
-        if not symbol_rows:
-            results[symbol] = {
-                "active": False,
-                "direction": "neutral",
-                "net_activity": None,
-                "institution_count": None,
-                "total_value": None,
-                "latest_activity_date": None,
-                "source": _institutional_source_name(None),
-                "status": "ok",
-            }
-            continue
-
-        net_activity = sum(
-            (1.0 if float(row.change_in_shares or 0) >= 0 else -1.0) * float(row.market_value or 0)
-            for row in symbol_rows
-            if _non_negative_float(row.market_value) is not None
-        )
-        positive_count = sum(1 for row in symbol_rows if float(row.change_in_shares or 0) > 0)
-        negative_count = sum(1 for row in symbol_rows if float(row.change_in_shares or 0) < 0)
-        total_value = sum(float(row.market_value or 0) for row in symbol_rows if _non_negative_float(row.market_value) is not None)
-        institutions = {
-            (row.institution_cik or row.institution_name or "").strip()
-            for row in symbol_rows
-            if (row.institution_cik or row.institution_name or "").strip()
-        }
-        latest_activity_date = max(
-            (
-                row.report_date or row.filing_date
-                for row in symbol_rows
-                if row.report_date is not None or row.filing_date is not None
-            ),
-            default=None,
-        )
-        source = _institutional_source_name(next((row.source for row in symbol_rows if isinstance(row.source, str) and row.source.strip()), None))
-        results[symbol] = {
-            "active": bool(institutions and total_value > 0),
-            "direction": _institutional_direction(net_activity, positive_count, negative_count),
-            "net_activity": round(net_activity, 2) if symbol_rows else None,
-            "institution_count": len(institutions) if institutions else None,
-            "total_value": round(total_value, 2) if total_value > 0 else None,
-            "latest_activity_date": latest_activity_date.isoformat() if latest_activity_date else None,
-            "source": source,
-            "status": "ok",
-        }
-
-    return results, _institutional_availability(status="ok", enabled=True)
+    return get_13f_activity_summaries_for_symbols(
+        db,
+        symbols,
+        lookback_days=lookback_days,
+        feature_enabled=feature_enabled,
+    )
 
 
 def _read_bool_setting(db: Session, key: str, *, default: bool) -> bool:

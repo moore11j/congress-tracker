@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, Index, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Index, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -110,6 +110,291 @@ class InstitutionalTransaction(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+
+class InstitutionalHolder(Base):
+    __tablename__ = "institutional_holders"
+    __table_args__ = (
+        Index("ix_institutional_holders_name", "normalized_holder_name"),
+    )
+
+    cik: Mapped[str] = mapped_column(Text, primary_key=True)
+    holder_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    normalized_holder_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    holder_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_passive_like: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    latest_filing_date: Mapped[Optional[date]]
+    latest_report_year: Mapped[Optional[int]]
+    latest_report_quarter: Mapped[Optional[int]]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalFiling(Base):
+    __tablename__ = "institutional_filings"
+    __table_args__ = (
+        UniqueConstraint("accession_number", name="uq_institutional_filings_accession"),
+        UniqueConstraint(
+            "cik",
+            "report_year",
+            "report_quarter",
+            "filing_date",
+            "form_type",
+            name="uq_institutional_filings_period",
+        ),
+        Index("ix_institutional_filings_cik", "cik"),
+        Index("ix_institutional_filings_period", "report_year", "report_quarter"),
+        Index("ix_institutional_filings_filing_date", "filing_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cik: Mapped[str] = mapped_column(Text, nullable=False)
+    accession_number: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filing_date: Mapped[date]
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    report_period_end: Mapped[Optional[date]]
+    filing_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    form_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_amendment: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    superseded_by: Mapped[Optional[int]]
+    raw_metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalPosition(Base):
+    __tablename__ = "institutional_positions"
+    __table_args__ = (
+        UniqueConstraint("filing_id", "normalized_symbol", "cusip", "put_call", name="uq_institutional_positions_filing_security"),
+        Index("ix_institutional_positions_symbol", "normalized_symbol"),
+        Index("ix_institutional_positions_cik", "cik"),
+        Index("ix_institutional_positions_period", "report_year", "report_quarter"),
+        Index("ix_institutional_positions_filing_date", "filing_date"),
+        Index("ix_institutional_positions_cusip", "cusip"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filing_id: Mapped[int]
+    cik: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    normalized_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cusip: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    put_call: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    investment_discretion: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    voting_authority: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    portfolio_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    filing_date: Mapped[date]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalPositionChange(Base):
+    __tablename__ = "institutional_position_changes"
+    __table_args__ = (
+        UniqueConstraint(
+            "cik",
+            "normalized_symbol",
+            "cusip",
+            "report_year",
+            "report_quarter",
+            "change_type",
+            name="uq_institutional_position_changes_period",
+        ),
+        Index("ix_institutional_position_changes_symbol", "normalized_symbol"),
+        Index("ix_institutional_position_changes_cik", "cik"),
+        Index("ix_institutional_position_changes_period", "report_year", "report_quarter"),
+        Index("ix_institutional_position_changes_filing_date", "filing_date"),
+        Index("ix_institutional_position_changes_materiality", "materiality_score"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cik: Mapped[str] = mapped_column(Text, nullable=False)
+    holder_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    normalized_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cusip: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    filing_date: Mapped[date]
+    prev_shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    curr_shares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    shares_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    shares_delta_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    prev_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    curr_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value_delta_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value_delta_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    prev_portfolio_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    curr_portfolio_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    portfolio_weight_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    prev_ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    curr_ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ownership_pct_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False)
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    materiality_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    holder_quality_weight: Mapped[float] = mapped_column(Float, default=1.0, server_default=text("1.0"), nullable=False)
+    passive_adjusted_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    is_material: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalSymbolSummary(Base):
+    __tablename__ = "institutional_symbol_summary"
+    __table_args__ = (
+        UniqueConstraint("normalized_symbol", "report_year", "report_quarter", name="uq_institutional_symbol_summary_period"),
+        Index("ix_institutional_symbol_summary_symbol", "normalized_symbol"),
+        Index("ix_institutional_symbol_summary_period", "report_year", "report_quarter"),
+        Index("ix_institutional_symbol_summary_latest_filing", "latest_filing_date"),
+        Index("ix_institutional_symbol_summary_materiality", "materiality_score"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    latest_filing_date: Mapped[Optional[date]]
+    total_holders: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    holders_increased: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    holders_reduced: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    new_positions: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    exits: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    unchanged_holders: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    total_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    net_value_delta_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    net_shares_delta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    institutional_ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    put_call_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    accumulation_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    distribution_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    materiality_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    top_accumulators_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    top_reducers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalActivityEvent(Base):
+    __tablename__ = "institutional_activity_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "normalized_symbol",
+            "cik",
+            "event_type",
+            "report_year",
+            "report_quarter",
+            name="uq_institutional_activity_events_period",
+        ),
+        Index("ix_institutional_activity_events_symbol", "normalized_symbol"),
+        Index("ix_institutional_activity_events_filing_date", "filing_date"),
+        Index("ix_institutional_activity_events_materiality", "materiality_score"),
+        Index("ix_institutional_activity_events_type", "event_type"),
+        Index("ix_institutional_activity_events_direction", "direction"),
+        Index("ix_institutional_activity_events_feed_visible", "feed_visible"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    cik: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    holder_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    filing_date: Mapped[date]
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    reported_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    value_delta_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ownership_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    holder_breadth: Mapped[Optional[int]]
+    materiality_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    confirmation_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    freshness_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_label: Mapped[str] = mapped_column(Text, default="Institutional Activity", server_default="Institutional Activity", nullable=False)
+    pro_required: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    feed_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalIndustrySummary(Base):
+    __tablename__ = "institutional_industry_summary"
+    __table_args__ = (
+        UniqueConstraint("industry", "sector", "report_year", "report_quarter", name="uq_institutional_industry_summary_period"),
+        Index("ix_institutional_industry_summary_industry", "industry"),
+        Index("ix_institutional_industry_summary_period", "report_year", "report_quarter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    industry: Mapped[str] = mapped_column(Text, nullable=False)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    total_value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    net_value_delta_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    accumulation_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    distribution_score: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"), nullable=False)
+    direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InstitutionalHolderIndustryBreakdown(Base):
+    __tablename__ = "institutional_holder_industry_breakdown"
+    __table_args__ = (
+        UniqueConstraint("cik", "report_year", "report_quarter", "industry", "sector", name="uq_institutional_holder_industry_period"),
+        Index("ix_institutional_holder_industry_cik", "cik"),
+        Index("ix_institutional_holder_industry_period", "report_year", "report_quarter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cik: Mapped[str] = mapped_column(Text, nullable=False)
+    report_year: Mapped[int]
+    report_quarter: Mapped[int]
+    industry: Mapped[str] = mapped_column(Text, nullable=False)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    value_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    weight_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Watchlist(Base):

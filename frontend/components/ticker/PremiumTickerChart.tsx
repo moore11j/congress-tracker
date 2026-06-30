@@ -47,6 +47,7 @@ type MarkerKindConfig = {
 const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
   congress: { color: "#38bdf8", label: "Congress", toggleLabel: "Congress" },
   insider: { color: "#34d399", label: "Insiders", toggleLabel: "Insiders" },
+  institutional: { color: "#818cf8", label: "Institutional Activity", toggleLabel: "Institutional" },
   signals: { color: "#f59e0b", label: "Signal", toggleLabel: "Signals" },
   government_contract: { color: "#60a5fa", label: "Government Contract", toggleLabel: "Gov Contracts" },
 };
@@ -55,6 +56,7 @@ const markerKinds = Object.keys(markerConfig) as TickerChartMarker["kind"][];
 const defaultMarkerVisibility: Record<TickerChartMarker["kind"], boolean> = {
   congress: true,
   insider: true,
+  institutional: true,
   signals: true,
   government_contract: true,
 };

@@ -142,7 +142,7 @@ class SignalFreshnessOut(BaseModel):
 
 
 class UnifiedSignalOut(BaseModel):
-    kind: Literal["congress", "insider"]
+    kind: Literal["congress", "insider", "institutional"]
     event_id: int
     ts: datetime
     symbol: str

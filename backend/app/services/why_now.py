@@ -165,7 +165,7 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
         "government_contracts": _source(raw_sources.get("government_contracts"), "No recent government contracts"),
         "options_flow": _source(raw_sources.get("options_flow"), "Options flow not confirming"),
-        "institutional_activity": _source(raw_sources.get("institutional_activity"), "Institutional activity not configured"),
+        "institutional_activity": _source(raw_sources.get("institutional_activity"), "No recent institutional activity"),
     }
 
 
@@ -313,7 +313,7 @@ def _evidence(
         "price_volume": "No price confirmation",
         "government_contracts": "No recent government contracts",
         "options_flow": "Options flow not confirming",
-        "institutional_activity": "Institutional activity not configured",
+        "institutional_activity": "No recent institutional activity",
     }
     for key in _SOURCE_ORDER:
         if len(evidence) >= 4:

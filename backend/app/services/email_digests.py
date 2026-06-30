@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import normalize_email
+from app.entitlements import entitlements_for_user
 from app.models import (
     BillingTransaction,
     ConfirmationMonitoringEvent,
@@ -33,9 +34,11 @@ from app.services.email_delivery import (
 )
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import resolve_insider_name
 
-ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", "government_contract", "signal")
+ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", *INSTITUTIONAL_EVENT_TYPES, "government_contract", "signal")
+INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
 SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
@@ -58,9 +61,9 @@ class DigestBuild:
 
 
 def build_watchlist_activity_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
-    rows = _watchlist_events(db, watchlist.id, since=since, limit=WATCHLIST_FETCH_LIMIT)
+    rows = _watchlist_events(db, watchlist.id, since=since, limit=WATCHLIST_FETCH_LIMIT, user=user)
     items = [_event_item(row) for row in rows]
-    total_count = _watchlist_events_count(db, watchlist.id, since=since)
+    total_count = _watchlist_events_count(db, watchlist.id, since=since, user=user)
     summary = _count_summary(total_count, "new filing or event", "new filings or events")
     return DigestBuild(
         template_key="alerts.watchlist_activity",
@@ -130,29 +133,33 @@ def build_monitoring_digest(
     since: datetime,
     window_end: datetime | None = None,
 ) -> DigestBuild:
+    confirmation_query = (
+        select(ConfirmationMonitoringEvent)
+        .where(ConfirmationMonitoringEvent.user_id == user.id)
+        .where(ConfirmationMonitoringEvent.watchlist_id == watchlist.id)
+        .where(ConfirmationMonitoringEvent.created_at >= since)
+        .order_by(ConfirmationMonitoringEvent.created_at.desc(), ConfirmationMonitoringEvent.id.desc())
+        .limit(12)
+    )
+    if not _user_can_view_institutional_activity(db, user):
+        confirmation_query = confirmation_query.where(ConfirmationMonitoringEvent.event_type.notin_(INSTITUTIONAL_ALERT_TYPES))
     confirmation_rows = (
-        db.execute(
-            select(ConfirmationMonitoringEvent)
-            .where(ConfirmationMonitoringEvent.user_id == user.id)
-            .where(ConfirmationMonitoringEvent.watchlist_id == watchlist.id)
-            .where(ConfirmationMonitoringEvent.created_at >= since)
-            .order_by(ConfirmationMonitoringEvent.created_at.desc(), ConfirmationMonitoringEvent.id.desc())
-            .limit(12)
-        )
+        db.execute(confirmation_query)
         .scalars()
         .all()
     )
+    alert_query = (
+        select(MonitoringAlert)
+        .where(MonitoringAlert.user_id == user.id)
+        .where(MonitoringAlert.source_type == "watchlist")
+        .where(MonitoringAlert.source_id == str(watchlist.id))
+        .where(MonitoringAlert.dismissed_at.is_(None))
+        .where(MonitoringAlert.event_created_at >= since)
+        .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+        .limit(12)
+    )
     alert_rows = (
-        db.execute(
-            select(MonitoringAlert)
-            .where(MonitoringAlert.user_id == user.id)
-            .where(MonitoringAlert.source_type == "watchlist")
-            .where(MonitoringAlert.source_id == str(watchlist.id))
-            .where(MonitoringAlert.dismissed_at.is_(None))
-            .where(MonitoringAlert.event_created_at >= since)
-            .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
-            .limit(12)
-        )
+        db.execute(_exclude_institutional_alerts_for_user(db, user, alert_query))
         .scalars()
         .all()
     )
@@ -799,17 +806,18 @@ def _watchlist_subscription(db: Session, user: UserAccount, watchlist: Watchlist
     )
 
 
-def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int) -> list[Event]:
+def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int, user: UserAccount) -> list[Event]:
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
         return []
     activity_ts = func.coalesce(Event.event_date, Event.ts)
+    event_types = _alert_event_types_for_user(db, user)
     return (
         db.execute(
             select(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(ALERT_EVENT_TYPES))
+            .where(Event.event_type.in_(event_types))
             .where(activity_ts >= since)
             .order_by(activity_ts.desc(), Event.id.desc())
             .limit(limit)
@@ -819,18 +827,19 @@ def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit:
     )
 
 
-def _watchlist_events_count(db: Session, watchlist_id: int, *, since: datetime) -> int:
+def _watchlist_events_count(db: Session, watchlist_id: int, *, since: datetime, user: UserAccount) -> int:
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
         return 0
     activity_ts = func.coalesce(Event.event_date, Event.ts)
+    event_types = _alert_event_types_for_user(db, user)
     return int(
         db.execute(
             select(func.count())
             .select_from(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(ALERT_EVENT_TYPES))
+            .where(Event.event_type.in_(event_types))
             .where(activity_ts >= since)
         ).scalar_one()
         or 0
@@ -1014,19 +1023,36 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
         "smart_score_threshold",
         "cross_source_confirmation",
     )
+    query = (
+        select(MonitoringAlert)
+        .where(MonitoringAlert.user_id == user.id)
+        .where(MonitoringAlert.dismissed_at.is_(None))
+        .where(MonitoringAlert.event_created_at >= since)
+        .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
+        .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
+        .limit(limit)
+    )
     return (
-        db.execute(
-            select(MonitoringAlert)
-            .where(MonitoringAlert.user_id == user.id)
-            .where(MonitoringAlert.dismissed_at.is_(None))
-            .where(MonitoringAlert.event_created_at >= since)
-            .where(or_(MonitoringAlert.source_type == "saved_screen", MonitoringAlert.alert_type.in_(signal_types)))
-            .order_by(MonitoringAlert.event_created_at.desc(), MonitoringAlert.id.desc())
-            .limit(limit)
-        )
+        db.execute(_exclude_institutional_alerts_for_user(db, user, query))
         .scalars()
         .all()
     )
+
+
+def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> bool:
+    return entitlements_for_user(db, user).has_feature("institutional_feed")
+
+
+def _alert_event_types_for_user(db: Session, user: UserAccount) -> tuple[str, ...]:
+    if _user_can_view_institutional_activity(db, user):
+        return ALERT_EVENT_TYPES
+    return tuple(event_type for event_type in ALERT_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+
+
+def _exclude_institutional_alerts_for_user(db: Session, user: UserAccount, query):
+    if _user_can_view_institutional_activity(db, user):
+        return query
+    return query.where(MonitoringAlert.alert_type.notin_(INSTITUTIONAL_ALERT_TYPES))
 
 
 def _signal_confirmation_events(
@@ -1046,6 +1072,8 @@ def _signal_confirmation_events(
     )
     if watchlist is not None:
         query = query.where(ConfirmationMonitoringEvent.watchlist_id == watchlist.id)
+    if not _user_can_view_institutional_activity(db, user):
+        query = query.where(ConfirmationMonitoringEvent.event_type.notin_(INSTITUTIONAL_ALERT_TYPES))
     return db.execute(query).scalars().all()
 
 

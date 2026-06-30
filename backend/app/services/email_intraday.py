@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import normalize_email
+from app.entitlements import entitlements_for_user
 from app.models import (
     ConfirmationMonitoringEvent,
     EmailDelivery,
@@ -35,10 +36,12 @@ from app.services.email_digests import (
     _loads_dict,
     _score_display,
 )
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 
 INTRADAY_WATCHLIST_TEMPLATE = "alerts.watchlist_intraday"
 INTRADAY_SIGNAL_TEMPLATE = "alerts.signal_intraday"
-INTRADAY_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", "government_contract", "signal")
+INTRADAY_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", *INSTITUTIONAL_EVENT_TYPES, "government_contract", "signal")
+INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SIGNAL_ALERT_TYPES = (
     "signal",
     "score_change",
@@ -174,13 +177,14 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
         symbols = _watchlist_symbols(db, watchlist.id)
         if not symbols:
             continue
+        event_types = _intraday_event_types_for_user(db, user)
         activity_ts = func.coalesce(Event.event_date, Event.ts)
         rows = (
             db.execute(
                 select(Event)
                 .where(Event.symbol.is_not(None))
                 .where(func.upper(Event.symbol).in_(symbols))
-                .where(Event.event_type.in_(INTRADAY_EVENT_TYPES))
+                .where(Event.event_type.in_(event_types))
                 .where(activity_ts >= since)
                 .order_by(activity_ts.desc(), Event.id.desc())
                 .limit(limit)
@@ -206,6 +210,7 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
     )
     candidates: list[IntradayAlertCandidate] = []
     for user in users:
+        can_view_institutional = _user_can_view_institutional_activity(db, user)
         alert_rows = (
             db.execute(
                 select(MonitoringAlert)
@@ -221,6 +226,8 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
         )
         watchlist_symbols = set(_user_watchlist_symbols(db, user.id))
         for alert in alert_rows:
+            if _is_institutional_alert_type(alert.alert_type) and not can_view_institutional:
+                continue
             candidates.append(_signal_alert_candidate(user, alert, watchlist_symbols))
         confirmation_rows = (
             db.execute(
@@ -234,8 +241,24 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             .all()
         )
         for event in confirmation_rows:
+            if _is_institutional_alert_type(event.event_type) and not can_view_institutional:
+                continue
             candidates.append(_confirmation_candidate(user, event, watchlist_symbols))
     return candidates[:limit]
+
+
+def _user_can_view_institutional_activity(db: Session, user: UserAccount) -> bool:
+    return entitlements_for_user(db, user).has_feature("institutional_feed")
+
+
+def _intraday_event_types_for_user(db: Session, user: UserAccount) -> tuple[str, ...]:
+    if _user_can_view_institutional_activity(db, user):
+        return INTRADAY_EVENT_TYPES
+    return tuple(event_type for event_type in INTRADAY_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+
+
+def _is_institutional_alert_type(value: str | None) -> bool:
+    return (value or "").strip().lower() in INSTITUTIONAL_ALERT_TYPES
 
 
 def _watchlist_candidate(user: UserAccount, watchlist: Watchlist, event: Event) -> IntradayAlertCandidate:

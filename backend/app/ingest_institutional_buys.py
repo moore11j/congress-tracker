@@ -219,7 +219,7 @@ def institutional_ingest_run(*, pages: int, limit: int, days: int = 30) -> dict[
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ingest institutional buy events from FMP into events tape.")
+    parser = argparse.ArgumentParser(description="Ingest legacy institutional activity events into the events tape.")
     parser.add_argument("--days", type=int, default=30, help="Only ingest filings for the most recent N days.")
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--page-limit", type=int, default=3)

@@ -94,7 +94,7 @@ test("ticker upper Signals source card repairs stale inactive SSR from browser-a
   assert.match(sourceCard, /return "UNAVAILABLE"/);
 });
 
-test("ticker institutional source card renders unavailable for entitled missing provider state", () => {
+test("ticker institutional source card renders unavailable for entitled missing data state", () => {
   const institutionalCard = read("components/ticker/TickerInstitutionalSourceCardClient.tsx");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
 
@@ -108,9 +108,9 @@ test("ticker institutional source card renders unavailable for entitled missing 
   assert.match(institutionalCard, /normalizeSourceForAccess/);
   assert.match(institutionalCard, /canViewInstitutional && sourceLocked\(source\)/);
   assert.match(institutionalCard, /nextEntitlement\?\.locked && !canViewInstitutional/);
-  assert.match(institutionalCard, /return "UNAVAILABLE"/);
-  assert.match(institutionalCard, /Institutional activity unavailable\./);
-  assert.match(institutionalCard, /Institutional activity source is not configured\./);
+  assert.match(institutionalCard, /return "Unavailable"/);
+  assert.match(institutionalCard, /Institutional Activity unavailable\./);
+  assert.match(institutionalCard, /No institutional activity data is available\./);
   assert.match(tickerPage, /const institutionalCardLocked = !canViewProTickerContext && sourceIsLocked\(sourceEntitlements, "institutional_activity"\)/);
   assert.match(tickerPage, /canViewInstitutional=\{canViewProTickerContext\}/);
   assert.match(tickerPage, /requiredPlan="pro"/);

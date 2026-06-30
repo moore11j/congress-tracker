@@ -166,6 +166,7 @@ export function SignalsFiltersClient({
               ["all", "ALL"],
               ["congress", "CONGRESS"],
               ["insider", "INSIDER"],
+              ["institutional", "INSTITUTIONAL"],
             ] as const).map(([value, label]) => (
               <button
                 key={value}

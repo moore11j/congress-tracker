@@ -1209,6 +1209,37 @@ def ensure_data_enrichment_jobs_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_data_enrichment_jobs_status_next_run ON data_enrichment_jobs (status, next_run_at)"))
 
 
+def ensure_institutional_activity_schema(bind=engine) -> None:
+    from app.models import (
+        InstitutionalActivityEvent,
+        InstitutionalFiling,
+        InstitutionalHolder,
+        InstitutionalHolderIndustryBreakdown,
+        InstitutionalIndustrySummary,
+        InstitutionalPosition,
+        InstitutionalPositionChange,
+        InstitutionalSymbolSummary,
+    )
+
+    tables = [
+        InstitutionalHolder.__table__,
+        InstitutionalFiling.__table__,
+        InstitutionalPosition.__table__,
+        InstitutionalPositionChange.__table__,
+        InstitutionalSymbolSummary.__table__,
+        InstitutionalActivityEvent.__table__,
+        InstitutionalIndustrySummary.__table__,
+        InstitutionalHolderIndustryBreakdown.__table__,
+    ]
+    with bind.begin() as conn:
+        _set_postgres_ddl_timeouts(conn)
+        # This project rolls additive schema forward at startup; keep 13F tables
+        # on the same create-if-missing path unless a formal migration system is adopted.
+        logger.info("institutional_activity_schema_ensure_start table_count=%s", len(tables))
+        Base.metadata.create_all(bind=conn, tables=tables)
+        logger.info("institutional_activity_schema_ensure_complete table_count=%s", len(tables))
+
+
 def ensure_event_columns() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return

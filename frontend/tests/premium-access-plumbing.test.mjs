@@ -14,6 +14,7 @@ const leaderboardFiltersClient = read("components/leaderboards/CongressTraderLea
 const backtestingWorkbench = read("components/backtesting/BacktestingWorkbench.tsx");
 const congressMemberAutosuggest = read("components/backtesting/CongressMemberAutosuggest.tsx");
 const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx");
+const signalsFiltersClient = read("components/signals/SignalsFiltersClient.tsx");
 const screenerResultsClient = read("components/screener/ScreenerResultsClient.tsx");
 const leaderboardResultsClient = read("components/leaderboards/CongressTraderLeaderboardClientResults.tsx");
 const entitlements = read("lib/entitlements.ts");
@@ -21,17 +22,40 @@ const api = read("lib/api.ts");
 const serverAuth = read("lib/serverAuth.ts");
 const entitlementHintRefresh = read("components/auth/EntitlementHintRefresh.tsx");
 const tickerPage = read("app/ticker/[symbol]/page.tsx");
+const defaultPlanConfig = read("lib/defaultPlanConfig.ts");
+const tickerInstitutionalSourceCard = read("components/ticker/TickerInstitutionalSourceCardClient.tsx");
 
 test("signals page preserves the full filter and saved-view surface", () => {
-  assert.match(signalsPage, /Mode/);
-  assert.match(signalsPage, /Side/);
-  assert.match(signalsPage, /Sort/);
-  assert.match(signalsPage, /Confirm/);
-  assert.match(signalsPage, /Direction/);
-  assert.match(signalsPage, /Sources/);
+  assert.match(signalsFiltersClient, /Mode/);
+  assert.match(signalsFiltersClient, /Side/);
+  assert.match(signalsFiltersClient, /Sort/);
+  assert.match(signalsFiltersClient, /Confirm/);
+  assert.match(signalsFiltersClient, /Direction/);
+  assert.match(signalsFiltersClient, /Sources/);
+  assert.match(signalsFiltersClient, /INSTITUTIONAL/);
   assert.match(signalsPage, /Signals table/);
-  assert.match(signalsPage, /SavedViewsBar/);
+  assert.match(signalsPage, /SignalsFiltersClient/);
+  assert.match(signalsFiltersClient, /SavedViewsBar/);
   assert.doesNotMatch(signalsPage, /SignalsClientPage/);
+});
+
+test("institutional user-facing copy avoids source plumbing language", () => {
+  const institutionalBlocks = Array.from(
+    defaultPlanConfig.matchAll(/\{[\s\S]*?feature_key: "institutional_[\s\S]*?\n  \},/g),
+    (match) => match[0],
+  );
+  assert.ok(institutionalBlocks.length >= 2);
+  for (const block of institutionalBlocks) {
+    assert.doesNotMatch(block, /\b(?:FMP|provider|vendor|cache|data provider|source provider)\b/i);
+  }
+});
+
+test("ticker institutional card uses the product state label contract", () => {
+  for (const label of ["Locked", "Unavailable", "Quiet", "Active"]) {
+    assert.match(tickerInstitutionalSourceCard, new RegExp(`"${label}"`));
+  }
+  assert.doesNotMatch(tickerInstitutionalSourceCard, /BULLISH SUPPORT/);
+  assert.doesNotMatch(tickerInstitutionalSourceCard, /return "INACTIVE"/);
 });
 
 test("screener page preserves presets, filter sections, and workflow controls", () => {

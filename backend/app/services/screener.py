@@ -95,6 +95,9 @@ SUPPORTED_SORTS = {
     "institutional_activity_net_activity",
     "institutional_activity_institution_count",
     "institutional_activity_total_value",
+    "institutional_activity_ownership_pct",
+    "institutional_activity_holder_breadth",
+    "institutional_activity_materiality_score",
 }
 
 PREMIUM_SORTS = {
@@ -112,6 +115,9 @@ PREMIUM_SORTS = {
     "institutional_activity_net_activity",
     "institutional_activity_institution_count",
     "institutional_activity_total_value",
+    "institutional_activity_ownership_pct",
+    "institutional_activity_holder_breadth",
+    "institutional_activity_materiality_score",
 }
 OPTIONS_FLOW_FILTER_KEYS = {
     "options_flow_active",
@@ -126,13 +132,19 @@ OPTIONS_FLOW_SORTS = {
 }
 INSTITUTIONAL_ACTIVITY_FILTER_KEYS = {
     "institutional_activity_active",
+    "institutional_activity_type",
     "institutional_activity_direction",
     "institutional_activity_min_value",
+    "institutional_activity_min_ownership_pct",
+    "institutional_activity_holder_breadth",
 }
 INSTITUTIONAL_ACTIVITY_SORTS = {
     "institutional_activity_net_activity",
     "institutional_activity_institution_count",
     "institutional_activity_total_value",
+    "institutional_activity_ownership_pct",
+    "institutional_activity_holder_breadth",
+    "institutional_activity_materiality_score",
 }
 PREMIUM_SIGNAL_FILTER_KEYS = {
     "confirmation_score_min",
@@ -289,8 +301,12 @@ class ScreenerParams:
     options_flow_min_premium: float | None = None
     options_flow_lookback_days: int = DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS
     institutional_activity_active: bool | None = None
+    institutional_activity_type: str | None = None
     institutional_activity_direction: str | None = None
     institutional_activity_min_value: float | None = None
+    institutional_activity_min_ownership_pct: float | None = None
+    institutional_activity_holder_breadth: str | None = None
+    institutional_activity_lookback: str | None = None
     institutional_activity_lookback_days: int = DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
     rel_volume_min: float | None = None
     rel_volume_max: float | None = None
@@ -386,10 +402,16 @@ def screener_params_from_mapping(
         options_flow_min_premium=_float_param(params.get("options_flow_min_premium")),
         options_flow_lookback_days=_int_param(params.get("options_flow_lookback_days")) or DEFAULT_OPTIONS_FLOW_LOOKBACK_DAYS,
         institutional_activity_active=_bool_param(params.get("institutional_activity_active")),
+        institutional_activity_type=_string_param(params.get("institutional_activity_type")),
         institutional_activity_direction=_string_param(params.get("institutional_activity_direction")),
         institutional_activity_min_value=_float_param(params.get("institutional_activity_min_value")),
-        institutional_activity_lookback_days=_int_param(params.get("institutional_activity_lookback_days"))
-        or DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS,
+        institutional_activity_min_ownership_pct=_float_param(params.get("institutional_activity_min_ownership_pct")),
+        institutional_activity_holder_breadth=_string_param(params.get("institutional_activity_holder_breadth")),
+        institutional_activity_lookback=_string_param(params.get("institutional_activity_lookback")),
+        institutional_activity_lookback_days=_institutional_lookback_days(
+            params.get("institutional_activity_lookback"),
+            params.get("institutional_activity_lookback_days"),
+        ),
         rel_volume_min=_float_param(params.get("rel_volume_min")),
         rel_volume_max=_float_param(params.get("rel_volume_max")),
         price_move_min=_float_param(params.get("price_move_min")),
@@ -1090,8 +1112,12 @@ def _intelligence_filter_keys() -> tuple[str, ...]:
         "options_flow_min_premium",
         "options_flow_lookback_days",
         "institutional_activity_active",
+        "institutional_activity_type",
         "institutional_activity_direction",
         "institutional_activity_min_value",
+        "institutional_activity_min_ownership_pct",
+        "institutional_activity_holder_breadth",
+        "institutional_activity_lookback",
         "institutional_activity_lookback_days",
     )
 
@@ -1589,9 +1615,18 @@ def _enrich_row(
     institutional_activity_status = (
         institutional_activity_summary.get("status")
         if isinstance(institutional_activity_summary.get("status"), str)
-        else "not_configured"
+        else "unavailable"
     )
     institutional_activity_available = institutional_activity_status == "ok"
+    holders_increased = _int_param(institutional_activity_summary.get("holders_increased")) if institutional_activity_available else None
+    holders_reduced = _int_param(institutional_activity_summary.get("holders_reduced")) if institutional_activity_available else None
+    new_positions = _int_param(institutional_activity_summary.get("new_positions")) if institutional_activity_available else None
+    exits = _int_param(institutional_activity_summary.get("exits")) if institutional_activity_available else None
+    holder_breadth = (
+        int(holders_increased or 0) + int(new_positions or 0) - int(holders_reduced or 0) - int(exits or 0)
+        if institutional_activity_available
+        else None
+    )
     return {
         **row,
         "congress_activity": _activity_from_bundle(bundle, "congress", "No recent activity"),
@@ -1632,6 +1667,13 @@ def _enrich_row(
         "institutional_activity_net_activity": _number(institutional_activity_summary.get("net_activity")) if institutional_activity_available else None,
         "institutional_activity_institution_count": _int_param(institutional_activity_summary.get("institution_count")) if institutional_activity_available else None,
         "institutional_activity_total_value": _number(institutional_activity_summary.get("total_value")) if institutional_activity_available else None,
+        "institutional_activity_ownership_pct": _number(institutional_activity_summary.get("institutional_ownership_pct")) if institutional_activity_available else None,
+        "institutional_activity_holders_increased": holders_increased,
+        "institutional_activity_holders_reduced": holders_reduced,
+        "institutional_activity_new_positions": new_positions,
+        "institutional_activity_exits": exits,
+        "institutional_activity_holder_breadth": holder_breadth,
+        "institutional_activity_materiality_score": _number(institutional_activity_summary.get("materiality_score")) if institutional_activity_available else None,
         "institutional_activity_latest_date": institutional_activity_summary.get("latest_activity_date") if institutional_activity_available and isinstance(institutional_activity_summary.get("latest_activity_date"), str) else None,
         "institutional_activity_status": institutional_activity_status,
         "confirmation": {
@@ -1698,6 +1740,13 @@ def _redact_institutional_activity_row(row: dict[str, Any]) -> dict[str, Any]:
         "institutional_activity_net_activity": None,
         "institutional_activity_institution_count": None,
         "institutional_activity_total_value": None,
+        "institutional_activity_ownership_pct": None,
+        "institutional_activity_holders_increased": None,
+        "institutional_activity_holders_reduced": None,
+        "institutional_activity_new_positions": None,
+        "institutional_activity_exits": None,
+        "institutional_activity_holder_breadth": None,
+        "institutional_activity_materiality_score": None,
         "institutional_activity_latest_date": None,
         "institutional_activity_status": "pro_locked",
         "institutional_activity_locked": True,
@@ -1728,8 +1777,14 @@ def _locked_institutional_activity_summary() -> dict[str, Any]:
         "net_activity": None,
         "institution_count": None,
         "total_value": None,
+        "institutional_ownership_pct": None,
+        "holders_increased": None,
+        "holders_reduced": None,
+        "new_positions": None,
+        "exits": None,
+        "materiality_score": None,
         "latest_activity_date": None,
-        "source": None,
+        "source_label": "Institutional Activity",
         "status": "pro_locked",
         "locked": True,
         "required_plan": "pro",
@@ -1870,10 +1925,16 @@ def _row_matches_filters(
     if institutional_filterable:
         if not _matches_boolean_filter(row.get("institutional_activity_active"), params.institutional_activity_active):
             return False
+        if not _matches_institutional_activity_type(row, params.institutional_activity_type):
+            return False
         institutional_direction = _normalized_str(params.institutional_activity_direction)
         if institutional_direction and _normalized_str(row.get("institutional_activity_direction")) != institutional_direction:
             return False
-        if params.institutional_activity_min_value is not None and _sort_number(row.get("institutional_activity_total_value"), missing=-1.0) < float(params.institutional_activity_min_value):
+        if params.institutional_activity_min_value is not None and _institutional_reported_value(row) < float(params.institutional_activity_min_value):
+            return False
+        if params.institutional_activity_min_ownership_pct is not None and _sort_number(row.get("institutional_activity_ownership_pct"), missing=-1.0) < float(params.institutional_activity_min_ownership_pct):
+            return False
+        if not _matches_institutional_holder_breadth(row, params.institutional_activity_holder_breadth):
             return False
 
     if not _matches_technical_filters(row, params):
@@ -1881,6 +1942,56 @@ def _row_matches_filters(
     if not _matches_fundamental_filters(row, params):
         return False
 
+    return True
+
+
+def _institutional_reported_value(row: dict[str, Any]) -> float:
+    net = abs(_sort_number(row.get("institutional_activity_net_activity"), missing=0.0))
+    total = abs(_sort_number(row.get("institutional_activity_total_value"), missing=0.0))
+    return max(net, total)
+
+
+def _matches_institutional_activity_type(row: dict[str, Any], value: str | None) -> bool:
+    activity_type = _normalized_str(value)
+    if not activity_type or activity_type == "any":
+        return True
+    direction = _normalized_str(row.get("institutional_activity_direction"))
+    new_positions = _int_param(row.get("institutional_activity_new_positions")) or 0
+    exits = _int_param(row.get("institutional_activity_exits")) or 0
+    materiality = _sort_number(row.get("institutional_activity_materiality_score"), missing=0.0)
+    breadth = abs(_int_param(row.get("institutional_activity_holder_breadth")) or 0)
+    if activity_type == "accumulation":
+        return direction == "bullish"
+    if activity_type == "distribution":
+        return direction == "bearish"
+    if activity_type == "new_position":
+        return new_positions > 0
+    if activity_type == "exit":
+        return exits > 0
+    if activity_type == "major_holder_move":
+        return materiality >= 70 or _institutional_reported_value(row) >= 50_000_000
+    if activity_type == "cluster_move":
+        return breadth >= 10 or max(
+            _int_param(row.get("institutional_activity_holders_increased")) or 0,
+            _int_param(row.get("institutional_activity_holders_reduced")) or 0,
+        ) >= 10
+    return True
+
+
+def _matches_institutional_holder_breadth(row: dict[str, Any], value: str | None) -> bool:
+    breadth_filter = _normalized_str(value)
+    if not breadth_filter or breadth_filter == "any":
+        return True
+    breadth = _int_param(row.get("institutional_activity_holder_breadth")) or 0
+    increased = _int_param(row.get("institutional_activity_holders_increased")) or 0
+    if breadth_filter in {"net_3", "net+3", "net_plus_3"}:
+        return breadth >= 3
+    if breadth_filter in {"net_10", "net+10", "net_plus_10"}:
+        return breadth >= 10
+    if breadth_filter in {"increasing_10", "10_increasing", "inc_10"}:
+        return increased >= 10
+    if breadth_filter in {"increasing_25", "25_increasing", "inc_25"}:
+        return increased >= 25
     return True
 
 
@@ -2003,6 +2114,20 @@ def _matches_fundamental_filters(row: dict[str, Any], params: ScreenerParams) ->
 
 def _normalized_str(value: Any) -> str | None:
     return value.strip().lower() if isinstance(value, str) and value.strip() else None
+
+
+def _institutional_lookback_days(lookback: Any, legacy_days: Any = None) -> int:
+    normalized = _normalized_str(lookback)
+    if normalized in {"30d", "30", "30_days"}:
+        return 30
+    if normalized in {"90d", "90", "90_days", "latest_quarter"}:
+        return 90
+    if normalized in {"1y", "365", "365d", "365_days"}:
+        return 365
+    parsed = _int_param(legacy_days)
+    if parsed is not None:
+        return max(1, min(parsed, 365))
+    return DEFAULT_INSTITUTIONAL_ACTIVITY_LOOKBACK_DAYS
 
 
 def _normalized_filter_values(value: Any) -> set[str]:
@@ -2159,7 +2284,14 @@ def _ignored_overlay_filters(params: ScreenerParams, overlay_availability: dict[
             if getattr(params, key) is not None:
                 ignored.append(key)
     if not _overlay_filterable(overlay_availability, "institutional_activity"):
-        for key in ("institutional_activity_active", "institutional_activity_direction", "institutional_activity_min_value"):
+        for key in (
+            "institutional_activity_active",
+            "institutional_activity_type",
+            "institutional_activity_direction",
+            "institutional_activity_min_value",
+            "institutional_activity_min_ownership_pct",
+            "institutional_activity_holder_breadth",
+        ):
             if getattr(params, key) is not None:
                 ignored.append(key)
     return ignored

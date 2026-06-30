@@ -353,9 +353,33 @@ const badEventIdentityLabels = new Set([
   "congress_crypto_trade",
   "insider_trade",
   "institutional_buy",
+  "institutional_accumulation",
+  "institutional_distribution",
+  "new_institutional_position",
+  "major_holder_reduction",
+  "major_holder_exit",
+  "cluster_accumulation",
+  "cluster_distribution",
+  "smart_money_confirmation",
+  "crowded_long",
+  "contrarian_accumulation",
   "government_contract",
   "event",
   "security",
+]);
+
+const institutionalActivityEventTypes = new Set([
+  "institutional_buy",
+  "institutional_accumulation",
+  "institutional_distribution",
+  "new_institutional_position",
+  "major_holder_reduction",
+  "major_holder_exit",
+  "cluster_accumulation",
+  "cluster_distribution",
+  "smart_money_confirmation",
+  "crowded_long",
+  "contrarian_accumulation",
 ]);
 
 function isBadEventIdentityLabel(value?: string | null): boolean {
@@ -405,6 +429,16 @@ function resolveInsiderReportingCik(item: FeedItem): string | null {
   return insiderItem.insider?.reporting_cik ?? insiderItem.payload?.reporting_cik ?? insiderItem.payload?.raw?.reportingCik ?? null;
 }
 
+function institutionalActionLabel(kind?: string | null, item?: FeedItem): string {
+  const direction = String((item as any)?.direction ?? (item as any)?.payload?.direction ?? "").toLowerCase();
+  if (kind === "new_institutional_position") return "Reported New Position";
+  if (kind === "major_holder_exit") return "Reported Exit";
+  if (kind === "institutional_distribution" || kind === "major_holder_reduction" || kind === "cluster_distribution" || direction === "bearish") return "Reported Reduction";
+  if (kind === "institutional_accumulation" || kind === "cluster_accumulation" || kind === "contrarian_accumulation" || direction === "bullish") return "Reported Increase";
+  if (kind === "institutional_buy") return "Reported Increase";
+  return "13F Filing";
+}
+
 export function FeedCard({
   item,
   whaleMode = "off",
@@ -430,7 +464,7 @@ export function FeedCard({
   const isCrypto = kind === "congress_crypto_trade" || item.security?.asset_class?.toLowerCase() === "crypto";
   const isCongressDisclosure = isCongress || isTreasury || isCrypto;
   const isInsider = kind === "insider_trade";
-  const isInstitutional = kind === "institutional_buy";
+  const isInstitutional = institutionalActivityEventTypes.has(String(kind ?? "").toLowerCase());
   const isGovernmentContract = kind === "government_contract";
   const chamber = chamberBadge(item.member?.chamber ?? "—");
   const party = partyBadge(item.member?.party ?? null);
@@ -516,9 +550,6 @@ export function FeedCard({
       ? { label: "Trade price", value: formatMoneyPrecise((congressEstimatedPrice ?? insiderPrice) as number) }
       : null,
     latestPrice !== null ? { label: "Latest", value: formatMoneyPrecise(latestPrice) } : null,
-    congressEstimatedShares !== null || insiderShares !== null
-      ? { label: "Shares", value: formatShares((congressEstimatedShares ?? insiderShares) as number) }
-      : null,
     { label: "Status", value: outcomeStatusLabel },
   ].filter((detail): detail is TooltipDetail => detail !== null);
   const outcomeTooltipBody = feedGainLossTooltip;
@@ -568,7 +599,9 @@ export function FeedCard({
               ? "neg"
               : transactionTone(item.transaction_type)
           : isInstitutional
-            ? "pos"
+            ? String(kind).includes("distribution") || String(kind).includes("reduction") || String(kind).includes("exit")
+              ? "neg"
+              : "neutral"
             : transactionTone(item.transaction_type)
       }
     >
@@ -579,7 +612,7 @@ export function FeedCard({
             ? "Sale"
             : (formatTransactionLabel(item.transaction_type) ?? "—")
         : isInstitutional
-          ? "Filing Increase"
+          ? institutionalActionLabel(String(kind), item)
           : (formatTransactionLabel(item.transaction_type) ?? "—")}
     </Badge>
   );
@@ -778,7 +811,7 @@ export function FeedCard({
               {isInsider ? (
                 <Badge tone={insiderRoleTone}>{insiderRoleBadge}</Badge>
               ) : isInstitutional ? (
-                <Badge tone="neutral">Institutional Filing</Badge>
+                <Badge tone="neutral">13F Filing</Badge>
               ) : (
                 <Badge tone={party.tone}>{tag}</Badge>
               )}
@@ -816,7 +849,7 @@ export function FeedCard({
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
-                      ? "Institutional filing (delayed)"
+                      ? "13F filing"
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
               </div>
@@ -866,7 +899,7 @@ export function FeedCard({
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
-                      ? "Institutional filing (delayed)"
+                      ? "13F filing"
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
                 {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
@@ -890,15 +923,21 @@ export function FeedCard({
           }
         >
           <div className={isMember ? "truncate" : undefined}>
-            {isInstitutional ? "Position" : "Trade"}:{" "}
+            {isInstitutional ? "Disclosure" : "Trade"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
-              {isInsider
-                ? formatYMD(insiderTxDate)
-                : item.trade_date
-                  ? formatDateShort(item.trade_date)
-                  : "—"}
+              {isInstitutional
+                ? item.report_date
+                  ? formatDateShort(item.report_date)
+                  : item.trade_date
+                    ? formatDateShort(item.trade_date)
+                    : "—"
+                : isInsider
+                  ? formatYMD(insiderTxDate)
+                  : item.trade_date
+                    ? formatDateShort(item.trade_date)
+                    : "—"}
             </span>
           </div>
           <div className={isMember ? "truncate" : undefined}>
@@ -943,11 +982,11 @@ export function FeedCard({
               )
             ) : isInstitutional ? (
               <>
-                Source:{" "}
+                Basis:{" "}
                 <span
                   className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
                 >
-                  {(item as any).source ?? "Institutional filing (delayed)"}
+                  13F filing
                 </span>
               </>
             ) : isWatchlist ? (

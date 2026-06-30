@@ -60,7 +60,7 @@ def build_confirmation_score_context(
             "overlay_availability": {
                 "government_contracts": government_availability,
                 "options_flow": {"status": "unavailable", "enabled": flags["feature_options_flow_enabled"]},
-                "institutional_activity": {"status": "not_configured", "enabled": flags["feature_institutional_activity_enabled"]},
+                "institutional_activity": {"status": "unavailable", "enabled": flags["feature_institutional_activity_enabled"]},
             },
         }
 

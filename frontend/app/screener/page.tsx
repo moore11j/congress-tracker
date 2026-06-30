@@ -122,6 +122,13 @@ type ScreenerRow = {
   institutional_activity_net_activity?: number | null;
   institutional_activity_institution_count?: number | null;
   institutional_activity_total_value?: number | null;
+  institutional_activity_ownership_pct?: number | null;
+  institutional_activity_holders_increased?: number | null;
+  institutional_activity_holders_reduced?: number | null;
+  institutional_activity_new_positions?: number | null;
+  institutional_activity_exits?: number | null;
+  institutional_activity_holder_breadth?: number | null;
+  institutional_activity_materiality_score?: number | null;
   institutional_activity_latest_date?: string | null;
   institutional_activity_status?: string | null;
   institutional_activity_locked?: boolean | null;
@@ -208,8 +215,12 @@ const PARAM_KEYS = [
   "options_flow_min_premium",
   "options_flow_lookback_days",
   "institutional_activity_active",
+  "institutional_activity_type",
   "institutional_activity_direction",
   "institutional_activity_min_value",
+  "institutional_activity_min_ownership_pct",
+  "institutional_activity_holder_breadth",
+  "institutional_activity_lookback",
   "institutional_activity_lookback_days",
   ...TECHNICAL_PARAM_KEYS,
   ...FUNDAMENTAL_PARAM_KEYS,
@@ -355,16 +366,37 @@ const INSTITUTIONAL_DIRECTION_OPTIONS = [
   ["bearish", "Bearish"],
   ["mixed", "Mixed"],
 ] as const;
+const INSTITUTIONAL_ACTIVITY_TYPE_OPTIONS = [
+  ["accumulation", "Accumulation"],
+  ["distribution", "Distribution"],
+  ["new_position", "New Position"],
+  ["exit", "Exit"],
+  ["major_holder_move", "Major Holder Move"],
+  ["cluster_move", "Cluster Move"],
+] as const;
 const INSTITUTIONAL_VALUE_OPTIONS = [
   ["1000000", "$1M+"],
   ["10000000", "$10M+"],
   ["50000000", "$50M+"],
-  ["250000000", "$250M+"],
+  ["100000000", "$100M+"],
+] as const;
+const INSTITUTIONAL_OWNERSHIP_OPTIONS = [
+  ["0.1", "0.1%+"],
+  ["0.5", "0.5%+"],
+  ["1", "1%+"],
+  ["5", "5%+"],
+] as const;
+const INSTITUTIONAL_HOLDER_BREADTH_OPTIONS = [
+  ["net_3", "Net +3"],
+  ["net_10", "Net +10"],
+  ["increasing_10", "10+ Increasing"],
+  ["increasing_25", "25+ Increasing"],
 ] as const;
 const INSTITUTIONAL_LOOKBACK_OPTIONS = [
-  ["90", "90D"],
-  ["180", "180D"],
-  ["365", "1Y"],
+  ["30d", "30D"],
+  ["90d", "90D"],
+  ["latest_quarter", "Latest Quarter"],
+  ["1y", "1Y"],
 ] as const;
 const MACD_STATE_OPTIONS = [
   ["bullish", "Bullish"],
@@ -405,6 +437,7 @@ const NUMERIC_PARAM_KEYS = new Set<string>([
   "options_flow_min_premium",
   "options_flow_lookback_days",
   "institutional_activity_min_value",
+  "institutional_activity_min_ownership_pct",
   "institutional_activity_lookback_days",
   ...TECHNICAL_PARAM_KEYS,
   ...FUNDAMENTAL_PARAM_KEYS,
@@ -533,9 +566,10 @@ function currentParams(sp: SearchParams) {
   const optionsFlowLookbackDays = [1, 7, 30, 90].includes(Number(getParam(sp, "options_flow_lookback_days")))
     ? Number(getParam(sp, "options_flow_lookback_days"))
     : 30;
-  const institutionalLookbackDays = [90, 180, 365].includes(Number(getParam(sp, "institutional_activity_lookback_days")))
-    ? Number(getParam(sp, "institutional_activity_lookback_days"))
-    : 90;
+  const institutionalLookback = ["30d", "90d", "latest_quarter", "1y"].includes(getParam(sp, "institutional_activity_lookback"))
+    ? getParam(sp, "institutional_activity_lookback")
+    : "latest_quarter";
+  const institutionalLookbackDays = institutionalLookback === "30d" ? 30 : institutionalLookback === "1y" ? 365 : 90;
   const governmentContractsMinAmount = getParam(sp, "government_contracts_min_amount").trim() || "1000000";
 
   const params: Record<string, string | number> = {
@@ -547,6 +581,7 @@ function currentParams(sp: SearchParams) {
     government_contracts_lookback_days: governmentContractsLookbackDays,
     government_contracts_min_amount: governmentContractsMinAmount,
     options_flow_lookback_days: optionsFlowLookbackDays,
+    institutional_activity_lookback: institutionalLookback,
     institutional_activity_lookback_days: institutionalLookbackDays,
   };
   PARAM_KEYS.forEach((key) => {
@@ -702,7 +737,7 @@ function overlayAvailabilityDefaults(): ScreenerResponse["overlay_availability"]
   return {
     government_contracts: { enabled: true, status: "ok", filterable: true },
     options_flow: { enabled: true, status: "unavailable", filterable: false },
-    institutional_activity: { enabled: true, status: "not_configured", filterable: false },
+    institutional_activity: { enabled: true, status: "unavailable", filterable: false },
   };
 }
 
@@ -936,6 +971,7 @@ export default async function ScreenerPage({
             government_contracts_lookback_days: "365",
             government_contracts_min_amount: "1000000",
             options_flow_lookback_days: "30",
+            institutional_activity_lookback: "latest_quarter",
             institutional_activity_lookback_days: "90",
           }}
           rightSlot={
@@ -1141,15 +1177,17 @@ export default async function ScreenerPage({
               <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Institutional Activity</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <FilterSelect name="institutional_activity_active" label="Institutional" value={params.institutional_activity_active} options={BOOLEAN_ACTIVITY_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_type" label="Activity" value={params.institutional_activity_type} options={INSTITUTIONAL_ACTIVITY_TYPE_OPTIONS} disabled={!institutionalActivityFilterable} />
                   <FilterSelect name="institutional_activity_direction" label="Direction" value={params.institutional_activity_direction} options={INSTITUTIONAL_DIRECTION_OPTIONS} disabled={!institutionalActivityFilterable} />
-                  <FilterSelect name="institutional_activity_min_value" label="Minimum value" value={params.institutional_activity_min_value} options={INSTITUTIONAL_VALUE_OPTIONS} disabled={!institutionalActivityFilterable} />
-                  <FilterSelect name="institutional_activity_lookback_days" label="Lookback" value={params.institutional_activity_lookback_days} options={INSTITUTIONAL_LOOKBACK_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_min_value" label="Min Reported Value" value={params.institutional_activity_min_value} options={INSTITUTIONAL_VALUE_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_min_ownership_pct" label="Min Ownership %" value={params.institutional_activity_min_ownership_pct} options={INSTITUTIONAL_OWNERSHIP_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_holder_breadth" label="Holder Breadth" value={params.institutional_activity_holder_breadth} options={INSTITUTIONAL_HOLDER_BREADTH_OPTIONS} disabled={!institutionalActivityFilterable} />
+                  <FilterSelect name="institutional_activity_lookback" label="Lookback" value={params.institutional_activity_lookback} options={INSTITUTIONAL_LOOKBACK_OPTIONS} disabled={!institutionalActivityFilterable} />
                 </div>
                 {!canUseInstitutionalActivity ? (
                   <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity filters require Pro.</p>
                 ) : !overlayAvailability?.institutional_activity?.filterable ? (
-                  <p className="mt-3 text-xs leading-5 text-slate-500">Institutional activity data is not connected yet.</p>
+                  <p className="mt-3 text-xs leading-5 text-slate-500">Institutional Activity is unavailable for the current universe.</p>
                 ) : null}
               </div>
             </div>
@@ -1596,13 +1634,16 @@ function OptionsFlowCell({ row, proLocked }: { row: ScreenerRow; proLocked?: boo
 function InstitutionalActivityCell({ row, proLocked }: { row: ScreenerRow; proLocked?: boolean }) {
   if (proLocked || row.institutional_activity_locked || row.institutional_activity_status === "pro_locked") return lockedMetricLine("Pro data locked");
   if (!row.institutional_activity_active || row.institutional_activity_status !== "ok") return <span className="text-sm text-slate-500">—</span>;
+  const breadth = row.institutional_activity_holder_breadth;
+  const ownership = row.institutional_activity_ownership_pct;
   return (
     <div className="min-w-[10rem]">
       <div className="text-sm font-semibold text-slate-100">
-        {formatCurrencyCompact(row.institutional_activity_net_activity)} net · {titleCase(row.institutional_activity_direction ?? "neutral")}
+        {formatCurrencyCompact(row.institutional_activity_net_activity)} reported · {titleCase(row.institutional_activity_direction ?? "neutral")}
       </div>
       <div className="mt-0.5 truncate text-[11px] leading-4 text-slate-500">
-        {row.institutional_activity_institution_count ?? 0} institution{row.institutional_activity_institution_count === 1 ? "" : "s"}
+        {breadth !== null && breadth !== undefined ? `Breadth ${breadth >= 0 ? "+" : ""}${breadth}` : `${row.institutional_activity_institution_count ?? 0} holders`}
+        {ownership !== null && ownership !== undefined ? ` · ${ownership.toFixed(1)}% ownership` : ""}
       </div>
     </div>
   );

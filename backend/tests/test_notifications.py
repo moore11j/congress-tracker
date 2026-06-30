@@ -102,6 +102,67 @@ def test_watchlist_digest_uses_unseen_since_and_only_sends_new_items():
         db.close()
 
 
+def test_watchlist_notification_digest_filters_institutional_details_by_entitlement():
+    db = _session()
+    try:
+        now = datetime.now(timezone.utc)
+        premium_user = _user(db, "premium-institutional-notify@example.com", tier="premium")
+        pro_user = _user(db, "pro-institutional-notify@example.com", tier="pro")
+        security = Security(symbol="NVDA", name="Nvidia", asset_class="stock", sector=None)
+        premium_watchlist = Watchlist(name="Premium AI", owner_user_id=premium_user.id)
+        pro_watchlist = Watchlist(name="Pro AI", owner_user_id=pro_user.id)
+        db.add_all([security, premium_watchlist, pro_watchlist])
+        db.flush()
+        db.add_all(
+            [
+                WatchlistItem(watchlist_id=premium_watchlist.id, security_id=security.id),
+                WatchlistItem(watchlist_id=pro_watchlist.id, security_id=security.id),
+                _event("NVDA", now - timedelta(minutes=15), 1_000_000, "institutional_accumulation"),
+            ]
+        )
+        db.commit()
+
+        premium_subscription = upsert_subscription(
+            db,
+            email=premium_user.email,
+            source_type="watchlist",
+            source_id=str(premium_watchlist.id),
+            source_name=premium_watchlist.name,
+            source_payload={"unseen_since": (now - timedelta(hours=1)).isoformat()},
+            frequency="daily",
+            only_if_new=True,
+            active=True,
+            alert_triggers=["institutional_activity"],
+            min_smart_score=None,
+            large_trade_amount=None,
+        )
+        pro_subscription = upsert_subscription(
+            db,
+            email=pro_user.email,
+            source_type="watchlist",
+            source_id=str(pro_watchlist.id),
+            source_name=pro_watchlist.name,
+            source_payload={"unseen_since": (now - timedelta(hours=1)).isoformat()},
+            frequency="daily",
+            only_if_new=True,
+            active=True,
+            alert_triggers=["institutional_activity"],
+            min_smart_score=None,
+            large_trade_amount=None,
+        )
+
+        premium_items, premium_alerts = build_digest_for_subscription(db, premium_subscription)
+        pro_items, pro_alerts = build_digest_for_subscription(db, pro_subscription)
+
+        assert premium_items == []
+        assert premium_alerts == []
+        assert len(pro_items) == 1
+        assert pro_items[0].event_type == "institutional_accumulation"
+        assert pro_alerts[0][0] == "institutional_activity"
+    finally:
+        db.close()
+
+
 def test_saved_view_digest_can_fire_large_trade_alert():
     db = _session()
     try:

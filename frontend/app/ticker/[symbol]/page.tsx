@@ -889,7 +889,7 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
         detail: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
         summary: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
       },
-      institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Institutional activity not configured" },
+      institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No recent institutional activity" },
     },
     drivers: ["Congress inactive", "Insiders inactive", "No current signal conviction"],
     active_sources: [],

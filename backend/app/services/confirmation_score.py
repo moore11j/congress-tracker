@@ -573,7 +573,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         "price_volume": _empty_source("No price confirmation"),
         "government_contracts": _empty_source("No recent government contracts"),
         "options_flow": _empty_source("Options flow not confirming"),
-        "institutional_activity": _empty_source("Institutional activity not configured"),
+        "institutional_activity": _empty_source("No recent institutional activity"),
     }
     return ConfirmationScoreBundle(
         ticker=ticker,
@@ -582,7 +582,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         band="inactive",
         direction="neutral",
         status="Inactive",
-        explanation="Congress, insider, contract, price, options, and institutional sources are inactive for this lookback.",
+    explanation="Congress, insider, contract, price, options, and institutional sources are inactive for this lookback.",
         sources=sources,
         drivers=["Congress inactive", "Insiders inactive", "No recent government contracts"],
         active_sources=[],
@@ -729,23 +729,54 @@ def _government_contracts_support_source(summary: dict | None) -> ConfirmationSo
 
 
 def _institutional_activity_source(summary: dict | None) -> ConfirmationSourceSummary:
-    if not isinstance(summary, dict) or summary.get("status") != "ok" or summary.get("active") is not True:
-        return _empty_source("Institutional activity not configured")
+    label = "Institutional Activity"
+    if not isinstance(summary, dict):
+        return _empty_source("No institutional activity data")
+    status = str(summary.get("status") or "").strip().lower()
+    if status in {"disabled", "pro_locked", "locked"}:
+        return _empty_source("Institutional Activity locked")
+    if status not in {"ok", "active", "quiet"}:
+        return _empty_source("No institutional activity data")
+    if summary.get("active") is not True:
+        return ConfirmationSourceSummary(
+            present=False,
+            direction="neutral",
+            strength=0,
+            quality=0,
+            freshness_days=_days_since_iso(summary.get("latest_filing_date") or summary.get("latest_activity_date")),
+            label="No material newly filed institutional activity",
+            detail=summary.get("user_copy_note") if isinstance(summary.get("user_copy_note"), str) else None,
+            summary="Latest quarter 13F holdings are available, but no material filing-date activity is active in the 30D confirmation window.",
+        )
 
     direction = summary.get("direction") if summary.get("direction") in {"bullish", "bearish", "mixed"} else "neutral"
-    total_value = float(summary.get("total_value") or 0)
-    institution_count = int(summary.get("institution_count") or 0)
-    freshness_days = _days_since_iso(summary.get("latest_activity_date"))
+    total_value = float(summary.get("total_value") or summary.get("net_activity") or 0)
+    institution_count = int(summary.get("institution_count") or summary.get("total_holders") or 0)
+    materiality = float(summary.get("materiality_score") or 0)
+    score_contribution = _clamp_int(abs(float(summary.get("confirmation_contribution") or summary.get("score_contribution") or 0)), maximum=15)
+    freshness_days = _days_since_iso(summary.get("latest_filing_date") or summary.get("latest_activity_date"))
     strength = _clamp_int(
-        20
-        + min(total_value / 25_000_000, 3.0) * 12
-        + min(institution_count, 10) * 3
-        + (6 if direction in {"bullish", "bearish"} else 0)
+        24
+        + min(materiality, 100.0) * 0.35
+        + min(abs(total_value) / 50_000_000, 2.5) * 8
+        + min(institution_count, 12) * 1.5
+        + score_contribution * 1.5
     )
     quality = _clamp_int(
-        28
-        + min(total_value / 50_000_000, 3.0) * 9
-        + min(institution_count, 12) * 3
+        32
+        + min(materiality, 100.0) * 0.28
+        + min(institution_count, 20) * 1.2
+        + score_contribution * 1.8
+    )
+    latest_quarter = (
+        f"Q{summary.get('latest_report_quarter')} {summary.get('latest_report_year')}"
+        if summary.get("latest_report_quarter") and summary.get("latest_report_year")
+        else "latest quarter"
+    )
+    action = "net reported accumulation" if direction == "bullish" else "net reported reduction" if direction == "bearish" else "mixed reported activity"
+    detail = (
+        f"{latest_quarter} 13F filings show {action}; "
+        f"latest filing date {summary.get('latest_filing_date') or 'unavailable'}."
     )
     return ConfirmationSourceSummary(
         present=True,
@@ -753,7 +784,10 @@ def _institutional_activity_source(summary: dict | None) -> ConfirmationSourceSu
         strength=strength,
         quality=quality,
         freshness_days=freshness_days,
-        label="Institutional activity active",
+        label=label,
+        score_contribution=score_contribution,
+        detail=detail,
+        summary=summary.get("user_copy_note") if isinstance(summary.get("user_copy_note"), str) else None,
     )
 
 
@@ -982,15 +1016,18 @@ def _options_flow_context_source(context: dict[str, Any] | None) -> Confirmation
 
 def _institutional_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
     if _context_status(context) != "active":
-        return _empty_source("Institutional activity not configured")
+        return _empty_source("No recent institutional activity")
     direction = _context_direction(context)
+    score = _context_float(context, "score")
     return ConfirmationSourceSummary(
         present=True,
         direction=direction,
-        strength=45,
-        quality=50,
+        strength=_clamp_int(score if score is not None else 45),
+        quality=55,
         freshness_days=_context_freshness_days(context),
-        label=_context_text(context, "title", "summary") or "Institutional activity active",
+        label=_context_text(context, "title", "summary") or "Institutional Activity",
+        detail=_context_text(context, "subtitle", "summary"),
+        summary="Institutional Activity is based on 13F filing-date freshness and disclosed quarter-end holdings.",
     )
 
 
@@ -1649,7 +1686,7 @@ def _driver_bullets(
         ("price_volume", "No price confirmation"),
         ("government_contracts", "No recent government contracts"),
         ("options_flow", "Options flow not confirming"),
-        ("institutional_activity", "Institutional activity not configured"),
+        ("institutional_activity", "No recent institutional activity"),
     ]
     for key, label in inactive_candidates:
         if len(drivers) >= 4:

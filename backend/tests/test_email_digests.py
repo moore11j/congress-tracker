@@ -49,12 +49,12 @@ def _request_for_user(user: UserAccount) -> Request:
     return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
 
 
-def _user(db, email: str, *, role: str = "user", watchlist_notifications: bool = True) -> UserAccount:
+def _user(db, email: str, *, role: str = "user", watchlist_notifications: bool = True, tier: str = "premium") -> UserAccount:
     user = UserAccount(
         email=email,
         first_name="Ada",
         role=role,
-        entitlement_tier="premium",
+        entitlement_tier=tier,
         watchlist_activity_notifications=watchlist_notifications,
     )
     db.add(user)
@@ -65,8 +65,11 @@ def _user(db, email: str, *, role: str = "user", watchlist_notifications: bool =
 
 def _watchlist(db, user: UserAccount, *, active_subscription: bool = True, only_if_new: bool = True) -> Watchlist:
     watchlist = Watchlist(name=f"{user.id} AI", owner_user_id=user.id)
-    security = Security(symbol="NVDA", name="Nvidia", asset_class="stock", sector=None)
-    db.add_all([watchlist, security])
+    security = db.execute(select(Security).where(Security.symbol == "NVDA")).scalar_one_or_none()
+    if security is None:
+        security = Security(symbol="NVDA", name="Nvidia", asset_class="stock", sector=None)
+        db.add(security)
+    db.add(watchlist)
     db.flush()
     db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id))
     db.add(
@@ -195,6 +198,109 @@ def _confirmation_event(db, user: UserAccount, watchlist: Watchlist, *, ticker: 
     db.commit()
     db.refresh(event)
     return event
+
+
+def test_institutional_watchlist_activity_digest_is_pro_gated():
+    db = _session()
+    try:
+        since = datetime.now(timezone.utc) - timedelta(days=1)
+        premium_user = _user(db, "premium-institutional-digest@example.com", tier="premium")
+        premium_watchlist = _watchlist(db, premium_user)
+        pro_user = _user(db, "pro-institutional-digest@example.com", tier="pro")
+        pro_watchlist = _watchlist(db, pro_user)
+        event = _bare_event(
+            db,
+            event_type="institutional_accumulation",
+            payload={"holder_name": "Blue Ridge Capital", "filing_date": datetime.now(timezone.utc).date().isoformat()},
+            member_name="Blue Ridge Capital",
+            impact_score=90,
+        )
+        event.amount_min = 10_000_000
+        event.amount_max = 10_000_000
+        db.commit()
+
+        premium_digest = build_watchlist_activity_digest(db, premium_user, premium_watchlist, since)
+        pro_digest = build_watchlist_activity_digest(db, pro_user, pro_watchlist, since)
+
+        assert premium_digest.items_count == 0
+        assert "Blue Ridge Capital" not in premium_digest.context["items_text"]
+        assert pro_digest.items_count == 1
+        assert pro_digest.items[0]["event_type"] == "institutional accumulation"
+    finally:
+        db.close()
+
+
+def test_institutional_monitoring_digest_alert_details_are_pro_gated():
+    db = _session()
+    try:
+        since = datetime.now(timezone.utc) - timedelta(days=1)
+        premium_user = _user(db, "premium-monitoring-digest@example.com", tier="premium")
+        premium_watchlist = _watchlist(db, premium_user)
+        pro_user = _user(db, "pro-monitoring-digest@example.com", tier="pro")
+        pro_watchlist = _watchlist(db, pro_user)
+        _monitoring_alert(
+            db,
+            premium_user,
+            premium_watchlist,
+            alert_type="institutional_accumulation",
+            title="NVDA Institutional Activity",
+            body="Blue Ridge Capital reported a larger NVDA position.",
+            payload={"event": {"holder_name": "Blue Ridge Capital", "direction": "bullish", "smart_score": 90}},
+        )
+        _monitoring_alert(
+            db,
+            pro_user,
+            pro_watchlist,
+            alert_type="institutional_accumulation",
+            title="NVDA Institutional Activity",
+            body="Blue Ridge Capital reported a larger NVDA position.",
+            payload={"event": {"holder_name": "Blue Ridge Capital", "direction": "bullish", "smart_score": 90}},
+        )
+
+        premium_digest = build_monitoring_digest(db, premium_user, premium_watchlist, since)
+        pro_digest = build_monitoring_digest(db, pro_user, pro_watchlist, since)
+
+        assert premium_digest.items_count == 0
+        assert "Blue Ridge Capital" not in premium_digest.context["items_text"]
+        assert pro_digest.items_count == 1
+        assert "Blue Ridge Capital" in pro_digest.context["items_text"]
+    finally:
+        db.close()
+
+
+def test_intraday_institutional_email_candidates_are_pro_gated(monkeypatch):
+    db = _session()
+    try:
+        now = datetime.now(timezone.utc)
+        premium_user = _user(db, "premium-intraday@example.com", tier="premium")
+        _watchlist(db, premium_user)
+        pro_user = _user(db, "pro-intraday@example.com", tier="pro")
+        _watchlist(db, pro_user)
+        event = _bare_event(
+            db,
+            event_type="institutional_accumulation",
+            payload={"holder_name": "Blue Ridge Capital", "filing_date": now.date().isoformat(), "smart_score": 95},
+            member_name="Blue Ridge Capital",
+            impact_score=95,
+        )
+        event.amount_min = 5_000_000
+        event.amount_max = 5_000_000
+        db.commit()
+        monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
+
+        results = run_intraday_alert_sweep(
+            db,
+            lookback_minutes=120,
+            limit=10,
+            dry_run=True,
+            now=now + timedelta(minutes=1),
+            market_hours_only=False,
+        )
+
+        assert [item["to_email"] for item in results] == ["pro-intraday@example.com"]
+        assert results[0]["event_type"] == "institutional_accumulation"
+    finally:
+        db.close()
 
 
 def test_watchlist_digest_skips_when_user_toggle_disabled():

@@ -12,7 +12,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, InstitutionalActivityEvent, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
     SignalFreshnessOut,
@@ -30,6 +30,7 @@ from app.services.signal_freshness import inactive_signal_freshness_bundle
 from app.services.ticker_meta import normalize_cik
 from app.services.why_now import inactive_why_now_bundle
 from app.services.foreign_trade_normalization import normalize_insider_price
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 
 router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
@@ -419,6 +420,10 @@ def _query_unified_signals(
     confirmation_direction: str = "all",
     min_confirmation_sources: int | None = None,
     multi_source_only: bool = False,
+    include_institutional: bool = False,
+    institutional_lookback_days: int = 30,
+    institutional_direction: str = "all",
+    institutional_min_value: float | None = None,
 ) -> list[UnifiedSignalOut]:
     now = datetime.now(timezone.utc)
     baseline_since = now - timedelta(days=baseline_days)
@@ -518,27 +523,29 @@ def _query_unified_signals(
     if symbol_values:
         insider_select = insider_select.where(func.upper(Event.symbol).in_(symbol_values))
 
-    union_sq = union_all(congress_select, insider_select).subquery()
+    rows = []
+    if mode != "institutional":
+        union_sq = union_all(congress_select, insider_select).subquery()
 
-    query = select(union_sq)
-    if mode == "congress":
-        query = query.where(union_sq.c.kind == "congress")
-    elif mode == "insider":
-        query = query.where(union_sq.c.kind == "insider")
+        query = select(union_sq)
+        if mode == "congress":
+            query = query.where(union_sq.c.kind == "congress")
+        elif mode == "insider":
+            query = query.where(union_sq.c.kind == "insider")
 
-    t = func.lower(func.trim(func.coalesce(union_sq.c.trade_type, "")))
-    if side == "buy":
-        query = query.where(t.in_(["purchase", "buy", "p-purchase"]))
-    elif side == "sell":
-        query = query.where(t.in_(["sale", "sell", "s-sale"]))
-    elif side == "buy_or_sell":
-        query = query.where(t.in_(["purchase", "buy", "p-purchase", "sale", "sell", "s-sale"]))
-    elif side == "award":
-        query = query.where(t.like("a-%") | t.like("%award%"))
-    elif side == "inkind":
-        query = query.where(t.like("f-%") | t.like("%inkind%"))
-    elif side == "exempt":
-        query = query.where(t.like("m-%") | t.like("%exempt%"))
+        t = func.lower(func.trim(func.coalesce(union_sq.c.trade_type, "")))
+        if side == "buy":
+            query = query.where(t.in_(["purchase", "buy", "p-purchase"]))
+        elif side == "sell":
+            query = query.where(t.in_(["sale", "sell", "s-sale"]))
+        elif side == "buy_or_sell":
+            query = query.where(t.in_(["purchase", "buy", "p-purchase", "sale", "sell", "s-sale"]))
+        elif side == "award":
+            query = query.where(t.like("a-%") | t.like("%award%"))
+        elif side == "inkind":
+            query = query.where(t.like("f-%") | t.like("%inkind%"))
+        elif side == "exempt":
+            query = query.where(t.like("m-%") | t.like("%exempt%"))
 
     confirmation_filter_active = (
         sort in {"confirmation", "freshness"}
@@ -548,26 +555,29 @@ def _query_unified_signals(
         or multi_source_only
     )
 
-    if sort == "recent":
-        query = query.order_by(union_sq.c.ts.desc(), union_sq.c.unusual_multiple.desc())
-    elif sort == "amount":
-        query = query.order_by(
-            union_sq.c.amount_max.desc(),
-            union_sq.c.unusual_multiple.desc(),
-            union_sq.c.ts.desc(),
-        )
-    elif sort == "multiple":
-        query = query.order_by(union_sq.c.unusual_multiple.desc(), union_sq.c.ts.desc())
-    else:  # sort == "smart", "confirmation", or "freshness"
-        # Preorder by strongest candidates, then compute smart_score in Python and resort
-        query = query.order_by(
-            union_sq.c.unusual_multiple.desc(),
-            union_sq.c.amount_max.desc(),
-            union_sq.c.ts.desc(),
-        )
+    if mode != "institutional":
+        if sort == "recent":
+            query = query.order_by(union_sq.c.ts.desc(), union_sq.c.unusual_multiple.desc())
+        elif sort == "amount":
+            query = query.order_by(
+                union_sq.c.amount_max.desc(),
+                union_sq.c.unusual_multiple.desc(),
+                union_sq.c.ts.desc(),
+            )
+        elif sort == "multiple":
+            query = query.order_by(union_sq.c.unusual_multiple.desc(), union_sq.c.ts.desc())
+        else:  # sort == "smart", "confirmation", or "freshness"
+            # Preorder by strongest candidates, then compute smart_score in Python and resort
+            query = query.order_by(
+                union_sq.c.unusual_multiple.desc(),
+                union_sq.c.amount_max.desc(),
+                union_sq.c.ts.desc(),
+            )
 
-    fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
-    rows = db.execute(query.limit(fetch_limit)).all()
+        fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+        rows = db.execute(query.limit(fetch_limit)).all()
+    else:
+        fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,
         [row.symbol for row in rows if row.symbol],
@@ -679,6 +689,24 @@ def _query_unified_signals(
             )
         )
 
+    if include_institutional and mode in {"all", "institutional"} and (mode == "institutional" or side == "all"):
+        items.extend(
+            _query_institutional_signal_items(
+                db=db,
+                mode=mode,
+                symbols=symbol_values,
+                limit=fetch_limit,
+                lookback_days=institutional_lookback_days,
+                direction=institutional_direction,
+                min_value=institutional_min_value,
+                min_smart_score=min_smart_score,
+                confirmation_band=confirmation_band,
+                confirmation_direction=confirmation_direction,
+                min_confirmation_sources=min_confirmation_source_count,
+                sort=sort,
+            )
+        )
+
     if sort == "recent":
         items.sort(key=lambda item: (item.ts, item.unusual_multiple), reverse=True)
     elif sort == "amount":
@@ -722,6 +750,208 @@ def _query_unified_signals(
             _apply_confirmation_summary(item, paged_confirmation_by_symbol.get(symbol_key, inactive_confirmation_summary))
 
     return paged_items
+
+
+def _query_institutional_signal_items(
+    *,
+    db: Session,
+    mode: str,
+    symbols: list[str],
+    limit: int,
+    lookback_days: int,
+    direction: str,
+    min_value: float | None,
+    min_smart_score: int | None,
+    confirmation_band: str,
+    confirmation_direction: str,
+    min_confirmation_sources: int,
+    sort: str,
+) -> list[UnifiedSignalOut]:
+    bounded_lookback = max(1, min(int(lookback_days or 30), 365))
+    since = datetime.now(timezone.utc).date() - timedelta(days=bounded_lookback)
+    normalized_direction = direction if direction in {"bullish", "bearish", "mixed", "neutral"} else "all"
+    query = (
+        select(InstitutionalActivityEvent)
+        .where(InstitutionalActivityEvent.feed_visible.is_(True))
+        .where(InstitutionalActivityEvent.filing_date >= since)
+        .where(InstitutionalActivityEvent.event_type.in_(INSTITUTIONAL_EVENT_TYPES))
+    )
+    if symbols:
+        query = query.where(func.upper(InstitutionalActivityEvent.normalized_symbol).in_(symbols))
+    if normalized_direction != "all":
+        query = query.where(InstitutionalActivityEvent.direction == normalized_direction)
+    if min_value is not None:
+        query = query.where(
+            func.abs(func.coalesce(InstitutionalActivityEvent.value_delta_usd, InstitutionalActivityEvent.reported_value_usd, 0)) >= float(min_value)
+        )
+    if mode == "all":
+        query = query.where(
+            or_(
+                InstitutionalActivityEvent.materiality_score >= 80,
+                InstitutionalActivityEvent.confirmation_score >= 70,
+                func.abs(func.coalesce(InstitutionalActivityEvent.value_delta_usd, InstitutionalActivityEvent.reported_value_usd, 0)) >= 50_000_000,
+                InstitutionalActivityEvent.event_type == "smart_money_confirmation",
+            )
+        )
+    else:
+        query = query.where(InstitutionalActivityEvent.materiality_score >= 50)
+
+    query = query.order_by(
+        InstitutionalActivityEvent.materiality_score.desc(),
+        InstitutionalActivityEvent.filing_date.desc(),
+    ).limit(max(1, min(int(limit or 100), MAX_LIMIT)))
+    rows = db.execute(query).scalars().all()
+    if not rows:
+        return []
+
+    symbols_for_confirmation = [row.normalized_symbol for row in rows if row.normalized_symbol]
+    confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(db, symbols_for_confirmation)
+    confirmation_score_by_symbol = get_slim_confirmation_score_bundles_for_tickers(
+        db,
+        symbols_for_confirmation,
+        lookback_days=30,
+    )
+    inactive_confirmation_summary = _inactive_confirmation_summary()
+    items: list[UnifiedSignalOut] = []
+    for row in rows:
+        symbol_key = (row.normalized_symbol or row.symbol or "").strip().upper()
+        confirmation_metrics = confirmation_metrics_by_symbol.get(symbol_key)
+        confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
+        confirmation_score_summary = confirmation_score_by_symbol.get(symbol_key) or {
+            **inactive_confirmation_summary,
+            "why_now": inactive_why_now_bundle(symbol_key, lookback_days=30),
+            "signal_freshness": inactive_signal_freshness_bundle(symbol_key, lookback_days=30),
+        }
+        smart_score = _institutional_smart_score(row)
+        if min_smart_score is not None and smart_score < min_smart_score:
+            continue
+        if confirmation_band == "strong_plus":
+            if confirmation_score_summary["confirmation_band"] not in {"strong", "exceptional"}:
+                continue
+        elif confirmation_band == "active":
+            if confirmation_score_summary["confirmation_band"] == "inactive":
+                continue
+        elif confirmation_band != "all" and confirmation_score_summary["confirmation_band"] != confirmation_band:
+            continue
+        if confirmation_direction != "all" and confirmation_score_summary["confirmation_direction"] != confirmation_direction:
+            continue
+        if confirmation_score_summary["confirmation_source_count"] < min_confirmation_sources:
+            continue
+
+        amount = _institutional_amount(row)
+        ts = datetime.combine(row.filing_date, datetime.min.time(), tzinfo=timezone.utc)
+        metadata = _payload_from_json(row.metadata_json)
+        items.append(
+            UnifiedSignalOut(
+                kind="institutional",
+                event_id=row.id,
+                ts=ts,
+                symbol=symbol_key,
+                who=row.holder_name or "Institutional holders",
+                position=None,
+                reporting_cik=row.cik,
+                reportingCik=row.cik,
+                member_bioguide_id=None,
+                party=None,
+                chamber=None,
+                trade_type=_institutional_action_label(row),
+                amount_min=amount,
+                amount_max=amount,
+                baseline_median_amount_max=_institutional_prior_value(row, metadata),
+                baseline_count=int(row.holder_breadth or 0),
+                unusual_multiple=_institutional_unusual_multiple(row, metadata),
+                smart_score=smart_score,
+                smart_band=_institutional_smart_band(smart_score),
+                source="Institutional Activity",
+                price=None,
+                estimated_price=None,
+                current_price=None,
+                pnl_pct=None,
+                pnlPct=None,
+                confirmation_30d=confirmation_summary,
+                confirmation_score=confirmation_score_summary["confirmation_score"],
+                confirmation_band=confirmation_score_summary["confirmation_band"],
+                confirmation_direction=confirmation_score_summary["confirmation_direction"],
+                confirmation_status=confirmation_score_summary["confirmation_status"],
+                confirmation_source_count=confirmation_score_summary["confirmation_source_count"],
+                confirmation_explanation=confirmation_score_summary["confirmation_explanation"],
+                is_multi_source=confirmation_score_summary["is_multi_source"],
+                why_now=_coerce_why_now_summary(confirmation_score_summary.get("why_now"), symbol_key),
+                signal_freshness=_coerce_signal_freshness_summary(
+                    confirmation_score_summary.get("signal_freshness"),
+                    symbol_key,
+                ),
+            )
+        )
+
+    if sort == "recent":
+        items.sort(key=lambda item: item.ts, reverse=True)
+    elif sort == "amount":
+        items.sort(key=lambda item: item.amount_max or -1, reverse=True)
+    elif sort == "confirmation":
+        items.sort(key=lambda item: item.confirmation_score or -1, reverse=True)
+    elif sort == "freshness":
+        items.sort(key=lambda item: item.signal_freshness.freshness_score if item.signal_freshness else -1, reverse=True)
+    else:
+        items.sort(key=lambda item: (item.smart_score, item.ts), reverse=True)
+    return items
+
+
+def _institutional_amount(row: InstitutionalActivityEvent) -> float | None:
+    value = row.value_delta_usd if row.value_delta_usd is not None else row.reported_value_usd
+    return abs(float(value)) if value is not None else None
+
+
+def _institutional_prior_value(row: InstitutionalActivityEvent, metadata: dict) -> float:
+    for key in ("prev_value_usd", "prior_value_usd", "previous_value_usd"):
+        parsed = _parse_numeric(metadata.get(key))
+        if parsed is not None:
+            return max(0.0, parsed)
+    if row.reported_value_usd is not None and row.value_delta_usd is not None:
+        return max(0.0, float(row.reported_value_usd or 0) - float(row.value_delta_usd or 0))
+    return 0.0
+
+
+def _institutional_unusual_multiple(row: InstitutionalActivityEvent, metadata: dict) -> float:
+    pct = abs(_parse_numeric(metadata.get("value_delta_pct")) or 0.0)
+    if pct > 0:
+        return round(max(1.0, 1.0 + pct / 100.0), 2)
+    return round(max(1.0, float(row.materiality_score or 0) / 25.0), 2)
+
+
+def _institutional_smart_score(row: InstitutionalActivityEvent) -> int:
+    base = max(float(row.materiality_score or 0), float(row.confirmation_score or 0))
+    amount = _institutional_amount(row) or 0
+    if amount >= 100_000_000:
+        base += 8
+    elif amount >= 50_000_000:
+        base += 5
+    if row.event_type in {"cluster_accumulation", "cluster_distribution", "smart_money_confirmation"}:
+        base += 5
+    return max(0, min(100, int(round(base))))
+
+
+def _institutional_smart_band(score: int) -> str:
+    if score >= 75:
+        return "strong"
+    if score >= 55:
+        return "notable"
+    if score >= 35:
+        return "mild"
+    return "noise"
+
+
+def _institutional_action_label(row: InstitutionalActivityEvent) -> str:
+    if row.event_type == "new_institutional_position":
+        return "Reported New Position"
+    if row.event_type == "major_holder_exit":
+        return "Reported Exit"
+    if row.direction == "bearish":
+        return "Reported Reduction"
+    if row.direction == "bullish":
+        return "Reported Increase"
+    return "13F Filing"
+
 
 def _query_unusual_signals(
     *,
@@ -1018,7 +1248,7 @@ def list_unusual_signals(
 def list_all_signals(
     request: Request,
     db: Session = Depends(get_db),
-    mode: str = Query("all", pattern="^(all|congress|insider)$"),
+    mode: str = Query("all", pattern="^(all|congress|insider|institutional)$"),
     preset: str | None = Query(None),
     sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation|freshness)$"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
@@ -1039,13 +1269,23 @@ def list_all_signals(
     confirmation_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
     min_confirmation_sources: int | None = Query(None, ge=0, le=4),
     multi_source_only: bool = Query(False),
+    institutional_lookback_days: int = Query(30, ge=1, le=365),
+    institutional_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
+    institutional_min_value: float | None = Query(None, ge=0),
 ):
     current_user(db, request, required=True)
+    entitlements = current_entitlements(request, db)
     require_feature(
-        current_entitlements(request, db),
+        entitlements,
         "signals",
         message="Signals are included with Premium.",
     )
+    if mode == "institutional":
+        require_feature(
+            entitlements,
+            "institutional_feed",
+            message="Institutional Activity requires Pro.",
+        )
     symbol_value = symbol.strip().upper() if isinstance(symbol, str) and symbol.strip() else None
 
     effective_congress_recent_days = (
@@ -1104,6 +1344,10 @@ def list_all_signals(
         confirmation_direction=confirmation_direction,
         min_confirmation_sources=min_confirmation_sources,
         multi_source_only=multi_source_only,
+        include_institutional=entitlements.has_feature("institutional_feed"),
+        institutional_lookback_days=institutional_lookback_days,
+        institutional_direction=institutional_direction,
+        institutional_min_value=institutional_min_value,
     )
 
 
@@ -1112,7 +1356,7 @@ def list_watchlist_signals(
     id: int,
     request: Request,
     db: Session = Depends(get_db),
-    mode: str = Query("all", pattern="^(all|congress|insider)$"),
+    mode: str = Query("all", pattern="^(all|congress|insider|institutional)$"),
     sort: str = Query("smart", pattern="^(multiple|recent|amount|smart|confirmation|freshness)$"),
     limit: int = Query(50, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
@@ -1123,13 +1367,23 @@ def list_watchlist_signals(
     confirmation_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
     min_confirmation_sources: int | None = Query(None, ge=0, le=4),
     multi_source_only: bool = Query(False),
+    institutional_lookback_days: int = Query(30, ge=1, le=365),
+    institutional_direction: str = Query("all", pattern="^(all|bullish|bearish|mixed|neutral)$"),
+    institutional_min_value: float | None = Query(None, ge=0),
 ):
     user = current_user(db, request, required=True)
+    entitlements = current_entitlements(request, db)
     require_feature(
-        current_entitlements(request, db),
+        entitlements,
         "signals",
         message="Signals are included with Premium.",
     )
+    if mode == "institutional":
+        require_feature(
+            entitlements,
+            "institutional_feed",
+            message="Institutional Activity requires Pro.",
+        )
     watchlist = db.execute(
         select(Watchlist).where(Watchlist.id == id, Watchlist.owner_user_id == user.id)
     ).scalar_one_or_none()
@@ -1172,6 +1426,10 @@ def list_watchlist_signals(
         confirmation_direction=confirmation_direction,
         min_confirmation_sources=min_confirmation_sources,
         multi_source_only=multi_source_only,
+        include_institutional=entitlements.has_feature("institutional_feed"),
+        institutional_lookback_days=institutional_lookback_days,
+        institutional_direction=institutional_direction,
+        institutional_min_value=institutional_min_value,
     )
 
 

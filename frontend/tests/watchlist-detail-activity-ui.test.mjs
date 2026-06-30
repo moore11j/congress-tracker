@@ -15,10 +15,10 @@ const watchlistClientSource = fs.readFileSync(watchlistClientPath, "utf8");
 const recentActivitySource = fs.readFileSync(recentActivityPath, "utf8");
 const feedCardSource = fs.readFileSync(feedCardPath, "utf8");
 
-test("confirmation monitor clears inside the widget instead of using a viewport modal", () => {
-  assert.match(confirmationPanelSource, /className="absolute inset-0 z-30 flex items-center justify-center/);
-  assert.doesNotMatch(confirmationPanelSource, /className="fixed inset-0 z-50 flex items-center justify-center/);
-  assert.match(confirmationPanelSource, /onClick=\{\(\) => setConfirmTarget\(null\)\}/);
+test("confirmation monitor clears through the shared confirmation dialog", () => {
+  assert.match(confirmationPanelSource, /<WalnutConfirmDialog/);
+  assert.match(confirmationPanelSource, /title=\{confirmEvent \? `Clear this \$\{confirmEvent\.ticker\} change\?` : "Clear all confirmation changes\?"\}/);
+  assert.match(confirmationPanelSource, /onClose=\{\(\) => setConfirmTarget\(null\)\}/);
 });
 
 test("watchlist recent activity keeps the selected window while showing new items", () => {
@@ -30,9 +30,10 @@ test("watchlist recent activity keeps the selected window while showing new item
   assert.match(recentActivitySource, /Switch to All to see every item inside the selected/);
 });
 
-test("watchlist trade cards use Trade and Report labels plus filed-after placement", () => {
-  assert.match(feedCardSource, /\{isInstitutional \? "Position" : "Trade"\}/);
+test("watchlist trade cards use disclosure-safe labels plus filed-after placement", () => {
+  assert.match(feedCardSource, /\{isInstitutional \? "Disclosure" : "Trade"\}/);
   assert.match(feedCardSource, /\{isInstitutional \? "Filing" : "Report"\}/);
-  assert.match(feedCardSource, /Filed after: <span className="text-slate-200">/);
+  assert.match(feedCardSource, /isWatchlist && !isInstitutional/);
+  assert.match(feedCardSource, /13F filing/);
   assert.match(feedCardSource, /tradeSide \? <span className="inline-flex justify-start">\{badge\}<\/span> : null/);
 });

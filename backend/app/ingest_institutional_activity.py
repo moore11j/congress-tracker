@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+from typing import Any
+
+from app.clients.fmp import (
+    FMPClientError,
+    fetch_holder_industry_breakdown,
+    fetch_holder_performance_summary,
+    fetch_industry_summary,
+    fetch_institutional_filing_dates,
+    fetch_institutional_filing_extract,
+    fetch_latest_institutional_filings,
+)
+from app.db import SessionLocal, engine, ensure_institutional_activity_schema
+from app.services.institutional_activity import (
+    parse_latest_filing,
+    process_filing_changes_and_events,
+    upsert_holder_industry_breakdown_rows,
+    upsert_holder_performance_rows,
+    upsert_industry_summary_rows,
+    upsert_institutional_filing,
+    upsert_institutional_holder,
+    upsert_positions_for_filing,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def ingest_latest_institutional_filings(
+    *,
+    pages: int = 1,
+    limit: int = 100,
+    force: bool = False,
+    max_filings: int | None = 25,
+) -> dict[str, int | str]:
+    ensure_institutional_activity_schema(engine)
+    counts: dict[str, int | str] = {
+        "status": "ok",
+        "scanned": 0,
+        "parsed": 0,
+        "processed_filings": 0,
+        "skipped": 0,
+        "position_rows": 0,
+        "position_changes": 0,
+        "summaries": 0,
+        "activity_events": 0,
+        "feed_events": 0,
+        "errors": 0,
+    }
+    processed = 0
+    db = SessionLocal()
+    try:
+        for page in range(max(1, int(pages or 1))):
+            rows = fetch_latest_institutional_filings(page=page, limit=max(1, min(int(limit or 100), 500)))
+            if not rows:
+                break
+            for row in rows:
+                if max_filings is not None and processed >= max(0, int(max_filings)):
+                    return counts
+                counts["scanned"] = int(counts["scanned"]) + 1
+                candidate = parse_latest_filing(row)
+                if candidate is None:
+                    counts["skipped"] = int(counts["skipped"]) + 1
+                    continue
+                counts["parsed"] = int(counts["parsed"]) + 1
+                try:
+                    upsert_institutional_holder(db, candidate)
+                    filing, created = upsert_institutional_filing(db, candidate)
+                    db.flush()
+                    if filing.processed_at is not None and not force:
+                        db.commit()
+                        counts["skipped"] = int(counts["skipped"]) + 1
+                        continue
+
+                    extract_rows = fetch_institutional_filing_extract(
+                        cik=candidate.cik,
+                        year=candidate.report_year,
+                        quarter=candidate.report_quarter,
+                    )
+                    position_counts = upsert_positions_for_filing(db, filing=filing, rows=extract_rows)
+                    process_counts = process_filing_changes_and_events(db, filing)
+                    db.commit()
+
+                    processed += 1
+                    counts["processed_filings"] = int(counts["processed_filings"]) + 1
+                    counts["position_rows"] = int(counts["position_rows"]) + int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0))
+                    counts["position_changes"] = int(counts["position_changes"]) + int(process_counts.get("changes", 0))
+                    counts["summaries"] = int(counts["summaries"]) + int(process_counts.get("summaries", 0))
+                    counts["activity_events"] = int(counts["activity_events"]) + int(process_counts.get("activity_events", 0))
+                    counts["feed_events"] = int(counts["feed_events"]) + int(process_counts.get("feed_events", 0))
+                    if created:
+                        logger.info("Processed new 13F filing cik=%s Q%s %s", candidate.cik, candidate.report_quarter, candidate.report_year)
+                except Exception:
+                    db.rollback()
+                    counts["errors"] = int(counts["errors"]) + 1
+                    logger.exception("Failed to process institutional 13F filing row")
+    finally:
+        db.close()
+    return counts
+
+
+def ingest_institutional_filing(
+    *,
+    cik: str,
+    year: int,
+    quarter: int,
+    force: bool = False,
+) -> dict[str, int | str]:
+    ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        rows = fetch_institutional_filing_dates(cik=cik)
+        candidate = None
+        for row in rows:
+            parsed = parse_latest_filing({**row, "cik": cik, "year": year, "quarter": quarter})
+            if parsed and parsed.report_year == int(year) and parsed.report_quarter == int(quarter):
+                candidate = parsed
+                break
+        if candidate is None:
+            raise ValueError(f"No 13F filing metadata found for cik={cik} Q{quarter} {year}")
+
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        if filing.processed_at is not None and not force:
+            db.commit()
+            return {"status": "ok", "processed_filings": 0, "skipped": 1}
+
+        extract_rows = fetch_institutional_filing_extract(cik=candidate.cik, year=candidate.report_year, quarter=candidate.report_quarter)
+        position_counts = upsert_positions_for_filing(db, filing=filing, rows=extract_rows)
+        process_counts = process_filing_changes_and_events(db, filing)
+        db.commit()
+        return {
+            "status": "ok",
+            "processed_filings": 1,
+            "position_rows": int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0)),
+            "position_changes": int(process_counts.get("changes", 0)),
+            "summaries": int(process_counts.get("summaries", 0)),
+            "activity_events": int(process_counts.get("activity_events", 0)),
+            "feed_events": int(process_counts.get("feed_events", 0)),
+        }
+    finally:
+        db.close()
+
+
+def backfill_institutional_holder(
+    *,
+    cik: str,
+    force: bool = False,
+    max_filings: int | None = None,
+) -> dict[str, int | str]:
+    rows = fetch_institutional_filing_dates(cik=cik)
+    candidates = [candidate for row in rows if (candidate := parse_latest_filing({**row, "cik": cik}))]
+    candidates.sort(key=lambda item: (item.report_year, item.report_quarter, item.filing_date), reverse=True)
+    counts: dict[str, int | str] = {"status": "ok", "processed_filings": 0, "skipped": 0, "errors": 0}
+    for candidate in candidates[: max_filings or len(candidates)]:
+        try:
+            result = ingest_institutional_filing(
+                cik=candidate.cik,
+                year=candidate.report_year,
+                quarter=candidate.report_quarter,
+                force=force,
+            )
+            counts["processed_filings"] = int(counts["processed_filings"]) + int(result.get("processed_filings", 0))
+            counts["skipped"] = int(counts["skipped"]) + int(result.get("skipped", 0))
+        except Exception:
+            counts["errors"] = int(counts["errors"]) + 1
+            logger.exception("Failed to backfill 13F filing cik=%s Q%s %s", candidate.cik, candidate.report_quarter, candidate.report_year)
+    return counts
+
+
+def ingest_holder_enrichment(*, cik: str, year: int | None = None, quarter: int | None = None) -> dict[str, Any]:
+    ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        result: dict[str, Any] = {"status": "ok"}
+        performance_rows = fetch_holder_performance_summary(cik=cik)
+        result["performance"] = upsert_holder_performance_rows(db, cik, performance_rows)
+        if year is not None and quarter is not None:
+            breakdown_rows = fetch_holder_industry_breakdown(cik=cik, year=int(year), quarter=int(quarter))
+            result["industry_breakdown"] = upsert_holder_industry_breakdown_rows(db, cik, int(year), int(quarter), breakdown_rows)
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
+def ingest_industry_summary(*, year: int, quarter: int) -> dict[str, int | str]:
+    ensure_institutional_activity_schema(engine)
+    rows = fetch_industry_summary(year=int(year), quarter=int(quarter))
+    db = SessionLocal()
+    try:
+        counts = upsert_industry_summary_rows(db, int(year), int(quarter), rows)
+        db.commit()
+        return {"status": "ok", **counts}
+    finally:
+        db.close()
+
+
+def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25) -> dict[str, int | str]:
+    return ingest_latest_institutional_filings(pages=pages, limit=limit, max_filings=max_filings)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Ingest institutional 13F activity into Walnut Market Terminal.")
+    parser.add_argument("--pages", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_PAGES", "1")))
+    parser.add_argument("--limit", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_LIMIT", "100")))
+    parser.add_argument("--max-filings", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_MAX_FILINGS", "25")))
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--cik")
+    parser.add_argument("--year", type=int)
+    parser.add_argument("--quarter", type=int)
+    parser.add_argument("--holder-enrichment", action="store_true")
+    parser.add_argument("--industry-summary", action="store_true")
+    parser.add_argument("--log-level", default="INFO")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
+    try:
+        if args.industry_summary:
+            if args.year is None or args.quarter is None:
+                raise SystemExit("--industry-summary requires --year and --quarter")
+            result = ingest_industry_summary(year=args.year, quarter=args.quarter)
+        elif args.holder_enrichment:
+            if not args.cik:
+                raise SystemExit("--holder-enrichment requires --cik")
+            result = ingest_holder_enrichment(cik=args.cik, year=args.year, quarter=args.quarter)
+        elif args.cik and args.year and args.quarter:
+            result = ingest_institutional_filing(cik=args.cik, year=args.year, quarter=args.quarter, force=args.force)
+        elif args.cik:
+            result = backfill_institutional_holder(cik=args.cik, force=args.force, max_filings=args.max_filings)
+        else:
+            result = ingest_latest_institutional_filings(
+                pages=args.pages,
+                limit=args.limit,
+                force=args.force,
+                max_filings=args.max_filings,
+            )
+    except FMPClientError as exc:
+        raise SystemExit(str(exc)) from exc
+    logger.info("Institutional activity ingest completed: %s", result)
+    print(result)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        main()
+    else:
+        print(
+            institutional_activity_ingest_run(
+                pages=int(os.getenv("INGEST_INSTITUTIONAL_PAGES", "1")),
+                limit=int(os.getenv("INGEST_INSTITUTIONAL_LIMIT", "100")),
+                max_filings=int(os.getenv("INGEST_INSTITUTIONAL_MAX_FILINGS", "25")),
+            )
+        )

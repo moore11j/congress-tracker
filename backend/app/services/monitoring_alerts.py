@@ -8,13 +8,16 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, Watchlist, WatchlistItem, WatchlistViewState
+from app.entitlements import entitlements_for_user
+from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import build_monitoring_event_title
 
 logger = logging.getLogger(__name__)
 
-ALERTABLE_EVENT_TYPES = ("congress_trade", "insider_trade", "signal", "government_contract")
+ALERTABLE_EVENT_TYPES = ("congress_trade", "insider_trade", "signal", "government_contract", *INSTITUTIONAL_EVENT_TYPES)
+INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 
 
 def event_freshness_at(event: Event) -> datetime:
@@ -67,19 +70,43 @@ def _watchlist_alerts_exist(db: Session, watchlist_id: int) -> bool:
     )
 
 
-def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None) -> int:
+def _user_can_view_institutional_activity(db: Session, user_id: int | None) -> bool:
+    if user_id is None:
+        return True
+    user = db.get(UserAccount, user_id)
+    return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
+
+
+def _event_types_for_user(db: Session, user_id: int | None) -> tuple[str, ...]:
+    if _user_can_view_institutional_activity(db, user_id):
+        return ALERTABLE_EVENT_TYPES
+    return tuple(event_type for event_type in ALERTABLE_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+
+
+def _is_institutional_alert_type(value: str | None) -> bool:
+    return (value or "").strip().lower() in INSTITUTIONAL_ALERT_TYPES
+
+
+def _exclude_institutional_alerts(query, db: Session, user_id: int | None):
+    if _user_can_view_institutional_activity(db, user_id):
+        return query
+    return query.where(MonitoringAlert.alert_type.notin_(INSTITUTIONAL_ALERT_TYPES))
+
+
+def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None, user_id: int | None = None) -> int:
     if _watchlist_alerts_exist(db, watchlist_id):
+        query = (
+            select(func.count())
+            .select_from(MonitoringAlert)
+            .where(
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist_id),
+                MonitoringAlert.read_at.is_(None),
+                MonitoringAlert.dismissed_at.is_(None),
+            )
+        )
         return int(
-            db.execute(
-                select(func.count())
-                .select_from(MonitoringAlert)
-                .where(
-                    MonitoringAlert.source_type == "watchlist",
-                    MonitoringAlert.source_id == str(watchlist_id),
-                    MonitoringAlert.read_at.is_(None),
-                    MonitoringAlert.dismissed_at.is_(None),
-                )
-            ).scalar_one()
+            db.execute(_exclude_institutional_alerts(query, db, user_id)).scalar_one()
             or 0
         )
 
@@ -99,30 +126,29 @@ def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime 
             .select_from(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(ALERTABLE_EVENT_TYPES))
+            .where(Event.event_type.in_(_event_types_for_user(db, user_id)))
             .where(activity_ts >= checkpoint)
         ).scalar_one()
         or 0
     )
 
 
-def watchlist_unread_counts(db: Session, watchlist_ids: list[int]) -> dict[int, int]:
-    return {watchlist_id: watchlist_unread_count(db, watchlist_id) for watchlist_id in watchlist_ids}
+def watchlist_unread_counts(db: Session, watchlist_ids: list[int], user_id: int | None = None) -> dict[int, int]:
+    return {watchlist_id: watchlist_unread_count(db, watchlist_id, user_id=user_id) for watchlist_id in watchlist_ids}
 
 
-def watchlist_unread_summary(db: Session, watchlist_id: int) -> dict[str, Any]:
+def watchlist_unread_summary(db: Session, watchlist_id: int, user_id: int | None = None) -> dict[str, Any]:
     checkpoint = watchlist_checkpoint(db, watchlist_id)
-    count = watchlist_unread_count(db, watchlist_id, checkpoint)
+    count = watchlist_unread_count(db, watchlist_id, checkpoint, user_id=user_id)
     alert_since = None
     if _watchlist_alerts_exist(db, watchlist_id):
-        alert_since = db.execute(
-            select(func.min(MonitoringAlert.event_created_at)).where(
+        query = select(func.min(MonitoringAlert.event_created_at)).where(
                 MonitoringAlert.source_type == "watchlist",
                 MonitoringAlert.source_id == str(watchlist_id),
                 MonitoringAlert.read_at.is_(None),
                 MonitoringAlert.dismissed_at.is_(None),
-            )
-        ).scalar_one_or_none()
+        )
+        alert_since = db.execute(_exclude_institutional_alerts(query, db, user_id)).scalar_one_or_none()
     return {
         "last_seen_at": checkpoint,
         "unseen_since": alert_since or (checkpoint if count > 0 else None),
@@ -161,7 +187,7 @@ def refresh_watchlist_alerts(
             select(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(ALERTABLE_EVENT_TYPES))
+            .where(Event.event_type.in_(_event_types_for_user(db, user_id)))
             .where(freshness_ts > since)
             .order_by(freshness_ts.asc(), Event.id.asc())
         )
@@ -189,44 +215,54 @@ def refresh_watchlist_alerts(
 def unread_count(db: Session, *, user_id: int) -> int:
     return int(
         db.execute(
-            select(func.count())
-            .select_from(MonitoringAlert)
-            .where(MonitoringAlert.user_id == user_id, MonitoringAlert.read_at.is_(None))
-            .where(MonitoringAlert.dismissed_at.is_(None))
-        ).scalar_one()
-        or 0
-    )
-
-
-def source_unread_count(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist") -> int:
-    return int(
-        db.execute(
-            select(func.count())
-            .select_from(MonitoringAlert)
-            .where(
-                MonitoringAlert.user_id == user_id,
-                MonitoringAlert.source_type == source_type,
-                MonitoringAlert.source_id == str(source_id),
-                MonitoringAlert.read_at.is_(None),
-                MonitoringAlert.dismissed_at.is_(None),
+            _exclude_institutional_alerts(
+                select(func.count())
+                .select_from(MonitoringAlert)
+                .where(MonitoringAlert.user_id == user_id, MonitoringAlert.read_at.is_(None))
+                .where(MonitoringAlert.dismissed_at.is_(None)),
+                db,
+                user_id,
             )
         ).scalar_one()
         or 0
     )
 
 
+def source_unread_count(db: Session, *, user_id: int, source_id: str, source_type: str = "watchlist") -> int:
+    query = (
+        select(func.count())
+        .select_from(MonitoringAlert)
+        .where(
+            MonitoringAlert.user_id == user_id,
+            MonitoringAlert.source_type == source_type,
+            MonitoringAlert.source_id == str(source_id),
+            MonitoringAlert.read_at.is_(None),
+            MonitoringAlert.dismissed_at.is_(None),
+        )
+    )
+    return int(
+        db.execute(_exclude_institutional_alerts(query, db, user_id)).scalar_one()
+        or 0
+    )
+
+
 def unread_count_by_source(db: Session, *, user_id: int) -> dict[tuple[str, str], int]:
-    rows = db.execute(
+    query = (
         select(MonitoringAlert.source_type, MonitoringAlert.source_id, func.count())
         .where(MonitoringAlert.user_id == user_id, MonitoringAlert.read_at.is_(None))
         .where(MonitoringAlert.dismissed_at.is_(None))
         .group_by(MonitoringAlert.source_type, MonitoringAlert.source_id)
-    ).all()
+    )
+    rows = db.execute(_exclude_institutional_alerts(query, db, user_id)).all()
     return {(str(source_type), str(source_id)): int(count or 0) for source_type, source_id, count in rows}
 
 
 def recent_alerts(db: Session, *, user_id: int, unread_only: bool = False, limit: int = 8) -> list[MonitoringAlert]:
-    q = select(MonitoringAlert).where(MonitoringAlert.user_id == user_id, MonitoringAlert.dismissed_at.is_(None))
+    q = _exclude_institutional_alerts(
+        select(MonitoringAlert).where(MonitoringAlert.user_id == user_id, MonitoringAlert.dismissed_at.is_(None)),
+        db,
+        user_id,
+    )
     if unread_only:
         q = q.where(MonitoringAlert.read_at.is_(None))
     return (
@@ -403,7 +439,7 @@ def mark_watchlist_source_read(
     watchlist: Watchlist,
     now: datetime | None = None,
 ) -> int:
-    current_unread = watchlist_unread_count(db, watchlist.id)
+    current_unread = watchlist_unread_count(db, watchlist.id, user_id=user_id)
     refresh_watchlist_alerts(db, user_id=user_id, watchlist=watchlist)
     marked = mark_source_read(db, user_id=user_id, source_type="watchlist", source_id=str(watchlist.id), now=now)
     set_watchlist_checkpoint(db, watchlist.id, now or datetime.now(timezone.utc))
@@ -457,6 +493,8 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
 
 
 def _ensure_alert_for_event(db: Session, *, user_id: int, watchlist: Watchlist, event: Event) -> bool:
+    if event.event_type in INSTITUTIONAL_EVENT_TYPES and not _user_can_view_institutional_activity(db, user_id):
+        return False
     existing = db.execute(
         select(MonitoringAlert.id).where(
             MonitoringAlert.user_id == user_id,
@@ -494,6 +532,8 @@ def ensure_alert_for_saved_screen_event(
     screen: SavedScreen | None = None,
     screen_name: str | None = None,
 ) -> bool:
+    if _is_institutional_alert_type(event.event_type) and not _user_can_view_institutional_activity(db, event.user_id):
+        return False
     source_id = str(event.saved_screen_id)
     existing = db.execute(
         select(MonitoringAlert.id).where(
@@ -591,6 +631,10 @@ def _event_body(event: Event, payload: dict[str, Any]) -> str | None:
         or payload.get("trade_date")
         or payload.get("transaction_date")
     )
+    if event.event_type in INSTITUTIONAL_EVENT_TYPES:
+        if date_value:
+            return f"New Institutional Activity 13F filing reported {date_value}."
+        return "New Institutional Activity 13F filing."
     if date_value:
         return f"New {event.event_type.replace('_', ' ')} filed {date_value}."
     return f"New {event.event_type.replace('_', ' ')} activity."

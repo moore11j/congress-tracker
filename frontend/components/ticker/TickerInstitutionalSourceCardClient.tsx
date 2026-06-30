@@ -17,7 +17,7 @@ const inactiveSource: InstitutionalSource = {
   strength: 0,
   quality: 0,
   freshness_days: null,
-  label: "Institutional activity inactive",
+  label: "No recent institutional activity",
   score_contribution: 0,
 };
 
@@ -51,11 +51,10 @@ function borderClass(source: InstitutionalSource, loading: boolean): string {
 }
 
 function stateLabel(source: InstitutionalSource, loading: boolean, canViewInstitutional = false): string {
-  if (loading && !source.present) return "CHECKING";
-  if (sourceLocked(source, canViewInstitutional)) return "LOCKED";
-  if (sourceUnavailable(source)) return "UNAVAILABLE";
-  if (source.present && source.score_contribution && source.score_contribution > 0) return "BULLISH SUPPORT";
-  return source.present ? source.direction.toUpperCase() : "INACTIVE";
+  if (sourceLocked(source, canViewInstitutional)) return "Locked";
+  if (sourceUnavailable(source)) return "Unavailable";
+  if (loading && !source.present) return "Quiet";
+  return source.present ? "Active" : "Quiet";
 }
 
 function icon(className = "h-3.5 w-3.5") {
@@ -78,27 +77,27 @@ function contextWindowLabel(lookbackDays: number): string {
 }
 
 function bodyForSource(source: InstitutionalSource, canViewInstitutional = false): string {
-  if (sourceLocked(source, canViewInstitutional)) return "Pro feature";
-  if (sourceUnavailable(source)) return "Institutional activity unavailable.";
-  if (!source.present) return "No notable institutional activity in the current context window.";
-  if (source.direction === "bearish") return "Active / reducing";
-  if (source.direction === "bullish") return "Active / accumulating";
-  return "Active / mixed";
+  if (sourceLocked(source, canViewInstitutional)) return "Institutional Activity requires Pro.";
+  if (sourceUnavailable(source)) return "Institutional Activity unavailable.";
+  if (!source.present) return "No material newly filed institutional activity.";
+  if (source.direction === "bearish") return "Net reported reduction";
+  if (source.direction === "bullish") return "Net reported accumulation";
+  return "Mixed reported institutional activity";
 }
 
 function supportForSource(source: InstitutionalSource, lookbackDays: number, canViewInstitutional = false): string {
-  if (sourceLocked(source, canViewInstitutional)) return "Institutional activity unlocks with Pro.";
-  if (sourceUnavailable(source)) return source.detail ?? source.summary ?? "Institutional activity source is not configured.";
-  if (!source.present) return `No qualifying institutional activity found in the ${contextWindowNoun(lookbackDays)}.`;
-  return source.detail ?? source.summary ?? contextWindowLabel(lookbackDays);
+  if (sourceLocked(source, canViewInstitutional)) return "13F filings disclose quarter-end holdings and may not reflect real-time trading.";
+  if (sourceUnavailable(source)) return source.detail ?? source.summary ?? "No institutional activity data is available.";
+  if (!source.present) return `Latest quarter available; no material filing-date activity in the ${contextWindowNoun(lookbackDays)}.`;
+  return source.detail ?? source.summary ?? `13F filing-date freshness · ${contextWindowLabel(lookbackDays)}`;
 }
 
 function unavailableSource(reason = "unavailable"): InstitutionalSource {
   return {
     ...inactiveSource,
-    label: "Institutional activity unavailable",
-    detail: "Institutional activity source is not configured.",
-    summary: "Institutional activity is unavailable.",
+    label: "Institutional Activity unavailable",
+    detail: "No institutional activity data is available.",
+    summary: "Institutional Activity is unavailable.",
     status: "unavailable",
     reason,
   };
@@ -195,13 +194,13 @@ export function TickerInstitutionalSourceCardClient({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${toneClass(source, loading)}`}>{icon()}</span>
-          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Institutional</p>
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Institutional Activity</p>
         </div>
         <p className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] ${toneClass(source, loading)}`}>
           {stateLabel(source, loading, canViewInstitutional)}
         </p>
       </div>
-      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking institutional activity" : bodyForSource(source, canViewInstitutional)}</p>
+      <p className="mt-2.5 text-sm font-semibold leading-snug text-slate-100">{loading ? "Checking Institutional Activity" : bodyForSource(source, canViewInstitutional)}</p>
       <p className="mt-1 text-xs leading-snug text-slate-500">{loading ? contextWindowLabel(lookbackDays) : supportForSource(source, lookbackDays, canViewInstitutional)}</p>
     </div>
   );

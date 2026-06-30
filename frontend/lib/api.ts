@@ -151,7 +151,30 @@ export type NormalizedEventType =
   | "congress_crypto_trade"
   | "insider_trade"
   | "institutional_buy"
+  | "institutional_accumulation"
+  | "institutional_distribution"
+  | "new_institutional_position"
+  | "major_holder_reduction"
+  | "major_holder_exit"
+  | "cluster_accumulation"
+  | "cluster_distribution"
+  | "smart_money_confirmation"
+  | "crowded_long"
+  | "contrarian_accumulation"
   | "government_contract";
+
+export const INSTITUTIONAL_ACTIVITY_EVENT_TYPES = [
+  "institutional_accumulation",
+  "institutional_distribution",
+  "new_institutional_position",
+  "major_holder_reduction",
+  "major_holder_exit",
+  "cluster_accumulation",
+  "cluster_distribution",
+  "smart_money_confirmation",
+  "crowded_long",
+  "contrarian_accumulation",
+] as const;
 
 export function normalizeEventType(uiValue: string | null | undefined): NormalizedEventType | undefined {
   const normalized = (uiValue ?? "").trim().toLowerCase();
@@ -160,7 +183,9 @@ export function normalizeEventType(uiValue: string | null | undefined): Normaliz
   if (normalized === "congress_treasury_trade") return "congress_treasury_trade";
   if (normalized === "congress_crypto_trade") return "congress_crypto_trade";
   if (normalized === "insider" || normalized === "insider_trade") return "insider_trade";
-  if (normalized === "institutional" || normalized === "institutional_buy") return "institutional_buy";
+  if (normalized === "institutional" || normalized === "institutional_activity" || normalized === "institutional_13f") return "institutional_accumulation";
+  if ((INSTITUTIONAL_ACTIVITY_EVENT_TYPES as readonly string[]).includes(normalized)) return normalized as NormalizedEventType;
+  if (normalized === "institutional_buy") return "institutional_buy";
   if (normalized === "government_contracts" || normalized === "government_contract") return "government_contract";
   return undefined;
 }
@@ -2820,7 +2845,7 @@ export type TickerPriceHistoryResponse = {
   points: TickerPriceHistoryPoint[];
 };
 
-export type TickerChartMarkerKind = "congress" | "insider" | "signals" | "government_contract";
+export type TickerChartMarkerKind = "congress" | "insider" | "signals" | "government_contract" | "institutional";
 
 export type TickerChartMarkerMeta = {
   agency?: string | null;
@@ -3275,7 +3300,7 @@ export type InsiderAlphaSummary = {
 };
 
 
-export type SignalMode = "all" | "congress" | "insider";
+export type SignalMode = "all" | "congress" | "insider" | "institutional";
 export type SignalSort = "smart" | "multiple" | "recent" | "amount" | "confirmation" | "freshness";
 export type SignalConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
 export type SignalConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
@@ -3445,6 +3470,9 @@ export async function getSignalsAll(params: {
   confirmation_direction?: "all" | SignalConfirmationDirection;
   min_confirmation_sources?: number;
   multi_source_only?: boolean;
+  institutional_lookback_days?: number;
+  institutional_direction?: "all" | SignalConfirmationDirection;
+  institutional_min_value?: number;
   authToken?: string;
   signal?: AbortSignal;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
@@ -3459,6 +3487,9 @@ export async function getSignalsAll(params: {
     confirmation_direction: params.confirmation_direction,
     min_confirmation_sources: params.min_confirmation_sources,
     multi_source_only: params.multi_source_only ? "1" : undefined,
+    institutional_lookback_days: params.institutional_lookback_days,
+    institutional_direction: params.institutional_direction,
+    institutional_min_value: params.institutional_min_value,
   });
 
   const data = await fetchJson<SignalsAllResponse>(url, {
@@ -3657,6 +3688,8 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
     nextParams.event_type = "insider_trade";
   } else if (tape === "government_contracts" || tape === "government_contract") {
     nextParams.event_type = "government_contract";
+  } else if (tape === "institutional" || tape === "institutional_activity" || tape === "institutional_13f") {
+    nextParams.event_type = INSTITUTIONAL_ACTIVITY_EVENT_TYPES.join(",");
   } else {
     delete nextParams.event_type;
   }
@@ -4278,6 +4311,15 @@ export type ScreenerApiRow = {
   institutional_activity_direction?: string | null;
   institutional_activity_net_activity?: number | null;
   institutional_activity_institution_count?: number | null;
+  institutional_activity_total_value?: number | null;
+  institutional_activity_ownership_pct?: number | null;
+  institutional_activity_holders_increased?: number | null;
+  institutional_activity_holders_reduced?: number | null;
+  institutional_activity_new_positions?: number | null;
+  institutional_activity_exits?: number | null;
+  institutional_activity_holder_breadth?: number | null;
+  institutional_activity_materiality_score?: number | null;
+  institutional_activity_latest_date?: string | null;
   institutional_activity_status?: string | null;
   institutional_activity_locked?: boolean | null;
 };

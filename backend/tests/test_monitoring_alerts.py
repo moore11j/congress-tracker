@@ -28,6 +28,7 @@ from app.models import (
     MonitoringAlert,
     PlanLimit,
     PlanPrice,
+    SavedScreen,
     Security,
     UserAccount,
     Watchlist,
@@ -56,6 +57,7 @@ def _session():
             WatchlistItem.__table__,
             WatchlistViewState.__table__,
             MonitoringAlert.__table__,
+            SavedScreen.__table__,
             AppSetting.__table__,
             FeatureGate.__table__,
             PlanLimit.__table__,
@@ -256,6 +258,53 @@ def test_watchlist_monitoring_counts_share_checkpoint_without_existing_alerts():
         summaries = list_watchlists(request, db)
         assert summaries[0]["unseen_count"] == 2
         assert summaries[0]["symbols"] == ["AAPL"]
+    finally:
+        db.close()
+
+
+def test_institutional_watchlist_alerts_are_pro_gated():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="institutional_accumulation",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="institutional_activity",
+                member_name="Blue Ridge Capital",
+                trade_type="Accumulation",
+                amount_min=10_000_000,
+                amount_max=10_000_000,
+                payload_json=json.dumps(
+                    {
+                        "holder_name": "Blue Ridge Capital",
+                        "filing_date": now.date().isoformat(),
+                        "reported_value_usd": 10_000_000,
+                    }
+                ),
+                impact_score=90,
+            )
+        )
+        db.commit()
+
+        request = _request_for_user(user)
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 0
+        assert watchlist_unread_count(db, watchlist.id, user_id=user.id) == 0
+        assert get_monitoring_unread_count(request, db)["unread_watchlist_updates"] == 0
+        assert get_monitoring_inbox(request, db)["items"] == []
+        assert list_watchlists(request, db)[0]["unseen_count"] == 0
+
+        user.entitlement_tier = "pro"
+        db.commit()
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, force_lookback=True) == 1
+        db.commit()
+        alert = db.query(MonitoringAlert).one()
+        assert alert.alert_type == "institutional_accumulation"
+        assert "Blue Ridge Capital" in alert.payload_json
+        assert get_monitoring_inbox(request, db)["items"][0]["alert_type"] == "institutional_accumulation"
     finally:
         db.close()
 

@@ -11,10 +11,12 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import normalize_email
+from app.entitlements import entitlements_for_user
 from app.models import Event, NotificationDelivery, NotificationSubscription, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.events import _build_events_query, _fetch_events_page, _parse_since
 from app.routers.signals import CONGRESS_SIGNAL_DEFAULTS, INSIDER_DEFAULTS, _query_unified_signals
 from app.services.email_delivery import send_email
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 
 SUPPORTED_ALERT_TRIGGERS = {
     "cross_source_confirmation",
@@ -22,6 +24,7 @@ SUPPORTED_ALERT_TRIGGERS = {
     "large_trade_threshold",
     "congress_activity",
     "insider_activity",
+    "institutional_activity",
 }
 
 
@@ -249,6 +252,10 @@ def _collect_watchlist_candidates(db: Session, subscription: NotificationSubscri
     if subscription.only_if_new and since is None:
         since = subscription.last_delivered_at
 
+    extra_filters = []
+    if not _subscription_can_view_institutional_activity(db, subscription):
+        extra_filters.append(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
+
     q = _build_events_query(
         db=db,
         symbols=symbol_values,
@@ -256,7 +263,7 @@ def _collect_watchlist_candidates(db: Session, subscription: NotificationSubscri
         since=since,
         cursor=None,
         limit=limit,
-        extra_filters=[],
+        extra_filters=extra_filters,
         congress_filters=[],
     )
     return [_event_out_to_candidate(item) for item in _fetch_events_page(db, q, limit, enrich_prices=False).items]
@@ -273,11 +280,14 @@ def _collect_saved_view_candidates(db: Session, subscription: NotificationSubscr
 
     if surface == "signals":
         mode = str(params.get("mode") or "all")
+        can_view_institutional = _subscription_can_view_institutional_activity(db, subscription)
+        if mode == "institutional" and not can_view_institutional:
+            return []
         side = str(params.get("side") or "all")
         min_smart_score = _int_param(params.get("min_smart_score"))
         items = _query_unified_signals(
             db=db,
-            mode=mode if mode in {"all", "congress", "insider"} else "all",
+            mode=mode if mode in {"all", "congress", "insider", "institutional"} else "all",
             sort="smart",
             limit=limit,
             offset=0,
@@ -293,13 +303,23 @@ def _collect_saved_view_candidates(db: Session, subscription: NotificationSubscr
             min_smart_score=min_smart_score,
             side=side if side in {"all", "buy", "sell", "buy_or_sell", "award", "inkind", "exempt"} else "all",
             symbol=_string_param(params.get("symbol")),
+            include_institutional=mode == "institutional" and can_view_institutional,
+            institutional_lookback_days=_int_param(params.get("institutional_lookback_days")) or 30,
+            institutional_direction=str(params.get("institutional_direction") or "all"),
+            institutional_min_value=_float_param(params.get("institutional_min_value")),
         )
         candidates = [_signal_out_to_candidate(item) for item in items]
         if since_dt is not None:
             candidates = [item for item in candidates if item.ts >= since_dt]
         return candidates[:limit]
 
-    return _collect_saved_event_view_candidates(db, params, since_dt=since_dt, limit=limit)
+    return _collect_saved_event_view_candidates(
+        db,
+        params,
+        since_dt=since_dt,
+        limit=limit,
+        can_view_institutional=_subscription_can_view_institutional_activity(db, subscription),
+    )
 
 
 def _collect_saved_event_view_candidates(
@@ -308,6 +328,7 @@ def _collect_saved_event_view_candidates(
     *,
     since_dt: datetime | None,
     limit: int,
+    can_view_institutional: bool,
 ) -> list[DigestCandidate]:
     symbols = []
     symbol = _string_param(params.get("symbol"))
@@ -320,9 +341,13 @@ def _collect_saved_event_view_candidates(
     elif mode == "insider":
         types = ["insider_trade"]
     elif mode == "institutional":
-        types = ["institutional_buy"]
+        if not can_view_institutional:
+            return []
+        types = list(INSTITUTIONAL_EVENT_TYPES)
 
     extra_filters = []
+    if not can_view_institutional:
+        extra_filters.append(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
     min_amount = _float_param(params.get("min_amount"))
     if min_amount is not None:
         extra_filters.append(Event.amount_max >= min_amount)
@@ -347,6 +372,17 @@ def _collect_saved_event_view_candidates(
     return [_event_out_to_candidate(item) for item in _fetch_events_page(db, q, limit, enrich_prices=False).items]
 
 
+def _subscription_user(db: Session, subscription: NotificationSubscription) -> UserAccount | None:
+    return db.execute(
+        select(UserAccount).where(func.lower(UserAccount.email) == normalize_email(subscription.email))
+    ).scalar_one_or_none()
+
+
+def _subscription_can_view_institutional_activity(db: Session, subscription: NotificationSubscription) -> bool:
+    user = _subscription_user(db, subscription)
+    return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
+
+
 def _matching_alerts(
     subscription: NotificationSubscription,
     items: list[DigestCandidate],
@@ -364,6 +400,8 @@ def _matching_alerts(
             elif trigger == "congress_activity" and item.event_type == "congress_trade":
                 matches.append((trigger, item))
             elif trigger == "insider_activity" and item.event_type == "insider_trade":
+                matches.append((trigger, item))
+            elif trigger == "institutional_activity" and (item.event_type in INSTITUTIONAL_EVENT_TYPES or item.event_type == "institutional_activity"):
                 matches.append((trigger, item))
     return matches
 
@@ -499,7 +537,10 @@ def _event_out_to_candidate(item: Any) -> DigestCandidate:
 
 
 def _signal_out_to_candidate(item: Any) -> DigestCandidate:
-    event_type = "insider_trade" if item.kind == "insider" else "congress_trade"
+    if item.kind == "institutional":
+        event_type = "institutional_activity"
+    else:
+        event_type = "insider_trade" if item.kind == "insider" else "congress_trade"
     return DigestCandidate(
         event_id=int(item.event_id),
         ts=item.ts,

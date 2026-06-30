@@ -112,8 +112,8 @@ function getParam(sp: SearchParams, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
-function clampMode(modeRaw: string): "all" | "congress" | "insider" {
-  if (modeRaw === "all" || modeRaw === "congress" || modeRaw === "insider") return modeRaw;
+function clampMode(modeRaw: string): SignalMode {
+  if (modeRaw === "all" || modeRaw === "congress" || modeRaw === "insider" || modeRaw === "institutional") return modeRaw;
   return "all";
 }
 
@@ -121,6 +121,10 @@ function clampMode(modeRaw: string): "all" | "congress" | "insider" {
 function isInsiderSignalKind(kind?: string): boolean {
   const normalized = (kind ?? "").trim().toLowerCase();
   return normalized === "insider" || normalized === "insider_trade";
+}
+
+function isInstitutionalSignalKind(kind?: string): boolean {
+  return (kind ?? "").trim().toLowerCase() === "institutional";
 }
 
 function resolveSignalReportingCik(item: SignalItem): string | null {
@@ -263,7 +267,17 @@ function normalizeSide(tradeType?: string | null): "buy" | "sell" | "buy_or_sell
   return null;
 }
 
-function sideLabel(_kind: string, tradeType?: string): { label: string; klass: string } {
+function sideLabel(kind: string, tradeType?: string): { label: string; klass: string } {
+  if (isInstitutionalSignalKind(kind)) {
+    const label = tradeType?.trim() || "13F Filing";
+    const lower = label.toLowerCase();
+    const klass = lower.includes("reduction") || lower.includes("exit")
+      ? "border-rose-400/30 bg-rose-400/15 text-rose-100"
+      : lower.includes("increase") || lower.includes("new")
+        ? "border-emerald-400/30 bg-emerald-400/15 text-emerald-100"
+        : "border-white/10 bg-white/5 text-slate-200";
+    return { label, klass };
+  }
   const side = normalizeSide(tradeType);
 
   if (side === "buy") {
@@ -432,6 +446,7 @@ function ConfirmHoverCell({ item }: { item: SignalItem }) {
 }
 
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
+  if (isInstitutionalSignalKind(item.kind)) return { label: "13F", tone: "neutral" };
   const chamber = (item.chamber ?? "").toLowerCase();
   if (chamber.includes("house")) return chamberBadge("house");
   if (chamber.includes("senate")) return chamberBadge("senate");
@@ -488,7 +503,7 @@ export default async function SignalsPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
-          Signals rank high-conviction disclosure activity across Congress trades, insider activity, confirmation, freshness, and Why Now context.
+          Signals rank high-conviction disclosure activity across Congress trades, insider activity, Institutional Activity, confirmation, freshness, and Why Now context.
         </p>
       </div>
 
@@ -511,7 +526,7 @@ export default async function SignalsPage({
       <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">
         <div className="mb-3">
           <h2 className="text-xl font-semibold text-white">Signals table</h2>
-          <p className="text-sm text-slate-400">Abnormal trades vs per-symbol historical median.</p>
+          <p className="text-sm text-slate-400">{mode === "institutional" ? "Material 13F filing activity by filing date." : "Abnormal trades vs per-symbol historical median."}</p>
         </div>
         <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
           <SignalsResultsSection
@@ -622,6 +637,26 @@ async function SignalsResultsSection({
     errorMessage = e instanceof Error ? e.message : "Unable to load signals.";
   }
   const backtestingHref = backtestingHrefFromItems(items);
+  const isInstitutionalMode = mode === "institutional";
+  const headerLabels = isInstitutionalMode
+    ? {
+        time: "Filing Date",
+        actor: "Institution",
+        side: "Action",
+        amount: "Reported Value",
+        baseline: "Prior Q Value",
+        multiple: "Delta %",
+        score: "Institutional Score",
+      }
+    : {
+        time: "Time",
+        actor: "Member",
+        side: "Side",
+        amount: "Amount",
+        baseline: "Base",
+        multiple: "Mult",
+        score: "Score",
+      };
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
@@ -629,7 +664,9 @@ async function SignalsResultsSection({
         <p className="min-w-0 text-slate-400">
           {items.length > 0 ? `${items.length} visible signals` : errorMessage ? "Signals unavailable" : "No visible signals"}
         </p>
-        {canBacktest ? (
+        {isInstitutionalMode ? (
+          <span className="inline-flex w-full items-center justify-center rounded-full border border-white/10 px-3 py-1 text-center text-xs font-semibold text-slate-500 md:w-auto">Institutional backtests coming soon</span>
+        ) : canBacktest ? (
           backtestingHref ? (
             <Link
               href={backtestingHref}
@@ -664,6 +701,7 @@ async function SignalsResultsSection({
               const freshness = it.signal_freshness;
               const source = sourceBadge(it);
               const isInsider = isInsiderSignalKind(it.kind);
+              const isInstitutional = isInstitutionalSignalKind(it.kind);
               const rawPos = it.position ?? null;
               const roleCode = normalizeInsiderRoleBadge(rawPos);
               const roleTone = insiderRoleBadgeTone(roleCode);
@@ -689,7 +727,7 @@ async function SignalsResultsSection({
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Amount</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{isInstitutional ? "Reported Value" : "Amount"}</div>
                       <div className="font-mono text-sm font-semibold text-slate-100" title={`${formatUSD(it.amount_min)} - ${formatUSD(it.amount_max)}`}>
                         {formatUSD(it.amount_max)}
                       </div>
@@ -708,6 +746,11 @@ async function SignalsResultsSection({
                             <span className="min-w-0 truncate text-slate-100">{insiderName ?? "--"}</span>
                           )}
                         </div>
+                      ) : isInstitutional ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="inline-flex shrink-0"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
+                          <span className="min-w-0 truncate text-slate-100">{it.who ?? "Institutional holders"}</span>
+                        </div>
                       ) : (
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex shrink-0"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
@@ -723,15 +766,15 @@ async function SignalsResultsSection({
 
                   <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Baseline">Base</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Prior Q Value" : "Baseline"}>{isInstitutional ? "Prior Q Value" : "Base"}</div>
                       <div className="truncate font-mono text-slate-200">{formatUSD(it.baseline_median_amount_max)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Multiple">Mult</div>
-                      <div className="truncate font-mono text-slate-200">{formatMultiple(it.unusual_multiple)}</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Delta %" : "Multiple"}>{isInstitutional ? "Delta %" : "Mult"}</div>
+                      <div className="truncate font-mono text-slate-200">{isInstitutional ? `${(((it.unusual_multiple ?? 1) - 1) * 100).toFixed(1)}%` : formatMultiple(it.unusual_multiple)}</div>
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Conviction">Score</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Institutional Score" : "Conviction"}>{isInstitutional ? "Institutional Score" : "Score"}</div>
                       <span className={`${pill} mt-1 min-w-0 max-w-full justify-center gap-1.5 px-2.5 py-1 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 shrink-0 rounded-full ${smart.dotClass}`} />
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "--"}</span>
@@ -743,6 +786,8 @@ async function SignalsResultsSection({
                       <div className="mt-1">
                         {isInsider ? (
                           <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
+                        ) : isInstitutional ? (
+                          <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge>
                         ) : (
                           <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
                         )}
@@ -791,19 +836,19 @@ async function SignalsResultsSection({
           </colgroup>
           <thead className={`${stickyResultsTableHeaderClassName} whitespace-nowrap bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
-              <th className="px-2 py-3 text-left xl:px-3">Time</th>
+              <th className="px-2 py-3 text-left xl:px-3">{headerLabels.time}</th>
               <th className="px-2 py-3 text-left xl:px-3">Ticker</th>
-              <th className="px-2 py-3 text-left xl:px-3">Member</th>
-              <th className="px-2 py-3 text-left xl:px-3">Side</th>
-              <th className="px-2 py-3 text-left xl:px-3">Amount</th>
+              <th className="px-2 py-3 text-left xl:px-3">{headerLabels.actor}</th>
+              <th className="px-2 py-3 text-left xl:px-3">{headerLabels.side}</th>
+              <th className="px-2 py-3 text-left xl:px-3">{headerLabels.amount}</th>
               <th className="px-2 py-3 text-left xl:px-3">
-                <SignalColumnHeaderTooltip id="signals-header-baseline" label={<span title="Baseline">Base</span>} description={SIGNALS_COLUMN_DEFINITIONS.baseline} />
+                <SignalColumnHeaderTooltip id="signals-header-baseline" label={<span title={headerLabels.baseline}>{headerLabels.baseline}</span>} description={isInstitutionalMode ? "The prior quarter reported value when available." : SIGNALS_COLUMN_DEFINITIONS.baseline} />
               </th>
               <th className="px-2 py-3 text-left xl:px-3">
-                <SignalColumnHeaderTooltip id="signals-header-multiple" label={<span title="Multiple">Mult</span>} description={SIGNALS_COLUMN_DEFINITIONS.multiple} />
+                <SignalColumnHeaderTooltip id="signals-header-multiple" label={<span title={headerLabels.multiple}>{headerLabels.multiple}</span>} description={isInstitutionalMode ? "Reported quarter-over-quarter value change percentage when available." : SIGNALS_COLUMN_DEFINITIONS.multiple} />
               </th>
               <th className="px-2 py-3 text-left xl:px-3">
-                <SignalColumnHeaderTooltip id="signals-header-conviction" label={<span title="Conviction">Score</span>} description={SIGNALS_COLUMN_DEFINITIONS.conviction} />
+                <SignalColumnHeaderTooltip id="signals-header-conviction" label={<span title={headerLabels.score}>{headerLabels.score}</span>} description={isInstitutionalMode ? "A materiality score for reported 13F institutional activity." : SIGNALS_COLUMN_DEFINITIONS.conviction} />
               </th>
               <th className="px-2 py-3 text-left xl:px-3">
                 <SignalColumnHeaderTooltip id="signals-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
@@ -840,6 +885,7 @@ async function SignalsResultsSection({
                 const freshness = it.signal_freshness;
                 const source = sourceBadge(it);
                 const isInsider = isInsiderSignalKind(it.kind);
+                const isInstitutional = isInstitutionalSignalKind(it.kind);
                 const rawPos = it.position ?? null;
                 const roleCode = normalizeInsiderRoleBadge(rawPos);
                 const roleTone = insiderRoleBadgeTone(roleCode);
@@ -870,6 +916,11 @@ async function SignalsResultsSection({
                             <span className="min-w-0 truncate text-slate-100">{insiderName ?? "—"}</span>
                           )}
                         </div>
+                      ) : isInstitutional ? (
+                        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                          <span className="inline-flex shrink-0 align-middle"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
+                          <span className="truncate">{it.who ?? "Institutional holders"}</span>
+                        </div>
                       ) : (
                         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                           <span className="inline-flex shrink-0 align-middle"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></span>
@@ -884,7 +935,7 @@ async function SignalsResultsSection({
                     <td className="px-2 py-3 xl:px-3"><span className={`${pill} max-w-full px-2.5 ${side.klass}`}>{side.label}</span></td>
                     <td className="px-2 py-3 text-slate-200 xl:px-3" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
                     <td className="px-2 py-3 text-slate-200 xl:px-3">{formatUSD(it.baseline_median_amount_max)}</td>
-                    <td className="px-2 py-3 text-slate-200 xl:px-3">{formatMultiple(it.unusual_multiple)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{isInstitutional ? `${(((it.unusual_multiple ?? 1) - 1) * 100).toFixed(1)}%` : formatMultiple(it.unusual_multiple)}</td>
                     <td className="px-2 py-3 xl:px-3">
                       <span className={`${pill} min-w-[7.75rem] max-w-full justify-center gap-1.5 px-2 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />
@@ -895,6 +946,8 @@ async function SignalsResultsSection({
                     <td className="px-2 py-3 xl:px-3">
                       {isInsider ? (
                         <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
+                      ) : isInstitutional ? (
+                        <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge>
                       ) : (
                         <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
                       )}

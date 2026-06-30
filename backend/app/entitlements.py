@@ -325,7 +325,7 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     },
     "options_flow_feed": {
         "required_tier": "pro",
-        "description": "Options flow feed access when provider data is available.",
+        "description": "Options flow feed access.",
     },
     "options_flow_filters": {
         "required_tier": "pro",
@@ -333,7 +333,7 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     },
     "institutional_feed": {
         "required_tier": "pro",
-        "description": "Institutional activity feed access when provider data is available.",
+        "description": "Institutional Activity and 13F filing access.",
     },
     "institutional_filters": {
         "required_tier": "pro",
@@ -527,7 +527,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_singular": "",
         "unit_plural": "",
         "sort_order": 100,
-        "pricing_description": "Options flow overlay and feed access. Coming soon where provider data is not yet enabled.",
+        "pricing_description": "Options flow overlay and feed access.",
     },
     "options_flow_filters": {
         "label": "Options Flow Filters",
@@ -543,7 +543,7 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_singular": "",
         "unit_plural": "",
         "sort_order": 110,
-        "pricing_description": "Institutional activity feed access. Coming soon where provider data is not yet enabled.",
+        "pricing_description": "Institutional Activity and 13F filing access.",
     },
     "institutional_filters": {
         "label": "Institutional Filters",

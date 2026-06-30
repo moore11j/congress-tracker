@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user, is_admin_user
 from app.db import get_db
+from app.entitlements import entitlements_for_user
 from app.rate_limit import rate_limit_provider_backed
 from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
@@ -50,6 +51,7 @@ from app.services.congress_outcome_eligibility import congress_equity_outcome_el
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
@@ -105,6 +107,7 @@ BAD_EVENT_IDENTITY_LABELS = {
     "congress_crypto_trade",
     "insider_trade",
     "institutional_buy",
+    *INSTITUTIONAL_EVENT_TYPES,
     "government_contract",
     "event",
     "security",
@@ -287,6 +290,13 @@ def _events_response_cache_key(
         "offset": offset,
     }
     return "events:" + json.dumps(key_parts, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _can_view_institutional_events(db: Session, request: Request | None) -> bool:
+    if request is None or not hasattr(request, "cookies"):
+        return False
+    user = current_user(db, request, required=False)
+    return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
 
 
 def _events_response_cache_get(cache_key: str | None) -> EventsPage | EventsPageDebug | None:
@@ -578,6 +588,8 @@ def _normalize_event_type_alias(value: str) -> str:
         return "insider_trade"
     if normalized in {"government_contracts", "government_contract_action", "gov_contract"}:
         return "government_contract"
+    if normalized in {"institutional", "institutional_activity", "institutional_13f", "13f"}:
+        return ",".join(INSTITUTIONAL_EVENT_TYPES)
     return normalized
 
 
@@ -3065,6 +3077,8 @@ def suggest_symbol(
         query = query.where(Event.event_type == "insider_trade")
     elif tape_value in {"government_contracts", "government_contract"}:
         query = query.where(Event.event_type == "government_contract")
+    elif tape_value in {"institutional", "institutional_activity", "institutional_13f"}:
+        query = query.where(Event.event_type.in_(INSTITUTIONAL_EVENT_TYPES))
 
     rows = db.execute(
         query.group_by(Event.symbol).order_by(func.upper(Event.symbol)).limit(max(limit - len(department_items), 0))
@@ -3356,6 +3370,7 @@ def list_events(
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
     debug_enabled = _events_debug_enabled(db, request, debug)
+    can_view_institutional = _can_view_institutional_events(db, request)
 
     symbol_values = _parse_csv(symbol) + _parse_csv(ticker)
     combined_symbols = [
@@ -3379,8 +3394,8 @@ def list_events(
     tape_value = None
     if tape is not None:
         tape_value = tape.strip().lower()
-        if tape_value not in {"congress", "insider", "government_contracts", "government_contract", "all"}:
-            raise HTTPException(status_code=400, detail="Invalid tape. Allowed values: congress, insider, government_contracts, all.")
+        if tape_value not in {"congress", "insider", "government_contracts", "government_contract", "institutional", "institutional_activity", "institutional_13f", "all"}:
+            raise HTTPException(status_code=400, detail="Invalid tape. Allowed values: congress, insider, government_contracts, institutional, all.")
     since_dt = _parse_since(since)
     recent_since = None
     if recent_days is not None:
@@ -3403,6 +3418,9 @@ def list_events(
     q = q.where(insider_visibility_clause())
     q = q.where(_government_contract_action_events_only_clause())
     applied_filters.append("insider_visibility")
+    if not can_view_institutional:
+        q = q.where(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
+        applied_filters.append("institutional_entitlement")
 
     government_contract_scope = set(type_list).issubset({"government_contract"}) if type_list else False
 
@@ -3419,6 +3437,9 @@ def list_events(
     elif tape_value == "insider":
         q = q.where(Event.event_type == "insider_trade")
         applied_filters.append("tape=insider")
+    elif tape_value in {"institutional", "institutional_activity", "institutional_13f"}:
+        q = q.where(Event.event_type.in_(INSTITUTIONAL_EVENT_TYPES))
+        applied_filters.append("tape=institutional")
 
     if since_dt is not None:
         q = q.where(sort_ts >= since_dt)
@@ -3587,6 +3608,8 @@ def list_events(
         page_size=page_size,
         offset=offset,
     )
+    if request is not None and hasattr(request, "cookies") and not can_view_institutional:
+        response_cache_key = None
     cached_response = _events_response_cache_get(response_cache_key)
     if cached_response is not None:
         logger.info("events_response_cache_hit symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
@@ -3864,6 +3887,7 @@ def list_events(
 @router.get("/tickers/{symbol}/events", response_model=EventsPage, dependencies=[Depends(rate_limit_provider_backed)])
 def list_ticker_events(
     symbol: str,
+    request: Request = None,
     db: Session = Depends(get_db),
     types: str | None = None,
     since: str | None = None,
@@ -3873,6 +3897,9 @@ def list_ticker_events(
     symbol_list = [symbol.strip().upper()]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
+    extra_filters = [insider_visibility_clause()]
+    if not _can_view_institutional_events(db, request):
+        extra_filters.append(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
 
     q = _build_events_query(
         db=db,
@@ -3881,7 +3908,7 @@ def list_ticker_events(
         since=since_dt,
         cursor=cursor,
         limit=limit,
-        extra_filters=[insider_visibility_clause()],
+        extra_filters=extra_filters,
         congress_filters=[],
     )
     return _fetch_events_page(db, q, limit, enrich_prices=False)
@@ -3926,6 +3953,8 @@ def list_watchlist_events(
     recent_since = datetime.now(timezone.utc) - timedelta(days=recent_days) if recent_days is not None else None
     effective_since = max([value for value in [since_dt, recent_since] if value is not None], default=None)
     extra_filters = []
+    if not _can_view_institutional_events(db, request):
+        extra_filters.append(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
     if unread_only:
         unread_event_ids = (
             db.execute(

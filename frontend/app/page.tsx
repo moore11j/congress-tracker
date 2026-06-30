@@ -235,9 +235,33 @@ const badEventIdentityLabels = new Set([
   "congress_crypto_trade",
   "insider_trade",
   "institutional_buy",
+  "institutional_accumulation",
+  "institutional_distribution",
+  "new_institutional_position",
+  "major_holder_reduction",
+  "major_holder_exit",
+  "cluster_accumulation",
+  "cluster_distribution",
+  "smart_money_confirmation",
+  "crowded_long",
+  "contrarian_accumulation",
   "government_contract",
   "event",
   "security",
+]);
+
+const institutionalActivityEventTypes = new Set([
+  "institutional_buy",
+  "institutional_accumulation",
+  "institutional_distribution",
+  "new_institutional_position",
+  "major_holder_reduction",
+  "major_holder_exit",
+  "cluster_accumulation",
+  "cluster_distribution",
+  "smart_money_confirmation",
+  "crowded_long",
+  "contrarian_accumulation",
 ]);
 
 function safeIdentityText(...values: unknown[]): string | null {
@@ -479,7 +503,8 @@ function mapEventToFeedItem(
     };
   }
 
-  if (event.event_type === "institutional_buy") {
+  if (institutionalActivityEventTypes.has(event.event_type)) {
+    const institutionalKind = event.event_type as FeedItem["kind"];
     const payload = parsePayload(event.payload);
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     const institutionName =
@@ -505,7 +530,7 @@ function mapEventToFeedItem(
 
     return {
       id: event.id,
-      kind: "institutional_buy",
+      kind: institutionalKind,
       member: {
         bioguide_id: asTrimmedString(payload.institution_cik) ?? `institution-${event.id}`,
         name: institutionName,
@@ -514,10 +539,10 @@ function mapEventToFeedItem(
       security: {
         symbol,
         name: securityName,
-        asset_class: "Institutional Filing",
+        asset_class: "13F Filing",
       },
-      transaction_type: "Holding Increase",
-      owner_type: "Institutional Filing",
+      transaction_type: event.event_type.includes("reduction") || event.event_type.includes("distribution") || event.event_type.includes("exit") ? "Reported Reduction" : event.event_type.includes("new") ? "Reported New Position" : "Reported Increase",
+      owner_type: "13F Filing",
       trade_date: reportDate,
       report_date: filingDate,
       amount_range_min: amountMin,

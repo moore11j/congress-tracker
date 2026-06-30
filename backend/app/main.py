@@ -39,6 +39,7 @@ from app.db import (
     ensure_event_columns,
     ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
+    ensure_institutional_activity_schema,
     ensure_monitoring_alert_columns,
     ensure_page_analytics_schema,
     ensure_provider_control_schema,
@@ -114,6 +115,7 @@ from app.ingest_congress_recent import CONGRESS_RECENT_STATUS_KEY
 from app.routers.accounts import router as accounts_router
 from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
+from app.routers.institutional import router as institutional_router
 from app.routers.notifications import router as notifications_router
 from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.ai_marketing import router as ai_marketing_router
@@ -256,6 +258,16 @@ BAD_EVENT_IDENTITY_LABELS = {
     "congress_crypto_trade",
     "insider_trade",
     "institutional_buy",
+    "institutional_accumulation",
+    "institutional_distribution",
+    "new_institutional_position",
+    "major_holder_reduction",
+    "major_holder_exit",
+    "cluster_accumulation",
+    "cluster_distribution",
+    "smart_money_confirmation",
+    "crowded_long",
+    "contrarian_accumulation",
     "government_contract",
     "event",
     "security",
@@ -3030,6 +3042,7 @@ def _startup_create_tables():
         ("schema_provider_control", lambda: ensure_provider_control_schema(engine)),
         ("schema_data_enrichment_jobs", lambda: ensure_data_enrichment_jobs_schema(engine)),
         ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
+        ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
         ("schema_monitoring_alert_columns", ensure_monitoring_alert_columns),
         ("schema_house_annual_disclosure", ensure_house_annual_disclosure_schema),
@@ -6606,10 +6619,10 @@ def _mark_institutional_unavailable_in_confirmation_bundle(
         "strength": 0,
         "quality": 0,
         "freshness_days": None,
-        "label": "Institutional activity unavailable",
+        "label": "Institutional Activity unavailable",
         "score_contribution": 0,
-        "detail": "Institutional activity source is not configured.",
-        "summary": "Institutional activity is unavailable.",
+        "detail": "No institutional activity data is available.",
+        "summary": "Institutional Activity is unavailable.",
         "status": "unavailable",
         "reason": reason,
     }
@@ -8671,12 +8684,12 @@ def ticker_sec_filings(
     return payload
 
 
-def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: datetime | None) -> int:
-    return watchlist_unread_count(db, watchlist_id, last_seen_at)
+def _watchlist_unseen_count(db: Session, watchlist_id: int, last_seen_at: datetime | None, user_id: int | None = None) -> int:
+    return watchlist_unread_count(db, watchlist_id, last_seen_at, user_id=user_id)
 
 
-def _watchlist_view_summary(db: Session, watchlist_id: int) -> dict:
-    return watchlist_unread_summary(db, watchlist_id)
+def _watchlist_view_summary(db: Session, watchlist_id: int, user_id: int | None = None) -> dict:
+    return watchlist_unread_summary(db, watchlist_id, user_id=user_id)
 
 
 @app.get("/api/watchlists")
@@ -8700,7 +8713,7 @@ def list_watchlists(request: Request, db: Session = Depends(get_db)):
             if normalized_symbol:
                 symbols_by_watchlist.setdefault(watchlist_id, []).append(normalized_symbol)
     return [
-        {"id": w.id, "name": w.name, "symbols": symbols_by_watchlist.get(w.id, []), **_watchlist_view_summary(db, w.id)}
+        {"id": w.id, "name": w.name, "symbols": symbols_by_watchlist.get(w.id, []), **_watchlist_view_summary(db, w.id, user.id)}
         for w in rows
     ]
 
@@ -8730,8 +8743,8 @@ def _refresh_monitored_saved_screen_alerts(request: Request, db: Session, user: 
     return screens
 
 
-def _monitoring_watchlist_counts(db: Session, watchlists: list[Watchlist]) -> dict[int, int]:
-    return watchlist_unread_counts(db, [watchlist.id for watchlist in watchlists])
+def _monitoring_watchlist_counts(db: Session, watchlists: list[Watchlist], user_id: int | None = None) -> dict[int, int]:
+    return watchlist_unread_counts(db, [watchlist.id for watchlist in watchlists], user_id=user_id)
 
 
 def _monitored_saved_screens_for_user(request: Request, db: Session, user: UserAccount) -> list[SavedScreen]:
@@ -8762,7 +8775,7 @@ def _saved_screen_alert_unread_counts(db: Session, user_id: int) -> dict[tuple[s
 
 def _monitoring_unread_total(request: Request, db: Session, user: UserAccount) -> int:
     watchlists = _monitored_watchlists_for_user(request, db, user)
-    watchlist_counts = _monitoring_watchlist_counts(db, watchlists)
+    watchlist_counts = _monitoring_watchlist_counts(db, watchlists, user.id)
     saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
     return sum(watchlist_counts.values()) + sum(saved_screen_counts.values())
 
@@ -8777,7 +8790,7 @@ def _monitoring_counts_payload(
 ) -> dict[str, object]:
     resolved_watchlists = watchlists if watchlists is not None else _monitored_watchlists_for_user(request, db, user)
     resolved_saved_screens = saved_screens if saved_screens is not None else _monitored_saved_screens_for_user(request, db, user)
-    watchlist_counts = _monitoring_watchlist_counts(db, resolved_watchlists)
+    watchlist_counts = _monitoring_watchlist_counts(db, resolved_watchlists, user.id)
     saved_screen_counts = _saved_screen_alert_unread_counts(db, user.id)
     sources = [
         {
@@ -8918,7 +8931,7 @@ def mark_monitoring_source_read(source_id: str, request: Request, db: Session = 
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
     marked = mark_watchlist_source_read(db, user_id=user.id, watchlist=watchlist)
     db.commit()
-    source_count = watchlist_unread_count(db, watchlist_id)
+    source_count = watchlist_unread_count(db, watchlist_id, user_id=user.id)
     counts = _monitoring_counts_payload(request, db, user)
     return {
         "source_id": source_id,
@@ -8939,7 +8952,7 @@ def mark_monitoring_source_unread(source_id: str, request: Request, db: Session 
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
     marked = mark_watchlist_source_unread(db, user_id=user.id, watchlist=watchlist)
     db.commit()
-    source_count = watchlist_unread_count(db, watchlist_id)
+    source_count = watchlist_unread_count(db, watchlist_id, user_id=user.id)
     counts = _monitoring_counts_payload(request, db, user)
     return {
         "source_id": source_id,
@@ -9254,7 +9267,7 @@ def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get
         "tickers": [
             {"symbol": s, "name": _resolve_ticker_page_name(db, s, canonical_profile_name=n)} for s, n in rows
         ],
-        **_watchlist_view_summary(db, watchlist_id),
+        **_watchlist_view_summary(db, watchlist_id, user.id),
     }
 
 
@@ -9522,6 +9535,7 @@ def watchlist_feed(
 
 app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
+app.include_router(institutional_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
