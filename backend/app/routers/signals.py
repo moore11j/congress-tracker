@@ -5,7 +5,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import Float, Integer, String, bindparam, func, literal, select, text, union_all
+from sqlalchemy import Float, Integer, String, bindparam, func, literal, or_, select, text, union_all
 from sqlalchemy.orm import Session
 
 from app.auth import current_user

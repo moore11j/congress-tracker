@@ -37,6 +37,14 @@ INSTITUTIONAL_EVENT_TYPES = (
     "crowded_long",
     "contrarian_accumulation",
 )
+INSTITUTIONAL_FEED_EVENT_MIN_MATERIALITY = 80.0
+INSTITUTIONAL_FEED_EVENT_TYPES = (
+    "cluster_accumulation",
+    "cluster_distribution",
+    "smart_money_confirmation",
+    "crowded_long",
+    "contrarian_accumulation",
+)
 INSTITUTIONAL_ACTIVITY_TOOLTIP = (
     "Institutional activity is based on reported 13F holdings. These filings disclose quarter-end "
     "positions and may not reflect real-time trading. Walnut uses the filing date for freshness "
@@ -317,6 +325,7 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
             "amendment_suppressed": 1,
         }
 
+    db.flush()
     current_positions = db.execute(
         select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)
     ).scalars().all()
@@ -363,11 +372,14 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
                 symbols.add(change.normalized_symbol)
 
     summaries = events = feed_events = 0
+    if symbols:
+        db.flush()
     for symbol in sorted(symbols):
         summary = refresh_symbol_summary(db, symbol, filing.report_year, filing.report_quarter)
         if summary:
             summaries += 1
             events += generate_activity_events_for_symbol(db, summary)
+            db.flush()
             feed_events += materialize_feed_events_for_symbol(db, summary)
     filing.processed_at = datetime.now(timezone.utc)
     return {"changes": changes, "summaries": summaries, "activity_events": events, "feed_events": feed_events}
@@ -617,6 +629,7 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
             InstitutionalPositionChange.report_year == summary.report_year,
             InstitutionalPositionChange.report_quarter == summary.report_quarter,
             InstitutionalPositionChange.is_material.is_(True),
+            InstitutionalPositionChange.change_type != "unchanged",
         )
     ).scalars().all()
     created = 0
@@ -638,7 +651,8 @@ def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbol
             InstitutionalActivityEvent.report_year == summary.report_year,
             InstitutionalActivityEvent.report_quarter == summary.report_quarter,
             InstitutionalActivityEvent.feed_visible.is_(True),
-            InstitutionalActivityEvent.materiality_score >= 50,
+            InstitutionalActivityEvent.event_type.in_(INSTITUTIONAL_FEED_EVENT_TYPES),
+            InstitutionalActivityEvent.materiality_score >= INSTITUTIONAL_FEED_EVENT_MIN_MATERIALITY,
         )
     ).scalars().all()
     created = 0

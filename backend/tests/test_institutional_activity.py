@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from app.db import Base
-from app.models import Event, InstitutionalActivityEvent, InstitutionalPositionChange, InstitutionalSymbolSummary
+from app.models import Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalPositionChange, InstitutionalSymbolSummary
+from app.routers.institutional import ticker_institutional_activity
 from app.services.institutional_activity import (
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
@@ -24,6 +27,10 @@ def _engine():
     return engine
 
 
+def _session(engine):
+    return Session(engine, autoflush=False)
+
+
 def _filing_row(*, cik: str, filing_date: date, year: int, quarter: int, holder: str = "Blue Ridge Capital") -> dict:
     return {
         "cik": cik,
@@ -34,6 +41,46 @@ def _filing_row(*, cik: str, filing_date: date, year: int, quarter: int, holder:
         "formType": "13F-HR",
         "accessionNumber": f"{cik}-{year}-{quarter}",
     }
+
+
+def _request(tier: str | None = None) -> Request:
+    headers = []
+    if tier:
+        headers.append((b"x-ct-entitlement-tier", tier.encode("utf-8")))
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
+
+
+def _process_single_change(
+    db: Session,
+    *,
+    symbol: str,
+    prior_row: dict | None,
+    current_row: dict | None,
+    filing_days_ago: int = 5,
+    holder: str = "Blue Ridge Capital",
+) -> dict[str, int | str]:
+    today = date.today()
+    cik = "0001234567"
+    prior_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=95), year=2025, quarter=4, holder=holder))
+    current_candidate = parse_latest_filing(
+        _filing_row(cik=cik, filing_date=today - timedelta(days=filing_days_ago), year=2026, quarter=1, holder=holder)
+    )
+    assert prior_candidate is not None
+    assert current_candidate is not None
+
+    upsert_institutional_holder(db, prior_candidate)
+    prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+    db.flush()
+    if prior_row is not None:
+        upsert_positions_for_filing(db, filing=prior_filing, rows=[{**prior_row, "symbol": symbol}])
+
+    upsert_institutional_holder(db, current_candidate)
+    current_filing, _ = upsert_institutional_filing(db, current_candidate)
+    db.flush()
+    if current_row is not None:
+        upsert_positions_for_filing(db, filing=current_filing, rows=[{**current_row, "symbol": symbol}])
+
+    return process_filing_changes_and_events(db, current_filing)
 
 
 def test_parse_latest_filing_normalizes_13f_metadata():
@@ -80,12 +127,172 @@ def test_institutional_contribution_is_freshness_bounded_and_capped():
     assert bearish == -15
 
 
+@pytest.mark.parametrize(
+    ("symbol", "prior_row", "current_row", "change_type", "event_type", "direction"),
+    [
+        (
+            "EXIT",
+            {"shares": 400_000, "marketValue": 65_000_000, "cusip": "000EXIT01"},
+            None,
+            "exit",
+            "major_holder_exit",
+            "bearish",
+        ),
+        (
+            "REDU",
+            {"shares": 400_000, "marketValue": 65_000_000, "cusip": "000REDU01"},
+            {"shares": 100_000, "marketValue": 5_000_000, "cusip": "000REDU01"},
+            "decrease",
+            "major_holder_reduction",
+            "bearish",
+        ),
+        (
+            "INCR",
+            {"shares": 100_000, "marketValue": 5_000_000, "cusip": "000INCR01"},
+            {"shares": 400_000, "marketValue": 65_000_000, "cusip": "000INCR01"},
+            "increase",
+            "institutional_accumulation",
+            "bullish",
+        ),
+        (
+            "NEWP",
+            None,
+            {"shares": 200_000, "marketValue": 25_000_000, "cusip": "000NEWP01"},
+            "new_position",
+            "new_institutional_position",
+            "bullish",
+        ),
+    ],
+)
+def test_material_position_changes_create_activity_events_with_autoflush_disabled(
+    symbol: str,
+    prior_row: dict | None,
+    current_row: dict | None,
+    change_type: str,
+    event_type: str,
+    direction: str,
+):
+    engine = _engine()
+
+    with _session(engine) as db:
+        counts = _process_single_change(db, symbol=symbol, prior_row=prior_row, current_row=current_row)
+        db.commit()
+
+        assert counts["changes"] == 1
+        assert counts["activity_events"] >= 1
+        change = db.execute(select(InstitutionalPositionChange).where(InstitutionalPositionChange.normalized_symbol == symbol)).scalar_one()
+        assert change.change_type == change_type
+        assert change.direction == direction
+        assert change.is_material is True
+
+        activity = db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.normalized_symbol == symbol,
+                InstitutionalActivityEvent.event_type == event_type,
+            )
+        ).scalar_one()
+        assert activity.direction == direction
+        assert activity.source_label == "Institutional Activity"
+        assert activity.reported_value_usd is not None
+        assert "13F" in activity.summary
+        assert "Buy" not in activity.title
+        assert "Sell" not in activity.title
+
+
+def test_stale_material_filing_still_creates_activity_event_without_30d_confirmation():
+    engine = _engine()
+
+    with _session(engine) as db:
+        counts = _process_single_change(
+            db,
+            symbol="STALE",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "cusip": "00STALE01"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "cusip": "00STALE01"},
+            filing_days_ago=45,
+        )
+        db.commit()
+
+        assert counts["activity_events"] >= 1
+        activity = db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.normalized_symbol == "STALE",
+                InstitutionalActivityEvent.event_type == "institutional_accumulation",
+            )
+        ).scalar_one()
+        assert activity.freshness_status == "stale"
+        assert activity.confirmation_score == 0
+
+        summaries, availability = get_institutional_activity_summaries_for_symbols(db, ["STALE"], lookback_days=30)
+        assert availability["status"] == "ok"
+        assert summaries["STALE"]["active"] is False
+        assert summaries["STALE"]["confirmation_contribution"] == 0
+
+
+def test_institutional_activity_endpoint_redacts_details_until_pro(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="LOCK",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "cusip": "000LOCK01"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "cusip": "000LOCK01"},
+        )
+        db.commit()
+
+        for tier in (None, "free", "premium"):
+            payload = ticker_institutional_activity("LOCK", _request(tier), lookback_days=365, limit=5, db=db)
+            assert payload["locked"] is True
+            assert payload["items"] == []
+            assert payload["summary"]["total_value"] is None
+            assert payload["summary"]["institution_count"] is None
+
+        for tier in ("pro", "admin"):
+            payload = ticker_institutional_activity("LOCK", _request(tier), lookback_days=365, limit=5, db=db)
+            assert payload.get("locked") is not True
+            assert payload["summary"]["locked"] is False
+            holder_event = next(item for item in payload["items"] if item["event_type"] == "institutional_accumulation")
+            assert holder_event["cik"] == "0001234567"
+            assert holder_event["reported_value_usd"] == 65_000_000
+
+
+def test_rerunning_processing_does_not_duplicate_activity_or_feed_events():
+    engine = _engine()
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="RERUN",
+            prior_row={"shares": 400_000, "marketValue": 65_000_000, "cusip": "00RERUN01"},
+            current_row=None,
+        )
+        db.commit()
+        activity_count = db.query(InstitutionalActivityEvent).count()
+        feed_count = db.query(Event).count()
+        filing = db.execute(
+            select(InstitutionalFiling).where(
+                InstitutionalFiling.cik == "0001234567",
+                InstitutionalFiling.report_year == 2026,
+                InstitutionalFiling.report_quarter == 1,
+            )
+        ).scalar_one()
+
+        counts = process_filing_changes_and_events(db, filing)
+        db.commit()
+
+        assert counts["changes"] == 1
+        assert db.query(InstitutionalActivityEvent).count() == activity_count
+        assert db.query(Event).count() == feed_count
+
+
 def test_process_filing_changes_creates_summary_and_activity_event():
     engine = _engine()
     today = date.today()
     cik = "0001234567"
 
-    with Session(engine) as db:
+    with _session(engine) as db:
         prior_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=95), year=2025, quarter=4))
         current_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1))
         assert prior_candidate is not None
@@ -147,7 +354,7 @@ def test_amended_filing_stores_but_suppresses_user_facing_events():
     today = date.today()
     cik = "0001234567"
 
-    with Session(engine) as db:
+    with _session(engine) as db:
         prior_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=95), year=2025, quarter=4))
         current_candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1))
         assert prior_candidate is not None

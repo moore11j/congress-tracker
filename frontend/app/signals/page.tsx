@@ -189,6 +189,12 @@ function clampMinConfirmationSources(value: string): 0 | 2 | 3 | 4 {
   return 0;
 }
 
+function clampInstitutionalLookbackDays(value: string, mode: SignalMode): number | undefined {
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 1) return Math.min(365, Math.trunc(n));
+  return mode === "institutional" ? 365 : undefined;
+}
+
 function isTrue(v: string): boolean {
   const s = v.toLowerCase();
   return s === "true" || s === "1" || s === "yes" || s === "on";
@@ -205,6 +211,7 @@ function buildSignalsUrl(
   confirmationDirection: ConfirmationDirectionFilter,
   minConfirmationSources: number,
   multiSourceOnly: boolean,
+  institutionalLookbackDays?: number,
 ): string {
   const u = new URL("/api/signals/all", apiBase);
   u.searchParams.set("mode", mode);
@@ -215,6 +222,7 @@ function buildSignalsUrl(
   if (confirmationDirection !== "all") u.searchParams.set("confirmation_direction", confirmationDirection);
   if (minConfirmationSources > 0) u.searchParams.set("min_confirmation_sources", String(minConfirmationSources));
   if (multiSourceOnly) u.searchParams.set("multi_source_only", "1");
+  if (institutionalLookbackDays !== undefined) u.searchParams.set("institutional_lookback_days", String(institutionalLookbackDays));
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
 }
@@ -477,6 +485,7 @@ export default async function SignalsPage({
   const confirmationDirection = clampConfirmationDirection(getParam(sp, "confirmation_direction"));
   const minConfirmationSources = clampMinConfirmationSources(getParam(sp, "min_confirmation_sources"));
   const multiSourceOnly = isTrue(getParam(sp, "multi_source_only"));
+  const institutionalLookbackDays = clampInstitutionalLookbackDays(getParam(sp, "institutional_lookback_days"), mode);
   const debug = isTrue(getParam(sp, "debug"));
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
   const requestUrl = buildSignalsUrl(
@@ -490,6 +499,7 @@ export default async function SignalsPage({
     confirmationDirection,
     minConfirmationSources,
     multiSourceOnly,
+    institutionalLookbackDays,
   );
 
   const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
@@ -539,6 +549,7 @@ export default async function SignalsPage({
             confirmationDirection={confirmationDirection}
             minConfirmationSources={activeMinConfirmationSources}
             multiSourceOnly={multiSourceOnly}
+            institutionalLookbackDays={institutionalLookbackDays}
             authToken={authToken}
             card={card}
             pill={pill}
@@ -575,6 +586,7 @@ async function SignalsResultsSection({
   confirmationDirection,
   minConfirmationSources,
   multiSourceOnly,
+  institutionalLookbackDays,
   authToken,
   card,
   pill,
@@ -591,6 +603,7 @@ async function SignalsResultsSection({
   confirmationDirection: ConfirmationDirectionFilter;
   minConfirmationSources: number;
   multiSourceOnly: boolean;
+  institutionalLookbackDays?: number;
   authToken: string;
   card: string;
   pill: string;
@@ -612,6 +625,7 @@ async function SignalsResultsSection({
         confirmationDirection={confirmationDirection}
         minConfirmationSources={minConfirmationSources}
         multiSourceOnly={multiSourceOnly}
+        institutionalLookbackDays={institutionalLookbackDays}
         card={card}
         pill={pill}
         activeSort={activeSort}
@@ -630,6 +644,7 @@ async function SignalsResultsSection({
       confirmation_direction: confirmationDirection,
       min_confirmation_sources: minConfirmationSources,
       multi_source_only: multiSourceOnly,
+      institutional_lookback_days: institutionalLookbackDays,
       authToken,
     });
     items = data.items as SignalItem[];

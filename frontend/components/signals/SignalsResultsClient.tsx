@@ -154,6 +154,7 @@ export function SignalsResultsClient({
   confirmationDirection,
   minConfirmationSources,
   multiSourceOnly,
+  institutionalLookbackDays,
   card,
   pill,
   activeSort,
@@ -169,6 +170,7 @@ export function SignalsResultsClient({
   confirmationDirection: ConfirmationDirectionFilter;
   minConfirmationSources: number;
   multiSourceOnly: boolean;
+  institutionalLookbackDays?: number;
   card: string;
   pill: string;
   activeSort: string;
@@ -214,6 +216,7 @@ export function SignalsResultsClient({
       confirmation_direction: confirmationDirection,
       min_confirmation_sources: minConfirmationSources,
       multi_source_only: multiSourceOnly,
+      institutional_lookback_days: institutionalLookbackDays,
     })
       .then((response) => {
         if (!alive) return;
@@ -230,7 +233,7 @@ export function SignalsResultsClient({
     return () => {
       alive = false;
     };
-  }, [mode, side, sort, limit, debug, confirmationBand, confirmationDirection, minConfirmationSources, multiSourceOnly]);
+  }, [mode, side, sort, limit, debug, confirmationBand, confirmationDirection, minConfirmationSources, multiSourceOnly, institutionalLookbackDays]);
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
