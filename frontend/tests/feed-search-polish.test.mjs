@@ -49,23 +49,31 @@ test("institutional feed cards use compact values and text activity labels", () 
 
   assert.match(card, /function formatMoneyCompactRange/);
   assert.match(card, /function formatSignedMoneyCompact/);
-  assert.match(card, /isInstitutional\s*\?\s*\(formatMoneyCompactRange/);
+  assert.match(card, /const isInstitutionalExit = isInstitutional && String\(kind\)\.includes\("exit"\)/);
+  assert.match(card, /isInstitutionalExit\s*\?\s*formatMoneyCompact\(0\)/);
   assert.match(card, /const institutionalActionToneClass/);
   assert.match(card, /text-rose-300/);
   assert.match(card, /text-emerald-300/);
+  assert.match(card, /if \(valueDelta < 0\) return "Reported Reduction"/);
+  assert.match(card, /return "Reported Activity"/);
+  assert.doesNotMatch(card, /return "13F Filing"/);
   assert.match(card, /const showOutcomeMetrics = true/);
   assert.match(card, /isInstitutional \? "N\/A"/);
   assert.match(card, /Gain\/loss is not calculated for 13F rows/);
   assert.match(card, /institutionalSecuritySecondaryLabel/);
   assert.match(card, /Filed after:/);
   assert.match(card, /institutionalAmountLabel/);
+  assert.doesNotMatch(card, /Prior value exited/);
   assert.match(card, /Change \{formatSignedMoneyCompact\(institutionalValueDelta\)\}/);
   assert.match(card, /isInstitutional \? "flex flex-col items-center gap-2 text-center md:grid md:\[grid-template-columns:minmax\(125px,170px\)_90px_60px\]/);
   assert.match(page, /companyNameForSymbol/);
   assert.match(page, /function institutionalDisplayName/);
   assert.match(page, /institutionalDisplayName\(event\.member_name\)/);
   assert.match(page, /normalized === "institutional activity"/);
-  assert.match(page, /Multiple institutions/);
+  assert.match(page, /function institutionalTransactionLabel/);
+  assert.match(page, /institutionalTransactionLabel\(event\.event_type, payload, event\.trade_type\)/);
+  assert.doesNotMatch(page, /Multiple institutions/);
+  assert.doesNotMatch(page, /`CIK \$\{event\.member_bioguide_id\}`/);
   assert.match(page, /institutionalSymbols/);
 });
 

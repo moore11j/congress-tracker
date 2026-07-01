@@ -470,12 +470,17 @@ function resolveInsiderReportingCik(item: FeedItem): string | null {
 
 function institutionalActionLabel(kind?: string | null, item?: FeedItem): string {
   const direction = String((item as any)?.direction ?? (item as any)?.payload?.direction ?? "").toLowerCase();
+  const valueDelta = parseNum(item?.institutional?.value_delta_usd ?? (item as any)?.payload?.value_delta_usd);
   if (kind === "new_institutional_position") return "New Position";
   if (kind === "major_holder_exit") return "Reported Exit";
   if (kind === "institutional_distribution" || kind === "major_holder_reduction" || kind === "cluster_distribution" || direction === "bearish") return "Reported Reduction";
   if (kind === "institutional_accumulation" || kind === "cluster_accumulation" || kind === "contrarian_accumulation" || direction === "bullish") return "Reported Increase";
   if (kind === "institutional_buy") return "Reported Increase";
-  return "13F Filing";
+  if (valueDelta !== null) {
+    if (valueDelta < 0) return "Reported Reduction";
+    if (valueDelta > 0) return "Reported Increase";
+  }
+  return "Reported Activity";
 }
 
 export function FeedCard({
@@ -604,12 +609,15 @@ export function FeedCard({
     : isCrypto && assetSymbol
       ? String(assetSymbol).toUpperCase()
       : null;
+  const isInstitutionalExit = isInstitutional && String(kind).includes("exit");
   const amountText = isInsider
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
       : "—"
     : isInstitutional
-      ? (formatMoneyCompactRange(item.amount_range_min, item.amount_range_max) ?? "—")
+      ? isInstitutionalExit
+        ? formatMoneyCompact(0)
+        : (formatMoneyCompactRange(item.amount_range_min, item.amount_range_max) ?? "—")
       : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
   const tradeValueNumber = isCongressDisclosure || isInstitutional
     ? parseNum(item.amount_range_max)
@@ -684,7 +692,7 @@ export function FeedCard({
     isInstitutional ? item.report_date : isInsider ? insiderFilingDate : item.report_date,
   );
   const institutionalValueDelta = isInstitutional ? (item.institutional?.value_delta_usd ?? parseNum(payload.value_delta_usd)) : null;
-  const institutionalAmountLabel = String(kind).includes("exit") ? "Prior value exited" : "Reported value";
+  const institutionalAmountLabel = "Reported value";
   const institutionalSecurityName = formatCompanyName(safeSecurityLabel(item.security?.name)) || (symbol ? displaySymbol(symbol) : "Company unavailable");
   const institutionalSecurityPrimaryLabel = isInstitutional && symbol ? displaySymbol(symbol) : institutionalSecurityName;
   const institutionalSecuritySecondaryLabel = isInstitutional ? institutionalSecurityName : null;

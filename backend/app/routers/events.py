@@ -313,7 +313,7 @@ def _can_view_institutional_events(db: Session, request: Request | None) -> bool
     return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
 
 
-def _institutional_feed_action_label(event_type: str) -> str:
+def _institutional_feed_action_label(event_type: str, row: InstitutionalActivityEvent | None = None) -> str:
     normalized = (event_type or "").strip().lower()
     if normalized == "new_institutional_position":
         return "New Position"
@@ -323,7 +323,18 @@ def _institutional_feed_action_label(event_type: str) -> str:
         return "Reported Reduction"
     if normalized in {"institutional_accumulation", "cluster_accumulation", "contrarian_accumulation"}:
         return "Reported Increase"
-    return "13F filing"
+    direction = (getattr(row, "direction", None) or "").strip().lower() if row is not None else ""
+    if direction == "bearish":
+        return "Reported Reduction"
+    if direction == "bullish":
+        return "Reported Increase"
+    value_delta = getattr(row, "value_delta_usd", None) if row is not None else None
+    if isinstance(value_delta, (int, float)):
+        if value_delta < 0:
+            return "Reported Reduction"
+        if value_delta > 0:
+            return "Reported Increase"
+    return "Reported Activity"
 
 
 def _institutional_display_name(value: object) -> str | None:
@@ -337,10 +348,26 @@ def _institutional_display_name(value: object) -> str | None:
     return text
 
 
+def _institutional_cik_variants(value: object) -> set[str]:
+    variants: set[str] = set()
+    if value is None:
+        return variants
+    raw = str(value).strip()
+    if raw:
+        variants.add(raw)
+    normalized = normalize_cik(raw)
+    if normalized:
+        variants.add(normalized)
+        stripped = normalized.lstrip("0")
+        if stripped:
+            variants.add(stripped)
+    return variants
+
+
 def _institutional_activity_event_out(row: InstitutionalActivityEvent, *, holder_name: str | None = None) -> EventOut:
     payload = institutional_activity_event_payload(row)
-    display_holder_name = _institutional_display_name(row.holder_name) or _institutional_display_name(holder_name) or "Multiple institutions"
-    payload["holder_name"] = display_holder_name if display_holder_name != "Multiple institutions" else payload.get("holder_name")
+    display_holder_name = _institutional_display_name(row.holder_name) or _institutional_display_name(holder_name) or "Institution unavailable"
+    payload["holder_name"] = display_holder_name
     payload["institution_name"] = display_holder_name
     payload["report_period"] = f"Q{row.report_quarter} {row.report_year}"
     payload["data_semantics"] = "institutional_13f_reported_holdings"
@@ -360,7 +387,7 @@ def _institutional_activity_event_out(row: InstitutionalActivityEvent, *, holder
         member_bioguide_id=row.cik,
         party=None,
         chamber="institutional",
-        trade_type=_institutional_feed_action_label(row.event_type),
+        trade_type=_institutional_feed_action_label(row.event_type, row),
         url=None,
         amount_min=amount_int,
         amount_max=amount_int,
@@ -373,19 +400,81 @@ def _institutional_activity_event_out(row: InstitutionalActivityEvent, *, holder
 
 def _institutional_holder_names_for_rows(db: Session, rows: list[InstitutionalActivityEvent]) -> dict[int, str]:
     names_by_id: dict[int, str] = {}
-    ciks = sorted({row.cik for row in rows if row.cik})
-    if ciks:
+    cik_variants = sorted({variant for row in rows for variant in _institutional_cik_variants(row.cik)})
+    names_by_cik: dict[str, str] = {}
+    if cik_variants:
         holder_rows = db.execute(
-            select(InstitutionalHolder.cik, InstitutionalHolder.holder_name).where(InstitutionalHolder.cik.in_(ciks))
+            select(InstitutionalHolder.cik, InstitutionalHolder.holder_name).where(InstitutionalHolder.cik.in_(cik_variants))
         ).all()
-        names_by_cik = {
-            str(cik): name
-            for cik, raw_name in holder_rows
-            if (name := _institutional_display_name(raw_name))
-        }
+        for cik, raw_name in holder_rows:
+            name = _institutional_display_name(raw_name)
+            if not name:
+                continue
+            for variant in _institutional_cik_variants(cik):
+                names_by_cik[variant] = name
         for row in rows:
-            if row.cik and row.cik in names_by_cik:
-                names_by_id[row.id] = names_by_cik[row.cik]
+            for variant in _institutional_cik_variants(row.cik):
+                if variant in names_by_cik:
+                    names_by_id[row.id] = names_by_cik[variant]
+                    break
+
+    unresolved_ciks = sorted(
+        {
+            variant
+            for row in rows
+            if row.id not in names_by_id and not _institutional_display_name(row.holder_name)
+            for variant in _institutional_cik_variants(row.cik)
+        }
+    )
+    if unresolved_ciks:
+        change_holder_rows = db.execute(
+            select(InstitutionalPositionChange.cik, InstitutionalPositionChange.holder_name)
+            .where(InstitutionalPositionChange.cik.in_(unresolved_ciks))
+            .where(InstitutionalPositionChange.holder_name.is_not(None))
+            .order_by(InstitutionalPositionChange.materiality_score.desc())
+        ).all()
+        for cik, raw_name in change_holder_rows:
+            name = _institutional_display_name(raw_name)
+            if not name:
+                continue
+            for variant in _institutional_cik_variants(cik):
+                names_by_cik.setdefault(variant, name)
+        for row in rows:
+            if row.id in names_by_id:
+                continue
+            for variant in _institutional_cik_variants(row.cik):
+                if variant in names_by_cik:
+                    names_by_id[row.id] = names_by_cik[variant]
+                    break
+
+    unresolved_normalized_ciks = sorted(
+        {
+            normalized
+            for row in rows
+            if row.id not in names_by_id and not _institutional_display_name(row.holder_name)
+            for normalized in [normalize_cik(row.cik)]
+            if normalized
+        }
+    )
+    if unresolved_normalized_ciks:
+        try:
+            cik_meta_names = get_cik_meta(db, unresolved_normalized_ciks, allow_refresh=False)
+        except Exception:
+            logger.exception("institutional_holder_name_cik_meta_lookup_failed")
+            cik_meta_names = {}
+        for cik, raw_name in cik_meta_names.items():
+            name = _institutional_display_name(raw_name)
+            if not name:
+                continue
+            for variant in _institutional_cik_variants(cik):
+                names_by_cik[variant] = name
+        for row in rows:
+            if row.id in names_by_id:
+                continue
+            for variant in _institutional_cik_variants(row.cik):
+                if variant in names_by_cik:
+                    names_by_id[row.id] = names_by_cik[variant]
+                    break
 
     unresolved_keys = {
         (row.normalized_symbol, row.report_year, row.report_quarter)
@@ -430,8 +519,6 @@ def _institutional_holder_names_for_rows(db: Session, rows: list[InstitutionalAc
         names = related_names.get((row.normalized_symbol, row.report_year, row.report_quarter), [])
         if len(names) == 1:
             names_by_id[row.id] = names[0]
-        elif len(names) > 1:
-            names_by_id[row.id] = "Multiple institutions"
     return names_by_id
 
 
@@ -456,7 +543,11 @@ def _list_institutional_activity_feed_events(
     if not allowed_types:
         return EventsPageDebug(items=[], total=0 if include_total else None, limit=limit, offset=offset)
 
-    q = select(InstitutionalActivityEvent).where(InstitutionalActivityEvent.event_type.in_(allowed_types))
+    q = (
+        select(InstitutionalActivityEvent)
+        .where(InstitutionalActivityEvent.event_type.in_(allowed_types))
+        .where(InstitutionalActivityEvent.cik.is_not(None))
+    )
     if combined_symbols:
         q = q.where(InstitutionalActivityEvent.normalized_symbol.in_(combined_symbols))
     if since_dt is not None:

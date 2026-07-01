@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.routers.events as events_module
 from app.db import Base
-from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, InstitutionalHolder, Security, TradeOutcome
+from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, InstitutionalHolder, InstitutionalPositionChange, Security, TradeOutcome
 from app.routers.events import list_events
 
 
@@ -388,7 +388,7 @@ def test_institutional_feed_mode_returns_activity_events_for_entitled_users(monk
         monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
         db.add_all(
             [
-                InstitutionalHolder(cik="0001067983", holder_name="Berkshire Hathaway Inc."),
+                InstitutionalHolder(cik="1067983", holder_name="Berkshire Hathaway Inc."),
                 _institutional_event(201, "institutional_accumulation", holder_name=None),
                 _institutional_event(
                     202,
@@ -400,6 +400,54 @@ def test_institutional_feed_mode_returns_activity_events_for_entitled_users(monk
                     value_delta_usd=-90_000_000.0,
                     materiality_score=90.0,
                 ),
+                _institutional_event(
+                    203,
+                    "smart_money_confirmation",
+                    normalized_symbol="NVDA",
+                    symbol="NVDA",
+                    holder_name="Point72 Asset Management",
+                    direction="neutral",
+                    reported_value_usd=80_000_000.0,
+                    value_delta_usd=-12_000_000.0,
+                    materiality_score=82.0,
+                ),
+                _institutional_event(
+                    205,
+                    "major_holder_reduction",
+                    normalized_symbol="GOOG",
+                    symbol="GOOG",
+                    cik="0001452208",
+                    holder_name=None,
+                    direction="bearish",
+                    reported_value_usd=30_000_000.0,
+                    value_delta_usd=-5_000_000.0,
+                    materiality_score=75.0,
+                ),
+                InstitutionalPositionChange(
+                    cik="1452208",
+                    holder_name="Example Capital Management",
+                    symbol="GOOG",
+                    normalized_symbol="GOOG",
+                    report_year=2026,
+                    report_quarter=2,
+                    filing_date=date(2026, 6, 30),
+                    change_type="decrease",
+                    direction="bearish",
+                    materiality_score=75.0,
+                    is_material=True,
+                ),
+                _institutional_event(
+                    204,
+                    "cluster_accumulation",
+                    normalized_symbol="TSLA",
+                    symbol="TSLA",
+                    cik=None,
+                    holder_name=None,
+                    direction="bullish",
+                    reported_value_usd=300_000_000.0,
+                    value_delta_usd=75_000_000.0,
+                    materiality_score=95.0,
+                ),
             ]
         )
         db.commit()
@@ -407,14 +455,39 @@ def test_institutional_feed_mode_returns_activity_events_for_entitled_users(monk
         page = list_events(db=db, tape="institutional", limit=10, enrich_prices=False)
         by_type = {item.event_type: item for item in page.items}
 
-        assert set(by_type) == {"institutional_accumulation", "major_holder_exit"}
+        assert set(by_type) == {"institutional_accumulation", "major_holder_exit", "smart_money_confirmation", "major_holder_reduction"}
         assert by_type["institutional_accumulation"].source == "Institutional Activity"
         assert by_type["institutional_accumulation"].member_name == "Berkshire Hathaway Inc."
         assert by_type["institutional_accumulation"].trade_type == "Reported Increase"
         assert by_type["major_holder_exit"].trade_type == "Reported Exit"
+        assert by_type["smart_money_confirmation"].member_name == "Point72 Asset Management"
+        assert by_type["smart_money_confirmation"].trade_type == "Reported Reduction"
+        assert by_type["major_holder_reduction"].member_name == "Example Capital Management"
+        assert by_type["major_holder_reduction"].trade_type == "Reported Reduction"
         assert by_type["institutional_accumulation"].payload["report_period"] == "Q2 2026"
         assert by_type["institutional_accumulation"].ts.date() == date(2026, 6, 30)
         assert not any("buy" in (item.trade_type or "").lower() or "sell" in (item.trade_type or "").lower() for item in page.items)
+        assert not any((item.trade_type or "").lower() == "13f filing" for item in page.items)
+        assert not any((item.member_name or "") == "Multiple institutions" for item in page.items)
+        assert not any((item.member_name or "").startswith("CIK ") for item in page.items)
+    finally:
+        db.close()
+
+
+def test_institutional_feed_mode_resolves_holder_name_from_cik_meta(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(events_module, "get_cik_meta", lambda *_args, **_kwargs: {"0001067983": "Berkshire Hathaway Inc."})
+        db.add(_institutional_event(207, "major_holder_exit", holder_name=None, cik="0001067983"))
+        db.commit()
+
+        page = list_events(db=db, tape="institutional", limit=10, enrich_prices=False)
+
+        assert len(page.items) == 1
+        assert page.items[0].member_name == "Berkshire Hathaway Inc."
+        assert page.items[0].payload["holder_name"] == "Berkshire Hathaway Inc."
+        assert not page.items[0].member_name.startswith("CIK ")
     finally:
         db.close()
 

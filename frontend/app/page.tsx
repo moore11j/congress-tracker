@@ -310,6 +310,23 @@ function institutionalDisplayName(value: unknown): string | null {
   return text;
 }
 
+function institutionalTransactionLabel(eventType: string, payload: Record<string, any>, tradeType?: string | null): string {
+  const cleanTradeType = asTrimmedString(tradeType);
+  if (cleanTradeType && cleanTradeType.toLowerCase() !== "13f filing") return cleanTradeType;
+  const normalized = eventType.toLowerCase();
+  const direction = asTrimmedString(payload.direction)?.toLowerCase();
+  const valueDelta = asNumber(payload.value_delta_usd);
+  if (normalized === "new_institutional_position") return "New Position";
+  if (normalized === "major_holder_exit") return "Reported Exit";
+  if (normalized.includes("reduction") || normalized.includes("distribution") || direction === "bearish") return "Reported Reduction";
+  if (normalized.includes("accumulation") || normalized === "institutional_buy" || direction === "bullish") return "Reported Increase";
+  if (valueDelta !== null) {
+    if (valueDelta < 0) return "Reported Reduction";
+    if (valueDelta > 0) return "Reported Increase";
+  }
+  return "Reported Activity";
+}
+
 function mapEventToFeedItem(
   event: {
   id: number;
@@ -319,6 +336,8 @@ function mapEventToFeedItem(
   ticker?: string | null;
   source?: string | null;
   member_name?: string | null;
+  member_bioguide_id?: string | null;
+  trade_type?: string | null;
   headline?: string | null;
   summary?: string | null;
   url?: string | null;
@@ -530,7 +549,7 @@ function mapEventToFeedItem(
       institutionalDisplayName(event.member_name) ??
       institutionalDisplayName(payload?.raw?.holder) ??
       institutionalDisplayName(payload?.raw?.institutionName) ??
-      "Multiple institutions";
+      "Institution unavailable";
     const securityName = companyNameForSymbol(symbol, payload, companyNames);
     const amountMax =
       asNumber((event as any).amount_max) ??
@@ -549,7 +568,7 @@ function mapEventToFeedItem(
       id: event.id,
       kind: institutionalKind,
       member: {
-        bioguide_id: asTrimmedString(payload.institution_cik) ?? `institution-${event.id}`,
+        bioguide_id: asTrimmedString(payload.institution_cik) ?? asTrimmedString(event.member_bioguide_id) ?? `institution-${event.id}`,
         name: institutionName,
         chamber: "institutional",
       },
@@ -558,8 +577,9 @@ function mapEventToFeedItem(
         name: securityName,
         asset_class: "13F filing",
       },
-      transaction_type: event.event_type.includes("reduction") || event.event_type.includes("distribution") || event.event_type.includes("exit") ? "Reported Reduction" : event.event_type.includes("new") ? "New Position" : "Reported Increase",
+      transaction_type: institutionalTransactionLabel(event.event_type, payload, event.trade_type),
       owner_type: "13F filing",
+      payload,
       trade_date: null,
       report_date: filingDate,
       amount_range_min: amountMin,

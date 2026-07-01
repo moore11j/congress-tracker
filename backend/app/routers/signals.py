@@ -950,7 +950,12 @@ def _institutional_action_label(row: InstitutionalActivityEvent) -> str:
         return "Reported Reduction"
     if row.direction == "bullish":
         return "Reported Increase"
-    return "13F Filing"
+    if row.value_delta_usd is not None:
+        if row.value_delta_usd < 0:
+            return "Reported Reduction"
+        if row.value_delta_usd > 0:
+            return "Reported Increase"
+    return "Reported Activity"
 
 
 def _query_unusual_signals(
