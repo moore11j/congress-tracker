@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Event,
+    CikMeta,
     InstitutionalActivityEvent,
     InstitutionalFiling,
     InstitutionalHolder,
@@ -960,29 +961,90 @@ def holder_payload(holder: InstitutionalHolder) -> dict[str, Any]:
     }
 
 
+def _holder_display_name(db: Session, cik: str, holder_name: str | None = None) -> str | None:
+    if holder_name and holder_name.strip():
+        return holder_name.strip()
+    normalized = normalize_cik(cik)
+    if not normalized:
+        return None
+    meta = db.get(CikMeta, normalized)
+    if meta and meta.company_name and meta.company_name.strip():
+        return meta.company_name.strip()
+    return None
+
+
 def holder_profile(db: Session, cik: str) -> dict[str, Any] | None:
     normalized = normalize_cik(cik)
     if not normalized:
         return None
     holder = db.get(InstitutionalHolder, normalized)
-    if holder is None:
+    display_name = _holder_display_name(db, normalized, holder.holder_name if holder else None)
+    if holder is None and not display_name:
         return None
+    latest_report_year = holder.latest_report_year if holder else None
+    latest_report_quarter = holder.latest_report_quarter if holder else None
+    latest_filing_date = holder.latest_filing_date if holder else None
+    if latest_report_year is None or latest_report_quarter is None:
+        latest_position = db.execute(
+            select(InstitutionalPosition)
+            .where(InstitutionalPosition.cik == normalized)
+            .order_by(
+                InstitutionalPosition.report_year.desc(),
+                InstitutionalPosition.report_quarter.desc(),
+                InstitutionalPosition.filing_date.desc().nullslast(),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if latest_position is not None:
+            latest_report_year = latest_position.report_year
+            latest_report_quarter = latest_position.report_quarter
+            latest_filing_date = latest_position.filing_date
     latest_positions = []
-    if holder.latest_report_year and holder.latest_report_quarter:
+    total_reported_value = 0.0
+    holdings_count = 0
+    if latest_report_year and latest_report_quarter:
+        total_reported_value, holdings_count = db.execute(
+            select(
+                func.coalesce(func.sum(InstitutionalPosition.value_usd), 0.0),
+                func.count(InstitutionalPosition.id),
+            ).where(
+                InstitutionalPosition.cik == normalized,
+                InstitutionalPosition.report_year == latest_report_year,
+                InstitutionalPosition.report_quarter == latest_report_quarter,
+            )
+        ).one()
         latest_positions = db.execute(
             select(InstitutionalPosition)
             .where(
                 InstitutionalPosition.cik == normalized,
-                InstitutionalPosition.report_year == holder.latest_report_year,
-                InstitutionalPosition.report_quarter == holder.latest_report_quarter,
+                InstitutionalPosition.report_year == latest_report_year,
+                InstitutionalPosition.report_quarter == latest_report_quarter,
             )
             .order_by(InstitutionalPosition.value_usd.desc().nullslast())
             .limit(25)
         ).scalars().all()
+    payload = holder_payload(holder) if holder else {
+        "cik": normalized,
+        "holder_name": display_name,
+        "holder_type": None,
+        "is_passive_like": False,
+        "quality_score": None,
+        "latest_filing_date": latest_filing_date.isoformat() if latest_filing_date else None,
+        "latest_report_year": latest_report_year,
+        "latest_report_quarter": latest_report_quarter,
+    }
+    payload["holder_name"] = display_name or payload.get("holder_name")
+    payload["latest_filing_date"] = latest_filing_date.isoformat() if latest_filing_date else payload.get("latest_filing_date")
+    payload["latest_report_year"] = latest_report_year
+    payload["latest_report_quarter"] = latest_report_quarter
     return {
-        **holder_payload(holder),
-        "total_reported_value": round(sum(float(position.value_usd or 0.0) for position in latest_positions), 2),
-        "holdings_count": len(latest_positions),
+        **payload,
+        "total_reported_value": round(float(total_reported_value or 0.0), 2),
+        "total_reported_value_usd": round(float(total_reported_value or 0.0), 2),
+        "holdings_count": int(holdings_count or 0),
+        "source_label": INSTITUTIONAL_SOURCE_LABEL,
+        "availability_status": "ok" if holdings_count else "unavailable",
+        "locked": False,
         "top_holdings": [position_payload(position) for position in latest_positions[:10]],
     }
 
@@ -1022,6 +1084,85 @@ def positions_for_holder(db: Session, cik: str, *, year: int | None = None, quar
     return {"items": [position_payload(row) for row in rows], "page": page, "limit": bounded_limit, "has_next": len(rows) == bounded_limit}
 
 
+def _reported_action_label(change_type: str | None, value_delta_usd: float | None = None) -> str:
+    normalized = (change_type or "").strip().lower()
+    if normalized == "new_position":
+        return "New Position"
+    if normalized == "exit":
+        return "Reported Exit"
+    if normalized == "decrease":
+        return "Reported Reduction"
+    if normalized == "increase":
+        return "Reported Increase"
+    if value_delta_usd is not None:
+        if value_delta_usd < 0:
+            return "Reported Reduction"
+        if value_delta_usd > 0:
+            return "Reported Increase"
+    return "Reported Activity"
+
+
+def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50) -> dict[str, Any]:
+    normalized = normalize_cik(cik)
+    if not normalized:
+        return {"items": [], "page": page, "limit": limit, "has_next": False}
+    bounded_limit = max(1, min(int(limit or 50), 200))
+    rows = db.execute(
+        select(InstitutionalPositionChange)
+        .where(InstitutionalPositionChange.cik == normalized)
+        .where(InstitutionalPositionChange.change_type != "unchanged")
+        .order_by(
+            InstitutionalPositionChange.filing_date.desc(),
+            InstitutionalPositionChange.materiality_score.desc(),
+            InstitutionalPositionChange.id.desc(),
+        )
+        .offset(max(0, int(page or 0)) * bounded_limit)
+        .limit(bounded_limit)
+    ).scalars().all()
+    symbols = sorted({row.normalized_symbol for row in rows if row.normalized_symbol})
+    issuer_names: dict[str, str | None] = {}
+    if symbols:
+        positions = db.execute(
+            select(InstitutionalPosition.normalized_symbol, InstitutionalPosition.issuer_name)
+            .where(InstitutionalPosition.cik == normalized)
+            .where(InstitutionalPosition.normalized_symbol.in_(symbols))
+            .where(InstitutionalPosition.issuer_name.is_not(None))
+            .order_by(
+                InstitutionalPosition.report_year.desc(),
+                InstitutionalPosition.report_quarter.desc(),
+                InstitutionalPosition.value_usd.desc().nullslast(),
+            )
+        ).all()
+        for symbol, issuer_name in positions:
+            issuer_names.setdefault(symbol, issuer_name)
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "symbol": row.normalized_symbol or row.symbol,
+                "issuer_name": issuer_names.get(row.normalized_symbol or ""),
+                "action": _reported_action_label(row.change_type, row.value_delta_usd),
+                "change_type": row.change_type,
+                "direction": row.direction,
+                "current_value_usd": 0 if row.change_type == "exit" else row.curr_value_usd,
+                "prior_value_usd": row.prev_value_usd,
+                "value_delta_usd": row.value_delta_usd,
+                "value_delta_pct": row.value_delta_pct,
+                "portfolio_weight_delta": row.portfolio_weight_delta,
+                "filing_date": row.filing_date.isoformat() if row.filing_date else None,
+                "report_period": f"Q{row.report_quarter} {row.report_year}",
+                "report_year": row.report_year,
+                "report_quarter": row.report_quarter,
+                "materiality_score": row.materiality_score,
+            }
+            for row in rows
+        ],
+        "page": page,
+        "limit": bounded_limit,
+        "has_next": len(rows) == bounded_limit,
+    }
+
+
 def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50) -> dict[str, Any]:
     normalized = normalize_cik(cik)
     if not normalized:
@@ -1048,6 +1189,16 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
                 "form_type": row.form_type,
                 "is_amendment": row.is_amendment,
                 "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+                "holdings_count": db.execute(
+                    select(func.count(InstitutionalPosition.id)).where(InstitutionalPosition.filing_id == row.id)
+                ).scalar_one(),
+                "status": (
+                    "processed"
+                    if row.processed_at
+                    else "retryable"
+                    if (row.form_type or "").upper() in {"13F-HR", "13F-HR/A"}
+                    else "no holdings"
+                ),
             }
             for row in rows
         ],

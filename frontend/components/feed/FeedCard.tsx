@@ -16,6 +16,7 @@ import {
   transactionTone,
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
+import { institutionHref } from "@/lib/institution";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
 import { formatCompanyName } from "@/lib/companyName";
@@ -546,6 +547,9 @@ export function FeedCard({
     insiderItem.payload?.raw?.filingDate ??
     item.report_date;
   const payload = (item.payload ?? {}) as Record<string, any>;
+  const institutionProfileHref = isInstitutional
+    ? institutionHref(item.member?.bioguide_id ?? payload.institution_cik ?? payload.cik)
+    : null;
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
@@ -868,6 +872,20 @@ export function FeedCard({
                 ) : (
                   <span className="min-w-0 truncate text-lg font-semibold text-white">
                     {resolveInsiderDisplayName(item)}
+                  </span>
+                )
+              ) : isInstitutional ? (
+                institutionProfileHref ? (
+                  <Link
+                    href={institutionProfileHref}
+                    prefetch={false}
+                    className="min-w-0 truncate text-lg font-semibold text-white hover:text-emerald-200"
+                  >
+                    {item.member?.name ?? "Institution unavailable"}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 truncate text-lg font-semibold text-white">
+                    {item.member?.name ?? "Institution unavailable"}
                   </span>
                 )
               ) : (

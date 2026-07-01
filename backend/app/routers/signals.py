@@ -12,7 +12,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, InstitutionalActivityEvent, Security, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, InstitutionalActivityEvent, InstitutionalHolder, Security, TradeOutcome, Watchlist, WatchlistItem
 from app.schemas import (
     InsiderSignalOut,
     SignalFreshnessOut,
@@ -27,7 +27,7 @@ from app.services.confirmation_metrics import get_confirmation_metrics_for_symbo
 from app.services.confirmation_score import get_slim_confirmation_score_bundles_for_tickers
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.signal_freshness import inactive_signal_freshness_bundle
-from app.services.ticker_meta import normalize_cik
+from app.services.ticker_meta import get_cik_meta, normalize_cik
 from app.services.why_now import inactive_why_now_bundle
 from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
@@ -804,6 +804,28 @@ def _query_institutional_signal_items(
     if not rows:
         return []
 
+    institutional_names_by_cik: dict[str, str] = {}
+    institutional_ciks = sorted({normalized for row in rows for normalized in [normalize_cik(row.cik)] if normalized})
+    if institutional_ciks:
+        holder_rows = db.execute(
+            select(InstitutionalHolder.cik, InstitutionalHolder.holder_name)
+            .where(InstitutionalHolder.cik.in_(institutional_ciks))
+            .where(InstitutionalHolder.holder_name.is_not(None))
+        ).all()
+        for cik, holder_name in holder_rows:
+            normalized = normalize_cik(cik)
+            if normalized and holder_name and holder_name.strip():
+                institutional_names_by_cik[normalized] = holder_name.strip()
+        unresolved_ciks = [cik for cik in institutional_ciks if cik not in institutional_names_by_cik]
+        if unresolved_ciks:
+            try:
+                for cik, name in get_cik_meta(db, unresolved_ciks, allow_refresh=False).items():
+                    normalized = normalize_cik(cik)
+                    if normalized and name and name.strip():
+                        institutional_names_by_cik[normalized] = name.strip()
+            except Exception:
+                logger.exception("institutional_signal_holder_name_lookup_failed")
+
     symbols_for_confirmation = [row.normalized_symbol for row in rows if row.normalized_symbol]
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(db, symbols_for_confirmation)
     confirmation_score_by_symbol = get_slim_confirmation_score_bundles_for_tickers(
@@ -841,16 +863,18 @@ def _query_institutional_signal_items(
         amount = _institutional_amount(row)
         ts = datetime.combine(row.filing_date, datetime.min.time(), tzinfo=timezone.utc)
         metadata = _payload_from_json(row.metadata_json)
+        institutional_cik = normalize_cik(row.cik)
+        holder_name = row.holder_name or (institutional_names_by_cik.get(institutional_cik) if institutional_cik else None)
         items.append(
             UnifiedSignalOut(
                 kind="institutional",
                 event_id=row.id,
                 ts=ts,
                 symbol=symbol_key,
-                who=row.holder_name or "Institutional holders",
+                who=holder_name or "Institutional holders",
                 position=None,
-                reporting_cik=row.cik,
-                reportingCik=row.cik,
+                reporting_cik=institutional_cik or row.cik,
+                reportingCik=institutional_cik or row.cik,
                 member_bioguide_id=None,
                 party=None,
                 chamber=None,

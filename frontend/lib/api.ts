@@ -163,6 +163,85 @@ export type NormalizedEventType =
   | "contrarian_accumulation"
   | "government_contract";
 
+export type InstitutionProfileResponse = {
+  status?: string;
+  cik: string | null;
+  holder_name?: string | null;
+  latest_filing_date?: string | null;
+  latest_report_year?: number | null;
+  latest_report_quarter?: number | null;
+  total_reported_value?: number | null;
+  total_reported_value_usd?: number | null;
+  holdings_count?: number | null;
+  source_label?: string | null;
+  availability_status?: "ok" | "pro_locked" | "unavailable" | string;
+  locked?: boolean;
+  required_plan?: string | null;
+  message?: string | null;
+  top_holdings?: InstitutionHoldingItem[];
+};
+
+export type InstitutionHoldingItem = {
+  id?: number;
+  cik?: string | null;
+  symbol?: string | null;
+  cusip?: string | null;
+  issuer_name?: string | null;
+  shares?: number | null;
+  value_usd?: number | null;
+  portfolio_weight?: number | null;
+  ownership_pct?: number | null;
+  report_year?: number | null;
+  report_quarter?: number | null;
+  filing_date?: string | null;
+};
+
+export type InstitutionActivityItem = {
+  id?: number;
+  symbol?: string | null;
+  issuer_name?: string | null;
+  action?: string | null;
+  change_type?: string | null;
+  direction?: string | null;
+  current_value_usd?: number | null;
+  prior_value_usd?: number | null;
+  value_delta_usd?: number | null;
+  value_delta_pct?: number | null;
+  portfolio_weight_delta?: number | null;
+  filing_date?: string | null;
+  report_period?: string | null;
+  report_year?: number | null;
+  report_quarter?: number | null;
+  materiality_score?: number | null;
+};
+
+export type InstitutionFilingItem = {
+  id?: number;
+  cik?: string | null;
+  accession_number?: string | null;
+  filing_date?: string | null;
+  report_year?: number | null;
+  report_quarter?: number | null;
+  report_period_end?: string | null;
+  filing_url?: string | null;
+  form_type?: string | null;
+  is_amendment?: boolean | null;
+  processed_at?: string | null;
+  holdings_count?: number | null;
+  status?: string | null;
+};
+
+export type InstitutionCollectionResponse<T> = {
+  items: T[];
+  page?: number;
+  limit?: number;
+  has_next?: boolean;
+  locked?: boolean;
+  availability_status?: string;
+  required_plan?: string | null;
+  message?: string | null;
+};
+
 export const INSTITUTIONAL_ACTIVITY_EVENT_TYPES = [
   "institutional_accumulation",
   "institutional_distribution",
@@ -4485,6 +4564,54 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       page: params?.page,
     }),
     { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerGovernmentContracts" },
+  );
+}
+
+export async function getInstitutionProfile(cik: string, options?: { signal?: AbortSignal; source?: string }): Promise<InstitutionProfileResponse> {
+  return fetchJson<InstitutionProfileResponse>(
+    buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}`),
+    { cache: "no-store", next: { revalidate: 0 }, signal: options?.signal, source: options?.source ?? "InstitutionProfile" },
+  );
+}
+
+export async function getInstitutionHoldings(
+  cik: string,
+  params?: { year?: number; quarter?: number; limit?: number; page?: number; signal?: AbortSignal; source?: string },
+): Promise<InstitutionCollectionResponse<InstitutionHoldingItem>> {
+  return fetchJson<InstitutionCollectionResponse<InstitutionHoldingItem>>(
+    buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/holdings`, {
+      year: params?.year,
+      quarter: params?.quarter,
+      limit: params?.limit,
+      page: params?.page,
+    }),
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionHoldings" },
+  );
+}
+
+export async function getInstitutionActivity(
+  cik: string,
+  params?: { limit?: number; page?: number; signal?: AbortSignal; source?: string },
+): Promise<InstitutionCollectionResponse<InstitutionActivityItem>> {
+  return fetchJson<InstitutionCollectionResponse<InstitutionActivityItem>>(
+    buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/activity`, {
+      limit: params?.limit,
+      page: params?.page,
+    }),
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionActivity" },
+  );
+}
+
+export async function getInstitutionFilings(
+  cik: string,
+  params?: { limit?: number; page?: number; signal?: AbortSignal; source?: string },
+): Promise<InstitutionCollectionResponse<InstitutionFilingItem>> {
+  return fetchJson<InstitutionCollectionResponse<InstitutionFilingItem>>(
+    buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/filings`, {
+      limit: params?.limit,
+      page: params?.page,
+    }),
+    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionFilings" },
   );
 }
 

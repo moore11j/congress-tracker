@@ -11,6 +11,7 @@ from app.entitlements import current_entitlements, require_feature
 from app.models import InstitutionalHolderIndustryBreakdown
 from app.services.institutional_activity import (
     INSTITUTIONAL_ACTIVITY_TOOLTIP,
+    activity_for_holder,
     holder_profile,
     industry_summary_payload,
     list_institutional_holders,
@@ -60,6 +61,18 @@ def _locked_ticker_payload(symbol: str | None = None) -> dict[str, Any]:
     }
 
 
+def _locked_institution_payload(cik: str) -> dict[str, Any]:
+    return {
+        "cik": normalize_cik(cik),
+        "source_label": "Institutional Activity",
+        "availability_status": "pro_locked",
+        "locked": True,
+        "required_plan": "pro",
+        "message": "Institutional profiles are available on Pro.",
+        "items": [],
+    }
+
+
 @router.get("/tickers/{symbol}/institutional-summary")
 def ticker_institutional_summary(
     symbol: str,
@@ -102,10 +115,34 @@ def institutions(
 
 @router.get("/institutions/{cik}")
 def institution_profile(cik: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
-    _require_institutional_access(request, db)
+    if not _has_institutional_access(request, db):
+        payload = _locked_institution_payload(cik)
+        payload.update(
+            {
+                "holder_name": None,
+                "latest_filing_date": None,
+                "latest_report_year": None,
+                "latest_report_quarter": None,
+                "total_reported_value_usd": None,
+                "holdings_count": None,
+            }
+        )
+        return payload
     profile = holder_profile(db, cik)
     if profile is None:
-        return {"status": "no_data", "cik": normalize_cik(cik)}
+        return {
+            "status": "no_data",
+            "cik": normalize_cik(cik),
+            "source_label": "Institutional Activity",
+            "availability_status": "unavailable",
+            "locked": False,
+            "holder_name": None,
+            "latest_filing_date": None,
+            "latest_report_year": None,
+            "latest_report_quarter": None,
+            "total_reported_value_usd": None,
+            "holdings_count": 0,
+        }
     return {"status": "ok", **profile}
 
 
@@ -119,8 +156,37 @@ def institution_positions(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_institutional_access(request, db)
+    if not _has_institutional_access(request, db):
+        return _locked_institution_payload(cik)
     return positions_for_holder(db, cik, year=year, quarter=quarter, page=page, limit=limit)
+
+
+@router.get("/institutions/{cik}/holdings")
+def institution_holdings(
+    cik: str,
+    request: Request,
+    year: int | None = Query(None, ge=1999, le=2100),
+    quarter: int | None = Query(None, ge=1, le=4),
+    page: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if not _has_institutional_access(request, db):
+        return _locked_institution_payload(cik)
+    return positions_for_holder(db, cik, year=year, quarter=quarter, page=page, limit=limit)
+
+
+@router.get("/institutions/{cik}/activity")
+def institution_activity(
+    cik: str,
+    request: Request,
+    page: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if not _has_institutional_access(request, db):
+        return _locked_institution_payload(cik)
+    return activity_for_holder(db, cik, page=page, limit=limit)
 
 
 @router.get("/institutions/{cik}/filings")
@@ -131,7 +197,8 @@ def institution_filings(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_institutional_access(request, db)
+    if not _has_institutional_access(request, db):
+        return _locked_institution_payload(cik)
     return filings_for_holder(db, cik, page=page, limit=limit)
 
 

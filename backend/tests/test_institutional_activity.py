@@ -10,8 +10,8 @@ from starlette.requests import Request
 
 from app.db import Base
 from app import ingest_institutional_activity as ingest_module
-from app.models import Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
-from app.routers.institutional import ticker_institutional_activity
+from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
+from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity
 from app.services.institutional_activity import (
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
@@ -505,6 +505,84 @@ def test_institutional_activity_endpoint_redacts_details_until_pro(monkeypatch):
             holder_event = next(item for item in payload["items"] if item["event_type"] == "institutional_accumulation")
             assert holder_event["cik"] == "0001234567"
             assert holder_event["reported_value_usd"] == 65_000_000
+
+
+def test_institution_profile_endpoints_are_locked_until_pro(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="LOCK",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "cusip": "000LOCK01"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "cusip": "000LOCK01"},
+        )
+        db.commit()
+
+        for tier in (None, "free", "premium"):
+            profile = institution_profile("0001234567", _request(tier), db=db)
+            assert profile["locked"] is True
+            assert profile["availability_status"] == "pro_locked"
+            assert profile["holder_name"] is None
+            assert profile["total_reported_value_usd"] is None
+            assert profile["holdings_count"] is None
+            assert not profile.get("top_holdings")
+            assert institution_holdings("0001234567", _request(tier), year=None, quarter=None, page=0, limit=5, db=db)["items"] == []
+            assert institution_activity("0001234567", _request(tier), page=0, limit=5, db=db)["items"] == []
+            assert institution_filings("0001234567", _request(tier), page=0, limit=5, db=db)["items"] == []
+
+        for tier in ("pro", "admin"):
+            profile = institution_profile("0001234567", _request(tier), db=db)
+            assert profile["locked"] is False
+            assert profile["holder_name"] == "Blue Ridge Capital"
+            assert profile["total_reported_value_usd"] == 65_000_000
+            assert profile["holdings_count"] == 1
+            assert profile["top_holdings"][0]["value_usd"] == 65_000_000
+            holdings = institution_holdings("0001234567", _request(tier), year=None, quarter=None, page=0, limit=5, db=db)
+            assert holdings["items"][0]["symbol"] == "LOCK"
+            assert holdings["items"][0]["value_usd"] == 65_000_000
+            activity = institution_activity("0001234567", _request(tier), page=0, limit=5, db=db)
+            assert activity["items"][0]["action"] == "Reported Increase"
+            assert "buy" not in activity["items"][0]["action"].lower()
+            assert "sell" not in activity["items"][0]["action"].lower()
+            filings = institution_filings("0001234567", _request(tier), page=0, limit=5, db=db)
+            assert filings["items"][0]["holdings_count"] == 1
+            assert filings["items"][0]["status"] == "processed"
+
+
+def test_institution_profile_uses_cik_metadata_name_fallback(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    with _session(engine) as db:
+        db.add_all(
+            [
+                InstitutionalHolder(cik="0001067983", holder_name=None, latest_report_year=2026, latest_report_quarter=1, latest_filing_date=date(2026, 3, 31)),
+                CikMeta(cik="0001067983", company_name="Berkshire Hathaway Inc."),
+                InstitutionalPosition(
+                    filing_id=1,
+                    cik="0001067983",
+                    symbol="AAPL",
+                    normalized_symbol="AAPL",
+                    issuer_name="Apple Inc.",
+                    shares=100,
+                    value_usd=10_000_000,
+                    report_year=2026,
+                    report_quarter=1,
+                    filing_date=date(2026, 3, 31),
+                ),
+            ]
+        )
+        db.commit()
+
+        profile = institution_profile("1067983", _request("pro"), db=db)
+
+        assert profile["cik"] == "0001067983"
+        assert profile["holder_name"] == "Berkshire Hathaway Inc."
+        assert profile["locked"] is False
 
 
 def test_rerunning_processing_does_not_duplicate_activity_or_feed_events():

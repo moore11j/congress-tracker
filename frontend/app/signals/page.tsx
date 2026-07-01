@@ -7,6 +7,7 @@ import { chamberBadge } from "@/lib/format";
 import { getEntitlements, getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
+import { institutionHref } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { tickerHref } from "@/lib/ticker";
@@ -740,6 +741,9 @@ async function SignalsResultsSection({
               const roleTone = insiderRoleBadgeTone(roleCode);
               const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
               const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
+              const institutionProfileHref = isInstitutional
+                ? institutionHref(it.reporting_cik ?? it.reportingCik ?? it.member_bioguide_id)
+                : null;
               const confirmationScore = typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--";
               const confirmationDirection = confirmationDirectionLabel(it.confirmation_direction);
 
@@ -782,7 +786,11 @@ async function SignalsResultsSection({
                       ) : isInstitutional ? (
                         <div className="flex min-w-0 items-center gap-2">
                           <span className="inline-flex shrink-0"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
-                          <span className="min-w-0 truncate text-slate-100">{it.who ?? "Institutional holders"}</span>
+                          {institutionProfileHref ? (
+                            <Link href={institutionProfileHref} prefetch={false} className="min-w-0 truncate text-slate-100 hover:underline">{it.who ?? "Institution unavailable"}</Link>
+                          ) : (
+                            <span className="min-w-0 truncate text-slate-100">{it.who ?? "Institutional holders"}</span>
+                          )}
                         </div>
                       ) : (
                         <div className="flex min-w-0 items-center gap-2">
@@ -927,6 +935,9 @@ async function SignalsResultsSection({
                 const roleTone = insiderRoleBadgeTone(roleCode);
                 const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(it.who, rawPos));
                 const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(it));
+                const institutionProfileHref = isInstitutional
+                  ? institutionHref(it.reporting_cik ?? it.reportingCik ?? it.member_bioguide_id)
+                  : null;
                 return (
                   <tr key={it.event_id} className="hover:bg-slate-900/20">
                     <td className="px-2 py-3 text-slate-300 xl:px-3">
@@ -955,7 +966,11 @@ async function SignalsResultsSection({
                       ) : isInstitutional ? (
                         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                           <span className="inline-flex shrink-0 align-middle"><Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge></span>
-                          <span className="truncate">{it.who ?? "Institutional holders"}</span>
+                          {institutionProfileHref ? (
+                            <Link href={institutionProfileHref} prefetch={false} className="truncate hover:underline">{it.who ?? "Institution unavailable"}</Link>
+                          ) : (
+                            <span className="truncate">{it.who ?? "Institutional holders"}</span>
+                          )}
                         </div>
                       ) : (
                         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
