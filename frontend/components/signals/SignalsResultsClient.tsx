@@ -144,6 +144,22 @@ function cleanSignalsError(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load signals.";
 }
 
+function isInstitutionalProRequiredMessage(mode: SignalMode, message: string | null): boolean {
+  return mode === "institutional" && Boolean(message && /requires Pro|Premium access required/i.test(message));
+}
+
+function InstitutionalSignalsUpgradeCta({ upgradeUrl }: { upgradeUrl: string }) {
+  return (
+    <Link
+      href={upgradeUrl}
+      prefetch={false}
+      className="inline-flex min-h-9 items-center justify-center rounded-md border border-emerald-300/30 bg-emerald-300/10 px-4 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/50 hover:bg-emerald-300/15 hover:text-white"
+    >
+      Upgrade to Pro
+    </Link>
+  );
+}
+
 export function SignalsResultsClient({
   mode,
   side,
@@ -182,6 +198,7 @@ export function SignalsResultsClient({
   const [loading, setLoading] = useState(true);
   const backtestingHref = useMemo(() => backtestingHrefFromItems(items), [items]);
   const isInstitutionalMode = mode === "institutional";
+  const showInstitutionalUpgradeCta = !loading && isInstitutionalProRequiredMessage(mode, errorMessage);
   const headerLabels = isInstitutionalMode
     ? {
         time: "Filing Date",
@@ -268,7 +285,8 @@ export function SignalsResultsClient({
       <div className={`${mobileResultsScrollFrameClassName} md:hidden`}>
         {loading || items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
-            {loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}
+            <div>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</div>
+            {showInstitutionalUpgradeCta ? <div className="mt-4"><InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /></div> : null}
           </div>
         ) : (
           <div className="divide-y divide-slate-800">
@@ -445,7 +463,10 @@ export function SignalsResultsClient({
             {loading || items.length === 0 ? (
               <tr>
                 <td className="px-4 py-10 text-center text-slate-400" colSpan={11}>
-                  {loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}
+                  <div className="flex flex-col items-center gap-3">
+                    <span>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</span>
+                    {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /> : null}
+                  </div>
                 </td>
               </tr>
             ) : (

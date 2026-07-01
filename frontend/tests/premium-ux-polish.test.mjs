@@ -61,6 +61,16 @@ test("signals smart Exceptional pill has enough compact width to avoid overflow"
   assert.match(signalsResultsClient, /<col className="w-\[9\.25rem\]" \/>/);
 });
 
+test("institutional signals Pro lock includes a direct upgrade CTA", () => {
+  for (const source of [signalsPage, signalsResultsClient]) {
+    assert.match(source, /function InstitutionalSignalsUpgradeCta/);
+    assert.match(source, /href=\{upgradeUrl\}/);
+    assert.match(source, />\s*Upgrade to Pro\s*<\/Link>/);
+    assert.match(source, /isInstitutionalProRequiredMessage\(mode, errorMessage\)/);
+    assert.match(source, /showInstitutionalUpgradeCta \?[\s\S]*<InstitutionalSignalsUpgradeCta upgradeUrl=\{upgradeUrl\} \/>/);
+  }
+});
+
 test("monitoring shows skeletons instead of upgrade copy during likely-auth hydration", () => {
   assert.match(api, /authHintCookieName = "ct_auth_hint"/);
   assert.match(api, /export function hasClientAuthHint\(\)/);
