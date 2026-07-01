@@ -62,7 +62,9 @@ test("institutional feed cards use compact values and text activity labels", () 
   assert.match(card, /Change \{formatSignedMoneyCompact\(institutionalValueDelta\)\}/);
   assert.match(card, /isInstitutional \? "flex flex-col items-center gap-2 text-center md:grid md:\[grid-template-columns:minmax\(125px,170px\)_90px_60px\]/);
   assert.match(page, /companyNameForSymbol/);
-  assert.match(page, /asTrimmedString\(event\.member_name\)/);
+  assert.match(page, /function institutionalDisplayName/);
+  assert.match(page, /institutionalDisplayName\(event\.member_name\)/);
+  assert.match(page, /normalized === "institutional activity"/);
   assert.match(page, /Multiple institutions/);
   assert.match(page, /institutionalSymbols/);
 });

@@ -21,7 +21,7 @@ from app.auth import current_user, is_admin_user
 from app.db import get_db
 from app.entitlements import entitlements_for_user
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, InstitutionalHolder, InstitutionalPositionChange, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -326,8 +326,22 @@ def _institutional_feed_action_label(event_type: str) -> str:
     return "13F filing"
 
 
-def _institutional_activity_event_out(row: InstitutionalActivityEvent) -> EventOut:
+def _institutional_display_name(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"institutional activity", "institutional", "institution", "13f filing"}:
+        return None
+    return text
+
+
+def _institutional_activity_event_out(row: InstitutionalActivityEvent, *, holder_name: str | None = None) -> EventOut:
     payload = institutional_activity_event_payload(row)
+    display_holder_name = _institutional_display_name(row.holder_name) or _institutional_display_name(holder_name) or "Multiple institutions"
+    payload["holder_name"] = display_holder_name if display_holder_name != "Multiple institutions" else payload.get("holder_name")
+    payload["institution_name"] = display_holder_name
     payload["report_period"] = f"Q{row.report_quarter} {row.report_year}"
     payload["data_semantics"] = "institutional_13f_reported_holdings"
     payload["timing_note"] = "13F filings disclose quarter-end holdings and may not reflect real-time trading."
@@ -342,7 +356,7 @@ def _institutional_activity_event_out(row: InstitutionalActivityEvent) -> EventO
         ts=event_ts,
         symbol=row.normalized_symbol or row.symbol,
         source="Institutional Activity",
-        member_name=row.holder_name or "Institutional Activity",
+        member_name=display_holder_name,
         member_bioguide_id=row.cik,
         party=None,
         chamber="institutional",
@@ -355,6 +369,70 @@ def _institutional_activity_event_out(row: InstitutionalActivityEvent) -> EventO
         smart_score=smart_score,
         smart_band="institutional",
     )
+
+
+def _institutional_holder_names_for_rows(db: Session, rows: list[InstitutionalActivityEvent]) -> dict[int, str]:
+    names_by_id: dict[int, str] = {}
+    ciks = sorted({row.cik for row in rows if row.cik})
+    if ciks:
+        holder_rows = db.execute(
+            select(InstitutionalHolder.cik, InstitutionalHolder.holder_name).where(InstitutionalHolder.cik.in_(ciks))
+        ).all()
+        names_by_cik = {
+            str(cik): name
+            for cik, raw_name in holder_rows
+            if (name := _institutional_display_name(raw_name))
+        }
+        for row in rows:
+            if row.cik and row.cik in names_by_cik:
+                names_by_id[row.id] = names_by_cik[row.cik]
+
+    unresolved_keys = {
+        (row.normalized_symbol, row.report_year, row.report_quarter)
+        for row in rows
+        if row.id not in names_by_id and not _institutional_display_name(row.holder_name)
+    }
+    if not unresolved_keys:
+        return names_by_id
+
+    symbols = sorted({key[0] for key in unresolved_keys if key[0]})
+    years = sorted({key[1] for key in unresolved_keys})
+    quarters = sorted({key[2] for key in unresolved_keys})
+    related_names: dict[tuple[str, int, int], list[str]] = {}
+    if symbols and years and quarters:
+        change_rows = db.execute(
+            select(
+                InstitutionalPositionChange.normalized_symbol,
+                InstitutionalPositionChange.report_year,
+                InstitutionalPositionChange.report_quarter,
+                InstitutionalPositionChange.holder_name,
+            )
+            .where(InstitutionalPositionChange.normalized_symbol.in_(symbols))
+            .where(InstitutionalPositionChange.report_year.in_(years))
+            .where(InstitutionalPositionChange.report_quarter.in_(quarters))
+            .where(InstitutionalPositionChange.holder_name.is_not(None))
+            .order_by(InstitutionalPositionChange.materiality_score.desc())
+        ).all()
+        for symbol, year, quarter, raw_name in change_rows:
+            key = (symbol, year, quarter)
+            if key not in unresolved_keys:
+                continue
+            name = _institutional_display_name(raw_name)
+            if not name:
+                continue
+            bucket = related_names.setdefault(key, [])
+            if name not in bucket:
+                bucket.append(name)
+
+    for row in rows:
+        if row.id in names_by_id or _institutional_display_name(row.holder_name):
+            continue
+        names = related_names.get((row.normalized_symbol, row.report_year, row.report_quarter), [])
+        if len(names) == 1:
+            names_by_id[row.id] = names[0]
+        elif len(names) > 1:
+            names_by_id[row.id] = "Multiple institutions"
+    return names_by_id
 
 
 def _list_institutional_activity_feed_events(
@@ -394,8 +472,9 @@ def _list_institutional_activity_feed_events(
     filtered_query = q.order_by(sort_date.desc(), InstitutionalActivityEvent.materiality_score.desc(), InstitutionalActivityEvent.id.desc())
     total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one() if include_total else None
     rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    holder_names = _institutional_holder_names_for_rows(db, rows)
     return EventsPageDebug(
-        items=[_institutional_activity_event_out(row) for row in rows],
+        items=[_institutional_activity_event_out(row, holder_name=holder_names.get(row.id)) for row in rows],
         total=total,
         limit=limit,
         offset=offset,

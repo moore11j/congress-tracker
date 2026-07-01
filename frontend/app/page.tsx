@@ -300,6 +300,16 @@ function companyNameForSymbol(symbol: string | null, payload: Record<string, any
   return firstTrimmedString(companyNames[normalized], payload.company_name, payload.companyName, payload.issuer_name, payload.issuerName) ?? normalized;
 }
 
+function institutionalDisplayName(value: unknown): string | null {
+  const text = asTrimmedString(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (normalized === "institutional activity" || normalized === "institutional" || normalized === "institution" || normalized === "13f filing") {
+    return null;
+  }
+  return text;
+}
+
 function mapEventToFeedItem(
   event: {
   id: number;
@@ -515,11 +525,11 @@ function mapEventToFeedItem(
     const payload = parsePayload(event.payload);
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     const institutionName =
-      asTrimmedString(payload.holder_name) ??
-      asTrimmedString(payload.institution_name) ??
-      asTrimmedString(event.member_name) ??
-      asTrimmedString(payload?.raw?.holder) ??
-      asTrimmedString(payload?.raw?.institutionName) ??
+      institutionalDisplayName(payload.holder_name) ??
+      institutionalDisplayName(payload.institution_name) ??
+      institutionalDisplayName(event.member_name) ??
+      institutionalDisplayName(payload?.raw?.holder) ??
+      institutionalDisplayName(payload?.raw?.institutionName) ??
       "Multiple institutions";
     const securityName = companyNameForSymbol(symbol, payload, companyNames);
     const amountMax =

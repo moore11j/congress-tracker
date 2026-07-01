@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.routers.events as events_module
 from app.db import Base
-from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, Security, TradeOutcome
+from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, InstitutionalHolder, Security, TradeOutcome
 from app.routers.events import list_events
 
 
@@ -388,7 +388,8 @@ def test_institutional_feed_mode_returns_activity_events_for_entitled_users(monk
         monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
         db.add_all(
             [
-                _institutional_event(201, "institutional_accumulation"),
+                InstitutionalHolder(cik="0001067983", holder_name="Berkshire Hathaway Inc."),
+                _institutional_event(201, "institutional_accumulation", holder_name=None),
                 _institutional_event(
                     202,
                     "major_holder_exit",
