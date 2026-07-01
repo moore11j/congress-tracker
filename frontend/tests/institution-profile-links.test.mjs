@@ -52,9 +52,26 @@ test("institution profile renders holdings allocation before activity and holdin
   const page = read("app/institution/[cik]/page.tsx");
 
   assert.match(page, /import \{ HoldingsAllocationChart \}/);
+  assert.match(page, /optionalPageAuthState/);
+  assert.match(page, /const authToken = authState\.token \?\? undefined/);
+  assert.match(page, /getInstitutionProfile\(cik, \{ authToken/);
+  assert.match(page, /getInstitutionHoldings\(cik, \{[\s\S]*authToken/);
+  assert.match(page, /getInstitutionActivity\(cik, \{ limit: 25, authToken/);
+  assert.match(page, /getInstitutionFilings\(cik, \{ limit: 25, authToken/);
   assert.match(page, /<HoldingsAllocationChart/);
   assert.ok(page.indexOf("<HoldingsAllocationChart") < page.indexOf("<ActivitySection"));
   assert.ok(page.indexOf("<ActivitySection") < page.indexOf("<HoldingsSection"));
+});
+
+test("institution profile API helpers accept server auth tokens", () => {
+  const api = read("lib/api.ts");
+
+  assert.match(api, /getInstitutionProfile\(cik: string, options\?: \{ authToken\?: string \| null/);
+  assert.match(api, /getInstitutionHoldings\([\s\S]*authToken\?: string \| null/);
+  assert.match(api, /getInstitutionActivity\([\s\S]*authToken\?: string \| null/);
+  assert.match(api, /getInstitutionFilings\([\s\S]*authToken\?: string \| null/);
+  assert.match(api, /headers: authHeaders\(options\?\.authToken \?\? undefined\)/);
+  assert.match(api, /headers: authHeaders\(params\?\.authToken \?\? undefined\)/);
 });
 
 test("holdings allocation chart uses top ten plus other and compact dark responsive layout", () => {

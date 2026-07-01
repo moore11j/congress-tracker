@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
 import { normalizeInstitutionCik } from "@/lib/institution";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 import { tickerHref } from "@/lib/ticker";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
@@ -43,7 +44,9 @@ export default async function InstitutionPage({ params }: Props) {
   const cik = normalizeInstitutionCik(rawCik);
   if (!cik) notFound();
 
-  const profile = await getInstitutionProfile(cik, { source: "InstitutionProfilePage" });
+  const authState = await optionalPageAuthState();
+  const authToken = authState.token ?? undefined;
+  const profile = await getInstitutionProfile(cik, { authToken, source: "InstitutionProfilePage" });
   if (profile.locked) {
     return <LockedInstitutionProfile cik={cik} />;
   }
@@ -53,10 +56,11 @@ export default async function InstitutionPage({ params }: Props) {
       year: profile.latest_report_year ?? undefined,
       quarter: profile.latest_report_quarter ?? undefined,
       limit: 50,
+      authToken,
       source: "InstitutionProfileHoldings",
     }),
-    getInstitutionActivity(cik, { limit: 25, source: "InstitutionProfileActivity" }),
-    getInstitutionFilings(cik, { limit: 25, source: "InstitutionProfileFilings" }),
+    getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity" }),
+    getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings" }),
   ]);
 
   const unavailable = profile.availability_status === "unavailable" || profile.status === "no_data";

@@ -4567,16 +4567,22 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
   );
 }
 
-export async function getInstitutionProfile(cik: string, options?: { signal?: AbortSignal; source?: string }): Promise<InstitutionProfileResponse> {
+export async function getInstitutionProfile(cik: string, options?: { authToken?: string | null; signal?: AbortSignal; source?: string }): Promise<InstitutionProfileResponse> {
   return fetchJson<InstitutionProfileResponse>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}`),
-    { cache: "no-store", next: { revalidate: 0 }, signal: options?.signal, source: options?.source ?? "InstitutionProfile" },
+    {
+      headers: authHeaders(options?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: options?.signal,
+      source: options?.source ?? "InstitutionProfile",
+    },
   );
 }
 
 export async function getInstitutionHoldings(
   cik: string,
-  params?: { year?: number; quarter?: number; limit?: number; page?: number; signal?: AbortSignal; source?: string },
+  params?: { year?: number; quarter?: number; limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InstitutionCollectionResponse<InstitutionHoldingItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionHoldingItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/holdings`, {
@@ -4585,33 +4591,51 @@ export async function getInstitutionHoldings(
       limit: params?.limit,
       page: params?.page,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionHoldings" },
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "InstitutionHoldings",
+    },
   );
 }
 
 export async function getInstitutionActivity(
   cik: string,
-  params?: { limit?: number; page?: number; signal?: AbortSignal; source?: string },
+  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InstitutionCollectionResponse<InstitutionActivityItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionActivityItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/activity`, {
       limit: params?.limit,
       page: params?.page,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionActivity" },
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "InstitutionActivity",
+    },
   );
 }
 
 export async function getInstitutionFilings(
   cik: string,
-  params?: { limit?: number; page?: number; signal?: AbortSignal; source?: string },
+  params?: { limit?: number; page?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
 ): Promise<InstitutionCollectionResponse<InstitutionFilingItem>> {
   return fetchJson<InstitutionCollectionResponse<InstitutionFilingItem>>(
     buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/filings`, {
       limit: params?.limit,
       page: params?.page,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "InstitutionFilings" },
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "InstitutionFilings",
+    },
   );
 }
 
