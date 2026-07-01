@@ -21,7 +21,7 @@ from app.auth import current_user, is_admin_user
 from app.db import get_db
 from app.entitlements import entitlements_for_user
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -51,7 +51,7 @@ from app.services.congress_outcome_eligibility import congress_equity_outcome_el
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
-from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
+from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES, institutional_activity_event_payload
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
@@ -112,6 +112,20 @@ BAD_EVENT_IDENTITY_LABELS = {
     "event",
     "security",
 }
+INSTITUTIONAL_FEED_MODE_EVENT_TYPES = tuple(
+    event_type
+    for event_type in INSTITUTIONAL_EVENT_TYPES
+    if event_type != "institutional_buy"
+)
+INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
+    "smart_money_confirmation",
+    "cluster_accumulation",
+    "cluster_distribution",
+    "major_holder_exit",
+    "major_holder_reduction",
+    "new_institutional_position",
+)
+INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
 
 
 def _log_ticker_events_payload(
@@ -297,6 +311,95 @@ def _can_view_institutional_events(db: Session, request: Request | None) -> bool
         return False
     user = current_user(db, request, required=False)
     return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
+
+
+def _institutional_feed_action_label(event_type: str) -> str:
+    normalized = (event_type or "").strip().lower()
+    if normalized == "new_institutional_position":
+        return "New Position"
+    if normalized == "major_holder_exit":
+        return "Reported Exit"
+    if normalized in {"institutional_distribution", "major_holder_reduction", "cluster_distribution"}:
+        return "Reported Reduction"
+    if normalized in {"institutional_accumulation", "cluster_accumulation", "contrarian_accumulation"}:
+        return "Reported Increase"
+    return "13F filing"
+
+
+def _institutional_activity_event_out(row: InstitutionalActivityEvent) -> EventOut:
+    payload = institutional_activity_event_payload(row)
+    payload["report_period"] = f"Q{row.report_quarter} {row.report_year}"
+    payload["data_semantics"] = "institutional_13f_reported_holdings"
+    payload["timing_note"] = "13F filings disclose quarter-end holdings and may not reflect real-time trading."
+    event_ts = datetime.combine(row.filing_date, datetime.min.time(), tzinfo=timezone.utc)
+    amount = row.reported_value_usd
+    amount_int = int(round(amount)) if isinstance(amount, (int, float)) else None
+    materiality = float(row.materiality_score or 0.0)
+    smart_score = int(max(0, min(100, round(materiality))))
+    return EventOut(
+        id=row.id,
+        event_type=row.event_type,
+        ts=event_ts,
+        symbol=row.normalized_symbol or row.symbol,
+        source="Institutional Activity",
+        member_name=row.holder_name or "Institutional Activity",
+        member_bioguide_id=row.cik,
+        party=None,
+        chamber="institutional",
+        trade_type=_institutional_feed_action_label(row.event_type),
+        url=None,
+        amount_min=amount_int,
+        amount_max=amount_int,
+        impact_score=materiality,
+        payload=payload,
+        smart_score=smart_score,
+        smart_band="institutional",
+    )
+
+
+def _list_institutional_activity_feed_events(
+    *,
+    db: Session,
+    combined_symbols: list[str],
+    type_list: list[str],
+    since_dt: datetime | None,
+    recent_since: datetime | None,
+    min_amount: float | None,
+    max_amount: float | None,
+    limit: int,
+    offset: int,
+    include_total: bool,
+) -> EventsPageDebug:
+    allowed_types = [
+        event_type
+        for event_type in (type_list or list(INSTITUTIONAL_FEED_MODE_EVENT_TYPES))
+        if event_type in INSTITUTIONAL_FEED_MODE_EVENT_TYPES
+    ]
+    if not allowed_types:
+        return EventsPageDebug(items=[], total=0 if include_total else None, limit=limit, offset=offset)
+
+    q = select(InstitutionalActivityEvent).where(InstitutionalActivityEvent.event_type.in_(allowed_types))
+    if combined_symbols:
+        q = q.where(InstitutionalActivityEvent.normalized_symbol.in_(combined_symbols))
+    if since_dt is not None:
+        q = q.where(InstitutionalActivityEvent.filing_date >= since_dt.date())
+    if recent_since is not None:
+        q = q.where(InstitutionalActivityEvent.filing_date >= recent_since.date())
+    if min_amount is not None:
+        q = q.where(InstitutionalActivityEvent.reported_value_usd >= min_amount)
+    if max_amount is not None:
+        q = q.where(InstitutionalActivityEvent.reported_value_usd <= max_amount)
+
+    sort_date = InstitutionalActivityEvent.filing_date
+    filtered_query = q.order_by(sort_date.desc(), InstitutionalActivityEvent.materiality_score.desc(), InstitutionalActivityEvent.id.desc())
+    total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one() if include_total else None
+    rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    return EventsPageDebug(
+        items=[_institutional_activity_event_out(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def _events_response_cache_get(cache_key: str | None) -> EventsPage | EventsPageDebug | None:
@@ -3411,6 +3514,31 @@ def list_events(
     if whale and (min_amount is None or min_amount < 250_000):
         min_amount = 250_000
 
+    institutional_scope = (
+        tape_value in INSTITUTIONAL_MODE_ALIASES
+        or bool(type_list and set(type_list).issubset(set(INSTITUTIONAL_FEED_MODE_EVENT_TYPES)))
+    )
+    if institutional_scope:
+        if not can_view_institutional:
+            return EventsPageDebug(
+                items=[],
+                total=0 if include_total else None,
+                limit=limit,
+                offset=offset,
+            )
+        return _list_institutional_activity_feed_events(
+            db=db,
+            combined_symbols=combined_symbols,
+            type_list=type_list,
+            since_dt=since_dt,
+            recent_since=recent_since,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            limit=limit,
+            offset=offset,
+            include_total=include_total,
+        )
+
     q = select(Event)
     sort_ts = func.coalesce(Event.event_date, Event.ts)
     applied_filters: list[str] = []
@@ -3421,8 +3549,19 @@ def list_events(
     if not can_view_institutional:
         q = q.where(Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES))
         applied_filters.append("institutional_entitlement")
+    elif not type_list and (tape_value is None or tape_value in {"", "all"}):
+        q = q.where(
+            or_(
+                Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES),
+                Event.event_type.in_(INSTITUTIONAL_ALL_MODE_EVENT_TYPES),
+            )
+        )
+        applied_filters.append("institutional_all_selective")
 
-    government_contract_scope = set(type_list).issubset({"government_contract"}) if type_list else False
+    government_contract_scope = (
+        tape_value in {"government_contracts", "government_contract"}
+        or (set(type_list).issubset({"government_contract"}) if type_list else False)
+    )
 
     if combined_symbols:
         q = q.where(_symbol_filter_clause(combined_symbols))
@@ -3437,6 +3576,9 @@ def list_events(
     elif tape_value == "insider":
         q = q.where(Event.event_type == "insider_trade")
         applied_filters.append("tape=insider")
+    elif tape_value in {"government_contracts", "government_contract"}:
+        q = q.where(Event.event_type == "government_contract")
+        applied_filters.append("tape=government_contracts")
     elif tape_value in {"institutional", "institutional_activity", "institutional_13f"}:
         q = q.where(Event.event_type.in_(INSTITUTIONAL_EVENT_TYPES))
         applied_filters.append("tape=institutional")

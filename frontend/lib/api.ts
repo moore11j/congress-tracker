@@ -3666,7 +3666,7 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
 }
 
 export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
-  const { tape: rawTape, signal, source: sourceLabel, ...queryParams } = params;
+  const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, ...queryParams } = params;
   const nextParams: QueryParams = {};
   Object.entries(queryParams).forEach(([key, value]) => {
     if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
@@ -3677,6 +3677,7 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   const parsedLimit = Number(nextParams.limit);
   const requestSignal = signal instanceof AbortSignal ? signal : undefined;
   const source = typeof sourceLabel === "string" ? sourceLabel : "Feed";
+  const authToken = typeof rawAuthToken === "string" ? rawAuthToken : undefined;
 
   if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
     nextParams.limit = Math.min(Math.floor(parsedLimit), EVENTS_API_MAX_LIMIT);
@@ -3700,7 +3701,7 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   }
   const windowDays = isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null;
   const cacheKey = `events:${url}`;
-  const canShortCache = nextParams.debug === undefined && !requestSignal?.aborted;
+  const canShortCache = !authToken && nextParams.debug === undefined && !requestSignal?.aborted;
   if (canShortCache) {
     const now = Date.now();
     const cached = eventsCache.get(cacheKey);
@@ -3710,8 +3711,9 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   }
 
   const request = fetchJson<unknown>(url, {
-    cache: "force-cache",
-    next: { revalidate: 30 },
+    headers: authHeaders(authToken),
+    cache: authToken ? "no-store" : "force-cache",
+    next: authToken ? { revalidate: 0 } : { revalidate: 30 },
     signal: canShortCache ? undefined : requestSignal,
     source,
   }).then((response) => {

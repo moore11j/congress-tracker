@@ -4,9 +4,8 @@ import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInput
 import { FeedRoleAutosuggestEnhancer } from "@/components/feed/FeedRoleAutosuggestEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
+import { feedModeOptions, isCompactFeedFilterMode, isInstitutionalFeedMode, type FeedMode } from "@/lib/feedModes";
 import { activeFilterControlClassName, cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
-
-type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 
 type FeedFiltersServerProps = {
   mode: FeedMode;
@@ -48,7 +47,9 @@ function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) 
   const url = new URLSearchParams();
   url.set("mode", nextMode);
   const keys =
-    nextMode === "government_contracts"
+    nextMode === "institutional"
+      ? (["symbol", "min_amount", "max_amount", "recent_days"] as const)
+      : nextMode === "government_contracts"
       ? (["symbol", "min_amount", "max_amount", "recent_days", "department"] as const)
       : ([
           "symbol",
@@ -94,13 +95,15 @@ function feedSelectClassName(value?: string): string {
 
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
   const formKey = JSON.stringify({ mode, ...params });
+  const compactMode = isCompactFeedFilterMode(mode);
+  const institutionalMode = isInstitutionalFeedMode(mode);
 
   return (
     <section className={cardClassName}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
-          <p className="text-sm text-slate-400">Filter the live feed by symbol, member, trade type, and more.</p>
+          <p className="text-sm text-slate-400">Filter the live feed with mode-aware controls.</p>
         </div>
         <a href={`/?mode=${mode}`} className={ghostButtonClassName}>
           Reset
@@ -136,12 +139,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
       />
 
       <div className="mt-4 flex flex-wrap gap-1">
-        {([
-          ["all", "All"],
-          ["congress", "Congress"],
-          ["insider", "Insider"],
-          ["government_contracts", "Government Contracts"],
-        ] as const).map(([value, label]) => {
+        {feedModeOptions.map(([value, label]) => {
           const active = mode === value;
           return (
             <a
@@ -201,6 +199,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </select>
         </div>
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-4 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asset Type</label>
           <select name="asset_class" defaultValue={params.asset_class ?? ""} className={feedSelectClassName(params.asset_class)}>
@@ -212,7 +211,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <option value="other">Other</option>
           </select>
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-4 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
           <select name="trade_type" defaultValue={params.trade_type ?? ""} className={feedSelectClassName(params.trade_type)}>
@@ -221,13 +222,17 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <option value="sale">Sale</option>
           </select>
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="relative min-w-0 lg:col-start-5 lg:row-start-1">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member / Insider</label>
           <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={feedInputClassName(params.member)} placeholder="Pelosi" autoComplete="off" />
           <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
           <select name="chamber" defaultValue={params.chamber ?? ""} className={feedSelectClassName(params.chamber)}>
@@ -236,7 +241,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <option value="senate">Senate</option>
           </select>
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-3 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
           <select name="party" defaultValue={params.party ?? ""} className={feedSelectClassName(params.party)}>
@@ -246,13 +253,17 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             <option value="independent">Independent</option>
           </select>
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="relative min-w-0 lg:col-start-1 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
           <input id="feed-filter-role" name="role" defaultValue={params.role ?? ""} className={feedInputClassName(params.role)} placeholder="CEO" autoComplete="off" />
           <FeedRoleAutosuggestEnhancer formId="feed-filters-form" inputName="role" />
         </div>
+        ) : null}
 
+        {mode === "government_contracts" ? (
         <div className="min-w-0 lg:col-start-5 lg:row-start-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
           <select name="department" defaultValue={params.department ?? ""} className={feedSelectClassName(params.department)}>
@@ -263,7 +274,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             ))}
           </select>
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-2 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filed After Max</label>
           <input
@@ -277,7 +290,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             placeholder="45"
           />
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-3 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Min</label>
           <input
@@ -290,7 +305,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             placeholder="5"
           />
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-4 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Max</label>
           <input
@@ -303,7 +320,9 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             placeholder="25"
           />
         </div>
+        ) : null}
 
+        {!compactMode ? (
         <div className="min-w-0 lg:col-start-5 lg:row-start-3">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Signal Min</label>
           <input
@@ -318,6 +337,13 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
             placeholder="70"
           />
         </div>
+        ) : null}
+
+        {institutionalMode ? (
+          <div className="md:col-span-2 lg:col-span-2 lg:col-start-4 lg:row-start-1 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-400">
+            13F filing activity uses filing dates and reported quarter-end holdings.
+          </div>
+        ) : null}
 
         <div className="md:col-span-2 lg:col-span-5">
           <button

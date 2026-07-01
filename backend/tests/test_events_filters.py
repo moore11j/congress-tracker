@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.routers.events as events_module
 from app.db import Base
-from app.models import Event, GovernmentContractAction, Security, TradeOutcome
+from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, Security, TradeOutcome
 from app.routers.events import list_events
 
 
@@ -40,6 +41,31 @@ def _event(event_id: int, event_type: str, **kwargs) -> Event:
         event_date=kwargs.pop("event_date", now),
         source=kwargs.pop("source", "test"),
         payload_json=json.dumps(kwargs.pop("payload", {})),
+        **kwargs,
+    )
+
+
+def _institutional_event(event_id: int, event_type: str, **kwargs) -> InstitutionalActivityEvent:
+    return InstitutionalActivityEvent(
+        id=event_id,
+        symbol=kwargs.pop("symbol", "AAPL"),
+        normalized_symbol=kwargs.pop("normalized_symbol", "AAPL"),
+        cik=kwargs.pop("cik", "0001067983"),
+        holder_name=kwargs.pop("holder_name", "Berkshire Hathaway Inc."),
+        event_type=event_type,
+        direction=kwargs.pop("direction", "bullish"),
+        title=kwargs.pop("title", "Institutional Activity"),
+        summary=kwargs.pop("summary", "Reported 13F filing activity."),
+        filing_date=kwargs.pop("filing_date", date(2026, 6, 30)),
+        report_year=kwargs.pop("report_year", 2026),
+        report_quarter=kwargs.pop("report_quarter", 2),
+        reported_value_usd=kwargs.pop("reported_value_usd", 125_000_000.0),
+        value_delta_usd=kwargs.pop("value_delta_usd", 25_000_000.0),
+        ownership_pct=kwargs.pop("ownership_pct", 1.2),
+        holder_breadth=kwargs.pop("holder_breadth", 1),
+        materiality_score=kwargs.pop("materiality_score", 85.0),
+        confirmation_score=kwargs.pop("confirmation_score", 8.0),
+        freshness_status=kwargs.pop("freshness_status", "active"),
         **kwargs,
     )
 
@@ -346,3 +372,179 @@ def test_list_events_caches_production_http_read_path(monkeypatch):
     finally:
         _clear_events_response_cache()
         db.close()
+
+
+def test_feed_mode_options_include_institutional_without_renaming_contracts():
+    feed_modes = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "feedModes.ts"
+    text = feed_modes.read_text(encoding="utf-8")
+
+    assert '["government_contracts", "Government Contracts"]' in text
+    assert '["institutional", "Institutional"]' in text
+
+
+def test_institutional_feed_mode_returns_activity_events_for_entitled_users(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        db.add_all(
+            [
+                _institutional_event(201, "institutional_accumulation"),
+                _institutional_event(
+                    202,
+                    "major_holder_exit",
+                    normalized_symbol="MSFT",
+                    symbol="MSFT",
+                    direction="bearish",
+                    reported_value_usd=90_000_000.0,
+                    value_delta_usd=-90_000_000.0,
+                    materiality_score=90.0,
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, tape="institutional", limit=10, enrich_prices=False)
+        by_type = {item.event_type: item for item in page.items}
+
+        assert set(by_type) == {"institutional_accumulation", "major_holder_exit"}
+        assert by_type["institutional_accumulation"].source == "Institutional Activity"
+        assert by_type["institutional_accumulation"].member_name == "Berkshire Hathaway Inc."
+        assert by_type["institutional_accumulation"].trade_type == "Reported Increase"
+        assert by_type["major_holder_exit"].trade_type == "Reported Exit"
+        assert by_type["institutional_accumulation"].payload["report_period"] == "Q2 2026"
+        assert by_type["institutional_accumulation"].ts.date() == date(2026, 6, 30)
+        assert not any("buy" in (item.trade_type or "").lower() or "sell" in (item.trade_type or "").lower() for item in page.items)
+    finally:
+        db.close()
+
+
+def test_institutional_feed_mode_returns_no_detail_for_unentitled_users():
+    db = _db()
+    try:
+        db.add(_institutional_event(211, "institutional_accumulation", holder_name="Detailed Holder LLC", reported_value_usd=500_000_000.0))
+        db.commit()
+
+        page = list_events(db=db, tape="institutional", limit=10, enrich_prices=False)
+
+        assert page.items == []
+        assert page.limit == 10
+    finally:
+        db.close()
+
+
+def test_all_mode_keeps_only_selective_institutional_feed_events(monkeypatch):
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        now = datetime(2026, 6, 30, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                _event(220, "congress_trade", ts=now, event_date=now, symbol="AAPL", member_name="Member", member_bioguide_id="M1"),
+                _event(221, "institutional_accumulation", ts=now, event_date=now, symbol="AAPL", member_name="Holder"),
+                _event(222, "smart_money_confirmation", ts=now, event_date=now, symbol="AAPL", member_name="Holder"),
+                _event(
+                    223,
+                    "government_contract",
+                    ts=now,
+                    event_date=now,
+                    symbol="LMT",
+                    member_name="Department of Defense",
+                    payload={"event_subtype": "funding_action"},
+                ),
+                GovernmentContractAction(
+                    parent_award_id="B-1",
+                    dedupe_key="B-1-P1",
+                    event_id=223,
+                    symbol="LMT",
+                    awarding_agency="Department of Defense",
+                    recipient_name="Lockheed Martin",
+                    action_date=now.date(),
+                    obligated_amount=1_000_000,
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, mode="all", limit=10, enrich_prices=False)
+
+        event_types = {item.event_type for item in page.items}
+        assert "congress_trade" in event_types
+        assert "government_contract" in event_types
+        assert "smart_money_confirmation" in event_types
+        assert "institutional_accumulation" not in event_types
+    finally:
+        db.close()
+
+
+def test_institutional_mode_can_include_broader_material_activity_than_all(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        db.add(_institutional_event(231, "institutional_distribution", direction="bearish", materiality_score=70.0))
+        db.commit()
+
+        page = list_events(db=db, mode="institutional", limit=10, enrich_prices=False)
+
+        assert [item.event_type for item in page.items] == ["institutional_distribution"]
+        assert page.items[0].trade_type == "Reported Reduction"
+    finally:
+        db.close()
+
+
+def test_government_contract_feed_mode_is_unchanged_by_institutional_mode(monkeypatch):
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        now = datetime(2026, 6, 30, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                _event(240, "institutional_accumulation", ts=now, event_date=now, symbol="AAPL"),
+                _event(
+                    241,
+                    "government_contract",
+                    ts=now,
+                    event_date=now,
+                    symbol="RTX",
+                    member_name="Department of Defense",
+                    payload={"event_subtype": "funding_action"},
+                ),
+                GovernmentContractAction(
+                    parent_award_id="C-1",
+                    dedupe_key="C-1-P1",
+                    event_id=241,
+                    symbol="RTX",
+                    awarding_agency="Department of Defense",
+                    recipient_name="RTX Corporation",
+                    action_date=now.date(),
+                    obligated_amount=2_000_000,
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, tape="government_contracts", limit=10, enrich_prices=False)
+
+        assert [item.event_type for item in page.items] == ["government_contract"]
+    finally:
+        db.close()
+
+
+def test_institutional_feed_copy_avoids_data_source_wording():
+    repo_root = Path(__file__).resolve().parents[2]
+    paths = [
+        repo_root / "frontend" / "app" / "page.tsx",
+        repo_root / "frontend" / "components" / "feed" / "FeedCard.tsx",
+        repo_root / "frontend" / "components" / "feed" / "FeedFiltersServer.tsx",
+        repo_root / "frontend" / "lib" / "feedModes.ts",
+    ]
+    institutional_lines = "\n".join(
+        line
+        for path in paths
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "Institutional" in line or "institutional" in line or "13F" in line
+    ).lower()
+
+    for forbidden in ("fmp", "provider", "vendor", "cache"):
+        assert forbidden not in institutional_lines

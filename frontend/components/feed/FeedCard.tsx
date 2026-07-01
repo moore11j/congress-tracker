@@ -431,7 +431,7 @@ function resolveInsiderReportingCik(item: FeedItem): string | null {
 
 function institutionalActionLabel(kind?: string | null, item?: FeedItem): string {
   const direction = String((item as any)?.direction ?? (item as any)?.payload?.direction ?? "").toLowerCase();
-  if (kind === "new_institutional_position") return "Reported New Position";
+  if (kind === "new_institutional_position") return "New Position";
   if (kind === "major_holder_exit") return "Reported Exit";
   if (kind === "institutional_distribution" || kind === "major_holder_reduction" || kind === "cluster_distribution" || direction === "bearish") return "Reported Reduction";
   if (kind === "institutional_accumulation" || kind === "cluster_accumulation" || kind === "contrarian_accumulation" || direction === "bullish") return "Reported Increase";
@@ -625,6 +625,10 @@ export function FeedCard({
   const isFeed = !isMember;
   const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
   const hasSmartSignal = smartScore !== null || Boolean(smartBand);
+  const institutionalReportPeriod =
+    item.institutional?.report_period ??
+    (payload.report_period as string | undefined) ??
+    (payload.report_quarter && payload.report_year ? `Q${payload.report_quarter} ${payload.report_year}` : null);
   const smartBadgeNode = isCongressDisclosure && !isCongress ? null : hasSmartSignal ? (
     <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title={signalTooltip.title} body={signalTooltip.body}>
       <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
@@ -923,7 +927,7 @@ export function FeedCard({
           }
         >
           <div className={isMember ? "truncate" : undefined}>
-            {isInstitutional ? "Disclosure" : "Trade"}:{" "}
+            {isInstitutional ? "Filing date" : "Trade"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
@@ -941,11 +945,13 @@ export function FeedCard({
             </span>
           </div>
           <div className={isMember ? "truncate" : undefined}>
-            {isInstitutional ? "Filing" : "Report"}:{" "}
+            {isInstitutional ? "Report period" : "Report"}:{" "}
             <span
               className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
             >
-              {isInsider
+              {isInstitutional
+                ? institutionalReportPeriod ?? "Unavailable"
+                : isInsider
                 ? formatYMD(insiderFilingDate)
                 : item.report_date
                   ? formatDateShort(item.report_date)

@@ -99,6 +99,9 @@ export type FeedItem = {
     role?: string | null;
     reporting_cik?: string | null;
   };
+  institutional?: {
+    report_period?: string | null;
+  };
 };
 
 export type FeedResponse = {

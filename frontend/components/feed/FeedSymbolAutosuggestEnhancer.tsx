@@ -1,12 +1,13 @@
 "use client";
 
 import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
+import type { FeedMode } from "@/lib/feedModes";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 type FeedSymbolAutosuggestEnhancerProps = {
   formId: string;
   inputName: string;
-  mode: "congress" | "insider" | "government_contracts" | "all";
+  mode: FeedMode;
 };
 
 const MIN_QUERY_LENGTH = 2;

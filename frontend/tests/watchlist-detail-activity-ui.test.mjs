@@ -31,8 +31,8 @@ test("watchlist recent activity keeps the selected window while showing new item
 });
 
 test("watchlist trade cards use disclosure-safe labels plus filed-after placement", () => {
-  assert.match(feedCardSource, /\{isInstitutional \? "Disclosure" : "Trade"\}/);
-  assert.match(feedCardSource, /\{isInstitutional \? "Filing" : "Report"\}/);
+  assert.match(feedCardSource, /\{isInstitutional \? "Filing date" : "Trade"\}/);
+  assert.match(feedCardSource, /\{isInstitutional \? "Report period" : "Report"\}/);
   assert.match(feedCardSource, /isWatchlist && !isInstitutional/);
   assert.match(feedCardSource, /13F filing/);
   assert.match(feedCardSource, /tradeSide \? <span className="inline-flex justify-start">\{badge\}<\/span> : null/);

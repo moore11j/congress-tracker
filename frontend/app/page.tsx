@@ -4,13 +4,16 @@ import { FeedDebugVisibility } from "@/components/feed/FeedDebugVisibility";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { FeedClientProbe } from "@/components/feed/FeedClientProbe";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { API_BASE, getEvents, getTickerProfiles } from "@/lib/api";
+import { API_BASE, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, getEntitlements, getEvents, getTickerProfiles } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { Suspense } from "react";
+import { entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
+import { isCompactFeedFilterMode, isInstitutionalFeedMode, isValidFeedMode, type FeedMode } from "@/lib/feedModes";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -41,18 +44,11 @@ const feedParamKeys = [
 ] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
-type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 type SearchParamsInput = Record<string, string | string[] | undefined>;
 type CompanyNameMap = Record<string, string>;
 
-const validModes = ["all", "congress", "insider", "government_contracts"] as const;
-
-function isValidMode(value: string): value is FeedMode {
-  return (validModes as readonly string[]).includes(value);
-}
-
 function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>): Record<FeedParamKey, string> {
-  if (mode !== "government_contracts") return params;
+  if (!isCompactFeedFilterMode(mode)) return params;
   return {
     ...params,
     member: "",
@@ -65,7 +61,7 @@ function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>)
     pnl_min: "",
     pnl_max: "",
     signal_min: "",
-    department: params.department,
+    department: mode === "government_contracts" ? params.department : "",
   };
 }
 
@@ -76,7 +72,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const sp = (await searchParams) ?? {};
   const modeParam = getParam(sp, "mode");
-  const mode = isValidMode(modeParam) ? modeParam : "all";
+  const mode = isValidFeedMode(modeParam) ? modeParam : "all";
 
   return {
     alternates: {
@@ -94,6 +90,8 @@ function buildEventsUrl(params: Record<string, string | number | boolean>, tape:
     url.searchParams.set("event_type", "congress_trade,congress_treasury_trade,congress_crypto_trade");
   } else if (tape === "government_contracts" || tape === "government_contract") {
     url.searchParams.set("event_type", "government_contract");
+  } else if (tape === "institutional" || tape === "institutional_activity" || tape === "institutional_13f") {
+    url.searchParams.set("event_type", INSTITUTIONAL_ACTIVITY_EVENT_TYPES.join(","));
   } else {
     url.searchParams.delete("event_type");
   }
@@ -508,6 +506,7 @@ function mapEventToFeedItem(
     const payload = parsePayload(event.payload);
     const symbol = asTrimmedString(event.ticker) ?? asTrimmedString(payload.symbol);
     const institutionName =
+      asTrimmedString(payload.holder_name) ??
       asTrimmedString(payload.institution_name) ??
       asTrimmedString(payload?.raw?.holder) ??
       asTrimmedString(payload?.raw?.institutionName) ??
@@ -520,13 +519,16 @@ function mapEventToFeedItem(
       "Institutional Position";
     const amountMax =
       asNumber((event as any).amount_max) ??
+      asNumber(payload.reported_value_usd) ??
       asNumber(payload.market_value) ??
       null;
     const amountMin =
       asNumber((event as any).amount_min) ??
       amountMax;
     const filingDate = asTrimmedString(payload.filing_date) ?? event.ts ?? null;
-    const reportDate = asTrimmedString(payload.report_date) ?? filingDate;
+    const reportPeriod =
+      asTrimmedString(payload.report_period) ??
+      (payload.report_quarter && payload.report_year ? `Q${payload.report_quarter} ${payload.report_year}` : null);
 
     return {
       id: event.id,
@@ -539,14 +541,17 @@ function mapEventToFeedItem(
       security: {
         symbol,
         name: securityName,
-        asset_class: "13F Filing",
+        asset_class: "13F filing",
       },
-      transaction_type: event.event_type.includes("reduction") || event.event_type.includes("distribution") || event.event_type.includes("exit") ? "Reported Reduction" : event.event_type.includes("new") ? "Reported New Position" : "Reported Increase",
-      owner_type: "13F Filing",
-      trade_date: reportDate,
+      transaction_type: event.event_type.includes("reduction") || event.event_type.includes("distribution") || event.event_type.includes("exit") ? "Reported Reduction" : event.event_type.includes("new") ? "New Position" : "Reported Increase",
+      owner_type: "13F filing",
+      trade_date: null,
       report_date: filingDate,
       amount_range_min: amountMin,
       amount_range_max: amountMax,
+      institutional: {
+        report_period: reportPeriod,
+      },
     };
   }
 
@@ -642,6 +647,8 @@ type FeedResultsSectionProps = {
   page: number;
   pageSize: 25 | 50 | 100;
   activeParams: Record<FeedParamKey, string>;
+  authToken?: string | null;
+  institutionalLocked: boolean;
 };
 
 function FeedResultsSectionSkeleton() {
@@ -675,7 +682,33 @@ function FeedResultsSectionSkeleton() {
   );
 }
 
-async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams }: FeedResultsSectionProps) {
+function InstitutionalFeedLockedPanel() {
+  return (
+    <section className="space-y-4">
+      <div className="rounded-3xl border border-emerald-400/20 bg-emerald-500/[0.06] p-5 shadow-card">
+        <div className="max-w-2xl">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200">Institutional Activity</div>
+          <h2 className="mt-2 text-xl font-semibold text-white">Pro required</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            Institutional Activity shows material 13F filing updates using filing dates and reported quarterly holdings.
+          </p>
+          <a
+            href="/pricing"
+            className="mt-4 inline-flex h-10 items-center justify-center rounded-xl border border-emerald-300/40 bg-emerald-400/10 px-4 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/20"
+          >
+            Upgrade to Pro
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams, authToken, institutionalLocked }: FeedResultsSectionProps) {
+  if (isInstitutionalFeedMode(feedMode) && institutionalLocked) {
+    return <InstitutionalFeedLockedPanel />;
+  }
+
   const requestParams = {
     ...activeParams,
     enrich_prices: 0,
@@ -697,7 +730,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
   try {
-    events = await getEvents({ ...requestParams, tape: feedMode, source: "Feed" });
+    events = await getEvents({ ...requestParams, tape: feedMode, source: "Feed", authToken: authToken ?? undefined });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
@@ -861,10 +894,16 @@ export default async function FeedPage({
 }) {
   const sp = (await searchParams) ?? {};
   const modeParam = getParam(sp, "mode");
-  if (!modeParam || !isValidMode(modeParam)) {
+  if (!modeParam || !isValidFeedMode(modeParam)) {
     redirect("/?mode=all");
   }
   const feedMode = modeParam;
+  const authState = await optionalPageAuthState();
+  const entitlements = authState.token
+    ? await getEntitlements(authState.token, { source: "FeedPage" }).catch(() => entitlementsFromTierHint(authState.entitlementHint))
+    : entitlementsFromTierHint(authState.entitlementHint);
+  const canViewInstitutionalFeed = Boolean(authState.token && hasEntitlement(entitlements, "institutional_feed"));
+  const institutionalFeedLocked = isInstitutionalFeedMode(feedMode) && !canViewInstitutionalFeed;
   const queryDebug = getParam(sp, "debug") === "1";
   const debugDisableFeedFilters = getParam(sp, "debug_disable_feed_filters") === "1";
   const debugDisableFeedResults = getParam(sp, "debug_disable_feed_results") === "1";
@@ -921,6 +960,7 @@ export default async function FeedPage({
     mode: feedMode,
     page,
     pageSize,
+    institutionalFeedLocked,
     ...activeParams,
   });
   if (debugPlainFeedShell) {
@@ -995,7 +1035,7 @@ export default async function FeedPage({
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
             <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified disclosure and market intelligence feed.</h1>
             <p className="max-w-2xl text-sm text-slate-400">
-              One intelligence workflow: switch between Congress, Insider, or All and apply mode-aware filters for fast signal discovery.
+              One intelligence workflow: switch between All, Congress, Insider, Government Contracts, and Institutional Activity with mode-aware filters.
             </p>
           </div>
           <div className="contents">
@@ -1046,6 +1086,8 @@ export default async function FeedPage({
               page={page}
               pageSize={pageSize}
               activeParams={activeParams}
+              authToken={authState.token}
+              institutionalLocked={institutionalFeedLocked}
             />
           </Suspense>
           {debugMoveProbeBelowResults ? (

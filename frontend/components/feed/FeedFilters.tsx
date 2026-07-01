@@ -9,16 +9,16 @@ import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { suggestSymbols, type SymbolSuggestion } from "@/lib/api";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import type { EventItem } from "@/lib/api";
+import { feedModeOptions, type FeedMode } from "@/lib/feedModes";
 
 const debounceMs = 350;
 const symbolSuggestDebounceMs = 200;
 const filtersSessionKey = "ct:feedFilters";
 
-type FeedMode = "congress" | "insider" | "government_contracts" | "all";
 type WhaleMode = "off" | "500k" | "1m" | "5m";
 
 function parseFeedMode(value: string): FeedMode {
-  if (value === "congress" || value === "insider" || value === "government_contracts" || value === "all") return value;
+  if ((feedModeOptions as readonly (readonly [string, string])[]).some(([mode]) => mode === value)) return value as FeedMode;
   return "all";
 }
 
@@ -98,6 +98,9 @@ function clearHiddenFilters(mode: FeedMode, next: FilterState): FilterState {
   }
   if (mode === "insider") {
     return { ...next, member: "", chamber: "", party: "" };
+  }
+  if (mode === "institutional") {
+    return { ...next, member: "", chamber: "", party: "", tradeType: "", role: "", department: "" };
   }
   return {
     ...next,
@@ -768,10 +771,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              {renderPill("all", "All", true)}
-              {renderPill("congress", "Congress", false)}
-              {renderPill("insider", "Insider", false)}
-              {renderPill("government_contracts", "Government Contracts", false)}
+              {feedModeOptions.map(([value, label]) => renderPill(value, label, value === "all"))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Whale mode</span>
@@ -902,12 +902,7 @@ export function FeedFilters({ events = [], resultsCount, debugLifecycle = false 
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          {([
-            ["all", "All"],
-            ["congress", "Congress"],
-            ["insider", "Insider"],
-            ["government_contracts", "Government Contracts"],
-          ] as const).map(([value, label]) => (
+          {feedModeOptions.map(([value, label]) => (
             renderPill(value, label, filters.feedMode === value, () => setMode(value))
           ))}
         </div>
