@@ -34,6 +34,7 @@ test("watchlist trade cards use disclosure-safe labels plus filed-after placemen
   assert.match(feedCardSource, /\{isInstitutional \? "Filing date" : "Trade"\}/);
   assert.match(feedCardSource, /\{isInstitutional \? "Report period" : "Report"\}/);
   assert.match(feedCardSource, /isWatchlist && !isInstitutional/);
-  assert.match(feedCardSource, /13F filing/);
+  assert.match(feedCardSource, /institutionalSecuritySecondaryLabel/);
+  assert.match(feedCardSource, /Filed after:/);
   assert.match(feedCardSource, /tradeSide \? <span className="inline-flex justify-start">\{badge\}<\/span> : null/);
 });

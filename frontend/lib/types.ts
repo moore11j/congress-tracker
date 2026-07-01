@@ -101,6 +101,7 @@ export type FeedItem = {
   };
   institutional?: {
     report_period?: string | null;
+    value_delta_usd?: number | null;
   };
 };
 

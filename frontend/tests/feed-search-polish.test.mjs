@@ -43,6 +43,30 @@ test("feed gain/loss tooltip uses simplified percentage copy", () => {
   assert.doesNotMatch(card, /label: "Entry"/);
 });
 
+test("institutional feed cards use compact values and text activity labels", () => {
+  const card = read("components/feed/FeedCard.tsx");
+  const page = read("app/page.tsx");
+
+  assert.match(card, /function formatMoneyCompactRange/);
+  assert.match(card, /function formatSignedMoneyCompact/);
+  assert.match(card, /isInstitutional\s*\?\s*\(formatMoneyCompactRange/);
+  assert.match(card, /const institutionalActionToneClass/);
+  assert.match(card, /text-rose-300/);
+  assert.match(card, /text-emerald-300/);
+  assert.match(card, /const showOutcomeMetrics = true/);
+  assert.match(card, /isInstitutional \? "N\/A"/);
+  assert.match(card, /Gain\/loss is not calculated for 13F rows/);
+  assert.match(card, /institutionalSecuritySecondaryLabel/);
+  assert.match(card, /Filed after:/);
+  assert.match(card, /institutionalAmountLabel/);
+  assert.match(card, /Change \{formatSignedMoneyCompact\(institutionalValueDelta\)\}/);
+  assert.match(card, /isInstitutional \? "flex flex-col items-center gap-2 text-center md:grid md:\[grid-template-columns:minmax\(125px,170px\)_90px_60px\]/);
+  assert.match(page, /companyNameForSymbol/);
+  assert.match(page, /asTrimmedString\(event\.member_name\)/);
+  assert.match(page, /Multiple institutions/);
+  assert.match(page, /institutionalSymbols/);
+});
+
 test("global search UI advertises insider search and renders insider grouping", () => {
   const search = read("components/GlobalSearch.tsx");
 

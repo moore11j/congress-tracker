@@ -173,6 +173,23 @@ function formatMoneyCompact(n: number): string {
   return formatMoney(n);
 }
 
+function formatMoneyCompactRange(minValue: unknown, maxValue: unknown): string | null {
+  const min = parseNum(minValue);
+  const max = parseNum(maxValue);
+  if (min === null && max === null) return null;
+  if (min !== null && max !== null) {
+    if (Math.abs(max - min) < 0.5) return formatMoneyCompact(max);
+    return `${formatMoneyCompact(min)} - ${formatMoneyCompact(max)}`;
+  }
+  return formatMoneyCompact((max ?? min) as number);
+}
+
+function formatSignedMoneyCompact(n: number): string {
+  if (n > 0) return `+${formatMoneyCompact(n)}`;
+  if (n < 0) return `-${formatMoneyCompact(Math.abs(n))}`;
+  return "$0";
+}
+
 function firstParsedNumber(...values: unknown[]): number | null {
   for (const value of values) {
     const parsed = parseNum(value);
@@ -254,6 +271,28 @@ function formatYMD(ymd?: string | null): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(dt);
+}
+
+function institutionalQuarterEndYMD(payload: Record<string, any>, reportPeriod?: string | null): string | null {
+  let year = parseNum(payload.report_year);
+  let quarter = parseNum(payload.report_quarter);
+  if ((year === null || quarter === null) && reportPeriod) {
+    const match = reportPeriod.match(/Q([1-4])\s+(\d{4})/i);
+    if (match) {
+      quarter = Number(match[1]);
+      year = Number(match[2]);
+    }
+  }
+  if (year === null || quarter === null) return null;
+  const endByQuarter: Record<number, string> = {
+    1: "03-31",
+    2: "06-30",
+    3: "09-30",
+    4: "12-31",
+  };
+  const end = endByQuarter[Math.trunc(quarter)];
+  if (!end) return null;
+  return `${Math.trunc(year)}-${end}`;
 }
 
 function daysBetweenYMD(a?: string | null, b?: string | null): number | null {
@@ -501,12 +540,7 @@ export function FeedCard({
     insiderItem.payload?.filing_date ??
     insiderItem.payload?.raw?.filingDate ??
     item.report_date;
-  const lagDays = !isInstitutional
-    ? daysBetweenYMD(
-        isInsider ? insiderTxDate : item.trade_date,
-        isInsider ? insiderFilingDate : item.report_date,
-      )
-    : null;
+  const payload = (item.payload ?? {}) as Record<string, any>;
   const congressEstimatedPrice = isCongress
     ? parseNum(item.estimated_price)
     : null;
@@ -530,7 +564,6 @@ export function FeedCard({
   const overlaySmartScore = signalOverlay ? parseNum(signalOverlay.score) : null;
   const smartScore = signalValue.score ?? overlaySmartScore;
   const smartBand = signalValue.band ?? signalOverlay?.band ?? null;
-  const payload = (item.payload ?? {}) as Record<string, any>;
 
   const pnlPct = (item as any).pnl_pct;
   const pnl = parseInsiderNumber(pnlPct);
@@ -540,11 +573,11 @@ export function FeedCard({
   const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
-  const outcomeReasonLabel = outcomeIsUnavailable ? "Data unavailable" : "Updating";
+  const outcomeReasonLabel = isInstitutional ? "N/A" : outcomeIsUnavailable ? "Data unavailable" : "Updating";
   const missingPnlLabel = outcomeReasonLabel;
 
   const signalTooltip = signalScoreSummary(smartScore);
-  const outcomeStatusLabel = safeOutcomeStatusLabel(hasPnl, pnlSource, outcomeIsUnavailable);
+  const outcomeStatusLabel = isInstitutional ? "Not applicable" : safeOutcomeStatusLabel(hasPnl, pnlSource, outcomeIsUnavailable);
   const outcomeDetails = [
     congressEstimatedPrice !== null || insiderPrice !== null
       ? { label: "Trade price", value: formatMoneyPrecise((congressEstimatedPrice ?? insiderPrice) as number) }
@@ -552,7 +585,9 @@ export function FeedCard({
     latestPrice !== null ? { label: "Latest", value: formatMoneyPrecise(latestPrice) } : null,
     { label: "Status", value: outcomeStatusLabel },
   ].filter((detail): detail is TooltipDetail => detail !== null);
-  const outcomeTooltipBody = feedGainLossTooltip;
+  const outcomeTooltipBody = isInstitutional
+    ? "Gain/loss is not calculated for 13F rows because filings disclose quarter-end holdings, not live trade outcomes."
+    : feedGainLossTooltip;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
   const memberNet30d = parseNum(item.member_net_30d);
   const symbolNet30d = parseNum((item as any).symbol_net_30d);
@@ -573,7 +608,9 @@ export function FeedCard({
     ? insiderAmount !== null
       ? formatMoney(insiderAmount)
       : "—"
-    : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
+    : isInstitutional
+      ? (formatMoneyCompactRange(item.amount_range_min, item.amount_range_max) ?? "—")
+      : (formatCurrencyRange(item.amount_range_min, item.amount_range_max) ?? "—");
   const tradeValueNumber = isCongressDisclosure || isInstitutional
     ? parseNum(item.amount_range_max)
     : insiderAmount;
@@ -589,7 +626,18 @@ export function FeedCard({
   const minTier = whaleMinTierMap[whaleMode];
   const isHighlighted = highlightEnabled && tier >= minTier;
   const tierClass = tierClassFor(tier);
-  const badge = (
+  const institutionalAction = isInstitutional ? institutionalActionLabel(String(kind), item) : null;
+  const institutionalActionToneClass = (() => {
+    const label = (institutionalAction ?? "").toLowerCase();
+    if (label.includes("reduction") || label.includes("exit") || String(kind).includes("distribution")) return "text-rose-300";
+    if (label.includes("increase") || label.includes("new") || String(kind).includes("accumulation")) return "text-emerald-300";
+    return "text-slate-300";
+  })();
+  const badge = isInstitutional ? (
+    <span className={`inline-flex justify-start text-xs font-semibold uppercase tracking-[0.12em] ${institutionalActionToneClass}`}>
+      {institutionalAction}
+    </span>
+  ) : (
     <Badge
       tone={
         isInsider || isCongressDisclosure
@@ -623,12 +671,23 @@ export function FeedCard({
   const isMember = context === "member" || gridPreset === "member";
   const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
+  const showOutcomeMetrics = true;
   const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
   const hasSmartSignal = smartScore !== null || Boolean(smartBand);
   const institutionalReportPeriod =
     item.institutional?.report_period ??
     (payload.report_period as string | undefined) ??
     (payload.report_quarter && payload.report_year ? `Q${payload.report_quarter} ${payload.report_year}` : null);
+  const institutionalPeriodEnd = isInstitutional ? institutionalQuarterEndYMD(payload, institutionalReportPeriod) : null;
+  const lagDays = daysBetweenYMD(
+    isInstitutional ? institutionalPeriodEnd : isInsider ? insiderTxDate : item.trade_date,
+    isInstitutional ? item.report_date : isInsider ? insiderFilingDate : item.report_date,
+  );
+  const institutionalValueDelta = isInstitutional ? (item.institutional?.value_delta_usd ?? parseNum(payload.value_delta_usd)) : null;
+  const institutionalAmountLabel = String(kind).includes("exit") ? "Prior value exited" : "Reported value";
+  const institutionalSecurityName = formatCompanyName(safeSecurityLabel(item.security?.name)) || (symbol ? displaySymbol(symbol) : "Company unavailable");
+  const institutionalSecurityPrimaryLabel = isInstitutional && symbol ? displaySymbol(symbol) : institutionalSecurityName;
+  const institutionalSecuritySecondaryLabel = isInstitutional ? institutionalSecurityName : null;
   const smartBadgeNode = isCongressDisclosure && !isCongress ? null : hasSmartSignal ? (
     <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title={signalTooltip.title} body={signalTooltip.body}>
       <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
@@ -815,7 +874,7 @@ export function FeedCard({
               {isInsider ? (
                 <Badge tone={insiderRoleTone}>{insiderRoleBadge}</Badge>
               ) : isInstitutional ? (
-                <Badge tone="neutral">13F Filing</Badge>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">13F Filing</span>
               ) : (
                 <Badge tone={party.tone}>{tag}</Badge>
               )}
@@ -853,12 +912,12 @@ export function FeedCard({
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
-                      ? "13F filing"
+                      ? institutionalSecuritySecondaryLabel
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
               </div>
               <div className="mt-1 min-w-0 overflow-hidden truncate text-xs font-semibold text-white">
-                {formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
+                {isInstitutional ? institutionalSecurityPrimaryLabel : formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
               </div>
               {(isTreasury || isCrypto) && nonEquityDetail ? (
                 <div className="mt-1 truncate text-[11px] text-slate-500">
@@ -892,7 +951,7 @@ export function FeedCard({
               )}
               <div className="min-w-0">
                 <div className="min-w-0 overflow-hidden truncate font-semibold text-white">
-                  {formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
+                  {isInstitutional ? institutionalSecurityPrimaryLabel : formatCompanyName(safeSecurityLabel(item.security?.name)) || "Unresolved security"}
                 </div>
                 {(isTreasury || isCrypto) && nonEquityDetail ? (
                   <div className="mt-1 truncate text-[11px] text-slate-500">
@@ -903,7 +962,7 @@ export function FeedCard({
                   {isInsider
                     ? (securityClass ?? "—")
                     : isInstitutional
-                      ? "13F filing"
+                      ? institutionalSecuritySecondaryLabel
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
                 {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
@@ -988,11 +1047,11 @@ export function FeedCard({
               )
             ) : isInstitutional ? (
               <>
-                Basis:{" "}
+                Filed after:{" "}
                 <span
                   className={`inline-block align-bottom text-slate-200 ${isMember ? "max-w-full truncate" : "md:max-w-full md:truncate"}`}
                 >
-                  13F filing
+                  {lagDays !== null && lagDays >= 0 ? `${lagDays}d` : "—"}
                 </span>
               </>
             ) : isWatchlist ? (
@@ -1033,6 +1092,17 @@ export function FeedCard({
                     {amountText}
                   </div>
 
+                  {isInstitutional ? (
+                    <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500">
+                      <div>{institutionalAmountLabel}</div>
+                      {institutionalValueDelta !== null && Math.abs(institutionalValueDelta) >= 1 ? (
+                        <div className={institutionalValueDelta < 0 ? "text-rose-300/80" : "text-emerald-300/80"}>
+                          Change {formatSignedMoneyCompact(institutionalValueDelta)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {isCongress && congressEstimatedPrice !== null && (
                     <div className="mt-1 text-xs text-slate-400 tabular-nums lg:truncate">
                       Est. Trade Price: {formatMoney(congressEstimatedPrice)}
@@ -1055,6 +1125,7 @@ export function FeedCard({
                     )}
                 </div>
 
+                {showOutcomeMetrics ? (
                 <div className="text-center lg:text-right">
                   {pnl !== null ? (
                     <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
@@ -1090,18 +1161,30 @@ export function FeedCard({
                     </FeedInfoTooltip>
                   )}
                 </div>
+                ) : null}
 
                 <div className="flex justify-center lg:justify-end">{smartBadgeNode}</div>
               </div>
             </div>
           ) : (
-            <div className={`${isWatchlist ? "flex flex-col items-center gap-1.5 text-center md:items-end md:text-right" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
+            <div className={`${isWatchlist ? "flex flex-col items-center gap-1.5 text-center md:items-end md:text-right" : isInstitutional ? "flex flex-col items-center gap-2 text-center md:grid md:[grid-template-columns:minmax(125px,170px)_90px_60px] md:items-center md:text-right" : "flex flex-col items-center gap-3 text-center md:grid md:[grid-template-columns:170px_90px_60px] md:items-center md:text-right"}`}>
               <div className="min-w-0 text-center md:text-right">
                 <div
                   className={`${isCompact ? "text-base lg:text-base" : "text-lg"} tabular-nums ${isHighlighted ? "font-bold" : "font-semibold"}`}
                 >
                   {amountText}
                 </div>
+
+                {isInstitutional ? (
+                  <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500">
+                    <div>{institutionalAmountLabel}</div>
+                    {institutionalValueDelta !== null && Math.abs(institutionalValueDelta) >= 1 ? (
+                      <div className={institutionalValueDelta < 0 ? "text-rose-300/80" : "text-emerald-300/80"}>
+                        Change {formatSignedMoneyCompact(institutionalValueDelta)}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {isCongress && congressEstimatedPrice !== null && (
                   <div className="mt-1 truncate text-xs text-slate-400 tabular-nums">
@@ -1122,6 +1205,7 @@ export function FeedCard({
                 )}
               </div>
 
+              {showOutcomeMetrics ? (
               <div className="text-center md:text-right">
                 {pnl !== null ? (
                   <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
@@ -1157,6 +1241,7 @@ export function FeedCard({
                   </FeedInfoTooltip>
                 )}
               </div>
+              ) : null}
 
               <div className="flex justify-center md:justify-end">
                 {smartBadgeNode}

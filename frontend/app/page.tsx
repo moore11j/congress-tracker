@@ -292,6 +292,14 @@ function companyNameForGovernmentContract(symbol: string | null, payload: Record
   );
 }
 
+function companyNameForSymbol(symbol: string | null, payload: Record<string, any>, companyNames: CompanyNameMap): string {
+  if (!symbol) {
+    return firstTrimmedString(payload.company_name, payload.companyName, payload.issuer_name, payload.issuerName) ?? "Company unavailable";
+  }
+  const normalized = symbol.trim().toUpperCase();
+  return firstTrimmedString(companyNames[normalized], payload.company_name, payload.companyName, payload.issuer_name, payload.issuerName) ?? normalized;
+}
+
 function mapEventToFeedItem(
   event: {
   id: number;
@@ -300,6 +308,7 @@ function mapEventToFeedItem(
   symbol?: string | null;
   ticker?: string | null;
   source?: string | null;
+  member_name?: string | null;
   headline?: string | null;
   summary?: string | null;
   url?: string | null;
@@ -508,15 +517,11 @@ function mapEventToFeedItem(
     const institutionName =
       asTrimmedString(payload.holder_name) ??
       asTrimmedString(payload.institution_name) ??
+      asTrimmedString(event.member_name) ??
       asTrimmedString(payload?.raw?.holder) ??
       asTrimmedString(payload?.raw?.institutionName) ??
-      asTrimmedString(event.source) ??
-      "Institution";
-    const securityName =
-      asTrimmedString(payload?.raw?.companyName) ??
-      asTrimmedString(payload.company_name) ??
-      symbol ??
-      "Institutional Position";
+      "Multiple institutions";
+    const securityName = companyNameForSymbol(symbol, payload, companyNames);
     const amountMax =
       asNumber((event as any).amount_max) ??
       asNumber(payload.reported_value_usd) ??
@@ -551,6 +556,7 @@ function mapEventToFeedItem(
       amount_range_max: amountMax,
       institutional: {
         report_period: reportPeriod,
+        value_delta_usd: asNumber(payload.value_delta_usd),
       },
     };
   }
@@ -750,10 +756,23 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
         .map((symbol) => symbol.toUpperCase()),
     ),
   );
+  const institutionalSymbols = Array.from(
+    new Set(
+      events.items
+        .filter((event) => institutionalActivityEventTypes.has(event.event_type))
+        .map((event) => {
+          const payload = parsePayload(event.payload);
+          return asTrimmedString(payload.symbol) ?? asTrimmedString(event.ticker);
+        })
+        .filter((symbol): symbol is string => Boolean(symbol))
+        .map((symbol) => symbol.toUpperCase()),
+    ),
+  );
+  const profileSymbols = Array.from(new Set([...governmentContractSymbols, ...institutionalSymbols]));
   let companyNames: CompanyNameMap = {};
-  if (governmentContractSymbols.length > 0) {
+  if (profileSymbols.length > 0) {
     try {
-      const profiles = await getTickerProfiles(governmentContractSymbols, { source: "Feed" });
+      const profiles = await getTickerProfiles(profileSymbols, { source: "Feed" });
       companyNames = Object.fromEntries(
         Object.entries(profiles)
           .map(([symbol, profile]) => [symbol.toUpperCase(), asTrimmedString(profile?.ticker?.name)] as const)
