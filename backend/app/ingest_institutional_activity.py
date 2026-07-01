@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from app.clients.fmp import (
@@ -16,6 +17,7 @@ from app.clients.fmp import (
     fetch_latest_institutional_filings,
 )
 from app.db import SessionLocal, engine, ensure_institutional_activity_schema
+from app.models import InstitutionalFiling, InstitutionalPosition
 from app.services.institutional_activity import (
     parse_latest_filing,
     process_filing_changes_and_events,
@@ -28,6 +30,75 @@ from app.services.institutional_activity import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _count_filing_positions(db, filing: InstitutionalFiling) -> int:
+    if filing.id is None:
+        return 0
+    return int(db.query(InstitutionalPosition).filter(InstitutionalPosition.filing_id == filing.id).count())
+
+
+def _normalized_form_type(filing: InstitutionalFiling) -> str:
+    return (filing.form_type or "").strip().upper()
+
+
+def _is_no_holdings_notice_form(filing: InstitutionalFiling) -> bool:
+    return _normalized_form_type(filing).startswith("13F-NT")
+
+
+def _is_zero_position_retryable_form(filing: InstitutionalFiling) -> bool:
+    return not _is_no_holdings_notice_form(filing)
+
+
+def _should_retry_processed_zero_position_filing(db, filing: InstitutionalFiling) -> bool:
+    return filing.processed_at is not None and _is_zero_position_retryable_form(filing) and _count_filing_positions(db, filing) == 0
+
+
+def _mark_empty_extract_outcome(
+    db,
+    filing: InstitutionalFiling,
+    *,
+    raw_extract_rows: int,
+    skipped_positions: int = 0,
+) -> str:
+    if _is_no_holdings_notice_form(filing):
+        filing.processed_at = datetime.now(timezone.utc)
+        logger.info(
+            "institutional_empty_extract_processed_no_holdings cik=%s year=%s quarter=%s form_type=%s raw_extract_rows=%s skipped_positions=%s",
+            filing.cik,
+            filing.report_year,
+            filing.report_quarter,
+            filing.form_type,
+            raw_extract_rows,
+            skipped_positions,
+        )
+        return "empty_extract_processed_no_holdings"
+
+    filing.processed_at = None
+    logger.warning(
+        "institutional_empty_extract_retryable cik=%s year=%s quarter=%s form_type=%s raw_extract_rows=%s skipped_positions=%s",
+        filing.cik,
+        filing.report_year,
+        filing.report_quarter,
+        filing.form_type,
+        raw_extract_rows,
+        skipped_positions,
+    )
+    return "empty_extract_retryable"
+
+
+def _empty_extract_result(metric: str) -> dict[str, int | str]:
+    return {
+        "status": "ok",
+        "processed_filings": 1 if metric == "empty_extract_processed_no_holdings" else 0,
+        "empty_extract_retryable": 1 if metric == "empty_extract_retryable" else 0,
+        "empty_extract_processed_no_holdings": 1 if metric == "empty_extract_processed_no_holdings" else 0,
+        "position_rows": 0,
+        "position_changes": 0,
+        "summaries": 0,
+        "activity_events": 0,
+        "feed_events": 0,
+    }
 
 
 def ingest_latest_institutional_filings(
@@ -45,6 +116,8 @@ def ingest_latest_institutional_filings(
         "parse_failed": 0,
         "already_processed_skipped": 0,
         "processed_filings": 0,
+        "empty_extract_retryable": 0,
+        "empty_extract_processed_no_holdings": 0,
         "skipped": 0,
         "position_rows": 0,
         "position_changes": 0,
@@ -75,23 +148,58 @@ def ingest_latest_institutional_filings(
                     filing, created = upsert_institutional_filing(db, candidate)
                     db.flush()
                     if filing.processed_at is not None and not force:
-                        db.commit()
-                        counts["already_processed_skipped"] = int(counts["already_processed_skipped"]) + 1
-                        counts["skipped"] = int(counts["skipped"]) + 1
-                        continue
+                        if _should_retry_processed_zero_position_filing(db, filing):
+                            logger.info(
+                                "institutional_retrying_processed_zero_position_filing cik=%s year=%s quarter=%s form_type=%s",
+                                filing.cik,
+                                filing.report_year,
+                                filing.report_quarter,
+                                filing.form_type,
+                            )
+                            filing.processed_at = None
+                            db.flush()
+                        else:
+                            db.commit()
+                            counts["already_processed_skipped"] = int(counts["already_processed_skipped"]) + 1
+                            counts["skipped"] = int(counts["skipped"]) + 1
+                            continue
 
                     extract_rows = fetch_institutional_filing_extract(
                         cik=candidate.cik,
                         year=candidate.report_year,
                         quarter=candidate.report_quarter,
                     )
+                    if not extract_rows:
+                        metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
+                        db.commit()
+                        processed += 1
+                        counts[metric] = int(counts[metric]) + 1
+                        if metric == "empty_extract_processed_no_holdings":
+                            counts["processed_filings"] = int(counts["processed_filings"]) + 1
+                        continue
+
                     position_counts = upsert_positions_for_filing(db, filing=filing, rows=extract_rows)
+                    position_row_count = int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0))
+                    if position_row_count == 0 and _count_filing_positions(db, filing) == 0:
+                        metric = _mark_empty_extract_outcome(
+                            db,
+                            filing,
+                            raw_extract_rows=len(extract_rows),
+                            skipped_positions=int(position_counts.get("skipped_positions", 0)),
+                        )
+                        db.commit()
+                        processed += 1
+                        counts[metric] = int(counts[metric]) + 1
+                        if metric == "empty_extract_processed_no_holdings":
+                            counts["processed_filings"] = int(counts["processed_filings"]) + 1
+                        continue
+
                     process_counts = process_filing_changes_and_events(db, filing)
                     db.commit()
 
                     processed += 1
                     counts["processed_filings"] = int(counts["processed_filings"]) + 1
-                    counts["position_rows"] = int(counts["position_rows"]) + int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0))
+                    counts["position_rows"] = int(counts["position_rows"]) + position_row_count
                     counts["position_changes"] = int(counts["position_changes"]) + int(process_counts.get("changes", 0))
                     counts["summaries"] = int(counts["summaries"]) + int(process_counts.get("summaries", 0))
                     counts["activity_events"] = int(counts["activity_events"]) + int(process_counts.get("activity_events", 0))
@@ -131,17 +239,45 @@ def ingest_institutional_filing(
         filing, _ = upsert_institutional_filing(db, candidate)
         db.flush()
         if filing.processed_at is not None and not force:
-            db.commit()
-            return {"status": "ok", "processed_filings": 0, "skipped": 1}
+            if _should_retry_processed_zero_position_filing(db, filing):
+                logger.info(
+                    "institutional_retrying_processed_zero_position_filing cik=%s year=%s quarter=%s form_type=%s",
+                    filing.cik,
+                    filing.report_year,
+                    filing.report_quarter,
+                    filing.form_type,
+                )
+                filing.processed_at = None
+                db.flush()
+            else:
+                db.commit()
+                return {"status": "ok", "processed_filings": 0, "skipped": 1}
 
         extract_rows = fetch_institutional_filing_extract(cik=candidate.cik, year=candidate.report_year, quarter=candidate.report_quarter)
+        if not extract_rows:
+            metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
+            db.commit()
+            return _empty_extract_result(metric)
         position_counts = upsert_positions_for_filing(db, filing=filing, rows=extract_rows)
+        position_row_count = int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0))
+        if position_row_count == 0 and _count_filing_positions(db, filing) == 0:
+            metric = _mark_empty_extract_outcome(
+                db,
+                filing,
+                raw_extract_rows=len(extract_rows),
+                skipped_positions=int(position_counts.get("skipped_positions", 0)),
+            )
+            db.commit()
+            return _empty_extract_result(metric)
+
         process_counts = process_filing_changes_and_events(db, filing)
         db.commit()
         return {
             "status": "ok",
             "processed_filings": 1,
-            "position_rows": int(position_counts.get("inserted_positions", 0)) + int(position_counts.get("updated_positions", 0)),
+            "empty_extract_retryable": 0,
+            "empty_extract_processed_no_holdings": 0,
+            "position_rows": position_row_count,
             "position_changes": int(process_counts.get("changes", 0)),
             "summaries": int(process_counts.get("summaries", 0)),
             "activity_events": int(process_counts.get("activity_events", 0)),

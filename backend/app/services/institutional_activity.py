@@ -254,22 +254,43 @@ def upsert_institutional_holder(db: Session, candidate: InstitutionalFilingCandi
     return holder
 
 
+def _fallback_period_filing(db: Session, candidate: InstitutionalFilingCandidate) -> InstitutionalFiling | None:
+    period_rows = db.execute(
+        select(InstitutionalFiling)
+        .where(
+            InstitutionalFiling.cik == candidate.cik,
+            InstitutionalFiling.report_year == candidate.report_year,
+            InstitutionalFiling.report_quarter == candidate.report_quarter,
+        )
+        .order_by(InstitutionalFiling.id)
+    ).scalars().all()
+    if len(period_rows) == 1:
+        return period_rows[0]
+
+    rich_rows = [row for row in period_rows if row.accession_number or row.form_type or row.filing_url]
+    if len(rich_rows) == 1:
+        return rich_rows[0]
+    return None
+
+
 def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandidate) -> tuple[InstitutionalFiling, bool]:
     filing = None
     if candidate.accession_number:
         filing = db.execute(
             select(InstitutionalFiling).where(InstitutionalFiling.accession_number == candidate.accession_number)
         ).scalar_one_or_none()
+    if filing is None and not candidate.accession_number and not candidate.form_type:
+        filing = _fallback_period_filing(db, candidate)
     if filing is None:
-        filing = db.execute(
-            select(InstitutionalFiling).where(
-                InstitutionalFiling.cik == candidate.cik,
-                InstitutionalFiling.report_year == candidate.report_year,
-                InstitutionalFiling.report_quarter == candidate.report_quarter,
-                InstitutionalFiling.filing_date == candidate.filing_date,
-                InstitutionalFiling.form_type == candidate.form_type,
-            )
-        ).scalar_one_or_none()
+        conditions = [
+            InstitutionalFiling.cik == candidate.cik,
+            InstitutionalFiling.report_year == candidate.report_year,
+            InstitutionalFiling.report_quarter == candidate.report_quarter,
+            InstitutionalFiling.filing_date == candidate.filing_date,
+        ]
+        if candidate.form_type:
+            conditions.append(InstitutionalFiling.form_type == candidate.form_type)
+        filing = db.execute(select(InstitutionalFiling).where(*conditions)).scalar_one_or_none()
     created = filing is None
     if filing is None:
         filing = InstitutionalFiling(
@@ -279,12 +300,19 @@ def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandi
             report_quarter=candidate.report_quarter,
         )
         db.add(filing)
-    filing.accession_number = candidate.accession_number
-    filing.report_period_end = candidate.report_period_end
-    filing.filing_url = candidate.filing_url
-    filing.form_type = candidate.form_type
-    filing.is_amendment = candidate.is_amendment
-    filing.raw_metadata_json = json.dumps(candidate.raw, sort_keys=True, default=str)
+    if candidate.accession_number:
+        filing.accession_number = candidate.accession_number
+    if candidate.report_period_end:
+        filing.report_period_end = candidate.report_period_end
+    if candidate.filing_url:
+        filing.filing_url = candidate.filing_url
+    if candidate.form_type:
+        filing.form_type = candidate.form_type
+        filing.is_amendment = candidate.is_amendment
+    elif created:
+        filing.is_amendment = candidate.is_amendment
+    if created or candidate.accession_number or candidate.form_type or candidate.filing_url or not filing.raw_metadata_json:
+        filing.raw_metadata_json = json.dumps(candidate.raw, sort_keys=True, default=str)
     filing.updated_at = datetime.now(timezone.utc)
     return filing, created
 

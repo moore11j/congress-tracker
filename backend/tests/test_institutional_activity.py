@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -9,7 +10,7 @@ from starlette.requests import Request
 
 from app.db import Base
 from app import ingest_institutional_activity as ingest_module
-from app.models import Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalPositionChange, InstitutionalSymbolSummary
+from app.models import Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
 from app.routers.institutional import ticker_institutional_activity
 from app.services.institutional_activity import (
     institutional_confirmation_contribution,
@@ -147,13 +148,55 @@ def test_latest_ingest_metrics_split_parse_failures(monkeypatch):
     assert result["processed_filings"] == 0
 
 
+def test_upsert_filing_preserves_existing_metadata_when_candidate_is_sparse():
+    engine = _engine()
+    rich_candidate = parse_latest_filing(
+        {
+            "cik": "0001452208",
+            "date": "2026-06-30",
+            "filingDate": "2026-07-01 00:00:00",
+            "formType": "13F-HR",
+            "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+            "name": "CACTI ASSET MANAGEMENT LLC",
+        }
+    )
+    sparse_candidate = parse_latest_filing(
+        {
+            "cik": "0001452208",
+            "date": "2026-03-31",
+            "filingDate": "2026-03-31 00:00:00",
+            "year": 2026,
+            "quarter": 2,
+        }
+    )
+    assert rich_candidate is not None
+    assert sparse_candidate is not None
+    assert sparse_candidate.form_type is None
+
+    with _session(engine) as db:
+        filing, created = upsert_institutional_filing(db, rich_candidate)
+        assert created is True
+        db.flush()
+
+        same_filing, created_again = upsert_institutional_filing(db, sparse_candidate)
+        db.flush()
+
+        assert created_again is False
+        assert same_filing.id == filing.id
+        assert db.query(InstitutionalFiling).count() == 1
+        assert same_filing.form_type == "13F-HR"
+        assert same_filing.accession_number == "0001104659-26-079776"
+        assert same_filing.filing_url == rich_candidate.filing_url
+        assert json.loads(same_filing.raw_metadata_json or "{}").get("formType") == "13F-HR"
+
+
 def test_latest_ingest_metrics_split_already_processed_skips(monkeypatch):
     engine = _engine()
     latest_row = {
         "cik": "0001452208",
         "date": "2026-06-30",
         "filingDate": "2026-07-01 00:00:00",
-        "formType": "13F-HR",
+        "formType": "13F-NT",
         "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
         "name": "CACTI ASSET MANAGEMENT LLC",
     }
@@ -183,6 +226,128 @@ def test_latest_ingest_metrics_split_already_processed_skips(monkeypatch):
     assert result["already_processed_skipped"] == 1
     assert result["skipped"] == 1
     assert result["processed_filings"] == 0
+
+
+def test_latest_ingest_keeps_zero_extract_13f_hr_retryable(monkeypatch):
+    engine = _engine()
+    latest_row = {
+        "cik": "0001452208",
+        "date": "2026-06-30",
+        "filingDate": "2026-07-01 00:00:00",
+        "formType": "13F-HR",
+        "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+        "name": "CACTI ASSET MANAGEMENT LLC",
+    }
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [latest_row])
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", lambda **_kwargs: [])
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert result["processed_filings"] == 0
+    assert result["empty_extract_retryable"] == 1
+    assert result["empty_extract_processed_no_holdings"] == 0
+    assert result["position_rows"] == 0
+
+    with _session(engine) as db:
+        filing = db.execute(select(InstitutionalFiling)).scalar_one()
+        assert filing.form_type == "13F-HR"
+        assert filing.processed_at is None
+
+
+def test_latest_ingest_processes_zero_extract_13f_nt_as_no_holdings(monkeypatch):
+    engine = _engine()
+    latest_row = {
+        "cik": "0000796370",
+        "date": "2026-06-30",
+        "filingDate": "2026-07-01 00:00:00",
+        "formType": "13F-NT",
+        "link": "https://www.sec.gov/Archives/edgar/data/796370/000079637026000004/0000796370-26-000004-index.htm",
+        "name": "BRIGHTSPHERE INC.",
+    }
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [latest_row])
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", lambda **_kwargs: [])
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert result["processed_filings"] == 1
+    assert result["empty_extract_retryable"] == 0
+    assert result["empty_extract_processed_no_holdings"] == 1
+    assert result["position_rows"] == 0
+
+    with _session(engine) as db:
+        filing = db.execute(select(InstitutionalFiling)).scalar_one()
+        assert filing.form_type == "13F-NT"
+        assert filing.processed_at is not None
+
+
+def test_latest_ingest_reruns_retryable_13f_hr_without_duplicate_filing(monkeypatch):
+    engine = _engine()
+    latest_row = {
+        "cik": "0001452208",
+        "date": "2026-06-30",
+        "filingDate": "2026-07-01 00:00:00",
+        "formType": "13F-HR",
+        "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+        "name": "CACTI ASSET MANAGEMENT LLC",
+    }
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [latest_row])
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", lambda **_kwargs: [])
+
+    first = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+    second = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert first["empty_extract_retryable"] == 1
+    assert second["empty_extract_retryable"] == 1
+    with _session(engine) as db:
+        assert db.query(InstitutionalFiling).count() == 1
+        filing = db.execute(select(InstitutionalFiling)).scalar_one()
+        assert filing.processed_at is None
+
+
+def test_retryable_13f_hr_sets_processed_when_positions_later_appear(monkeypatch):
+    engine = _engine()
+    latest_row = {
+        "cik": "0001452208",
+        "date": "2026-06-30",
+        "filingDate": "2026-07-01 00:00:00",
+        "formType": "13F-HR",
+        "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+        "name": "CACTI ASSET MANAGEMENT LLC",
+    }
+    extract_batches = [
+        [],
+        [{"symbol": "LATE", "cusip": "000LATE01", "shares": 10_000, "marketValue": 2_000_000}],
+    ]
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [latest_row])
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", lambda **_kwargs: extract_batches.pop(0))
+
+    first = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+    second = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert first["empty_extract_retryable"] == 1
+    assert first["processed_filings"] == 0
+    assert second["empty_extract_retryable"] == 0
+    assert second["processed_filings"] == 1
+    assert second["position_rows"] == 1
+
+    with _session(engine) as db:
+        assert db.query(InstitutionalFiling).count() == 1
+        filing = db.execute(select(InstitutionalFiling)).scalar_one()
+        assert filing.processed_at is not None
+        position = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalar_one()
+        assert position.normalized_symbol == "LATE"
 
 
 def test_institutional_contribution_is_freshness_bounded_and_capped():
