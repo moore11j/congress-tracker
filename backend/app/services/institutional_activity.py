@@ -161,7 +161,7 @@ def parse_latest_filing(row: dict[str, Any]) -> InstitutionalFilingCandidate | N
     cik = normalize_cik(_first_text(row, "cik", "holderCik", "institutionCik", "managerCik", "investorCik"))
     filing_date = _parse_date(_first_value(row, "filingDate", "filing_date", "date", "acceptedDate", "accepted_date"))
     report_period_end = _parse_date(
-        _first_value(row, "reportPeriod", "report_period", "periodOfReport", "period_of_report", "reportDate", "report_date")
+        _first_value(row, "reportPeriod", "report_period", "periodOfReport", "period_of_report", "reportDate", "report_date", "date")
     )
     report_year = _first_int(row, "reportYear", "report_year", "year")
     report_quarter = _first_int(row, "reportQuarter", "report_quarter", "quarter")
@@ -171,7 +171,7 @@ def parse_latest_filing(row: dict[str, Any]) -> InstitutionalFilingCandidate | N
     if not cik or filing_date is None or report_year is None or report_quarter is None:
         return None
     form_type = _first_text(row, "formType", "form_type", "form", "type")
-    accession_number = _first_text(row, "accessionNumber", "accession_number", "accessionNo")
+    accession_number = _first_text(row, "accessionNumber", "accession_number", "accessionNo") or _accession_from_filing_links(row)
     holder_name = _first_text(row, "holderName", "holder", "institutionName", "managerName", "investorName", "name")
     is_amendment = bool(form_type and "/A" in form_type.upper()) or _boolish(_first_value(row, "isAmendment", "amendment"))
     return InstitutionalFilingCandidate(
@@ -187,6 +187,23 @@ def parse_latest_filing(row: dict[str, Any]) -> InstitutionalFilingCandidate | N
         is_amendment=is_amendment,
         raw=row,
     )
+
+
+def _accession_from_filing_links(row: dict[str, Any]) -> str | None:
+    for value in (
+        _first_text(row, "filingUrl", "filing_url", "url", "link", "finalLink"),
+        _first_text(row, "finalLink"),
+    ):
+        if not value:
+            continue
+        dashed = re.search(r"\b(\d{10}-\d{2}-\d{6})\b", value)
+        if dashed:
+            return dashed.group(1)
+        compact = re.search(r"/(\d{18})(?:/|$)", value)
+        if compact:
+            digits = compact.group(1)
+            return f"{digits[:10]}-{digits[10:12]}-{digits[12:]}"
+    return None
 
 
 def parse_position(row: dict[str, Any]) -> InstitutionalPositionPayload | None:

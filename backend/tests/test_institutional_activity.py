@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import Base
+from app import ingest_institutional_activity as ingest_module
 from app.models import Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalPositionChange, InstitutionalSymbolSummary
 from app.routers.institutional import ticker_institutional_activity
 from app.services.institutional_activity import (
@@ -99,6 +100,89 @@ def test_parse_latest_filing_normalizes_13f_metadata():
     assert candidate.report_year == 2025
     assert candidate.report_quarter == 4
     assert candidate.is_amendment is True
+
+
+def test_parse_latest_filing_handles_latest_endpoint_payload_shape():
+    candidate = parse_latest_filing(
+        {
+            "acceptedDate": "2026-07-01 12:49:57",
+            "cik": "0001452208",
+            "date": "2026-06-30",
+            "filingDate": "2026-07-01 00:00:00",
+            "finalLink": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/xslForm13F_X02/primary_doc.xml",
+            "formType": "13F-HR",
+            "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+            "name": "CACTI ASSET MANAGEMENT LLC",
+        }
+    )
+
+    assert candidate is not None
+    assert candidate.cik == "0001452208"
+    assert candidate.holder_name == "CACTI ASSET MANAGEMENT LLC"
+    assert candidate.filing_date == date(2026, 7, 1)
+    assert candidate.report_period_end == date(2026, 6, 30)
+    assert candidate.report_year == 2026
+    assert candidate.report_quarter == 2
+    assert candidate.accession_number == "0001104659-26-079776"
+    assert candidate.form_type == "13F-HR"
+    assert candidate.filing_url == "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm"
+
+
+def test_latest_ingest_metrics_split_parse_failures(monkeypatch):
+    class DummySession:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [{"filingDate": "2026-07-01"}])
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert result["scanned"] == 1
+    assert result["parsed"] == 0
+    assert result["parse_failed"] == 1
+    assert result["already_processed_skipped"] == 0
+    assert result["skipped"] == 1
+    assert result["processed_filings"] == 0
+
+
+def test_latest_ingest_metrics_split_already_processed_skips(monkeypatch):
+    engine = _engine()
+    latest_row = {
+        "cik": "0001452208",
+        "date": "2026-06-30",
+        "filingDate": "2026-07-01 00:00:00",
+        "formType": "13F-HR",
+        "link": "https://www.sec.gov/Archives/edgar/data/1452208/000110465926079776/0001104659-26-079776-index.htm",
+        "name": "CACTI ASSET MANAGEMENT LLC",
+    }
+    candidate = parse_latest_filing(latest_row)
+    assert candidate is not None
+
+    with _session(engine) as db:
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        filing.processed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: [latest_row])
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_extract",
+        lambda **_kwargs: pytest.fail("already-processed latest filing should not fetch positions"),
+    )
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=5, max_filings=1)
+
+    assert result["scanned"] == 1
+    assert result["parsed"] == 1
+    assert result["parse_failed"] == 0
+    assert result["already_processed_skipped"] == 1
+    assert result["skipped"] == 1
+    assert result["processed_filings"] == 0
 
 
 def test_institutional_contribution_is_freshness_bounded_and_capped():

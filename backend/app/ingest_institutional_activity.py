@@ -42,6 +42,8 @@ def ingest_latest_institutional_filings(
         "status": "ok",
         "scanned": 0,
         "parsed": 0,
+        "parse_failed": 0,
+        "already_processed_skipped": 0,
         "processed_filings": 0,
         "skipped": 0,
         "position_rows": 0,
@@ -64,6 +66,7 @@ def ingest_latest_institutional_filings(
                 counts["scanned"] = int(counts["scanned"]) + 1
                 candidate = parse_latest_filing(row)
                 if candidate is None:
+                    counts["parse_failed"] = int(counts["parse_failed"]) + 1
                     counts["skipped"] = int(counts["skipped"]) + 1
                     continue
                 counts["parsed"] = int(counts["parsed"]) + 1
@@ -73,6 +76,7 @@ def ingest_latest_institutional_filings(
                     db.flush()
                     if filing.processed_at is not None and not force:
                         db.commit()
+                        counts["already_processed_skipped"] = int(counts["already_processed_skipped"]) + 1
                         counts["skipped"] = int(counts["skipped"]) + 1
                         continue
 
