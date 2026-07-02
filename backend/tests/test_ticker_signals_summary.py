@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.main as main_module
+import app.routers.signals as signals_module
+import app.services.confirmation_score as confirmation_score_module
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
@@ -94,6 +96,87 @@ def _signal_item(
     )
 
 
+def _fixed_signal_event(
+    event_id: int,
+    *,
+    symbol: str,
+    event_type: str,
+    trade_type: str,
+    ts: datetime,
+    amount: int,
+    member_name: str,
+    source: str = "test",
+) -> Event:
+    payload = {"symbol": symbol, "reporting_cik": f"{event_id:010d}", "insider_name": member_name}
+    return Event(
+        id=event_id,
+        event_type=event_type,
+        ts=ts,
+        event_date=ts,
+        symbol=symbol,
+        source=source,
+        trade_type=trade_type,
+        amount_min=amount,
+        amount_max=amount,
+        member_name=member_name,
+        member_bioguide_id=f"M{event_id}" if event_type == "congress_trade" else None,
+        chamber="House" if event_type == "congress_trade" else None,
+        payload_json=json.dumps(payload),
+    )
+
+
+def _seed_abnormal_signal_fixture(db: Session, *, as_of: datetime) -> None:
+    specs = [
+        (4101, "TSM", "insider_trade", "sale", datetime(2026, 5, 19, tzinfo=timezone.utc), "TSM Insider", "test"),
+        (4201, "FCNCA", "insider_trade", "sale", datetime(2026, 5, 12, tzinfo=timezone.utc), "FCNCA Insider", "test"),
+        (4301, "CVX", "congress_trade", "sale", datetime(2026, 4, 10, tzinfo=timezone.utc), "CVX Member", "house"),
+        (4401, "INWIN", "insider_trade", "sale", as_of - timedelta(days=5), "In Window Insider", "test"),
+    ]
+    for event_id, symbol, event_type, trade_type, signal_ts, member_name, source in specs:
+        for index, baseline_ts in enumerate(
+            [
+                datetime(2026, 1, 10, tzinfo=timezone.utc),
+                datetime(2026, 2, 10, tzinfo=timezone.utc),
+                datetime(2026, 3, 10, tzinfo=timezone.utc),
+            ],
+            start=1,
+        ):
+            db.add(
+                _fixed_signal_event(
+                    event_id=event_id + index,
+                    symbol=symbol,
+                    event_type=event_type,
+                    trade_type=trade_type,
+                    ts=baseline_ts,
+                    amount=10_000,
+                    member_name=member_name,
+                    source=source,
+                )
+            )
+        db.add(
+            _fixed_signal_event(
+                event_id=event_id,
+                symbol=symbol,
+                event_type=event_type,
+                trade_type=trade_type,
+                ts=signal_ts,
+                amount=500_000,
+                member_name=member_name,
+                source=source,
+            )
+        )
+
+
+def _freeze_signal_now(monkeypatch, as_of: datetime) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return as_of.astimezone(tz) if tz is not None else as_of.replace(tzinfo=None)
+
+    monkeypatch.setattr(signals_module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(confirmation_score_module, "datetime", FrozenDateTime)
+
+
 def _seed_score_contract_fixture(db: Session) -> None:
     today = date.today()
     price_points = {
@@ -127,8 +210,10 @@ def _seed_score_contract_fixture(db: Session) -> None:
 
 def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     captured: dict[str, object] = {}
+    query_calls: list[dict[str, object]] = []
 
     def fake_query(**kwargs):
+        query_calls.append(dict(kwargs))
         captured.update(kwargs)
         return [
             SimpleNamespace(
@@ -196,10 +281,14 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     response = ticker_signals_summary(object(), "nbis", side="buy", limit=3, lookback_days=365, db=object())
 
     assert captured["symbol"] == "NBIS"
-    assert captured["limit"] == 3
-    assert captured["side"] == "buy"
-    assert captured["congress_recent_days"] == 30
-    assert captured["insider_recent_days"] == 30
+    assert query_calls[0]["limit"] == 3
+    assert query_calls[0]["side"] == "buy"
+    assert query_calls[0]["congress_recent_days"] == 30
+    assert query_calls[0]["insider_recent_days"] == 30
+    assert query_calls[1]["limit"] == 500
+    assert query_calls[1]["side"] == "buy"
+    assert query_calls[1]["congress_recent_days"] == 365
+    assert query_calls[1]["insider_recent_days"] == 365
     assert captured["confirmation_tickers"] == ["NBIS"]
     assert captured["confirmation_lookback_days"] == 30
     assert response["symbol"] == "NBIS"
@@ -207,10 +296,81 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["recent_signal_count"] == 1
     assert response["lookback_days"] == 30
     assert response["effective_window_days"] == 30
+    assert response["signal_activity_lookback_days"] == 365
+    assert response["signal_activity_state"] == "unlocked"
+    assert response["signal_activity_total"] == 1
+    assert response["signal_activity"][0]["symbol"] == "NBIS"
     assert response["items"][0]["symbol"] == "NBIS"
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
+
+
+def test_ticker_signal_activity_uses_historical_rows_without_score_leakage(monkeypatch):
+    as_of = datetime(2026, 7, 2, tzinfo=timezone.utc)
+    _freeze_signal_now(monkeypatch, as_of)
+    _mock_signal_auth(monkeypatch, tier="premium")
+    engine = _engine()
+    with Session(engine) as db:
+        _seed_abnormal_signal_fixture(db, as_of=as_of)
+        db.commit()
+
+        expectations = {
+            "TSM": "2026-05-19",
+            "FCNCA": "2026-05-12",
+            "CVX": "2026-04-10",
+        }
+        for symbol, expected_date in expectations.items():
+            response = ticker_signals_summary(object(), symbol, side="sell", limit=3, lookback_days=365, db=db)
+            assert response["signal_activity_state"] == "unlocked"
+            assert response["signal_activity_total"] == 1
+            assert response["signal_activity"][0]["symbol"] == symbol
+            assert response["signal_activity"][0]["ts"].startswith(expected_date)
+            assert response["items"] == []
+            assert response["recent_signal_count"] == 0
+            assert response["confirmation_score_bundle"]["lookback_days"] == 30
+            assert response["confirmation_score_bundle"]["sources"]["signals"]["present"] is False
+
+        in_window = ticker_signals_summary(object(), "INWIN", side="sell", limit=3, lookback_days=365, db=db)
+        assert in_window["signal_activity_total"] == 1
+        assert in_window["signal_activity"][0]["symbol"] == "INWIN"
+        assert in_window["items"][0]["symbol"] == "INWIN"
+        assert in_window["recent_signal_count"] == 1
+        assert in_window["confirmation_score_bundle"]["sources"]["signals"]["present"] is True
+
+
+def test_ticker_signal_activity_entitlement_and_empty_states(monkeypatch):
+    as_of = datetime(2026, 7, 2, tzinfo=timezone.utc)
+    _freeze_signal_now(monkeypatch, as_of)
+    engine = _engine()
+    with Session(engine) as db:
+        _seed_abnormal_signal_fixture(db, as_of=as_of)
+        db.commit()
+
+        for tier in ("premium", "pro", "admin"):
+            _mock_signal_auth(monkeypatch, tier=tier)
+            response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
+            assert response["signal_activity_state"] == "unlocked"
+            assert response["signal_activity_total"] == 1
+            assert response["signal_activity"][0]["symbol"] == "TSM"
+
+        _mock_signal_auth(monkeypatch, tier="free")
+        free_response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
+        assert free_response["signal_activity_state"] == "locked"
+        assert free_response["signal_activity_total"] is None
+        assert free_response["signal_activity"] == []
+
+        _mock_logged_out_signal_context(monkeypatch)
+        guest_response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
+        assert guest_response["signal_activity_state"] == "locked"
+        assert guest_response["signal_activity_total"] is None
+        assert guest_response["signal_activity"] == []
+
+        _mock_signal_auth(monkeypatch, tier="premium")
+        empty_response = ticker_signals_summary(object(), "EMPTY", side="sell", limit=3, lookback_days=365, db=db)
+        assert empty_response["signal_activity_state"] == "unlocked"
+        assert empty_response["signal_activity_total"] == 0
+        assert empty_response["signal_activity"] == []
 
 
 def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatch):
@@ -270,7 +430,7 @@ def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatc
     assert not leader.is_alive()
     assert not follower.is_alive()
     assert errors == []
-    assert query_call_count == 1
+    assert query_call_count == 2
     assert len(responses) == 2
     assert [response["symbol"] for response in responses] == ["NVDA", "NVDA"]
     assert [response["latest_signal_score"] for response in responses] == [82, 82]

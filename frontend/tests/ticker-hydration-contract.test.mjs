@@ -66,8 +66,11 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.match(sourceCard, /getTickerSignalsSummary\(symbol,/);
   assert.match(sourceCard, /sourceFromSummary\(response, visibleItems, lookbackDays, fallbackSource\)/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
-  assert.match(tickerPage, /lookback_days: SIGNAL_WINDOW_DAYS/);
-  assert.match(tickerPage, /lookbackDays=\{SIGNAL_WINDOW_DAYS\}/);
+  assert.match(tickerPage, /lookback_days: lookbackDays/);
+  assert.match(tickerPage, /activity_limit: ACTIVITY_PAGE_SIZE/);
+  assert.match(tickerPage, /lookbackDays=\{selectedLookbackDays\}/);
+  assert.match(tickerPage, /initialTotal=\{canReuseSignalSummary \? signalsTotal : null\}/);
+  assert.match(tickerPage, /initialState=\{canReuseSignalSummary \? signalsState : null\}/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /activitySignalFreshness \?\? signalFreshness/);
   assert.match(tickerPage, /const insiderCardSource = confirmationBundle\.sources\.insiders/);
@@ -76,6 +79,25 @@ test("ticker signal activity uses ticker-specific summary instead of broad signa
   assert.doesNotMatch(tickerPage, /sourceFromActivityCounts/);
   assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
   assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
+});
+
+test("ticker Signal activity reads historical rows and explicit states", () => {
+  const client = read("components/ticker/TickerSignalActivityClient.tsx");
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const api = read("lib/api.ts");
+
+  assert.match(api, /signal_activity\?: SignalItem\[\]/);
+  assert.match(api, /signal_activity_total\?: number \| null/);
+  assert.match(api, /signal_activity_state\?: "unlocked" \| "locked" \| "unavailable" \| string/);
+  assert.match(client, /setItems\(response\.signal_activity \?\? \[\]\)/);
+  assert.match(client, /setTotal\(response\.signal_activity_total \?\? null\)/);
+  assert.match(client, /gateFromActivityState\(response\.signal_activity_state\)/);
+  assert.match(client, /state === "locked"/);
+  assert.match(client, /state === "unavailable"/);
+  assert.match(client, /No abnormal signal activity found for this ticker in the selected lookback\./);
+  assert.match(client, /const visibleTotal = total \?\? visibleItems\.length/);
+  assert.match(tickerPage, /const signalActivityRows = Array\.isArray\(signalsRes\.signal_activity\) \? signalsRes\.signal_activity : signalsRes\.items \?\? \[\]/);
+  assert.match(tickerPage, /signalsTotal: typeof signalsRes\.signal_activity_total === "number" \? signalsRes\.signal_activity_total : signals\.length/);
 });
 
 test("ticker upper Signals source card repairs stale inactive SSR from browser-authenticated summary rows", () => {

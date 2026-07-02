@@ -33,12 +33,8 @@ def job_env(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(job_module, "SessionLocal", Session)
     monkeypatch.setattr(job_module, "ensure_institutional_activity_schema", lambda *_args, **_kwargs: None)
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_ENABLED", "false")
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_START_PAGE", "9")
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_PAGES_PER_RUN", "2")
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_LIMIT", "25")
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_MAX_FILINGS", "25")
-    monkeypatch.setenv("INSTITUTIONAL_LATEST_JOB_STOP_AT_EMPTY_PAGE", "true")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "false")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE", "9")
     return Session
 
 
@@ -46,12 +42,12 @@ def _fake_result(**overrides):
     result = {
         "status": "ok",
         "start_page": 9,
-        "pages": 2,
-        "pages_scanned": 2,
+        "pages": 1,
+        "pages_scanned": 1,
         "first_empty_page_seen": None,
         "max_filings_reached": 0,
-        "scanned": 50,
-        "parsed": 50,
+        "scanned": 25,
+        "parsed": 25,
         "parse_failed": 0,
         "already_processed_skipped": 0,
         "processed_filings": 3,
@@ -76,9 +72,9 @@ def _seed_state(Session, **kwargs):
             job_name=job_module.LATEST_FILINGS_JOB_NAME,
             enabled=kwargs.pop("enabled", False),
             cursor_page=kwargs.pop("cursor_page", 9),
-            pages_per_run=kwargs.pop("pages_per_run", 2),
+            pages_per_run=kwargs.pop("pages_per_run", 1),
             limit=kwargs.pop("limit", 25),
-            max_filings_per_run=kwargs.pop("max_filings_per_run", 25),
+            max_filings_per_run=kwargs.pop("max_filings_per_run", 10),
             last_status=kwargs.pop("last_status", "idle"),
             last_started_at=kwargs.pop("last_started_at", None),
         )
@@ -112,14 +108,14 @@ def test_job_state_initialization_defaults_disabled(job_env):
         state = job_module.get_or_create_latest_job_state(db)
         assert state.enabled is False
         assert state.cursor_page == 9
-        assert state.pages_per_run == 2
+        assert state.pages_per_run == 1
         assert state.limit == 25
-        assert state.max_filings_per_run == 25
+        assert state.max_filings_per_run == 10
     finally:
         db.close()
 
 
-def test_job_run_once_requires_enabled_when_requested(job_env, monkeypatch):
+def test_scheduled_latest_once_does_nothing_when_disabled(job_env, monkeypatch):
     called = False
 
     def fake_ingest(**_kwargs):
@@ -129,15 +125,15 @@ def test_job_run_once_requires_enabled_when_requested(job_env, monkeypatch):
 
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", fake_ingest)
 
-    result = job_module.run_latest_ingest_job_once(require_enabled=True)
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "paused"
     assert called is False
     assert _runs(job_env)[0].status == "paused"
 
 
-def test_job_run_once_processes_window_and_advances_cursor(job_env, monkeypatch):
-    _seed_state(job_env, cursor_page=9, pages_per_run=2, enabled=False)
+def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=9, pages_per_run=5, max_filings_per_run=50, enabled=True)
     calls = []
 
     def fake_ingest(**kwargs):
@@ -146,31 +142,33 @@ def test_job_run_once_processes_window_and_advances_cursor(job_env, monkeypatch)
 
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", fake_ingest)
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert calls == [{"start_page": 9, "pages": 2, "limit": 25, "max_filings": 25}]
+    assert calls == [{"start_page": 9, "pages": 1, "limit": 25, "max_filings": 10}]
     state = _state(job_env)
-    assert state.cursor_page == 11
+    assert state.cursor_page == 10
+    assert state.pages_per_run == 1
+    assert state.max_filings_per_run == 10
     assert state.total_filings_processed == 3
     assert state.total_position_rows == 25
     run = _runs(job_env)[0]
     assert run.status == "success"
-    assert run.next_cursor_page == 11
+    assert run.next_cursor_page == 10
 
 
 def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkeypatch):
-    _seed_state(job_env, cursor_page=9)
+    _seed_state(job_env, cursor_page=9, enabled=True)
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
-        lambda **_kwargs: _fake_result(processed_filings=0, already_processed_skipped=50, skipped=50, position_rows=0, position_changes=0, summaries=0, activity_events=0, feed_events=0),
+        lambda **_kwargs: _fake_result(processed_filings=0, already_processed_skipped=25, skipped=25, position_rows=0, position_changes=0, summaries=0, activity_events=0, feed_events=0),
     )
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert _state(job_env).cursor_page == 11
+    assert _state(job_env).cursor_page == 10
 
 
 def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
@@ -181,7 +179,7 @@ def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
         lambda **_kwargs: _fake_result(pages_scanned=0, scanned=0, parsed=0, processed_filings=0, first_empty_page_seen=12, position_rows=0, position_changes=0, summaries=0, activity_events=0, feed_events=0),
     )
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
     state = _state(job_env)
@@ -208,7 +206,7 @@ def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):
         },
     )
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "failed"
     state = _state(job_env)
@@ -217,63 +215,63 @@ def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):
     assert "duplicate checks failed" in (state.last_error or "")
 
 
-def test_job_overlapping_run_returns_skipped_locked(job_env, monkeypatch):
-    _seed_state(job_env, last_status="running", last_started_at=datetime.now(timezone.utc))
+def test_scheduled_latest_overlapping_run_returns_skipped_locked(job_env, monkeypatch):
+    _seed_state(job_env, enabled=True, last_status="running", last_started_at=datetime.now(timezone.utc))
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: pytest.fail("overlap should not ingest"))
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "skipped_locked"
     assert _runs(job_env)[0].status == "skipped_locked"
 
 
-def test_job_stale_running_state_can_recover(job_env, monkeypatch):
-    _seed_state(job_env, last_status="running", last_started_at=datetime.now(timezone.utc) - timedelta(hours=3))
+def test_scheduled_latest_stale_running_state_can_recover(job_env, monkeypatch):
+    _seed_state(job_env, enabled=True, last_status="running", last_started_at=datetime.now(timezone.utc) - timedelta(hours=3))
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: _fake_result())
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert _state(job_env).cursor_page == 11
+    assert _state(job_env).cursor_page == 10
 
 
 def test_retryable_empty_extract_does_not_block_cursor(job_env, monkeypatch):
-    _seed_state(job_env, cursor_page=9)
+    _seed_state(job_env, cursor_page=9, enabled=True)
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
         lambda **_kwargs: _fake_result(pages_scanned=1, processed_filings=0, empty_extract_retryable=1, scanned=25, parsed=25, position_rows=0, position_changes=0, summaries=0, activity_events=0, feed_events=0),
     )
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
     assert _state(job_env).cursor_page == 10
 
 
 def test_max_filings_reached_keeps_cursor_on_same_page(job_env, monkeypatch):
-    _seed_state(job_env, cursor_page=9)
+    _seed_state(job_env, cursor_page=9, enabled=True)
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
         lambda **_kwargs: _fake_result(pages_scanned=1, processed_filings=25, max_filings_reached=1),
     )
 
-    result = job_module.run_latest_ingest_job_once()
+    result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
     assert _state(job_env).cursor_page == 9
 
 
-def test_job_run_once_cli_invokes_durable_runner(monkeypatch, capsys):
+def test_scheduled_latest_once_cli_invokes_scheduler(monkeypatch, capsys):
     calls = []
 
-    def fake_run_once(*, require_enabled: bool = False):
-        calls.append(require_enabled)
+    def fake_run_once():
+        calls.append(True)
         return {"status": "success", "run": {"id": 1}}
 
-    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--job-run-once", "--require-job-enabled"])
-    monkeypatch.setattr(job_module, "run_latest_ingest_job_once", fake_run_once)
+    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--scheduled-latest-once"])
+    monkeypatch.setattr(job_module, "run_scheduled_latest_once", fake_run_once)
 
     ingest_module.main()
 

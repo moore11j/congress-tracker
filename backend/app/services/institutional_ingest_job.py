@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 LATEST_FILINGS_JOB_NAME = "latest_filings"
 DEFAULT_STALE_RUNNING_MINUTES = 90
 DEFAULT_FEED_EVENTS_WARNING_THRESHOLD = 100
+SCHEDULED_PAGES_PER_RUN = 1
+SCHEDULED_LIMIT = 25
+SCHEDULED_MAX_FILINGS = 10
+SCHEDULED_ENABLED_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"
+SCHEDULED_START_PAGE_ENV = "INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -48,12 +53,18 @@ def _as_int(value: Any, default: int = 0) -> int:
 
 def latest_job_defaults() -> dict[str, int | bool]:
     return {
-        "enabled": _env_bool("INSTITUTIONAL_LATEST_JOB_ENABLED", False),
-        "cursor_page": _env_int("INSTITUTIONAL_LATEST_JOB_START_PAGE", 9, minimum=0, maximum=10_000),
-        "pages_per_run": _env_int("INSTITUTIONAL_LATEST_JOB_PAGES_PER_RUN", 2, minimum=1, maximum=20),
-        "limit": _env_int("INSTITUTIONAL_LATEST_JOB_LIMIT", 25, minimum=1, maximum=100),
-        "max_filings_per_run": _env_int("INSTITUTIONAL_LATEST_JOB_MAX_FILINGS", 25, minimum=1, maximum=50),
+        "enabled": _env_bool(SCHEDULED_ENABLED_ENV, False),
+        "cursor_page": _env_int(SCHEDULED_START_PAGE_ENV, 9, minimum=0, maximum=10_000),
+        "pages_per_run": SCHEDULED_PAGES_PER_RUN,
+        "limit": SCHEDULED_LIMIT,
+        "max_filings_per_run": SCHEDULED_MAX_FILINGS,
     }
+
+
+def _apply_scheduled_window(state: InstitutionalIngestJobState) -> None:
+    state.pages_per_run = SCHEDULED_PAGES_PER_RUN
+    state.limit = SCHEDULED_LIMIT
+    state.max_filings_per_run = SCHEDULED_MAX_FILINGS
 
 
 def get_or_create_latest_job_state(db: Session) -> InstitutionalIngestJobState:
@@ -243,17 +254,7 @@ def institutional_ingest_duplicate_checks(db: Session) -> dict[str, int]:
     return {name: _as_int(db.execute(text(query)).scalar()) for name, query in queries.items()}
 
 
-def _next_cursor(state: InstitutionalIngestJobState, result: dict[str, Any]) -> int:
-    start_page = int(state.cursor_page)
-    first_empty = result.get("first_empty_page_seen")
-    if first_empty is not None:
-        return int(first_empty)
-    if _as_int(result.get("max_filings_reached")):
-        return start_page
-    return start_page + _as_int(result.get("pages_scanned"))
-
-
-def _finish_successful_run(
+def _finish_scheduled_run(
     db: Session,
     state: InstitutionalIngestJobState,
     run: InstitutionalIngestJobRun,
@@ -265,49 +266,69 @@ def _finish_successful_run(
     now = _now()
     _apply_counts_to_run(run, result)
     run.finished_at = now
-    run.next_cursor_page = _next_cursor(state, result)
-
     duplicate_failures = {key: value for key, value in duplicate_checks.items() if value}
+    first_empty = result.get("first_empty_page_seen")
+    scanned = _as_int(result.get("scanned"))
+    max_filings_reached = bool(_as_int(result.get("max_filings_reached")))
+    stop_at_empty = first_empty is not None or scanned == 0
     metadata = {
         "ingest_result": result,
         "duplicate_checks": duplicate_checks,
-        "max_filings_reached": bool(_as_int(result.get("max_filings_reached"))),
+        "scheduled_window": {
+            "start_page": int(run.start_page),
+            "pages": SCHEDULED_PAGES_PER_RUN,
+            "limit": SCHEDULED_LIMIT,
+            "max_filings": SCHEDULED_MAX_FILINGS,
+        },
+        "max_filings_reached": max_filings_reached,
     }
 
     if _as_int(result.get("errors")) > 0:
         run.status = "failed"
         run.error_message = "latest-filings ingest reported errors"
+        run.next_cursor_page = int(state.cursor_page)
+        state.enabled = False
         state.last_status = "failed"
         state.last_error = run.error_message
     elif duplicate_failures:
         run.status = "failed"
         run.error_message = f"duplicate checks failed: {duplicate_failures}"
+        run.next_cursor_page = int(state.cursor_page)
         state.enabled = False
         state.last_status = "failed"
         state.last_error = run.error_message
     elif run.feed_events > feed_events_warning_threshold:
         run.status = "partial"
         run.error_message = f"feed event threshold exceeded: {run.feed_events}>{feed_events_warning_threshold}"
+        run.next_cursor_page = int(state.cursor_page)
         state.enabled = False
         state.last_status = "paused"
         state.last_error = run.error_message
     else:
         run.status = "success"
-        state.last_status = "success"
         state.last_error = None
+        if stop_at_empty:
+            empty_page = int(first_empty) if first_empty is not None else int(state.cursor_page)
+            run.next_cursor_page = int(state.cursor_page)
+            state.first_empty_page = empty_page
+            state.enabled = False
+            state.last_status = "paused"
+            metadata["stop_reason"] = "empty_page"
+        elif max_filings_reached:
+            # Keep the cursor on this page so the next hourly run can finish the
+            # remaining latest-filings rows without skipping candidates.
+            run.next_cursor_page = int(state.cursor_page)
+            state.last_status = "success"
+        else:
+            run.next_cursor_page = int(state.cursor_page) + 1
+            state.cursor_page = run.next_cursor_page
+            state.last_status = "success"
 
-    if run.status == "success":
-        state.cursor_page = run.next_cursor_page
         state.total_pages_scanned += run.pages_scanned
         state.total_filings_processed += run.processed_filings
         state.total_position_rows += run.position_rows
         state.total_activity_events += run.activity_events
         state.total_feed_events += run.feed_events
-        if run.first_empty_page_seen is not None and _env_bool("INSTITUTIONAL_LATEST_JOB_STOP_AT_EMPTY_PAGE", True):
-            state.first_empty_page = run.first_empty_page_seen
-            state.enabled = False
-            state.last_status = "paused"
-            metadata["stop_reason"] = "empty_page"
 
     state.last_finished_at = now
     state.updated_at = now
@@ -315,8 +336,7 @@ def _finish_successful_run(
     return {"status": run.status, "result": result, "duplicate_checks": duplicate_checks}
 
 
-def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, Any]:
-    ensure_institutional_activity_schema(engine)
+def run_scheduled_latest_once() -> dict[str, Any]:
     started = _now()
     db = SessionLocal()
     try:
@@ -338,6 +358,7 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
 
         if state is None:
             state = get_or_create_latest_job_state(db)
+        _apply_scheduled_window(state)
         now = _now()
         if _is_stale_running(state, now):
             state.last_status = "failed"
@@ -355,15 +376,18 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
             db.commit()
             return {"status": "skipped_locked", "run": job_run_payload(run), "state": job_state_payload(state)}
 
-        if require_enabled and not state.enabled:
+        if not state.enabled:
             run = _create_run(
                 db,
                 state,
                 status="paused",
                 started_at=started,
                 finished_at=now,
-                error_message="latest-filings job is disabled",
+                error_message="scheduled latest-filings ingestion is disabled",
             )
+            state.last_status = "paused"
+            state.last_finished_at = now
+            state.updated_at = now
             db.commit()
             return {"status": "paused", "run": job_run_payload(run), "state": job_state_payload(state)}
 
@@ -384,7 +408,7 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
         db.close()
 
     logger.info(
-        "institutional_latest_job_run_start run_id=%s start_page=%s pages=%s limit=%s max_filings=%s",
+        "institutional_scheduled_latest_run_start run_id=%s start_page=%s pages=%s limit=%s max_filings=%s",
         run_id,
         window["start_page"],
         window["pages"],
@@ -397,12 +421,12 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
 
         result = ingest_latest_institutional_filings(
             start_page=window["start_page"],
-            pages=window["pages"],
-            limit=window["limit"],
-            max_filings=window["max_filings"],
+            pages=SCHEDULED_PAGES_PER_RUN,
+            limit=SCHEDULED_LIMIT,
+            max_filings=SCHEDULED_MAX_FILINGS,
         )
     except Exception as exc:
-        logger.exception("institutional_latest_job_run_failed run_id=%s", run_id)
+        logger.exception("institutional_scheduled_latest_run_failed run_id=%s", run_id)
         db = SessionLocal()
         try:
             state = db.get(InstitutionalIngestJobState, LATEST_FILINGS_JOB_NAME)
@@ -428,14 +452,14 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
         if state is None or run is None:
             raise RuntimeError("latest-filings job state disappeared during run")
         duplicate_checks = institutional_ingest_duplicate_checks(db)
-        finish = _finish_successful_run(
+        finish = _finish_scheduled_run(
             db,
             state,
             run,
             result,
             duplicate_checks=duplicate_checks,
             feed_events_warning_threshold=_env_int(
-                "INSTITUTIONAL_LATEST_JOB_FEED_EVENTS_WARNING_THRESHOLD",
+                "INSTITUTIONAL_SCHEDULED_INGEST_FEED_EVENTS_WARNING_THRESHOLD",
                 DEFAULT_FEED_EVENTS_WARNING_THRESHOLD,
                 minimum=1,
                 maximum=10_000,
@@ -445,7 +469,7 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
         db.refresh(state)
         db.refresh(run)
         logger.info(
-            "institutional_latest_job_run_finished run_id=%s status=%s start_page=%s pages_scanned=%s next_cursor=%s processed_filings=%s errors=%s feed_events=%s duplicate_checks=%s",
+            "institutional_scheduled_latest_run_finished run_id=%s status=%s start_page=%s pages_scanned=%s next_cursor=%s processed_filings=%s errors=%s feed_events=%s duplicate_checks=%s",
             run.id,
             run.status,
             run.start_page,
@@ -459,6 +483,14 @@ def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, An
         return {"status": finish["status"], "state": job_state_payload(state), "run": job_run_payload(run), **finish}
     finally:
         db.close()
+
+
+def run_latest_ingest_job_once(*, require_enabled: bool = False) -> dict[str, Any]:
+    logger.warning(
+        "institutional_latest_job_run_once_deprecated use --scheduled-latest-once; require_enabled=%s is ignored",
+        require_enabled,
+    )
+    return run_scheduled_latest_once()
 
 
 def update_latest_job_config(

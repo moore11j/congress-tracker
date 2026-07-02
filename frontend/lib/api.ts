@@ -3541,6 +3541,10 @@ export type TickerSignalsSummaryResponse = {
   recent_signal_count: number;
   recent_count?: number;
   items: SignalItem[];
+  signal_activity?: SignalItem[];
+  signal_activity_total?: number | null;
+  signal_activity_lookback_days?: number;
+  signal_activity_state?: "unlocked" | "locked" | "unavailable" | string;
   price_volume?: {
     status?: string | null;
     direction?: string | null;
@@ -3660,6 +3664,8 @@ export async function getTickerSignalsSummary(
     side?: string;
     limit?: number;
     lookback_days?: number;
+    activity_limit?: number;
+    activity_offset?: number;
     authToken?: string;
     signal?: AbortSignal;
     source?: string;
@@ -3669,6 +3675,8 @@ export async function getTickerSignalsSummary(
     side: params?.side ?? "all",
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
+    activity_limit: params?.activity_limit,
+    activity_offset: params?.activity_offset,
   });
   const request = (signal?: AbortSignal) => fetchJson<TickerSignalsSummaryResponse>(url, {
     headers: authHeaders(params?.authToken),
@@ -3685,6 +3693,8 @@ export async function getTickerSignalsSummary(
   return {
     ...data,
     items: Array.isArray(data.items) ? data.items : [],
+    signal_activity: Array.isArray(data.signal_activity) ? data.signal_activity : [],
+    signal_activity_total: Number.isFinite(data.signal_activity_total) ? data.signal_activity_total : null,
     recent_signal_count: Number.isFinite(data.recent_signal_count) ? data.recent_signal_count : 0,
     latest_signal_score: typeof data.latest_signal_score === "number" ? data.latest_signal_score : null,
   };

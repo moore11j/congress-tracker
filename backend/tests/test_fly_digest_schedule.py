@@ -20,11 +20,9 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "3"
     assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "500"
     assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "60"
-    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_ENABLED"] == "false"
-    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_START_PAGE"] == "9"
-    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_PAGES_PER_RUN"] == "2"
-    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_LIMIT"] == "25"
-    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_MAX_FILINGS"] == "25"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "false"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "9"
+    assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS"] == "900"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
@@ -107,9 +105,9 @@ def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
 def test_institutional_latest_job_wrapper_is_disabled_bounded_and_non_overlapping():
     script = (BACKEND_ROOT / "scripts" / "run_institutional_latest_job.sh").read_text()
 
-    assert "INSTITUTIONAL_LATEST_JOB_ENABLED:-false" in script
+    assert "INSTITUTIONAL_SCHEDULED_INGEST_ENABLED:-false" in script
     assert "institutional_latest_job_disabled" in script
-    assert "INSTITUTIONAL_LATEST_JOB_MAX_SECONDS:-2700" in script
+    assert "INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS:-900" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
-    assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --job-run-once --require-job-enabled" in script
+    assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --scheduled-latest-once" in script

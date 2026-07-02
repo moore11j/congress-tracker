@@ -1238,9 +1238,9 @@ def _signals_source(db: Session, symbol: str, lookback_days: int, now: datetime)
         .where(Event.symbol.is_not(None))
         .where(func.upper(Event.symbol) == symbol)
         .where(Event.amount_max.is_not(None))
-        .where(func.coalesce(Event.event_date, Event.ts) >= since)
+        .where(Event.ts >= since)
         .where(insider_visibility_clause())
-        .order_by(func.coalesce(Event.event_date, Event.ts).desc())
+        .order_by(Event.ts.desc())
         .limit(200)
     ).all()
 
@@ -1297,9 +1297,9 @@ def _signals_sources(
         .where(Event.symbol.is_not(None))
         .where(normalized_symbol.in_(symbols))
         .where(Event.amount_max.is_not(None))
-        .where(func.coalesce(Event.event_date, Event.ts) >= since)
+        .where(Event.ts >= since)
         .where(insider_visibility_clause())
-        .order_by(normalized_symbol, func.coalesce(Event.event_date, Event.ts).desc())
+        .order_by(normalized_symbol, Event.ts.desc())
     ).all()
 
     rows_by_symbol: dict[str, list] = {symbol: [] for symbol in symbols}
@@ -1338,7 +1338,7 @@ def _signals_summary_from_rows(
         unusual_multiple = amount / baseline_amount
         if unusual_multiple < defaults["multiple"]:
             continue
-        ts = _coerce_utc(row.event_date or row.ts) or now
+        ts = _coerce_utc(row.ts) or now
         smart_score, smart_band = calculate_smart_score(
             unusual_multiple=unusual_multiple,
             amount_max=amount,

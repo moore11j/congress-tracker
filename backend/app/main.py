@@ -5680,6 +5680,46 @@ def _public_signal_row(item: Any) -> dict:
     return dict(item) if isinstance(item, dict) else {}
 
 
+def list_signal_activity_for_symbol(
+    *,
+    db: Session,
+    symbol: str,
+    lookback_days: int,
+    side: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    bounded_lookback = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
+    bounded_limit = max(1, min(int(limit or 20), 100))
+    bounded_offset = max(0, int(offset or 0))
+    all_items = _query_unified_signals(
+        db=db,
+        mode="all",
+        sort="smart",
+        limit=500,
+        offset=0,
+        baseline_days=365,
+        congress_recent_days=bounded_lookback,
+        insider_recent_days=bounded_lookback,
+        congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+        insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+        congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+        insider_multiple=INSIDER_DEFAULTS["multiple"],
+        congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+        insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+        min_smart_score=None,
+        side=side,
+        symbol=symbol,
+    )
+    rows = [_public_signal_row(item) for item in all_items]
+    return {
+        "rows": rows[bounded_offset : bounded_offset + bounded_limit],
+        "total": len(rows),
+        "lookback_days": bounded_lookback,
+        "entitlement_state": "unlocked",
+    }
+
+
 def _ticker_summary_direction(buys: int, sells: int) -> str:
     total = buys + sells
     if total <= 0:
@@ -6646,6 +6686,8 @@ def ticker_signals_summary(
     side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
     limit: int = Query(3, ge=1, le=3),
     lookback_days: int = Query(30, ge=1, le=365),
+    activity_limit: int = Query(20, ge=1, le=100),
+    activity_offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     started_at = perf_counter()
@@ -6661,6 +6703,14 @@ def ticker_signals_summary(
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
 
     requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
+    try:
+        requested_activity_limit = max(1, min(int(activity_limit or 20), 100))
+    except (TypeError, ValueError):
+        requested_activity_limit = 20
+    try:
+        requested_activity_offset = max(0, int(activity_offset or 0))
+    except (TypeError, ValueError):
+        requested_activity_offset = 0
     effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
     entitlement_variant = (
         "pro"
@@ -6674,7 +6724,10 @@ def ticker_signals_summary(
     effective_tier = getattr(entitlements, "tier", None) if entitlements is not None else ("free" if is_authenticated else "logged_out")
     effective_tier = str(effective_tier or "free")
     effective_is_admin = effective_tier == "admin" or getattr(user, "role", None) == "admin"
-    cache_key = f"signals-summary:{normalized_symbol}:{effective_window_days}:{side}:{limit}:{entitlement_variant}"
+    cache_key = (
+        f"signals-summary:{normalized_symbol}:{effective_window_days}:{requested_lookback_days}:"
+        f"{side}:{limit}:{requested_activity_limit}:{requested_activity_offset}:{entitlement_variant}"
+    )
     cache_started_at = perf_counter()
     cached = _ticker_response_cache_get(_TICKER_SIGNALS_SUMMARY_CACHE, cache_key)
     cache_ms = (perf_counter() - cache_started_at) * 1000
@@ -6748,8 +6801,31 @@ def ticker_signals_summary(
             )
             signals_query_ms = (perf_counter() - signals_query_started_at) * 1000
             rows = [_public_signal_row(item) for item in items[:limit]]
+            try:
+                signal_activity_result = list_signal_activity_for_symbol(
+                    db=db,
+                    symbol=normalized_symbol,
+                    lookback_days=requested_lookback_days,
+                    side=side,
+                    limit=requested_activity_limit,
+                    offset=requested_activity_offset,
+                )
+            except Exception:
+                logger.exception("ticker_signal_activity_query_failed symbol=%s", normalized_symbol)
+                signal_activity_result = {
+                    "rows": [],
+                    "total": None,
+                    "lookback_days": requested_lookback_days,
+                    "entitlement_state": "unavailable",
+                }
         else:
             rows = []
+            signal_activity_result = {
+                "rows": [],
+                "total": None,
+                "lookback_days": requested_lookback_days,
+                "entitlement_state": "locked",
+            }
         latest_score = next(
             (
                 row.get("smart_score")
@@ -6814,7 +6890,7 @@ def ticker_signals_summary(
         confirmation_ms = (perf_counter() - confirmation_started_at) * 1000
         payload = {
             "symbol": normalized_symbol,
-            "status": "ok" if rows or has_canonical_activity else "no_data",
+            "status": "ok" if rows or signal_activity_result["rows"] or has_canonical_activity else "no_data",
             "lookback_days": effective_window_days,
             "effective_window_days": effective_window_days,
             "updated_at": _dt_iso(datetime.now(timezone.utc)),
@@ -6831,6 +6907,10 @@ def ticker_signals_summary(
             "recent_signal_count": len(rows),
             "rows": rows,
             "items": rows,
+            "signal_activity": signal_activity_result["rows"],
+            "signal_activity_total": signal_activity_result["total"],
+            "signal_activity_lookback_days": signal_activity_result["lookback_days"],
+            "signal_activity_state": signal_activity_result["entitlement_state"],
         }
         _log_ticker_signals_summary_response(symbol=normalized_symbol, payload=payload, started_at=started_at)
         _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="signals-summary", payload=payload, started_at=started_at)

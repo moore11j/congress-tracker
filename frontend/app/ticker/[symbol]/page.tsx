@@ -128,6 +128,8 @@ type ConfirmationSourceKey = keyof ConfirmationScoreBundle["sources"];
 type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: SignalItem[];
+  signalsTotal: number | null;
+  signalsState: TickerSignalsSummaryResponse["signal_activity_state"] | null;
   priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
   sourceEntitlements: TickerSourceEntitlements | null;
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
@@ -2094,7 +2096,9 @@ async function resolveTickerActivityData({
           .then((response) => ({
             response,
             resolved: true,
-            unavailable: response.source_entitlements?.signals?.locked
+            unavailable: response.signal_activity_state === "unavailable"
+              ? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." }
+              : response.signal_activity_state === "locked" || response.source_entitlements?.signals?.locked
               ? signalsUnavailable ?? signalGateForAuthenticatedFreeUser()
               : null,
           }))
@@ -2104,7 +2108,7 @@ async function resolveTickerActivityData({
             unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
           }))
       : Promise.resolve({
-          response: { items: [] as SignalItem[] },
+          response: { items: [] as SignalItem[], signal_activity: [] as SignalItem[], signal_activity_total: null },
           resolved: false,
           unavailable: signalsUnavailable ?? null,
         }),
@@ -2133,7 +2137,20 @@ async function resolveTickerActivityData({
     ].join("|");
   });
 
-  const signals = dedupeByKey(signalsRes.items ?? [], (signal) => [
+  const signalActivityRows = Array.isArray(signalsRes.signal_activity) ? signalsRes.signal_activity : signalsRes.items ?? [];
+  const confirmationSignals = dedupeByKey(signalsRes.items ?? [], (signal) => [
+    canonicalize(signal.kind),
+    canonicalize(signal.symbol),
+    canonicalize(signal.who),
+    canonicalize(signal.member_bioguide_id),
+    normalizeTradeSide(signal.trade_type) ?? canonicalize(signal.trade_type),
+    toDateKey(signal.ts) ?? "",
+    normalizedAmountLabel(signal.amount_min, signal.amount_max),
+    canonicalize(signal.smart_band),
+    String(signal.smart_score ?? ""),
+    String(signal.unusual_multiple ?? ""),
+  ].join("|"));
+  const signals = dedupeByKey(signalActivityRows, (signal) => [
     canonicalize(signal.kind),
     canonicalize(signal.symbol),
     canonicalize(signal.who),
@@ -2181,7 +2198,7 @@ async function resolveTickerActivityData({
     return acc - amount;
   }, 0);
 
-  const topSignal = [...signals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
+  const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
   const congressParticipantMap = new Map<string, ParticipantStats>();
   const insiderParticipantMap = new Map<string, ParticipantStats>();
 
@@ -2233,6 +2250,8 @@ async function resolveTickerActivityData({
   return {
     events: filteredEvents,
     signals,
+    signalsTotal: typeof signalsRes.signal_activity_total === "number" ? signalsRes.signal_activity_total : signals.length,
+    signalsState: signalsRes.signal_activity_state ?? null,
     signalsUnavailable: signalsResult.unavailable,
     congressEvents,
     congressEventsTotal: congressActivityPage.total,
@@ -2309,6 +2328,8 @@ async function DeferredTickerContent({
   const {
     events,
     signals,
+    signalsTotal,
+    signalsState,
     signalsUnavailable,
     congressEvents,
     congressEventsTotal,
@@ -2825,11 +2846,13 @@ async function DeferredTickerContent({
               <TickerSignalActivityClient
                 symbol={normalizedSymbol}
                 side={side}
-                lookbackDays={SIGNAL_WINDOW_DAYS}
-                lookbackStartKey={lookbackStartDateKey(SIGNAL_WINDOW_DAYS)}
+                lookbackDays={selectedLookbackDays}
+                lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
                 initialItems={canReuseSignalSummary ? signals : null}
+                initialTotal={canReuseSignalSummary ? signalsTotal : null}
+                initialState={canReuseSignalSummary ? signalsState : null}
               />
             </div>
           ) : showSignals ? (
@@ -2837,7 +2860,7 @@ async function DeferredTickerContent({
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Signal activity</h2>
                 <span className="text-xs text-slate-400">
-                  {signalsUnavailable ? "locked" : `${signals.length} signals`}
+                  {signalsUnavailable ? (signalsUnavailable.reason === "unavailable" ? "unavailable" : "locked") : `${signalsTotal ?? signals.length} signals`}
                 </span>
               </div>
               <div className="space-y-3">
@@ -2856,7 +2879,7 @@ async function DeferredTickerContent({
                     )}
                   </div>
                 ) : signals.length === 0 ? (
-                  <p className="text-sm text-slate-400">No signal conviction entries for this symbol in current filters.</p>
+                  <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
                 ) : (
                   <ActivityScrollRegion>
                     {signals.slice(0, 20).map((signal) => {
@@ -3250,7 +3273,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
       getTickerSignalsSummary(normalizedSymbol, {
         side,
         limit: 3,
-        lookback_days: SIGNAL_WINDOW_DAYS,
+        lookback_days: lookbackDays,
+        activity_limit: ACTIVITY_PAGE_SIZE,
         authToken: authToken ?? undefined,
         source: "TickerSignalsSummary",
       });

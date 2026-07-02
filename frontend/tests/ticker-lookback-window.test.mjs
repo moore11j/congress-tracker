@@ -16,9 +16,10 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /const SIGNAL_WINDOW_DAYS = 30/);
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
-  assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: SIGNAL_WINDOW_DAYS/);
-  assert.match(tickerPage, /lookbackDays=\{SIGNAL_WINDOW_DAYS\}/);
-  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(SIGNAL_WINDOW_DAYS\)\}/);
+  assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: lookbackDays/);
+  assert.match(tickerPage, /activity_limit: ACTIVITY_PAGE_SIZE/);
+  assert.match(tickerPage, /lookbackDays=\{selectedLookbackDays\}/);
+  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(selectedLookbackDays\)\}/);
   assert.match(tickerPage, /effectiveWindowDays \?\? SIGNAL_WINDOW_DAYS/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
@@ -26,7 +27,7 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /optionsFlow = \{ \.\.\.optionsFlow, lookback_days: effectiveLookbackDays \}/);
   assert.match(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{selectedLookbackDays\} \/>/);
   assert.doesNotMatch(tickerPage, /<TickerChartLoader symbol=\{normalizedSymbol\} days=\{lookbackDays\} \/>/);
-  assert.doesNotMatch(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: lookbackDays/);
+  assert.doesNotMatch(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: SIGNAL_WINDOW_DAYS/);
 });
 
 test("ticker chart helper forwards selected days to chart-bundle", () => {

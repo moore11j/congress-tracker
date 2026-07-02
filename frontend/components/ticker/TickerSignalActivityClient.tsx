@@ -20,6 +20,7 @@ import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 
 type GateReason = "auth" | "upgrade" | "unavailable";
+type SignalActivityState = "unlocked" | "locked" | "unavailable" | string;
 
 function signalKind(item: SignalItem): string {
   return (item.kind ?? "").trim().toLowerCase();
@@ -45,6 +46,16 @@ function gateFromError(error: unknown): { reason: GateReason; message: string } 
     }
   }
   return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
+}
+
+function gateFromActivityState(state: SignalActivityState | null | undefined): { reason: GateReason; message: string } | null {
+  if (state === "locked") {
+    return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
+  }
+  if (state === "unavailable") {
+    return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
+  }
+  return null;
 }
 
 function readSignalNumber(item: SignalItem, ...keys: Array<keyof SignalItem>): number | null {
@@ -173,6 +184,8 @@ export function TickerSignalActivityClient({
   returnTo,
   className,
   initialItems,
+  initialTotal,
+  initialState,
 }: {
   symbol: string;
   side: string;
@@ -181,16 +194,20 @@ export function TickerSignalActivityClient({
   returnTo: string;
   className: string;
   initialItems?: SignalItem[] | null;
+  initialTotal?: number | null;
+  initialState?: SignalActivityState | null;
 }) {
   const hasInitialItems = Array.isArray(initialItems);
   const [items, setItems] = useState<SignalItem[]>(() => initialItems ?? []);
+  const [total, setTotal] = useState<number | null>(() => initialTotal ?? (hasInitialItems ? initialItems?.length ?? 0 : null));
   const [loading, setLoading] = useState(!hasInitialItems);
-  const [gate, setGate] = useState<{ reason: GateReason; message: string } | null>(null);
+  const [gate, setGate] = useState<{ reason: GateReason; message: string } | null>(() => gateFromActivityState(initialState));
 
   useEffect(() => {
     if (hasInitialItems) {
       setItems(initialItems ?? []);
-      setGate(null);
+      setTotal(initialTotal ?? initialItems?.length ?? 0);
+      setGate(gateFromActivityState(initialState));
       setLoading(false);
       return;
     }
@@ -202,14 +219,17 @@ export function TickerSignalActivityClient({
     getTickerSignalsSummary(symbol, {
       side,
       limit: 3,
+      activity_limit: 20,
       lookback_days: lookbackDays,
       signal: controller.signal,
       source: "TickerSignalsSummary",
     })
       .then((response) => {
         if (!alive) return;
-        setItems(response.items);
-        setGate(null);
+        const nextGate = gateFromActivityState(response.signal_activity_state);
+        setItems(response.signal_activity ?? []);
+        setTotal(response.signal_activity_total ?? null);
+        setGate(nextGate);
       })
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -223,7 +243,7 @@ export function TickerSignalActivityClient({
       alive = false;
       controller.abort();
     };
-  }, [hasInitialItems, initialItems, lookbackDays, side, symbol]);
+  }, [hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
 
   const visibleItems = useMemo(
     () => items.filter((item) => item.ts && item.ts.slice(0, 10) >= lookbackStartKey),
@@ -232,14 +252,14 @@ export function TickerSignalActivityClient({
   const gateHref = gate?.reason === "upgrade" ? "/pricing" : `/login?return_to=${encodeURIComponent(returnTo)}`;
   const gateLabel = gate?.reason === "upgrade" ? "View Premium" : "Login or register";
   const gateTitle = gate?.reason === "upgrade" ? "Signal Activity is a premium feature." : "Signals are gated for this view.";
+  const visibleTotal = total ?? visibleItems.length;
+  const statusLabel = loading ? "loading" : gate ? (gate.reason === "unavailable" ? "unavailable" : "locked") : `${visibleTotal} signals`;
 
   return (
     <section className={className}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Signal activity</h2>
-        <span className="text-xs text-slate-400">
-          {loading ? "loading" : gate ? "locked" : `${visibleItems.length} signals`}
-        </span>
+        <span className="text-xs text-slate-400">{statusLabel}</span>
       </div>
       <div className="space-y-3">
         {loading ? (
@@ -259,7 +279,7 @@ export function TickerSignalActivityClient({
             )}
           </div>
         ) : visibleItems.length === 0 ? (
-          <p className="text-sm text-slate-400">No signal conviction entries for this symbol in current filters.</p>
+          <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
         ) : (
           <ActivityScrollRegion>
             {visibleItems.slice(0, 20).map((signal) => {
