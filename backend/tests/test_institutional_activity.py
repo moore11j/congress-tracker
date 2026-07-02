@@ -158,6 +158,184 @@ def test_latest_ingest_metrics_split_parse_failures(monkeypatch):
     assert result["processed_filings"] == 0
 
 
+def test_latest_ingest_default_start_page_zero_preserves_fetch_window(monkeypatch):
+    class DummySession:
+        def close(self):
+            pass
+
+    calls = []
+
+    def fake_fetch_latest(*, page: int, limit: int):
+        calls.append((page, limit))
+        return [{"filingDate": "2026-07-01"}]
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=2, limit=25, max_filings=1)
+
+    assert calls == [(0, 25), (1, 25)]
+    assert result["start_page"] == 0
+    assert result["pages"] == 2
+    assert result["scanned"] == 2
+    assert result["parse_failed"] == 2
+
+
+def test_latest_ingest_start_page_fetches_only_requested_page(monkeypatch):
+    class DummySession:
+        def close(self):
+            pass
+
+    calls = []
+
+    def fake_fetch_latest(*, page: int, limit: int):
+        calls.append((page, limit))
+        return [{"filingDate": "2026-07-01"}]
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
+
+    result = ingest_module.ingest_latest_institutional_filings(start_page=3, pages=1, limit=25, max_filings=1)
+
+    assert calls == [(3, 25)]
+    assert result["start_page"] == 3
+    assert result["pages"] == 1
+    assert result["scanned"] == 1
+
+
+def test_latest_ingest_start_page_and_pages_fetches_contiguous_window(monkeypatch):
+    class DummySession:
+        def close(self):
+            pass
+
+    calls = []
+
+    def fake_fetch_latest(*, page: int, limit: int):
+        calls.append((page, limit))
+        return [{"filingDate": "2026-07-01"}]
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
+
+    result = ingest_module.ingest_latest_institutional_filings(start_page=3, pages=2, limit=25, max_filings=1)
+
+    assert calls == [(3, 25), (4, 25)]
+    assert result["start_page"] == 3
+    assert result["pages"] == 2
+    assert result["scanned"] == 2
+
+
+def test_latest_ingest_max_filings_counts_rows_that_reach_extraction(monkeypatch):
+    engine = _engine()
+    latest_rows = [
+        _filing_row(cik="0000000001", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="One Capital"),
+        _filing_row(cik="0000000002", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Two Capital"),
+        _filing_row(cik="0000000003", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Three Capital"),
+    ]
+    extract_calls = []
+
+    def fake_extract(*, cik: str, year: int, quarter: int):
+        extract_calls.append((cik, year, quarter))
+        return []
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: latest_rows)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", fake_extract)
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=25, max_filings=2)
+
+    assert extract_calls == [("0000000001", 2026, 1), ("0000000002", 2026, 1)]
+    assert result["scanned"] == 2
+    assert result["parsed"] == 2
+    assert result["empty_extract_retryable"] == 2
+    assert result["processed_filings"] == 0
+
+
+def test_latest_ingest_already_processed_skips_do_not_count_toward_max_filings(monkeypatch):
+    engine = _engine()
+    processed_rows = [
+        {**_filing_row(cik="0000000001", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="One Capital"), "formType": "13F-NT"},
+        {**_filing_row(cik="0000000002", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Two Capital"), "formType": "13F-NT"},
+    ]
+    unprocessed_row = _filing_row(cik="0000000003", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Three Capital")
+    latest_rows = [*processed_rows, unprocessed_row]
+
+    with _session(engine) as db:
+        for row in processed_rows:
+            candidate = parse_latest_filing(row)
+            assert candidate is not None
+            upsert_institutional_holder(db, candidate)
+            filing, _ = upsert_institutional_filing(db, candidate)
+            filing.processed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    extract_calls = []
+
+    def fake_extract(*, cik: str, year: int, quarter: int):
+        extract_calls.append((cik, year, quarter))
+        return []
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: latest_rows)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", fake_extract)
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=25, max_filings=1)
+
+    assert extract_calls == [("0000000003", 2026, 1)]
+    assert result["scanned"] == 3
+    assert result["already_processed_skipped"] == 2
+    assert result["empty_extract_retryable"] == 1
+
+
+def test_latest_ingest_parse_failures_do_not_count_toward_max_filings(monkeypatch):
+    engine = _engine()
+    valid_row = _filing_row(cik="0000000003", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Three Capital")
+    latest_rows = [{"filingDate": "2026-07-01"}, {"filingDate": "2026-07-02"}, valid_row]
+    extract_calls = []
+
+    def fake_extract(*, cik: str, year: int, quarter: int):
+        extract_calls.append((cik, year, quarter))
+        return []
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", lambda **_kwargs: latest_rows)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_extract", fake_extract)
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=1, limit=25, max_filings=1)
+
+    assert extract_calls == [("0000000003", 2026, 1)]
+    assert result["scanned"] == 3
+    assert result["parse_failed"] == 2
+    assert result["empty_extract_retryable"] == 1
+
+
+def test_start_page_arg_does_not_change_specific_cik_ingest_path(monkeypatch, capsys):
+    calls = []
+
+    def fake_specific_ingest(*, cik: str, year: int, quarter: int, force: bool = False):
+        calls.append({"cik": cik, "year": year, "quarter": quarter, "force": force})
+        return {"status": "ok", "processed_filings": 1}
+
+    monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--start-page", "3", "--cik", "0001067983", "--year", "2026", "--quarter", "1"])
+    monkeypatch.setattr(ingest_module, "ingest_institutional_filing", fake_specific_ingest)
+    monkeypatch.setattr(
+        ingest_module,
+        "ingest_latest_institutional_filings",
+        lambda **_kwargs: pytest.fail("specific CIK ingest should not use latest-filings path"),
+    )
+
+    ingest_module.main()
+
+    assert calls == [{"cik": "0001067983", "year": 2026, "quarter": 1, "force": False}]
+    assert "processed_filings" in capsys.readouterr().out
+
+
 def test_upsert_filing_preserves_existing_metadata_when_candidate_is_sparse():
     engine = _engine()
     rich_candidate = parse_latest_filing(

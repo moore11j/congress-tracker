@@ -113,14 +113,19 @@ def _candidate_canonical_sort_key(candidate) -> tuple[int, object, str]:
 
 def ingest_latest_institutional_filings(
     *,
+    start_page: int = 0,
     pages: int = 1,
     limit: int = 100,
     force: bool = False,
     max_filings: int | None = 25,
 ) -> dict[str, int | str]:
     ensure_institutional_activity_schema(engine)
+    normalized_start_page = max(0, int(start_page or 0))
+    page_count = max(1, int(pages or 1))
     counts: dict[str, int | str] = {
         "status": "ok",
+        "start_page": normalized_start_page,
+        "pages": page_count,
         "scanned": 0,
         "parsed": 0,
         "parse_failed": 0,
@@ -139,7 +144,8 @@ def ingest_latest_institutional_filings(
     processed = 0
     db = SessionLocal()
     try:
-        for page in range(max(1, int(pages or 1))):
+        for page in range(normalized_start_page, normalized_start_page + page_count):
+            logger.info("Scanning latest institutional filings page=%s", page)
             rows = fetch_latest_institutional_filings(page=page, limit=max(1, min(int(limit or 100), 500)))
             if not rows:
                 break
@@ -367,8 +373,8 @@ def ingest_industry_summary(*, year: int, quarter: int) -> dict[str, int | str]:
         db.close()
 
 
-def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25) -> dict[str, int | str]:
-    return ingest_latest_institutional_filings(pages=pages, limit=limit, max_filings=max_filings)
+def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25, start_page: int = 0) -> dict[str, int | str]:
+    return ingest_latest_institutional_filings(start_page=start_page, pages=pages, limit=limit, max_filings=max_filings)
 
 
 def cleanup_institutional_feed_events(*, dry_run: bool = True) -> dict[str, int | str | bool | dict[str, int]]:
@@ -387,6 +393,7 @@ def cleanup_institutional_feed_events(*, dry_run: bool = True) -> dict[str, int 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ingest institutional 13F activity into Walnut Market Terminal.")
+    parser.add_argument("--start-page", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_START_PAGE", "0")))
     parser.add_argument("--pages", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_PAGES", "1")))
     parser.add_argument("--limit", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_LIMIT", "100")))
     parser.add_argument("--max-filings", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_MAX_FILINGS", "25")))
@@ -422,6 +429,7 @@ def main() -> None:
             result = backfill_institutional_holder(cik=args.cik, force=args.force, max_filings=args.max_filings)
         else:
             result = ingest_latest_institutional_filings(
+                start_page=args.start_page,
                 pages=args.pages,
                 limit=args.limit,
                 force=args.force,
@@ -439,6 +447,7 @@ if __name__ == "__main__":
     else:
         print(
             institutional_activity_ingest_run(
+                start_page=int(os.getenv("INGEST_INSTITUTIONAL_START_PAGE", "0")),
                 pages=int(os.getenv("INGEST_INSTITUTIONAL_PAGES", "1")),
                 limit=int(os.getenv("INGEST_INSTITUTIONAL_LIMIT", "100")),
                 max_filings=int(os.getenv("INGEST_INSTITUTIONAL_MAX_FILINGS", "25")),
