@@ -2878,7 +2878,7 @@ def _fetch_events_page(
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
     event_ids = [event.id for event in paged_rows]
-    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
+    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
 
     price_memo: dict[tuple[str, str], float | None] = {}
     current_quote_meta: dict[str, dict] = {}
@@ -4077,7 +4077,7 @@ def list_events(
 
     rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
     event_ids = [event.id for event in rows]
-    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids)
+    outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
     price_memo: dict[tuple[str, str], float | None] = {}
     current_quote_meta: dict[str, dict] = {}
     current_price_memo: dict[str, float] = {}

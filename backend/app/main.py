@@ -6879,7 +6879,36 @@ def ticker_government_contracts(
     page: int = Query(0, ge=0, le=1000),
     db: Session = Depends(get_db),
 ):
-    with _heavy_route_slot("ticker_government_contracts", _TICKER_WIDGET_SEMAPHORE):
+    acquired = _TICKER_WIDGET_SEMAPHORE.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
+    if not acquired:
+        normalized_symbol = normalize_symbol(symbol)
+        bounded_limit = max(1, min(int(limit or 10), 100))
+        bounded_page = max(0, int(page or 0))
+        bounded_lookback_days = max(1, min(int(lookback_days or 365), 1095))
+        minimum_amount = max(float(min_amount or 0), 0.0)
+        logger.warning(
+            "api_degraded endpoint=/api/tickers/%s/government-contracts error=heavy_route_saturated",
+            normalized_symbol or symbol,
+        )
+        return {
+            "symbol": normalized_symbol,
+            "status": "unavailable",
+            "source_status": "busy",
+            "lookback_days": bounded_lookback_days,
+            "cutoff_date": (date.today() - timedelta(days=bounded_lookback_days)).isoformat(),
+            "min_amount": minimum_amount,
+            "page": bounded_page,
+            "limit": bounded_limit,
+            "total": 0,
+            "has_next": False,
+            "contract_count": 0,
+            "total_award_amount": 0.0,
+            "largest_award_amount": None,
+            "latest_award_date": None,
+            "top_agency": None,
+            "items": [],
+        }
+    try:
         return get_government_contracts_for_symbol(
             db,
             symbol,
@@ -6888,6 +6917,8 @@ def ticker_government_contracts(
             limit=limit,
             page=page,
         )
+    finally:
+        _TICKER_WIDGET_SEMAPHORE.release()
 
 
 @app.get("/api/departments")

@@ -47,6 +47,36 @@ def test_symbol_scoped_signal_queries_use_smaller_candidate_floor():
     assert signals_module.SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR < signals_module.BROAD_SIGNAL_CANDIDATE_FLOOR
 
 
+def test_ticker_government_contracts_fails_soft_when_widget_lane_saturated(monkeypatch):
+    class BusySemaphore:
+        def acquire(self, timeout=None):
+            return False
+
+        def release(self):
+            raise AssertionError("release should not run without acquire")
+
+    monkeypatch.setattr(main_module, "_TICKER_WIDGET_SEMAPHORE", BusySemaphore())
+    monkeypatch.setattr(
+        main_module,
+        "get_government_contracts_for_symbol",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("route should fail before DB lookup")),
+    )
+
+    payload = main_module.ticker_government_contracts(
+        "NVDA",
+        lookback_days=365,
+        min_amount=1_000_000,
+        limit=10,
+        page=0,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "NVDA"
+    assert payload["status"] == "unavailable"
+    assert payload["source_status"] == "busy"
+    assert payload["items"] == []
+
+
 def _event(
     event_id: int,
     *,
