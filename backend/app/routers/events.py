@@ -570,6 +570,7 @@ def _list_institutional_activity_feed_events(
         select(InstitutionalActivityEvent)
         .where(InstitutionalActivityEvent.event_type.in_(allowed_types))
         .where(InstitutionalActivityEvent.cik.is_not(None))
+        .where(or_(InstitutionalActivityEvent.freshness_status.is_(None), InstitutionalActivityEvent.freshness_status != "superseded"))
     )
     if combined_symbols:
         q = q.where(InstitutionalActivityEvent.normalized_symbol.in_(combined_symbols))

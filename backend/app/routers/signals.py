@@ -775,6 +775,7 @@ def _query_institutional_signal_items(
         .where(InstitutionalActivityEvent.feed_visible.is_(True))
         .where(InstitutionalActivityEvent.filing_date >= since)
         .where(InstitutionalActivityEvent.event_type.in_(INSTITUTIONAL_EVENT_TYPES))
+        .where(or_(InstitutionalActivityEvent.freshness_status.is_(None), InstitutionalActivityEvent.freshness_status != "superseded"))
     )
     if symbols:
         query = query.where(func.upper(InstitutionalActivityEvent.normalized_symbol).in_(symbols))

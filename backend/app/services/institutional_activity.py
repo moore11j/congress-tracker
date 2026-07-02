@@ -277,7 +277,142 @@ def _fallback_period_filing(db: Session, candidate: InstitutionalFilingCandidate
     rich_rows = [row for row in period_rows if row.accession_number or row.form_type or row.filing_url]
     if len(rich_rows) == 1:
         return rich_rows[0]
-    return None
+    return _choose_canonical_filing(rich_rows or period_rows)
+
+
+def _filing_is_amendment(filing: InstitutionalFiling) -> bool:
+    form_type = (filing.form_type or "").upper()
+    return bool(filing.is_amendment or "/A" in form_type)
+
+
+def _canonical_filing_sort_key(filing: InstitutionalFiling) -> tuple[int, date, str, int]:
+    return (
+        1 if _filing_is_amendment(filing) else 0,
+        filing.filing_date or date.min,
+        filing.accession_number or "",
+        int(filing.id or 0),
+    )
+
+
+def _choose_canonical_filing(rows: list[InstitutionalFiling]) -> InstitutionalFiling | None:
+    if not rows:
+        return None
+    return max(rows, key=_canonical_filing_sort_key)
+
+
+def get_canonical_filing_for_holder_period(
+    db: Session,
+    cik: str | None,
+    report_year: int | None,
+    report_quarter: int | None,
+) -> InstitutionalFiling | None:
+    normalized = normalize_cik(cik)
+    if not normalized or report_year is None or report_quarter is None:
+        return None
+    rows = db.execute(
+        select(InstitutionalFiling).where(
+            InstitutionalFiling.cik == normalized,
+            InstitutionalFiling.report_year == int(report_year),
+            InstitutionalFiling.report_quarter == int(report_quarter),
+        )
+    ).scalars().all()
+    return _choose_canonical_filing(rows)
+
+
+def apply_institutional_filing_supersession(db: Session, filing: InstitutionalFiling) -> InstitutionalFiling:
+    if filing.id is None:
+        db.flush()
+    rows = db.execute(
+        select(InstitutionalFiling).where(
+            InstitutionalFiling.cik == filing.cik,
+            InstitutionalFiling.report_year == filing.report_year,
+            InstitutionalFiling.report_quarter == filing.report_quarter,
+        )
+    ).scalars().all()
+    canonical = _choose_canonical_filing(rows) or filing
+    if canonical.id is None:
+        db.flush()
+    for row in rows:
+        desired = None if row.id == canonical.id else canonical.id
+        if row.superseded_by != desired:
+            row.superseded_by = desired
+            row.updated_at = datetime.now(timezone.utc)
+    return canonical
+
+
+def is_canonical_institutional_filing(db: Session, filing: InstitutionalFiling) -> bool:
+    if filing.superseded_by is not None:
+        return False
+    canonical = get_canonical_filing_for_holder_period(db, filing.cik, filing.report_year, filing.report_quarter)
+    return bool(canonical and filing.id == canonical.id)
+
+
+def institutional_filing_duplicate_report(db: Session) -> dict[str, int]:
+    total_period_duplicates = db.execute(
+        select(func.count()).select_from(
+            select(
+                InstitutionalFiling.cik,
+                InstitutionalFiling.report_year,
+                InstitutionalFiling.report_quarter,
+            )
+            .group_by(
+                InstitutionalFiling.cik,
+                InstitutionalFiling.report_year,
+                InstitutionalFiling.report_quarter,
+            )
+            .having(func.count(InstitutionalFiling.id) > 1)
+            .subquery()
+        )
+    ).scalar_one()
+    active_period_duplicates = db.execute(
+        select(func.count()).select_from(
+            select(
+                InstitutionalFiling.cik,
+                InstitutionalFiling.report_year,
+                InstitutionalFiling.report_quarter,
+            )
+            .where(InstitutionalFiling.superseded_by.is_(None))
+            .group_by(
+                InstitutionalFiling.cik,
+                InstitutionalFiling.report_year,
+                InstitutionalFiling.report_quarter,
+            )
+            .having(func.count(InstitutionalFiling.id) > 1)
+            .subquery()
+        )
+    ).scalar_one()
+    accession_duplicates = db.execute(
+        select(func.count()).select_from(
+            select(InstitutionalFiling.accession_number)
+            .where(InstitutionalFiling.accession_number.is_not(None))
+            .group_by(InstitutionalFiling.accession_number)
+            .having(func.count(InstitutionalFiling.id) > 1)
+            .subquery()
+        )
+    ).scalar_one()
+    return {
+        "accession_duplicates": int(accession_duplicates or 0),
+        "total_period_duplicates": int(total_period_duplicates or 0),
+        "active_period_duplicates": int(active_period_duplicates or 0),
+    }
+
+
+def _active_filing_ids_for_period(
+    db: Session,
+    *,
+    report_year: int,
+    report_quarter: int,
+    cik: str | None = None,
+) -> list[int]:
+    query = select(InstitutionalFiling.id).where(
+        InstitutionalFiling.report_year == int(report_year),
+        InstitutionalFiling.report_quarter == int(report_quarter),
+        InstitutionalFiling.superseded_by.is_(None),
+    )
+    normalized = normalize_cik(cik)
+    if normalized:
+        query = query.where(InstitutionalFiling.cik == normalized)
+    return [int(row[0]) for row in db.execute(query).all() if row[0] is not None]
 
 
 def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandidate) -> tuple[InstitutionalFiling, bool]:
@@ -321,6 +456,8 @@ def upsert_institutional_filing(db: Session, candidate: InstitutionalFilingCandi
     if created or candidate.accession_number or candidate.form_type or candidate.filing_url or not filing.raw_metadata_json:
         filing.raw_metadata_json = json.dumps(candidate.raw, sort_keys=True, default=str)
     filing.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    apply_institutional_filing_supersession(db, filing)
     return filing, created
 
 
@@ -376,20 +513,80 @@ def upsert_positions_for_filing(
     return {"inserted_positions": inserted, "updated_positions": updated, "skipped_positions": skipped}
 
 
+def _activity_feed_source_prefix(activity_id: int) -> str:
+    return f"institutional:{activity_id}:"
+
+
+def _delete_feed_events_for_activity_ids(db: Session, activity_ids: list[int]) -> int:
+    if not activity_ids:
+        return 0
+    rows = db.execute(
+        select(Event).where(
+            Event.source_provider == INSTITUTIONAL_EVENT_SOURCE,
+            or_(*[Event.source_filing_id.like(f"{_activity_feed_source_prefix(activity_id)}%") for activity_id in activity_ids]),
+        )
+    ).scalars().all()
+    for row in rows:
+        db.delete(row)
+    return len(rows)
+
+
+def _holder_period_activity_rows(db: Session, filing: InstitutionalFiling) -> list[InstitutionalActivityEvent]:
+    return db.execute(
+        select(InstitutionalActivityEvent).where(
+            InstitutionalActivityEvent.cik == filing.cik,
+            InstitutionalActivityEvent.report_year == filing.report_year,
+            InstitutionalActivityEvent.report_quarter == filing.report_quarter,
+        )
+    ).scalars().all()
+
+
+def _suppress_holder_period_activity(db: Session, filing: InstitutionalFiling) -> int:
+    rows = _holder_period_activity_rows(db, filing)
+    _delete_feed_events_for_activity_ids(db, [int(row.id) for row in rows if row.id is not None])
+    for row in rows:
+        row.feed_visible = False
+        row.freshness_status = "superseded"
+        row.updated_at = datetime.now(timezone.utc)
+    return len(rows)
+
+
+def _reset_holder_period_changes_and_activity(db: Session, filing: InstitutionalFiling) -> set[str]:
+    existing_changes = db.execute(
+        select(InstitutionalPositionChange).where(
+            InstitutionalPositionChange.cik == filing.cik,
+            InstitutionalPositionChange.report_year == filing.report_year,
+            InstitutionalPositionChange.report_quarter == filing.report_quarter,
+        )
+    ).scalars().all()
+    symbols = {row.normalized_symbol for row in existing_changes if row.normalized_symbol}
+    activities = _holder_period_activity_rows(db, filing)
+    _delete_feed_events_for_activity_ids(db, [int(row.id) for row in activities if row.id is not None])
+    for row in activities:
+        if row.normalized_symbol:
+            symbols.add(row.normalized_symbol)
+        db.delete(row)
+    for row in existing_changes:
+        db.delete(row)
+    db.flush()
+    return symbols
+
+
 def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) -> dict[str, int]:
-    if filing.is_amendment:
-        # TODO: implement 13F-HR/A supersession so amended filings safely replace
-        # prior quarter events instead of duplicating user-facing activity.
+    apply_institutional_filing_supersession(db, filing)
+    if not is_canonical_institutional_filing(db, filing):
+        _suppress_holder_period_activity(db, filing)
         filing.processed_at = datetime.now(timezone.utc)
         return {
             "changes": 0,
             "summaries": 0,
             "activity_events": 0,
             "feed_events": 0,
-            "amendment_suppressed": 1,
+            "superseded_suppressed": 1,
         }
 
     db.flush()
+    reset_symbols = _reset_holder_period_changes_and_activity(db, filing) if _filing_is_amendment(filing) else set()
     current_positions = db.execute(
         select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)
     ).scalars().all()
@@ -401,7 +598,7 @@ def process_filing_changes_and_events(db: Session, filing: InstitutionalFiling) 
     current_by_key = {_position_match_key(position): position for position in current_positions}
 
     changes = 0
-    symbols: set[str] = set()
+    symbols: set[str] = set(reset_symbols)
     for key, current in current_by_key.items():
         prior = prior_by_key.get(key)
         change = upsert_position_change(
@@ -613,13 +810,17 @@ def refresh_symbol_summary(
             InstitutionalPositionChange.report_quarter == report_quarter,
         )
     ).scalars().all()
-    current_positions = db.execute(
-        select(InstitutionalPosition).where(
-            InstitutionalPosition.normalized_symbol == normalized,
-            InstitutionalPosition.report_year == report_year,
-            InstitutionalPosition.report_quarter == report_quarter,
-        )
-    ).scalars().all()
+    active_filing_ids = _active_filing_ids_for_period(db, report_year=report_year, report_quarter=report_quarter)
+    current_positions = []
+    if active_filing_ids:
+        current_positions = db.execute(
+            select(InstitutionalPosition).where(
+                InstitutionalPosition.normalized_symbol == normalized,
+                InstitutionalPosition.report_year == report_year,
+                InstitutionalPosition.report_quarter == report_quarter,
+                InstitutionalPosition.filing_id.in_(active_filing_ids),
+            )
+        ).scalars().all()
     if not changes and not current_positions:
         return None
     latest_filing_date = max(
@@ -841,6 +1042,7 @@ def get_ticker_institutional_activity(
     events = db.execute(
         select(InstitutionalActivityEvent)
         .where(InstitutionalActivityEvent.normalized_symbol == normalized)
+        .where(or_(InstitutionalActivityEvent.freshness_status.is_(None), InstitutionalActivityEvent.freshness_status != "superseded"))
         .order_by(InstitutionalActivityEvent.filing_date.desc(), InstitutionalActivityEvent.materiality_score.desc())
         .limit(max(1, min(int(limit or 25), 100)))
     ).scalars().all()
@@ -1074,7 +1276,9 @@ def holder_profile(db: Session, cik: str) -> dict[str, Any] | None:
     if latest_report_year is None or latest_report_quarter is None:
         latest_position = db.execute(
             select(InstitutionalPosition)
+            .join(InstitutionalFiling, InstitutionalFiling.id == InstitutionalPosition.filing_id)
             .where(InstitutionalPosition.cik == normalized)
+            .where(InstitutionalFiling.superseded_by.is_(None))
             .order_by(
                 InstitutionalPosition.report_year.desc(),
                 InstitutionalPosition.report_quarter.desc(),
@@ -1090,23 +1294,28 @@ def holder_profile(db: Session, cik: str) -> dict[str, Any] | None:
     total_reported_value = 0.0
     holdings_count = 0
     if latest_report_year and latest_report_quarter:
+        active_filing_ids = _active_filing_ids_for_period(
+            db,
+            cik=normalized,
+            report_year=latest_report_year,
+            report_quarter=latest_report_quarter,
+        )
+        position_filters = [
+            InstitutionalPosition.cik == normalized,
+            InstitutionalPosition.report_year == latest_report_year,
+            InstitutionalPosition.report_quarter == latest_report_quarter,
+        ]
+        if active_filing_ids:
+            position_filters.append(InstitutionalPosition.filing_id.in_(active_filing_ids))
         total_reported_value, holdings_count = db.execute(
             select(
                 func.coalesce(func.sum(InstitutionalPosition.value_usd), 0.0),
                 func.count(InstitutionalPosition.id),
-            ).where(
-                InstitutionalPosition.cik == normalized,
-                InstitutionalPosition.report_year == latest_report_year,
-                InstitutionalPosition.report_quarter == latest_report_quarter,
-            )
+            ).where(*position_filters)
         ).one()
         latest_positions = db.execute(
             select(InstitutionalPosition)
-            .where(
-                InstitutionalPosition.cik == normalized,
-                InstitutionalPosition.report_year == latest_report_year,
-                InstitutionalPosition.report_quarter == latest_report_quarter,
-            )
+            .where(*position_filters)
             .order_by(InstitutionalPosition.value_usd.desc().nullslast())
             .limit(25)
         ).scalars().all()
@@ -1163,6 +1372,19 @@ def positions_for_holder(db: Session, cik: str, *, year: int | None = None, quar
         query = query.where(InstitutionalPosition.report_year == int(year))
     if quarter is not None:
         query = query.where(InstitutionalPosition.report_quarter == int(quarter))
+    if year is not None and quarter is not None:
+        active_filing_ids = _active_filing_ids_for_period(
+            db,
+            cik=normalized,
+            report_year=int(year),
+            report_quarter=int(quarter),
+        )
+        if active_filing_ids:
+            query = query.where(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    else:
+        query = query.join(InstitutionalFiling, InstitutionalFiling.id == InstitutionalPosition.filing_id).where(
+            InstitutionalFiling.superseded_by.is_(None)
+        )
     rows = db.execute(
         query.order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc(), InstitutionalPosition.value_usd.desc().nullslast())
         .offset(max(0, int(page or 0)) * bounded_limit)
@@ -1275,6 +1497,8 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
                 "filing_url": row.filing_url,
                 "form_type": row.form_type,
                 "is_amendment": row.is_amendment,
+                "superseded_by": row.superseded_by,
+                "canonical": row.superseded_by is None,
                 "processed_at": row.processed_at.isoformat() if row.processed_at else None,
                 "holdings_count": db.execute(
                     select(func.count(InstitutionalPosition.id)).where(InstitutionalPosition.filing_id == row.id)
@@ -1456,6 +1680,7 @@ def _recent_activity_events_by_symbol(db: Session, symbols: list[str], *, lookba
         select(InstitutionalActivityEvent)
         .where(InstitutionalActivityEvent.normalized_symbol.in_(symbols))
         .where(InstitutionalActivityEvent.filing_date >= since)
+        .where(or_(InstitutionalActivityEvent.freshness_status.is_(None), InstitutionalActivityEvent.freshness_status != "superseded"))
         .order_by(InstitutionalActivityEvent.filing_date.desc(), InstitutionalActivityEvent.materiality_score.desc())
     ).scalars().all()
     grouped: dict[str, list[InstitutionalActivityEvent]] = {symbol: [] for symbol in symbols}
@@ -1627,13 +1852,20 @@ def _find_position(db: Session, filing_id: int | None, symbol: str | None, cusip
 
 def _prior_positions_for_filing(db: Session, filing: InstitutionalFiling) -> list[InstitutionalPosition]:
     prior_year, prior_quarter = _previous_quarter(filing.report_year, filing.report_quarter)
-    return db.execute(
-        select(InstitutionalPosition).where(
-            InstitutionalPosition.cik == filing.cik,
-            InstitutionalPosition.report_year == prior_year,
-            InstitutionalPosition.report_quarter == prior_quarter,
-        )
-    ).scalars().all()
+    active_filing_ids = _active_filing_ids_for_period(
+        db,
+        cik=filing.cik,
+        report_year=prior_year,
+        report_quarter=prior_quarter,
+    )
+    query = select(InstitutionalPosition).where(
+        InstitutionalPosition.cik == filing.cik,
+        InstitutionalPosition.report_year == prior_year,
+        InstitutionalPosition.report_quarter == prior_quarter,
+    )
+    if active_filing_ids:
+        query = query.where(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    return db.execute(query).scalars().all()
 
 
 def _position_match_key(position: InstitutionalPosition) -> tuple[str, str | None]:

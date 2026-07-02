@@ -15,11 +15,17 @@ from app.routers.institutional import institution_activity, institution_filings,
 from app.services.institutional_activity import (
     INSTITUTIONAL_EVENT_SOURCE,
     cleanup_overbroad_institutional_feed_events,
+    get_canonical_filing_for_holder_period,
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
+    institutional_filing_duplicate_report,
+    is_canonical_institutional_filing,
+    filings_for_holder,
+    holder_profile,
     materialize_feed_events_for_symbol,
     parse_latest_filing,
     parse_position,
+    positions_for_holder,
     process_filing_changes_and_events,
     upsert_institutional_filing,
     upsert_institutional_holder,
@@ -194,6 +200,45 @@ def test_upsert_filing_preserves_existing_metadata_when_candidate_is_sparse():
         assert json.loads(same_filing.raw_metadata_json or "{}").get("formType") == "13F-HR"
 
 
+def test_sparse_period_metadata_reuses_canonical_amendment_without_creating_third_filing():
+    engine = _engine()
+    today = date.today()
+    cik = "0001009012"
+    original_row = _filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row["formType"] = "13F-HR/A"
+    amendment_row["accessionNumber"] = f"{cik}-2026-1-A"
+    sparse_row = {
+        "cik": cik,
+        "date": "2026-03-31",
+        "filingDate": "2026-03-31",
+        "year": 2026,
+        "quarter": 1,
+    }
+    original_candidate = parse_latest_filing(original_row)
+    amendment_candidate = parse_latest_filing(amendment_row)
+    sparse_candidate = parse_latest_filing(sparse_row)
+    assert original_candidate is not None
+    assert amendment_candidate is not None
+    assert sparse_candidate is not None
+    assert sparse_candidate.accession_number is None
+    assert sparse_candidate.form_type is None
+
+    with _session(engine) as db:
+        original, _ = upsert_institutional_filing(db, original_candidate)
+        amendment, _ = upsert_institutional_filing(db, amendment_candidate)
+        same, created = upsert_institutional_filing(db, sparse_candidate)
+        db.flush()
+
+        assert created is False
+        assert same.id == amendment.id
+        assert original.superseded_by == amendment.id
+        assert amendment.superseded_by is None
+        assert db.query(InstitutionalFiling).count() == 2
+        assert same.accession_number == amendment_candidate.accession_number
+        assert same.form_type == "13F-HR/A"
+
+
 def test_latest_ingest_metrics_split_already_processed_skips(monkeypatch):
     engine = _engine()
     latest_row = {
@@ -230,6 +275,111 @@ def test_latest_ingest_metrics_split_already_processed_skips(monkeypatch):
     assert result["already_processed_skipped"] == 1
     assert result["skipped"] == 1
     assert result["processed_filings"] == 0
+
+
+def test_specific_ingest_chooses_amended_candidate_when_original_is_listed_first(monkeypatch):
+    engine = _engine()
+    today = date.today()
+    cik = "0001009012"
+    original_row = _filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row["formType"] = "13F-HR/A"
+    amendment_row["accessionNumber"] = f"{cik}-2026-1-A"
+    original_candidate = parse_latest_filing(original_row)
+    assert original_candidate is not None
+
+    with _session(engine) as db:
+        upsert_institutional_holder(db, original_candidate)
+        original_filing, _ = upsert_institutional_filing(db, original_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=original_filing,
+            rows=[{"symbol": "UONE", "shares": 400_000, "marketValue": 60_000_000, "cusip": "91705J105"}],
+        )
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda **_kwargs: [original_row, amendment_row])
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_extract",
+        lambda **_kwargs: [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}],
+    )
+
+    result = ingest_module.ingest_institutional_filing(cik=cik, year=2026, quarter=1, force=True)
+
+    assert result["processed_filings"] == 1
+    assert result["position_rows"] == 1
+    assert result["position_changes"] == 1
+    with _session(engine) as db:
+        original = db.execute(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == original_row["accessionNumber"])).scalar_one()
+        amendment = db.execute(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == amendment_row["accessionNumber"])).scalar_one()
+        assert original.superseded_by == amendment.id
+        assert amendment.superseded_by is None
+        change = db.execute(select(InstitutionalPositionChange).where(InstitutionalPositionChange.cik == cik)).scalar_one()
+        assert change.curr_value_usd == 120_000_000
+        assert change.filing_date == amendment.filing_date
+
+
+def test_specific_ingest_uses_existing_canonical_amendment_when_provider_lists_original_only(monkeypatch):
+    engine = _engine()
+    today = date.today()
+    cik = "0001009012"
+    original_row = _filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1, holder="Zazove Associates LLC")
+    amendment_row["formType"] = "13F-HR/A"
+    amendment_row["accessionNumber"] = f"{cik}-2026-1-A"
+    original_candidate = parse_latest_filing(original_row)
+    amendment_candidate = parse_latest_filing(amendment_row)
+    assert original_candidate is not None
+    assert amendment_candidate is not None
+
+    with _session(engine) as db:
+        upsert_institutional_holder(db, original_candidate)
+        original_filing, _ = upsert_institutional_filing(db, original_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=original_filing,
+            rows=[{"symbol": "UONE", "shares": 400_000, "marketValue": 60_000_000, "cusip": "91705J105"}],
+        )
+        upsert_institutional_holder(db, amendment_candidate)
+        amendment_filing, _ = upsert_institutional_filing(db, amendment_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=amendment_filing,
+            rows=[{"symbol": "UONE", "shares": 500_000, "marketValue": 70_000_000, "cusip": "91705J105"}],
+        )
+        db.commit()
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda **_kwargs: [original_row])
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_extract",
+        lambda **_kwargs: [{"symbol": "UONE", "shares": 900_000, "marketValue": 120_000_000, "cusip": "91705J105"}],
+    )
+
+    result = ingest_module.ingest_institutional_filing(cik=cik, year=2026, quarter=1, force=True)
+
+    assert result["processed_filings"] == 1
+    assert result["position_rows"] == 1
+    assert result["position_changes"] == 1
+    with _session(engine) as db:
+        original = db.execute(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == original_row["accessionNumber"])).scalar_one()
+        amendment = db.execute(select(InstitutionalFiling).where(InstitutionalFiling.accession_number == amendment_row["accessionNumber"])).scalar_one()
+        assert original.superseded_by == amendment.id
+        assert amendment.superseded_by is None
+        amendment_positions = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == amendment.id)).scalars().all()
+        assert len(amendment_positions) == 1
+        assert amendment_positions[0].value_usd == 120_000_000
+        change = db.execute(select(InstitutionalPositionChange).where(InstitutionalPositionChange.cik == cik)).scalar_one()
+        assert change.curr_value_usd == 120_000_000
+        assert change.filing_date == amendment.filing_date
 
 
 def test_latest_ingest_keeps_zero_extract_13f_hr_retryable(monkeypatch):
@@ -936,6 +1086,16 @@ def test_institution_profile_uses_cik_metadata_name_fallback(monkeypatch):
             [
                 InstitutionalHolder(cik="0001067983", holder_name=None, latest_report_year=2026, latest_report_quarter=1, latest_filing_date=date(2026, 3, 31)),
                 CikMeta(cik="0001067983", company_name="Berkshire Hathaway Inc."),
+                InstitutionalFiling(
+                    id=1,
+                    cik="0001067983",
+                    accession_number="0001067983-26-000001",
+                    filing_date=date(2026, 3, 31),
+                    report_year=2026,
+                    report_quarter=1,
+                    form_type="13F-HR",
+                    is_amendment=False,
+                ),
                 InstitutionalPosition(
                     filing_id=1,
                     cik="0001067983",
@@ -1050,7 +1210,7 @@ def test_process_filing_changes_creates_summary_and_activity_event():
         assert summaries["NVDA"]["source_label"] == "Institutional Activity"
 
 
-def test_amended_filing_stores_but_suppresses_user_facing_events():
+def test_amended_filing_supersedes_original_and_replaces_user_facing_activity():
     engine = _engine()
     today = date.today()
     cik = "0001234567"
@@ -1080,8 +1240,15 @@ def test_amended_filing_stores_but_suppresses_user_facing_events():
         )
         process_filing_changes_and_events(db, current_filing)
         db.commit()
-        feed_events_before = db.query(Event).filter(Event.event_type.in_(("institutional_accumulation", "institutional_distribution"))).count()
-        activity_events_before = db.query(InstitutionalActivityEvent).count()
+        original_activity = db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.cik == cik,
+                InstitutionalActivityEvent.normalized_symbol == "NVDA",
+                InstitutionalActivityEvent.report_year == 2026,
+                InstitutionalActivityEvent.report_quarter == 1,
+            )
+        ).scalar_one()
+        assert original_activity.reported_value_usd == 65_000_000
 
         amendment_row = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1)
         amendment_row["formType"] = "13F-HR/A"
@@ -1100,8 +1267,130 @@ def test_amended_filing_stores_but_suppresses_user_facing_events():
         counts = process_filing_changes_and_events(db, amended_filing)
         db.commit()
 
-        assert counts["amendment_suppressed"] == 1
+        assert counts["changes"] == 1
+        assert counts["activity_events"] >= 1
+        db.refresh(current_filing)
+        db.refresh(amended_filing)
+        assert current_filing.superseded_by == amended_filing.id
+        assert amended_filing.superseded_by is None
+        assert is_canonical_institutional_filing(db, amended_filing) is True
+        assert is_canonical_institutional_filing(db, current_filing) is False
+
+        change = db.execute(
+            select(InstitutionalPositionChange).where(
+                InstitutionalPositionChange.cik == cik,
+                InstitutionalPositionChange.normalized_symbol == "NVDA",
+                InstitutionalPositionChange.report_year == 2026,
+                InstitutionalPositionChange.report_quarter == 1,
+            )
+        ).scalar_one()
+        assert change.curr_value_usd == 120_000_000
+        assert change.filing_date == amendment_candidate.filing_date
+
+        activity = db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.cik == cik,
+                InstitutionalActivityEvent.normalized_symbol == "NVDA",
+                InstitutionalActivityEvent.report_year == 2026,
+                InstitutionalActivityEvent.report_quarter == 1,
+            )
+        ).scalar_one()
+        assert activity.reported_value_usd == 120_000_000
+        assert activity.filing_date == amendment_candidate.filing_date
+
+        holdings = positions_for_holder(db, cik, year=2026, quarter=1, page=0, limit=10)
+        assert [item["value_usd"] for item in holdings["items"]] == [120_000_000]
+        profile = holder_profile(db, cik)
+        assert profile is not None
+        assert profile["total_reported_value_usd"] == 120_000_000
+        filings = filings_for_holder(db, cik)
+        q1_filings = [item for item in filings["items"] if item["report_year"] == 2026 and item["report_quarter"] == 1]
+        assert len(q1_filings) == 2
+        assert [item["canonical"] for item in q1_filings] == [True, False]
+        assert q1_filings[1]["superseded_by"] == amended_filing.id
+        assert institutional_filing_duplicate_report(db) == {
+            "accession_duplicates": 0,
+            "total_period_duplicates": 1,
+            "active_period_duplicates": 0,
+        }
+
+
+def test_multiple_amendments_choose_latest_amendment_as_canonical():
+    engine = _engine()
+    today = date.today()
+    cik = "0002222222"
+
+    with _session(engine) as db:
+        rows = []
+        original = _filing_row(cik=cik, filing_date=today - timedelta(days=10), year=2026, quarter=1, holder="Zazove Associates LLC")
+        rows.append(original)
+        first_amendment = _filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1, holder="Zazove Associates LLC")
+        first_amendment["formType"] = "13F-HR/A"
+        first_amendment["accessionNumber"] = f"{cik}-2026-1-A1"
+        rows.append(first_amendment)
+        second_amendment = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1, holder="Zazove Associates LLC")
+        second_amendment["formType"] = "13F-HR/A"
+        second_amendment["accessionNumber"] = f"{cik}-2026-1-A2"
+        rows.append(second_amendment)
+
+        filings = []
+        for row in rows:
+            candidate = parse_latest_filing(row)
+            assert candidate is not None
+            upsert_institutional_holder(db, candidate)
+            filing, _ = upsert_institutional_filing(db, candidate)
+            filings.append(filing)
+        db.commit()
+
+        canonical = get_canonical_filing_for_holder_period(db, cik, 2026, 1)
+        assert canonical is not None
+        assert canonical.accession_number == f"{cik}-2026-1-A2"
+        for filing in filings:
+            db.refresh(filing)
+        assert filings[0].superseded_by == canonical.id
+        assert filings[1].superseded_by == canonical.id
+        assert filings[2].superseded_by is None
+        assert institutional_filing_duplicate_report(db)["active_period_duplicates"] == 0
+
+
+def test_superseded_original_does_not_generate_activity_or_feed_events():
+    engine = _engine()
+    today = date.today()
+    cik = "0003333333"
+
+    with _session(engine) as db:
+        original_row = _filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1)
+        amendment_row = _filing_row(cik=cik, filing_date=today - timedelta(days=1), year=2026, quarter=1)
+        amendment_row["formType"] = "13F-HR/A"
+        amendment_row["accessionNumber"] = f"{cik}-2026-1-A"
+        original_candidate = parse_latest_filing(original_row)
+        amendment_candidate = parse_latest_filing(amendment_row)
+        assert original_candidate is not None
+        assert amendment_candidate is not None
+
+        upsert_institutional_holder(db, amendment_candidate)
+        amended_filing, _ = upsert_institutional_filing(db, amendment_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=amended_filing,
+            rows=[{"symbol": "MSFT", "shares": 900_000, "marketValue": 120_000_000, "cusip": "594918104"}],
+        )
+
+        upsert_institutional_holder(db, original_candidate)
+        original_filing, _ = upsert_institutional_filing(db, original_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=original_filing,
+            rows=[{"symbol": "MSFT", "shares": 400_000, "marketValue": 60_000_000, "cusip": "594918104"}],
+        )
+        counts = process_filing_changes_and_events(db, original_filing)
+        db.commit()
+
+        assert counts["superseded_suppressed"] == 1
         assert counts["activity_events"] == 0
         assert counts["feed_events"] == 0
-        assert db.query(Event).filter(Event.event_type.in_(("institutional_accumulation", "institutional_distribution"))).count() == feed_events_before
-        assert db.query(InstitutionalActivityEvent).count() == activity_events_before
+        assert db.query(InstitutionalPositionChange).count() == 0
+        assert db.query(InstitutionalActivityEvent).count() == 0
+        assert db.query(Event).count() == 0

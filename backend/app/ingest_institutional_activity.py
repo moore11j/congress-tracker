@@ -22,6 +22,7 @@ from app.services.institutional_activity import (
     parse_latest_filing,
     process_filing_changes_and_events,
     cleanup_overbroad_institutional_feed_events,
+    get_canonical_filing_for_holder_period,
     upsert_holder_industry_breakdown_rows,
     upsert_holder_performance_rows,
     upsert_industry_summary_rows,
@@ -102,6 +103,14 @@ def _empty_extract_result(metric: str) -> dict[str, int | str]:
     }
 
 
+def _candidate_canonical_sort_key(candidate) -> tuple[int, object, str]:
+    return (
+        1 if bool(candidate.is_amendment) else 0,
+        candidate.filing_date,
+        candidate.accession_number or "",
+    )
+
+
 def ingest_latest_institutional_filings(
     *,
     pages: int = 1,
@@ -148,6 +157,14 @@ def ingest_latest_institutional_filings(
                     upsert_institutional_holder(db, candidate)
                     filing, created = upsert_institutional_filing(db, candidate)
                     db.flush()
+                    canonical_filing = get_canonical_filing_for_holder_period(
+                        db,
+                        filing.cik,
+                        filing.report_year,
+                        filing.report_quarter,
+                    )
+                    if canonical_filing is not None:
+                        filing = canonical_filing
                     if filing.processed_at is not None and not force:
                         if _should_retry_processed_zero_position_filing(db, filing):
                             logger.info(
@@ -227,18 +244,26 @@ def ingest_institutional_filing(
     db = SessionLocal()
     try:
         rows = fetch_institutional_filing_dates(cik=cik)
-        candidate = None
+        candidates = []
         for row in rows:
             parsed = parse_latest_filing({**row, "cik": cik, "year": year, "quarter": quarter})
             if parsed and parsed.report_year == int(year) and parsed.report_quarter == int(quarter):
-                candidate = parsed
-                break
-        if candidate is None:
+                candidates.append(parsed)
+        if not candidates:
             raise ValueError(f"No 13F filing metadata found for cik={cik} Q{quarter} {year}")
+        candidate = max(candidates, key=_candidate_canonical_sort_key)
 
         upsert_institutional_holder(db, candidate)
         filing, _ = upsert_institutional_filing(db, candidate)
         db.flush()
+        canonical_filing = get_canonical_filing_for_holder_period(
+            db,
+            filing.cik,
+            filing.report_year,
+            filing.report_quarter,
+        )
+        if canonical_filing is not None:
+            filing = canonical_filing
         if filing.processed_at is not None and not force:
             if _should_retry_processed_zero_position_filing(db, filing):
                 logger.info(
