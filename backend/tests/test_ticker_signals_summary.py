@@ -286,11 +286,7 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert query_calls[0]["side"] == "buy"
     assert query_calls[0]["congress_recent_days"] == 30
     assert query_calls[0]["insider_recent_days"] == 30
-    assert query_calls[1]["limit"] == 20
-    assert query_calls[1]["symbol"] == "NBIS"
-    assert query_calls[1]["side"] == "buy"
-    assert query_calls[1]["congress_recent_days"] == 365
-    assert query_calls[1]["insider_recent_days"] == 365
+    assert len(query_calls) == 1
     assert captured["confirmation_tickers"] == ["NBIS"]
     assert captured["confirmation_lookback_days"] == 30
     assert response["symbol"] == "NBIS"
@@ -298,81 +294,13 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
     assert response["recent_signal_count"] == 1
     assert response["lookback_days"] == 30
     assert response["effective_window_days"] == 30
-    assert response["signal_activity_lookback_days"] == 365
-    assert response["signal_activity_state"] == "unlocked"
-    assert response["signal_activity_total"] == 1
-    assert response["signal_activity"][0]["symbol"] == "NBIS"
+    assert "signal_activity" not in response
+    assert "signal_activity_total" not in response
+    assert "signal_activity_state" not in response
     assert response["items"][0]["symbol"] == "NBIS"
     assert response["price_volume"]["status"] == "limited"
     assert response["price_volume"]["title"] == "Limited price history"
     assert response["confirmation_score_bundle"]["lookback_days"] == 30
-
-
-def test_ticker_signal_activity_uses_historical_rows_without_score_leakage(monkeypatch):
-    as_of = datetime(2026, 7, 2, tzinfo=timezone.utc)
-    _freeze_signal_now(monkeypatch, as_of)
-    _mock_signal_auth(monkeypatch, tier="premium")
-    engine = _engine()
-    with Session(engine) as db:
-        _seed_abnormal_signal_fixture(db, as_of=as_of)
-        db.commit()
-
-        expectations = {
-            "TSM": "2026-05-19",
-            "FCNCA": "2026-05-12",
-            "CVX": "2026-04-10",
-        }
-        for symbol, expected_date in expectations.items():
-            response = ticker_signals_summary(object(), symbol, side="sell", limit=3, lookback_days=365, db=db)
-            assert response["signal_activity_state"] == "unlocked"
-            assert response["signal_activity_total"] == 1
-            assert response["signal_activity"][0]["symbol"] == symbol
-            assert response["signal_activity"][0]["ts"].startswith(expected_date)
-            assert response["items"] == []
-            assert response["recent_signal_count"] == 0
-            assert response["confirmation_score_bundle"]["lookback_days"] == 30
-            assert response["confirmation_score_bundle"]["sources"]["signals"]["present"] is False
-
-        in_window = ticker_signals_summary(object(), "INWIN", side="sell", limit=3, lookback_days=365, db=db)
-        assert in_window["signal_activity_total"] == 1
-        assert in_window["signal_activity"][0]["symbol"] == "INWIN"
-        assert in_window["items"][0]["symbol"] == "INWIN"
-        assert in_window["recent_signal_count"] == 1
-        assert in_window["confirmation_score_bundle"]["sources"]["signals"]["present"] is True
-
-
-def test_ticker_signal_activity_entitlement_and_empty_states(monkeypatch):
-    as_of = datetime(2026, 7, 2, tzinfo=timezone.utc)
-    _freeze_signal_now(monkeypatch, as_of)
-    engine = _engine()
-    with Session(engine) as db:
-        _seed_abnormal_signal_fixture(db, as_of=as_of)
-        db.commit()
-
-        for tier in ("premium", "pro", "admin"):
-            _mock_signal_auth(monkeypatch, tier=tier)
-            response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
-            assert response["signal_activity_state"] == "unlocked"
-            assert response["signal_activity_total"] == 1
-            assert response["signal_activity"][0]["symbol"] == "TSM"
-
-        _mock_signal_auth(monkeypatch, tier="free")
-        free_response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
-        assert free_response["signal_activity_state"] == "locked"
-        assert free_response["signal_activity_total"] is None
-        assert free_response["signal_activity"] == []
-
-        _mock_logged_out_signal_context(monkeypatch)
-        guest_response = ticker_signals_summary(object(), "TSM", side="sell", limit=3, lookback_days=365, db=db)
-        assert guest_response["signal_activity_state"] == "locked"
-        assert guest_response["signal_activity_total"] is None
-        assert guest_response["signal_activity"] == []
-
-        _mock_signal_auth(monkeypatch, tier="premium")
-        empty_response = ticker_signals_summary(object(), "EMPTY", side="sell", limit=3, lookback_days=365, db=db)
-        assert empty_response["signal_activity_state"] == "unlocked"
-        assert empty_response["signal_activity_total"] == 0
-        assert empty_response["signal_activity"] == []
 
 
 def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatch):
@@ -432,7 +360,7 @@ def test_ticker_signals_summary_coalesces_identical_inflight_requests(monkeypatc
     assert not leader.is_alive()
     assert not follower.is_alive()
     assert errors == []
-    assert query_call_count == 2
+    assert query_call_count == 1
     assert len(responses) == 2
     assert [response["symbol"] for response in responses] == ["NVDA", "NVDA"]
     assert [response["latest_signal_score"] for response in responses] == [82, 82]

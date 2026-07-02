@@ -3541,10 +3541,6 @@ export type TickerSignalsSummaryResponse = {
   recent_signal_count: number;
   recent_count?: number;
   items: SignalItem[];
-  signal_activity?: SignalItem[];
-  signal_activity_total?: number | null;
-  signal_activity_lookback_days?: number;
-  signal_activity_state?: "unlocked" | "locked" | "unavailable" | string;
   price_volume?: {
     status?: string | null;
     direction?: string | null;
@@ -3615,6 +3611,8 @@ export async function getSignalsAll(params: {
   limit?: number;
   debug?: boolean;
   symbol?: string;
+  congress_recent_days?: number;
+  insider_recent_days?: number;
   confirmation_band?: "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
   confirmation_direction?: "all" | SignalConfirmationDirection;
   min_confirmation_sources?: number;
@@ -3624,6 +3622,7 @@ export async function getSignalsAll(params: {
   institutional_min_value?: number;
   authToken?: string;
   signal?: AbortSignal;
+  source?: string;
 }): Promise<{ items: SignalItem[]; debug?: unknown }> {
   const url = buildApiUrl("/api/signals/all", {
     mode: params.mode ?? "all",
@@ -3632,6 +3631,8 @@ export async function getSignalsAll(params: {
     limit: params.limit,
     debug: params.debug ? "1" : undefined,
     symbol: params.symbol,
+    congress_recent_days: params.congress_recent_days,
+    insider_recent_days: params.insider_recent_days,
     confirmation_band: params.confirmation_band,
     confirmation_direction: params.confirmation_direction,
     min_confirmation_sources: params.min_confirmation_sources,
@@ -3646,6 +3647,7 @@ export async function getSignalsAll(params: {
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params.signal,
+    source: params.source ?? "SignalsAll",
   });
 
   if (Array.isArray(data)) {
@@ -3664,8 +3666,6 @@ export async function getTickerSignalsSummary(
     side?: string;
     limit?: number;
     lookback_days?: number;
-    activity_limit?: number;
-    activity_offset?: number;
     authToken?: string;
     signal?: AbortSignal;
     source?: string;
@@ -3675,8 +3675,6 @@ export async function getTickerSignalsSummary(
     side: params?.side ?? "all",
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
-    activity_limit: params?.activity_limit,
-    activity_offset: params?.activity_offset,
   });
   const request = (signal?: AbortSignal) => fetchJson<TickerSignalsSummaryResponse>(url, {
     headers: authHeaders(params?.authToken),
@@ -3693,8 +3691,6 @@ export async function getTickerSignalsSummary(
   return {
     ...data,
     items: Array.isArray(data.items) ? data.items : [],
-    signal_activity: Array.isArray(data.signal_activity) ? data.signal_activity : [],
-    signal_activity_total: Number.isFinite(data.signal_activity_total) ? data.signal_activity_total : null,
     recent_signal_count: Number.isFinite(data.recent_signal_count) ? data.recent_signal_count : 0,
     latest_signal_score: typeof data.latest_signal_score === "number" ? data.latest_signal_score : null,
   };

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { ApiError, getTickerSignalsSummary, type SignalItem } from "@/lib/api";
+import { ApiError, getSignalsAll, type SignalItem } from "@/lib/api";
 import {
   chamberBadge,
   formatCongressAffiliationText,
@@ -216,20 +216,22 @@ export function TickerSignalActivityClient({
     const controller = new AbortController();
     setLoading(true);
     setGate(null);
-    getTickerSignalsSummary(symbol, {
+    getSignalsAll({
+      mode: "all",
       side,
-      limit: 3,
-      activity_limit: 20,
-      lookback_days: lookbackDays,
+      sort: "recent",
+      limit: 20,
+      symbol,
+      congress_recent_days: lookbackDays,
+      insider_recent_days: lookbackDays,
       signal: controller.signal,
-      source: "TickerSignalsSummary",
+      source: "TickerSignalActivity",
     })
       .then((response) => {
         if (!alive) return;
-        const nextGate = gateFromActivityState(response.signal_activity_state);
-        setItems(response.signal_activity ?? []);
-        setTotal(response.signal_activity_total ?? null);
-        setGate(nextGate);
+        setItems(response.items);
+        setTotal(response.items.length);
+        setGate(null);
       })
       .catch((error) => {
         if (error instanceof Error && error.name === "AbortError") return;

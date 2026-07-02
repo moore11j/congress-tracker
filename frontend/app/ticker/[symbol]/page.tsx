@@ -129,7 +129,6 @@ type TickerActivityData = {
   events: Awaited<ReturnType<typeof getEvents>>["items"];
   signals: SignalItem[];
   signalsTotal: number | null;
-  signalsState: TickerSignalsSummaryResponse["signal_activity_state"] | null;
   priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
   sourceEntitlements: TickerSourceEntitlements | null;
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
@@ -2050,7 +2049,6 @@ function DeferredTickerSummarySkeleton() {
       </div>
       <section className={`${cardClassName} p-4`}>
         <SkeletonBlock className="h-3 w-40" />
-        <p className="mt-3 text-sm text-slate-400">Loading government contract activity.</p>
         <SkeletonBlock className="mt-3 h-64 w-full" />
       </section>
     </div>
@@ -2096,9 +2094,7 @@ async function resolveTickerActivityData({
           .then((response) => ({
             response,
             resolved: true,
-            unavailable: response.signal_activity_state === "unavailable"
-              ? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." }
-              : response.signal_activity_state === "locked" || response.source_entitlements?.signals?.locked
+            unavailable: response.source_entitlements?.signals?.locked
               ? signalsUnavailable ?? signalGateForAuthenticatedFreeUser()
               : null,
           }))
@@ -2108,7 +2104,7 @@ async function resolveTickerActivityData({
             unavailable: signalsUnavailable ?? { reason: "unavailable" as const, message: "Ticker signals are temporarily unavailable." },
           }))
       : Promise.resolve({
-          response: { items: [] as SignalItem[], signal_activity: [] as SignalItem[], signal_activity_total: null },
+          response: { items: [] as SignalItem[] },
           resolved: false,
           unavailable: signalsUnavailable ?? null,
         }),
@@ -2137,7 +2133,7 @@ async function resolveTickerActivityData({
     ].join("|");
   });
 
-  const signalActivityRows = Array.isArray(signalsRes.signal_activity) ? signalsRes.signal_activity : signalsRes.items ?? [];
+  const signalActivityRows = signalsRes.items ?? [];
   const confirmationSignals = dedupeByKey(signalsRes.items ?? [], (signal) => [
     canonicalize(signal.kind),
     canonicalize(signal.symbol),
@@ -2250,8 +2246,7 @@ async function resolveTickerActivityData({
   return {
     events: filteredEvents,
     signals,
-    signalsTotal: typeof signalsRes.signal_activity_total === "number" ? signalsRes.signal_activity_total : signals.length,
-    signalsState: signalsRes.signal_activity_state ?? null,
+    signalsTotal: signals.length,
     signalsUnavailable: signalsResult.unavailable,
     congressEvents,
     congressEventsTotal: congressActivityPage.total,
@@ -2329,7 +2324,6 @@ async function DeferredTickerContent({
     events,
     signals,
     signalsTotal,
-    signalsState,
     signalsUnavailable,
     congressEvents,
     congressEventsTotal,
@@ -2850,9 +2844,9 @@ async function DeferredTickerContent({
                 lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
-                initialItems={canReuseSignalSummary ? signals : null}
-                initialTotal={canReuseSignalSummary ? signalsTotal : null}
-                initialState={canReuseSignalSummary ? signalsState : null}
+                initialItems={null}
+                initialTotal={null}
+                initialState={null}
               />
             </div>
           ) : showSignals ? (
@@ -3274,7 +3268,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
         side,
         limit: 3,
         lookback_days: lookbackDays,
-        activity_limit: ACTIVITY_PAGE_SIZE,
         authToken: authToken ?? undefined,
         source: "TickerSignalsSummary",
       });

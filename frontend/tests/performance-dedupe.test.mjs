@@ -37,7 +37,7 @@ test("events and auth helpers coalesce identical short-lived requests", () => {
   assert.match(api, /nextParams\.debug === undefined/);
 });
 
-test("ticker reuses server signals summary and defers chart bundle pressure", () => {
+test("ticker reuses server signals summary for source cards and defers chart bundle pressure", () => {
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const signalActivity = read("components/ticker/TickerSignalActivityClient.tsx");
   const signalCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
@@ -47,7 +47,9 @@ test("ticker reuses server signals summary and defers chart bundle pressure", ()
   assert.match(tickerPage, /signalSummaryResolved: signalsResult\.resolved/);
   assert.match(tickerPage, /const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending/);
   assert.match(tickerPage, /initialResolved=\{canReuseSignalSummary\}/);
-  assert.match(tickerPage, /initialItems=\{canReuseSignalSummary \? signals : null\}/);
+  assert.match(tickerPage, /initialItems=\{null\}/);
+  assert.match(signalActivity, /getSignalsAll\(\{/);
+  assert.match(signalActivity, /source: "TickerSignalActivity"/);
   assert.match(signalActivity, /if \(hasInitialItems\) \{/);
   assert.match(signalCard, /fallbackSource\.present \|\| initialResolved/);
   assert.match(institutionalCard, /initialResolved \|\| sourceLocked/);

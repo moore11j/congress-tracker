@@ -50,54 +50,60 @@ test("ticker context does not eagerly request heavy tab data on overview mount",
   assert.doesNotMatch(card, /requestTickerHydration\(symbol,/);
 });
 
-test("ticker signal activity uses ticker-specific summary instead of broad signals endpoint", () => {
+test("ticker signal activity uses the Signals page endpoint scoped to the ticker", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
   const sourceCard = read("components/ticker/TickerSignalsSourceCardClient.tsx");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const api = read("lib/api.ts");
 
+  assert.match(api, /export async function getSignalsAll/);
+  assert.match(api, /\/api\/signals\/all/);
+  assert.match(api, /congress_recent_days: params\.congress_recent_days/);
+  assert.match(api, /insider_recent_days: params\.insider_recent_days/);
   assert.match(api, /export async function getTickerSignalsSummary/);
   assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
   assert.match(api, /lookback_days: params\?\.lookback_days/);
   assert.match(api, /clientCachedJson<TickerSignalsSummaryResponse>/);
   assert.match(api, /`ticker-signals-summary:\$\{url\}`/);
-  assert.match(client, /getTickerSignalsSummary\(symbol,/);
-  assert.match(client, /lookback_days: lookbackDays/);
+  assert.match(client, /getSignalsAll\(\{/);
+  assert.match(client, /symbol,/);
+  assert.match(client, /congress_recent_days: lookbackDays/);
+  assert.match(client, /insider_recent_days: lookbackDays/);
+  assert.match(client, /source: "TickerSignalActivity"/);
   assert.match(sourceCard, /getTickerSignalsSummary\(symbol,/);
   assert.match(sourceCard, /sourceFromSummary\(response, visibleItems, lookbackDays, fallbackSource\)/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
   assert.match(tickerPage, /lookback_days: lookbackDays/);
-  assert.match(tickerPage, /activity_limit: ACTIVITY_PAGE_SIZE/);
   assert.match(tickerPage, /lookbackDays=\{selectedLookbackDays\}/);
-  assert.match(tickerPage, /initialTotal=\{canReuseSignalSummary \? signalsTotal : null\}/);
-  assert.match(tickerPage, /initialState=\{canReuseSignalSummary \? signalsState : null\}/);
+  assert.match(tickerPage, /initialItems=\{null\}/);
+  assert.match(tickerPage, /initialTotal=\{null\}/);
+  assert.match(tickerPage, /initialState=\{null\}/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /activitySignalFreshness \?\? signalFreshness/);
   assert.match(tickerPage, /const insiderCardSource = confirmationBundle\.sources\.insiders/);
   assert.match(tickerPage, /const congressCardSource = confirmationBundle\.sources\.congress/);
   assert.match(tickerPage, /summaryCount\(summaryInsiders, "buy_count"\)/);
   assert.doesNotMatch(tickerPage, /sourceFromActivityCounts/);
-  assert.doesNotMatch(client, /getSignalsAll|\/api\/signals\/all|limit:\s*100/);
-  assert.doesNotMatch(tickerPage, /getSignalsAll|\/api\/signals\/all|signalsPromise/);
+  assert.doesNotMatch(client, /limit:\s*100/);
+  assert.doesNotMatch(tickerPage, /signalsPromise/);
 });
 
-test("ticker Signal activity reads historical rows and explicit states", () => {
+test("ticker Signal activity renders historical rows and keeps locked states out of empty copy", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
   const api = read("lib/api.ts");
 
-  assert.match(api, /signal_activity\?: SignalItem\[\]/);
-  assert.match(api, /signal_activity_total\?: number \| null/);
-  assert.match(api, /signal_activity_state\?: "unlocked" \| "locked" \| "unavailable" \| string/);
-  assert.match(client, /setItems\(response\.signal_activity \?\? \[\]\)/);
-  assert.match(client, /setTotal\(response\.signal_activity_total \?\? null\)/);
-  assert.match(client, /gateFromActivityState\(response\.signal_activity_state\)/);
+  assert.doesNotMatch(api, /signal_activity\?: SignalItem\[\]/);
+  assert.doesNotMatch(api, /activity_limit/);
+  assert.match(client, /setItems\(response\.items\)/);
+  assert.match(client, /setTotal\(response\.items\.length\)/);
+  assert.match(client, /gateFromActivityState\(initialState\)/);
   assert.match(client, /state === "locked"/);
   assert.match(client, /state === "unavailable"/);
   assert.match(client, /No abnormal signal activity found for this ticker in the selected lookback\./);
   assert.match(client, /const visibleTotal = total \?\? visibleItems\.length/);
-  assert.match(tickerPage, /const signalActivityRows = Array\.isArray\(signalsRes\.signal_activity\) \? signalsRes\.signal_activity : signalsRes\.items \?\? \[\]/);
-  assert.match(tickerPage, /signalsTotal: typeof signalsRes\.signal_activity_total === "number" \? signalsRes\.signal_activity_total : signals\.length/);
+  assert.match(tickerPage, /const signalActivityRows = signalsRes\.items \?\? \[\]/);
+  assert.match(tickerPage, /signalsTotal: signals\.length/);
 });
 
 test("ticker upper Signals source card repairs stale inactive SSR from browser-authenticated summary rows", () => {
@@ -218,7 +224,7 @@ test("ticker government contracts activity loads in all mode and paginates", () 
   assert.match(tickerPage, /governmentContractsTotal\} contract\{governmentContractsTotal === 1 \? "" : "s"\}/);
   assert.match(tickerPage, /No government contracts in selected window\./);
   assert.match(tickerPage, /Government contract activity unavailable\./);
-  assert.match(tickerPage, /Loading government contract activity\./);
+  assert.doesNotMatch(tickerPage, /Loading government contract activity\./);
   assert.match(tickerPage, /sectionId="government-contracts-activity"/);
   assert.match(tickerPage, /pageParam="contracts_page"/);
   assert.match(tickerPage, /page=\{governmentContractsPage\}/);

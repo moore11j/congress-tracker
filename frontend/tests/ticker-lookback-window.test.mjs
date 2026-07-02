@@ -17,9 +17,10 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: lookbackDays/);
-  assert.match(tickerPage, /activity_limit: ACTIVITY_PAGE_SIZE/);
   assert.match(tickerPage, /lookbackDays=\{selectedLookbackDays\}/);
   assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(selectedLookbackDays\)\}/);
+  assert.match(api, /congress_recent_days: params\.congress_recent_days/);
+  assert.match(api, /insider_recent_days: params\.insider_recent_days/);
   assert.match(tickerPage, /effectiveWindowDays \?\? SIGNAL_WINDOW_DAYS/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /const selectedLookbackDays = Number\(lookback\)/);
