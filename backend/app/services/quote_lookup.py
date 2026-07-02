@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import requests
 from sqlalchemy import text
@@ -22,6 +23,7 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
+from app.services.provider_endpoints import fmp_endpoint_requests_for_domain
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
@@ -200,6 +202,43 @@ def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
     except Exception:
         db.rollback()
         logger.exception("quote_lookup sqlite_upsert_failed rows=%s", len(rows))
+
+
+def _payload_rows(payload: object) -> list[dict]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in ("data", "historical", "results", "quotes"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+            if isinstance(value, dict):
+                return [value]
+        return [payload] if payload else []
+    return []
+
+
+def _numeric_price(row: dict) -> float | None:
+    for key in ("price", "close", "adjClose", "previousClose", "last", "bid", "ask"):
+        value = row.get(key)
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed == parsed and parsed > 0:
+            return parsed
+    return None
+
+
+def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str) -> list[dict]:
+    payload: list[dict] = []
+    for row in rows:
+        price = _numeric_price(row)
+        if price is None:
+            continue
+        symbol = normalize_symbol(row.get("symbol")) or fallback_symbol
+        payload.append({"symbol": symbol, "price": price})
+    return payload
 
 def get_index_quote(symbol: str) -> float:
     """Fetch current index price (e.g. ^GSPC) from FMP stable quote endpoint."""
@@ -418,45 +457,87 @@ def get_current_prices_meta_db(
             miss_count += count
             status_counts[status_code] = status_counts.get(status_code, 0) + count
 
-        def _parse_quote_payload(quote_payload: object) -> None:
-            if isinstance(quote_payload, list):
-                payload.extend(row for row in quote_payload if isinstance(row, dict))
-            elif isinstance(quote_payload, dict):
-                payload.append(quote_payload)
+        def _parse_quote_payload(quote_payload: object, *, fallback_symbol: str) -> bool:
+            rows = _payload_rows(quote_payload)
+            parsed_rows = _rows_to_quote_payload(rows, fallback_symbol=fallback_symbol)
+            payload.extend(parsed_rows)
+            return bool(parsed_rows)
 
-        def _fetch_quote_short(symbol: str, asset_type: str) -> bool:
+        def _fetch_configured_quote(symbol: str, asset_type: str) -> bool:
             nonlocal disable_triggered
             attempted_symbols.append(symbol)
-            response = requests.get(
-                f"{FMP_BASE_URL}/quote-short?symbol={symbol}&apikey={api_key}",
-                timeout=10,
-            )
-            record_provider_response(category="quote", symbol=symbol, status_code=response.status_code)
-            if response.status_code != 200:
-                _record_miss(response.status_code)
-                if len(need_fetch) >= 5:
-                    logger.debug(
-                        "quote_lookup symbol_miss symbol=%s asset=%s status=%s",
-                        symbol,
-                        asset_type,
-                        response.status_code,
-                    )
-                if response.status_code == 402:
-                    global _last_paywall_log
-                    now = datetime.now(timezone.utc)
-                    if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
-                        logger.warning("quote_lookup quote_short_paywalled status=402")
-                        _last_paywall_log = now
-                    _disable_quotes(minutes=10, reason="paywalled_402_quote_short")
-                    disable_triggered = True
-                    return False
-                if response.status_code == 429:
-                    _disable_quotes(minutes=2, reason="rate_limited_429_quote_short")
-                    disable_triggered = True
-                    return False
-                return True
+            try:
+                endpoint_requests = fmp_endpoint_requests_for_domain(
+                    db,
+                    "prices_intraday",
+                    symbol=symbol,
+                    api_key=api_key,
+                    include_fallback=True,
+                )
+            except Exception:
+                logger.info("quote_lookup endpoint settings unavailable; using historical EOD light fallback", exc_info=True)
+                endpoint_requests = []
 
-            _parse_quote_payload(response.json())
+            if not endpoint_requests:
+                # Last-resort legacy behavior for incomplete settings; seeded settings should avoid this.
+                endpoint_requests = [
+                    SimpleNamespace(
+                        role="legacy",
+                        endpoint_name="quote-short",
+                        request_url=f"{FMP_BASE_URL}/quote-short",
+                        request_params={"symbol": symbol, "apikey": api_key},
+                    )
+                ]
+
+            saw_402 = False
+            saw_429 = False
+            for endpoint_request in endpoint_requests:
+                response = requests.get(
+                    endpoint_request.request_url,
+                    params=endpoint_request.request_params,
+                    timeout=10,
+                )
+                record_provider_response(
+                    category=f"quote:{endpoint_request.endpoint_name}",
+                    symbol=symbol,
+                    status_code=response.status_code,
+                )
+                if response.status_code != 200:
+                    _record_miss(response.status_code)
+                    saw_402 = saw_402 or response.status_code == 402
+                    saw_429 = saw_429 or response.status_code == 429
+                    if len(need_fetch) >= 5:
+                        logger.debug(
+                            "quote_lookup symbol_miss symbol=%s asset=%s endpoint=%s status=%s",
+                            symbol,
+                            asset_type,
+                            endpoint_request.endpoint_name,
+                            response.status_code,
+                        )
+                    continue
+
+                try:
+                    parsed = response.json()
+                except ValueError:
+                    _record_miss(502)
+                    continue
+                if _parse_quote_payload(parsed, fallback_symbol=symbol):
+                    return True
+                _record_miss(204)
+
+            if saw_402:
+                global _last_paywall_log
+                now = datetime.now(timezone.utc)
+                if _last_paywall_log is None or (now - _last_paywall_log) > timedelta(hours=1):
+                    logger.warning("quote_lookup configured_quote_paywalled status=402")
+                    _last_paywall_log = now
+                _disable_quotes(minutes=10, reason="paywalled_402_configured_quote")
+                disable_triggered = True
+                return False
+            if saw_429:
+                _disable_quotes(minutes=2, reason="rate_limited_429_configured_quote")
+                disable_triggered = True
+                return False
             return True
 
         if equities:
@@ -464,7 +545,7 @@ def get_current_prices_meta_db(
             logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
             for symbol in equities_to_fetch:
-                should_continue = _fetch_quote_short(symbol, asset_type="equity")
+                should_continue = _fetch_configured_quote(symbol, asset_type="equity")
                 if not should_continue:
                     stop_fetching_equities = True
                     break
@@ -496,7 +577,7 @@ def get_current_prices_meta_db(
 
         for symbol in crypto:
             logger.info("quote_lookup requesting crypto=%s", symbol)
-            should_continue = _fetch_quote_short(symbol, asset_type="crypto")
+            should_continue = _fetch_configured_quote(symbol, asset_type="crypto")
             if not should_continue:
                 disabled_status = _quotes_disabled_status()
                 if disabled_status:

@@ -5,8 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getAdminDataSourcesStatus,
   runAdminDataSource,
+  testAdminDataSourceEndpoint,
   updateAdminDataSourceSetting,
   type AdminDataSourceDomain,
+  type AdminDataSourceEndpointTest,
   type AdminDataSourcesStatusResponse,
 } from "@/lib/api";
 
@@ -116,6 +118,18 @@ const ISSUE_HELP: Record<string, { label: string; detail: string }> = {
     label: "Unknown error",
     detail: "The latest refresh/check failed without a more specific issue label.",
   },
+  missing_api_key: {
+    label: "Missing API key",
+    detail: "The endpoint test could not run because FMP_API_KEY is not configured on the backend.",
+  },
+  provider_rate_limited: {
+    label: "Provider rate limit",
+    detail: "The endpoint test reached the provider but was rate-limited.",
+  },
+  provider_error: {
+    label: "Provider error",
+    detail: "The endpoint test reached the provider but the response was not healthy.",
+  },
 };
 
 const ADD_ON_RISK_HELP =
@@ -221,6 +235,8 @@ function issueMeta(error?: string | null) {
 
 function healthState(domain: AdminDataSourceDomain) {
   if (domain.last_error) return "Error";
+  if (domain.endpoint_tests?.primary?.status === "healthy") return "Healthy";
+  if (domain.endpoint_tests?.fallback?.status === "healthy" && domain.endpoint_tests?.primary?.status !== "error") return "Healthy";
   if (!domain.settings.is_enabled || domain.mode === "disabled") return "Not checked";
   if (domain.stale_status === "missing") return "Missing";
   if (domain.stale_status === "stale") return "Stale";
@@ -295,6 +311,15 @@ function isInvalidSavedValue(allowed: string[] | undefined, current: string | nu
   return Boolean(allowed?.length && saved && !allowed.includes(saved));
 }
 
+function providerSupportsEndpointUrl(provider?: string | null) {
+  return Boolean(provider && !["none", "disabled", "walnut_cache", "internal_computed", "walnut_official"].includes(provider));
+}
+
+function endpointValue(domain: AdminDataSourceDomain, role: "primary" | "fallback") {
+  if (role === "primary") return domain.settings.primary_endpoint_url ?? domain.endpoint_urls?.primary ?? "";
+  return domain.settings.fallback_endpoint_url ?? domain.endpoint_urls?.fallback ?? "";
+}
+
 export function DataSourcesReport() {
   const [data, setData] = useState<AdminDataSourcesStatusResponse | null>(null);
   const [filter, setFilter] = useState("All");
@@ -347,6 +372,22 @@ export function DataSourcesReport() {
       setStatus(`${domain.data_domain} queued as ${result.job?.job_type ?? "job"}.`);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Unable to queue data source run.");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const testDomain = async (domain: AdminDataSourceDomain) => {
+    setBusyKey(domain.domain_key);
+    setStatus(null);
+    try {
+      const result = await testAdminDataSourceEndpoint(domain.domain_key, { symbol: "AAPL", reason: "admin_data_sources_ui" });
+      await refresh();
+      const primary = result.results.primary?.status ?? "skipped";
+      const fallback = result.results.fallback?.status ?? "skipped";
+      setStatus(`${domain.data_domain} endpoint test complete. Primary: ${primary}. Fallback: ${fallback}.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Unable to test endpoint.");
     } finally {
       setBusyKey(null);
     }
@@ -454,6 +495,7 @@ export function DataSourcesReport() {
                 busy={busyKey === domain.domain_key}
                 updateDomain={updateDomain}
                 runDomain={runDomain}
+                testDomain={testDomain}
                 clearFilter={() => setFilter("All")}
               />
             )) : (
@@ -669,6 +711,7 @@ function DataSourceRow({
   busy,
   updateDomain,
   runDomain,
+  testDomain,
   clearFilter,
 }: {
   domain: AdminDataSourceDomain;
@@ -677,6 +720,7 @@ function DataSourceRow({
   busy: boolean;
   updateDomain: (domain: AdminDataSourceDomain, patch: Record<string, unknown>) => Promise<void>;
   runDomain: (domain: AdminDataSourceDomain, mode?: string) => Promise<void>;
+  testDomain: (domain: AdminDataSourceDomain) => Promise<void>;
   clearFilter: () => void;
 }) {
   const issue = issueMeta(domain.last_error);
@@ -694,6 +738,25 @@ function DataSourceRow({
   const isCongressOfficialSource = isCongressOfficialSourceDomain(domain);
   const isCongressShadowRow = isCongressOfficialSource && domain.settings.mode === "shadow";
   const isConfiguredButEmpty = isCongressShadowRow && typeof domain.row_count === "number" && domain.row_count === 0;
+  const primaryEndpointSupported = domain.provider_endpoint_support?.primary ?? providerSupportsEndpointUrl(domain.active_provider);
+  const fallbackEndpointSupported = domain.provider_endpoint_support?.fallback ?? providerSupportsEndpointUrl(domain.fallback_provider);
+  const [primaryEndpoint, setPrimaryEndpoint] = useState(endpointValue(domain, "primary"));
+  const [fallbackEndpoint, setFallbackEndpoint] = useState(endpointValue(domain, "fallback"));
+
+  useEffect(() => {
+    setPrimaryEndpoint(endpointValue(domain, "primary"));
+    setFallbackEndpoint(endpointValue(domain, "fallback"));
+  }, [domain.domain_key, domain.settings.primary_endpoint_url, domain.settings.fallback_endpoint_url, domain.endpoint_urls?.primary, domain.endpoint_urls?.fallback]);
+
+  const endpointsDirty =
+    primaryEndpoint !== endpointValue(domain, "primary") ||
+    fallbackEndpoint !== endpointValue(domain, "fallback");
+
+  const saveEndpoints = () =>
+    updateDomain(domain, {
+      primary_endpoint_url: primaryEndpointSupported ? primaryEndpoint.trim() || null : null,
+      fallback_endpoint_url: fallbackEndpointSupported ? fallbackEndpoint.trim() || null : null,
+    });
 
   return (
     <tr className="bg-slate-950/30 align-top text-slate-300">
@@ -816,6 +879,38 @@ function DataSourceRow({
               <span className="break-words">{endpoint}</span>
             </div>
           ))}
+          <EndpointEditor
+            id={`${domain.domain_key}-primary-endpoint`}
+            label="Primary endpoint"
+            provider={domain.active_provider}
+            supported={primaryEndpointSupported}
+            value={primaryEndpoint}
+            defaultValue={domain.default_primary_endpoint_url}
+            busy={busy}
+            onChange={setPrimaryEndpoint}
+            test={domain.endpoint_tests?.primary}
+          />
+          <EndpointEditor
+            id={`${domain.domain_key}-fallback-endpoint`}
+            label="Fallback endpoint"
+            provider={domain.fallback_provider ?? "none"}
+            supported={fallbackEndpointSupported}
+            value={fallbackEndpoint}
+            defaultValue={domain.default_fallback_endpoint_url}
+            busy={busy}
+            onChange={setFallbackEndpoint}
+            test={domain.endpoint_tests?.fallback}
+          />
+          {primaryEndpointSupported || fallbackEndpointSupported ? (
+            <button
+              type="button"
+              disabled={busy || !endpointsDirty}
+              onClick={saveEndpoints}
+              className="rounded-md border border-white/10 px-2 py-1.5 text-xs font-semibold text-slate-200 disabled:opacity-50"
+            >
+              Save endpoints
+            </button>
+          ) : null}
           {issue ? (
             <div className="rounded-md border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[11px] leading-4 text-amber-100">
               Domain check issue: {issue.label}. Check the endpoint/job above before treating the whole domain as unavailable.
@@ -857,6 +952,16 @@ function DataSourceRow({
               className="rounded-md border border-emerald-300/30 px-2 py-1.5 text-xs font-semibold text-emerald-100"
             >
               Refresh cache
+            </button>
+          ) : null}
+          {domain.admin_actions.can_test_endpoint ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => testDomain(domain)}
+              className="rounded-md border border-amber-300/30 px-2 py-1.5 text-xs font-semibold text-amber-100"
+            >
+              Test endpoint
             </button>
           ) : null}
           <button
@@ -919,6 +1024,54 @@ function ProviderDisplay({ provider, labels, helper }: { provider: string; label
       <code className="mt-0.5 block text-[11px] text-slate-500">{provider}</code>
       {helper ? <p className="mt-1 max-w-44 text-[11px] leading-4 text-slate-500">{helper}</p> : null}
     </div>
+  );
+}
+
+function EndpointEditor({
+  id,
+  label,
+  provider,
+  supported,
+  value,
+  defaultValue,
+  busy,
+  onChange,
+  test,
+}: {
+  id: string;
+  label: string;
+  provider: string;
+  supported: boolean;
+  value: string;
+  defaultValue?: string | null;
+  busy: boolean;
+  onChange: (value: string) => void;
+  test?: AdminDataSourceEndpointTest | null;
+}) {
+  if (!supported) {
+    return (
+      <div className="rounded-md border border-white/10 bg-slate-950/40 px-2 py-1.5 text-[11px] leading-4 text-slate-500">
+        {label}: {friendlyLabel(provider)} uses no endpoint URL.
+      </div>
+    );
+  }
+  return (
+    <label htmlFor={id} className="block rounded-md border border-white/10 bg-slate-950/40 p-2">
+      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase text-slate-500">
+        <span>{label}</span>
+        {test ? <Badge label={test.status === "healthy" ? "Test healthy" : test.status === "error" ? "Test error" : titleLabel(test.status)} title={test.error ?? undefined} /> : <Badge label="Not tested" />}
+      </span>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        disabled={busy}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={defaultValue ?? "https://financialmodelingprep.com/stable/..."}
+        className="mt-1 w-full rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 disabled:opacity-60"
+      />
+      {test?.tested_at ? <span className="mt-1 block text-[10px] text-slate-500">Tested {formatDate(test.tested_at)}</span> : null}
+    </label>
   );
 }
 

@@ -40,7 +40,15 @@ from app.services.provider_registry import (
     PROVIDER_LABELS,
     provider_help_for,
     provider_labels_for,
+    provider_uses_endpoint_url,
     provider_validation_warnings,
+)
+from app.services.provider_endpoints import (
+    configured_endpoint_url,
+    endpoint_display_name,
+    endpoint_test_category,
+    endpoint_urls_for_setting,
+    test_fmp_endpoint,
 )
 
 
@@ -100,18 +108,54 @@ def _call_count_24h(db: Session, provider: str) -> int | None:
     )
 
 
-def _provider_error(db: Session, provider: str) -> str | None:
+def _latest_endpoint_test(db: Session, domain_key: str, role: str) -> ProviderUsageEvent | None:
     try:
-        row = db.execute(
+        return db.execute(
             select(ProviderUsageEvent)
-            .where(ProviderUsageEvent.provider == provider)
-            .where(ProviderUsageEvent.error.is_not(None))
+            .where(ProviderUsageEvent.category == endpoint_test_category(domain_key, role))
             .order_by(ProviderUsageEvent.created_at.desc(), ProviderUsageEvent.id.desc())
             .limit(1)
         ).scalar_one_or_none()
     except SQLAlchemyError:
         return None
-    return row.error if row else None
+
+
+def _endpoint_test_payload(row: ProviderUsageEvent | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "status": "healthy" if row.success else "error",
+        "status_code": row.status_code,
+        "error": row.error,
+        "endpoint": row.endpoint,
+        "tested_at": _iso(row.created_at),
+    }
+
+
+def _endpoint_tests(db: Session, domain_key: str) -> dict[str, dict[str, Any] | None]:
+    return {
+        "primary": _endpoint_test_payload(_latest_endpoint_test(db, domain_key, "primary")),
+        "fallback": _endpoint_test_payload(_latest_endpoint_test(db, domain_key, "fallback")),
+    }
+
+
+def _endpoint_test_error(tests: dict[str, dict[str, Any] | None]) -> str | None:
+    primary = tests.get("primary")
+    if primary and primary.get("status") == "error":
+        return str(primary.get("error") or "unknown_error")
+    fallback = tests.get("fallback")
+    if fallback and fallback.get("status") == "error":
+        return str(fallback.get("error") or "unknown_error")
+    return None
+
+
+def _endpoint_tested_at(tests: dict[str, dict[str, Any] | None]) -> str | None:
+    values = [
+        test.get("tested_at")
+        for test in tests.values()
+        if test and test.get("tested_at")
+    ]
+    return max(values) if values else None
 
 
 def _freshness(value: datetime | None, *, stale_after_hours: int = 24) -> str:
@@ -299,7 +343,20 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
         setting_payload = provider_setting_payload(setting)
         validation_warnings = provider_validation_warnings(domain_key, setting_payload)
         cache_table, row_count, last_refresh, queue_depth = _cache_metrics(db, domain_key)
-        last_error = _provider_error(db, setting.active_provider)
+        endpoint_tests = _endpoint_tests(db, domain_key)
+        last_error = _endpoint_test_error(endpoint_tests)
+        endpoint_urls = endpoint_urls_for_setting(setting, default)
+        endpoint_names = [
+            name
+            for name in (
+                endpoint_display_name(endpoint_urls["primary"]),
+                endpoint_display_name(endpoint_urls["fallback"]),
+                *default.endpoint_names,
+            )
+            if name
+        ]
+        endpoint_names = list(dict.fromkeys(endpoint_names))
+        last_tested_at = _endpoint_tested_at(endpoint_tests)
         stale_status = _freshness(last_refresh, stale_after_hours=4 if domain_key.startswith("insights_") else 24)
         builder_safe_status = _builder_safe_status(default.builder_safe_status, setting_payload, default.source_type)
         rows.append(
@@ -311,9 +368,14 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                 "source_type": default.source_type,
                 "mode": setting.mode if setting.is_enabled else "disabled",
                 "builder_safe_status": builder_safe_status,
-                "endpoint_names": list(default.endpoint_names),
+                "endpoint_names": endpoint_names,
+                "endpoint_urls": endpoint_urls,
+                "default_primary_endpoint_url": default.primary_endpoint_url,
+                "default_fallback_endpoint_url": default.fallback_endpoint_url,
+                "endpoint_tests": endpoint_tests,
+                "last_endpoint_tested_at": last_tested_at,
                 "last_successful_refresh": _iso(last_refresh),
-                "last_attempted_refresh": _iso(last_refresh),
+                "last_attempted_refresh": last_tested_at or _iso(last_refresh),
                 "stale_status": stale_status,
                 "cache_table": cache_table or default.cache_table,
                 "row_count": row_count,
@@ -333,6 +395,10 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                     tuple(dict.fromkeys((*default.allowed_providers, *default.allowed_fallbacks, setting.active_provider, setting.fallback_provider or "none")))
                 ),
                 "provider_help_text": provider_help_for(tuple(dict.fromkeys((*default.allowed_providers, *default.allowed_fallbacks)))),
+                "provider_endpoint_support": {
+                    "primary": provider_uses_endpoint_url(setting.active_provider),
+                    "fallback": provider_uses_endpoint_url(setting.fallback_provider),
+                },
                 "domain_help_text": default.domain_help_text,
                 "validation_warnings": validation_warnings,
                 "can_save": not validation_warnings,
@@ -340,6 +406,7 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                     "can_run_dry_run": domain_key in {"congress_trades", "house_disclosures", "senate_disclosures", "insider_trades", "insights_macro", "insights_treasury"},
                     "can_refresh_cache": domain_key in {"prices_eod", "fundamentals", "profiles", "insights_macro", "insights_treasury"},
                     "can_view_diagnostics": True,
+                    "can_test_endpoint": provider_uses_endpoint_url(setting.active_provider) or provider_uses_endpoint_url(setting.fallback_provider),
                 },
                 "notes": setting.notes or default.notes,
             }
@@ -536,6 +603,63 @@ def build_data_sources_status(db: Session) -> dict[str, Any]:
             "Provider switches affect future ingest jobs only; existing Walnut records remain stored.",
             "Historical backfills and public-feed promotion require separate admin actions.",
         ],
+    }
+
+
+def test_data_source_endpoint(
+    db: Session,
+    *,
+    domain_key: str,
+    symbol: str,
+    requested_by: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    catalog = provider_domain_catalog()
+    if domain_key not in catalog:
+        raise KeyError(domain_key)
+    setting = get_provider_settings_by_domain(db)[domain_key]
+    default = catalog[domain_key]
+    normalized_symbol = (symbol or "AAPL").strip().upper() or "AAPL"
+    results: dict[str, Any] = {}
+    for role, provider in (("primary", setting.active_provider), ("fallback", setting.fallback_provider)):
+        if provider is None or provider in {"none", "disabled", "walnut_cache", "internal_computed", "walnut_official"}:
+            results[role] = {
+                "status": "skipped",
+                "provider": provider or "none",
+                "error": None,
+                "endpoint": None,
+                "tested_at": datetime.now(timezone.utc).isoformat(),
+            }
+            continue
+        endpoint_url = configured_endpoint_url(setting, default, role)
+        if provider != "fmp":
+            results[role] = {
+                "status": "skipped",
+                "provider": provider,
+                "error": "endpoint_test_not_supported",
+                "endpoint": endpoint_display_name(endpoint_url),
+                "tested_at": datetime.now(timezone.utc).isoformat(),
+            }
+            continue
+        if not endpoint_url:
+            raise ValueError(f"{role.title()} FMP endpoint URL is not configured for {default.label}.")
+        result = test_fmp_endpoint(
+            db,
+            domain_key=domain_key,
+            role=role,
+            endpoint_url=endpoint_url,
+            symbol=normalized_symbol,
+            requested_by=requested_by,
+        )
+        result["provider"] = provider
+        result["endpoint_url"] = endpoint_url
+        results[role] = result
+    return {
+        "status": "tested",
+        "domain_key": domain_key,
+        "symbol": normalized_symbol,
+        "reason": reason,
+        "results": results,
     }
 
 

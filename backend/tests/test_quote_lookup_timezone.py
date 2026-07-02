@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.db import Base, ensure_provider_control_schema
 import app.services.quote_lookup as quote_lookup
 
 
@@ -25,6 +29,14 @@ def _quote_meta_for_cached_asof(monkeypatch, asof_ts):
         ["AAPL"],
         allow_cache_write=False,
     )
+
+
+def _db():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, future=True)
+    Base.metadata.create_all(engine)
+    ensure_provider_control_schema(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    return Session()
 
 
 def test_quote_cache_freshness_accepts_naive_cached_timestamp(monkeypatch):
@@ -68,3 +80,34 @@ def test_quote_cache_freshness_ignores_none_timestamp_without_type_error(monkeyp
     meta = _quote_meta_for_cached_asof(monkeypatch, None)
 
     assert meta == {}
+
+
+def test_quote_lookup_uses_configured_historical_eod_endpoint_before_quote_short(monkeypatch):
+    _reset_quote_lookup_state()
+    db = _db()
+    calls: list[tuple[str, dict]] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"date": "2026-07-01", "close": 213.5}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append((url, dict(params or {})))
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    try:
+        meta = quote_lookup.get_current_prices_meta_db(db, ["AAPL"], allow_cache_write=False)
+    finally:
+        db.close()
+
+    assert meta["AAPL"]["price"] == 213.5
+    assert calls
+    assert calls[0][0].endswith("/stable/historical-price-eod/light")
+    assert calls[0][1]["symbol"] == "AAPL"
+    assert all(not call[0].endswith("/stable/quote-short") for call in calls)

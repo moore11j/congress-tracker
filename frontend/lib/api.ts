@@ -1525,6 +1525,8 @@ export type AdminProviderSetting = {
   domain_key: string;
   active_provider: string;
   fallback_provider?: string | null;
+  primary_endpoint_url?: string | null;
+  fallback_endpoint_url?: string | null;
   mode: string;
   is_enabled: boolean;
   allow_external_live_fetch: boolean;
@@ -1533,6 +1535,16 @@ export type AdminProviderSetting = {
   notes?: string | null;
   updated_by?: string | null;
   updated_at?: string | null;
+};
+
+export type AdminDataSourceEndpointTest = {
+  status: "healthy" | "error" | "skipped" | string;
+  status_code?: string | number | null;
+  error?: string | null;
+  endpoint?: string | null;
+  endpoint_url?: string | null;
+  provider?: string | null;
+  tested_at?: string | null;
 };
 
 export type AdminDataSourceDomain = {
@@ -1544,6 +1556,17 @@ export type AdminDataSourceDomain = {
   mode: string;
   builder_safe_status: "safe" | "warning" | "unsafe" | string;
   endpoint_names: string[];
+  endpoint_urls?: {
+    primary?: string | null;
+    fallback?: string | null;
+  };
+  default_primary_endpoint_url?: string | null;
+  default_fallback_endpoint_url?: string | null;
+  endpoint_tests?: {
+    primary?: AdminDataSourceEndpointTest | null;
+    fallback?: AdminDataSourceEndpointTest | null;
+  };
+  last_endpoint_tested_at?: string | null;
   last_successful_refresh?: string | null;
   last_attempted_refresh?: string | null;
   stale_status: "fresh" | "stale" | "missing" | string;
@@ -1563,6 +1586,10 @@ export type AdminDataSourceDomain = {
   default_mode?: string;
   provider_labels?: Record<string, string>;
   provider_help_text?: Record<string, string>;
+  provider_endpoint_support?: {
+    primary?: boolean;
+    fallback?: boolean;
+  };
   domain_help_text?: string | null;
   validation_warnings?: string[];
   can_save?: boolean;
@@ -1570,6 +1597,7 @@ export type AdminDataSourceDomain = {
     can_run_dry_run: boolean;
     can_refresh_cache: boolean;
     can_view_diagnostics: boolean;
+    can_test_endpoint?: boolean;
   };
   notes?: string | null;
 };
@@ -1600,6 +1628,8 @@ export type AdminDataSourcesStatusResponse = {
 export type AdminDataSourceSettingPatch = Partial<{
   active_provider: string | null;
   fallback_provider: string | null;
+  primary_endpoint_url: string | null;
+  fallback_endpoint_url: string | null;
   mode: string;
   is_enabled: boolean;
   allow_external_live_fetch: boolean;
@@ -1608,6 +1638,17 @@ export type AdminDataSourceSettingPatch = Partial<{
   notes: string | null;
   reason: string | null;
 }>;
+
+export type AdminDataSourceEndpointTestResponse = {
+  status: string;
+  domain_key: string;
+  symbol: string;
+  reason?: string | null;
+  results: {
+    primary?: AdminDataSourceEndpointTest;
+    fallback?: AdminDataSourceEndpointTest;
+  };
+};
 
 export type AdminDataSourceRunResponse = {
   status: string;
@@ -2339,6 +2380,21 @@ export async function runAdminDataSource(
 ): Promise<AdminDataSourceRunResponse> {
   return fetchJson<AdminDataSourceRunResponse>(
     buildApiUrl(`/api/admin/data-sources/run/${encodeURIComponent(domainKey)}`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      source: "AdminDataSources",
+    },
+  );
+}
+
+export async function testAdminDataSourceEndpoint(
+  domainKey: string,
+  payload: { symbol?: string; reason?: string | null } = {},
+): Promise<AdminDataSourceEndpointTestResponse> {
+  return fetchJson<AdminDataSourceEndpointTestResponse>(
+    buildApiUrl(`/api/admin/data-sources/test/${encodeURIComponent(domainKey)}`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

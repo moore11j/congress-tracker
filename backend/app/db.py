@@ -874,6 +874,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
                     domain_key TEXT NOT NULL,
                     active_provider TEXT NOT NULL,
                     fallback_provider TEXT,
+                    primary_endpoint_url TEXT,
+                    fallback_endpoint_url TEXT,
                     mode TEXT NOT NULL DEFAULT 'primary',
                     is_enabled {bool_type} NOT NULL DEFAULT {default_true},
                     allow_external_live_fetch {bool_type} NOT NULL DEFAULT {default_false},
@@ -1071,6 +1073,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
             table_columns = {
                 "provider_settings": {
                     "fallback_provider": "TEXT",
+                    "primary_endpoint_url": "TEXT",
+                    "fallback_endpoint_url": "TEXT",
                     "mode": "TEXT NOT NULL DEFAULT 'primary'",
                     "is_enabled": "BOOLEAN NOT NULL DEFAULT true",
                     "allow_external_live_fetch": "BOOLEAN NOT NULL DEFAULT false",
@@ -1112,6 +1116,22 @@ def ensure_provider_control_schema(bind=engine) -> None:
                     if column not in existing_columns.get(table_name, set()):
                         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column} {spec}"))
         else:
+            provider_settings_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='provider_settings'")
+            ).fetchone()
+            if provider_settings_exists:
+                provider_existing = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(provider_settings)")).fetchall()
+                    if len(row) > 1
+                }
+                for name, column_type in {
+                    "primary_endpoint_url": "TEXT",
+                    "fallback_endpoint_url": "TEXT",
+                }.items():
+                    if name not in provider_existing:
+                        conn.execute(text(f"ALTER TABLE provider_settings ADD COLUMN {name} {column_type}"))
+
             table_exists = conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
             ).fetchone()

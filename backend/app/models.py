@@ -1631,6 +1631,8 @@ class ProviderSetting(Base):
     domain_key: Mapped[str] = mapped_column(Text, nullable=False)
     active_provider: Mapped[str] = mapped_column(Text, nullable=False)
     fallback_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    primary_endpoint_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fallback_endpoint_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mode: Mapped[str] = mapped_column(Text, default="primary", server_default="primary", nullable=False)
     is_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
     allow_external_live_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)

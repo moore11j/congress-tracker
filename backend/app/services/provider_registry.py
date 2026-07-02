@@ -20,6 +20,8 @@ ALLOWED_PROVIDERS = (
     "none",
 )
 
+FMP_STABLE_BASE_URL = "https://financialmodelingprep.com/stable"
+
 PROVIDER_LABELS = {
     "fmp": "FMP",
     "fred": "FRED",
@@ -51,6 +53,22 @@ PROVIDER_HELP_TEXT = {
     "none": "No fallback provider.",
 }
 
+ENDPOINT_URL_PROVIDERS = {
+    "fmp",
+    "fred",
+    "treasury_gov",
+    "sec_edgar",
+    "official_house",
+    "official_senate",
+    "manual_admin",
+    "manual_admin_override",
+    "future_vendor_fallback",
+}
+
+
+def provider_uses_endpoint_url(provider: str | None) -> bool:
+    return bool(provider and provider in ENDPOINT_URL_PROVIDERS)
+
 
 @dataclass(frozen=True)
 class ProviderDomainDefault:
@@ -63,6 +81,8 @@ class ProviderDomainDefault:
     builder_safe_status: str
     endpoint_names: tuple[str, ...]
     cache_table: str | None = None
+    primary_endpoint_url: str | None = None
+    fallback_endpoint_url: str | None = None
     is_enabled: bool = True
     allow_external_live_fetch: bool = False
     allow_user_route_sync_fetch: bool = False
@@ -102,6 +122,8 @@ def _domain(
     endpoint_names: tuple[str, ...],
     cache_table: str | None = None,
     *,
+    primary_endpoint_url: str | None = None,
+    fallback_endpoint_url: str | None = None,
     allowed_providers: tuple[str, ...],
     allowed_fallbacks: tuple[str, ...],
     allowed_modes: tuple[str, ...],
@@ -111,6 +133,7 @@ def _domain(
     allow_external_live_fetch: bool = False,
     allow_user_route_sync_fetch: bool = False,
     builder_safe_required: bool = True,
+    allow_same_provider_fallback: bool = False,
 ) -> ProviderDomainDefault:
     return ProviderDomainDefault(
         domain_key=domain_key,
@@ -122,6 +145,8 @@ def _domain(
         builder_safe_status=builder_safe_status,
         endpoint_names=endpoint_names,
         cache_table=cache_table,
+        primary_endpoint_url=primary_endpoint_url,
+        fallback_endpoint_url=fallback_endpoint_url,
         is_enabled=is_enabled,
         allow_external_live_fetch=allow_external_live_fetch,
         allow_user_route_sync_fetch=allow_user_route_sync_fetch,
@@ -131,20 +156,21 @@ def _domain(
         allowed_fallbacks=allowed_fallbacks,
         allowed_modes=allowed_modes,
         domain_help_text=domain_help_text or notes,
+        allow_same_provider_fallback=allow_same_provider_fallback,
     )
 
 
 PROVIDER_DOMAIN_DEFAULTS: tuple[ProviderDomainDefault, ...] = (
-    _domain("prices_eod", "EOD equity prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("price:eod", "data_enrichment_jobs:price"), "price_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES, notes="Licensed market data provider with cache-first reads."),
-    _domain("prices_historical", "historical prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:price-history", "ticker:chart-bundle"), "price_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
-    _domain("prices_intraday", "current quote / delayed quote", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:quote-snapshot", "quote"), "quotes_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES, notes="Delayed/intraday quote endpoints may carry add-on or entitlement risk."),
-    _domain("fundamentals", "fundamentals", "fmp", "walnut_cache", "primary", "external API", "warning", ("ticker:financials", "fundamentals_cache"), "fundamentals_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
-    _domain("ratios", "ratios / key metrics", "fmp", "walnut_cache", "primary", "external API", "warning", ("ratios-ttm", "key-metrics-ttm"), "ticker_financials_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("prices_eod", "EOD equity prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("historical-price-eod/light", "data_enrichment_jobs:price"), "price_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/historical-price-eod/light?symbol={{symbol}}", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES, notes="Licensed market data provider with cache-first reads."),
+    _domain("prices_historical", "historical prices", "fmp", "walnut_cache", "primary", "external API", "warning", ("historical-price-eod/full", "ticker:chart-bundle"), "price_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/historical-price-eod/full?symbol={{symbol}}", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("prices_intraday", "current quote / delayed quote", "fmp", "fmp", "primary", "external API", "warning", ("historical-price-eod/light", "quote-short"), "quotes_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/historical-price-eod/light?symbol={{symbol}}", fallback_endpoint_url=f"{FMP_STABLE_BASE_URL}/quote-short?symbol={{symbol}}", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES, notes="Primary avoids revoked quote entitlements by using historical EOD light; quote/quote-short can remain a secondary FMP endpoint if entitlement returns.", allow_same_provider_fallback=True),
+    _domain("fundamentals", "fundamentals", "fmp", "walnut_cache", "primary", "external API", "warning", ("income-statement", "balance-sheet-statement", "cash-flow-statement"), "fundamentals_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/income-statement?symbol={{symbol}}&period=annual&page=0&limit=1", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("ratios", "ratios / key metrics", "fmp", "walnut_cache", "primary", "external API", "warning", ("ratios-ttm", "key-metrics-ttm"), "ticker_financials_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/ratios-ttm?symbol={{symbol}}", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
     _domain("technicals", "technical indicators", "walnut_cache", "fmp", "primary", "local cache", "safe", ("technical_indicators",), "price_cache", allowed_providers=CACHE_FMP_PROVIDERS, allowed_fallbacks=CACHE_FMP_FALLBACKS, allowed_modes=MARKET_MODES, notes="Technicals can be computed locally from cached prices, so Local Walnut Cache is preferred."),
-    _domain("profiles", "company profile / ticker metadata", "fmp", "walnut_cache", "primary", "external API", "warning", ("profile", "ticker_meta"), "ticker_meta", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
-    _domain("earnings", "earnings calendar", "fmp", "walnut_cache", "primary", "external API", "warning", ("earnings-calendar",), "ticker_content_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
-    _domain("analyst_estimates", "analyst estimates", "fmp", "walnut_cache", "primary", "external API", "warning", ("analyst-estimates",), "ticker_content_cache", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
-    _domain("institutional_13f", "institutional ownership / 13F", "fmp", "walnut_cache", "primary", "external API", "warning", ("institutional-buys",), "institutional_transactions", allowed_providers=("fmp", "walnut_cache", "sec_edgar", "disabled"), allowed_fallbacks=("walnut_cache", "fmp", "sec_edgar", "none"), allowed_modes=MARKET_MODES, notes="SEC may be a future/partial raw source; FMP may remain the normalized source."),
+    _domain("profiles", "company profile / ticker metadata", "fmp", "walnut_cache", "primary", "external API", "warning", ("profile", "ticker_meta"), "ticker_meta", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/profile?symbol={{symbol}}", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("earnings", "earnings calendar", "fmp", "walnut_cache", "primary", "external API", "warning", ("earnings-calendar",), "ticker_content_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/earnings-calendar?symbol={{symbol}}&page=0&limit=8", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("analyst_estimates", "analyst estimates", "fmp", "walnut_cache", "primary", "external API", "warning", ("analyst-estimates",), "ticker_content_cache", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/analyst-estimates?symbol={{symbol}}&period=annual&page=0&limit=2", allowed_providers=MARKET_PROVIDERS, allowed_fallbacks=MARKET_FALLBACKS, allowed_modes=MARKET_MODES),
+    _domain("institutional_13f", "institutional ownership / 13F", "fmp", "walnut_cache", "primary", "external API", "warning", ("institutional-ownership/latest",), "institutional_transactions", primary_endpoint_url=f"{FMP_STABLE_BASE_URL}/institutional-ownership/latest?page=0&limit=1", allowed_providers=("fmp", "walnut_cache", "sec_edgar", "disabled"), allowed_fallbacks=("walnut_cache", "fmp", "sec_edgar", "none"), allowed_modes=MARKET_MODES, notes="SEC may be a future/partial raw source; FMP may remain the normalized source."),
     _domain("congress_trades", "Congress trades", "walnut_official", "fmp", "shadow", "public official source", "safe", ("official_congress_ingest", "run_recent_congress_ingest"), "congress_transactions_normalized", allowed_providers=("walnut_official", "fmp", "walnut_cache", "disabled"), allowed_fallbacks=("fmp", "walnut_cache", "none"), allowed_modes=OFFICIAL_MODES, notes="Official-source pipeline is shadow-only until validated against current events."),
     _domain("insider_trades", "insider trades / Form 4", "sec_edgar", "fmp", "shadow", "public official source", "safe", ("sec_form4_ingest", "ingest_insider_trades"), "insider_transactions_normalized", allowed_providers=("sec_edgar", "fmp", "walnut_cache", "disabled"), allowed_fallbacks=("fmp", "walnut_cache", "none"), allowed_modes=OFFICIAL_MODES, notes="SEC EDGAR parser is shadow-only until validation."),
     _domain("form4_filings", "SEC Form 4 filings", "sec_edgar", "walnut_cache", "shadow", "public official source", "safe", ("sec_form4_ingest",), "sec_form4_filings", allowed_providers=("sec_edgar", "walnut_cache", "disabled"), allowed_fallbacks=("walnut_cache", "none"), allowed_modes=OFFICIAL_MODES, notes="Raw SEC Form 4 discovery/parsing stays staged until explicitly promoted elsewhere."),

@@ -256,6 +256,8 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
                     }
                 ],
             )
+        if url.endswith("/stable/historical-price-eod/light"):
+            return _FakeResponse(200, [{"date": "2026-06-30", "close": 170.0}])
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 170.0}])
         if url.endswith("/stable/ratios"):
@@ -393,6 +395,8 @@ def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(m
             return _FakeResponse(200, [])
         if url.endswith("/stable/analyst-estimates"):
             return _FakeResponse(402, {"message": "Restricted Endpoint"})
+        if url.endswith("/stable/historical-price-eod/light"):
+            return _FakeResponse(200, [{"date": "2026-06-30", "close": 80.0}])
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 80.0}])
         if url.endswith("/stable/ratios"):
@@ -454,6 +458,8 @@ def test_ticker_financials_public_endpoint_reads_prewarmed_db_cache(monkeypatch)
             return _FakeResponse(200, [{"date": "2026-03-31", "period": "Q1", "revenue": 12, "netIncome": 3, "eps": 0.2}])
         if url.endswith("/stable/analyst-estimates"):
             return _FakeResponse(402, {"message": "Restricted Endpoint"})
+        if url.endswith("/stable/historical-price-eod/light"):
+            return _FakeResponse(200, [{"date": "2026-06-30", "close": 80.0}])
         if url.endswith("/stable/quote"):
             return _FakeResponse(200, [{"price": 80.0}])
         if url.endswith("/stable/ratios"):

@@ -988,7 +988,7 @@ def _fetch_financial_sections(normalized_symbol: str) -> tuple[dict[str, list[di
         "earnings_calendar": ("earnings-calendar", {"page": 0, "limit": 32}),
         "quarterly_estimates": ("analyst-estimates", {"period": "quarter", "page": 0, "limit": 8}),
         "annual_estimates": ("analyst-estimates", {"period": "annual", "page": 0, "limit": 10}),
-        "quote": ("quote", {}),
+        "quote": ("historical-price-eod/light", {}),
         "ratios": ("ratios", {"page": 0, "limit": 10}),
         "ratios_ttm": ("ratios-ttm", {}),
         "key_metrics_ttm": ("key-metrics-ttm", {}),

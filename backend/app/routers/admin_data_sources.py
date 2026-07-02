@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_admin_mutation
-from app.services.data_sources_status import build_data_sources_status, enqueue_admin_data_source_run
+from app.services.data_sources_status import build_data_sources_status, enqueue_admin_data_source_run, test_data_source_endpoint
 from app.services.provider_settings import cleanup_invalid_provider_settings, provider_setting_payload, update_provider_setting
 
 router = APIRouter(tags=["admin-data-sources"])
@@ -18,6 +18,8 @@ router = APIRouter(tags=["admin-data-sources"])
 class ProviderSettingPatchPayload(BaseModel):
     active_provider: str | None = Field(default=None, max_length=80)
     fallback_provider: str | None = Field(default=None, max_length=80)
+    primary_endpoint_url: str | None = Field(default=None, max_length=1000)
+    fallback_endpoint_url: str | None = Field(default=None, max_length=1000)
     mode: str | None = Field(default=None, max_length=40)
     is_enabled: bool | None = None
     allow_external_live_fetch: bool | None = None
@@ -29,6 +31,11 @@ class ProviderSettingPatchPayload(BaseModel):
 
 class DataSourceRunPayload(BaseModel):
     mode: str | None = Field(default="dry_run", max_length=40)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class DataSourceEndpointTestPayload(BaseModel):
+    symbol: str | None = Field(default="AAPL", max_length=32)
     reason: str | None = Field(default=None, max_length=1000)
 
 
@@ -73,6 +80,32 @@ def admin_update_data_source_setting(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return provider_setting_payload(setting)
+
+
+@router.post("/admin/data-sources/test/{domain_key}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_test_data_source_endpoint(
+    domain_key: str,
+    payload: DataSourceEndpointTestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    try:
+        result = test_data_source_endpoint(
+            db,
+            domain_key=domain_key,
+            symbol=(payload.symbol or "AAPL").strip().upper() or "AAPL",
+            requested_by=admin.email,
+            reason=payload.reason,
+        )
+        db.commit()
+    except KeyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Unknown data source domain.") from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @router.post("/admin/data-sources/run/{domain_key}", dependencies=[Depends(rate_limit_admin_mutation)])

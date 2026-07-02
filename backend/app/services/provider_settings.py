@@ -13,6 +13,7 @@ from app.services.provider_registry import (
     PROVIDER_DOMAIN_DEFAULTS,
     ProviderDomainDefault,
     provider_domain_catalog,
+    provider_uses_endpoint_url,
     validate_provider_selection,
 )
 
@@ -20,10 +21,11 @@ PROVIDER_VALIDATION_CLEANUP_REASON = "provider_validation_cleanup"
 
 
 def seed_default_provider_settings(db: Session) -> None:
-    existing = {
-        key
-        for (key,) in db.execute(select(ProviderSetting.domain_key)).all()
+    existing_settings = {
+        row.domain_key: row
+        for row in db.execute(select(ProviderSetting)).scalars().all()
     }
+    existing = set(existing_settings)
     now = datetime.now(timezone.utc)
     for default in PROVIDER_DOMAIN_DEFAULTS:
         if default.domain_key in existing:
@@ -33,6 +35,8 @@ def seed_default_provider_settings(db: Session) -> None:
                 domain_key=default.domain_key,
                 active_provider=default.active_provider,
                 fallback_provider=default.fallback_provider,
+                primary_endpoint_url=default.primary_endpoint_url if provider_uses_endpoint_url(default.active_provider) else None,
+                fallback_endpoint_url=default.fallback_endpoint_url if provider_uses_endpoint_url(default.fallback_provider) else None,
                 mode=default.mode,
                 is_enabled=default.is_enabled,
                 allow_external_live_fetch=default.allow_external_live_fetch,
@@ -44,6 +48,25 @@ def seed_default_provider_settings(db: Session) -> None:
                 updated_at=now,
             )
         )
+    for default in PROVIDER_DOMAIN_DEFAULTS:
+        setting = existing_settings.get(default.domain_key)
+        if setting is None:
+            continue
+        if (
+            default.domain_key == "prices_intraday"
+            and setting.fallback_provider in {None, "walnut_cache"}
+            and setting.updated_by in {None, "system"}
+            and provider_uses_endpoint_url(default.fallback_provider)
+        ):
+            setting.fallback_provider = default.fallback_provider
+        if setting.primary_endpoint_url is None and provider_uses_endpoint_url(setting.active_provider):
+            setting.primary_endpoint_url = default.primary_endpoint_url
+        if setting.fallback_endpoint_url is None and provider_uses_endpoint_url(setting.fallback_provider):
+            setting.fallback_endpoint_url = default.fallback_endpoint_url
+        if not provider_uses_endpoint_url(setting.active_provider):
+            setting.primary_endpoint_url = None
+        if not provider_uses_endpoint_url(setting.fallback_provider):
+            setting.fallback_endpoint_url = None
     db.flush()
 
 
@@ -106,6 +129,8 @@ def provider_setting_payload(setting: ProviderSetting) -> dict[str, Any]:
         "domain_key": setting.domain_key,
         "active_provider": setting.active_provider,
         "fallback_provider": setting.fallback_provider,
+        "primary_endpoint_url": setting.primary_endpoint_url,
+        "fallback_endpoint_url": setting.fallback_endpoint_url,
         "mode": setting.mode,
         "is_enabled": bool(setting.is_enabled),
         "allow_external_live_fetch": bool(setting.allow_external_live_fetch),
@@ -132,6 +157,38 @@ def _validated_provider(value: str | None, *, nullable: bool = False) -> str | N
     return normalized
 
 
+def _validated_endpoint_url(value: str | None, *, nullable: bool = True) -> str | None:
+    if value is None:
+        if nullable:
+            return None
+        raise ValueError("Endpoint URL is required.")
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None if nullable else ""
+    if len(cleaned) > 1000:
+        raise ValueError("Endpoint URL is too long.")
+    lowered = cleaned.lower()
+    if "apikey=" in lowered or "api_key=" in lowered:
+        raise ValueError("Endpoint URL must not include an API key; the server appends FMP_API_KEY.")
+    if any(ch.isspace() for ch in cleaned):
+        raise ValueError("Endpoint URL must not contain whitespace.")
+    if "://" in cleaned and not (lowered.startswith("https://") or lowered.startswith("http://")):
+        raise ValueError("Endpoint URL must be an HTTP(S) URL, a path, or an FMP stable endpoint name.")
+    return cleaned
+
+
+def _sync_endpoint_defaults(setting: ProviderSetting, default: ProviderDomainDefault) -> None:
+    if not provider_uses_endpoint_url(setting.active_provider):
+        setting.primary_endpoint_url = None
+    elif setting.primary_endpoint_url is None:
+        setting.primary_endpoint_url = default.primary_endpoint_url
+
+    if not provider_uses_endpoint_url(setting.fallback_provider):
+        setting.fallback_endpoint_url = None
+    elif setting.fallback_endpoint_url is None:
+        setting.fallback_endpoint_url = default.fallback_endpoint_url
+
+
 def update_provider_setting(
     db: Session,
     *,
@@ -143,6 +200,7 @@ def update_provider_setting(
     catalog = provider_domain_catalog()
     if domain_key not in catalog:
         raise KeyError(domain_key)
+    default = catalog[domain_key]
     settings = get_provider_settings_by_domain(db)
     setting = settings[domain_key]
     previous_provider = setting.active_provider
@@ -152,6 +210,10 @@ def update_provider_setting(
         setting.active_provider = _validated_provider(changes.get("active_provider")) or setting.active_provider
     if "fallback_provider" in changes:
         setting.fallback_provider = _validated_provider(changes.get("fallback_provider"), nullable=True)
+    if "primary_endpoint_url" in changes:
+        setting.primary_endpoint_url = _validated_endpoint_url(changes.get("primary_endpoint_url"))
+    if "fallback_endpoint_url" in changes:
+        setting.fallback_endpoint_url = _validated_endpoint_url(changes.get("fallback_endpoint_url"))
     if "mode" in changes:
         mode = str(changes.get("mode") or "").strip().lower()
         if mode not in ALLOWED_MODES:
@@ -174,6 +236,8 @@ def update_provider_setting(
         setting.is_enabled = False
     if setting.mode == "disabled":
         setting.is_enabled = False
+
+    _sync_endpoint_defaults(setting, default)
 
     validate_provider_selection(
         domain_key,

@@ -181,3 +181,14 @@ test("admin data sources dropdowns use backend domain metadata", () => {
   assert.match(source, /Provider validation warning/);
   assert.match(source, /Choose a valid provider, fallback, and mode before making other changes/);
 });
+
+test("admin data sources lets admins save and manually test provider endpoints", () => {
+  assert.match(source, /testAdminDataSourceEndpoint/);
+  assert.match(source, /primary_endpoint_url/);
+  assert.match(source, /fallback_endpoint_url/);
+  assert.match(source, /endpoint_tests/);
+  assert.match(source, /Save endpoints/);
+  assert.match(source, /Test endpoint/);
+  assert.match(source, /function EndpointEditor/);
+  assert.match(source, /Local Walnut Cache/);
+});

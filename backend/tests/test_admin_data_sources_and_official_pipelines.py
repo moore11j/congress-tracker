@@ -11,12 +11,14 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base, ensure_provider_control_schema
-from app.models import CongressTransactionNormalized, DataEnrichmentJob, Event, ProviderSettingAuditLog, UserAccount
+from app.models import CongressTransactionNormalized, DataEnrichmentJob, Event, ProviderSettingAuditLog, ProviderUsageEvent, UserAccount
 from app.routers.admin_data_sources import (
+    DataSourceEndpointTestPayload,
     DataSourceRunPayload,
     ProviderSettingPatchPayload,
     admin_data_sources_status,
     admin_run_data_source,
+    admin_test_data_source_endpoint,
     admin_update_data_source_setting,
 )
 from app.services.official_congress import (
@@ -67,6 +69,16 @@ def _feed_event(event_type: str, *, source_provider: str, source_filing_id: str)
         source_provider=source_provider,
         source_filing_id=source_filing_id,
     )
+
+
+class _FakeProviderResponse:
+    def __init__(self, status_code: int = 200, payload=None):
+        self.status_code = status_code
+        self._payload = [] if payload is None else payload
+        self.text = json.dumps(self._payload)
+
+    def json(self):
+        return self._payload
 
 
 FORM4_SAMPLE = """<?xml version="1.0"?>
@@ -138,6 +150,10 @@ def test_provider_settings_defaults_and_admin_crud():
         assert settings["congress_trades"].active_provider == "walnut_official"
         assert settings["congress_trades"].fallback_provider == "fmp"
         assert settings["congress_trades"].mode == "shadow"
+        assert settings["prices_intraday"].active_provider == "fmp"
+        assert settings["prices_intraday"].fallback_provider == "fmp"
+        assert settings["prices_intraday"].primary_endpoint_url.endswith("/stable/historical-price-eod/light?symbol={symbol}")
+        assert settings["prices_intraday"].fallback_endpoint_url.endswith("/stable/quote-short?symbol={symbol}")
         assert settings["insider_trades"].active_provider == "sec_edgar"
         assert settings["pnl_enrichment"].active_provider == "internal_computed"
         assert settings["pnl_enrichment"].fallback_provider == "walnut_cache"
@@ -158,6 +174,112 @@ def test_provider_settings_defaults_and_admin_crud():
         assert audit.domain_key == "congress_trades"
         assert audit.previous_provider == "walnut_official"
         assert audit.new_provider == "fmp"
+    finally:
+        db.close()
+
+
+def test_provider_endpoint_urls_are_saved_and_exposed():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        primary_url = "https://financialmodelingprep.com/stable/historical-chart/1min?symbol=AAPL"
+        fallback_url = "https://financialmodelingprep.com/stable/quote-short?symbol=AAPL"
+
+        updated = admin_update_data_source_setting(
+            "prices_intraday",
+            ProviderSettingPatchPayload(
+                active_provider="fmp",
+                fallback_provider="fmp",
+                primary_endpoint_url=primary_url,
+                fallback_endpoint_url=fallback_url,
+                reason="endpoint switch",
+            ),
+            request,
+            db,
+        )
+        assert updated["primary_endpoint_url"] == primary_url
+        assert updated["fallback_endpoint_url"] == fallback_url
+
+        payload = admin_data_sources_status(request, db)
+        row = {item["domain_key"]: item for item in payload["domains"]}["prices_intraday"]
+        assert row["endpoint_urls"]["primary"] == primary_url
+        assert row["endpoint_urls"]["fallback"] == fallback_url
+        assert "historical-chart/1min?symbol=AAPL" in row["endpoint_names"]
+
+        with pytest.raises(HTTPException) as exc:
+            admin_update_data_source_setting(
+                "prices_intraday",
+                ProviderSettingPatchPayload(primary_endpoint_url=f"{primary_url}&apikey=secret", reason="bad secret"),
+                request,
+                db,
+            )
+        assert exc.value.status_code == 400
+        assert "must not include an API key" in str(exc.value.detail)
+    finally:
+        db.close()
+
+
+def test_data_source_status_uses_endpoint_test_errors_not_provider_wide_errors():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add(
+            ProviderUsageEvent(
+                provider="fmp",
+                category="quote",
+                endpoint="quote",
+                success=False,
+                error="provider_disabled",
+            )
+        )
+        db.commit()
+
+        payload = admin_data_sources_status(_request_for_user(admin), db)
+        rows = {row["domain_key"]: row for row in payload["domains"]}
+
+        assert rows["profiles"]["last_error"] is None
+        assert rows["earnings"]["last_error"] is None
+        assert rows["analyst_estimates"]["last_error"] is None
+        assert rows["institutional_13f"]["last_error"] is None
+    finally:
+        db.close()
+
+
+def test_admin_endpoint_test_records_domain_specific_health(monkeypatch):
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        calls: list[tuple[str, dict]] = []
+
+        monkeypatch.setenv("FMP_API_KEY", "secret-key")
+        monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+
+        def fake_get(url, params=None, timeout=10):
+            calls.append((url, dict(params or {})))
+            assert params["apikey"] == "secret-key"
+            assert "secret-key" not in url
+            return _FakeProviderResponse(200, [{"symbol": params.get("symbol", "AAPL"), "price": 190.0}])
+
+        monkeypatch.setattr("app.services.provider_endpoints.requests.get", fake_get)
+
+        result = admin_test_data_source_endpoint(
+            "profiles",
+            DataSourceEndpointTestPayload(symbol="AAPL", reason="health check"),
+            request,
+            db,
+        )
+        assert result["results"]["primary"]["status"] == "healthy"
+        assert result["results"]["fallback"]["status"] == "skipped"
+        assert calls[0][0].endswith("/stable/profile")
+        assert calls[0][1]["symbol"] == "AAPL"
+
+        payload = admin_data_sources_status(request, db)
+        row = {item["domain_key"]: item for item in payload["domains"]}["profiles"]
+        assert row["endpoint_tests"]["primary"]["status"] == "healthy"
+        assert row["last_error"] is None
+        assert "secret-key" not in json.dumps(payload)
     finally:
         db.close()
 

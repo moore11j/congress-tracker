@@ -525,7 +525,7 @@ def _quote_row_has_change(row: dict[str, Any] | None) -> bool:
 
 
 def _request_index_quote(symbol: str, *, debug_label: str | None = None) -> dict[str, Any] | None:
-    for endpoint in ("quote", "quote-short"):
+    for endpoint in ("historical-chart/1min", "historical-price-eod/light", "quote", "quote-short"):
         status: int | str | None = None
         rows: list[dict[str, Any]] = []
         try:
@@ -738,7 +738,7 @@ def _request_quote_rows(symbols: list[str], *, endpoint: str = "batch-quote") ->
 
 
 def _request_single_quote_row(symbol: str) -> dict[str, Any] | None:
-    for endpoint in ("quote", "quote-short"):
+    for endpoint in ("historical-chart/1min", "historical-price-eod/light", "quote", "quote-short"):
         try:
             row = _latest_row(_rows(_request_payload(endpoint, params={"symbol": symbol})))
         except Exception:
