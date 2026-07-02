@@ -5692,11 +5692,12 @@ def list_signal_activity_for_symbol(
     bounded_lookback = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
     bounded_limit = max(1, min(int(limit or 20), 100))
     bounded_offset = max(0, int(offset or 0))
+    query_limit = min(100, bounded_offset + bounded_limit)
     all_items = _query_unified_signals(
         db=db,
         mode="all",
         sort="smart",
-        limit=500,
+        limit=query_limit,
         offset=0,
         baseline_days=365,
         congress_recent_days=bounded_lookback,

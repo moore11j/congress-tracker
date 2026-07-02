@@ -282,10 +282,12 @@ def test_ticker_signals_summary_uses_fixed_30d_signal_window(monkeypatch):
 
     assert captured["symbol"] == "NBIS"
     assert query_calls[0]["limit"] == 3
+    assert query_calls[0]["symbol"] == "NBIS"
     assert query_calls[0]["side"] == "buy"
     assert query_calls[0]["congress_recent_days"] == 30
     assert query_calls[0]["insider_recent_days"] == 30
-    assert query_calls[1]["limit"] == 500
+    assert query_calls[1]["limit"] == 20
+    assert query_calls[1]["symbol"] == "NBIS"
     assert query_calls[1]["side"] == "buy"
     assert query_calls[1]["congress_recent_days"] == 365
     assert query_calls[1]["insider_recent_days"] == 365

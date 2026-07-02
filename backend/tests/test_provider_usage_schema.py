@@ -69,12 +69,13 @@ def test_optional_performance_indexes_index_optional_tables_when_requested():
             ).fetchall()
         }
 
-    assert result["attempted"] == 5
-    assert result["completed"] == 5
+    assert result["attempted"] == 6
+    assert result["completed"] == 6
     assert "ix_members_name_lower" in indexes
     assert "ix_events_member_name_lower" in indexes
     assert "ix_events_symbol_type_effective_ts_id" in indexes
     assert "ix_events_symbol_effective_ts_id" in indexes
+    assert "idx_events_effective_date_id_desc" in indexes
     assert "ix_events_insider_payload_json_trgm" in indexes
 
 
