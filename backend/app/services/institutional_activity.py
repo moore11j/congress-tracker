@@ -223,7 +223,7 @@ def parse_position(row: dict[str, Any]) -> InstitutionalPositionPayload | None:
         issuer_name=_first_text(row, "issuerName", "issuer_name", "nameOfIssuer", "securityName", "companyName"),
         shares=_first_number(row, "shares", "sharesNumber", "sshPrnamt", "shrsOrPrnAmt", "balance"),
         value_usd=_first_number(row, "valueUsd", "value_usd", "marketValue", "market_value", "marketValueUsd", "value"),
-        put_call=_clean_option_side(_first_text(row, "putCall", "put_call", "optionType")),
+        put_call=_clean_option_side(_first_text(row, "putCall", "put_call", "optionType", "putCallShare")),
         investment_discretion=_first_text(row, "investmentDiscretion", "investment_discretion"),
         voting_authority=voting_authority,
         portfolio_weight=_first_number(row, "portfolioWeight", "portfolio_weight", "weight", "weightPct"),
@@ -325,11 +325,23 @@ def upsert_positions_for_filing(
     rows: list[dict[str, Any]],
 ) -> dict[str, int]:
     inserted = updated = skipped = 0
+    payloads_by_key: dict[tuple[str, str, str], InstitutionalPositionPayload] = {}
+    fingerprints_by_key: dict[tuple[str, str, str], set[str]] = {}
     for row in rows:
         payload = parse_position(row)
         if payload is None:
             skipped += 1
             continue
+        key = _position_payload_identity_key(payload)
+        fingerprint = _position_payload_fingerprint(payload)
+        fingerprints = fingerprints_by_key.setdefault(key, set())
+        if fingerprint in fingerprints:
+            continue
+        fingerprints.add(fingerprint)
+        existing_payload = payloads_by_key.get(key)
+        payloads_by_key[key] = _merge_position_payloads(existing_payload, payload) if existing_payload else payload
+
+    for payload in payloads_by_key.values():
         existing = _find_position(db, filing.id, payload.normalized_symbol, payload.cusip, payload.put_call)
         if existing is None:
             existing = InstitutionalPosition(
@@ -1648,6 +1660,84 @@ def _event_amount(activity: InstitutionalActivityEvent) -> int | None:
     if value is None:
         return None
     return int(round(abs(float(value))))
+
+
+def _position_payload_identity_key(payload: InstitutionalPositionPayload) -> tuple[str, str, str]:
+    put_call = payload.put_call or ""
+    if payload.cusip:
+        return ("cusip", payload.cusip, put_call)
+    return ("symbol", payload.normalized_symbol or "", put_call)
+
+
+def _position_payload_fingerprint(payload: InstitutionalPositionPayload) -> str:
+    return json.dumps(
+        {
+            "symbol": payload.symbol,
+            "normalized_symbol": payload.normalized_symbol,
+            "cusip": payload.cusip,
+            "issuer_name": payload.issuer_name,
+            "shares": payload.shares,
+            "value_usd": payload.value_usd,
+            "put_call": payload.put_call,
+            "investment_discretion": payload.investment_discretion,
+            "voting_authority": payload.voting_authority,
+            "portfolio_weight": payload.portfolio_weight,
+            "ownership_pct": payload.ownership_pct,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _sum_optional_numbers(left: float | None, right: float | None) -> float | None:
+    if left is None and right is None:
+        return None
+    return float(left or 0.0) + float(right or 0.0)
+
+
+def _merge_optional_text(left: str | None, right: str | None) -> str | None:
+    if not left:
+        return right
+    if not right or left == right:
+        return left
+    return "mixed"
+
+
+def _merge_voting_authority(left: dict[str, Any] | str | None, right: dict[str, Any] | str | None) -> dict[str, Any] | str | None:
+    if left is None:
+        return right
+    if right is None or left == right:
+        return left
+    components: list[Any] = []
+    if isinstance(left, dict) and isinstance(left.get("components"), list):
+        components.extend(left["components"])
+    else:
+        components.append(left)
+    if isinstance(right, dict) and isinstance(right.get("components"), list):
+        components.extend(right["components"])
+    else:
+        components.append(right)
+    return {"components": components}
+
+
+def _merge_position_payloads(
+    left: InstitutionalPositionPayload,
+    right: InstitutionalPositionPayload,
+) -> InstitutionalPositionPayload:
+    return InstitutionalPositionPayload(
+        symbol=left.symbol or right.symbol,
+        normalized_symbol=left.normalized_symbol or right.normalized_symbol,
+        cusip=left.cusip or right.cusip,
+        issuer_name=left.issuer_name or right.issuer_name,
+        shares=_sum_optional_numbers(left.shares, right.shares),
+        value_usd=_sum_optional_numbers(left.value_usd, right.value_usd),
+        put_call=left.put_call or right.put_call,
+        investment_discretion=_merge_optional_text(left.investment_discretion, right.investment_discretion),
+        voting_authority=_merge_voting_authority(left.voting_authority, right.voting_authority),
+        portfolio_weight=_sum_optional_numbers(left.portfolio_weight, right.portfolio_weight),
+        ownership_pct=_sum_optional_numbers(left.ownership_pct, right.ownership_pct),
+        raw={"components": [left.raw, right.raw]},
+    )
 
 
 def _top_change_rows(changes: list[InstitutionalPositionChange], *, direction: str) -> list[dict[str, Any]]:

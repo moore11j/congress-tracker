@@ -16,6 +16,7 @@ from app.services.institutional_activity import (
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
     parse_latest_filing,
+    parse_position,
     process_filing_changes_and_events,
     upsert_institutional_filing,
     upsert_institutional_holder,
@@ -348,6 +349,191 @@ def test_retryable_13f_hr_sets_processed_when_positions_later_appear(monkeypatch
         assert filing.processed_at is not None
         position = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalar_one()
         assert position.normalized_symbol == "LATE"
+
+
+def _seed_institutional_filing(db: Session, *, cik: str = "0002055065") -> InstitutionalFiling:
+    candidate = parse_latest_filing(
+        _filing_row(
+            cik=cik,
+            filing_date=date(2026, 7, 1),
+            year=2026,
+            quarter=2,
+            holder="NOBLE WEALTH MANAGEMENT PBC",
+        )
+    )
+    assert candidate is not None
+    upsert_institutional_holder(db, candidate)
+    filing, _ = upsert_institutional_filing(db, candidate)
+    db.flush()
+    return filing
+
+
+def test_parse_position_reads_put_call_share_from_extract_payload():
+    payload = parse_position(
+        {
+            "symbol": None,
+            "securityCusip": "67066G104",
+            "nameOfIssuer": "NVIDIA CORPORATION COM",
+            "shares": 1000,
+            "value": 200_090_000,
+            "putCallShare": "PUT",
+        }
+    )
+
+    assert payload is not None
+    assert payload.cusip == "67066G104"
+    assert payload.normalized_symbol is None
+    assert payload.put_call == "put"
+
+
+def test_exact_duplicate_extract_rows_create_one_position_with_autoflush_disabled():
+    engine = _engine()
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        counts = upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": None, "securityCusip": "67066G104", "nameOfIssuer": "NVIDIA CORPORATION COM", "shares": 1000, "value": 200_090_000},
+                {"symbol": None, "securityCusip": "67066G104", "nameOfIssuer": "NVIDIA CORPORATION COM", "shares": 1000, "value": 200_090_000},
+            ],
+        )
+        db.flush()
+
+        positions = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalars().all()
+        assert counts["inserted_positions"] == 1
+        assert len(positions) == 1
+        assert positions[0].cusip == "67066G104"
+        assert positions[0].put_call is None
+        assert positions[0].shares == 1000
+        assert positions[0].value_usd == 200_090_000
+
+
+def test_same_cusip_blank_symbol_and_null_put_call_aggregates_split_rows():
+    engine = _engine()
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": None, "securityCusip": "111111111", "nameOfIssuer": "SPLIT COMMON", "shares": 40, "value": 4000},
+                {"symbol": "", "cusip": "111111111", "issuerName": "SPLIT COMMON", "shares": 60, "marketValue": 6000, "putCallShare": ""},
+            ],
+        )
+        db.flush()
+
+        position = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalar_one()
+        assert position.cusip == "111111111"
+        assert position.normalized_symbol is None
+        assert position.put_call is None
+        assert position.shares == 100
+        assert position.value_usd == 10_000
+
+
+def test_same_cusip_common_put_and_call_rows_remain_distinct_positions():
+    engine = _engine()
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": None, "securityCusip": "770700102", "nameOfIssuer": "ROBINHOOD MKTS INC COM CL A", "shares": 58, "value": 5_816_000, "putCallShare": ""},
+                {"symbol": None, "securityCusip": "770700102", "nameOfIssuer": "ROBINHOOD MKTS INC COM CL A", "shares": 100, "value": 10_028_000, "putCallShare": "CALL"},
+                {"symbol": None, "securityCusip": "770700102", "nameOfIssuer": "ROBINHOOD MKTS INC COM CL A", "shares": 25, "value": 2_500_000, "putCallShare": "PUT"},
+            ],
+        )
+        db.flush()
+
+        positions = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalars().all()
+        by_put_call = {position.put_call or "common": position for position in positions}
+        assert sorted(by_put_call) == ["call", "common", "put"]
+        assert by_put_call["common"].shares == 58
+        assert by_put_call["call"].shares == 100
+        assert by_put_call["put"].shares == 25
+
+
+def test_cusip_present_identity_ignores_missing_or_conflicting_symbol():
+    engine = _engine()
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": "", "securityCusip": "123456789", "nameOfIssuer": "CUSIP FIRST INC", "shares": 10, "value": 1000},
+                {"symbol": "WRONG", "securityCusip": "123456789", "nameOfIssuer": "CUSIP FIRST INC", "shares": 15, "value": 1500},
+            ],
+        )
+        db.flush()
+
+        position = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalar_one()
+        assert position.cusip == "123456789"
+        assert position.shares == 25
+        assert position.value_usd == 2500
+        assert position.normalized_symbol == "WRONG"
+
+
+def test_upsert_positions_for_filing_is_idempotent_for_cusip_put_call_identity():
+    engine = _engine()
+    rows = [
+        {"symbol": None, "securityCusip": "02079K107", "nameOfIssuer": "ALPHABET INC CAP STK CL C", "shares": 365, "value": 128_904_000, "putCallShare": ""},
+        {"symbol": None, "securityCusip": "02079K107", "nameOfIssuer": "ALPHABET INC CAP STK CL C", "shares": 1000, "value": 353_330_000, "putCallShare": "PUT"},
+    ]
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        first = upsert_positions_for_filing(db, filing=filing, rows=rows)
+        db.flush()
+        second = upsert_positions_for_filing(db, filing=filing, rows=rows)
+        db.flush()
+
+        positions = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalars().all()
+        assert first["inserted_positions"] == 2
+        assert second["updated_positions"] == 2
+        assert len(positions) == 2
+        assert {position.put_call or "common" for position in positions} == {"common", "put"}
+
+
+def test_position_changes_do_not_double_count_aggregated_rows():
+    engine = _engine()
+    with _session(engine) as db:
+        prior_candidate = parse_latest_filing(
+            _filing_row(cik="0002055065", filing_date=date(2026, 5, 15), year=2026, quarter=1, holder="NOBLE WEALTH MANAGEMENT PBC")
+        )
+        current_candidate = parse_latest_filing(
+            _filing_row(cik="0002055065", filing_date=date(2026, 7, 1), year=2026, quarter=2, holder="NOBLE WEALTH MANAGEMENT PBC")
+        )
+        assert prior_candidate is not None
+        assert current_candidate is not None
+        upsert_institutional_holder(db, prior_candidate)
+        prior_filing, _ = upsert_institutional_filing(db, prior_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=prior_filing,
+            rows=[{"symbol": "NVDA", "cusip": "67066G104", "shares": 100, "marketValue": 10_000}],
+        )
+        upsert_institutional_holder(db, current_candidate)
+        current_filing, _ = upsert_institutional_filing(db, current_candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=current_filing,
+            rows=[
+                {"symbol": "NVDA", "cusip": "67066G104", "shares": 150, "marketValue": 15_000},
+                {"symbol": "NVDA", "cusip": "67066G104", "shares": 50, "marketValue": 5_000},
+            ],
+        )
+
+        process_filing_changes_and_events(db, current_filing)
+        change = db.execute(select(InstitutionalPositionChange).where(InstitutionalPositionChange.normalized_symbol == "NVDA")).scalar_one()
+        summary = db.execute(select(InstitutionalSymbolSummary).where(InstitutionalSymbolSummary.normalized_symbol == "NVDA")).scalar_one()
+
+        assert change.curr_shares == 200
+        assert change.curr_value_usd == 20_000
+        assert change.shares_delta == 100
+        assert summary.total_value_usd == 20_000
 
 
 def test_institutional_contribution_is_freshness_bounded_and_capped():
