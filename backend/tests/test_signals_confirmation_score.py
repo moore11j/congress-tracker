@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event as sqlalchemy_event
 from sqlalchemy.orm import Session
 
 from app.db import Base
@@ -235,6 +235,67 @@ def test_unified_signals_include_normalized_price_and_pnl_fields():
     assert items[0].current_price == 200.0
     assert items[0].pnl_pct == 6.38
     assert items[0].pnlPct == 6.38
+
+
+def test_unified_recent_symbol_signals_are_backend_scoped_and_limited():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        event_id = 100
+        for symbol in ("INTC", "AMD"):
+            for days_back in (120, 100, 80):
+                db.add(_event(event_id=event_id, symbol=symbol, event_date=now - timedelta(days=days_back), amount_max=100))
+                event_id += 1
+            for days_back in range(1, 26):
+                db.add(_event(event_id=event_id, symbol=symbol, event_date=now - timedelta(days=days_back), amount_max=1_000))
+                event_id += 1
+        db.commit()
+
+    captured_signal_sql: list[tuple[str, object]] = []
+
+    def capture_sql(_conn, _cursor, statement, parameters, _context, _executemany):
+        if "UNION ALL" in statement and " LIMIT " in statement:
+            captured_signal_sql.append((statement, parameters))
+
+    sqlalchemy_event.listen(engine, "before_cursor_execute", capture_sql)
+    try:
+        with Session(engine) as db:
+            items = _query_unified_signals(
+                db=db,
+                mode="all",
+                sort="recent",
+                limit=20,
+                offset=0,
+                baseline_days=365,
+                congress_recent_days=30,
+                insider_recent_days=30,
+                congress_min_baseline_count=3,
+                insider_min_baseline_count=3,
+                congress_multiple=1.0,
+                insider_multiple=1.0,
+                congress_min_amount=0,
+                insider_min_amount=0,
+                min_smart_score=None,
+                side="all",
+                symbol="INTC",
+            )
+    finally:
+        sqlalchemy_event.remove(engine, "before_cursor_execute", capture_sql)
+
+    assert len(items) == 20
+    assert {item.symbol for item in items} == {"INTC"}
+    assert [item.ts for item in items] == sorted([item.ts for item in items], reverse=True)
+    assert captured_signal_sql
+    statement, parameters = captured_signal_sql[0]
+    param_values = list(parameters.values()) if isinstance(parameters, dict) else list(parameters)
+    assert "upper(events.symbol) IN" in statement
+    assert "events.ts >= " in statement
+    assert "ORDER BY anon_1.ts DESC" in statement
+    assert " LIMIT " in statement
+    assert 20 in param_values
+    assert "INTC" in param_values
 
 
 def test_apply_confirmation_summary_coerces_nested_models_after_assignment():

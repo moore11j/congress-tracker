@@ -92,9 +92,11 @@ def _coerce_signal_freshness_summary(value: SignalFreshnessOut | dict | None, sy
     return SignalFreshnessOut.model_validate(candidate)
 
 
-def _baseline_median_subquery(baseline_since: datetime):
+def _baseline_median_subquery(baseline_since: datetime, symbols: list[str] | None = None):
+    symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
+    symbol_filter = "\n          AND upper(symbol) IN :symbol_values" if symbol_values else ""
     median_cte = text(
-        """
+        f"""
         SELECT
             symbol,
             AVG(amount_max) AS median_amount_max,
@@ -104,9 +106,12 @@ def _baseline_median_subquery(baseline_since: datetime):
           AND amount_max IS NOT NULL
           AND symbol IS NOT NULL
           AND ts >= :baseline_since
+          {symbol_filter}
         GROUP BY symbol
         """
     ).bindparams(bindparam("baseline_since", baseline_since))
+    if symbol_values:
+        median_cte = median_cte.bindparams(bindparam("symbol_values", symbol_values, expanding=True))
 
     return median_cte.columns(
         symbol=String,
@@ -117,9 +122,11 @@ def _baseline_median_subquery(baseline_since: datetime):
 
 
 
-def _insider_baseline_median_subquery(baseline_since: datetime):
+def _insider_baseline_median_subquery(baseline_since: datetime, symbols: list[str] | None = None):
+    symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
+    symbol_filter = "\n          AND upper(symbol) IN :symbol_values" if symbol_values else ""
     median_cte = text(
-        """
+        f"""
         SELECT
             symbol,
             AVG(amount_max) AS median_amount_max,
@@ -130,9 +137,12 @@ def _insider_baseline_median_subquery(baseline_since: datetime):
           AND symbol IS NOT NULL
           AND ts >= :baseline_since
           AND lower(trim(coalesce(trade_type, ''))) IN ('purchase', 'sale', 'p-purchase', 's-sale')
+          {symbol_filter}
         GROUP BY symbol
         """
     ).bindparams(bindparam("baseline_since", baseline_since))
+    if symbol_values:
+        median_cte = median_cte.bindparams(bindparam("symbol_values", symbol_values, expanding=True))
 
     return median_cte.columns(
         symbol=String,
@@ -429,9 +439,12 @@ def _query_unified_signals(
     baseline_since = now - timedelta(days=baseline_days)
     congress_recent_since = now - timedelta(days=congress_recent_days)
     insider_recent_since = now - timedelta(days=insider_recent_days)
+    symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
+    if symbol:
+        symbol_values = [symbol.strip().upper()]
 
-    congress_baseline = _baseline_median_subquery(baseline_since)
-    insider_baseline = _insider_baseline_median_subquery(baseline_since)
+    congress_baseline = _baseline_median_subquery(baseline_since, symbol_values)
+    insider_baseline = _insider_baseline_median_subquery(baseline_since, symbol_values)
 
     congress_unusual_multiple = (
         Event.amount_max / congress_baseline.c.median_amount_max
@@ -475,10 +488,6 @@ def _query_unified_signals(
         .where(congress_baseline.c.baseline_count >= congress_min_baseline_count)
         .where(congress_unusual_multiple >= congress_multiple)
     )
-
-    symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
-    if symbol:
-        symbol_values = [symbol]
 
     if symbol_values:
         congress_select = congress_select.where(func.upper(Event.symbol).in_(symbol_values))
@@ -574,10 +583,22 @@ def _query_unified_signals(
                 union_sq.c.ts.desc(),
             )
 
-        fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+        fetch_limit = (
+            MAX_LIMIT
+            if confirmation_filter_active
+            else min(MAX_LIMIT, max(limit + offset, 1))
+            if sort == "recent" and min_smart_score is None
+            else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+        )
         rows = db.execute(query.limit(fetch_limit)).all()
     else:
-        fetch_limit = MAX_LIMIT if confirmation_filter_active else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+        fetch_limit = (
+            MAX_LIMIT
+            if confirmation_filter_active
+            else min(MAX_LIMIT, max(limit + offset, 1))
+            if sort == "recent" and min_smart_score is None
+            else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+        )
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,
         [row.symbol for row in rows if row.symbol],
@@ -1284,8 +1305,8 @@ def list_all_signals(
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
     baseline_days: int = Query(365, ge=1),
-    congress_recent_days: int | None = Query(None, ge=1),
-    insider_recent_days: int | None = Query(None, ge=1),
+    congress_recent_days: int | None = Query(None, ge=1, le=365),
+    insider_recent_days: int | None = Query(None, ge=1, le=365),
     congress_multiple: float | None = Query(None, ge=1.0),
     insider_multiple: float | None = Query(None, ge=1.0),
     congress_min_amount: float | None = Query(None, ge=0),

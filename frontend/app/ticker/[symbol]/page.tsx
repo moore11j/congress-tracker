@@ -2841,7 +2841,6 @@ async function DeferredTickerContent({
                 symbol={normalizedSymbol}
                 side={side}
                 lookbackDays={selectedLookbackDays}
-                lookbackStartKey={lookbackStartDateKey(selectedLookbackDays)}
                 returnTo={tickerReturnTo}
                 className={cardClassName}
                 initialItems={null}

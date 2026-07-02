@@ -9,6 +9,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 const tickerPage = read("app/ticker/[symbol]/page.tsx");
 const chartLoader = read("components/ticker/TickerChartLoader.tsx");
 const tickerContextCard = read("components/ticker/TickerContextCard.tsx");
+const tickerSignalActivityClient = read("components/ticker/TickerSignalActivityClient.tsx");
 const api = read("lib/api.ts");
 
 test("ticker page keeps confirmation on 30D while chart uses selected URL range", () => {
@@ -18,7 +19,7 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /recent_days: lookbackDays/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,[\s\S]*?lookback_days: lookbackDays/);
   assert.match(tickerPage, /lookbackDays=\{selectedLookbackDays\}/);
-  assert.match(tickerPage, /lookbackStartKey=\{lookbackStartDateKey\(selectedLookbackDays\)\}/);
+  assert.doesNotMatch(tickerSignalActivityClient, /lookbackStartKey/);
   assert.match(api, /congress_recent_days: params\.congress_recent_days/);
   assert.match(api, /insider_recent_days: params\.insider_recent_days/);
   assert.match(tickerPage, /effectiveWindowDays \?\? SIGNAL_WINDOW_DAYS/);

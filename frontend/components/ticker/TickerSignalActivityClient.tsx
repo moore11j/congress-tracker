@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
@@ -180,7 +180,6 @@ export function TickerSignalActivityClient({
   symbol,
   side,
   lookbackDays,
-  lookbackStartKey,
   returnTo,
   className,
   initialItems,
@@ -190,7 +189,6 @@ export function TickerSignalActivityClient({
   symbol: string;
   side: string;
   lookbackDays: number;
-  lookbackStartKey: string;
   returnTo: string;
   className: string;
   initialItems?: SignalItem[] | null;
@@ -247,10 +245,7 @@ export function TickerSignalActivityClient({
     };
   }, [hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
 
-  const visibleItems = useMemo(
-    () => items.filter((item) => item.ts && item.ts.slice(0, 10) >= lookbackStartKey),
-    [items, lookbackStartKey],
-  );
+  const visibleItems = items;
   const gateHref = gate?.reason === "upgrade" ? "/pricing" : `/login?return_to=${encodeURIComponent(returnTo)}`;
   const gateLabel = gate?.reason === "upgrade" ? "View Premium" : "Login or register";
   const gateTitle = gate?.reason === "upgrade" ? "Signal Activity is a premium feature." : "Signals are gated for this view.";
