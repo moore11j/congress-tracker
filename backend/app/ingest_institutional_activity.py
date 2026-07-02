@@ -21,6 +21,7 @@ from app.models import InstitutionalFiling, InstitutionalPosition
 from app.services.institutional_activity import (
     parse_latest_filing,
     process_filing_changes_and_events,
+    cleanup_overbroad_institutional_feed_events,
     upsert_holder_industry_breakdown_rows,
     upsert_holder_performance_rows,
     upsert_industry_summary_rows,
@@ -345,6 +346,20 @@ def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: in
     return ingest_latest_institutional_filings(pages=pages, limit=limit, max_filings=max_filings)
 
 
+def cleanup_institutional_feed_events(*, dry_run: bool = True) -> dict[str, int | str | bool | dict[str, int]]:
+    ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        result = cleanup_overbroad_institutional_feed_events(db, dry_run=dry_run)
+        if dry_run:
+            db.rollback()
+        else:
+            db.commit()
+        return result
+    finally:
+        db.close()
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ingest institutional 13F activity into Walnut Market Terminal.")
     parser.add_argument("--pages", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_PAGES", "1")))
@@ -356,6 +371,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--quarter", type=int)
     parser.add_argument("--holder-enrichment", action="store_true")
     parser.add_argument("--industry-summary", action="store_true")
+    parser.add_argument("--cleanup-feed-events", action="store_true")
+    parser.add_argument("--apply-cleanup", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
@@ -364,7 +381,9 @@ def main() -> None:
     args = _parse_args()
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
     try:
-        if args.industry_summary:
+        if args.cleanup_feed_events:
+            result = cleanup_institutional_feed_events(dry_run=not args.apply_cleanup)
+        elif args.industry_summary:
             if args.year is None or args.quarter is None:
                 raise SystemExit("--industry-summary requires --year and --quarter")
             result = ingest_industry_summary(year=args.year, quarter=args.quarter)

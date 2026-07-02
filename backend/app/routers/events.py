@@ -51,7 +51,14 @@ from app.services.congress_outcome_eligibility import congress_equity_outcome_el
 from app.services.ticker_events import GOVERNMENT_CONTRACT_EVENT_TYPES
 from app.services.government_departments import DEPARTMENT_ALIASES, canonical_department_name, department_suggestions
 from app.services.foreign_trade_normalization import normalize_insider_price, normalization_payload
-from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES, institutional_activity_event_payload
+from app.services.institutional_activity import (
+    INSTITUTIONAL_ALL_FEED_CLUSTER_MIN_MATERIALITY,
+    INSTITUTIONAL_ALL_FEED_CLUSTER_VALUE_USD,
+    INSTITUTIONAL_ALL_FEED_LARGE_VALUE_USD,
+    INSTITUTIONAL_ALL_FEED_MIN_MATERIALITY,
+    INSTITUTIONAL_EVENT_TYPES,
+    institutional_activity_event_payload,
+)
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
@@ -126,6 +133,22 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
     "new_institutional_position",
 )
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
+
+
+def _institutional_all_feed_visibility_clause():
+    amount = func.coalesce(Event.amount_max, Event.amount_min, 0)
+    return or_(
+        and_(
+            Event.event_type.in_(("cluster_accumulation", "cluster_distribution")),
+            Event.impact_score >= INSTITUTIONAL_ALL_FEED_CLUSTER_MIN_MATERIALITY,
+            amount >= INSTITUTIONAL_ALL_FEED_CLUSTER_VALUE_USD,
+        ),
+        and_(
+            Event.event_type.in_(("smart_money_confirmation", "major_holder_exit", "major_holder_reduction", "new_institutional_position")),
+            Event.impact_score >= INSTITUTIONAL_ALL_FEED_MIN_MATERIALITY,
+            amount >= INSTITUTIONAL_ALL_FEED_LARGE_VALUE_USD,
+        ),
+    )
 
 
 def _log_ticker_events_payload(
@@ -3723,7 +3746,10 @@ def list_events(
         q = q.where(
             or_(
                 Event.event_type.notin_(INSTITUTIONAL_EVENT_TYPES),
-                Event.event_type.in_(INSTITUTIONAL_ALL_MODE_EVENT_TYPES),
+                and_(
+                    Event.event_type.in_(INSTITUTIONAL_ALL_MODE_EVENT_TYPES),
+                    _institutional_all_feed_visibility_clause(),
+                ),
             )
         )
         applied_filters.append("institutional_all_selective")

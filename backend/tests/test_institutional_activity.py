@@ -13,8 +13,11 @@ from app import ingest_institutional_activity as ingest_module
 from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
 from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity
 from app.services.institutional_activity import (
+    INSTITUTIONAL_EVENT_SOURCE,
+    cleanup_overbroad_institutional_feed_events,
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
+    materialize_feed_events_for_symbol,
     parse_latest_filing,
     parse_position,
     process_filing_changes_and_events,
@@ -661,6 +664,191 @@ def test_stale_material_filing_still_creates_activity_event_without_30d_confirma
         assert availability["status"] == "ok"
         assert summaries["STALE"]["active"] is False
         assert summaries["STALE"]["confirmation_contribution"] == 0
+
+
+def test_collapsed_same_key_changes_create_one_activity_event_with_autoflush_disabled():
+    engine = _engine()
+    today = date.today()
+    cik = "0001009012"
+
+    with _session(engine) as db:
+        candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today - timedelta(days=5), year=2026, quarter=1, holder="Zazove Associates LLC"))
+        assert candidate is not None
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": "UONE", "nameOfIssuer": "Urban One Inc.", "shares": 1_000_000, "marketValue": 150_000_000, "cusip": "91705J105"},
+                {"symbol": "UONE", "nameOfIssuer": "Urban One Inc.", "shares": 250_000, "marketValue": 25_000_000, "cusip": "91705J204"},
+            ],
+        )
+
+        counts = process_filing_changes_and_events(db, filing)
+        db.commit()
+
+        assert counts["changes"] == 2
+        holder_events = db.execute(
+            select(InstitutionalActivityEvent).where(
+                InstitutionalActivityEvent.normalized_symbol == "UONE",
+                InstitutionalActivityEvent.cik == cik,
+                InstitutionalActivityEvent.event_type == "new_institutional_position",
+                InstitutionalActivityEvent.report_year == 2026,
+                InstitutionalActivityEvent.report_quarter == 1,
+            )
+        ).scalars().all()
+        assert len(holder_events) == 1
+        assert holder_events[0].reported_value_usd == 150_000_000
+        assert db.query(Event).count() == 0
+
+
+def test_strict_feed_materialization_keeps_institutional_mode_broader_than_all():
+    engine = _engine()
+    today = date.today()
+
+    with _session(engine) as db:
+        summary = InstitutionalSymbolSummary(
+            symbol="WIDE",
+            normalized_symbol="WIDE",
+            report_year=2026,
+            report_quarter=1,
+            latest_filing_date=today,
+            materiality_score=100,
+            net_value_delta_usd=200_000_000,
+        )
+        ordinary = InstitutionalActivityEvent(
+            symbol="WIDE",
+            normalized_symbol="WIDE",
+            cik="0000000001",
+            holder_name="Ordinary Capital",
+            event_type="new_institutional_position",
+            direction="bullish",
+            title="Ordinary Capital reports new WIDE position",
+            summary="Reported 13F filing activity.",
+            filing_date=today,
+            report_year=2026,
+            report_quarter=1,
+            reported_value_usd=25_000_000,
+            value_delta_usd=25_000_000,
+            holder_breadth=1,
+            materiality_score=100,
+            feed_visible=True,
+        )
+        high_signal = InstitutionalActivityEvent(
+            symbol="WIDE",
+            normalized_symbol="WIDE",
+            cik="0000000002",
+            holder_name="High Signal Capital",
+            event_type="new_institutional_position",
+            direction="bullish",
+            title="High Signal Capital reports new WIDE position",
+            summary="Reported 13F filing activity.",
+            filing_date=today,
+            report_year=2026,
+            report_quarter=1,
+            reported_value_usd=150_000_000,
+            value_delta_usd=150_000_000,
+            holder_breadth=1,
+            materiality_score=95,
+            feed_visible=True,
+        )
+        db.add_all([summary, ordinary, high_signal])
+        db.flush()
+
+        created = materialize_feed_events_for_symbol(db, summary)
+        db.commit()
+
+        assert created == 1
+        feed_event = db.execute(select(Event)).scalar_one()
+        assert feed_event.source_provider == INSTITUTIONAL_EVENT_SOURCE
+        assert feed_event.source_filing_id == f"institutional:{high_signal.id}:new_institutional_position:2026q1"
+        assert "Buy" not in feed_event.payload_json
+        assert "Sell" not in feed_event.payload_json
+
+
+def test_cleanup_overbroad_institutional_feed_events_keeps_other_sources():
+    engine = _engine()
+    today = date.today()
+
+    with _session(engine) as db:
+        high_signal = InstitutionalActivityEvent(
+            symbol="KEEP",
+            normalized_symbol="KEEP",
+            cik="0000000002",
+            holder_name="High Signal Capital",
+            event_type="new_institutional_position",
+            direction="bullish",
+            title="High Signal Capital reports new KEEP position",
+            summary="Reported 13F filing activity.",
+            filing_date=today,
+            report_year=2026,
+            report_quarter=1,
+            reported_value_usd=150_000_000,
+            value_delta_usd=150_000_000,
+            holder_breadth=1,
+            materiality_score=95,
+            feed_visible=True,
+        )
+        db.add(high_signal)
+        db.flush()
+        db.add_all(
+            [
+                Event(
+                    event_type="new_institutional_position",
+                    ts=datetime.now(timezone.utc),
+                    event_date=datetime.now(timezone.utc),
+                    symbol="DROP",
+                    source="13F filing",
+                    source_provider=INSTITUTIONAL_EVENT_SOURCE,
+                    source_filing_id="institutional:999999:new_institutional_position:2026q1",
+                    payload_json=json.dumps({"source_label": "Institutional Activity"}),
+                ),
+                Event(
+                    event_type="new_institutional_position",
+                    ts=datetime.now(timezone.utc),
+                    event_date=datetime.now(timezone.utc),
+                    symbol="KEEP",
+                    source="13F filing",
+                    source_provider=INSTITUTIONAL_EVENT_SOURCE,
+                    source_filing_id=f"institutional:{high_signal.id}:new_institutional_position:2026q1",
+                    amount_min=150_000_000,
+                    amount_max=150_000_000,
+                    impact_score=95,
+                    payload_json=json.dumps({"source_label": "Institutional Activity"}),
+                ),
+                Event(
+                    event_type="government_contract",
+                    ts=datetime.now(timezone.utc),
+                    event_date=datetime.now(timezone.utc),
+                    symbol="LMT",
+                    source="usaspending",
+                    payload_json=json.dumps({"event_subtype": "funding_action"}),
+                ),
+                Event(
+                    event_type="smart_money_confirmation",
+                    ts=datetime.now(timezone.utc),
+                    event_date=datetime.now(timezone.utc),
+                    symbol="OTHER",
+                    source="test",
+                    source_provider="other",
+                    payload_json=json.dumps({"source_label": "Other"}),
+                ),
+            ]
+        )
+        db.commit()
+
+        result = cleanup_overbroad_institutional_feed_events(db, dry_run=False)
+        db.commit()
+
+        assert result["before"] == 2
+        assert result["removed"] == 1
+        assert result["remaining"] == 1
+        assert db.query(Event).filter(Event.symbol == "DROP").count() == 0
+        assert db.query(Event).filter(Event.symbol == "KEEP").count() == 1
+        assert db.query(Event).filter(Event.event_type == "government_contract").count() == 1
+        assert db.query(Event).filter(Event.symbol == "OTHER").count() == 1
 
 
 def test_institutional_activity_endpoint_redacts_details_until_pro(monkeypatch):

@@ -40,12 +40,18 @@ INSTITUTIONAL_EVENT_TYPES = (
 )
 INSTITUTIONAL_FEED_EVENT_MIN_MATERIALITY = 80.0
 INSTITUTIONAL_FEED_EVENT_TYPES = (
+    "smart_money_confirmation",
     "cluster_accumulation",
     "cluster_distribution",
-    "smart_money_confirmation",
-    "crowded_long",
-    "contrarian_accumulation",
+    "major_holder_exit",
+    "major_holder_reduction",
+    "new_institutional_position",
 )
+INSTITUTIONAL_ALL_FEED_MIN_MATERIALITY = 90.0
+INSTITUTIONAL_ALL_FEED_LARGE_VALUE_USD = 100_000_000.0
+INSTITUTIONAL_ALL_FEED_CLUSTER_MIN_MATERIALITY = 95.0
+INSTITUTIONAL_ALL_FEED_CLUSTER_VALUE_USD = 500_000_000.0
+INSTITUTIONAL_ALL_FEED_CLUSTER_BREADTH = 3
 INSTITUTIONAL_ACTIVITY_TOOLTIP = (
     "Institutional activity is based on reported 13F holdings. These filings disclose quarter-end "
     "positions and may not reflect real-time trading. Walnut uses the filing date for freshness "
@@ -691,7 +697,21 @@ def generate_activity_events_for_symbol(db: Session, summary: InstitutionalSymbo
         )
     ).scalars().all()
     created = 0
+    changes_by_event_key: dict[tuple[str, str | None, str, int, int], InstitutionalPositionChange] = {}
     for change in changes:
+        event_type = _event_type_for_change(change)
+        key = _activity_event_key(
+            change.normalized_symbol,
+            change.cik,
+            event_type,
+            change.report_year,
+            change.report_quarter,
+        )
+        existing = changes_by_event_key.get(key)
+        if existing is None or _change_event_priority(change) > _change_event_priority(existing):
+            changes_by_event_key[key] = change
+
+    for change in changes_by_event_key.values():
         event_type = _event_type_for_change(change)
         if _upsert_activity_event_from_change(db, change, event_type=event_type):
             created += 1
@@ -715,9 +735,64 @@ def materialize_feed_events_for_symbol(db: Session, summary: InstitutionalSymbol
     ).scalars().all()
     created = 0
     for activity in activities:
+        if not is_institutional_activity_all_feed_eligible(activity):
+            continue
         if _upsert_feed_event(db, activity):
             created += 1
     return created
+
+
+def cleanup_overbroad_institutional_feed_events(db: Session, *, dry_run: bool = True) -> dict[str, Any]:
+    institutional_event_filter = or_(
+        Event.source_provider == INSTITUTIONAL_EVENT_SOURCE,
+        Event.source_filing_id.like("institutional:%"),
+        Event.data_source == INSTITUTIONAL_SOURCE_LABEL,
+    )
+    events = db.execute(select(Event).where(institutional_event_filter)).scalars().all()
+    before = len(events)
+    activity_ids = sorted(
+        {
+            activity_id
+            for event in events
+            for activity_id in [_activity_id_from_feed_source_filing_id(event.source_filing_id)]
+            if activity_id is not None
+        }
+    )
+    activities_by_id: dict[int, InstitutionalActivityEvent] = {}
+    if activity_ids:
+        activity_rows = db.execute(select(InstitutionalActivityEvent).where(InstitutionalActivityEvent.id.in_(activity_ids))).scalars().all()
+        activities_by_id = {int(row.id): row for row in activity_rows if row.id is not None}
+
+    removed_by_type: dict[str, int] = {}
+    kept_by_type: dict[str, int] = {}
+    remove_events: list[Event] = []
+    for event in events:
+        activity_id = _activity_id_from_feed_source_filing_id(event.source_filing_id)
+        activity = activities_by_id.get(activity_id) if activity_id is not None else None
+        keep = bool(activity and is_institutional_activity_all_feed_eligible(activity))
+        bucket = kept_by_type if keep else removed_by_type
+        bucket[event.event_type] = bucket.get(event.event_type, 0) + 1
+        if not keep:
+            remove_events.append(event)
+
+    if not dry_run:
+        for event in remove_events:
+            db.delete(event)
+        db.flush()
+
+    remaining_by_type = kept_by_type if not dry_run else {
+        event_type: int(count)
+        for event_type, count in kept_by_type.items()
+    }
+    return {
+        "status": "ok",
+        "dry_run": dry_run,
+        "before": before,
+        "removed": len(remove_events),
+        "remaining": before - len(remove_events),
+        "removed_by_event_type": dict(sorted(removed_by_type.items())),
+        "remaining_by_event_type": dict(sorted(remaining_by_type.items())),
+    }
 
 
 def get_institutional_activity_summaries_for_symbols(
@@ -1441,6 +1516,7 @@ def _upsert_activity_event_from_change(db: Session, change: InstitutionalPositio
         sort_keys=True,
         default=str,
     )
+    existing.feed_visible = is_institutional_activity_all_feed_eligible(existing)
     existing.updated_at = datetime.now(timezone.utc)
     return created
 
@@ -1496,6 +1572,7 @@ def _upsert_activity_event_from_summary(db: Session, summary: InstitutionalSymbo
         sort_keys=True,
         default=str,
     )
+    existing.feed_visible = is_institutional_activity_all_feed_eligible(existing)
     existing.updated_at = datetime.now(timezone.utc)
     return created
 
@@ -1616,6 +1693,73 @@ def _event_type_for_change(change: InstitutionalPositionChange) -> str:
     if change.change_type == "increase":
         return "institutional_accumulation"
     return "smart_money_confirmation"
+
+
+def _activity_event_key(
+    normalized_symbol: str | None,
+    cik: str | None,
+    event_type: str,
+    report_year: int,
+    report_quarter: int,
+) -> tuple[str, str | None, str, int, int]:
+    return (
+        normalize_symbol(normalized_symbol) or "",
+        normalize_cik(cik) if cik else None,
+        event_type,
+        int(report_year),
+        int(report_quarter),
+    )
+
+
+def _change_event_priority(change: InstitutionalPositionChange) -> tuple[float, float, float, int]:
+    materiality = float(change.materiality_score or 0.0)
+    magnitude = max(
+        abs(float(change.curr_value_usd or 0.0)),
+        abs(float(change.prev_value_usd or 0.0)),
+        abs(float(change.value_delta_usd or 0.0)),
+    )
+    ownership = abs(float(change.curr_ownership_pct or change.prev_ownership_pct or 0.0))
+    return (materiality, magnitude, ownership, int(change.id or 0))
+
+
+def _activity_event_value_magnitude(activity: InstitutionalActivityEvent) -> float:
+    return max(
+        abs(float(activity.reported_value_usd or 0.0)),
+        abs(float(activity.value_delta_usd or 0.0)),
+    )
+
+
+def is_institutional_activity_all_feed_eligible(activity: InstitutionalActivityEvent) -> bool:
+    event_type = (activity.event_type or "").strip()
+    materiality = float(activity.materiality_score or 0.0)
+    value = _activity_event_value_magnitude(activity)
+    holder_breadth = abs(int(activity.holder_breadth or 0))
+
+    if materiality < INSTITUTIONAL_ALL_FEED_MIN_MATERIALITY:
+        return False
+    if event_type == "smart_money_confirmation":
+        return value >= INSTITUTIONAL_ALL_FEED_LARGE_VALUE_USD
+    if event_type in {"major_holder_exit", "major_holder_reduction", "new_institutional_position"}:
+        return value >= INSTITUTIONAL_ALL_FEED_LARGE_VALUE_USD
+    if event_type in {"cluster_accumulation", "cluster_distribution"}:
+        return (
+            materiality >= INSTITUTIONAL_ALL_FEED_CLUSTER_MIN_MATERIALITY
+            and value >= INSTITUTIONAL_ALL_FEED_CLUSTER_VALUE_USD
+            and holder_breadth >= INSTITUTIONAL_ALL_FEED_CLUSTER_BREADTH
+        )
+    return False
+
+
+def _activity_id_from_feed_source_filing_id(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.match(r"^institutional:(\d+):", str(value))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
 
 
 def _copy_for_change(change: InstitutionalPositionChange) -> tuple[str, str]:

@@ -516,7 +516,8 @@ def test_all_mode_keeps_only_selective_institutional_feed_events(monkeypatch):
             [
                 _event(220, "congress_trade", ts=now, event_date=now, symbol="AAPL", member_name="Member", member_bioguide_id="M1"),
                 _event(221, "institutional_accumulation", ts=now, event_date=now, symbol="AAPL", member_name="Holder"),
-                _event(222, "smart_money_confirmation", ts=now, event_date=now, symbol="AAPL", member_name="Holder"),
+                _event(222, "smart_money_confirmation", ts=now, event_date=now, symbol="AAPL", member_name="Holder", amount_min=150_000_000, amount_max=150_000_000, impact_score=95),
+                _event(224, "new_institutional_position", ts=now, event_date=now, symbol="MSFT", member_name="Holder", amount_min=25_000_000, amount_max=25_000_000, impact_score=100),
                 _event(
                     223,
                     "government_contract",
@@ -547,6 +548,7 @@ def test_all_mode_keeps_only_selective_institutional_feed_events(monkeypatch):
         assert "government_contract" in event_types
         assert "smart_money_confirmation" in event_types
         assert "institutional_accumulation" not in event_types
+        assert "new_institutional_position" not in event_types
     finally:
         db.close()
 
