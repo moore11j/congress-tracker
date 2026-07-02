@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, clearLegacyAuthStorage, getMe, getMonitoringUnreadCount, hasClientAuthHint, logout, type AccountUser } from "@/lib/api";
+import { ApiError, clearLegacyAuthStorage, getMe, getMonitoringUnreadCount, logout, type AccountUser } from "@/lib/api";
 import { isAdminRoute } from "@/lib/routes";
 
 function displayName(user: AccountUser): string {
@@ -18,7 +18,6 @@ export function AccountNav() {
   const [loaded, setLoaded] = useState(false);
   const [authUnavailable, setAuthUnavailable] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [initialAuthHint] = useState(() => hasClientAuthHint());
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
@@ -129,7 +128,7 @@ export function AccountNav() {
     };
   }, [menuOpen]);
 
-  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : !loaded && initialAuthHint ? "Account" : "Login / Register"), [initialAuthHint, loaded, user]);
+  const label = useMemo(() => (user ? `Hello, ${displayName(user)}!` : !loaded ? "Account" : "Login / Register"), [loaded, user]);
   const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   if (!loaded || (!user && !authUnavailable)) {
