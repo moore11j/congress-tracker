@@ -20,6 +20,11 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "3"
     assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "500"
     assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "60"
+    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_ENABLED"] == "false"
+    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_START_PAGE"] == "9"
+    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_PAGES_PER_RUN"] == "2"
+    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_LIMIT"] == "25"
+    assert fly_config["env"]["INSTITUTIONAL_LATEST_JOB_MAX_FILINGS"] == "25"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
@@ -39,6 +44,7 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
     assert "*/5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "17 * * * * cd /app && sh /app/scripts/run_institutional_latest_job.sh" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
@@ -96,3 +102,14 @@ def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
     assert "mkdir \"$lock_dir\"" in script
     assert "repair_already_running" in script
     assert "timeout \"$max_seconds\" python -m app.repair_recent_feed_pnl" in script
+
+
+def test_institutional_latest_job_wrapper_is_disabled_bounded_and_non_overlapping():
+    script = (BACKEND_ROOT / "scripts" / "run_institutional_latest_job.sh").read_text()
+
+    assert "INSTITUTIONAL_LATEST_JOB_ENABLED:-false" in script
+    assert "institutional_latest_job_disabled" in script
+    assert "INSTITUTIONAL_LATEST_JOB_MAX_SECONDS:-2700" in script
+    assert "mkdir \"$lock_dir\"" in script
+    assert "worker_already_running" in script
+    assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --job-run-once --require-job-enabled" in script

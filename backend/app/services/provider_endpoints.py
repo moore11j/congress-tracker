@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlparse, urlunparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from sqlalchemy.orm import Session
@@ -18,6 +21,13 @@ from app.services.provider_usage import ProviderUnavailable, ensure_fmp_live_all
 
 FMP_ORIGIN = "https://financialmodelingprep.com"
 ADMIN_TEST_CATEGORY_PREFIX = "admin-data-source-test"
+SYMBOL_PLACEHOLDER_PATTERN = re.compile(r"(\{symbol\}|\[symbol\])", re.IGNORECASE)
+DATE_PLACEHOLDER_PATTERN = re.compile(r"(\{date\}|\[date\])", re.IGNORECASE)
+DATETIME_PLACEHOLDER_PATTERN = re.compile(r"(\{datetime\}|\[datetime\])", re.IGNORECASE)
+DATE_FORMAT_ALIASES = {
+    "YYYY-MM-DD": "%Y-%m-%d",
+    "YYYY-MM-DD HH:MM:SS": "%Y-%m-%d %H:%M:%S",
+}
 SYMBOL_ENDPOINT_SUFFIXES = {
     "quote",
     "quote-short",
@@ -45,6 +55,7 @@ class FmpEndpointRequest:
     request_url: str
     request_params: dict[str, Any]
     endpoint_name: str
+    endpoint_contract: dict[str, Any]
 
 
 def endpoint_test_category(domain_key: str, role: str) -> str:
@@ -76,6 +87,27 @@ def endpoint_urls_for_setting(setting: ProviderSetting, default: ProviderDomainD
     }
 
 
+def configured_endpoint_contract(setting: ProviderSetting, default: ProviderDomainDefault, role: str) -> str | None:
+    if role == "primary":
+        provider = setting.active_provider
+        value = setting.primary_endpoint_contract_json
+        default_value = default.primary_endpoint_contract_json
+    else:
+        provider = setting.fallback_provider
+        value = setting.fallback_endpoint_contract_json
+        default_value = default.fallback_endpoint_contract_json
+    if not provider_uses_endpoint_url(provider):
+        return None
+    return value or default_value
+
+
+def endpoint_contracts_for_setting(setting: ProviderSetting, default: ProviderDomainDefault) -> dict[str, str | None]:
+    return {
+        "primary": configured_endpoint_contract(setting, default, "primary"),
+        "fallback": configured_endpoint_contract(setting, default, "fallback"),
+    }
+
+
 def _coerce_fmp_url(raw_endpoint_url: str) -> str:
     raw = raw_endpoint_url.strip()
     if raw.startswith("http://") or raw.startswith("https://"):
@@ -85,10 +117,57 @@ def _coerce_fmp_url(raw_endpoint_url: str) -> str:
     return f"{FMP_BASE_URL}/{raw.lstrip('/')}"
 
 
+def _replace_symbol_placeholders(endpoint_url: str, symbol: str) -> str:
+    return SYMBOL_PLACEHOLDER_PATTERN.sub(quote(symbol, safe=""), endpoint_url)
+
+
+def _python_date_format(value: str | None, fallback: str) -> str:
+    if not value:
+        return fallback
+    return DATE_FORMAT_ALIASES.get(value, value)
+
+
+def _format_as_of(as_of: datetime, fmt: str) -> str:
+    return as_of.strftime(_python_date_format(fmt, fmt))
+
+
+def _request_as_of(as_of: datetime, request_config: dict[str, Any]) -> datetime:
+    timezone_name = request_config.get("timezone")
+    if not timezone_name:
+        return as_of
+    base = as_of if as_of.tzinfo else as_of.replace(tzinfo=timezone.utc)
+    try:
+        return base.astimezone(ZoneInfo(str(timezone_name)))
+    except ZoneInfoNotFoundError:
+        return as_of
+
+
+def _resolve_request_template(value: object, *, symbol: str, as_of: datetime, request_config: dict[str, Any]) -> str:
+    text_value = str(value)
+    date_format = _python_date_format(str(request_config.get("date_format") or "YYYY-MM-DD"), "%Y-%m-%d")
+    datetime_format = _python_date_format(str(request_config.get("datetime_format") or "YYYY-MM-DD HH:MM:SS"), "%Y-%m-%d %H:%M:%S")
+    text_value = SYMBOL_PLACEHOLDER_PATTERN.sub(quote(symbol, safe=""), text_value)
+    text_value = DATE_PLACEHOLDER_PATTERN.sub(_format_as_of(as_of, date_format), text_value)
+    return DATETIME_PLACEHOLDER_PATTERN.sub(_format_as_of(as_of, datetime_format), text_value)
+
+
+def _endpoint_contract(endpoint_contract_json: str | None) -> dict[str, Any]:
+    if not endpoint_contract_json:
+        return {}
+    try:
+        parsed = json.loads(endpoint_contract_json)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def endpoint_display_name(endpoint_url: str | None) -> str | None:
     if not endpoint_url:
         return None
-    parsed = urlparse(_coerce_fmp_url(endpoint_url.replace("{symbol}", "AAPL")))
+    rendered = _replace_symbol_placeholders(endpoint_url, "AAPL")
+    rendered = DATE_PLACEHOLDER_PATTERN.sub("2026-07-02", rendered)
+    rendered = DATETIME_PLACEHOLDER_PATTERN.sub("2026-07-02 15:59:00", rendered)
+    parsed = urlparse(_coerce_fmp_url(rendered))
     path = parsed.path.strip("/")
     if path.startswith("stable/"):
         path = path[len("stable/") :]
@@ -113,19 +192,35 @@ def build_fmp_endpoint_request(
     endpoint_url: str,
     api_key: str,
     symbol: str | None = None,
+    endpoint_contract_json: str | None = None,
+    as_of: datetime | None = None,
 ) -> FmpEndpointRequest:
     original = endpoint_url.strip()
-    had_symbol_template = "{symbol}" in original
+    had_symbol_template = bool(SYMBOL_PLACEHOLDER_PATTERN.search(original))
     resolved_symbol = (symbol or "").strip().upper()
-    replaced = original.replace("{symbol}", quote(resolved_symbol, safe="")) if resolved_symbol else original
+    contract = _endpoint_contract(endpoint_contract_json)
+    request_config = contract.get("request") if isinstance(contract.get("request"), dict) else {}
+    request_as_of = _request_as_of(as_of or datetime.now(timezone.utc), request_config)
+    replaced = original
+    if resolved_symbol:
+        replaced = _replace_symbol_placeholders(replaced, resolved_symbol)
+    replaced = DATE_PLACEHOLDER_PATTERN.sub(_format_as_of(request_as_of, _python_date_format(str(request_config.get("date_format") or "YYYY-MM-DD"), "%Y-%m-%d")), replaced)
+    replaced = DATETIME_PLACEHOLDER_PATTERN.sub(_format_as_of(request_as_of, _python_date_format(str(request_config.get("datetime_format") or "YYYY-MM-DD HH:MM:SS"), "%Y-%m-%d %H:%M:%S")), replaced)
     parsed = urlparse(_coerce_fmp_url(replaced))
     params = {
         key: value
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         if key.lower() not in {"apikey", "api_key"}
     }
-    if resolved_symbol and (had_symbol_template or "symbol" in params or _endpoint_accepts_symbol(parsed.path)):
-        params["symbol"] = resolved_symbol
+    contract_params = request_config.get("params") if isinstance(request_config, dict) else None
+    if isinstance(contract_params, dict):
+        for key, value in contract_params.items():
+            if not key:
+                continue
+            params[str(key)] = _resolve_request_template(value, symbol=resolved_symbol, as_of=request_as_of, request_config=request_config)
+    symbol_param = str(request_config.get("symbol_param") or "symbol") if isinstance(request_config, dict) else "symbol"
+    if resolved_symbol and (had_symbol_template or symbol_param in params or "symbol" in params or _endpoint_accepts_symbol(parsed.path)):
+        params[symbol_param] = resolved_symbol
     params["apikey"] = api_key
     request_url = urlunparse(parsed._replace(query=""))
     return FmpEndpointRequest(
@@ -135,6 +230,7 @@ def build_fmp_endpoint_request(
         request_url=request_url,
         request_params=params,
         endpoint_name=endpoint_display_name(endpoint_url) or parsed.path.strip("/") or endpoint_url,
+        endpoint_contract=contract,
     )
 
 
@@ -161,12 +257,14 @@ def fmp_endpoint_requests_for_domain(
         endpoint_url = configured_endpoint_url(setting, default, role)
         if not endpoint_url:
             continue
+        endpoint_contract_json = configured_endpoint_contract(setting, default, role)
         request = build_fmp_endpoint_request(
             role=role,
             provider=provider,
             endpoint_url=endpoint_url,
             api_key=api_key,
             symbol=symbol,
+            endpoint_contract_json=endpoint_contract_json,
         )
         dedupe_key = (request.request_url, "&".join(f"{key}={value}" for key, value in sorted(request.request_params.items()) if key != "apikey"))
         if dedupe_key in seen:
@@ -228,6 +326,7 @@ def test_fmp_endpoint(
     domain_key: str,
     role: str,
     endpoint_url: str,
+    endpoint_contract_json: str | None = None,
     symbol: str,
     requested_by: str | None,
 ) -> dict[str, Any]:
@@ -255,6 +354,7 @@ def test_fmp_endpoint(
         endpoint_url=endpoint_url,
         api_key=api_key,
         symbol=symbol,
+        endpoint_contract_json=endpoint_contract_json,
     )
     try:
         ensure_fmp_live_allowed(category=endpoint_test_category(domain_key, role), symbol=symbol)

@@ -186,9 +186,15 @@ test("admin data sources lets admins save and manually test provider endpoints",
   assert.match(source, /testAdminDataSourceEndpoint/);
   assert.match(source, /primary_endpoint_url/);
   assert.match(source, /fallback_endpoint_url/);
+  assert.match(source, /primary_endpoint_contract_json/);
+  assert.match(source, /fallback_endpoint_contract_json/);
   assert.match(source, /endpoint_tests/);
   assert.match(source, /Save endpoints/);
   assert.match(source, /Test endpoint/);
   assert.match(source, /function EndpointEditor/);
+  assert.match(source, /Use default/);
+  assert.match(source, /Use \{"\{symbol\}"\} or \[symbol\]/);
+  assert.match(source, /Request\/response contract/);
+  assert.match(source, /Intraday chart uses date as YYYY-MM-DD HH:MM:SS and close as price/);
   assert.match(source, /Local Walnut Cache/);
 });

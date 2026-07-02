@@ -7,6 +7,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.clients.fmp import (
     FMPClientError,
     fetch_holder_industry_breakdown,
@@ -118,7 +120,7 @@ def ingest_latest_institutional_filings(
     limit: int = 100,
     force: bool = False,
     max_filings: int | None = 25,
-) -> dict[str, int | str]:
+) -> dict[str, int | str | None]:
     ensure_institutional_activity_schema(engine)
     normalized_start_page = max(0, int(start_page or 0))
     page_count = max(1, int(pages or 1))
@@ -126,6 +128,9 @@ def ingest_latest_institutional_filings(
         "status": "ok",
         "start_page": normalized_start_page,
         "pages": page_count,
+        "pages_scanned": 0,
+        "first_empty_page_seen": None,
+        "max_filings_reached": 0,
         "scanned": 0,
         "parsed": 0,
         "parse_failed": 0,
@@ -142,15 +147,22 @@ def ingest_latest_institutional_filings(
         "errors": 0,
     }
     processed = 0
+    max_attempts = max(0, int(max_filings)) if max_filings is not None else None
     db = SessionLocal()
     try:
         for page in range(normalized_start_page, normalized_start_page + page_count):
+            if max_attempts is not None and processed >= max_attempts:
+                counts["max_filings_reached"] = 1
+                return counts
             logger.info("Scanning latest institutional filings page=%s", page)
             rows = fetch_latest_institutional_filings(page=page, limit=max(1, min(int(limit or 100), 500)))
             if not rows:
+                counts["first_empty_page_seen"] = page
                 break
+            counts["pages_scanned"] = int(counts["pages_scanned"] or 0) + 1
             for row in rows:
-                if max_filings is not None and processed >= max(0, int(max_filings)):
+                if max_attempts is not None and processed >= max_attempts:
+                    counts["max_filings_reached"] = 1
                     return counts
                 counts["scanned"] = int(counts["scanned"]) + 1
                 candidate = parse_latest_filing(row)
@@ -230,10 +242,12 @@ def ingest_latest_institutional_filings(
                     counts["feed_events"] = int(counts["feed_events"]) + int(process_counts.get("feed_events", 0))
                     if created:
                         logger.info("Processed new 13F filing cik=%s Q%s %s", candidate.cik, candidate.report_quarter, candidate.report_year)
-                except Exception:
+                except Exception as exc:
                     db.rollback()
                     counts["errors"] = int(counts["errors"]) + 1
                     logger.exception("Failed to process institutional 13F filing row")
+                    if isinstance(exc, SQLAlchemyError):
+                        return counts
     finally:
         db.close()
     return counts
@@ -373,7 +387,7 @@ def ingest_industry_summary(*, year: int, quarter: int) -> dict[str, int | str]:
         db.close()
 
 
-def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25, start_page: int = 0) -> dict[str, int | str]:
+def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25, start_page: int = 0) -> dict[str, int | str | None]:
     return ingest_latest_institutional_filings(start_page=start_page, pages=pages, limit=limit, max_filings=max_filings)
 
 
@@ -405,6 +419,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--industry-summary", action="store_true")
     parser.add_argument("--cleanup-feed-events", action="store_true")
     parser.add_argument("--apply-cleanup", action="store_true")
+    parser.add_argument("--job-init", action="store_true", help="Initialize durable latest-filings job state without running ingestion.")
+    parser.add_argument("--job-run-once", action="store_true", help="Run one durable latest-filings job window and persist status.")
+    parser.add_argument("--require-job-enabled", action="store_true", help="Skip --job-run-once unless the persisted job state is enabled.")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
@@ -413,7 +430,21 @@ def main() -> None:
     args = _parse_args()
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
     try:
-        if args.cleanup_feed_events:
+        if args.job_init:
+            from app.services.institutional_ingest_job import initialize_latest_job_state
+
+            result = initialize_latest_job_state(
+                cursor_page=args.start_page,
+                pages_per_run=args.pages,
+                limit=args.limit,
+                max_filings_per_run=args.max_filings,
+                enabled=False,
+            )
+        elif args.job_run_once:
+            from app.services.institutional_ingest_job import run_latest_ingest_job_once
+
+            result = run_latest_ingest_job_once(require_enabled=args.require_job_enabled)
+        elif args.cleanup_feed_events:
             result = cleanup_institutional_feed_events(dry_run=not args.apply_cleanup)
         elif args.industry_summary:
             if args.year is None or args.quarter is None:

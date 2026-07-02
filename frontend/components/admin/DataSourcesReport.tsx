@@ -320,6 +320,11 @@ function endpointValue(domain: AdminDataSourceDomain, role: "primary" | "fallbac
   return domain.settings.fallback_endpoint_url ?? domain.endpoint_urls?.fallback ?? "";
 }
 
+function endpointContractValue(domain: AdminDataSourceDomain, role: "primary" | "fallback") {
+  if (role === "primary") return domain.settings.primary_endpoint_contract_json ?? domain.endpoint_contracts?.primary ?? "";
+  return domain.settings.fallback_endpoint_contract_json ?? domain.endpoint_contracts?.fallback ?? "";
+}
+
 export function DataSourcesReport() {
   const [data, setData] = useState<AdminDataSourcesStatusResponse | null>(null);
   const [filter, setFilter] = useState("All");
@@ -742,20 +747,38 @@ function DataSourceRow({
   const fallbackEndpointSupported = domain.provider_endpoint_support?.fallback ?? providerSupportsEndpointUrl(domain.fallback_provider);
   const [primaryEndpoint, setPrimaryEndpoint] = useState(endpointValue(domain, "primary"));
   const [fallbackEndpoint, setFallbackEndpoint] = useState(endpointValue(domain, "fallback"));
+  const [primaryEndpointContract, setPrimaryEndpointContract] = useState(endpointContractValue(domain, "primary"));
+  const [fallbackEndpointContract, setFallbackEndpointContract] = useState(endpointContractValue(domain, "fallback"));
 
   useEffect(() => {
     setPrimaryEndpoint(endpointValue(domain, "primary"));
     setFallbackEndpoint(endpointValue(domain, "fallback"));
-  }, [domain.domain_key, domain.settings.primary_endpoint_url, domain.settings.fallback_endpoint_url, domain.endpoint_urls?.primary, domain.endpoint_urls?.fallback]);
+    setPrimaryEndpointContract(endpointContractValue(domain, "primary"));
+    setFallbackEndpointContract(endpointContractValue(domain, "fallback"));
+  }, [
+    domain.domain_key,
+    domain.settings.primary_endpoint_url,
+    domain.settings.fallback_endpoint_url,
+    domain.settings.primary_endpoint_contract_json,
+    domain.settings.fallback_endpoint_contract_json,
+    domain.endpoint_urls?.primary,
+    domain.endpoint_urls?.fallback,
+    domain.endpoint_contracts?.primary,
+    domain.endpoint_contracts?.fallback,
+  ]);
 
   const endpointsDirty =
     primaryEndpoint !== endpointValue(domain, "primary") ||
-    fallbackEndpoint !== endpointValue(domain, "fallback");
+    fallbackEndpoint !== endpointValue(domain, "fallback") ||
+    primaryEndpointContract !== endpointContractValue(domain, "primary") ||
+    fallbackEndpointContract !== endpointContractValue(domain, "fallback");
 
   const saveEndpoints = () =>
     updateDomain(domain, {
       primary_endpoint_url: primaryEndpointSupported ? primaryEndpoint.trim() || null : null,
       fallback_endpoint_url: fallbackEndpointSupported ? fallbackEndpoint.trim() || null : null,
+      primary_endpoint_contract_json: primaryEndpointSupported ? primaryEndpointContract.trim() || null : null,
+      fallback_endpoint_contract_json: fallbackEndpointSupported ? fallbackEndpointContract.trim() || null : null,
     });
 
   return (
@@ -886,8 +909,11 @@ function DataSourceRow({
             supported={primaryEndpointSupported}
             value={primaryEndpoint}
             defaultValue={domain.default_primary_endpoint_url}
+            contractValue={primaryEndpointContract}
+            defaultContractValue={domain.default_primary_endpoint_contract_json}
             busy={busy}
             onChange={setPrimaryEndpoint}
+            onContractChange={setPrimaryEndpointContract}
             test={domain.endpoint_tests?.primary}
           />
           <EndpointEditor
@@ -897,8 +923,11 @@ function DataSourceRow({
             supported={fallbackEndpointSupported}
             value={fallbackEndpoint}
             defaultValue={domain.default_fallback_endpoint_url}
+            contractValue={fallbackEndpointContract}
+            defaultContractValue={domain.default_fallback_endpoint_contract_json}
             busy={busy}
             onChange={setFallbackEndpoint}
+            onContractChange={setFallbackEndpointContract}
             test={domain.endpoint_tests?.fallback}
           />
           {primaryEndpointSupported || fallbackEndpointSupported ? (
@@ -1034,8 +1063,11 @@ function EndpointEditor({
   supported,
   value,
   defaultValue,
+  contractValue,
+  defaultContractValue,
   busy,
   onChange,
+  onContractChange,
   test,
 }: {
   id: string;
@@ -1044,8 +1076,11 @@ function EndpointEditor({
   supported: boolean;
   value: string;
   defaultValue?: string | null;
+  contractValue: string;
+  defaultContractValue?: string | null;
   busy: boolean;
   onChange: (value: string) => void;
+  onContractChange: (value: string) => void;
   test?: AdminDataSourceEndpointTest | null;
 }) {
   if (!supported) {
@@ -1055,23 +1090,59 @@ function EndpointEditor({
       </div>
     );
   }
+  const placeholder = defaultValue ?? "https://financialmodelingprep.com/stable/...";
+  const exampleEndpoint = defaultValue ?? "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol={symbol}";
+  const contractId = `${id}-contract`;
   return (
-    <label htmlFor={id} className="block rounded-md border border-white/10 bg-slate-950/40 p-2">
-      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase text-slate-500">
-        <span>{label}</span>
-        {test ? <Badge label={test.status === "healthy" ? "Test healthy" : test.status === "error" ? "Test error" : titleLabel(test.status)} title={test.error ?? undefined} /> : <Badge label="Not tested" />}
-      </span>
+    <div className="block rounded-md border border-white/10 bg-slate-950/40 p-2">
+      <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase text-slate-500">
+        <label htmlFor={id}>{label}</label>
+        <span className="flex items-center gap-1">
+          {defaultValue ? (
+            <button
+              type="button"
+              disabled={busy || value === defaultValue}
+              onClick={() => {
+                onChange(defaultValue);
+                if (defaultContractValue) onContractChange(defaultContractValue);
+              }}
+              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 disabled:opacity-50"
+            >
+              Use default
+            </button>
+          ) : null}
+          {test ? <Badge label={test.status === "healthy" ? "Test healthy" : test.status === "error" ? "Test error" : titleLabel(test.status)} title={test.error ?? undefined} /> : <Badge label="Not tested" />}
+        </span>
+      </div>
       <input
         id={id}
         type="text"
         value={value}
         disabled={busy}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={defaultValue ?? "https://financialmodelingprep.com/stable/..."}
+        placeholder={placeholder}
         className="mt-1 w-full rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 disabled:opacity-60"
       />
+      <p className="mt-1 text-[10px] leading-4 text-slate-500">
+        Use {"{symbol}"} or [symbol] for ticker endpoints. Example: {exampleEndpoint}
+      </p>
+      <label htmlFor={contractId} className="mt-2 block text-[10px] font-semibold uppercase text-slate-500">
+        Request/response contract
+      </label>
+      <textarea
+        id={contractId}
+        value={contractValue}
+        disabled={busy}
+        onChange={(event) => onContractChange(event.target.value)}
+        placeholder={defaultContractValue ?? '{"response":{"price_field":"close","date_field":"date","date_format":"YYYY-MM-DD HH:MM:SS"}}'}
+        rows={5}
+        className="mt-1 w-full rounded-md border border-white/10 bg-slate-950 px-2 py-1.5 font-mono text-[10px] leading-4 text-slate-100 placeholder:text-slate-600 disabled:opacity-60"
+      />
+      <p className="mt-1 text-[10px] leading-4 text-slate-500">
+        Configure request params and response fields. Intraday chart uses date as YYYY-MM-DD HH:MM:SS and close as price; EOD light uses YYYY-MM-DD and price.
+      </p>
       {test?.tested_at ? <span className="mt-1 block text-[10px] text-slate-500">Tested {formatDate(test.tested_at)}</span> : null}
-    </label>
+    </div>
   );
 }
 

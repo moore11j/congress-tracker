@@ -1527,6 +1527,8 @@ export type AdminProviderSetting = {
   fallback_provider?: string | null;
   primary_endpoint_url?: string | null;
   fallback_endpoint_url?: string | null;
+  primary_endpoint_contract_json?: string | null;
+  fallback_endpoint_contract_json?: string | null;
   mode: string;
   is_enabled: boolean;
   allow_external_live_fetch: boolean;
@@ -1560,8 +1562,14 @@ export type AdminDataSourceDomain = {
     primary?: string | null;
     fallback?: string | null;
   };
+  endpoint_contracts?: {
+    primary?: string | null;
+    fallback?: string | null;
+  };
   default_primary_endpoint_url?: string | null;
   default_fallback_endpoint_url?: string | null;
+  default_primary_endpoint_contract_json?: string | null;
+  default_fallback_endpoint_contract_json?: string | null;
   endpoint_tests?: {
     primary?: AdminDataSourceEndpointTest | null;
     fallback?: AdminDataSourceEndpointTest | null;
@@ -1630,6 +1638,8 @@ export type AdminDataSourceSettingPatch = Partial<{
   fallback_provider: string | null;
   primary_endpoint_url: string | null;
   fallback_endpoint_url: string | null;
+  primary_endpoint_contract_json: string | null;
+  fallback_endpoint_contract_json: string | null;
   mode: string;
   is_enabled: boolean;
   allow_external_live_fetch: boolean;

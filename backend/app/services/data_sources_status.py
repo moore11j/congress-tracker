@@ -44,8 +44,10 @@ from app.services.provider_registry import (
     provider_validation_warnings,
 )
 from app.services.provider_endpoints import (
+    configured_endpoint_contract,
     configured_endpoint_url,
     endpoint_display_name,
+    endpoint_contracts_for_setting,
     endpoint_test_category,
     endpoint_urls_for_setting,
     test_fmp_endpoint,
@@ -346,6 +348,7 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
         endpoint_tests = _endpoint_tests(db, domain_key)
         last_error = _endpoint_test_error(endpoint_tests)
         endpoint_urls = endpoint_urls_for_setting(setting, default)
+        endpoint_contracts = endpoint_contracts_for_setting(setting, default)
         endpoint_names = [
             name
             for name in (
@@ -370,8 +373,11 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                 "builder_safe_status": builder_safe_status,
                 "endpoint_names": endpoint_names,
                 "endpoint_urls": endpoint_urls,
+                "endpoint_contracts": endpoint_contracts,
                 "default_primary_endpoint_url": default.primary_endpoint_url,
                 "default_fallback_endpoint_url": default.fallback_endpoint_url,
+                "default_primary_endpoint_contract_json": default.primary_endpoint_contract_json,
+                "default_fallback_endpoint_contract_json": default.fallback_endpoint_contract_json,
                 "endpoint_tests": endpoint_tests,
                 "last_endpoint_tested_at": last_tested_at,
                 "last_successful_refresh": _iso(last_refresh),
@@ -643,11 +649,13 @@ def test_data_source_endpoint(
             continue
         if not endpoint_url:
             raise ValueError(f"{role.title()} FMP endpoint URL is not configured for {default.label}.")
+        endpoint_contract_json = configured_endpoint_contract(setting, default, role)
         result = test_fmp_endpoint(
             db,
             domain_key=domain_key,
             role=role,
             endpoint_url=endpoint_url,
+            endpoint_contract_json=endpoint_contract_json,
             symbol=normalized_symbol,
             requested_by=requested_by,
         )

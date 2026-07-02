@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import parse_qsl, urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from app.models import ProviderSetting, ProviderSettingAuditLog
 from app.services.provider_registry import (
     ALLOWED_MODES,
     ALLOWED_PROVIDERS,
+    FMP_STABLE_BASE_URL,
     PROVIDER_DOMAIN_DEFAULTS,
     ProviderDomainDefault,
     provider_domain_catalog,
@@ -18,6 +21,13 @@ from app.services.provider_registry import (
 )
 
 PROVIDER_VALIDATION_CLEANUP_REASON = "provider_validation_cleanup"
+PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON = "provider_endpoint_validation_cleanup"
+LEGACY_INTRADAY_EOD_ENDPOINT_URL = f"{FMP_STABLE_BASE_URL}/historical-price-eod/light?symbol={{symbol}}"
+LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL = f"{FMP_STABLE_BASE_URL}/quote-short?symbol={{symbol}}"
+SYMBOL_ENDPOINT_URL_HELP = (
+    "Endpoint URL for symbol data must include a non-empty symbol value or a "
+    f"{{symbol}}/[symbol] placeholder, for example {FMP_STABLE_BASE_URL}/historical-chart/1min?symbol={{symbol}}."
+)
 
 
 def seed_default_provider_settings(db: Session) -> None:
@@ -37,6 +47,8 @@ def seed_default_provider_settings(db: Session) -> None:
                 fallback_provider=default.fallback_provider,
                 primary_endpoint_url=default.primary_endpoint_url if provider_uses_endpoint_url(default.active_provider) else None,
                 fallback_endpoint_url=default.fallback_endpoint_url if provider_uses_endpoint_url(default.fallback_provider) else None,
+                primary_endpoint_contract_json=default.primary_endpoint_contract_json if provider_uses_endpoint_url(default.active_provider) else None,
+                fallback_endpoint_contract_json=default.fallback_endpoint_contract_json if provider_uses_endpoint_url(default.fallback_provider) else None,
                 mode=default.mode,
                 is_enabled=default.is_enabled,
                 allow_external_live_fetch=default.allow_external_live_fetch,
@@ -59,14 +71,28 @@ def seed_default_provider_settings(db: Session) -> None:
             and provider_uses_endpoint_url(default.fallback_provider)
         ):
             setting.fallback_provider = default.fallback_provider
+        if default.domain_key == "prices_intraday" and provider_uses_endpoint_url(setting.active_provider):
+            if _normalized_endpoint_url(setting.primary_endpoint_url) == _normalized_endpoint_url(LEGACY_INTRADAY_EOD_ENDPOINT_URL):
+                setting.primary_endpoint_url = default.primary_endpoint_url
+                setting.primary_endpoint_contract_json = default.primary_endpoint_contract_json
+        if default.domain_key == "prices_intraday" and provider_uses_endpoint_url(setting.fallback_provider):
+            if _normalized_endpoint_url(setting.fallback_endpoint_url) == _normalized_endpoint_url(LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL):
+                setting.fallback_endpoint_url = default.fallback_endpoint_url
+                setting.fallback_endpoint_contract_json = default.fallback_endpoint_contract_json
         if setting.primary_endpoint_url is None and provider_uses_endpoint_url(setting.active_provider):
             setting.primary_endpoint_url = default.primary_endpoint_url
+        if setting.primary_endpoint_contract_json is None and provider_uses_endpoint_url(setting.active_provider):
+            setting.primary_endpoint_contract_json = default.primary_endpoint_contract_json
         if setting.fallback_endpoint_url is None and provider_uses_endpoint_url(setting.fallback_provider):
             setting.fallback_endpoint_url = default.fallback_endpoint_url
+        if setting.fallback_endpoint_contract_json is None and provider_uses_endpoint_url(setting.fallback_provider):
+            setting.fallback_endpoint_contract_json = default.fallback_endpoint_contract_json
         if not provider_uses_endpoint_url(setting.active_provider):
             setting.primary_endpoint_url = None
+            setting.primary_endpoint_contract_json = None
         if not provider_uses_endpoint_url(setting.fallback_provider):
             setting.fallback_endpoint_url = None
+            setting.fallback_endpoint_contract_json = None
     db.flush()
 
 
@@ -77,6 +103,7 @@ def cleanup_invalid_provider_settings(db: Session) -> list[dict[str, Any]]:
         row.domain_key: row
         for row in db.execute(select(ProviderSetting)).scalars().all()
     }
+    catalog = provider_domain_catalog()
     cleaned: list[dict[str, Any]] = []
     now = datetime.now(timezone.utc)
     for domain_key in ("house_disclosures", "senate_disclosures"):
@@ -110,6 +137,54 @@ def cleanup_invalid_provider_settings(db: Session) -> list[dict[str, Any]]:
                 "reason": PROVIDER_VALIDATION_CLEANUP_REASON,
             }
         )
+    for domain_key, setting in settings.items():
+        default = catalog.get(domain_key)
+        if default is None:
+            continue
+        for role, field_name, contract_field_name, provider, default_url, default_contract in (
+            ("primary", "primary_endpoint_url", "primary_endpoint_contract_json", setting.active_provider, default.primary_endpoint_url, default.primary_endpoint_contract_json),
+            ("fallback", "fallback_endpoint_url", "fallback_endpoint_contract_json", setting.fallback_provider, default.fallback_endpoint_url, default.fallback_endpoint_contract_json),
+        ):
+            current_url = getattr(setting, field_name)
+            if not current_url or not default_url or not provider_uses_endpoint_url(provider):
+                continue
+            should_restore_default = _endpoint_url_has_blank_symbol(current_url)
+            if domain_key == "prices_intraday" and role == "primary" and _normalized_endpoint_url(current_url) == _normalized_endpoint_url(LEGACY_INTRADAY_EOD_ENDPOINT_URL):
+                should_restore_default = True
+            if domain_key == "prices_intraday" and role == "fallback" and _normalized_endpoint_url(current_url) == _normalized_endpoint_url(LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL):
+                should_restore_default = True
+            if not should_restore_default:
+                continue
+            previous_provider = setting.active_provider
+            previous_mode = setting.mode
+            previous_url = current_url
+            setattr(setting, field_name, default_url)
+            if default_contract:
+                setattr(setting, contract_field_name, default_contract)
+            setting.updated_by = "system"
+            setting.updated_at = now
+            db.add(
+                ProviderSettingAuditLog(
+                    domain_key=domain_key,
+                    previous_provider=previous_provider,
+                    new_provider=setting.active_provider,
+                    previous_mode=previous_mode,
+                    new_mode=setting.mode,
+                    changed_by="system",
+                    reason=PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON,
+                )
+            )
+            cleaned.append(
+                {
+                    "domain_key": domain_key,
+                    "field": field_name,
+                    "role": role,
+                    "previous_value": previous_url,
+                    "new_value": default_url,
+                    "contract_field": contract_field_name,
+                    "reason": PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON,
+                }
+            )
     if cleaned:
         db.flush()
     return cleaned
@@ -131,6 +206,8 @@ def provider_setting_payload(setting: ProviderSetting) -> dict[str, Any]:
         "fallback_provider": setting.fallback_provider,
         "primary_endpoint_url": setting.primary_endpoint_url,
         "fallback_endpoint_url": setting.fallback_endpoint_url,
+        "primary_endpoint_contract_json": setting.primary_endpoint_contract_json,
+        "fallback_endpoint_contract_json": setting.fallback_endpoint_contract_json,
         "mode": setting.mode,
         "is_enabled": bool(setting.is_enabled),
         "allow_external_live_fetch": bool(setting.allow_external_live_fetch),
@@ -174,19 +251,68 @@ def _validated_endpoint_url(value: str | None, *, nullable: bool = True) -> str 
         raise ValueError("Endpoint URL must not contain whitespace.")
     if "://" in cleaned and not (lowered.startswith("https://") or lowered.startswith("http://")):
         raise ValueError("Endpoint URL must be an HTTP(S) URL, a path, or an FMP stable endpoint name.")
+    if _endpoint_url_has_blank_symbol(cleaned):
+        raise ValueError(SYMBOL_ENDPOINT_URL_HELP)
     return cleaned
+
+
+def _validated_endpoint_contract_json(value: str | None, *, nullable: bool = True) -> str | None:
+    if value is None:
+        if nullable:
+            return None
+        raise ValueError("Endpoint contract JSON is required.")
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None if nullable else ""
+    if len(cleaned) > 4000:
+        raise ValueError("Endpoint contract JSON is too long.")
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Endpoint contract JSON is invalid: {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("Endpoint contract JSON must be an object.")
+    request = parsed.get("request")
+    response = parsed.get("response")
+    if request is not None and not isinstance(request, dict):
+        raise ValueError("Endpoint contract request must be an object.")
+    if response is not None and not isinstance(response, dict):
+        raise ValueError("Endpoint contract response must be an object.")
+    return json.dumps(parsed, separators=(",", ":"), sort_keys=True)
+
+
+def _endpoint_url_has_blank_symbol(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(str(value).strip())
+    for key, query_value in parse_qsl(parsed.query, keep_blank_values=True):
+        if key.lower() == "symbol" and not str(query_value).strip():
+            return True
+    return False
+
+
+def _normalized_endpoint_url(value: str | None) -> str:
+    return (value or "").strip().lower().replace("[symbol]", "{symbol}")
 
 
 def _sync_endpoint_defaults(setting: ProviderSetting, default: ProviderDomainDefault) -> None:
     if not provider_uses_endpoint_url(setting.active_provider):
         setting.primary_endpoint_url = None
-    elif setting.primary_endpoint_url is None:
-        setting.primary_endpoint_url = default.primary_endpoint_url
+        setting.primary_endpoint_contract_json = None
+    else:
+        if setting.primary_endpoint_url is None:
+            setting.primary_endpoint_url = default.primary_endpoint_url
+        if setting.primary_endpoint_contract_json is None:
+            setting.primary_endpoint_contract_json = default.primary_endpoint_contract_json
 
     if not provider_uses_endpoint_url(setting.fallback_provider):
         setting.fallback_endpoint_url = None
-    elif setting.fallback_endpoint_url is None:
-        setting.fallback_endpoint_url = default.fallback_endpoint_url
+        setting.fallback_endpoint_contract_json = None
+    else:
+        if setting.fallback_endpoint_url is None:
+            setting.fallback_endpoint_url = default.fallback_endpoint_url
+        if setting.fallback_endpoint_contract_json is None:
+            setting.fallback_endpoint_contract_json = default.fallback_endpoint_contract_json
 
 
 def update_provider_setting(
@@ -214,6 +340,10 @@ def update_provider_setting(
         setting.primary_endpoint_url = _validated_endpoint_url(changes.get("primary_endpoint_url"))
     if "fallback_endpoint_url" in changes:
         setting.fallback_endpoint_url = _validated_endpoint_url(changes.get("fallback_endpoint_url"))
+    if "primary_endpoint_contract_json" in changes:
+        setting.primary_endpoint_contract_json = _validated_endpoint_contract_json(changes.get("primary_endpoint_contract_json"))
+    if "fallback_endpoint_contract_json" in changes:
+        setting.fallback_endpoint_contract_json = _validated_endpoint_contract_json(changes.get("fallback_endpoint_contract_json"))
     if "mode" in changes:
         mode = str(changes.get("mode") or "").strip().lower()
         if mode not in ALLOWED_MODES:

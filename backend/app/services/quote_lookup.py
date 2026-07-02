@@ -218,8 +218,65 @@ def _payload_rows(payload: object) -> list[dict]:
     return []
 
 
-def _numeric_price(row: dict) -> float | None:
-    for key in ("price", "close", "adjClose", "previousClose", "last", "bid", "ask"):
+def _response_config(endpoint_contract: dict | None) -> dict:
+    if isinstance(endpoint_contract, dict) and isinstance(endpoint_contract.get("response"), dict):
+        return endpoint_contract["response"]
+    return {}
+
+
+def _price_fields(response_config: dict) -> tuple[str, ...]:
+    fields: list[str] = []
+    price_field = response_config.get("price_field")
+    if isinstance(price_field, str) and price_field.strip():
+        fields.append(price_field.strip())
+    fallback_fields = response_config.get("fallback_price_fields")
+    if isinstance(fallback_fields, list):
+        fields.extend(str(field).strip() for field in fallback_fields if str(field).strip())
+    fields.extend(["price", "close", "adjClose", "previousClose", "last", "bid", "ask"])
+    return tuple(dict.fromkeys(fields))
+
+
+def _python_date_format(value: object, fallback: str) -> str:
+    aliases = {
+        "YYYY-MM-DD": "%Y-%m-%d",
+        "YYYY-MM-DD HH:MM:SS": "%Y-%m-%d %H:%M:%S",
+    }
+    if not value:
+        return fallback
+    text = str(value)
+    return aliases.get(text, text)
+
+
+def _parse_response_asof(row: dict, response_config: dict) -> datetime | None:
+    date_field = str(response_config.get("date_field") or "date").strip()
+    raw_value = row.get(date_field) if date_field else None
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, datetime):
+        return raw_value.astimezone(timezone.utc).replace(tzinfo=None) if raw_value.tzinfo else raw_value
+    raw_text = str(raw_value).strip()
+    if not raw_text:
+        return None
+    configured_format = response_config.get("date_format")
+    formats = [
+        _python_date_format(configured_format, "%Y-%m-%d %H:%M:%S"),
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ]
+    for fmt in dict.fromkeys(formats):
+        try:
+            return datetime.strptime(raw_text, fmt)
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(raw_text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _numeric_price(row: dict, *, response_config: dict | None = None) -> float | None:
+    for key in _price_fields(response_config or {}):
         value = row.get(key)
         try:
             parsed = float(value)
@@ -230,14 +287,20 @@ def _numeric_price(row: dict) -> float | None:
     return None
 
 
-def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str) -> list[dict]:
+def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_contract: dict | None = None) -> list[dict]:
+    response_config = _response_config(endpoint_contract)
+    symbol_field = str(response_config.get("symbol_field") or "symbol").strip() or "symbol"
     payload: list[dict] = []
     for row in rows:
-        price = _numeric_price(row)
+        price = _numeric_price(row, response_config=response_config)
         if price is None:
             continue
-        symbol = normalize_symbol(row.get("symbol")) or fallback_symbol
-        payload.append({"symbol": symbol, "price": price})
+        symbol = normalize_symbol(row.get(symbol_field)) or fallback_symbol
+        parsed = {"symbol": symbol, "price": price}
+        asof_ts = _parse_response_asof(row, response_config)
+        if asof_ts is not None:
+            parsed["asof_ts"] = asof_ts
+        payload.append(parsed)
     return payload
 
 def get_index_quote(symbol: str) -> float:
@@ -457,9 +520,9 @@ def get_current_prices_meta_db(
             miss_count += count
             status_counts[status_code] = status_counts.get(status_code, 0) + count
 
-        def _parse_quote_payload(quote_payload: object, *, fallback_symbol: str) -> bool:
+        def _parse_quote_payload(quote_payload: object, *, fallback_symbol: str, endpoint_contract: dict | None = None) -> bool:
             rows = _payload_rows(quote_payload)
-            parsed_rows = _rows_to_quote_payload(rows, fallback_symbol=fallback_symbol)
+            parsed_rows = _rows_to_quote_payload(rows, fallback_symbol=fallback_symbol, endpoint_contract=endpoint_contract)
             payload.extend(parsed_rows)
             return bool(parsed_rows)
 
@@ -483,9 +546,10 @@ def get_current_prices_meta_db(
                 endpoint_requests = [
                     SimpleNamespace(
                         role="legacy",
-                        endpoint_name="quote-short",
-                        request_url=f"{FMP_BASE_URL}/quote-short",
+                        endpoint_name="historical-price-eod/light",
+                        request_url=f"{FMP_BASE_URL}/historical-price-eod/light",
                         request_params={"symbol": symbol, "apikey": api_key},
+                        endpoint_contract={},
                     )
                 ]
 
@@ -521,7 +585,7 @@ def get_current_prices_meta_db(
                 except ValueError:
                     _record_miss(502)
                     continue
-                if _parse_quote_payload(parsed, fallback_symbol=symbol):
+                if _parse_quote_payload(parsed, fallback_symbol=symbol, endpoint_contract=getattr(endpoint_request, "endpoint_contract", None)):
                     return True
                 _record_miss(204)
 
@@ -617,7 +681,7 @@ def get_current_prices_meta_db(
                 continue
             quote_meta[symbol] = {
                 "price": price,
-                "asof_ts": fetched_at,
+                "asof_ts": row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else fetched_at,
                 "is_stale": False,
             }
             cache_set(symbol, price)

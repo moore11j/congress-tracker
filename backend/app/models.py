@@ -426,6 +426,71 @@ class WatchlistViewState(Base):
     )
 
 
+class InstitutionalIngestJobState(Base):
+    __tablename__ = "institutional_ingest_job_state"
+    __table_args__ = (Index("ix_institutional_ingest_job_state_status", "last_status"),)
+
+    job_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+    cursor_page: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    limit: Mapped[int] = mapped_column(default=25, server_default=text("25"), nullable=False)
+    pages_per_run: Mapped[int] = mapped_column(default=2, server_default=text("2"), nullable=False)
+    max_filings_per_run: Mapped[int] = mapped_column(default=25, server_default=text("25"), nullable=False)
+    first_empty_page: Mapped[Optional[int]]
+    last_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str] = mapped_column(Text, default="idle", server_default="idle", nullable=False)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    total_pages_scanned: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    total_filings_processed: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    total_position_rows: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    total_activity_events: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    total_feed_events: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class InstitutionalIngestJobRun(Base):
+    __tablename__ = "institutional_ingest_job_runs"
+    __table_args__ = (
+        Index("ix_institutional_ingest_job_runs_job_started", "job_name", "started_at"),
+        Index("ix_institutional_ingest_job_runs_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_name: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    start_page: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    pages_requested: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    pages_scanned: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    limit: Mapped[int] = mapped_column(default=25, server_default=text("25"), nullable=False)
+    max_filings: Mapped[int] = mapped_column(default=25, server_default=text("25"), nullable=False)
+    scanned: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    parsed: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    parse_failed: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    already_processed_skipped: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    processed_filings: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    empty_extract_retryable: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    empty_extract_processed_no_holdings: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    skipped: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    errors: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    position_rows: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    position_changes: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    summaries: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    activity_events: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    feed_events: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    first_empty_page_seen: Mapped[Optional[int]]
+    next_cursor_page: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
 class ConfirmationMonitoringSnapshot(Base):
     __tablename__ = "confirmation_monitoring_snapshots"
     __table_args__ = (
@@ -1633,6 +1698,8 @@ class ProviderSetting(Base):
     fallback_provider: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     primary_endpoint_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fallback_endpoint_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    primary_endpoint_contract_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fallback_endpoint_contract_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mode: Mapped[str] = mapped_column(Text, default="primary", server_default="primary", nullable=False)
     is_enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
     allow_external_live_fetch: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)

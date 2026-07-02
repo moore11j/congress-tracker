@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -313,6 +314,37 @@ def test_latest_ingest_parse_failures_do_not_count_toward_max_filings(monkeypatc
     assert result["scanned"] == 3
     assert result["parse_failed"] == 2
     assert result["empty_extract_retryable"] == 1
+
+
+def test_latest_ingest_stops_window_on_database_error(monkeypatch):
+    class DummySession:
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    calls = []
+    valid_row = _filing_row(cik="0000000003", filing_date=date(2026, 6, 1), year=2026, quarter=1, holder="Three Capital")
+
+    def fake_fetch_latest(*, page: int, limit: int):
+        calls.append((page, limit))
+        return [valid_row]
+
+    def fail_holder(*_args, **_kwargs):
+        raise OperationalError("select 1", {}, Exception("db closed"))
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(ingest_module, "fetch_latest_institutional_filings", fake_fetch_latest)
+    monkeypatch.setattr(ingest_module, "upsert_institutional_holder", fail_holder)
+
+    result = ingest_module.ingest_latest_institutional_filings(pages=2, limit=25, max_filings=25)
+
+    assert calls == [(0, 25)]
+    assert result["errors"] == 1
+    assert result["scanned"] == 1
+    assert result["pages_scanned"] == 1
 
 
 def test_start_page_arg_does_not_change_specific_cik_ingest_path(monkeypatch, capsys):

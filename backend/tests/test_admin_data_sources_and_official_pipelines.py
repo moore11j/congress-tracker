@@ -28,7 +28,7 @@ from app.services.official_congress import (
     promote_congress_shadow_events,
     stage_congress_disclosure_shadow,
 )
-from app.services.provider_settings import PROVIDER_VALIDATION_CLEANUP_REASON, get_provider_settings_by_domain
+from app.services.provider_settings import PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON, PROVIDER_VALIDATION_CLEANUP_REASON, get_provider_settings_by_domain
 from app.services.sec_form4 import (
     insider_transaction_hash,
     parse_form4_xml,
@@ -152,8 +152,11 @@ def test_provider_settings_defaults_and_admin_crud():
         assert settings["congress_trades"].mode == "shadow"
         assert settings["prices_intraday"].active_provider == "fmp"
         assert settings["prices_intraday"].fallback_provider == "fmp"
-        assert settings["prices_intraday"].primary_endpoint_url.endswith("/stable/historical-price-eod/light?symbol={symbol}")
-        assert settings["prices_intraday"].fallback_endpoint_url.endswith("/stable/quote-short?symbol={symbol}")
+        assert settings["prices_intraday"].primary_endpoint_url.endswith("/stable/historical-chart/1min?symbol={symbol}")
+        assert settings["prices_intraday"].fallback_endpoint_url.endswith("/stable/historical-price-eod/light?symbol={symbol}")
+        assert '"price_field":"close"' in settings["prices_intraday"].primary_endpoint_contract_json
+        assert '"date_format":"YYYY-MM-DD HH:MM:SS"' in settings["prices_intraday"].primary_endpoint_contract_json
+        assert '"price_field":"price"' in settings["prices_intraday"].fallback_endpoint_contract_json
         assert settings["insider_trades"].active_provider == "sec_edgar"
         assert settings["pnl_enrichment"].active_provider == "internal_computed"
         assert settings["pnl_enrichment"].fallback_provider == "walnut_cache"
@@ -184,7 +187,9 @@ def test_provider_endpoint_urls_are_saved_and_exposed():
         admin = _user(db, "admin@example.com", role="admin")
         request = _request_for_user(admin)
         primary_url = "https://financialmodelingprep.com/stable/historical-chart/1min?symbol=AAPL"
-        fallback_url = "https://financialmodelingprep.com/stable/quote-short?symbol=AAPL"
+        fallback_url = "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=AAPL"
+        primary_contract = '{"response":{"price_field":"close","date_field":"date","date_format":"YYYY-MM-DD HH:MM:SS"}}'
+        fallback_contract = '{"response":{"price_field":"price","date_field":"date","date_format":"YYYY-MM-DD"}}'
 
         updated = admin_update_data_source_setting(
             "prices_intraday",
@@ -193,6 +198,8 @@ def test_provider_endpoint_urls_are_saved_and_exposed():
                 fallback_provider="fmp",
                 primary_endpoint_url=primary_url,
                 fallback_endpoint_url=fallback_url,
+                primary_endpoint_contract_json=primary_contract,
+                fallback_endpoint_contract_json=fallback_contract,
                 reason="endpoint switch",
             ),
             request,
@@ -200,11 +207,14 @@ def test_provider_endpoint_urls_are_saved_and_exposed():
         )
         assert updated["primary_endpoint_url"] == primary_url
         assert updated["fallback_endpoint_url"] == fallback_url
+        assert json.loads(updated["primary_endpoint_contract_json"])["response"]["price_field"] == "close"
+        assert json.loads(updated["fallback_endpoint_contract_json"])["response"]["date_format"] == "YYYY-MM-DD"
 
         payload = admin_data_sources_status(request, db)
         row = {item["domain_key"]: item for item in payload["domains"]}["prices_intraday"]
         assert row["endpoint_urls"]["primary"] == primary_url
         assert row["endpoint_urls"]["fallback"] == fallback_url
+        assert json.loads(row["endpoint_contracts"]["primary"])["response"]["date_format"] == "YYYY-MM-DD HH:MM:SS"
         assert "historical-chart/1min?symbol=AAPL" in row["endpoint_names"]
 
         with pytest.raises(HTTPException) as exc:
@@ -216,6 +226,89 @@ def test_provider_endpoint_urls_are_saved_and_exposed():
             )
         assert exc.value.status_code == 400
         assert "must not include an API key" in str(exc.value.detail)
+
+        templated_url = "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=[symbol]"
+        updated = admin_update_data_source_setting(
+            "prices_intraday",
+            ProviderSettingPatchPayload(primary_endpoint_url=templated_url, reason="alternate template syntax"),
+            request,
+            db,
+        )
+        assert updated["primary_endpoint_url"] == templated_url
+
+        with pytest.raises(HTTPException) as exc:
+            admin_update_data_source_setting(
+                "prices_intraday",
+                ProviderSettingPatchPayload(
+                    primary_endpoint_url="https://financialmodelingprep.com/stable/historical-chart/1min?symbol=",
+                    reason="bad blank symbol",
+                ),
+                request,
+                db,
+            )
+        assert exc.value.status_code == 400
+        assert "{symbol}/[symbol]" in str(exc.value.detail)
+        assert "historical-chart/1min?symbol={symbol}" in str(exc.value.detail)
+
+        with pytest.raises(HTTPException) as exc:
+            admin_update_data_source_setting(
+                "prices_intraday",
+                ProviderSettingPatchPayload(primary_endpoint_contract_json='["not", "object"]', reason="bad contract"),
+                request,
+                db,
+            )
+        assert exc.value.status_code == 400
+        assert "Endpoint contract JSON must be an object" in str(exc.value.detail)
+    finally:
+        db.close()
+
+
+def test_data_source_status_repairs_blank_symbol_endpoint_to_default():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        settings = get_provider_settings_by_domain(db)
+        bad_url = "https://financialmodelingprep.com/stable/historical-chart/1min?symbol="
+        settings["prices_intraday"].primary_endpoint_url = bad_url
+        db.commit()
+
+        payload = admin_data_sources_status(request, db)
+        row = {item["domain_key"]: item for item in payload["domains"]}["prices_intraday"]
+        repaired_url = "https://financialmodelingprep.com/stable/historical-chart/1min?symbol={symbol}"
+        assert row["endpoint_urls"]["primary"] == repaired_url
+        assert row["endpoint_names"][0] == "historical-chart/1min?symbol=AAPL"
+        assert json.loads(row["endpoint_contracts"]["primary"])["response"]["price_field"] == "close"
+
+        refreshed = get_provider_settings_by_domain(db)["prices_intraday"]
+        assert refreshed.primary_endpoint_url == repaired_url
+        audit = db.execute(
+            select(ProviderSettingAuditLog).where(
+                ProviderSettingAuditLog.domain_key == "prices_intraday",
+                ProviderSettingAuditLog.reason == PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON,
+            )
+        ).scalar_one()
+        assert audit.changed_by == "system"
+    finally:
+        db.close()
+
+
+def test_data_source_status_migrates_legacy_intraday_defaults_to_chart_primary():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        settings = get_provider_settings_by_domain(db)
+        settings["prices_intraday"].primary_endpoint_url = "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol={symbol}"
+        settings["prices_intraday"].fallback_endpoint_url = "https://financialmodelingprep.com/stable/quote-short?symbol={symbol}"
+        db.commit()
+
+        payload = admin_data_sources_status(request, db)
+        row = {item["domain_key"]: item for item in payload["domains"]}["prices_intraday"]
+        assert row["endpoint_urls"]["primary"].endswith("/historical-chart/1min?symbol={symbol}")
+        assert row["endpoint_urls"]["fallback"].endswith("/historical-price-eod/light?symbol={symbol}")
+        assert json.loads(row["endpoint_contracts"]["primary"])["response"]["price_field"] == "close"
+        assert json.loads(row["endpoint_contracts"]["fallback"])["response"]["price_field"] == "price"
     finally:
         db.close()
 

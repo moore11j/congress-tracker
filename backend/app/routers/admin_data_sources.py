@@ -20,6 +20,8 @@ class ProviderSettingPatchPayload(BaseModel):
     fallback_provider: str | None = Field(default=None, max_length=80)
     primary_endpoint_url: str | None = Field(default=None, max_length=1000)
     fallback_endpoint_url: str | None = Field(default=None, max_length=1000)
+    primary_endpoint_contract_json: str | None = Field(default=None, max_length=4000)
+    fallback_endpoint_contract_json: str | None = Field(default=None, max_length=4000)
     mode: str | None = Field(default=None, max_length=40)
     is_enabled: bool | None = None
     allow_external_live_fetch: bool | None = None

@@ -82,7 +82,7 @@ def test_quote_cache_freshness_ignores_none_timestamp_without_type_error(monkeyp
     assert meta == {}
 
 
-def test_quote_lookup_uses_configured_historical_eod_endpoint_before_quote_short(monkeypatch):
+def test_quote_lookup_uses_configured_intraday_chart_endpoint_before_eod_fallback(monkeypatch):
     _reset_quote_lookup_state()
     db = _db()
     calls: list[tuple[str, dict]] = []
@@ -91,7 +91,7 @@ def test_quote_lookup_uses_configured_historical_eod_endpoint_before_quote_short
         status_code = 200
 
         def json(self):
-            return [{"date": "2026-07-01", "close": 213.5}]
+            return [{"date": "2026-07-01 15:59:00", "close": 213.5, "volume": 100179}]
 
     def fake_get(url, params=None, timeout=10):
         calls.append((url, dict(params or {})))
@@ -107,7 +107,10 @@ def test_quote_lookup_uses_configured_historical_eod_endpoint_before_quote_short
         db.close()
 
     assert meta["AAPL"]["price"] == 213.5
+    assert meta["AAPL"]["asof_ts"] == datetime(2026, 7, 1, 15, 59, 0)
     assert calls
-    assert calls[0][0].endswith("/stable/historical-price-eod/light")
+    assert calls[0][0].endswith("/stable/historical-chart/1min")
     assert calls[0][1]["symbol"] == "AAPL"
+    assert calls[0][1]["from"]
+    assert calls[0][1]["to"]
     assert all(not call[0].endswith("/stable/quote-short") for call in calls)

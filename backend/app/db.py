@@ -876,6 +876,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
                     fallback_provider TEXT,
                     primary_endpoint_url TEXT,
                     fallback_endpoint_url TEXT,
+                    primary_endpoint_contract_json TEXT,
+                    fallback_endpoint_contract_json TEXT,
                     mode TEXT NOT NULL DEFAULT 'primary',
                     is_enabled {bool_type} NOT NULL DEFAULT {default_true},
                     allow_external_live_fetch {bool_type} NOT NULL DEFAULT {default_false},
@@ -1075,6 +1077,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
                     "fallback_provider": "TEXT",
                     "primary_endpoint_url": "TEXT",
                     "fallback_endpoint_url": "TEXT",
+                    "primary_endpoint_contract_json": "TEXT",
+                    "fallback_endpoint_contract_json": "TEXT",
                     "mode": "TEXT NOT NULL DEFAULT 'primary'",
                     "is_enabled": "BOOLEAN NOT NULL DEFAULT true",
                     "allow_external_live_fetch": "BOOLEAN NOT NULL DEFAULT false",
@@ -1128,6 +1132,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
                 for name, column_type in {
                     "primary_endpoint_url": "TEXT",
                     "fallback_endpoint_url": "TEXT",
+                    "primary_endpoint_contract_json": "TEXT",
+                    "fallback_endpoint_contract_json": "TEXT",
                 }.items():
                     if name not in provider_existing:
                         conn.execute(text(f"ALTER TABLE provider_settings ADD COLUMN {name} {column_type}"))
@@ -1236,6 +1242,8 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         InstitutionalHolder,
         InstitutionalHolderIndustryBreakdown,
         InstitutionalIndustrySummary,
+        InstitutionalIngestJobRun,
+        InstitutionalIngestJobState,
         InstitutionalPosition,
         InstitutionalPositionChange,
         InstitutionalSymbolSummary,
@@ -1250,6 +1258,8 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         InstitutionalActivityEvent.__table__,
         InstitutionalIndustrySummary.__table__,
         InstitutionalHolderIndustryBreakdown.__table__,
+        InstitutionalIngestJobState.__table__,
+        InstitutionalIngestJobRun.__table__,
     ]
     with bind.begin() as conn:
         _set_postgres_ddl_timeouts(conn)
