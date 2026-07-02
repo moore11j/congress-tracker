@@ -41,6 +41,12 @@ def _mock_logged_out_signal_context(monkeypatch):
     main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
 
 
+def test_symbol_scoped_signal_queries_use_smaller_candidate_floor():
+    assert signals_module.SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR == 25
+    assert signals_module.BROAD_SIGNAL_CANDIDATE_FLOOR == 100
+    assert signals_module.SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR < signals_module.BROAD_SIGNAL_CANDIDATE_FLOOR
+
+
 def _event(
     event_id: int,
     *,

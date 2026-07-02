@@ -20,6 +20,8 @@ const watchlistsPage = read("app/watchlists/page.tsx");
 const watchlistDetailPage = read("app/watchlists/[id]/page.tsx");
 const monitoringPage = read("app/monitoring/page.tsx");
 const api = read("lib/api.ts");
+const serverTimeout = read("lib/serverTimeout.ts");
+const institutionPage = read("app/institution/[cik]/page.tsx");
 
 test("middleware covers protected app routes while leaving public account flows open", () => {
   assert.match(middleware, /protectedPrefixes = \["\/admin", "\/account", "\/screener", "\/backtesting", "\/watchlists", "\/monitoring", "\/signals", "\/leaderboards"\]/);
@@ -94,6 +96,26 @@ test("watchlist and monitoring shells wait for verified backend session", () => 
   assert.match(watchlistDetailPage, /<WatchlistDetailContent/);
   assert.match(monitoringPage, /<VerifiedSessionGuard returnTo="\/monitoring" initiallyAuthorized=\{Boolean\(authToken\)\}>/);
   assert.match(monitoringPage, /<MonitoringDashboard/);
+});
+
+test("protected app shells bound initial server data fetches", () => {
+  assert.match(serverTimeout, /export function withServerTimeout/);
+  assert.match(screenerPage, /withServerTimeout\(getEntitlements\(authToken\), "screener:entitlements"\)/);
+  assert.match(screenerPage, /withServerTimeout\(getPlanConfig\(\), "screener:plan-config"\)/);
+  assert.match(screenerPage, /withServerTimeout\([\s\S]*fetch\(requestUrl/);
+  assert.match(screenerPage, /"screener:results"/);
+  assert.match(watchlistsPage, /withServerTimeout\(listWatchlists\(authToken\), "watchlists:list"\)\.catch\(\(\) => \[\]\)/);
+  assert.match(monitoringPage, /withServerTimeout\(listWatchlists\(authToken\), "monitoring:watchlists"\)\.catch\(\(\) => \[\]\)/);
+});
+
+test("institution profile route fails soft on backend profile and section errors", () => {
+  assert.match(institutionPage, /withServerTimeout\([\s\S]*getInstitutionProfile\(cik/);
+  assert.match(institutionPage, /\.catch\(\(\) => unavailableInstitutionProfile\(cik\)\)/);
+  assert.match(institutionPage, /function unavailableInstitutionProfile\(cik: string\): InstitutionProfileResponse/);
+  assert.match(institutionPage, /availability_status: "unavailable"/);
+  assert.match(institutionPage, /getInstitutionHoldings\(cik,[\s\S]*\)\.catch\(\(\) => \(\{ items: \[\] \}\)\)/);
+  assert.match(institutionPage, /getInstitutionActivity\(cik,[\s\S]*\)\.catch\(\(\) => \(\{ items: \[\] \}\)\)/);
+  assert.match(institutionPage, /getInstitutionFilings\(cik,[\s\S]*\)\.catch\(\(\) => \(\{ items: \[\] \}\)\)/);
 });
 
 test("cookie-only API client remains bearer-free", () => {

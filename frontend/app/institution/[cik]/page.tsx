@@ -14,6 +14,7 @@ import {
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
 import { normalizeInstitutionCik } from "@/lib/institution";
 import { optionalPageAuthState } from "@/lib/serverAuth";
+import { withServerTimeout } from "@/lib/serverTimeout";
 import { tickerHref } from "@/lib/ticker";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
@@ -46,21 +47,37 @@ export default async function InstitutionPage({ params }: Props) {
 
   const authState = await optionalPageAuthState();
   const authToken = authState.token ?? undefined;
-  const profile = await getInstitutionProfile(cik, { authToken, source: "InstitutionProfilePage" });
+  const profile = await withServerTimeout(
+    getInstitutionProfile(cik, { authToken, source: "InstitutionProfilePage" }),
+    "institution:profile",
+    12000,
+  ).catch(() => unavailableInstitutionProfile(cik));
   if (profile.locked) {
     return <LockedInstitutionProfile cik={cik} />;
   }
 
   const [holdings, activity, filings] = await Promise.all([
-    getInstitutionHoldings(cik, {
-      year: profile.latest_report_year ?? undefined,
-      quarter: profile.latest_report_quarter ?? undefined,
-      limit: 50,
-      authToken,
-      source: "InstitutionProfileHoldings",
-    }),
-    getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity" }),
-    getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings" }),
+    withServerTimeout(
+      getInstitutionHoldings(cik, {
+        year: profile.latest_report_year ?? undefined,
+        quarter: profile.latest_report_quarter ?? undefined,
+        limit: 50,
+        authToken,
+        source: "InstitutionProfileHoldings",
+      }),
+      "institution:holdings",
+      10000,
+    ).catch(() => ({ items: [] })),
+    withServerTimeout(
+      getInstitutionActivity(cik, { limit: 25, authToken, source: "InstitutionProfileActivity" }),
+      "institution:activity",
+      8000,
+    ).catch(() => ({ items: [] })),
+    withServerTimeout(
+      getInstitutionFilings(cik, { limit: 25, authToken, source: "InstitutionProfileFilings" }),
+      "institution:filings",
+      8000,
+    ).catch(() => ({ items: [] })),
   ]);
 
   const unavailable = profile.availability_status === "unavailable" || profile.status === "no_data";
@@ -119,6 +136,24 @@ export default async function InstitutionPage({ params }: Props) {
       <FilingsSection items={filings.items ?? []} />
     </div>
   );
+}
+
+function unavailableInstitutionProfile(cik: string): InstitutionProfileResponse {
+  return {
+    status: "temporarily_unavailable",
+    cik,
+    holder_name: null,
+    latest_filing_date: null,
+    latest_report_year: null,
+    latest_report_quarter: null,
+    total_reported_value: null,
+    total_reported_value_usd: null,
+    holdings_count: 0,
+    source_label: "Institutional Activity",
+    availability_status: "unavailable",
+    locked: false,
+    top_holdings: [],
+  };
 }
 
 function LockedInstitutionProfile({ cik }: { cik: string }) {

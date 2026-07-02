@@ -56,6 +56,7 @@ type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_con
 type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
+const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE + 1;
 const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
 
 function contextWindowLabel(days: number): string {
@@ -257,16 +258,27 @@ function emptyEventsResponse(page = 0, limit = ACTIVITY_PAGE_SIZE): EventsRespon
 }
 
 function activityPageMeta(response: EventsResponse, fallbackPage = 0, fallbackLimit = ACTIVITY_PAGE_SIZE): ActivityPageMeta {
-  const limit = typeof response.limit === "number" && response.limit > 0 ? response.limit : fallbackLimit;
+  const rawLimit = typeof response.limit === "number" && response.limit > 0 ? response.limit : fallbackLimit;
+  const limit = Math.min(rawLimit, fallbackLimit);
   const offset = typeof response.offset === "number" && response.offset >= 0 ? response.offset : fallbackPage * limit;
   const page = Math.max(Math.floor(offset / Math.max(limit, 1)), 0);
-  const total = typeof response.total === "number" && response.total >= 0 ? response.total : response.items.length;
+  const visibleCount = Math.min(response.items.length, limit);
+  const inferredHasNext = response.items.length > limit;
+  const total = typeof response.total === "number" && response.total >= 0
+    ? response.total
+    : offset + visibleCount + (inferredHasNext ? 1 : 0);
   return {
     page,
     limit,
     total,
-    hasNext: offset + response.items.length < total,
+    hasNext: typeof response.total === "number" && response.total >= 0
+      ? offset + visibleCount < total
+      : inferredHasNext,
   };
+}
+
+function visibleActivityItems(response: EventsResponse, limit = ACTIVITY_PAGE_SIZE) {
+  return (response.items ?? []).slice(0, limit);
 }
 
 function formatActivityPrice(value: number | null): string {
@@ -2168,8 +2180,8 @@ async function resolveTickerActivityData({
 
   const metricCongressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
   const metricInsiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
-  const congressEvents = congressEventsRes.items ?? [];
-  const insiderEvents = insiderEventsRes.items ?? [];
+  const congressEvents = visibleActivityItems(congressEventsRes, ACTIVITY_PAGE_SIZE);
+  const insiderEvents = visibleActivityItems(insiderEventsRes, ACTIVITY_PAGE_SIZE);
   const congressActivityPage = activityPageMeta(congressEventsRes, 0, ACTIVITY_PAGE_SIZE);
   const insiderActivityPage = activityPageMeta(insiderEventsRes, 0, ACTIVITY_PAGE_SIZE);
   const governmentContracts = governmentContractsRes.items ?? [];
@@ -3202,9 +3214,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
         ? await getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
-            limit: ACTIVITY_PAGE_SIZE,
+            limit: ACTIVITY_FETCH_SIZE,
             offset: congressPage * ACTIVITY_PAGE_SIZE,
-            include_total: 1,
             enrich_prices: 0,
             tape: "congress",
             source: "TickerCongressActivity",
@@ -3223,9 +3234,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
         ? await getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
-            limit: ACTIVITY_PAGE_SIZE,
+            limit: ACTIVITY_FETCH_SIZE,
             offset: insiderPage * ACTIVITY_PAGE_SIZE,
-            include_total: 1,
             enrich_prices: 0,
             tape: "insider",
             source: "TickerInsiderActivity",

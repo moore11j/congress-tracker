@@ -36,6 +36,8 @@ router = APIRouter(tags=["signals"])
 logger = logging.getLogger(__name__)
 
 MAX_LIMIT = 500
+SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR = 25
+BROAD_SIGNAL_CANDIDATE_FLOOR = 100
 CONGRESS_SIGNAL_DEFAULTS = {
     "baseline_days": 365,
     "recent_days": 180,
@@ -583,21 +585,23 @@ def _query_unified_signals(
                 union_sq.c.ts.desc(),
             )
 
+        candidate_floor = SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR if symbol_values else BROAD_SIGNAL_CANDIDATE_FLOOR
         fetch_limit = (
             MAX_LIMIT
             if confirmation_filter_active
             else min(MAX_LIMIT, max(limit + offset, 1))
             if sort == "recent" and min_smart_score is None
-            else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+            else min(MAX_LIMIT, max(limit + offset, limit * 3, candidate_floor))
         )
         rows = db.execute(query.limit(fetch_limit)).all()
     else:
+        candidate_floor = SYMBOL_SCOPED_SIGNAL_CANDIDATE_FLOOR if symbol_values else BROAD_SIGNAL_CANDIDATE_FLOOR
         fetch_limit = (
             MAX_LIMIT
             if confirmation_filter_active
             else min(MAX_LIMIT, max(limit + offset, 1))
             if sort == "recent" and min_smart_score is None
-            else min(MAX_LIMIT, max(limit + offset, limit * 3, 100))
+            else min(MAX_LIMIT, max(limit + offset, limit * 3, candidate_floor))
         )
     confirmation_metrics_by_symbol = get_confirmation_metrics_for_symbols(
         db,

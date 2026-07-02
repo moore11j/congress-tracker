@@ -1,13 +1,16 @@
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { listWatchlists } from "@/lib/api";
 import { requirePageAuth } from "@/lib/serverAuth";
+import { withServerTimeout } from "@/lib/serverTimeout";
 import { WatchlistsDashboard } from "@/components/watchlists/WatchlistsDashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function WatchlistsPage() {
   const authToken = await requirePageAuth("/watchlists");
-  const watchlists = authToken ? await listWatchlists(authToken).catch(() => []) : [];
+  const watchlists = authToken
+    ? await withServerTimeout(listWatchlists(authToken), "watchlists:list").catch(() => [])
+    : [];
 
   return (
     <VerifiedSessionGuard returnTo="/watchlists" initiallyAuthorized={Boolean(authToken)}>

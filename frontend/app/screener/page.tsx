@@ -26,6 +26,7 @@ import {
   type ScreenerColumnKey,
 } from "@/lib/screenerColumns";
 import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
+import { withServerTimeout } from "@/lib/serverTimeout";
 import {
   activeFilterControlClassName,
   cardClassName,
@@ -844,11 +845,15 @@ function PairedNumberInputs({
 
 async function loadScreenerPayload(requestUrl: string, authToken?: string | null): Promise<{ data: ScreenerResponse | null; errorMessage: string | null }> {
   try {
-    const response = await fetch(requestUrl, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-      headers: authHeaders(authToken ?? undefined),
-    });
+    const response = await withServerTimeout(
+      fetch(requestUrl, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+        headers: authHeaders(authToken ?? undefined),
+      }),
+      "screener:results",
+      6500,
+    );
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       return {
@@ -883,9 +888,9 @@ export default async function ScreenerPage({
   const authState = await requirePageAuthState(returnTo);
   const authToken = authState.token;
   const entitlements = authToken
-    ? await getEntitlements(authToken).catch(() => defaultEntitlements)
+    ? await withServerTimeout(getEntitlements(authToken), "screener:entitlements").catch(() => defaultEntitlements)
     : entitlementsFromTierHint(authState.entitlementHint);
-  const planConfig = await getPlanConfig().catch(() => defaultPlanConfig);
+  const planConfig = await withServerTimeout(getPlanConfig(), "screener:plan-config").catch(() => defaultPlanConfig);
   const params = currentParams(sp);
   const requestUrl = buildApiUrl(params);
   const sort = String(params.sort ?? "relevance");

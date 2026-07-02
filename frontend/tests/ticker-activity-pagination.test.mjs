@@ -13,11 +13,14 @@ test("ticker activity sections use shared paginated footers", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(page, /const ACTIVITY_PAGE_SIZE = 20/);
+  assert.match(page, /const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE \+ 1/);
   assert.match(page, /const congressPage = clampPage\(one\(sp, "congress_page"\)\)/);
   assert.match(page, /const insiderPage = clampPage\(one\(sp, "insider_page"\)\)/);
   assert.match(page, /offset: congressPage \* ACTIVITY_PAGE_SIZE/);
   assert.match(page, /offset: insiderPage \* ACTIVITY_PAGE_SIZE/);
-  assert.match(page, /include_total: 1/);
+  assert.match(page, /limit: ACTIVITY_FETCH_SIZE/);
+  assert.doesNotMatch(page, /include_total: 1/);
+  assert.match(page, /function visibleActivityItems\(response: EventsResponse, limit = ACTIVITY_PAGE_SIZE\)/);
   assert.match(page, /tape: "congress"/);
   assert.match(page, /tape: "insider"/);
   assert.match(page, /pageParam="congress_page"/);
