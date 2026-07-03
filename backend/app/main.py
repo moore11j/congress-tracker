@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import copy
+import hashlib
 import json
 import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -2479,6 +2481,219 @@ def _analytics_panel_name(path: str) -> str:
     return "unknown"
 
 
+_ATTRIBUTION_ROUTE_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("/api/market/quotes", "market_quotes"),
+    ("/api/tickers/", "ticker"),
+    ("/api/insiders/", "insider"),
+    ("/api/members/", "member"),
+    ("/api/institutions/", "institution"),
+    ("/api/signals", "signals"),
+    ("/api/screener", "screener"),
+    ("/api/watchlists", "watchlists"),
+    ("/api/monitoring", "monitoring"),
+    ("/api/auth", "auth"),
+    ("/api/account", "auth"),
+    ("/api/events", "feed"),
+    ("/api/feed", "feed"),
+)
+_ATTRIBUTION_FRONTEND_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("/ticker/", "ticker"),
+    ("/insider/", "insider"),
+    ("/member/", "member"),
+    ("/institution/", "institution"),
+    ("/feed", "feed"),
+    ("/signals", "signals"),
+    ("/screener", "screener"),
+    ("/watchlists", "watchlists"),
+    ("/monitoring", "monitoring"),
+)
+_PREFETCH_HEADER_NAMES = ("purpose", "sec-purpose", "x-middleware-prefetch", "next-router-prefetch")
+_SAFE_TIER_VALUES = {"logged_out", "free", "premium", "pro", "admin"}
+
+
+def _bounded_log_value(value: str | None, *, max_length: int = 96) -> str:
+    cleaned = re.sub(r"\s+", " ", (value or "").strip())
+    if not cleaned:
+        return "none"
+    return cleaned[:max_length]
+
+
+def _safe_header_value(request: Request, name: str, *, max_length: int = 48) -> str:
+    return _bounded_log_value(request.headers.get(name), max_length=max_length)
+
+
+def _hash_user_agent(user_agent: str | None) -> str:
+    raw = (user_agent or "").strip()
+    if not raw:
+        return "none"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _classify_user_agent(request: Request) -> str:
+    purpose_values = " ".join(
+        str(request.headers.get(name) or "").lower()
+        for name in _PREFETCH_HEADER_NAMES
+    )
+    if "prefetch" in purpose_values:
+        return "prefetch"
+    user_agent = (request.headers.get("user-agent") or "").lower()
+    if not user_agent:
+        return "unknown"
+    crawler_terms = ("googlebot", "bingbot", "slurp", "duckduckbot", "baiduspider", "yandexbot", "semrushbot", "ahrefsbot")
+    bot_terms = ("bot", "crawler", "spider", "preview", "facebookexternalhit", "linkedinbot", "twitterbot", "uptimerobot")
+    if any(term in user_agent for term in crawler_terms):
+        return "crawler"
+    if any(term in user_agent for term in bot_terms):
+        return "bot"
+    browser_terms = ("mozilla", "chrome", "safari", "firefox", "edg/", "opr/")
+    if any(term in user_agent for term in browser_terms):
+        return "browser"
+    return "unknown"
+
+
+def _request_route_family(path: str, header_family: str | None = None) -> str:
+    header = _bounded_log_value(header_family, max_length=40).lower().replace("-", "_")
+    if header and header != "none":
+        return header
+    lower_path = (path or "").rstrip("/").lower() or "/"
+    for prefix, family in _ATTRIBUTION_ROUTE_FAMILIES:
+        if lower_path.startswith(prefix):
+            return family
+    for prefix, family in _ATTRIBUTION_FRONTEND_FAMILIES:
+        if lower_path.startswith(prefix):
+            return family
+    return "other"
+
+
+def _sanitize_referer(value: str | None) -> tuple[str, str]:
+    if not value:
+        return "none", "none"
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return "invalid", "invalid"
+    host = _bounded_log_value(parsed.netloc.lower(), max_length=80)
+    path = _bounded_log_value(parsed.path or "/", max_length=120)
+    return host, path
+
+
+def _request_auth_state(request: Request) -> tuple[str, str]:
+    tier = (request.headers.get("x-ct-entitlement-tier") or request.cookies.get("ct_entitlement_hint") or "").strip().lower()
+    if tier not in _SAFE_TIER_VALUES:
+        tier = "unknown"
+    if tier == "admin":
+        return "admin", "admin"
+    has_session = bool(request.cookies.get(SESSION_COOKIE_NAME))
+    if has_session:
+        return "logged_in", tier if tier != "unknown" else "unknown"
+    if tier in {"free", "premium", "pro"}:
+        return "logged_in", tier
+    return "logged_out", "logged_out"
+
+
+def _request_source(request: Request, user_agent_class: str) -> str:
+    raw = _bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32).lower()
+    if raw in {"ssr", "client", "client_fetch", "prefetch", "bot_shell", "prefetch_204", "cron"}:
+        return "client_fetch" if raw == "client" else raw
+    if user_agent_class == "prefetch":
+        return "prefetch"
+    if user_agent_class in {"bot", "crawler"}:
+        return "bot_shell"
+    if request.headers.get("x-supercronic") or request.headers.get("x-walnut-cron"):
+        return "cron"
+    return "unknown"
+
+
+def _request_attribution_sample_rate() -> float:
+    try:
+        return max(0.0, min(1.0, float(os.getenv("WALNUT_REQUEST_ATTRIBUTION_SAMPLE_RATE", "0.02") or 0.02)))
+    except ValueError:
+        return 0.02
+
+
+def _request_attribution_debug_enabled() -> bool:
+    return os.getenv("WALNUT_REQUEST_ATTRIBUTION_DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_log_request_attribution(*, path: str, status_code: int, duration_ms: float, priority: RoutePriority) -> bool:
+    if status_code >= 500:
+        return True
+    if priority == RoutePriority.HEAVY and status_code >= 400:
+        return True
+    threshold_ms = float(os.getenv("REQUEST_ATTRIBUTION_SLOW_LOG_MS", os.getenv("API_SLOW_REQUEST_LOG_MS", "2000")) or 2000)
+    if duration_ms >= threshold_ms:
+        return True
+    if _request_attribution_debug_enabled() and _request_route_family(path) != "other":
+        return True
+    return random.random() < _request_attribution_sample_rate()
+
+
+def _request_attribution_fields(request: Request, *, priority: RoutePriority) -> dict[str, Any]:
+    user_agent = request.headers.get("user-agent")
+    user_agent_class = _classify_user_agent(request)
+    referer_host, referer_path = _sanitize_referer(request.headers.get("referer"))
+    auth_state, plan_tier = _request_auth_state(request)
+    route_family = _request_route_family(request.url.path, request.headers.get("x-walnut-route-family"))
+    panel = request.headers.get("x-walnut-panel") or request.headers.get("x-walnut-component") or "unknown"
+    return {
+        "route_family": route_family,
+        "host": _bounded_log_value(request.headers.get("host"), max_length=80),
+        "user_agent_class": user_agent_class,
+        "user_agent_hash": _hash_user_agent(user_agent),
+        "referer_host": referer_host,
+        "referer_path": referer_path,
+        "auth_state": auth_state,
+        "plan_tier": plan_tier,
+        "request_source": _request_source(request, user_agent_class),
+        "panel": _bounded_log_value(panel, max_length=80),
+        "walnut_page_route": _bounded_log_value(request.headers.get("x-walnut-page-route") or request.headers.get("x-walnut-route"), max_length=120),
+        "purpose": _safe_header_value(request, "purpose", max_length=32),
+        "sec_purpose": _safe_header_value(request, "sec-purpose", max_length=32),
+        "middleware_prefetch": _safe_header_value(request, "x-middleware-prefetch", max_length=16),
+        "next_router_prefetch": _safe_header_value(request, "next-router-prefetch", max_length=16),
+        "priority": priority.value,
+    }
+
+
+def _log_request_attribution(
+    request: Request,
+    *,
+    status_code: int,
+    duration_ms: float,
+    priority: RoutePriority,
+    reason: str = "ok",
+) -> None:
+    fields = _request_attribution_fields(request, priority=priority)
+    context = get_request_context() or {}
+    logger.info(
+        "request_attribution path=%s method=%s status=%s duration_ms=%.1f route_family=%s host=%s ua_class=%s ua_hash=%s referer_host=%s referer_path=%s auth_state=%s plan_tier=%s request_source=%s panel=%s page_route=%s purpose=%s sec_purpose=%s middleware_prefetch=%s next_router_prefetch=%s priority=%s db_checkout_count=%s db_checkout_slow_count=%s db_query_count=%s reason=%s",
+        request.url.path,
+        request.method,
+        status_code,
+        duration_ms,
+        fields["route_family"],
+        fields["host"],
+        fields["user_agent_class"],
+        fields["user_agent_hash"],
+        fields["referer_host"],
+        fields["referer_path"],
+        fields["auth_state"],
+        fields["plan_tier"],
+        fields["request_source"],
+        fields["panel"],
+        fields["walnut_page_route"],
+        fields["purpose"],
+        fields["sec_purpose"],
+        fields["middleware_prefetch"],
+        fields["next_router_prefetch"],
+        fields["priority"],
+        context.get("db_checkout_count", 0),
+        context.get("db_checkout_slow_count", 0),
+        context.get("db_query_count", 0),
+        reason,
+    )
+
+
 def _public_get_cache_key(request: Request) -> str | None:
     if request.method.upper() != "GET":
         return None
@@ -2530,6 +2745,7 @@ async def log_slow_requests(request: Request, call_next):
     walnut_route = request.headers.get("x-walnut-route") or "unknown"
     walnut_component = request.headers.get("x-walnut-component") or "unknown"
     priority = classify_request(request.url.path, request.query_params)
+    attribution_fields = _request_attribution_fields(request, priority=priority)
     context_token = set_request_context(
         {
             "started_at": started,
@@ -2537,6 +2753,10 @@ async def log_slow_requests(request: Request, call_next):
             "priority": priority.value,
             "walnut_route": walnut_route,
             "walnut_component": walnut_component,
+            "route_family": attribution_fields["route_family"],
+            "request_source": attribution_fields["request_source"],
+            "user_agent_class": attribution_fields["user_agent_class"],
+            "panel": attribution_fields["panel"],
         }
     )
     heavy_slot_acquired = False
@@ -2564,6 +2784,13 @@ async def log_slow_requests(request: Request, call_next):
                     walnut_route,
                     walnut_component,
                     elapsed_ms,
+                )
+                _log_request_attribution(
+                    request,
+                    status_code=503,
+                    duration_ms=elapsed_ms,
+                    priority=priority,
+                    reason="heavy_route_saturated",
                 )
                 return JSONResponse(
                     status_code=503,
@@ -2599,11 +2826,27 @@ async def log_slow_requests(request: Request, call_next):
                 "api_request path=%s method=%s status=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
                 request.url.path,
                 request.method,
-                response.status_code,
-                priority.value,
-                walnut_route,
-                walnut_component,
-                elapsed_ms,
+                        response.status_code,
+                        priority.value,
+                        walnut_route,
+                        walnut_component,
+                        elapsed_ms,
+                    )
+        if _should_log_request_attribution(
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=elapsed_ms,
+            priority=priority,
+        ):
+            reason = "status_5xx" if response.status_code >= 500 else "status_4xx" if response.status_code >= 400 else "sampled"
+            if elapsed_ms >= float(os.getenv("REQUEST_ATTRIBUTION_SLOW_LOG_MS", os.getenv("API_SLOW_REQUEST_LOG_MS", "2000")) or 2000):
+                reason = "slow"
+            _log_request_attribution(
+                request,
+                status_code=response.status_code,
+                duration_ms=elapsed_ms,
+                priority=priority,
+                reason=reason,
             )
         threshold_ms = float(os.getenv("API_SLOW_REQUEST_LOG_MS", "2000") or 2000)
         if elapsed_ms >= threshold_ms:

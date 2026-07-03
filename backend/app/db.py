@@ -334,11 +334,15 @@ if not IS_SQLITE:
             return
         context["db_checkout_slow_count"] = int(context.get("db_checkout_slow_count") or 0) + 1
         logger.warning(
-            "db_pool_checkout_slow path=%s priority=%s walnut_route=%s walnut_component=%s elapsed_ms=%.1f",
+            "db_pool_checkout_slow path=%s priority=%s route_family=%s request_source=%s walnut_route=%s walnut_component=%s panel=%s ua_class=%s elapsed_ms=%.1f",
             context.get("path", "unknown"),
             context.get("priority", "unknown"),
+            context.get("route_family", "unknown"),
+            context.get("request_source", "unknown"),
             context.get("walnut_route", "unknown"),
             context.get("walnut_component", "unknown"),
+            context.get("panel", "unknown"),
+            context.get("user_agent_class", "unknown"),
             elapsed_ms,
         )
 

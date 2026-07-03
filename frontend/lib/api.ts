@@ -301,6 +301,54 @@ function requestAttribution(init?: ApiRequestInit) {
   return { component, route };
 }
 
+function safeHeaderValue(value: string, fallback = "unknown") {
+  const cleaned = value.replace(/[\r\n]+/g, " ").trim();
+  return (cleaned || fallback).slice(0, 120);
+}
+
+function routeFamilyFromPath(path: string) {
+  const normalized = path.toLowerCase();
+  if (normalized.startsWith("/api/market/quotes")) return "market_quotes";
+  if (normalized.startsWith("/api/tickers/")) return "ticker";
+  if (normalized.startsWith("/api/insiders/")) return "insider";
+  if (normalized.startsWith("/api/members/")) return "member";
+  if (normalized.startsWith("/api/institutions/")) return "institution";
+  if (normalized.startsWith("/api/signals")) return "signals";
+  if (normalized.startsWith("/api/screener")) return "screener";
+  if (normalized.startsWith("/api/watchlists")) return "watchlists";
+  if (normalized.startsWith("/api/monitoring")) return "monitoring";
+  if (normalized.startsWith("/api/auth") || normalized.startsWith("/api/account")) return "auth";
+  if (normalized.startsWith("/api/events") || normalized.startsWith("/api/feed")) return "feed";
+  if (normalized.startsWith("/ticker/")) return "ticker";
+  if (normalized.startsWith("/insider/")) return "insider";
+  if (normalized.startsWith("/member/")) return "member";
+  if (normalized.startsWith("/institution/")) return "institution";
+  if (normalized.startsWith("/feed")) return "feed";
+  if (normalized.startsWith("/signals")) return "signals";
+  if (normalized.startsWith("/screener")) return "screener";
+  if (normalized.startsWith("/watchlists")) return "watchlists";
+  if (normalized.startsWith("/monitoring")) return "monitoring";
+  return "other";
+}
+
+function routeFamilyFromUrl(url: string) {
+  try {
+    return routeFamilyFromPath(new URL(url, API_BASE).pathname);
+  } catch {
+    return "other";
+  }
+}
+
+function panelFromSource(source: string) {
+  const value = source.trim();
+  if (!value || value === "unknown") return "unknown";
+  return safeHeaderValue(value, "unknown");
+}
+
+function requestSource() {
+  return typeof window === "undefined" ? "ssr" : "client_fetch";
+}
+
 function traceApiFetch(url: string, init?: ApiRequestInit) {
   if (!apiDebugEnabled()) return;
   let route = url;
@@ -315,17 +363,21 @@ function traceApiFetch(url: string, init?: ApiRequestInit) {
   console.info("[ct-api]", { method: init?.method ?? "GET", route, url, component: attribution.component, page: attribution.route, source: stackLine });
 }
 
-function withRequestAttribution(init?: ApiRequestInit): RequestInit {
+function withRequestAttribution(init?: ApiRequestInit, url?: string): RequestInit {
   const { source: _source, component: _component, route: _route, ...fetchInit } = init ?? {};
   const headers = new Headers(fetchInit.headers);
   const attribution = requestAttribution(init);
-  headers.set("X-Walnut-Route", attribution.route);
-  headers.set("X-Walnut-Component", attribution.component);
+  headers.set("X-Walnut-Route", safeHeaderValue(attribution.route));
+  headers.set("X-Walnut-Page-Route", safeHeaderValue(attribution.route));
+  headers.set("X-Walnut-Component", safeHeaderValue(attribution.component));
+  headers.set("X-Walnut-Panel", panelFromSource(attribution.component));
+  headers.set("X-Walnut-Route-Family", url ? routeFamilyFromUrl(url) : routeFamilyFromPath(attribution.route));
+  headers.set("X-Walnut-Request-Source", requestSource());
   return { ...fetchInit, headers };
 }
 
-function requestInitWithEntitlements(init?: ApiRequestInit): RequestInit {
-  const fetchInit = withRequestAttribution(init);
+function requestInitWithEntitlements(init?: ApiRequestInit, url?: string): RequestInit {
+  const fetchInit = withRequestAttribution(init, url);
   const headers = new Headers(fetchInit.headers);
   if (typeof window !== "undefined") {
     clearLegacyAuthStorage();
@@ -462,7 +514,7 @@ async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   traceApiFetch(url, init);
 
   try {
-    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
+    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }, url));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -484,7 +536,7 @@ async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T
   traceApiFetch(url, init);
 
   try {
-    response = await fetch(url, withRequestAttribution({ cache: "no-store", ...init }));
+    response = await fetch(url, withRequestAttribution({ cache: "no-store", ...init }, url));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -506,7 +558,7 @@ async function fetchNoContent(url: string, init?: ApiRequestInit): Promise<void>
   traceApiFetch(url, init);
 
   try {
-    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }));
+    response = await fetch(url, requestInitWithEntitlements({ cache: "no-store", ...init }, url));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
