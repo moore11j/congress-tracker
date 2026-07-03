@@ -48,6 +48,12 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.match(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
 });
 
+test("landing quote cards render prices with two decimals", () => {
+  assert.match(landingPage, /minimumFractionDigits:\s*2/);
+  assert.match(landingPage, /maximumFractionDigits:\s*2/);
+  assert.doesNotMatch(landingPage, /maximumFractionDigits:\s*value >= 100 \? 0 : 2/);
+});
+
 test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /landingMacroLabelGroups/);
   assert.match(landingPage, /"Core CPI YoY"/);

@@ -4789,7 +4789,17 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
                 current_price = None
             raw_asof = quote.get("asof_ts")
             asof_ts = raw_asof if isinstance(raw_asof, datetime) else None
-        previous_close_rows = eod_light_closes.get(symbol) or cached_closes.get(symbol, [])
+        eod_close_rows = eod_light_closes.get(symbol) or []
+        previous_close_rows = eod_close_rows or cached_closes.get(symbol, [])
+        if current_price is not None and asof_ts is not None and eod_close_rows:
+            latest_eod_date = str(eod_close_rows[0].get("date") or "")
+            if latest_eod_date == asof_ts.date().isoformat():
+                current_price = eod_close_rows[0]["close"]
+                previous_close_rows = eod_close_rows[1:]
+                try:
+                    asof_ts = datetime.strptime(latest_eod_date, "%Y-%m-%d").replace(hour=16)
+                except ValueError:
+                    pass
         previous_close = _previous_close_for_quote(previous_close_rows, asof_ts)
         day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
         if day_change_pct is None and current_price is not None and previous_close not in (None, 0):

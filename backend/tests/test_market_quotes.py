@@ -147,6 +147,39 @@ def test_market_quotes_use_eod_light_previous_close_before_local_cache(monkeypat
     assert response["items"][0]["day_change_pct"] != 110.0
 
 
+def test_market_quotes_use_eod_light_close_when_same_date_as_intraday(monkeypatch):
+    db = _session()
+
+    monkeypatch.setattr(
+        app_main,
+        "get_current_prices_meta_db",
+        lambda *_args, **_kwargs: {
+            "AAPL": {
+                "symbol": "AAPL",
+                "price": 308.25,
+                "asof_ts": datetime(2026, 7, 2, 15, 59, 0),
+                "is_stale": False,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        app_main,
+        "_latest_eod_light_closes_by_symbol",
+        lambda _symbols: {
+            "AAPL": [
+                {"date": "2026-07-02", "close": 308.63},
+                {"date": "2026-07-01", "close": 294.38},
+            ]
+        },
+    )
+
+    response = _build_market_quotes_response("AAPL", db)
+
+    assert response["items"][0]["current_price"] == 308.63
+    assert response["items"][0]["day_change_pct"] == (308.63 - 294.38) / 294.38 * 100
+    assert response["items"][0]["as_of"] == "2026-07-02T16:00:00"
+
+
 def test_market_quotes_eod_light_previous_close_is_cached(monkeypatch):
     calls = []
 

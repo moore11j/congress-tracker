@@ -394,7 +394,7 @@ function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
 
 function formatTickerPrice(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "Open app";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
 function formatPct(value: number | null): string {
