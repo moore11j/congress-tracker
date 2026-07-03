@@ -10,7 +10,9 @@ import app.services.quote_lookup as quote_lookup
 
 def _reset_quote_lookup_state() -> None:
     quote_lookup._QUOTE_CACHE.clear()
+    quote_lookup._QUOTE_META_CACHE.clear()
     quote_lookup._MISS_CACHE.clear()
+    quote_lookup._QUOTE_CALL_TIMESTAMPS.clear()
     quote_lookup._quotes_disabled_until = None
     quote_lookup._quotes_disable_reason = None
 
@@ -114,3 +116,172 @@ def test_quote_lookup_uses_configured_intraday_chart_endpoint_before_eod_fallbac
     assert calls[0][1]["from"]
     assert calls[0][1]["to"]
     assert all(not call[0].endswith("/stable/quote-short") for call in calls)
+
+
+def test_fresh_memory_quote_cache_returns_without_provider_call(monkeypatch):
+    _reset_quote_lookup_state()
+    quote_lookup._cache_set_meta(
+        "AAPL",
+        {"symbol": "AAPL", "price": 213.5, "change": 1.2, "source": "live_provider"},
+        lane="ticker_quote",
+    )
+    monkeypatch.setattr(
+        quote_lookup.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider should not be called")),
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(SimpleNamespace(), ["AAPL"], lane="ticker_quote", allow_live_user_fetch=True)
+
+    assert meta["AAPL"]["price"] == 213.5
+    assert meta["AAPL"]["change"] == 1.2
+    assert meta["AAPL"]["is_stale"] is False
+    assert meta["AAPL"]["source"] in {"cache", "live_provider"}
+
+
+def test_stale_db_quote_returns_without_blocking_live_fetch(monkeypatch):
+    _reset_quote_lookup_state()
+    asof_ts = datetime.now(timezone.utc) - timedelta(minutes=5)
+    monkeypatch.setenv("QUOTE_FEED_TTL_SECONDS", "30")
+    monkeypatch.setattr(
+        quote_lookup,
+        "quote_cache_get_many_with_age",
+        lambda _db, _symbols: {"AAPL": (190.0, asof_ts)},
+    )
+    enqueued: list[str] = []
+    monkeypatch.setattr(quote_lookup, "_enqueue_quote_refreshes", lambda symbols, **_kwargs: enqueued.extend(symbols))
+    monkeypatch.setattr(
+        quote_lookup.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale-while-revalidate should not block")),
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(SimpleNamespace(), ["AAPL"], lane="feed_quote", allow_live_user_fetch=True)
+
+    assert meta["AAPL"]["price"] == 190.0
+    assert meta["AAPL"]["is_stale"] is True
+    assert meta["AAPL"]["source"] == "stale_cache"
+    assert enqueued == ["AAPL"]
+
+
+def test_missing_quote_calls_single_symbol_provider_when_budget_allows(monkeypatch):
+    _reset_quote_lookup_state()
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"symbol": "AAPL", "price": 214.25, "change": 1.1, "changesPercentage": 0.52, "volume": 12345, "marketCap": 3300000000000}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append(dict(params or {}).get("symbol"))
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    db = _db()
+    try:
+        meta = quote_lookup.get_current_prices_meta_db(db, ["AAPL"], lane="ticker_quote", allow_live_user_fetch=True)
+    finally:
+        db.close()
+
+    assert calls == ["AAPL"]
+    assert meta["AAPL"]["price"] == 214.25
+    assert meta["AAPL"]["change"] == 1.1
+    assert meta["AAPL"]["change_percent"] == 0.52
+    assert meta["AAPL"]["volume"] == 12345
+    assert meta["AAPL"]["market_cap"] == 3300000000000
+    assert meta["AAPL"]["source"] == "live_provider"
+
+
+def test_quote_budget_exhausted_returns_stale_cache_without_provider_call(monkeypatch):
+    _reset_quote_lookup_state()
+    asof_ts = datetime.now(timezone.utc) - timedelta(minutes=5)
+    monkeypatch.setenv("QUOTE_FEED_TTL_SECONDS", "30")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "1")
+    quote_lookup._QUOTE_CALL_TIMESTAMPS.append(__import__("time").time())
+    monkeypatch.setattr(
+        quote_lookup,
+        "quote_cache_get_many_with_age",
+        lambda _db, _symbols: {"AAPL": (190.0, asof_ts)},
+    )
+    monkeypatch.setattr(
+        quote_lookup.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider should not be called")),
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(
+        SimpleNamespace(),
+        ["AAPL"],
+        lane="feed_quote",
+        allow_live_user_fetch=True,
+        stale_while_revalidate=False,
+    )
+
+    assert meta["AAPL"]["price"] == 190.0
+    assert meta["AAPL"]["is_stale"] is True
+
+
+def test_quote_circuit_open_returns_unavailable_without_provider_call(monkeypatch):
+    _reset_quote_lookup_state()
+    quote_lookup._disable_quotes(minutes=1, reason="rate_limited_429_configured_quote")
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setattr(quote_lookup, "quote_cache_get_many_with_age", lambda _db, _symbols: {})
+    monkeypatch.setattr(
+        quote_lookup.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider should not be called")),
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(SimpleNamespace(), ["AAPL"], lane="ticker_quote", allow_live_user_fetch=True)
+
+    assert meta["AAPL"]["price"] is None
+    assert meta["AAPL"]["status"] == "provider_429"
+
+
+def test_quote_coalescing_prevents_duplicate_same_symbol_calls(monkeypatch):
+    _reset_quote_lookup_state()
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"symbol": "AAPL", "price": 214.25}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append(dict(params or {}).get("symbol"))
+        __import__("time").sleep(0.05)
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    results: list[dict] = []
+
+    def run_lookup():
+        db = _db()
+        try:
+            results.append(quote_lookup.get_current_prices_meta_db(db, ["AAPL"], lane="ticker_quote", allow_live_user_fetch=True))
+        finally:
+            db.close()
+
+    import threading
+
+    first = threading.Thread(target=run_lookup)
+    second = threading.Thread(target=run_lookup)
+    first.start()
+    second.start()
+    first.join()
+    second.join()
+
+    assert calls == ["AAPL"]
+    assert len(results) == 2
+    assert all(result["AAPL"]["price"] == 214.25 for result in results)

@@ -84,6 +84,7 @@ FEED_OUTCOME_RETRY_STATUSES = {
     "provider_unavailable",
     "retry_later",
 }
+DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 25
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "10") or 10)
@@ -133,6 +134,14 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
     "new_institutional_position",
 )
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
+
+
+def _cap_feed_quote_symbols(symbols: set[str]) -> list[str]:
+    try:
+        limit = int(os.getenv("MAX_SYMBOLS_PER_REQUEST", str(DEFAULT_FEED_QUOTE_SYMBOL_LIMIT)))
+    except ValueError:
+        limit = DEFAULT_FEED_QUOTE_SYMBOL_LIMIT
+    return sorted(symbols)[: max(limit, 1)]
 
 
 def _institutional_all_feed_visibility_clause():
@@ -2423,6 +2432,52 @@ def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[i
     return {row.event_id: row for row in rows}
 
 
+def _load_visible_feed_quote_meta(
+    db: Session,
+    paged_rows: list[Event],
+    outcome_by_event_id: dict[int, TradeOutcome],
+    *,
+    enrich_prices: bool,
+) -> tuple[dict[str, dict], dict[str, float]]:
+    if not enrich_prices:
+        return {}, {}
+
+    quote_symbols: set[str] = set()
+    for event in paged_rows:
+        if event.event_type not in {"congress_trade", "insider_trade"}:
+            continue
+        outcome = outcome_by_event_id.get(event.id)
+        if outcome is None or outcome.entry_price is None or outcome.current_price is not None:
+            continue
+        payload = _parse_event_payload(event)
+        symbol = _event_symbol(event, payload)
+        if symbol:
+            quote_symbols.add(symbol)
+
+    if not quote_symbols:
+        return {}, {}
+
+    try:
+        quote_meta = get_current_prices_meta_db(
+            db,
+            _cap_feed_quote_symbols(quote_symbols),
+            allow_cache_write=True,
+            release_connection_before_fetch=True,
+            lane="feed_quote",
+            allow_live_user_fetch=True,
+        )
+    except Exception:
+        logger.exception("feed_quote_lookup_failed endpoint=/api/events symbols=%s", len(quote_symbols))
+        return {}, {}
+
+    price_memo = {
+        symbol: float(meta["price"])
+        for symbol, meta in quote_meta.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
+    return quote_meta, price_memo
+
+
 def _enqueue_missing_trade_outcomes(
     db: Session,
     paged_rows: list[Event],
@@ -2547,12 +2602,20 @@ def _event_payload(
             display_metrics = trade_outcome_display_metrics(outcome)
             estimated_price = float(outcome.entry_price) if outcome.entry_price is not None else None
             current_price = float(outcome.current_price) if outcome.current_price is not None else None
+            if current_price is None and sym:
+                current_price = current_price_memo.get(sym)
             pnl_pct = display_metrics.return_pct
+            if pnl_pct is None and current_price is not None and estimated_price is not None and estimated_price > 0:
+                pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
             alpha_pct = display_metrics.alpha_pct
             benchmark_return_pct = display_metrics.benchmark_return_pct
             holding_period_days = display_metrics.holding_period_days
             outcome_horizon = display_metrics.outcome_horizon
-            pnl_source = "eod" if pnl_pct is not None and estimated_price is not None else display_metrics.pnl_source or "trade_outcome"
+            pnl_source = (
+                display_metrics.pnl_source
+                or ("quote_cache" if pnl_pct is not None and current_price_memo.get(sym) is not None else None)
+                or ("eod" if pnl_pct is not None and estimated_price is not None else "trade_outcome")
+            )
             outcome_status = _safe_outcome_status(outcome.scoring_status)
             if pnl_pct is None:
                 outcome_skip_reason = outcome_status
@@ -2604,6 +2667,8 @@ def _event_payload(
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
         current_price = display_metrics.current_or_horizon_price
+        if current_price is None and sym:
+            current_price = current_price_memo.get(sym)
         if display_metrics.return_pct is not None:
             pnl_pct = display_metrics.return_pct
             alpha_pct = display_metrics.alpha_pct
@@ -2619,6 +2684,9 @@ def _event_payload(
             payload["holdingPeriodDays"] = display_metrics.holding_period_days
             payload["outcome_horizon"] = display_metrics.outcome_horizon
             payload["outcomeHorizon"] = display_metrics.outcome_horizon
+        elif current_price is not None and estimated_price is not None and estimated_price > 0:
+            pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
+            pnl_source = "quote_cache"
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -2881,8 +2949,12 @@ def _fetch_events_page(
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
 
     price_memo: dict[tuple[str, str], float | None] = {}
-    current_quote_meta: dict[str, dict] = {}
-    current_price_memo: dict[str, float] = {}
+    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
+        db,
+        paged_rows,
+        outcome_by_event_id,
+        enrich_prices=enrich_prices,
+    )
 
     ticker_symbols = {
         symbol
@@ -4079,8 +4151,12 @@ def list_events(
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
     price_memo: dict[tuple[str, str], float | None] = {}
-    current_quote_meta: dict[str, dict] = {}
-    current_price_memo: dict[str, float] = {}
+    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
+        db,
+        rows,
+        outcome_by_event_id,
+        enrich_prices=enrich_prices,
+    )
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:

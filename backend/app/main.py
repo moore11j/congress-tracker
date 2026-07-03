@@ -149,7 +149,7 @@ from app.services.price_lookup import (
     get_eod_close_series,
     is_price_history_stale,
 )
-from app.services.quote_lookup import get_current_prices, get_current_prices_db, quote_cache_get_many_with_age
+from app.services.quote_lookup import get_current_prices_db, get_current_prices_meta_db, quote_cache_get_many_with_age
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
@@ -3270,7 +3270,16 @@ def feed(
 
             parsed_rows.append((tx, m, s, symbol_value, trade_date_value, estimated_price))
 
-        current_price_memo = get_current_prices(_cap_symbols(quote_symbols)) if quote_symbols else {}
+        current_price_memo = (
+            get_current_prices_db(
+                db,
+                _cap_symbols(quote_symbols),
+                lane="feed_quote",
+                allow_live_user_fetch=True,
+            )
+            if quote_symbols
+            else {}
+        )
 
         items = []
         for tx, m, s, symbol_value, trade_date_value, estimated_price in parsed_rows:
@@ -3383,7 +3392,16 @@ def feed(
 
         parsed_events.append((event, payload, symbol_value, entry_price, estimated_price))
 
-    current_price_memo = get_current_prices_db(db, _cap_symbols(quote_symbols)) if quote_symbols else {}
+    current_price_memo = (
+        get_current_prices_db(
+            db,
+            _cap_symbols(quote_symbols),
+            lane="feed_quote",
+            allow_live_user_fetch=True,
+        )
+        if quote_symbols
+        else {}
+    )
 
     insider_symbols = sorted(
         {
@@ -7520,8 +7538,22 @@ def _build_ticker_chart_quote(
         profile_row = _company_profile_snapshot_from_fmp(symbol)
     row_price = _quote_float(row, "price", "close")
     fundamentals_price = fundamentals_row.price if fundamentals_row is not None else None
-    quote_map = {} if row_price is not None or fundamentals_price is not None else get_current_prices_db(db, [symbol])
-    cached_price = quote_map.get(symbol)
+    quote_meta = (
+        {}
+        if row_price is not None or fundamentals_price is not None
+        else get_current_prices_meta_db(
+            db,
+            [symbol],
+            lane="ticker_quote",
+            allow_live_user_fetch=True,
+        )
+    )
+    cached_quote = quote_meta.get(symbol) if isinstance(quote_meta, dict) else None
+    cached_price = (
+        float(cached_quote["price"])
+        if isinstance(cached_quote, dict) and cached_quote.get("price") is not None
+        else None
+    )
     latest_close = price_points[-1]["close"] if price_points else None
     prior_close = price_points[-2]["close"] if len(price_points) >= 2 else None
 
@@ -7535,10 +7567,15 @@ def _build_ticker_chart_quote(
     previous_close = _quote_float(row, "previousClose", "previous_close", "prevClose")
     if previous_close is None:
         previous_close = prior_close
-    day_change = _quote_float(row, "change", "dayChange", "changes")
+    quote_change = cached_quote.get("change") if isinstance(cached_quote, dict) else None
+    quote_change_pct = cached_quote.get("change_percent") if isinstance(cached_quote, dict) else None
+    quote_volume = cached_quote.get("volume") if isinstance(cached_quote, dict) else None
+    quote_market_cap = cached_quote.get("market_cap") if isinstance(cached_quote, dict) else None
+
+    day_change = _quote_float(row, "change", "dayChange", "changes") or quote_change
     if day_change is None and current_price is not None and previous_close not in (None, 0):
         day_change = current_price - previous_close
-    day_change_pct = _quote_float(row, "changesPercentage", "changePercentage", "changePercent")
+    day_change_pct = _quote_float(row, "changesPercentage", "changePercentage", "changePercent") or quote_change_pct
     if day_change_pct is None and day_change is not None and previous_close not in (None, 0):
         day_change_pct = (day_change / previous_close) * 100
 
@@ -7547,8 +7584,9 @@ def _build_ticker_chart_quote(
         "day_change": day_change,
         "day_change_pct": day_change_pct,
         "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap")
+        or quote_market_cap
         or (fundamentals_row.market_cap if fundamentals_row is not None else None),
-        "day_volume": _quote_float(row, "volume") or (fundamentals_row.volume if fundamentals_row is not None else None),
+        "day_volume": _quote_float(row, "volume") or quote_volume or (fundamentals_row.volume if fundamentals_row is not None else None),
         "average_volume": _explicit_average_volume_30d(row, profile_row)
         or (fundamentals_row.avg_volume if fundamentals_row is not None else None)
         or _cached_average_volume(db, symbol),
@@ -7568,6 +7606,7 @@ def _build_ticker_chart_quote(
             row.get("timestamp")
             or row.get("date")
             or row.get("earningsAnnouncement")
+            or (cached_quote.get("asof_ts") if isinstance(cached_quote, dict) else None)
             or (fundamentals_row.fetched_at if fundamentals_row is not None else None)
         ),
     }

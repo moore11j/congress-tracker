@@ -147,6 +147,105 @@ def test_symbol_scoped_events_return_base_rows_when_price_enrichment_unavailable
         db.close()
 
 
+def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
+    db = _db()
+    try:
+        _clear_events_response_cache()
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: None)
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_quotes(_db, symbols, **kwargs):
+            calls.append((list(symbols), kwargs))
+            return {
+                "AAPL": {
+                    "symbol": "AAPL",
+                    "price": 110.0,
+                    "asof_ts": datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    "is_stale": False,
+                    "source": "cache",
+                }
+            }
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
+        db.add_all(
+            [
+                _event(
+                    201,
+                    "congress_trade",
+                    symbol="AAPL",
+                    member_name="Member One",
+                    member_bioguide_id="M1",
+                    trade_type="purchase",
+                    payload={"trade_date": "2026-06-01", "report_date": "2026-06-02"},
+                ),
+                _event(
+                    202,
+                    "insider_trade",
+                    symbol="AAPL",
+                    member_name="Insider One",
+                    trade_type="purchase",
+                    payload={"trade_date": "2026-06-01", "report_date": "2026-06-02", "reporting_cik": "0001"},
+                ),
+                TradeOutcome(
+                    event_id=201,
+                    member_id="M1",
+                    member_name="Member One",
+                    symbol="AAPL",
+                    trade_type="purchase",
+                    trade_date=date(2026, 6, 1),
+                    entry_price=100.0,
+                    current_price=None,
+                    return_pct=None,
+                    benchmark_symbol="^GSPC",
+                    scoring_status="no_current_price",
+                    methodology_version="feed_pnl_cache_v1",
+                ),
+                TradeOutcome(
+                    event_id=202,
+                    member_id="I1",
+                    member_name="Insider One",
+                    symbol="AAPL",
+                    trade_type="purchase",
+                    trade_date=date(2026, 6, 1),
+                    entry_price=100.0,
+                    current_price=None,
+                    return_pct=None,
+                    benchmark_symbol="^GSPC",
+                    scoring_status="no_current_price",
+                    methodology_version="insider_v1",
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, mode="all", limit=10, enrich_prices=True)
+
+        assert calls == [
+            (
+                ["AAPL"],
+                {
+                    "allow_cache_write": True,
+                    "release_connection_before_fetch": True,
+                    "lane": "feed_quote",
+                    "allow_live_user_fetch": True,
+                },
+            )
+        ]
+        by_id = {item.id: item for item in page.items}
+        assert by_id[201].current_price == 110.0
+        assert round(by_id[201].pnl_pct or 0, 6) == 10.0
+        assert by_id[201].pnl_source == "quote_cache"
+        assert by_id[202].current_price == 110.0
+        assert round(by_id[202].pnl_pct or 0, 6) == 10.0
+        assert by_id[202].pnl_source == "quote_cache"
+    finally:
+        db.close()
+
+
 def test_insider_name_and_role_filters_work_in_all_and_insider_modes(monkeypatch):
     db = _db()
     try:

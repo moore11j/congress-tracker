@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import requests
 from sqlalchemy import text
@@ -31,7 +33,12 @@ from app.utils.symbols import normalize_symbol
 logger = logging.getLogger(__name__)
 
 _QUOTE_CACHE: dict[str, tuple[float, float]] = {}
+_QUOTE_META_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
 _MISS_CACHE: dict[str, float] = {}
+_QUOTE_FETCH_LOCKS: dict[str, threading.Lock] = {}
+_QUOTE_FETCH_LOCKS_GUARD = threading.Lock()
+_QUOTE_BUDGET_LOCK = threading.Lock()
+_QUOTE_CALL_TIMESTAMPS: list[float] = []
 _last_paywall_log: datetime | None = None
 _last_quotes_disable_log: datetime | None = None
 _quotes_disabled_until: datetime | None = None
@@ -52,12 +59,65 @@ def _miss_cache_set(symbol: str, seconds: int = 3600) -> None:
     _MISS_CACHE[symbol] = time.time() + max(60, seconds)
 
 
-def _cache_ttl_seconds() -> int:
+def _cache_ttl_seconds(*, lane: str | None = None, ttl_seconds: int | None = None) -> int:
+    if ttl_seconds is not None:
+        return max(int(ttl_seconds), 1)
+    lane_env = {
+        "ticker_quote": "QUOTE_LIVE_TTL_SECONDS",
+        "feed_quote": "QUOTE_FEED_TTL_SECONDS",
+        "pnl_quote": "QUOTE_FEED_TTL_SECONDS",
+        "watchlist_quote": "QUOTE_WATCHLIST_TTL_SECONDS",
+    }.get(lane or "")
+    default_by_lane = {
+        "ticker_quote": "30",
+        "feed_quote": "60",
+        "pnl_quote": "60",
+        "watchlist_quote": "60",
+    }.get(lane or "", "30")
     try:
-        ttl = int(os.getenv("QUOTE_CACHE_TTL_SECONDS", "300"))
+        raw = os.getenv(lane_env) if lane_env else None
+        ttl = int(raw or os.getenv("QUOTE_CACHE_TTL_SECONDS", default_by_lane) or default_by_lane)
     except ValueError:
-        ttl = 300
+        ttl = int(default_by_lane)
     return max(ttl, 1)
+
+
+def _quote_process_budget_per_minute() -> int:
+    raw = os.getenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE") or os.getenv("FMP_QUOTE_CALLS_PER_MINUTE")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            logger.info("quote_budget invalid env value=%s", raw)
+    try:
+        global_budget = max(1, int(os.getenv("FMP_PLAN_CALLS_PER_MINUTE", os.getenv("FMP_CALLS_PER_MINUTE", "500"))))
+    except ValueError:
+        global_budget = 500
+    try:
+        machine_count = max(1, int(os.getenv("FMP_QUOTE_BUDGET_MACHINE_COUNT", "3")))
+    except ValueError:
+        machine_count = 3
+    return max(1, int(global_budget * 0.9 / machine_count))
+
+
+def _quote_budget_allows(*, lane: str, symbol: str) -> bool:
+    now = time.time()
+    cutoff = now - 60.0
+    limit = _quote_process_budget_per_minute()
+    with _QUOTE_BUDGET_LOCK:
+        while _QUOTE_CALL_TIMESTAMPS and _QUOTE_CALL_TIMESTAMPS[0] < cutoff:
+            _QUOTE_CALL_TIMESTAMPS.pop(0)
+        if len(_QUOTE_CALL_TIMESTAMPS) >= limit:
+            logger.info("quote_budget_exhausted lane=%s symbol=%s used=%s limit=%s", lane, symbol, len(_QUOTE_CALL_TIMESTAMPS), limit)
+            record_fallback(category=lane, symbol=symbol, reason="provider_budget_exceeded")
+            return False
+        _QUOTE_CALL_TIMESTAMPS.append(now)
+    return True
+
+
+def _fetch_lock_for_symbol(symbol: str) -> threading.Lock:
+    with _QUOTE_FETCH_LOCKS_GUARD:
+        return _QUOTE_FETCH_LOCKS.setdefault(symbol, threading.Lock())
 
 
 def _quotes_disabled() -> bool:
@@ -99,7 +159,13 @@ def _enqueue_quote_refreshes(symbols: list[str], *, reason: str) -> None:
         )
 
 
-def cache_get(symbol: str) -> float | None:
+def _cache_get_meta(symbol: str) -> dict[str, Any] | None:
+    cached_meta = _QUOTE_META_CACHE.get(symbol)
+    if cached_meta:
+        meta, expires_at = cached_meta
+        if time.time() < expires_at:
+            return dict(meta)
+        _QUOTE_META_CACHE.pop(symbol, None)
     cached = _QUOTE_CACHE.get(symbol)
     if not cached:
         return None
@@ -107,11 +173,34 @@ def cache_get(symbol: str) -> float | None:
     if time.time() >= expires_at:
         _QUOTE_CACHE.pop(symbol, None)
         return None
-    return price
+    return {"symbol": symbol, "price": price, "asof_ts": None, "is_stale": False, "source": "cache"}
+
+
+def cache_get(symbol: str) -> float | None:
+    meta = _cache_get_meta(symbol)
+    if not meta or meta.get("price") is None:
+        return None
+    return float(meta["price"])
 
 
 def cache_set(symbol: str, price: float) -> None:
-    _QUOTE_CACHE[symbol] = (price, time.time() + _cache_ttl_seconds())
+    expires_at = time.time() + _cache_ttl_seconds()
+    _QUOTE_CACHE[symbol] = (price, expires_at)
+    _QUOTE_META_CACHE[symbol] = (
+        {"symbol": symbol, "price": price, "asof_ts": None, "is_stale": False, "source": "cache"},
+        expires_at,
+    )
+
+
+def _cache_set_meta(symbol: str, meta: dict[str, Any], *, lane: str | None, ttl_seconds: int | None = None) -> None:
+    price = meta.get("price")
+    if price is None:
+        return
+    ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
+    expires_at = time.time() + ttl
+    normalized_meta = {**meta, "symbol": symbol, "is_stale": False, "source": meta.get("source") or "cache"}
+    _QUOTE_CACHE[symbol] = (float(price), expires_at)
+    _QUOTE_META_CACHE[symbol] = (normalized_meta, expires_at)
 
 
 
@@ -287,6 +376,18 @@ def _numeric_price(row: dict, *, response_config: dict | None = None) -> float |
     return None
 
 
+def _numeric_field(row: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = row.get(key)
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed == parsed:
+            return parsed
+    return None
+
+
 def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_contract: dict | None = None) -> list[dict]:
     response_config = _response_config(endpoint_contract)
     symbol_field = str(response_config.get("symbol_field") or "symbol").strip() or "symbol"
@@ -300,6 +401,18 @@ def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_c
         asof_ts = _parse_response_asof(row, response_config)
         if asof_ts is not None:
             parsed["asof_ts"] = asof_ts
+        change = _numeric_field(row, "change", "changes", "dayChange")
+        if change is not None:
+            parsed["change"] = change
+        change_percent = _numeric_field(row, "changesPercentage", "changePercentage", "changePercent", "changes_pct")
+        if change_percent is not None:
+            parsed["change_percent"] = change_percent
+        volume = _numeric_field(row, "volume")
+        if volume is not None:
+            parsed["volume"] = volume
+        market_cap = _numeric_field(row, "marketCap", "market_cap", "mktCap")
+        if market_cap is not None:
+            parsed["market_cap"] = market_cap
         payload.append(parsed)
     return payload
 
@@ -331,6 +444,11 @@ def get_current_prices_meta_db(
     *,
     allow_cache_write: bool = True,
     release_connection_before_fetch: bool = False,
+    lane: str = "background_quote",
+    ttl_seconds: int | None = None,
+    allow_live_user_fetch: bool = False,
+    stale_while_revalidate: bool = True,
+    coalesce_wait_seconds: float | None = None,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -352,14 +470,11 @@ def get_current_prices_meta_db(
 
         remaining_symbols: list[str] = []
         for symbol in normalized_symbols:
-            cached_price = cache_get(symbol)
-            if cached_price is not None:
+            cached_meta = _cache_get_meta(symbol)
+            if cached_meta is not None and cached_meta.get("price") is not None:
                 record_cache_hit(category="quote", symbol=symbol)
-                quote_meta[symbol] = {
-                    "price": cached_price,
-                    "asof_ts": None,
-                    "is_stale": False,
-                }
+                quote_meta[symbol] = {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"}
+                logger.info("quote_cache_hit lane=%s symbol=%s source=memory", lane, symbol)
                 mem_hits += 1
             else:
                 record_cache_miss(category="quote", symbol=symbol)
@@ -368,7 +483,7 @@ def get_current_prices_meta_db(
         sqlite_fresh: dict[str, float] = {}
         sqlite_stale: dict[str, float] = {}
         if remaining_symbols:
-            ttl = _cache_ttl_seconds()
+            ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
             for symbol, (price, asof_ts) in sqlite_map.items():
@@ -384,21 +499,28 @@ def get_current_prices_meta_db(
             for symbol, price in sqlite_fresh.items():
                 record_cache_hit(category="quote", symbol=symbol, cache_age_seconds=0)
                 quote_meta[symbol] = {
+                    "symbol": symbol,
                     "price": price,
                     "asof_ts": sqlite_map[symbol][1],
+                    "cached_at": sqlite_map[symbol][1],
                     "is_stale": False,
+                    "source": "cache",
                 }
-                cache_set(symbol, price)
+                _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
+                logger.info("quote_cache_hit lane=%s symbol=%s source=db", lane, symbol)
             sqlite_fresh_hits = len(sqlite_fresh)
 
             for symbol, price in sqlite_stale.items():
                 record_cache_hit(category="quote", symbol=symbol)
                 quote_meta[symbol] = {
+                    "symbol": symbol,
                     "price": price,
                     "asof_ts": sqlite_map[symbol][1],
+                    "cached_at": sqlite_map[symbol][1],
                     "is_stale": True,
+                    "source": "stale_cache",
                 }
-                cache_set(symbol, price)
+                logger.info("quote_cache_stale_hit lane=%s symbol=%s", lane, symbol)
             sqlite_stale_hits = len(sqlite_stale)
 
         # Need fetch if missing entirely, plus we try to refresh stale quotes best-effort.
@@ -408,7 +530,9 @@ def get_current_prices_meta_db(
         stale_symbols = list(sqlite_stale.keys())
 
         # prioritize missing first, then stale refresh
-        need_fetch_candidates = missing_symbols + stale_symbols
+        need_fetch_candidates = missing_symbols + ([] if stale_while_revalidate else stale_symbols)
+        if stale_symbols and stale_while_revalidate:
+            _enqueue_quote_refreshes(stale_symbols, reason=f"stale_{lane}")
 
         need_fetch: list[str] = []
         for symbol in need_fetch_candidates:
@@ -482,25 +606,6 @@ def get_current_prices_meta_db(
             _enqueue_quote_refreshes(need_fetch, reason="missing_api_key")
             return quote_meta
 
-        try:
-            for symbol in need_fetch:
-                ensure_fmp_live_allowed(category="quote", symbol=symbol)
-        except ProviderUnavailable as exc:
-            reason = getattr(exc, "reason", "provider_unavailable")
-            for symbol in need_fetch:
-                record_fallback(category="quote", symbol=symbol, reason=reason)
-                quote_meta.setdefault(
-                    symbol,
-                    {
-                        "price": None,
-                        "asof_ts": None,
-                        "is_stale": False,
-                        "status": reason,
-                    },
-                )
-            _enqueue_quote_refreshes(need_fetch, reason=reason)
-            return quote_meta
-
         equities: list[str] = []
         crypto: list[str] = []
         for symbol in need_fetch:
@@ -529,6 +634,50 @@ def get_current_prices_meta_db(
         def _fetch_configured_quote(symbol: str, asset_type: str) -> bool:
             nonlocal disable_triggered
             attempted_symbols.append(symbol)
+            lock = _fetch_lock_for_symbol(symbol)
+            acquired = lock.acquire(blocking=False)
+            if not acquired:
+                wait_seconds = float(coalesce_wait_seconds if coalesce_wait_seconds is not None else os.getenv("QUOTE_COALESCE_WAIT_SECONDS", "0.75"))
+                logger.info("quote_coalesced_waiter lane=%s symbol=%s wait_seconds=%s", lane, symbol, wait_seconds)
+                if wait_seconds > 0 and lock.acquire(timeout=max(0.0, wait_seconds)):
+                    lock.release()
+                    refreshed = _cache_get_meta(symbol)
+                    if refreshed is not None and refreshed.get("price") is not None:
+                        payload.append({**refreshed, "symbol": symbol})
+                        return True
+                return True
+            if not _quote_budget_allows(lane=lane, symbol=symbol):
+                quote_meta.setdefault(
+                    symbol,
+                    {
+                        "symbol": symbol,
+                        "price": None,
+                        "asof_ts": None,
+                        "cached_at": None,
+                        "is_stale": False,
+                        "source": "unavailable",
+                        "status": "provider_budget_exceeded",
+                    },
+                )
+                lock.release()
+                return True
+            try:
+                ensure_fmp_live_allowed(category=lane, symbol=symbol, allow_user_request=allow_live_user_fetch)
+            except ProviderUnavailable as exc:
+                reason = getattr(exc, "reason", "provider_unavailable")
+                record_fallback(category="quote", symbol=symbol, reason=reason)
+                quote_meta.setdefault(
+                    symbol,
+                    {
+                        "price": None,
+                        "asof_ts": None,
+                        "is_stale": False,
+                        "status": reason,
+                    },
+                )
+                _enqueue_quote_refreshes([symbol], reason=reason)
+                lock.release()
+                return True
             try:
                 endpoint_requests = fmp_endpoint_requests_for_domain(
                     db,
@@ -555,39 +704,58 @@ def get_current_prices_meta_db(
 
             saw_402 = False
             saw_429 = False
-            for endpoint_request in endpoint_requests:
-                response = requests.get(
-                    endpoint_request.request_url,
-                    params=endpoint_request.request_params,
-                    timeout=10,
-                )
-                record_provider_response(
-                    category=f"quote:{endpoint_request.endpoint_name}",
-                    symbol=symbol,
-                    status_code=response.status_code,
-                )
-                if response.status_code != 200:
-                    _record_miss(response.status_code)
-                    saw_402 = saw_402 or response.status_code == 402
-                    saw_429 = saw_429 or response.status_code == 429
-                    if len(need_fetch) >= 5:
-                        logger.debug(
-                            "quote_lookup symbol_miss symbol=%s asset=%s endpoint=%s status=%s",
-                            symbol,
-                            asset_type,
-                            endpoint_request.endpoint_name,
-                            response.status_code,
+            try:
+                for endpoint_request in endpoint_requests:
+                    started = time.monotonic()
+                    try:
+                        response = requests.get(
+                            endpoint_request.request_url,
+                            params=endpoint_request.request_params,
+                            timeout=float(os.getenv("QUOTE_PROVIDER_TIMEOUT_SECONDS", "4")),
                         )
-                    continue
+                    except requests.RequestException as exc:
+                        _record_miss(599)
+                        logger.warning("quote_live_error lane=%s symbol=%s error=%s", lane, symbol, exc.__class__.__name__)
+                        _disable_quotes(minutes=1, reason="quote_provider_exception")
+                        disable_triggered = True
+                        return False
+                    elapsed_ms = (time.monotonic() - started) * 1000
+                    if elapsed_ms >= float(os.getenv("QUOTE_PROVIDER_SLOW_MS", "2500") or 2500):
+                        logger.warning("quote_live_error lane=%s symbol=%s reason=slow_response elapsed_ms=%.1f", lane, symbol, elapsed_ms)
+                        _disable_quotes(minutes=1, reason="quote_provider_slow")
+                        disable_triggered = True
+                    record_provider_response(
+                        category=f"quote:{endpoint_request.endpoint_name}",
+                        symbol=symbol,
+                        status_code=response.status_code,
+                    )
+                    if response.status_code != 200:
+                        _record_miss(response.status_code)
+                        saw_402 = saw_402 or response.status_code == 402
+                        saw_429 = saw_429 or response.status_code == 429
+                        if response.status_code >= 500:
+                            _disable_quotes(minutes=1, reason="quote_provider_5xx")
+                            disable_triggered = True
+                        if len(need_fetch) >= 5:
+                            logger.debug(
+                                "quote_lookup symbol_miss symbol=%s asset=%s endpoint=%s status=%s",
+                                symbol,
+                                asset_type,
+                                endpoint_request.endpoint_name,
+                                response.status_code,
+                            )
+                        continue
 
-                try:
-                    parsed = response.json()
-                except ValueError:
-                    _record_miss(502)
-                    continue
-                if _parse_quote_payload(parsed, fallback_symbol=symbol, endpoint_contract=getattr(endpoint_request, "endpoint_contract", None)):
-                    return True
-                _record_miss(204)
+                    try:
+                        parsed = response.json()
+                    except ValueError:
+                        _record_miss(502)
+                        continue
+                    if _parse_quote_payload(parsed, fallback_symbol=symbol, endpoint_contract=getattr(endpoint_request, "endpoint_contract", None)):
+                        return True
+                    _record_miss(204)
+            finally:
+                lock.release()
 
             if saw_402:
                 global _last_paywall_log
@@ -680,12 +848,20 @@ def get_current_prices_meta_db(
             except (TypeError, ValueError):
                 continue
             quote_meta[symbol] = {
+                "symbol": symbol,
                 "price": price,
                 "asof_ts": row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else fetched_at,
+                "provider_timestamp": row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else None,
+                "cached_at": fetched_at,
                 "is_stale": False,
+                "source": "live_provider",
             }
-            cache_set(symbol, price)
+            for field in ("change", "change_percent", "volume", "market_cap"):
+                if row.get(field) is not None:
+                    quote_meta[symbol][field] = row.get(field)
+            _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
             new_prices[symbol] = price
+            logger.info("quote_live_fetch lane=%s symbol=%s", lane, symbol)
 
         if allow_cache_write:
             quote_cache_upsert_many(db, new_prices)
@@ -757,9 +933,28 @@ def get_current_prices(symbols: list[str]) -> dict[str, float]:
         return _get_current_prices_with_db(db, symbols, allow_cache_write=False)
 
 
-def get_current_prices_db(db: Session, symbols: list[str]) -> dict[str, float]:
+def get_current_prices_db(
+    db: Session,
+    symbols: list[str],
+    *,
+    lane: str = "background_quote",
+    ttl_seconds: int | None = None,
+    allow_live_user_fetch: bool = False,
+) -> dict[str, float]:
     """Returns {SYMBOL: price} using memory + SQLite cache with network fallback."""
-    return _get_current_prices_with_db(db, symbols, allow_cache_write=False)
+    quote_meta = get_current_prices_meta_db(
+        db,
+        symbols,
+        allow_cache_write=False,
+        lane=lane,
+        ttl_seconds=ttl_seconds,
+        allow_live_user_fetch=allow_live_user_fetch,
+    )
+    return {
+        symbol: float(meta["price"])
+        for symbol, meta in quote_meta.items()
+        if isinstance(meta, dict) and meta.get("price") is not None
+    }
 
 
 def get_current_prices_meta(symbols: list[str]) -> dict[str, dict]:
