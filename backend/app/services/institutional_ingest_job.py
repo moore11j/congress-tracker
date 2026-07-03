@@ -314,11 +314,6 @@ def _finish_scheduled_run(
             state.enabled = False
             state.last_status = "paused"
             metadata["stop_reason"] = "empty_page"
-        elif max_filings_reached:
-            # Keep the cursor on this page so the next hourly run can finish the
-            # remaining latest-filings rows without skipping candidates.
-            run.next_cursor_page = int(state.cursor_page)
-            state.last_status = "success"
         else:
             run.next_cursor_page = int(state.cursor_page) + 1
             state.cursor_page = run.next_cursor_page
@@ -338,6 +333,7 @@ def _finish_scheduled_run(
 
 def run_scheduled_latest_once() -> dict[str, Any]:
     started = _now()
+    env_enabled = _env_bool(SCHEDULED_ENABLED_ENV, False)
     db = SessionLocal()
     try:
         try:
@@ -376,14 +372,18 @@ def run_scheduled_latest_once() -> dict[str, Any]:
             db.commit()
             return {"status": "skipped_locked", "run": job_run_payload(run), "state": job_state_payload(state)}
 
-        if not state.enabled:
+        if not env_enabled or not state.enabled:
             run = _create_run(
                 db,
                 state,
                 status="paused",
                 started_at=started,
                 finished_at=now,
-                error_message="scheduled latest-filings ingestion is disabled",
+                error_message=(
+                    "scheduled latest-filings ingestion is disabled by environment"
+                    if not env_enabled
+                    else "scheduled latest-filings ingestion is disabled"
+                ),
             )
             state.last_status = "paused"
             state.last_finished_at = now

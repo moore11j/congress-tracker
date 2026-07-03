@@ -110,4 +110,4 @@ def test_institutional_latest_job_wrapper_is_disabled_bounded_and_non_overlappin
     assert "INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS:-900" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
-    assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --scheduled-latest-once" in script
+    assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --scheduled-latest-once --log-level INFO" in script

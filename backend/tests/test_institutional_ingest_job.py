@@ -134,6 +134,7 @@ def test_scheduled_latest_once_does_nothing_when_disabled(job_env, monkeypatch):
 
 def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, pages_per_run=5, max_filings_per_run=50, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     calls = []
 
     def fake_ingest(**kwargs):
@@ -159,6 +160,7 @@ def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_en
 
 def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
@@ -173,6 +175,7 @@ def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkey
 
 def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=12, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
@@ -191,6 +194,7 @@ def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
 
 def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: _fake_result())
     monkeypatch.setattr(
         job_module,
@@ -217,6 +221,7 @@ def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):
 
 def test_scheduled_latest_overlapping_run_returns_skipped_locked(job_env, monkeypatch):
     _seed_state(job_env, enabled=True, last_status="running", last_started_at=datetime.now(timezone.utc))
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: pytest.fail("overlap should not ingest"))
 
     result = job_module.run_scheduled_latest_once()
@@ -227,6 +232,7 @@ def test_scheduled_latest_overlapping_run_returns_skipped_locked(job_env, monkey
 
 def test_scheduled_latest_stale_running_state_can_recover(job_env, monkeypatch):
     _seed_state(job_env, enabled=True, last_status="running", last_started_at=datetime.now(timezone.utc) - timedelta(hours=3))
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: _fake_result())
 
     result = job_module.run_scheduled_latest_once()
@@ -237,6 +243,7 @@ def test_scheduled_latest_stale_running_state_can_recover(job_env, monkeypatch):
 
 def test_retryable_empty_extract_does_not_block_cursor(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
@@ -249,8 +256,9 @@ def test_retryable_empty_extract_does_not_block_cursor(job_env, monkeypatch):
     assert _state(job_env).cursor_page == 10
 
 
-def test_max_filings_reached_keeps_cursor_on_same_page(job_env, monkeypatch):
+def test_max_filings_reached_advances_cursor_after_clean_page_run(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=9, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(
         ingest_module,
         "ingest_latest_institutional_filings",
@@ -260,7 +268,20 @@ def test_max_filings_reached_keeps_cursor_on_same_page(job_env, monkeypatch):
     result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert _state(job_env).cursor_page == 9
+    assert _state(job_env).cursor_page == 10
+
+
+def test_scheduled_latest_once_env_disabled_overrides_persisted_enabled(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=9, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "false")
+    monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: pytest.fail("env-disabled scheduler must not ingest"))
+
+    result = job_module.run_scheduled_latest_once()
+
+    assert result["status"] == "paused"
+    state = _state(job_env)
+    assert state.cursor_page == 9
+    assert "environment" in (result["run"]["error_message"] or "")
 
 
 def test_scheduled_latest_once_cli_invokes_scheduler(monkeypatch, capsys):

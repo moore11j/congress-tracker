@@ -35,4 +35,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "institutional_latest_job_start max_seconds=$max_seconds"
-timeout "$max_seconds" python -m app.ingest_institutional_activity --scheduled-latest-once
+timeout "$max_seconds" python -m app.ingest_institutional_activity --scheduled-latest-once --log-level INFO
