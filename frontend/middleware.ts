@@ -15,6 +15,69 @@ const API_BASE =
   "https://congress-tracker-api.fly.dev";
 const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
 const appHost = "app.walnutmarkets.com";
+const terminalRouteFamilies = ["ticker", "insider", "member", "institution"] as const;
+
+function routeFamily(pathname: string): string {
+  const normalized = (pathname || "/").toLowerCase();
+  const segment = normalized.split("/").filter(Boolean)[0] ?? "feed";
+  if ((terminalRouteFamilies as readonly string[]).includes(segment)) return segment;
+  if (segment === "signals" || segment === "screener") return segment;
+  if (normalized === "/" || segment === "feed") return "feed";
+  return segment || "unknown";
+}
+
+function isTerminalRoute(pathname: string): boolean {
+  return (terminalRouteFamilies as readonly string[]).some((family) => pathname === `/${family}` || pathname.startsWith(`/${family}/`));
+}
+
+function isPrefetchRequest(request: NextRequest): boolean {
+  const headers = request.headers;
+  return (
+    headers.get("purpose")?.toLowerCase() === "prefetch" ||
+    headers.get("sec-purpose")?.toLowerCase().includes("prefetch") === true ||
+    headers.get("next-router-prefetch") === "1" ||
+    headers.get("x-middleware-prefetch") === "1" ||
+    headers.get("x-nextjs-data") === "1"
+  );
+}
+
+function isBotUserAgent(userAgent: string): boolean {
+  return /bot|crawler|spider|slurp|duckduckbot|baiduspider|yandex|semrush|ahrefs|bytespider|gptbot|claudebot|anthropic|perplexity|facebookexternalhit|twitterbot|linkedinbot|discordbot|telegrambot|whatsapp|preview/i.test(userAgent);
+}
+
+function safeRefererPath(referer: string, request: NextRequest): string {
+  if (!referer) return "";
+  try {
+    return new URL(referer, request.nextUrl).pathname;
+  } catch {
+    return "";
+  }
+}
+
+function terminalShellResponse(pathname: string, host: string, reason: "bot" | "prefetch"): NextResponse {
+  const family = routeFamily(pathname);
+  const body = reason === "prefetch"
+    ? ""
+    : `<!doctype html><html><head><meta name="robots" content="noindex,nofollow"><title>Walnut Market Terminal</title></head><body><main><h1>Walnut Market Terminal</h1><p>This app page is available to interactive users.</p></main></body></html>`;
+  const response = new NextResponse(body, {
+    status: reason === "prefetch" ? 204 : 200,
+    headers: {
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex, nofollow",
+      "x-walnut-terminal-shell": reason,
+    },
+  });
+  console.info(
+    "terminal_ssr_bypass",
+    JSON.stringify({
+      path: pathname,
+      host,
+      family,
+      reason,
+    }),
+  );
+  return response;
+}
 
 async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> {
   if (!isBioguideId(slug)) return null;
@@ -38,6 +101,29 @@ export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").split(":")[0]?.toLowerCase();
   const requestHeaders = new Headers(request.headers);
+  const userAgent = request.headers.get("user-agent") ?? "";
+  const referer = request.headers.get("referer") ?? "";
+  const hasBackendSession = Boolean(request.cookies.get(authSessionCookieName)?.value);
+  const hasAuthHint = request.cookies.get(authHintCookieName)?.value === "1";
+  const prefetch = isPrefetchRequest(request);
+  const bot = isBotUserAgent(userAgent);
+  const family = routeFamily(pathname);
+
+  if (isTerminalRoute(pathname)) {
+    console.info(
+      "terminal_page_request",
+      JSON.stringify({
+        path: pathname,
+        host,
+        family,
+        referer: safeRefererPath(referer, request),
+        user_agent: userAgent.slice(0, 180),
+        bot,
+        prefetch,
+        authenticated: hasBackendSession || hasAuthHint,
+      }),
+    );
+  }
 
   if (publicStaticPaths.has(pathname) || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
@@ -66,6 +152,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(appUrl, 307);
   }
 
+  if (isTerminalRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot)) {
+    return terminalShellResponse(pathname, host, prefetch ? "prefetch" : "bot");
+  }
+
   const memberMatch = pathname.match(/^\/member\/([^/]+)\/?$/);
   if (memberMatch) {
     const slug = (memberMatch[1] ?? "").trim();
@@ -78,8 +168,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const protectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-  const hasBackendSession = Boolean(request.cookies.get(authSessionCookieName)?.value);
-  const hasAuthHint = request.cookies.get(authHintCookieName)?.value === "1";
   if (!protectedRoute || hasBackendSession || hasAuthHint) {
     return NextResponse.next();
   }

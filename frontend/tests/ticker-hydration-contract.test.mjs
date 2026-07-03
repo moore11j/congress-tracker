@@ -257,7 +257,8 @@ test("ticker page catches temporary profile failures and renders a shell fallbac
   assert.match(tickerPage, /error\.status === 503 \|\| error\.status >= 500/);
   assert.match(tickerPage, /Ticker data is loading\. Try refreshing shortly\./);
   assert.match(tickerPage, /profile: fallbackTickerProfile\(normalizedSymbol\)/);
-  assert.match(tickerPage, /\[ticker-events\] unavailable/);
+  assert.match(tickerPage, /\[ticker-congress-activity\] unavailable/);
+  assert.match(tickerPage, /\[ticker-insider-activity\] unavailable/);
   const fallbackSource = tickerPage.slice(
     tickerPage.indexOf("function fallbackTickerProfile"),
     tickerPage.indexOf("function one"),

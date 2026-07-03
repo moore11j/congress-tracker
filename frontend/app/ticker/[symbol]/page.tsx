@@ -3186,29 +3186,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
     const shouldFetchCongressActivity = source === "all" || source === "congress";
     const shouldFetchInsiderActivity = source === "all" || source === "insider";
     const tradeType = sideToTradeType(side);
-    const eventTape =
-      source === "congress"
-        ? "congress"
-        : source === "insider"
-          ? "insider"
-          : source === "government_contract"
-            ? "government_contracts"
-            : undefined;
-    const events = await getEvents({
-      symbol: normalizedSymbol,
-      recent_days: lookbackDays,
-      limit: 100,
-      enrich_prices: 0,
-      source: "TickerEvents",
-      ...(eventTape ? { tape: eventTape } : {}),
-    }).catch((error) => {
-      console.error("[ticker-events] unavailable", {
-        symbol: normalizedSymbol,
-        status: error instanceof ApiError ? error.status : null,
-        name: error instanceof Error ? error.name : "unknown",
-      });
-      return { items: [], status: "unavailable", item_count: 0 };
-    });
     const congressActivity =
       shouldFetchCongressActivity
         ? await getEvents({
@@ -3272,6 +3249,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
             };
           })
         : undefined;
+    const boundedEvents = [
+      ...((congressActivity?.items ?? []) as EventsResponse["items"]),
+      ...((insiderActivity?.items ?? []) as EventsResponse["items"]),
+    ];
     const signalSummaryRequest =
       getTickerSignalsSummary(normalizedSymbol, {
         side,
@@ -3281,7 +3262,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
         source: "TickerSignalsSummary",
       });
     return resolveTickerActivityData({
-      eventsPromise: Promise.resolve(events),
+      eventsPromise: Promise.resolve({
+        ...emptyEventsResponse(),
+        items: boundedEvents,
+        total: boundedEvents.length,
+        item_count: boundedEvents.length,
+      }),
       congressEventsPromise: congressActivity ? Promise.resolve(congressActivity) : undefined,
       insiderEventsPromise: insiderActivity ? Promise.resolve(insiderActivity) : undefined,
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,

@@ -70,3 +70,18 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(faqPage, /Subscriptions & Billing/);
   assert.match(faqPage, /No\. Walnut provides informational and research tools only\./);
 });
+
+test("terminal app routes log request intent and bypass anonymous bot prefetch SSR", () => {
+  assert.match(middleware, /const terminalRouteFamilies = \["ticker", "insider", "member", "institution"\] as const/);
+  assert.match(middleware, /function isPrefetchRequest\(request: NextRequest\)/);
+  assert.match(middleware, /function isBotUserAgent\(userAgent: string\)/);
+  assert.match(middleware, /function safeRefererPath\(referer: string, request: NextRequest\)/);
+  assert.match(middleware, /console\.info\(\s*"terminal_page_request"/);
+  assert.match(middleware, /referer: safeRefererPath\(referer, request\)/);
+  assert.match(middleware, /user_agent: userAgent\.slice\(0, 180\)/);
+  assert.match(middleware, /authenticated: hasBackendSession \|\| hasAuthHint/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot\)/);
+  assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : "bot"\)/);
+  assert.match(middleware, /"x-walnut-terminal-shell": reason/);
+  assert.match(middleware, /"x-robots-tag": "noindex, nofollow"/);
+});
