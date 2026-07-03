@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -25,7 +26,8 @@ from app.services.provider_usage import (
     record_fallback,
     record_provider_response,
 )
-from app.services.provider_endpoints import fmp_endpoint_requests_for_domain
+from app.services.provider_endpoints import build_fmp_endpoint_request, fmp_endpoint_requests_for_domain
+from app.services.provider_registry import FMP_INTRADAY_CHART_CONTRACT_JSON
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
@@ -473,6 +475,10 @@ def get_current_prices_meta_db(
         for symbol in normalized_symbols:
             cached_meta = _cache_get_meta(symbol)
             if cached_meta is not None and cached_meta.get("price") is not None:
+                if force_quote_endpoint and cached_meta.get("source") != "live_quote":
+                    record_cache_miss(category="quote", symbol=symbol)
+                    remaining_symbols.append(symbol)
+                    continue
                 record_cache_hit(category="quote", symbol=symbol)
                 quote_meta[symbol] = {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"}
                 logger.info("quote_cache_hit lane=%s symbol=%s source=memory", lane, symbol)
@@ -483,7 +489,7 @@ def get_current_prices_meta_db(
 
         sqlite_fresh: dict[str, float] = {}
         sqlite_stale: dict[str, float] = {}
-        if remaining_symbols:
+        if remaining_symbols and not force_quote_endpoint:
             ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
@@ -620,21 +626,26 @@ def get_current_prices_meta_db(
         disable_triggered = False
         status_counts: dict[int, int] = {}
         attempted_symbols: list[str] = []
+        mutation_lock = threading.Lock()
 
         def _record_miss(status_code: int, count: int = 1) -> None:
             nonlocal miss_count
-            miss_count += count
-            status_counts[status_code] = status_counts.get(status_code, 0) + count
+            with mutation_lock:
+                miss_count += count
+                status_counts[status_code] = status_counts.get(status_code, 0) + count
 
         def _parse_quote_payload(quote_payload: object, *, fallback_symbol: str, endpoint_contract: dict | None = None) -> bool:
             rows = _payload_rows(quote_payload)
             parsed_rows = _rows_to_quote_payload(rows, fallback_symbol=fallback_symbol, endpoint_contract=endpoint_contract)
-            payload.extend(parsed_rows)
+            if parsed_rows:
+                with mutation_lock:
+                    payload.extend(parsed_rows)
             return bool(parsed_rows)
 
         def _fetch_configured_quote(symbol: str, asset_type: str) -> bool:
             nonlocal disable_triggered
-            attempted_symbols.append(symbol)
+            with mutation_lock:
+                attempted_symbols.append(symbol)
             lock = _fetch_lock_for_symbol(symbol)
             acquired = lock.acquire(blocking=False)
             if not acquired:
@@ -648,18 +659,19 @@ def get_current_prices_meta_db(
                         return True
                 return True
             if not _quote_budget_allows(lane=lane, symbol=symbol):
-                quote_meta.setdefault(
-                    symbol,
-                    {
-                        "symbol": symbol,
-                        "price": None,
-                        "asof_ts": None,
-                        "cached_at": None,
-                        "is_stale": False,
-                        "source": "unavailable",
-                        "status": "provider_budget_exceeded",
-                    },
-                )
+                with mutation_lock:
+                    quote_meta.setdefault(
+                        symbol,
+                        {
+                            "symbol": symbol,
+                            "price": None,
+                            "asof_ts": None,
+                            "cached_at": None,
+                            "is_stale": False,
+                            "source": "unavailable",
+                            "status": "provider_budget_exceeded",
+                        },
+                    )
                 lock.release()
                 return True
             try:
@@ -667,28 +679,39 @@ def get_current_prices_meta_db(
             except ProviderUnavailable as exc:
                 reason = getattr(exc, "reason", "provider_unavailable")
                 record_fallback(category="quote", symbol=symbol, reason=reason)
-                quote_meta.setdefault(
-                    symbol,
-                    {
-                        "price": None,
-                        "asof_ts": None,
-                        "is_stale": False,
-                        "status": reason,
-                    },
-                )
+                with mutation_lock:
+                    quote_meta.setdefault(
+                        symbol,
+                        {
+                            "price": None,
+                            "asof_ts": None,
+                            "is_stale": False,
+                            "status": reason,
+                        },
+                    )
                 _enqueue_quote_refreshes([symbol], reason=reason)
                 lock.release()
                 return True
             try:
                 if force_quote_endpoint:
+                    intraday_end_day = datetime.now(timezone.utc).date()
+                    try:
+                        intraday_lookback_days = max(1, int(os.getenv("QUOTE_INTRADAY_LOOKBACK_DAYS", "7") or 7))
+                    except ValueError:
+                        intraday_lookback_days = 7
+                    intraday_start_day = intraday_end_day - timedelta(days=intraday_lookback_days)
+                    intraday_request = build_fmp_endpoint_request(
+                        role="primary",
+                        provider="fmp",
+                        endpoint_url=f"{FMP_BASE_URL}/historical-chart/1min?symbol={{symbol}}",
+                        api_key=api_key,
+                        symbol=symbol,
+                        endpoint_contract_json=FMP_INTRADAY_CHART_CONTRACT_JSON,
+                    )
+                    intraday_request.request_params["from"] = intraday_start_day.isoformat()
+                    intraday_request.request_params["to"] = intraday_end_day.isoformat()
                     endpoint_requests = [
-                        SimpleNamespace(
-                            role="primary",
-                            endpoint_name="quote",
-                            request_url=f"{FMP_BASE_URL}/quote",
-                            request_params={"symbol": symbol, "apikey": api_key},
-                            endpoint_contract={},
-                        )
+                        intraday_request
                     ]
                 else:
                     endpoint_requests = fmp_endpoint_requests_for_domain(
@@ -788,11 +811,35 @@ def get_current_prices_meta_db(
             equities_to_fetch = equities
             logger.info("quote_lookup fetching_equity_singles count=%s", len(equities_to_fetch))
             stop_fetching_equities = False
-            for symbol in equities_to_fetch:
-                should_continue = _fetch_configured_quote(symbol, asset_type="equity")
-                if not should_continue:
-                    stop_fetching_equities = True
-                    break
+            if force_quote_endpoint and len(equities_to_fetch) > 1:
+                try:
+                    max_workers = max(1, int(os.getenv("QUOTE_FORCE_ENDPOINT_MAX_WORKERS", "4") or 4))
+                except ValueError:
+                    max_workers = 4
+                with ThreadPoolExecutor(max_workers=min(max_workers, len(equities_to_fetch))) as executor:
+                    futures = {
+                        executor.submit(_fetch_configured_quote, symbol, "equity"): symbol
+                        for symbol in equities_to_fetch
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            should_continue = future.result()
+                        except Exception:
+                            _record_miss(599)
+                            logger.warning(
+                                "quote_live_error lane=%s symbol=%s error=worker_exception",
+                                lane,
+                                futures[future],
+                            )
+                            should_continue = True
+                        if not should_continue:
+                            stop_fetching_equities = True
+            else:
+                for symbol in equities_to_fetch:
+                    should_continue = _fetch_configured_quote(symbol, asset_type="equity")
+                    if not should_continue:
+                        stop_fetching_equities = True
+                        break
 
             if stop_fetching_equities and _quotes_disabled():
                 disabled_status = _quotes_disabled_status()
@@ -859,14 +906,18 @@ def get_current_prices_meta_db(
                 price = float(row.get("price"))
             except (TypeError, ValueError):
                 continue
+            row_asof = row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else fetched_at
+            existing_asof = quote_meta.get(symbol, {}).get("asof_ts")
+            if isinstance(existing_asof, datetime) and isinstance(row_asof, datetime) and row_asof <= existing_asof:
+                continue
             quote_meta[symbol] = {
                 "symbol": symbol,
                 "price": price,
-                "asof_ts": row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else fetched_at,
-                "provider_timestamp": row.get("asof_ts") if isinstance(row.get("asof_ts"), datetime) else None,
+                "asof_ts": row_asof,
+                "provider_timestamp": row_asof if isinstance(row.get("asof_ts"), datetime) else None,
                 "cached_at": fetched_at,
                 "is_stale": False,
-                "source": "live_provider",
+                "source": "live_quote" if force_quote_endpoint else "live_provider",
             }
             for field in ("change", "change_percent", "volume", "market_cap"):
                 if row.get(field) is not None:

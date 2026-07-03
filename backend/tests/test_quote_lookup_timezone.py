@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +16,13 @@ def _reset_quote_lookup_state() -> None:
     quote_lookup._QUOTE_CALL_TIMESTAMPS.clear()
     quote_lookup._quotes_disabled_until = None
     quote_lookup._quotes_disable_reason = None
+
+
+@pytest.fixture(autouse=True)
+def reset_quote_lookup_state_between_tests():
+    _reset_quote_lookup_state()
+    yield
+    _reset_quote_lookup_state()
 
 
 def _quote_meta_for_cached_asof(monkeypatch, asof_ts):
@@ -198,7 +206,7 @@ def test_missing_quote_calls_single_symbol_provider_when_budget_allows(monkeypat
     assert meta["AAPL"]["source"] == "live_provider"
 
 
-def test_force_quote_endpoint_uses_stable_quote(monkeypatch):
+def test_force_quote_endpoint_uses_intraday_chart(monkeypatch):
     _reset_quote_lookup_state()
     calls: list[str] = []
 
@@ -206,10 +214,17 @@ def test_force_quote_endpoint_uses_stable_quote(monkeypatch):
         status_code = 200
 
         def json(self):
-            return [{"symbol": "AAPL", "price": 214.25, "change": 1.1, "changesPercentage": 0.52}]
+            return [
+                {"date": "2026-07-01 15:59:00", "close": 214.25, "volume": 12345},
+                {"date": "2026-07-01 09:30:00", "close": 200.0, "volume": 1000},
+            ]
 
     def fake_get(url, params=None, timeout=10):
         calls.append(url)
+        assert params["symbol"] == "AAPL"
+        assert params["from"]
+        assert params["to"]
+        assert params["from"] < params["to"]
         return FakeResponse()
 
     monkeypatch.setenv("FMP_API_KEY", "secret-key")
@@ -230,11 +245,96 @@ def test_force_quote_endpoint_uses_stable_quote(monkeypatch):
         db.close()
 
     assert calls
-    assert calls[0].endswith("/stable/quote")
-    assert all("historical-chart/1min" not in call for call in calls)
+    assert calls[0].endswith("/stable/historical-chart/1min")
     assert all("historical-price-eod/light" not in call for call in calls)
     assert meta["AAPL"]["price"] == 214.25
-    assert meta["AAPL"]["change_percent"] == 0.52
+    assert meta["AAPL"]["asof_ts"] == datetime(2026, 7, 1, 15, 59, 0)
+    assert meta["AAPL"]["volume"] == 12345
+    assert meta["AAPL"]["source"] == "live_quote"
+
+
+def test_force_quote_endpoint_fetches_multiple_symbols_with_small_parallelism(monkeypatch):
+    _reset_quote_lookup_state()
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, symbol: str):
+            self.symbol = symbol
+
+        def json(self):
+            return [{"date": "2026-07-01 15:59:00", "close": 200.0 if self.symbol == "AAPL" else 300.0}]
+
+    def fake_get(url, params=None, timeout=10):
+        symbol = dict(params or {}).get("symbol")
+        calls.append(symbol)
+        __import__("time").sleep(0.05)
+        return FakeResponse(symbol)
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setenv("QUOTE_FORCE_ENDPOINT_MAX_WORKERS", "2")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    db = _db()
+    started = __import__("time").perf_counter()
+    try:
+        meta = quote_lookup.get_current_prices_meta_db(
+            db,
+            ["AAPL", "NVDA"],
+            lane="ticker_quote",
+            allow_live_user_fetch=True,
+            force_quote_endpoint=True,
+            allow_cache_write=False,
+        )
+    finally:
+        db.close()
+    elapsed = __import__("time").perf_counter() - started
+
+    assert sorted(calls) == ["AAPL", "NVDA"]
+    assert elapsed < 0.14
+    assert meta["AAPL"]["price"] == 200.0
+    assert meta["NVDA"]["price"] == 300.0
+
+
+def test_force_quote_endpoint_skips_persistent_quote_cache(monkeypatch):
+    _reset_quote_lookup_state()
+    asof_ts = datetime.now(timezone.utc).replace(tzinfo=None)
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"date": "2026-07-01 15:59:00", "close": 214.25}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+    monkeypatch.setattr(
+        quote_lookup,
+        "quote_cache_get_many_with_age",
+        lambda _db, _symbols: {"AAPL": (142.02, asof_ts)},
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(
+        SimpleNamespace(),
+        ["AAPL"],
+        lane="ticker_quote",
+        allow_live_user_fetch=True,
+        force_quote_endpoint=True,
+    )
+
+    assert calls
+    assert meta["AAPL"]["price"] == 214.25
+    assert meta["AAPL"]["price"] != 142.02
 
 
 def test_quote_budget_exhausted_returns_stale_cache_without_provider_call(monkeypatch):

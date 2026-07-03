@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from statistics import mean, median
 from time import perf_counter
@@ -4554,6 +4555,10 @@ def _ticker_profiles_response(symbols: str | None, db: Session) -> dict:
 
 _MARKET_QUOTES_SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,14}$")
 _MARKET_QUOTES_MAX_SYMBOLS = 12
+_MARKET_QUOTES_EOD_CACHE: dict[str, tuple[list[dict], float]] = {}
+_MARKET_QUOTES_EOD_CACHE_LOCK = threading.Lock()
+_MARKET_QUOTES_RESPONSE_CACHE: dict[tuple[str, ...], tuple[dict, float]] = {}
+_MARKET_QUOTES_RESPONSE_CACHE_LOCK = threading.Lock()
 
 
 def _parse_market_quote_symbols(symbols: str | None) -> list[str]:
@@ -4568,6 +4573,34 @@ def _parse_market_quote_symbols(symbols: str | None) -> list[str]:
         if len(parsed_symbols) >= _MARKET_QUOTES_MAX_SYMBOLS:
             break
     return parsed_symbols
+
+
+def _market_quotes_response_cache_ttl_seconds() -> int:
+    try:
+        return max(5, int(os.getenv("MARKET_QUOTES_RESPONSE_CACHE_TTL_SECONDS", "45") or 45))
+    except ValueError:
+        return 45
+
+
+def _market_quotes_response_cache_get(parsed_symbols: list[str]) -> dict | None:
+    key = tuple(parsed_symbols)
+    now_ts = time.time()
+    with _MARKET_QUOTES_RESPONSE_CACHE_LOCK:
+        cached = _MARKET_QUOTES_RESPONSE_CACHE.get(key)
+        if not cached:
+            return None
+        payload, expires_at = cached
+        if now_ts >= expires_at:
+            _MARKET_QUOTES_RESPONSE_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _market_quotes_response_cache_set(parsed_symbols: list[str], payload: dict) -> None:
+    key = tuple(parsed_symbols)
+    expires_at = time.time() + _market_quotes_response_cache_ttl_seconds()
+    with _MARKET_QUOTES_RESPONSE_CACHE_LOCK:
+        _MARKET_QUOTES_RESPONSE_CACHE[key] = (copy.deepcopy(payload), expires_at)
 
 
 def _latest_cached_closes_by_symbol(db: Session, symbols: list[str]) -> dict[str, list[dict]]:
@@ -4600,6 +4633,114 @@ def _latest_cached_closes_by_symbol(db: Session, symbols: list[str]) -> dict[str
     return closes_by_symbol
 
 
+def _fetch_eod_light_closes_for_symbol(
+    symbol: str,
+    *,
+    api_key: str,
+    start_day: date,
+    end_day: date,
+    timeout_seconds: float,
+) -> list[dict]:
+    try:
+        response = requests.get(
+            f"{FMP_BASE_URL}/historical-price-eod/light",
+            params={
+                "symbol": symbol,
+                "from": start_day.isoformat(),
+                "to": end_day.isoformat(),
+                "apikey": api_key,
+            },
+            timeout=timeout_seconds,
+        )
+    except requests.RequestException:
+        logger.info("market_quotes previous_close_unavailable symbol=%s reason=request_exception", symbol)
+        return []
+    if response.status_code != 200:
+        logger.info(
+            "market_quotes previous_close_unavailable symbol=%s status=%s",
+            symbol,
+            response.status_code,
+        )
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.info("market_quotes previous_close_unavailable symbol=%s reason=invalid_json", symbol)
+        return []
+    rows = payload if isinstance(payload, list) else payload.get("historical") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return []
+    parsed_rows: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        day = row.get("date")
+        close = row.get("price", row.get("close"))
+        if not day or close is None:
+            continue
+        try:
+            parsed_close = float(close)
+        except (TypeError, ValueError):
+            continue
+        parsed_rows.append({"date": str(day), "close": parsed_close})
+    return sorted(parsed_rows, key=lambda item: str(item.get("date") or ""), reverse=True)
+
+
+def _latest_eod_light_closes_by_symbol(symbols: list[str]) -> dict[str, list[dict]]:
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key or not symbols:
+        return {}
+
+    try:
+        ttl_seconds = max(60, int(os.getenv("MARKET_QUOTES_EOD_CACHE_TTL_SECONDS", "900") or 900))
+    except ValueError:
+        ttl_seconds = 900
+    now_ts = time.time()
+    end_day = datetime.now(timezone.utc).date()
+    start_day = end_day - timedelta(days=14)
+    closes_by_symbol: dict[str, list[dict]] = {}
+    timeout_seconds = float(os.getenv("MARKET_QUOTES_PROVIDER_TIMEOUT_SECONDS", "4") or 4)
+    missing_symbols: list[str] = []
+    for symbol in symbols:
+        with _MARKET_QUOTES_EOD_CACHE_LOCK:
+            cached = _MARKET_QUOTES_EOD_CACHE.get(symbol)
+        if cached and now_ts < cached[1]:
+            closes_by_symbol[symbol] = [dict(row) for row in cached[0]]
+            continue
+        missing_symbols.append(symbol)
+    if not missing_symbols:
+        return closes_by_symbol
+    try:
+        max_workers = max(1, int(os.getenv("MARKET_QUOTES_EOD_MAX_WORKERS", "4") or 4))
+    except ValueError:
+        max_workers = 4
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(missing_symbols))) as executor:
+        futures = {
+            executor.submit(
+                _fetch_eod_light_closes_for_symbol,
+                symbol,
+                api_key=api_key,
+                start_day=start_day,
+                end_day=end_day,
+                timeout_seconds=timeout_seconds,
+            ): symbol
+            for symbol in missing_symbols
+        }
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                rows = future.result()
+            except Exception:
+                logger.info("market_quotes previous_close_unavailable symbol=%s reason=worker_exception", symbol)
+                continue
+            if not rows:
+                continue
+            with _MARKET_QUOTES_EOD_CACHE_LOCK:
+                _MARKET_QUOTES_EOD_CACHE[symbol] = ([dict(row) for row in rows], now_ts + ttl_seconds)
+            closes_by_symbol[symbol] = rows
+    return closes_by_symbol
+
+
 def _previous_close_for_quote(cached_closes: list[dict], asof_ts: datetime | None) -> float | None:
     if not cached_closes:
         return None
@@ -4616,10 +4757,16 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
     parsed_symbols = _parse_market_quote_symbols(symbols)
     if not parsed_symbols:
         return {"items": [], "status": "unavailable"}
+    cached_response = _market_quotes_response_cache_get(parsed_symbols)
+    if cached_response is not None:
+        return cached_response
 
+    ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
+    cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
     quote_rows = get_current_prices_meta_db(
         db,
         parsed_symbols,
+        allow_cache_write=False,
         lane="ticker_quote",
         allow_live_user_fetch=True,
         release_connection_before_fetch=True,
@@ -4627,8 +4774,7 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
         coalesce_wait_seconds=1.0,
         force_quote_endpoint=True,
     )
-    ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
-    cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
+    eod_light_closes = _latest_eod_light_closes_by_symbol(parsed_symbols)
     items: list[dict] = []
     available_count = 0
 
@@ -4643,7 +4789,8 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
                 current_price = None
             raw_asof = quote.get("asof_ts")
             asof_ts = raw_asof if isinstance(raw_asof, datetime) else None
-        previous_close = _previous_close_for_quote(cached_closes.get(symbol, []), asof_ts)
+        previous_close_rows = eod_light_closes.get(symbol) or cached_closes.get(symbol, [])
+        previous_close = _previous_close_for_quote(previous_close_rows, asof_ts)
         day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
         if day_change_pct is None and current_price is not None and previous_close not in (None, 0):
             day_change_pct = ((current_price - previous_close) / previous_close) * 100
@@ -4668,7 +4815,9 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
         status = "partial"
     else:
         status = "unavailable"
-    return {"items": items, "status": status}
+    payload = {"items": items, "status": status}
+    _market_quotes_response_cache_set(parsed_symbols, payload)
+    return payload
 
 
 @app.get("/api/market/quotes")
