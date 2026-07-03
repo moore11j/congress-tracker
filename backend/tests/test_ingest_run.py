@@ -132,6 +132,7 @@ def test_enrichment_queue_job_uses_bounded_env(monkeypatch) -> None:
         seen.update({"limit": limit, "max_seconds": max_seconds})
         return {"processed": 0, "succeeded": 0, "failed": 0, "skipped": 0}
 
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
     monkeypatch.setenv("DATA_ENRICHMENT_QUEUE_BATCH_SIZE", "50")
     monkeypatch.setenv("DATA_ENRICHMENT_QUEUE_MAX_SECONDS", "45")
     monkeypatch.setattr("app.ingest_run.process_data_enrichment_jobs", fake_process_data_enrichment_jobs)
@@ -146,6 +147,20 @@ def test_enrichment_queue_job_uses_bounded_env(monkeypatch) -> None:
         "skipped": 0,
     }
     assert seen == {"limit": 50, "max_seconds": 45}
+
+
+def test_enrichment_queue_job_defaults_to_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("ENRICHMENT_QUEUE_ENABLED", raising=False)
+    monkeypatch.setattr(
+        "app.ingest_run.process_data_enrichment_jobs",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("queue should not run")),
+    )
+
+    result = _run_enrichment_queue_job()
+
+    assert result["job"] == "enrichment-queue"
+    assert result["reason"] == "enrichment_queue_disabled"
+    assert result["skipped"] == 1
 
 
 def test_data_enrichment_queue_processes_trade_outcome_jobs(monkeypatch) -> None:
@@ -200,8 +215,16 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
         def __exit__(self, *args):
             return False
 
-    def fake_enqueue_priority_ticker_prewarm_jobs(db, *, symbol_limit, popular_limit, source):
-        seen.update({"db": db, "symbol_limit": symbol_limit, "popular_limit": popular_limit, "source": source})
+    def fake_enqueue_priority_ticker_prewarm_jobs(db, *, symbol_limit, popular_limit, per_user_limit, source):
+        seen.update(
+            {
+                "db": db,
+                "symbol_limit": symbol_limit,
+                "popular_limit": popular_limit,
+                "per_user_limit": per_user_limit,
+                "source": source,
+            }
+        )
         return {
             "symbol_count": 2,
             "enqueued": 10,
@@ -216,8 +239,10 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
             "skipped_budget": 0,
         }
 
+    monkeypatch.setenv("PRIORITY_TICKER_PREWARM_ENABLED", "true")
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "2")
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "1")
+    monkeypatch.setenv("PRIORITY_TICKER_PREWARM_PER_USER_LIMIT", "1")
     monkeypatch.setattr("app.ingest_run.SessionLocal", FakeSession)
     monkeypatch.setattr("app.ingest_run.enqueue_priority_ticker_prewarm_jobs", fake_enqueue_priority_ticker_prewarm_jobs)
 
@@ -227,4 +252,19 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
     assert result["symbols"] == ["BMNR", "MSTR"]
     assert seen["symbol_limit"] == 2
     assert seen["popular_limit"] == 1
+    assert seen["per_user_limit"] == 1
     assert seen["source"] == "priority_ticker_prewarm"
+
+
+def test_priority_ticker_prewarm_job_defaults_to_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("PRIORITY_TICKER_PREWARM_ENABLED", raising=False)
+    monkeypatch.setattr(
+        "app.ingest_run.enqueue_priority_ticker_prewarm_jobs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("prewarm should not run")),
+    )
+
+    result = _run_priority_ticker_prewarm_job()
+
+    assert result["job"] == "priority-ticker-prewarm"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "priority_ticker_prewarm_disabled"

@@ -8,15 +8,24 @@ case "${FMP_BACKGROUND_REFRESH_ENABLED:-true}" in
     ;;
 esac
 
-case "${DATA_ENRICHMENT_QUEUE_ENABLED:-true}" in
+case "${ENRICHMENT_QUEUE_ENABLED:-false}" in
+  1|true|TRUE|yes|YES|on|ON)
+    ;;
+  *)
+    echo "data_enrichment_queue_disabled processed=0 succeeded=0 failed=0 skipped=1 reason=enrichment_queue_disabled"
+    exit 0
+    ;;
+esac
+
+case "${DATA_ENRICHMENT_QUEUE_ENABLED:-false}" in
   0|false|FALSE|no|NO|off|OFF)
     echo "data_enrichment_queue_disabled processed=0 succeeded=0 failed=0 skipped=1 reason=queue_disabled"
     exit 0
     ;;
 esac
 
-batch_size="${DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-50}"
-max_seconds="${DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-45}"
+batch_size="${DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-10}"
+max_seconds="${DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-20}"
 
 case "$batch_size" in
   ""|*[!0-9]*)

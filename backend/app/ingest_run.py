@@ -836,31 +836,54 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
 
 
 def _run_enrichment_queue_job() -> dict[str, object]:
+    if os.getenv("ENRICHMENT_QUEUE_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("data_enrichment_queue_skipped reason=enrichment_queue_disabled")
+        return {
+            "job": "enrichment-queue",
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "skipped": 1,
+            "reason": "enrichment_queue_disabled",
+        }
     ensure_ticker_financials_cache_schema(engine)
     limit = int(
         os.getenv("DATA_ENRICHMENT_QUEUE_BATCH_SIZE")
-        or os.getenv("FMP_ENRICHMENT_WORKERS", "25")
-        or 25
+        or os.getenv("FMP_ENRICHMENT_WORKERS", "10")
+        or 10
     )
-    max_seconds = int(os.getenv("DATA_ENRICHMENT_QUEUE_MAX_SECONDS", "45") or 45)
+    max_seconds = int(os.getenv("DATA_ENRICHMENT_QUEUE_MAX_SECONDS", "20") or 20)
     result = process_data_enrichment_jobs(limit=max(1, limit), max_seconds=max(1, max_seconds))
     logger.info("Data enrichment queue finished: %s", result)
     return {"job": "enrichment-queue", **result}
 
 
 def _run_priority_ticker_prewarm_job() -> dict[str, object]:
-    symbol_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "40") or 40)
-    popular_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "15") or 15)
+    if os.getenv("PRIORITY_TICKER_PREWARM_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        logger.info("prewarm_ticker_cache_skipped reason=priority_ticker_prewarm_disabled")
+        return {
+            "job": "priority-ticker-prewarm",
+            "status": "skipped",
+            "reason": "priority_ticker_prewarm_disabled",
+            "symbol_count": 0,
+            "attempted": 0,
+            "enqueued": 0,
+        }
+    symbol_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "25") or 25)
+    popular_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "0") or 0)
+    per_user_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_PER_USER_LIMIT", "5") or 5)
     logger.info(
-        "prewarm_ticker_cache_start symbol_limit=%s popular_limit=%s",
+        "prewarm_ticker_cache_start symbol_limit=%s popular_limit=%s per_user_limit=%s",
         symbol_limit,
         popular_limit,
+        per_user_limit,
     )
     with SessionLocal() as db:
         result = enqueue_priority_ticker_prewarm_jobs(
             db,
             symbol_limit=symbol_limit,
             popular_limit=popular_limit,
+            per_user_limit=per_user_limit,
             source="priority_ticker_prewarm",
         )
     logger.info(

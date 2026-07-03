@@ -13,13 +13,18 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["processes"]["app"] == "uvicorn app.main:app --host 0.0.0.0 --port 8080"
     assert fly_config["processes"]["cron"] == "supercronic /app/crontab"
     assert fly_config["http_service"]["processes"] == ["app"]
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "true"
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "50"
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "45"
-    assert fly_config["env"]["FEED_PNL_REPAIR_ENABLED"] == "true"
+    assert fly_config["env"]["ENRICHMENT_QUEUE_ENABLED"] == "false"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "false"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "10"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "20"
+    assert fly_config["env"]["FEED_PNL_REPAIR_ENABLED"] == "false"
     assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "3"
-    assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "500"
-    assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "60"
+    assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "150"
+    assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "30"
+    assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "false"
+    assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
+    assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
+    assert fly_config["env"]["INSIDER_ANALYTICS_PREWARM_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "9"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS"] == "900"
@@ -40,8 +45,9 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity" in crontab
     assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
-    assert "*/5 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
-    assert "*/5 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "*/15 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
+    assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
+    assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
     assert "17 * * * * cd /app && sh /app/scripts/run_institutional_latest_job.sh" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
@@ -81,9 +87,10 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     script = (BACKEND_ROOT / "scripts" / "run_enrichment_queue.sh").read_text()
 
     assert "FMP_BACKGROUND_REFRESH_ENABLED:-true" in script
-    assert "DATA_ENRICHMENT_QUEUE_ENABLED:-true" in script
-    assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-50" in script
-    assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-45" in script
+    assert "ENRICHMENT_QUEUE_ENABLED:-false" in script
+    assert "DATA_ENRICHMENT_QUEUE_ENABLED:-false" in script
+    assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-10" in script
+    assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-20" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
     assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
@@ -93,10 +100,10 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
 def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
     script = (BACKEND_ROOT / "scripts" / "run_feed_pnl_repair.sh").read_text()
 
-    assert "FEED_PNL_REPAIR_ENABLED:-true" in script
+    assert "FEED_PNL_REPAIR_ENABLED:-false" in script
     assert "FEED_PNL_REPAIR_DAYS:-3" in script
-    assert "FEED_PNL_REPAIR_LIMIT:-500" in script
-    assert "FEED_PNL_REPAIR_MAX_SECONDS:-60" in script
+    assert "FEED_PNL_REPAIR_LIMIT:-150" in script
+    assert "FEED_PNL_REPAIR_MAX_SECONDS:-30" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "repair_already_running" in script
     assert "timeout \"$max_seconds\" python -m app.repair_recent_feed_pnl" in script

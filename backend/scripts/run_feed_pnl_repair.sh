@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-case "${FEED_PNL_REPAIR_ENABLED:-true}" in
+case "${FEED_PNL_REPAIR_ENABLED:-false}" in
   0|false|FALSE|no|NO|off|OFF)
     echo "feed_pnl_repair_disabled events_scanned=0 events_missing_pnl=0 reason=repair_disabled"
     exit 0
@@ -9,8 +9,8 @@ case "${FEED_PNL_REPAIR_ENABLED:-true}" in
 esac
 
 days="${FEED_PNL_REPAIR_DAYS:-3}"
-limit="${FEED_PNL_REPAIR_LIMIT:-500}"
-max_seconds="${FEED_PNL_REPAIR_MAX_SECONDS:-60}"
+limit="${FEED_PNL_REPAIR_LIMIT:-150}"
+max_seconds="${FEED_PNL_REPAIR_MAX_SECONDS:-30}"
 
 case "$days" in
   ""|*[!0-9]*)

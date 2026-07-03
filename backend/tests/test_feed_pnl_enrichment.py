@@ -178,6 +178,7 @@ def test_structurally_unpriceable_event_writes_outcome_instead_of_updating() -> 
 def test_quote_and_price_eod_workers_populate_caches(monkeypatch) -> None:
     SessionLocal = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", SessionLocal)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
 
     def fake_quote(db: Session, symbols: list[str], **_kwargs):
         for symbol in symbols:
@@ -240,6 +241,7 @@ def test_quote_and_price_eod_workers_populate_caches(monkeypatch) -> None:
 def test_event_scoped_pnl_refresh_writes_trade_outcome_when_inputs_exist(monkeypatch) -> None:
     SessionLocal = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", SessionLocal)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
 
     db = SessionLocal()
     try:
@@ -283,6 +285,7 @@ def test_event_scoped_pnl_refresh_writes_trade_outcome_when_inputs_exist(monkeyp
 def test_event_scoped_pnl_refresh_stays_retryable_when_inputs_missing(monkeypatch) -> None:
     SessionLocal = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", SessionLocal)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
 
     db = SessionLocal()
     try:

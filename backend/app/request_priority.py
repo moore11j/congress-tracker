@@ -73,6 +73,7 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
         (
             "/chart-bundle",
             "/financials",
+            "/government-contracts",
             "/hydration-request",
             "/hydration-status",
             "/news",

@@ -87,6 +87,7 @@ def test_skip_invalid_symbol_jobs_marks_existing_pending_rows():
 def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
 
     def timeout_result(*_args, **_kwargs):
         return {
@@ -135,6 +136,7 @@ def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
 def test_profile_enrichment_runs_with_background_context_when_page_fetch_blocked(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
     monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")

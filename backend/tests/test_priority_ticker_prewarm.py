@@ -18,7 +18,7 @@ def _db():
     return Session()
 
 
-def test_priority_ticker_prewarm_includes_watchlist_and_default_symbols(monkeypatch):
+def test_priority_ticker_prewarm_includes_logged_in_watchlist_symbols(monkeypatch):
     db = _db()
     captured = []
     try:
@@ -38,11 +38,11 @@ def test_priority_ticker_prewarm_includes_watchlist_and_default_symbols(monkeypa
 
         monkeypatch.setattr(queue_module, "enqueue_data_enrichment_job", fake_enqueue)
 
-        result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=3, popular_limit=1)
+        result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=3, popular_limit=0)
 
         assert "BMNR" in result["symbols"]
-        assert "MSTR" in result["symbols"]
-        assert "NBIS" in result["symbols"]
+        assert "MSTR" not in result["symbols"]
+        assert "NBIS" not in result["symbols"]
         assert result["symbol_count"] <= 3
         bmnr_job_types = {job["job_type"] for job in captured if job.get("symbol") == "BMNR"}
         assert {"quote", "ticker_meta", "price_series", "fundamentals", "ticker_financials", "news_stock", "press_releases", "sec_filings", "technical_indicators"} <= bmnr_job_types
@@ -88,17 +88,17 @@ def test_priority_ticker_prewarm_skips_placeholder_symbols_before_selection(monk
         monkeypatch.setattr(queue_module, "enqueue_data_enrichment_job", fake_enqueue)
 
         with caplog.at_level("INFO", logger=queue_module.logger.name):
-            result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=6, popular_limit=3)
+            result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=6, popular_limit=0)
 
         assert "[SYMBOL]" not in result["symbols"]
         assert "UNKNOWN" not in result["symbols"]
         assert "SYMBOL" not in result["symbols"]
-        assert {"BMNR", "MSTR", "NBIS"} <= set(result["symbols"])
+        assert result["symbols"] == ["BMNR", "NBIS"]
         assert all(job.get("symbol") not in {"[SYMBOL]", "UNKNOWN", "SYMBOL"} for job in captured)
         assert result["attempted"] == result["symbol_count"] * 10
         assert "prewarm_ticker_invalid_symbol_skipped source=watchlist symbol=[SYMBOL]" in caplog.text
         assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[SYMBOL]" not in caplog.text
-        assert "prewarm_ticker_invalid_symbol_skipped source=popular symbol=UNKNOWN" in caplog.text
+        assert "prewarm_ticker_invalid_symbol_skipped source=popular symbol=UNKNOWN" not in caplog.text
         assert "prewarm_ticker_invalid_symbol_skipped source=landing symbol=SYMBOL" in caplog.text
     finally:
         db.close()
@@ -216,8 +216,8 @@ def test_priority_ticker_prewarm_counts_real_recently_viewed_tickers_without_tem
         with caplog.at_level("INFO", logger=queue_module.logger.name):
             result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=2, popular_limit=0)
 
-        assert result["recently_viewed_symbol_count"] == 1
-        assert result["symbols"][0] == "AMD"
+        assert result["recently_viewed_symbol_count"] == 0
+        assert result["symbols"] == []
         assert all(job.get("symbol") != "[symbol]" for job in captured)
         assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[symbol]" not in caplog.text
     finally:
@@ -227,7 +227,13 @@ def test_priority_ticker_prewarm_counts_real_recently_viewed_tickers_without_tem
 def test_priority_ticker_prewarm_reports_enqueue_skip_reasons(monkeypatch):
     db = _db()
     try:
-        db.add(Event(event_type="insider_trade", ts=datetime.now(timezone.utc), symbol="MSTR", source="test", payload_json="{}"))
+        sec = Security(symbol="MSTR", name="MicroStrategy", asset_class="stock")
+        db.add(sec)
+        db.flush()
+        watchlist = Watchlist(name="Core", owner_user_id=42)
+        db.add(watchlist)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=sec.id))
         db.commit()
 
         monkeypatch.setattr(queue_module, "enqueue_data_enrichment_job", lambda **kwargs: False)

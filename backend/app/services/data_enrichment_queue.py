@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import DataEnrichmentJob, Event, PageViewEvent, Security, WatchlistItem
+from app.models import DataEnrichmentJob, Event, PageViewEvent, Security, Watchlist, WatchlistItem
 from app.request_priority import reset_request_context, set_request_context
 from app.utils.symbols import normalize_symbol
 
@@ -337,27 +337,43 @@ def _recently_viewed_ticker_symbols(db: Session, *, limit: int) -> list[str]:
 def enqueue_priority_ticker_prewarm_jobs(
     db: Session,
     *,
-    symbol_limit: int = 40,
-    popular_limit: int = 15,
+    symbol_limit: int = 25,
+    popular_limit: int = 0,
+    per_user_limit: int = 5,
     source: str = "priority_ticker_prewarm",
 ) -> dict[str, Any]:
-    normalized_limit = max(1, min(int(symbol_limit or 40), 100))
-    normalized_popular_limit = max(0, min(int(popular_limit or 15), normalized_limit))
-    raw_watchlist_symbols = db.execute(
-        select(func.upper(Security.symbol))
+    normalized_limit = max(1, min(int(symbol_limit or 25), 100))
+    normalized_popular_limit = max(0, min(int(popular_limit or 0), normalized_limit))
+    normalized_per_user_limit = max(1, min(int(per_user_limit or 5), normalized_limit))
+    watchlist_rows = db.execute(
+        select(Watchlist.owner_user_id, func.upper(Security.symbol), func.count(WatchlistItem.id))
         .select_from(WatchlistItem)
+        .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
         .join(Security, Security.id == WatchlistItem.security_id)
+        .where(Watchlist.owner_user_id.is_not(None))
         .where(Security.symbol.is_not(None))
         .where(func.length(func.trim(Security.symbol)) > 0)
-        .group_by(func.upper(Security.symbol))
-        .order_by(func.count(WatchlistItem.id).desc(), func.upper(Security.symbol))
-        .limit(normalized_limit)
-    ).scalars().all()
-    watchlist_symbols = [
-        symbol
-        for raw in raw_watchlist_symbols
-        if (symbol := _normalized_prewarm_symbol(raw, source="watchlist"))
-    ]
+        .group_by(Watchlist.owner_user_id, func.upper(Security.symbol))
+        .order_by(func.count(WatchlistItem.id).desc(), Watchlist.owner_user_id.asc(), func.upper(Security.symbol))
+        .limit(max(1, normalized_limit * 10))
+    ).all()
+    watchlist_symbols: list[str] = []
+    watchlist_seen: set[str] = set()
+    per_user_counts: dict[int, int] = {}
+    for owner_user_id, raw, _count in watchlist_rows:
+        if owner_user_id is None:
+            continue
+        owner_id = int(owner_user_id)
+        if per_user_counts.get(owner_id, 0) >= normalized_per_user_limit:
+            continue
+        symbol = _normalized_prewarm_symbol(raw, source="watchlist")
+        if not symbol or symbol in watchlist_seen:
+            continue
+        per_user_counts[owner_id] = per_user_counts.get(owner_id, 0) + 1
+        watchlist_seen.add(symbol)
+        watchlist_symbols.append(symbol)
+        if len(watchlist_symbols) >= normalized_limit:
+            break
     raw_popular_symbols = db.execute(
         select(func.upper(Event.symbol))
         .where(Event.symbol.is_not(None))
@@ -372,7 +388,7 @@ def enqueue_priority_ticker_prewarm_jobs(
         for raw in raw_popular_symbols
         if (symbol := _normalized_prewarm_symbol(raw, source="popular"))
     ]
-    recently_viewed_symbols = _recently_viewed_ticker_symbols(db, limit=normalized_limit)
+    recently_viewed_symbols: list[str] = []
     landing_symbols = [
         symbol
         for raw in os.getenv("PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS", "").replace("|", ",").split(",")
@@ -383,8 +399,6 @@ def enqueue_priority_ticker_prewarm_jobs(
     seen: set[str] = set()
     ordered_sources = [
         *[(raw, "watchlist") for raw in watchlist_symbols],
-        *[(raw, "recently_viewed") for raw in recently_viewed_symbols],
-        *[(raw, "default") for raw in DEFAULT_PREWARM_SYMBOLS],
         *[(raw, "popular") for raw in popular_symbols],
         *[(raw, "landing") for raw in landing_symbols],
     ]
@@ -477,9 +491,10 @@ def enqueue_priority_ticker_prewarm_jobs(
         "skip_reasons": skip_reasons,
         "skip_reasons_by_type": skip_reasons_by_type,
         "watchlist_symbol_count": len(watchlist_symbols),
-        "recently_viewed_symbol_count": len(recently_viewed_symbols),
+        "recently_viewed_symbol_count": 0,
         "popular_symbol_count": len(popular_symbols),
         "landing_symbol_count": len(landing_symbols),
+        "per_user_limit": normalized_per_user_limit,
         "skipped_budget": 0,
         "skipped_fresh": skip_reasons.get("skipped_fresh", 0),
         "skipped_existing_pending": skip_reasons.get("skipped_existing_pending", 0),
@@ -521,6 +536,10 @@ def _enqueue_skip_reason(
 
 
 def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
+    if os.getenv("ENRICHMENT_QUEUE_ENABLED", "false").strip().lower() in {"0", "false", "no", "off", ""}:
+        logger.info("data_enrichment_queue_skipped reason=enrichment_queue_disabled")
+        return {"processed": 0, "succeeded": 0, "failed": 0, "skipped": 1}
+
     if os.getenv("FMP_BACKGROUND_REFRESH_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
         logger.info("data_enrichment_queue_skipped reason=background_refresh_disabled")
         return {"processed": 0, "succeeded": 0, "failed": 0, "skipped": 1}
