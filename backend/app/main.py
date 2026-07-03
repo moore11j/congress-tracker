@@ -2674,7 +2674,10 @@ def _log_request_attribution(
 ) -> None:
     fields = _request_attribution_fields(request, priority=priority)
     context = get_request_context() or {}
-    logger.info(
+    if reason == "sampled" and fields["user_agent_class"] in {"bot", "crawler", "prefetch"}:
+        reason = "bot_prefetch"
+    log_method = logger.info if reason in {"ok", "sampled"} else logger.warning
+    log_method(
         "request_attribution path=%s method=%s status=%s duration_ms=%.1f route_family=%s host=%s ua_class=%s ua_hash=%s referer_host=%s referer_path=%s auth_state=%s plan_tier=%s request_source=%s panel=%s page_route=%s purpose=%s sec_purpose=%s middleware_prefetch=%s next_router_prefetch=%s priority=%s db_checkout_count=%s db_checkout_slow_count=%s db_query_count=%s reason=%s",
         request.url.path,
         request.method,

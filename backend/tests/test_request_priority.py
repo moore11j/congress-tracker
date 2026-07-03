@@ -6,6 +6,7 @@ from app.main import (
     _analytics_panel_name,
     _classify_user_agent,
     _is_secondary_analytics_path,
+    _log_request_attribution,
     _request_attribution_fields,
     _request_route_family,
     _sanitize_referer,
@@ -166,3 +167,29 @@ def test_request_attribution_logs_slow_degraded_and_sampled_fast(monkeypatch):
         duration_ms=10,
         priority=RoutePriority.NORMAL,
     )
+
+
+def test_request_attribution_bot_prefetch_is_warning_visible(caplog):
+    request = _request(
+        "/api/tickers/AAPL/signals-summary",
+        {
+            "host": "congress-tracker-api.fly.dev",
+            "user-agent": "Googlebot/2.1",
+            "purpose": "prefetch",
+            "x-walnut-route-family": "ticker",
+            "x-walnut-panel": "AttributionProbe",
+            "x-walnut-request-source": "prefetch",
+        },
+    )
+
+    _log_request_attribution(
+        request,
+        status_code=200,
+        duration_ms=12.3,
+        priority=RoutePriority.NORMAL,
+        reason="sampled",
+    )
+
+    assert "request_attribution" in caplog.text
+    assert "reason=bot_prefetch" in caplog.text
+    assert "ua_class=prefetch" in caplog.text
