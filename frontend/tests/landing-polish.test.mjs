@@ -82,6 +82,7 @@ test("terminal app routes log request intent and bypass anonymous bot prefetch S
   assert.match(middleware, /authenticated: hasBackendSession \|\| hasAuthHint/);
   assert.match(middleware, /isTerminalRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot\)/);
   assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : "bot"\)/);
+  assert.match(middleware, /reason === "prefetch"\s+\?\s+null/);
   assert.match(middleware, /"x-walnut-terminal-shell": reason/);
   assert.match(middleware, /"x-robots-tag": "noindex, nofollow"/);
 });

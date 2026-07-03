@@ -57,7 +57,7 @@ function safeRefererPath(referer: string, request: NextRequest): string {
 function terminalShellResponse(pathname: string, host: string, reason: "bot" | "prefetch"): NextResponse {
   const family = routeFamily(pathname);
   const body = reason === "prefetch"
-    ? ""
+    ? null
     : `<!doctype html><html><head><meta name="robots" content="noindex,nofollow"><title>Walnut Market Terminal</title></head><body><main><h1>Walnut Market Terminal</h1><p>This app page is available to interactive users.</p></main></body></html>`;
   const response = new NextResponse(body, {
     status: reason === "prefetch" ? 204 : 200,
