@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getInsiderSummary } from "@/lib/api";
+import { getInsiderSummary, getInsiderTopTickers } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -21,6 +21,7 @@ type Lookback = "30" | "90" | "180" | "365" | "1095";
 type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
+type InsiderTopTickersData = Awaited<ReturnType<typeof getInsiderTopTickers>>;
 
 const LOOKBACK_OPTIONS = [
   { label: "30D", value: "30" },
@@ -88,6 +89,23 @@ function fallbackInsiderSummary(reportingCik: string, lookbackDays: number, issu
     net_flow: 0,
     latest_filing_date: null,
     latest_transaction_date: null,
+  };
+}
+
+function fallbackInsiderTopTickers(summary: InsiderSummaryData): InsiderTopTickersData {
+  return {
+    reporting_cik: summary.reporting_cik,
+    lookback_days: summary.lookback_days,
+    items: summary.primary_symbol
+      ? [{
+          symbol: summary.primary_symbol,
+          company_name: summary.primary_company_name,
+          trades: summary.total_trades,
+          buy_count: summary.buy_count,
+          sell_count: summary.sell_count,
+          net_flow: summary.net_flow,
+        }]
+      : [],
   };
 }
 
@@ -165,6 +183,11 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
   );
   const summary = summaryResult.data;
+  const topTickersResult = await loadInsiderSection(
+    { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "top-tickers" },
+    () => getInsiderTopTickers(reportingCik, lookbackDays, 10, normalizedIssuer, { source: "InsiderTopTickersInitial" }),
+    fallbackInsiderTopTickers(summary),
+  );
 
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
@@ -210,34 +233,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         </div>
         {summaryResult.unavailable ? (
           <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-            Insider profile details are temporarily unavailable. Showing the stable profile shell.
+            Insider profile details are loading from the latest available disclosures.
           </p>
         ) : null}
-      </section>
-
-      <section className={cardClassName}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Analytics window</h2>
-            <p className="mt-1 text-sm text-white/45">Heavy analytics load after the profile shell renders.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {LOOKBACK_OPTIONS.map((option) => (
-              <Link
-                key={option.value}
-                href={hrefWithParams(insiderName, reportingCik, option.value, chartMetric, issuer || undefined, chartMode, stockSymbol)}
-                prefetch={false}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  lookback === option.value
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                    : "border-white/10 bg-slate-900/60 text-slate-300"
-                }`}
-              >
-                {option.label}
-              </Link>
-            ))}
-          </div>
-        </div>
       </section>
 
       <InsiderAnalyticsClient
@@ -250,6 +248,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         issuer={normalizedIssuer}
         stockSymbol={stockSymbol}
         recentTradesPage={recentTradesPage}
+        initialTopTickers={topTickersResult.data.items ?? []}
       />
     </div>
   );

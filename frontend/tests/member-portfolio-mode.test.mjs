@@ -232,10 +232,24 @@ test("member page action buttons use compact mobile labels", () => {
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {
-  assert.doesNotMatch(memberPage, /getMemberTrades\(/);
+  assert.match(memberPage, /getMemberTrades\(/);
+  assert.match(memberPage, /initialTrades=\{initialTrades\}/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
+  assert.match(memberAnalyticsClient, /initialTrades\?: MemberTradesResponse/);
   assert.match(memberAnalyticsClient, /setTradesUnavailable\(true\)/);
-  assert.match(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.match(memberAnalyticsClient, /tradesUnavailable && trades\.items\.length === 0/);
+  assert.match(memberAnalyticsClient, /Recent activity is refreshing from disclosed trades\./);
+  assert.doesNotMatch(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+});
+
+test("member analytics seed alpha and trades to preserve visible data completeness", () => {
+  assert.match(memberPage, /getMemberAlphaSummary/);
+  assert.match(memberPage, /initialAlphaSummary=\{initialAlphaSummary\}/);
+  assert.match(memberPage, /loadMemberPageSection/);
+  assert.match(memberAnalyticsClient, /initialAlphaSummary\?: MemberAlphaSummary/);
+  assert.match(memberAnalyticsClient, /useState<MemberAlphaSummary>\(\(\) => initialAlphaSummary \?\? alphaFallback/);
+  assert.match(memberAnalyticsClient, /useState<MemberTradesResponse>\(\(\) => initialTrades \?\? tradesFallback/);
+  assert.match(memberAnalyticsClient, /alphaUnavailable && !hasAlphaMetrics/);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {
@@ -365,7 +379,8 @@ test("portfolio chart does not render a flat line when summary return is non-zer
 test("missing or failed portfolio responses stay compact and graceful", () => {
   assert.match(memberAnalyticsClient, /\.catch\(\(\) =>/);
   assert.match(memberAnalyticsClient, /Portfolio simulation is not available for this lookback yet\./);
-  assert.match(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.match(memberAnalyticsClient, /Refreshing analytics from disclosed activity\./);
+  assert.doesNotMatch(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
   assert.match(memberAnalyticsClient, /portfolio\?\.persisted_only === true/);
   assert.match(memberAnalyticsClient, /portfolio\.status === "ok"/);
 });
@@ -396,8 +411,8 @@ test("member page has one primary performance chart and compact secondary analyt
   assert.doesNotMatch(memberPage, /Performance Curve/);
   assert.match(memberAnalyticsClient, /Trade Outcome Analytics/);
   assert.match(memberAnalyticsClient, /Compact metrics from individually scored disclosures\./);
-  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
-  assert.doesNotMatch(memberPage, /getMemberTrades/);
+  assert.match(memberPage, /getMemberAlphaSummary/);
+  assert.match(memberPage, /getMemberTrades/);
   assert.doesNotMatch(memberPage, /getMemberPortfolioPerformance/);
 });
 

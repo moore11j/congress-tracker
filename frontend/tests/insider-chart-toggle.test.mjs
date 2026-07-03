@@ -33,16 +33,19 @@ test("company stock mode requests insider-scoped stock chart data", () => {
   assert.doesNotMatch(insiderPage, /const stockChartPromise/);
 });
 
-test("secondary insider analytics are lazy client sections, not SSR fanout", () => {
+test("secondary insider analytics are lazy client sections with server-seeded top tickers", () => {
   assert.match(insiderPage, /<InsiderAnalyticsClient/);
   assert.doesNotMatch(insiderPage, /getInsiderAlphaSummary/);
   assert.doesNotMatch(insiderPage, /getInsiderTrades/);
-  assert.doesNotMatch(insiderPage, /getInsiderTopTickers/);
+  assert.match(insiderPage, /getInsiderTopTickers/);
+  assert.match(insiderPage, /initialTopTickers=\{topTickersResult\.data\.items \?\? \[\]\}/);
   assert.match(insiderAnalyticsClient, /"use client"/);
   assert.match(insiderAnalyticsClient, /getInsiderAlphaSummary\(reportingCik/);
   assert.match(insiderAnalyticsClient, /getInsiderTrades\(reportingCik/);
   assert.match(insiderAnalyticsClient, /getInsiderTopTickers\(reportingCik, lookbackDays, 10, issuer/);
-  assert.match(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.match(insiderAnalyticsClient, /initialTopTickers\?: InsiderTopTicker\[\]/);
+  assert.match(insiderAnalyticsClient, /useState<InsiderTopTicker\[\]>\(initialTopTickers \?\? \[\]\)/);
+  assert.doesNotMatch(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
   assert.doesNotMatch(insiderPage, /const topTickersPromise/);
 });
 
@@ -54,9 +57,9 @@ test("insider page offers expanded lookback windows", () => {
   assert.match(insiderPage, /\{ label: "1Y", value: "365" \}/);
   assert.match(insiderPage, /\{ label: "3Y", value: "1095" \}/);
   assert.match(insiderPage, /LOOKBACK_OPTIONS\.some\(\(option\) => option\.value === v\) \? \(v as Lookback\) : "90"/);
-  assert.match(insiderPage, /LOOKBACK_OPTIONS\.map\(\(option\) =>/);
-  assert.match(insiderPage, /lookback === option\.value/);
-  assert.match(insiderPage, /\{option\.label\}/);
+  assert.match(insiderAnalyticsClient, /LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(insiderAnalyticsClient, /lookback === option\.value/);
+  assert.match(insiderAnalyticsClient, /\{option\.label\}/);
 });
 
 test("insider lookback links preserve stock chart and issuer params", () => {
@@ -64,7 +67,7 @@ test("insider lookback links preserve stock chart and issuer params", () => {
   assert.match(insiderPage, /query\.set\("chart", chartMode\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
   assert.match(insiderPage, /if \(chartMode === "stock" && chartSymbol\) query\.set\("symbol", chartSymbol\)/);
-  assert.match(insiderPage, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer \|\| undefined, chartMode, stockSymbol\)\}/);
+  assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer, chartMode, stockSymbol\)\}/);
   assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, lookback, chartMetric, issuer, "stock", stockSymbol\)\}/);
 });
 
@@ -92,7 +95,8 @@ test("insider profile optional sections fall back instead of throwing the route"
   assert.match(insiderAnalyticsClient, /setAlphaUnavailable\(true\)/);
   assert.match(insiderAnalyticsClient, /setTradesUnavailable\(true\)/);
   assert.match(insiderAnalyticsClient, /setStockChartUnavailable\(true\)/);
-  assert.match(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.match(insiderAnalyticsClient, /Refreshing the latest analytics from disclosed activity\./);
+  assert.doesNotMatch(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
 });
 
 test("insider recent trades are public paginated rows with truthful empty and error states", () => {

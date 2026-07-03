@@ -25,7 +25,7 @@ import {
   normalizeMemberPortfolioEventMarkers,
 } from "@/lib/portfolioPerformance.mjs";
 
-const UNAVAILABLE_COPY = "Analytics temporarily unavailable. Try again shortly.";
+const REFRESHING_COPY = "Refreshing analytics from disclosed activity.";
 
 function pct(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -214,7 +214,7 @@ function MemberPortfolioPanel({
 
       {unavailable ? (
         <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/85">
-          {UNAVAILABLE_COPY}
+          {REFRESHING_COPY}
         </p>
       ) : !hasPersistedRun ? (
         <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
@@ -270,6 +270,8 @@ export function MemberAnalyticsClient({
   portfolioLookbackDays,
   portfolioLookbackLinks,
   initialTopTickers,
+  initialAlphaSummary,
+  initialTrades,
 }: {
   memberId: string;
   memberName: string;
@@ -277,11 +279,13 @@ export function MemberAnalyticsClient({
   portfolioLookbackDays: number;
   portfolioLookbackLinks: Array<{ label: string; value: number; href: string }>;
   initialTopTickers: Array<{ symbol: string; trades: number }>;
+  initialAlphaSummary?: MemberAlphaSummary;
+  initialTrades?: MemberTradesResponse;
 }) {
-  const [alphaSummary, setAlphaSummary] = useState<MemberAlphaSummary>(() => alphaFallback(memberId, lookbackDays));
+  const [alphaSummary, setAlphaSummary] = useState<MemberAlphaSummary>(() => initialAlphaSummary ?? alphaFallback(memberId, lookbackDays));
   const [portfolioTradeCountSummary, setPortfolioTradeCountSummary] = useState<MemberAlphaSummary | null>(null);
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
-  const [trades, setTrades] = useState<MemberTradesResponse>(() => tradesFallback(memberId, lookbackDays));
+  const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
   const [loading, setLoading] = useState(true);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [portfolioUnavailable, setPortfolioUnavailable] = useState(false);
@@ -363,6 +367,11 @@ export function MemberAnalyticsClient({
     { label: "Win Rate", value: pct0(alphaSummary.win_rate), valueClass: "text-white/90" },
     { label: "Avg Holding Days", value: numberOrDash(alphaSummary.avg_holding_days), valueClass: "text-white/90" },
   ];
+  const hasAlphaMetrics =
+    (alphaSummary.trades_analyzed ?? 0) > 0 ||
+    alphaSummary.avg_return_pct != null ||
+    alphaSummary.avg_alpha_pct != null ||
+    alphaSummary.win_rate != null;
   const simulatedTradesCount =
     portfolioLookbackDays === lookbackDays
       ? alphaSummary.trades_analyzed
@@ -435,7 +444,7 @@ export function MemberAnalyticsClient({
 
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
           <span>Scored trades: {alphaSummary.trades_analyzed ?? 0}</span>
-          {alphaUnavailable && <span>{UNAVAILABLE_COPY}</span>}
+          {alphaUnavailable && !hasAlphaMetrics && <span>{REFRESHING_COPY}</span>}
         </div>
       </section>
 
@@ -446,8 +455,8 @@ export function MemberAnalyticsClient({
             <div className="mt-4 space-y-2">
               {loading && initialTopTickers.length === 0 ? (
                 Array.from({ length: 5 }).map((_, idx) => <SkeletonBlock key={idx} className="h-9 w-44" />)
-              ) : tradesUnavailable ? (
-                <p className="text-sm text-slate-400">{UNAVAILABLE_COPY}</p>
+              ) : tradesUnavailable && topTickers.length === 0 ? (
+                <p className="text-sm text-slate-400">No ticker concentration yet.</p>
               ) : topTickers.length === 0 ? (
                 <p className="text-sm text-slate-400">No ticker concentration yet.</p>
               ) : (
@@ -472,9 +481,9 @@ export function MemberAnalyticsClient({
           <div className="mt-4 space-y-2">
             {loading ? (
               Array.from({ length: 6 }).map((_, idx) => <SkeletonBlock key={idx} className="h-24 w-full rounded-3xl" />)
-            ) : tradesUnavailable ? (
+            ) : tradesUnavailable && trades.items.length === 0 ? (
               <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-                {UNAVAILABLE_COPY}
+                Recent activity is refreshing from disclosed trades.
               </p>
             ) : trades.items.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>

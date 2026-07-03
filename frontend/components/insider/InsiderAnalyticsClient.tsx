@@ -30,7 +30,14 @@ type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
 
 const RECENT_TRADES_PAGE_SIZE = 20;
-const UNAVAILABLE_COPY = "Analytics temporarily unavailable. Try again shortly.";
+const REFRESHING_COPY = "Refreshing the latest analytics from disclosed activity.";
+const LOOKBACK_OPTIONS = [
+  { label: "30D", value: "30" },
+  { label: "90D", value: "90" },
+  { label: "180D", value: "180" },
+  { label: "1Y", value: "365" },
+  { label: "3Y", value: "1095" },
+] as const satisfies readonly { label: string; value: Lookback }[];
 
 type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
 type InsiderStockChartData = Awaited<ReturnType<typeof getInsiderStockChart>>;
@@ -172,8 +179,8 @@ function TopTickersPanel({
               <SkeletonBlock className="h-4 w-full" />
             </div>
           ))
-        ) : unavailable ? (
-          <p className="text-sm text-slate-400">{UNAVAILABLE_COPY}</p>
+        ) : unavailable && items.length === 0 ? (
+          <p className="text-sm text-slate-400">No ticker concentration yet.</p>
         ) : items.length === 0 ? (
           <p className="text-sm text-slate-400">No ticker concentration yet.</p>
         ) : (
@@ -204,6 +211,7 @@ export function InsiderAnalyticsClient({
   issuer,
   stockSymbol,
   recentTradesPage,
+  initialTopTickers,
 }: {
   reportingCik: string;
   insiderName: string;
@@ -214,6 +222,7 @@ export function InsiderAnalyticsClient({
   issuer?: string;
   stockSymbol?: string;
   recentTradesPage: number;
+  initialTopTickers?: InsiderTopTicker[];
 }) {
   const [alphaSummary, setAlphaSummary] = useState<InsiderAlphaSummary>(() =>
     fallbackInsiderAlphaSummary(reportingCik, lookbackDays),
@@ -221,7 +230,7 @@ export function InsiderAnalyticsClient({
   const [trades, setTrades] = useState<InsiderTradesData>(() =>
     fallbackInsiderTrades(reportingCik, lookbackDays, recentTradesPage),
   );
-  const [topTickers, setTopTickers] = useState<InsiderTopTicker[]>([]);
+  const [topTickers, setTopTickers] = useState<InsiderTopTicker[]>(initialTopTickers ?? []);
   const [stockChart, setStockChart] = useState<InsiderStockChartData | null>(null);
   const [loading, setLoading] = useState(true);
   const [stockChartLoading, setStockChartLoading] = useState(chartMode === "stock");
@@ -267,7 +276,10 @@ export function InsiderAnalyticsClient({
         signal: controller.signal,
       })
         .then((data) => {
-          if (!cancelled) setTopTickers(data.items ?? []);
+          if (!cancelled) {
+            const nextItems = data.items ?? [];
+            setTopTickers((currentItems) => (nextItems.length > 0 || currentItems.length === 0 ? nextItems : currentItems));
+          }
         })
         .catch(() => {
           if (!cancelled) setTopTickersUnavailable(true);
@@ -342,6 +354,22 @@ export function InsiderAnalyticsClient({
             <h2 className="text-lg font-semibold text-white">Insider Alpha Analytics</h2>
             <p className="mt-1 text-sm text-white/45">Average trade metrics summarize scored disclosures individually. Backtests simulate portfolio allocation over time.</p>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {LOOKBACK_OPTIONS.map((option) => (
+              <Link
+                key={option.value}
+                href={hrefWithParams(insiderName, reportingCik, option.value, chartMetric, issuer, chartMode, stockSymbol)}
+                prefetch={false}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                  lookback === option.value
+                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-slate-900/60 text-slate-300"
+                }`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
         {loading ? <AnalyticsStatsSkeleton /> : (
@@ -357,7 +385,7 @@ export function InsiderAnalyticsClient({
 
         {alphaUnavailable ? (
           <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-            {UNAVAILABLE_COPY}
+            {REFRESHING_COPY}
           </p>
         ) : null}
 
@@ -451,7 +479,7 @@ export function InsiderAnalyticsClient({
                 <PremiumTickerChartSkeleton />
               ) : stockChartUnavailable ? (
                 <p className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-                  {UNAVAILABLE_COPY}
+                  {REFRESHING_COPY}
                 </p>
               ) : (
                 <PremiumTickerChart
@@ -543,7 +571,7 @@ export function InsiderAnalyticsClient({
             {loading ? (
               Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-24 w-full rounded-3xl" />)
             ) : tradesUnavailable ? (
-              <p className="text-sm text-slate-400">{UNAVAILABLE_COPY}</p>
+              <p className="text-sm text-slate-400">Recent activity is refreshing from disclosed trades.</p>
             ) : recentTradesTotal === 0 ? (
               <p className="text-sm text-slate-400">No recent activity found.</p>
             ) : trades.items.length === 0 ? (
