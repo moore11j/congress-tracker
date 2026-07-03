@@ -449,6 +449,7 @@ def get_current_prices_meta_db(
     allow_live_user_fetch: bool = False,
     stale_while_revalidate: bool = True,
     coalesce_wait_seconds: float | None = None,
+    force_quote_endpoint: bool = False,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -679,13 +680,24 @@ def get_current_prices_meta_db(
                 lock.release()
                 return True
             try:
-                endpoint_requests = fmp_endpoint_requests_for_domain(
-                    db,
-                    "prices_intraday",
-                    symbol=symbol,
-                    api_key=api_key,
-                    include_fallback=True,
-                )
+                if force_quote_endpoint:
+                    endpoint_requests = [
+                        SimpleNamespace(
+                            role="primary",
+                            endpoint_name="quote",
+                            request_url=f"{FMP_BASE_URL}/quote",
+                            request_params={"symbol": symbol, "apikey": api_key},
+                            endpoint_contract={},
+                        )
+                    ]
+                else:
+                    endpoint_requests = fmp_endpoint_requests_for_domain(
+                        db,
+                        "prices_intraday",
+                        symbol=symbol,
+                        api_key=api_key,
+                        include_fallback=True,
+                    )
             except Exception:
                 logger.info("quote_lookup endpoint settings unavailable; using historical EOD light fallback", exc_info=True)
                 endpoint_requests = []

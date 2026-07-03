@@ -149,7 +149,7 @@ from app.services.price_lookup import (
     get_eod_close_series,
     is_price_history_stale,
 )
-from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db, quote_cache_get_many_with_age
+from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
@@ -2465,8 +2465,17 @@ def _is_secondary_analytics_path(path: str) -> bool:
         and lower_path.endswith(("/summary", "/trades", "/alpha-summary", "/top-tickers", "/stock-chart"))
     ) or (
         lower_path.startswith("/api/members/")
-        and lower_path.endswith(("/alpha-summary", "/performance", "/portfolio-performance"))
+        and lower_path.endswith(("/alpha-summary", "/performance", "/portfolio-performance", "/trades"))
     )
+
+
+def _analytics_panel_name(path: str) -> str:
+    lower_path = (path or "").rstrip("/").lower()
+    if lower_path.startswith("/api/insiders/"):
+        return lower_path.rsplit("/", 1)[-1] or "insider"
+    if lower_path.startswith("/api/members/"):
+        return lower_path.rsplit("/", 1)[-1] or "member"
+    return "unknown"
 
 
 def _public_get_cache_key(request: Request) -> str | None:
@@ -2573,6 +2582,17 @@ async def log_slow_requests(request: Request, call_next):
 
         response = await call_next(request)
         elapsed_ms = (perf_counter() - started) * 1000
+        if _is_secondary_analytics_path(request.url.path):
+            logger.info(
+                "secondary_analytics_request path=%s panel=%s status=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
+                request.url.path,
+                _analytics_panel_name(request.url.path),
+                response.status_code,
+                priority.value,
+                walnut_route,
+                walnut_component,
+                elapsed_ms,
+            )
         if request_trace_enabled and request.url.path.startswith("/api/"):
             logger.info(
                 "api_request path=%s method=%s status=%s priority=%s walnut_route=%s walnut_component=%s duration_ms=%.1f",
@@ -3858,6 +3878,7 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
 @app.get("/api/members/{member_id}/performance")
 def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from persisted trade outcomes."""
+    started = perf_counter()
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
@@ -3880,7 +3901,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
     alpha_values = [row.alpha_pct for row in rows if row.alpha_pct is not None]
     trade_count_scored = len(rows)
 
-    return {
+    payload = {
         "member_id": analytics_member_id,
         "lookback_days": lookback_days,
         "trade_count_total": total_count,
@@ -3894,6 +3915,14 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
         "persisted_only": True,
         "pnl_status": "ok" if trade_count_scored > 0 or total_count == 0 else "unavailable",
     }
+    logger.info(
+        "member_analytics_panel panel=performance member_id=%s lookback_days=%s rows=%s cache=none duration_ms=%.1f",
+        analytics_member_id,
+        lookback_days,
+        trade_count_scored,
+        (perf_counter() - started) * 1000,
+    )
+    return payload
 
 
 @app.get("/api/members/{member_id}/portfolio-performance")
@@ -3905,6 +3934,7 @@ def member_portfolio_performance(
     db: Session = Depends(get_db),
 ):
     """Read-only replicated portfolio performance from persisted portfolio runs."""
+    started = perf_counter()
     resolved_member, _ = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     normalized_mode = (mode or "realistic_disclosure_lag").strip()
@@ -3920,6 +3950,20 @@ def member_portfolio_performance(
         benchmark=benchmark_symbol,
     )
     public_safety_flags = _portfolio_payload_public_safety_flags(payload)
+    status = payload.get("status") if isinstance(payload, dict) else None
+    positions_count = None
+    if isinstance(payload, dict):
+        summary = payload.get("summary")
+        if isinstance(summary, dict):
+            positions_count = summary.get("positions_count")
+    logger.info(
+        "member_analytics_panel panel=portfolio-performance member_id=%s lookback_days=%s rows=%s status=%s cache=persisted duration_ms=%.1f",
+        analytics_member_id,
+        lookback_days,
+        positions_count,
+        status,
+        (perf_counter() - started) * 1000,
+    )
     if public_safety_flags:
         return _unavailable_portfolio_payload(payload, public_safety_flags)
     return payload
@@ -3927,6 +3971,7 @@ def member_portfolio_performance(
 
 @app.get("/api/members/{member_id}/trades")
 def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db: Session = Depends(get_db)):
+    started = perf_counter()
     member = _resolve_member_legacy_compat(db, member_id)
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -3937,6 +3982,14 @@ def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db
         member_pk=member.id,
         lookback_days=lookback_days,
         limit=safe_limit,
+    )
+    logger.info(
+        "member_analytics_panel panel=trades member_id=%s lookback_days=%s limit=%s rows=%s cache=none duration_ms=%.1f",
+        member.bioguide_id,
+        lookback_days,
+        safe_limit,
+        len(items),
+        (perf_counter() - started) * 1000,
     )
     return {
         "member_id": member.bioguide_id,
@@ -3954,6 +4007,7 @@ def member_alpha_summary(
     debug_dates: bool = False,
     db: Session = Depends(get_db),
 ):
+    started = perf_counter()
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
@@ -3963,6 +4017,12 @@ def member_alpha_summary(
     if not debug_dates:
         cached_response = _member_analytics_cache_get(cache_key)
         if cached_response is not None:
+            logger.info(
+                "member_analytics_panel panel=alpha-summary member_id=%s lookback_days=%s rows=%s cache=hit duration_ms=0.0",
+                analytics_member_id,
+                lookback_days,
+                cached_response.get("trades_analyzed"),
+            )
             return cached_response
     rows = get_member_trade_outcomes(
         db=db,
@@ -4067,6 +4127,13 @@ def member_alpha_summary(
         "member_series": curve.member_series,
         "benchmark_series": curve.benchmark_series,
     }
+    logger.info(
+        "member_analytics_panel panel=alpha-summary member_id=%s lookback_days=%s rows=%s cache=miss duration_ms=%.1f",
+        analytics_member_id,
+        lookback_days,
+        count,
+        (perf_counter() - started) * 1000,
+    )
     return payload if debug_dates else _member_analytics_cache_set(cache_key, payload)
 
 
@@ -4550,7 +4617,16 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
     if not parsed_symbols:
         return {"items": [], "status": "unavailable"}
 
-    quote_rows = quote_cache_get_many_with_age(db, parsed_symbols)
+    quote_rows = get_current_prices_meta_db(
+        db,
+        parsed_symbols,
+        lane="ticker_quote",
+        allow_live_user_fetch=True,
+        release_connection_before_fetch=True,
+        stale_while_revalidate=False,
+        coalesce_wait_seconds=1.0,
+        force_quote_endpoint=True,
+    )
     ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
     cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
     items: list[dict] = []
@@ -4558,11 +4634,18 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
 
     for symbol in parsed_symbols:
         quote = quote_rows.get(symbol)
-        current_price = float(quote[0]) if quote is not None else None
-        asof_ts = quote[1] if quote is not None else None
+        current_price = None
+        asof_ts = None
+        if isinstance(quote, dict):
+            try:
+                current_price = float(quote["price"]) if quote.get("price") is not None else None
+            except (TypeError, ValueError):
+                current_price = None
+            raw_asof = quote.get("asof_ts")
+            asof_ts = raw_asof if isinstance(raw_asof, datetime) else None
         previous_close = _previous_close_for_quote(cached_closes.get(symbol, []), asof_ts)
-        day_change_pct = None
-        if current_price is not None and previous_close not in (None, 0):
+        day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
+        if day_change_pct is None and current_price is not None and previous_close not in (None, 0):
             day_change_pct = ((current_price - previous_close) / previous_close) * 100
         if current_price is not None:
             available_count += 1

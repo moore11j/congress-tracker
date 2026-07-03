@@ -4534,6 +4534,7 @@ def insider_alpha_summary(
     benchmark: str = "^GSPC",
     issuer: str | None = None,
 ):
+    started = perf_counter()
     lookback_days = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
@@ -4548,6 +4549,13 @@ def insider_alpha_summary(
         cache_key = f"{cache_key}:bind={id(db.get_bind())}"
     cached_response = _insider_analytics_cache_get(cache_key)
     if cached_response is not None:
+        logger.info(
+            "insider_analytics_panel panel=alpha-summary reporting_cik=%s lookback_days=%s rows=%s cache=hit duration_ms=%.1f",
+            normalized_cik,
+            lookback_days,
+            cached_response.get("trades_analyzed"),
+            (perf_counter() - started) * 1000,
+        )
         return cached_response
     matched = _load_insider_events_for_cik(
         db,
@@ -4558,7 +4566,7 @@ def insider_alpha_summary(
     )
 
     if not matched:
-        return _insider_analytics_cache_set(cache_key, {
+        payload = {
             "reporting_cik": normalized_cik,
             "lookback_days": lookback_days,
             "benchmark_symbol": benchmark_symbol,
@@ -4580,7 +4588,14 @@ def insider_alpha_summary(
             "member_series": [],
             "benchmark_series": [],
             "performance_series": [],
-        })
+        }
+        logger.info(
+            "insider_analytics_panel panel=alpha-summary reporting_cik=%s lookback_days=%s rows=0 cache=miss duration_ms=%.1f",
+            normalized_cik,
+            lookback_days,
+            (perf_counter() - started) * 1000,
+        )
+        return _insider_analytics_cache_set(cache_key, payload)
 
     outcome_by_event_id, outcomes = _load_insider_trade_outcomes(
         db,
@@ -4638,7 +4653,7 @@ def insider_alpha_summary(
     # Insider profile analytics mirror member profile semantics: cards average scored
     # trade outcomes individually, while the backtest endpoint reports a simulated
     # portfolio with disclosure-timed entries, configurable hold_days, and benchmark alpha.
-    return _insider_analytics_cache_set(cache_key, {
+    payload = {
         "reporting_cik": normalized_cik,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
@@ -4660,7 +4675,15 @@ def insider_alpha_summary(
         "member_series": curve.member_series,
         "benchmark_series": curve.benchmark_series,
         "performance_series": curve.member_series,
-    })
+    }
+    logger.info(
+        "insider_analytics_panel panel=alpha-summary reporting_cik=%s lookback_days=%s rows=%s cache=miss duration_ms=%.1f",
+        normalized_cik,
+        lookback_days,
+        len(scored),
+        (perf_counter() - started) * 1000,
+    )
+    return _insider_analytics_cache_set(cache_key, payload)
 
 @router.get("/insiders/{reporting_cik}/summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_summary(
@@ -4669,10 +4692,18 @@ def insider_summary(
     lookback_days: int = Query(90),
     issuer: str | None = None,
 ):
+    started = perf_counter()
     normalized_cik = normalize_cik(reporting_cik)
     cache_key = _insider_summary_cache_key(reporting_cik, lookback_days, issuer)
     cached_response = _insider_summary_cache_get(cache_key)
     if cached_response is not None:
+        logger.info(
+            "insider_analytics_panel panel=summary reporting_cik=%s lookback_days=%s rows=%s cache=hit duration_ms=%.1f",
+            normalized_cik,
+            lookback_days,
+            cached_response.get("total_trades"),
+            (perf_counter() - started) * 1000,
+        )
         return cached_response
     inflight_state, inflight_leader = _insider_summary_inflight_start(cache_key)
     if cache_key and not inflight_leader and inflight_state is not None:
@@ -4685,6 +4716,12 @@ def insider_summary(
                 return copy.deepcopy(result)
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     if not matched:
+        logger.info(
+            "insider_analytics_panel panel=summary reporting_cik=%s lookback_days=%s rows=0 cache=miss duration_ms=%.1f",
+            normalized_cik,
+            lookback_days,
+            (perf_counter() - started) * 1000,
+        )
         return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, {
             "reporting_cik": normalized_cik,
             "insider_name": None,
@@ -4787,7 +4824,7 @@ def insider_summary(
         fallback_name = _insider_display_name(matched[0][0], latest_payload)
         fallback_role = _insider_role(latest_payload)
 
-    return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, {
+    payload = {
         "reporting_cik": normalized_cik,
         "insider_name": (max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else fallback_name),
         "primary_company_name": primary_company_name,
@@ -4803,7 +4840,15 @@ def insider_summary(
         "net_flow": round(gross_buy_value - gross_sell_value, 2),
         "latest_filing_date": latest_filing_date,
         "latest_transaction_date": latest_transaction_date,
-    })
+    }
+    logger.info(
+        "insider_analytics_panel panel=summary reporting_cik=%s lookback_days=%s rows=%s cache=miss duration_ms=%.1f",
+        normalized_cik,
+        lookback_days,
+        len(matched),
+        (perf_counter() - started) * 1000,
+    )
+    return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, payload)
 
 
 @router.get("/insiders/{reporting_cik}/trades", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4815,6 +4860,7 @@ def insider_trades(
     page: Annotated[int, Query(ge=0, le=1000)] = 0,
     issuer: str | None = None,
 ):
+    started = perf_counter()
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     normalized_cik = normalize_cik(reporting_cik)
     offset = page * limit
@@ -4885,7 +4931,7 @@ def insider_trades(
                 prefer_fallback_pnl=True,
             )
         )
-    return {
+    payload = {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
         "total": total,
@@ -4894,6 +4940,17 @@ def insider_trades(
         "has_next": offset + len(items) < total,
         "items": items,
     }
+    logger.info(
+        "insider_analytics_panel panel=trades reporting_cik=%s lookback_days=%s limit=%s page=%s rows=%s total=%s cache=none duration_ms=%.1f",
+        normalized_cik,
+        lookback_days,
+        limit,
+        page,
+        len(items),
+        total,
+        (perf_counter() - started) * 1000,
+    )
+    return payload
 
 
 @router.get("/insiders/{reporting_cik}/top-tickers", dependencies=[Depends(rate_limit_provider_backed)])
@@ -4904,6 +4961,7 @@ def insider_top_tickers(
     limit: int = Query(10, ge=1, le=25),
     issuer: str | None = None,
 ):
+    started = perf_counter()
     lookback_days = _validated_lookback_days(lookback_days)
     safe_limit = min(max(limit, 1), 25)
     cache_key = _insider_analytics_cache_key(
@@ -4917,6 +4975,14 @@ def insider_top_tickers(
         cache_key = f"{cache_key}:bind={id(db.get_bind())}"
     cached_response = _insider_analytics_cache_get(cache_key)
     if cached_response is not None:
+        logger.info(
+            "insider_analytics_panel panel=top-tickers reporting_cik=%s lookback_days=%s limit=%s rows=%s cache=hit duration_ms=%.1f",
+            normalize_cik(reporting_cik),
+            lookback_days,
+            safe_limit,
+            len(cached_response.get("items") or []),
+            (perf_counter() - started) * 1000,
+        )
         return cached_response
     matched = _load_insider_events_for_cik(
         db,
@@ -4955,8 +5021,17 @@ def insider_top_tickers(
             row["company_name"] = _insider_company_name(event, payload)
 
     items = sorted(by_symbol.values(), key=lambda row: row["trades"], reverse=True)[:safe_limit]
-    return _insider_analytics_cache_set(cache_key, {
+    payload = {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
         "items": items,
-    })
+    }
+    logger.info(
+        "insider_analytics_panel panel=top-tickers reporting_cik=%s lookback_days=%s limit=%s rows=%s cache=miss duration_ms=%.1f",
+        normalize_cik(reporting_cik),
+        lookback_days,
+        safe_limit,
+        len(items),
+        (perf_counter() - started) * 1000,
+    )
+    return _insider_analytics_cache_set(cache_key, payload)

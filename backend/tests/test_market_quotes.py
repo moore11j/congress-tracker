@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.main as app_main
 from app.db import Base
 from app.main import _build_market_quotes_response
 from app.models import PriceCache, QuoteCache, TickerMeta
@@ -40,6 +41,64 @@ def test_market_quotes_reads_cached_quotes_without_requiring_all_symbols():
         "day_change_pct": None,
         "as_of": None,
     }
+
+
+def test_market_quotes_use_live_user_quote_path(monkeypatch):
+    db = _session()
+    calls = []
+
+    def fake_quotes(db_arg, symbols, **kwargs):
+        calls.append((db_arg, symbols, kwargs))
+        return {
+            "NVDA": {
+                "symbol": "NVDA",
+                "price": 160.25,
+                "change_percent": 1.75,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            }
+        }
+
+    monkeypatch.setattr(app_main, "get_current_prices_meta_db", fake_quotes)
+
+    response = _build_market_quotes_response("NVDA", db)
+
+    assert response["status"] == "ok"
+    assert response["items"][0]["current_price"] == 160.25
+    assert response["items"][0]["day_change_pct"] == 1.75
+    assert calls
+    _, symbols, kwargs = calls[0]
+    assert symbols == ["NVDA"]
+    assert kwargs["allow_live_user_fetch"] is True
+    assert kwargs["stale_while_revalidate"] is False
+    assert kwargs["release_connection_before_fetch"] is True
+    assert kwargs["force_quote_endpoint"] is True
+
+
+def test_market_quotes_prefer_quote_change_percent_over_historical_close(monkeypatch):
+    db = _session()
+    db.add(PriceCache(symbol="AAPL", date="2026-07-02", close=100.0))
+    db.commit()
+
+    monkeypatch.setattr(
+        app_main,
+        "get_current_prices_meta_db",
+        lambda *_args, **_kwargs: {
+            "AAPL": {
+                "symbol": "AAPL",
+                "price": 210.0,
+                "change_percent": 0.5,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            }
+        },
+    )
+
+    response = _build_market_quotes_response("AAPL", db)
+
+    assert response["items"][0]["current_price"] == 210.0
+    assert response["items"][0]["day_change_pct"] == 0.5
+    assert response["items"][0]["day_change_pct"] != 110.0
 
 
 def test_market_quotes_are_bounded_and_normal_priority():

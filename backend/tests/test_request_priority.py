@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.main import _analytics_panel_name, _is_secondary_analytics_path
 from app.request_priority import RoutePriority, classify_request
 
 
@@ -25,6 +26,21 @@ def test_insider_profile_secondary_routes_use_heavy_lane():
     assert classify_request("/api/insiders/0001824159/alpha-summary", {}) == RoutePriority.HEAVY
     assert classify_request("/api/insiders/0001824159/top-tickers", {}) == RoutePriority.HEAVY
     assert classify_request("/api/insiders/0001824159/stock-chart", {}) == RoutePriority.HEAVY
+
+
+def test_member_profile_secondary_routes_use_heavy_lane():
+    assert classify_request("/api/members/P000197/performance", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/members/P000197/portfolio-performance", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/members/P000197/trades", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/members/P000197/alpha-summary", {}) == RoutePriority.HEAVY
+
+
+def test_secondary_analytics_fail_soft_includes_member_trades():
+    assert _is_secondary_analytics_path("/api/members/P000197/performance")
+    assert _is_secondary_analytics_path("/api/members/P000197/portfolio-performance")
+    assert _is_secondary_analytics_path("/api/members/P000197/trades")
+    assert _is_secondary_analytics_path("/api/members/P000197/alpha-summary")
+    assert _analytics_panel_name("/api/members/P000197/trades") == "trades"
 
 
 def test_core_routes_stay_outside_insider_heavy_lane():

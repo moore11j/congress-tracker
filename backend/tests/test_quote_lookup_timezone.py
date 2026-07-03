@@ -198,6 +198,45 @@ def test_missing_quote_calls_single_symbol_provider_when_budget_allows(monkeypat
     assert meta["AAPL"]["source"] == "live_provider"
 
 
+def test_force_quote_endpoint_uses_stable_quote(monkeypatch):
+    _reset_quote_lookup_state()
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"symbol": "AAPL", "price": 214.25, "change": 1.1, "changesPercentage": 0.52}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    db = _db()
+    try:
+        meta = quote_lookup.get_current_prices_meta_db(
+            db,
+            ["AAPL"],
+            lane="ticker_quote",
+            allow_live_user_fetch=True,
+            force_quote_endpoint=True,
+        )
+    finally:
+        db.close()
+
+    assert calls
+    assert calls[0].endswith("/stable/quote")
+    assert all("historical-chart/1min" not in call for call in calls)
+    assert all("historical-price-eod/light" not in call for call in calls)
+    assert meta["AAPL"]["price"] == 214.25
+    assert meta["AAPL"]["change_percent"] == 0.52
+
+
 def test_quote_budget_exhausted_returns_stale_cache_without_provider_call(monkeypatch):
     _reset_quote_lookup_state()
     asof_ts = datetime.now(timezone.utc) - timedelta(minutes=5)
