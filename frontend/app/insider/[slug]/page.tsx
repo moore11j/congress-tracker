@@ -282,17 +282,28 @@ function DeferredTopTickersSkeleton() {
 }
 
 async function DeferredTopTickers({
-  topTickersPromise,
+  reportingCik,
+  lookbackDays,
+  issuer,
 }: {
-  topTickersPromise: Promise<Awaited<ReturnType<typeof getInsiderTopTickers>>>;
+  reportingCik: string;
+  lookbackDays: number;
+  issuer?: string;
 }) {
-  const topTickers = await topTickersPromise;
+  const result = await loadInsiderSection(
+    { reportingCik, lookbackDays, issuer, section: "top-tickers" },
+    () => getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer, { source: "InsiderTopTickers" }),
+    fallbackInsiderTopTickers(reportingCik, lookbackDays),
+  );
+  const topTickers = result.data;
 
   return (
     <div className={`${cardClassName} w-full`}>
       <h2 className="text-lg font-semibold text-white">Top tickers</h2>
       <div className="mt-4 space-y-2">
-        {topTickers.items.length === 0 ? (
+        {result.unavailable ? (
+          <p className="text-sm text-slate-400">Analytics temporarily unavailable. Try again shortly.</p>
+        ) : topTickers.items.length === 0 ? (
           <p className="text-sm text-slate-400">No ticker concentration yet.</p>
         ) : (
           topTickers.items.map((ticker) => (
@@ -313,18 +324,32 @@ async function DeferredTopTickers({
 }
 
 async function DeferredCompanyStockChart({
-  stockChartPromise,
+  reportingCik,
+  lookbackDays,
+  symbol,
 }: {
-  stockChartPromise: Promise<Awaited<ReturnType<typeof getInsiderStockChart>> | null>;
+  reportingCik: string;
+  lookbackDays: number;
+  symbol?: string;
 }) {
-  const bundle = await stockChartPromise;
-  const symbol = bundle?.symbol ?? "Company";
+  const result = await loadInsiderSection(
+    { reportingCik, lookbackDays, issuer: symbol, section: "stock-chart" },
+    () =>
+      getInsiderStockChart(reportingCik, {
+        lookback_days: lookbackDays,
+        symbol,
+        source: "InsiderStockChart",
+      }),
+    null,
+  );
+  const bundle = result.data;
+  const chartTitleSymbol = bundle?.symbol ?? "Company";
 
   return (
     <PremiumTickerChart
       bundle={bundle}
       eyebrow="Company stock"
-      title={bundle?.symbol ? `${symbol} Stock Chart` : "Company Stock Chart"}
+      title={bundle?.symbol ? `${chartTitleSymbol} Stock Chart` : "Company Stock Chart"}
       subtitle="Showing this insider's disclosed buys and sells only."
       allowedMarkerKinds={["insider"]}
       showMarkerControls={false}
@@ -407,25 +432,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     typeof trades.has_next === "boolean"
       ? trades.has_next
       : recentTradesPageValue * recentTradesLimit + trades.items.length < recentTradesTotal;
-  const topTickersPromise = loadInsiderSection(
-    { ...sectionContext, section: "top-tickers" },
-    () => getInsiderTopTickers(reportingCik, lookbackDays, 10, normalizedIssuer, { source: "InsiderTopTickers" }),
-    fallbackInsiderTopTickers(reportingCik, lookbackDays),
-  ).then((result) => result.data);
   const stockSymbol = chartSymbol || issuer || summary.primary_symbol || undefined;
-  const stockChartPromise =
-    chartMode === "stock"
-      ? loadInsiderSection(
-          { ...sectionContext, section: "stock-chart" },
-          () =>
-            getInsiderStockChart(reportingCik, {
-              lookback_days: lookbackDays,
-              symbol: stockSymbol,
-              source: "InsiderStockChart",
-            }),
-          null,
-        ).then((result) => result.data)
-      : Promise.resolve(null);
   const issuerOptions = Array.from(
     new Set(trades.items.map((trade) => trade.symbol).filter((symbol): symbol is string => Boolean(symbol))),
   );
@@ -602,7 +609,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           {chartMode === "stock" ? (
             <div className="mt-4">
               <Suspense fallback={<PremiumTickerChartSkeleton />}>
-                <DeferredCompanyStockChart stockChartPromise={stockChartPromise} />
+                <DeferredCompanyStockChart reportingCik={reportingCik} lookbackDays={lookbackDays} symbol={stockSymbol} />
               </Suspense>
             </div>
           ) : !chartHasEnoughTrades ? (
@@ -664,7 +671,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,2.15fr)]">
         <div className="w-full min-w-0">
           <Suspense fallback={<DeferredTopTickersSkeleton />}>
-            <DeferredTopTickers topTickersPromise={topTickersPromise} />
+            <DeferredTopTickers reportingCik={reportingCik} lookbackDays={lookbackDays} issuer={normalizedIssuer} />
           </Suspense>
         </div>
 

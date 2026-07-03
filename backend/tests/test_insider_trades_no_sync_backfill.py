@@ -318,6 +318,53 @@ def test_insider_alpha_summary_includes_recent_activity_with_cached_quote_withou
     assert round(payload["member_series"][-1]["cumulative_return_pct"], 6) == 10.0
 
 
+def test_insider_top_tickers_uses_analytics_cache_for_repeated_requests(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+    ts = datetime.now(timezone.utc)
+    calls = 0
+
+    with Session(engine) as db:
+        db.add(
+            Event(
+                id=901,
+                event_type="insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="JPM",
+                source="fmp",
+                trade_type="sale",
+                payload_json=json.dumps(
+                    {
+                        "symbol": "JPM",
+                        "transaction_date": ts.date().isoformat(),
+                        "reporting_cik": "0000099999",
+                        "insider_name": "Cache Test",
+                    }
+                ),
+                amount_min=1000,
+                amount_max=5000,
+            )
+        )
+        db.commit()
+
+        original = events_router._load_insider_events_for_cik
+
+        def counted_loader(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(events_router, "_load_insider_events_for_cik", counted_loader)
+
+        first = events_router.insider_top_tickers("0000099999", db=db, lookback_days=90, limit=10)
+        second = events_router.insider_top_tickers("0000099999", db=db, lookback_days=90, limit=10)
+
+    assert calls == 1
+    assert first == second
+    assert first["items"][0]["symbol"] == "JPM"
+
+
 def test_insider_trades_uses_persisted_payload_detail_fallbacks():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)

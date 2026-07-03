@@ -22,6 +22,15 @@ def test_ticker_signals_summary_is_not_heavy_route_gated():
 def test_insider_recent_trades_is_not_heavy_route_gated():
     assert classify_request("/api/insiders/0001824159/trades", {}) == RoutePriority.NORMAL
     assert classify_request("/api/insiders/0001824159/alpha-summary", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/insiders/0001824159/top-tickers", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/insiders/0001824159/stock-chart", {}) == RoutePriority.HEAVY
+
+
+def test_core_routes_stay_outside_insider_heavy_lane():
+    assert classify_request("/api/events", {"limit": "5", "enrich_prices": "0"}) == RoutePriority.NORMAL
+    assert classify_request("/api/tickers/AAPL/signals-summary", {}) == RoutePriority.NORMAL
+    assert classify_request("/api/tickers/NVDA/government-contracts", {}) == RoutePriority.NORMAL
+    assert classify_request("/api/tickers/AAPL", {}) == RoutePriority.NORMAL
 
 
 def test_ticker_cache_first_section_routes_are_not_outer_heavy_gated():

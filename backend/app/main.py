@@ -149,7 +149,7 @@ from app.services.price_lookup import (
     get_eod_close_series,
     is_price_history_stale,
 )
-from app.services.quote_lookup import get_current_prices_db, get_current_prices_meta_db, quote_cache_get_many_with_age
+from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db, quote_cache_get_many_with_age
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
@@ -2305,6 +2305,52 @@ _HEAVY_ROUTE_MAX_CONCURRENCY = int(os.getenv("HEAVY_ROUTE_MAX_CONCURRENCY", "2")
 _HEAVY_ROUTE_SEMAPHORE = threading.BoundedSemaphore(max(_HEAVY_ROUTE_MAX_CONCURRENCY, 1))
 _TICKER_CHART_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_CHART_MAX_CONCURRENCY", "2") or 2))
 _TICKER_WIDGET_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv("TICKER_WIDGET_MAX_CONCURRENCY", "3") or 3))
+_ANALYTICS_TEMPORARILY_UNAVAILABLE = "Analytics temporarily unavailable. Try again shortly."
+_MEMBER_ANALYTICS_CACHE_TTL_SECONDS = int(os.getenv("MEMBER_ANALYTICS_CACHE_TTL_SECONDS", "900") or 900)
+_MEMBER_ANALYTICS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_MEMBER_ANALYTICS_CACHE_LOCK = threading.Lock()
+
+
+def _member_analytics_cache_ttl_seconds() -> int:
+    return max(0, min(3600, _MEMBER_ANALYTICS_CACHE_TTL_SECONDS))
+
+
+def _member_analytics_cache_key(kind: str, member_id: str, lookback_days: int, benchmark: str) -> str | None:
+    if _member_analytics_cache_ttl_seconds() <= 0:
+        return None
+    return "member_analytics:" + json.dumps(
+        {
+            "kind": kind,
+            "member_id": (member_id or "").strip().upper(),
+            "lookback_days": int(lookback_days),
+            "benchmark": (benchmark or "^GSPC").strip().upper(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _member_analytics_cache_get(cache_key: str | None) -> dict[str, Any] | None:
+    if not cache_key:
+        return None
+    now = time.time()
+    with _MEMBER_ANALYTICS_CACHE_LOCK:
+        cached = _MEMBER_ANALYTICS_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _MEMBER_ANALYTICS_CACHE.pop(cache_key, None)
+            return None
+        logger.info("member_analytics_cache_hit key=%s", cache_key.split(":", 1)[0])
+        return copy.deepcopy(payload)
+
+
+def _member_analytics_cache_set(cache_key: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    if cache_key:
+        with _MEMBER_ANALYTICS_CACHE_LOCK:
+            _MEMBER_ANALYTICS_CACHE[cache_key] = (time.time() + _member_analytics_cache_ttl_seconds(), copy.deepcopy(payload))
+    return payload
 _PUBLIC_GET_RESPONSE_CACHE: dict[str, tuple[float, int, dict[str, str], bytes]] = {}
 _PUBLIC_GET_RESPONSE_INFLIGHT: dict[str, asyncio.Event] = {}
 _PUBLIC_GET_RESPONSE_CACHE_LOCK = threading.Lock()
@@ -2412,6 +2458,17 @@ def _is_public_get_cacheable_path(path: str) -> bool:
     return False
 
 
+def _is_secondary_analytics_path(path: str) -> bool:
+    lower_path = (path or "").rstrip("/").lower()
+    return (
+        lower_path.startswith("/api/insiders/")
+        and lower_path.endswith(("/alpha-summary", "/top-tickers", "/stock-chart"))
+    ) or (
+        lower_path.startswith("/api/members/")
+        and lower_path.endswith(("/alpha-summary", "/performance", "/portfolio-performance"))
+    )
+
+
 def _public_get_cache_key(request: Request) -> str | None:
     if request.method.upper() != "GET":
         return None
@@ -2428,7 +2485,12 @@ def _heavy_route_slot(route_name: str, semaphore: threading.BoundedSemaphore):
     acquired = semaphore.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
     if not acquired:
         logger.warning("api_degraded endpoint=%s error=heavy_route_saturated", route_name)
-        raise HTTPException(status_code=503, detail="Endpoint temporarily busy; please retry shortly.")
+        detail = (
+            _ANALYTICS_TEMPORARILY_UNAVAILABLE
+            if route_name.startswith(("insider_", "member_"))
+            else "Endpoint temporarily busy; please retry shortly."
+        )
+        raise HTTPException(status_code=503, detail=detail)
     try:
         yield
     finally:
@@ -2496,9 +2558,15 @@ async def log_slow_requests(request: Request, call_next):
                 return JSONResponse(
                     status_code=503,
                     content={
-                        "detail": "Heavy endpoint temporarily busy; please retry shortly.",
+                        "detail": (
+                            _ANALYTICS_TEMPORARILY_UNAVAILABLE
+                            if _is_secondary_analytics_path(request.url.path)
+                            else "Heavy endpoint temporarily busy; please retry shortly."
+                        ),
                         "endpoint": request.url.path,
                         "priority": priority.value,
+                        "status": "unavailable",
+                        "reason": "heavy_route_saturated",
                     },
                     headers={"Retry-After": str(retry_after_for_priority(priority))},
                 )
@@ -3879,10 +3947,23 @@ def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db
 
 
 @app.get("/api/members/{member_id}/alpha-summary")
-def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", debug_dates: bool = False, db: Session = Depends(get_db)):
+def member_alpha_summary(
+    member_id: str,
+    lookback_days: int = Query(365, ge=30, le=1095),
+    benchmark: str = "^GSPC",
+    debug_dates: bool = False,
+    db: Session = Depends(get_db),
+):
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    cache_key = _member_analytics_cache_key("alpha-summary", analytics_member_id, lookback_days, benchmark_symbol)
+    if cache_key:
+        cache_key = f"{cache_key}:bind={id(db.get_bind())}"
+    if not debug_dates:
+        cached_response = _member_analytics_cache_get(cache_key)
+        if cached_response is not None:
+            return cached_response
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
@@ -3964,7 +4045,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
     # each trade's return minus S&P 500 return over that same scored trade window.
     # These are not CAGR or portfolio alpha; the backtest endpoint separately simulates
     # capital allocation, disclosure-timed entries, monthly rebalancing, and hold_days.
-    return {
+    payload = {
         "member_id": analytics_member_id,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
@@ -3986,6 +4067,7 @@ def member_alpha_summary(member_id: str, lookback_days: int = 365, benchmark: st
         "member_series": curve.member_series,
         "benchmark_series": curve.benchmark_series,
     }
+    return payload if debug_dates else _member_analytics_cache_set(cache_key, payload)
 
 
 @app.get("/api/leaderboards/congress-traders")

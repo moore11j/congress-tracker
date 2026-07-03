@@ -97,6 +97,10 @@ INSIDER_SUMMARY_DEDUPE_WAIT_SECONDS = float(os.getenv("INSIDER_SUMMARY_DEDUPE_WA
 _INSIDER_SUMMARY_CACHE: dict[str, tuple[float, dict]] = {}
 _INSIDER_SUMMARY_INFLIGHT: dict[str, dict[str, object]] = {}
 _INSIDER_SUMMARY_CACHE_LOCK = threading.Lock()
+INSIDER_ANALYTICS_CACHE_TTL_SECONDS = int(os.getenv("INSIDER_ANALYTICS_CACHE_TTL_SECONDS", "900") or 900)
+INSIDER_ANALYTICS_MAX_EVENTS = int(os.getenv("INSIDER_ANALYTICS_MAX_EVENTS", "500") or 500)
+_INSIDER_ANALYTICS_CACHE: dict[str, tuple[float, dict]] = {}
+_INSIDER_ANALYTICS_CACHE_LOCK = threading.Lock()
 GOVERNMENT_CONTRACT_DEPARTMENT_OPTIONS = (
     "Department of Defense",
     "Department of Health and Human Services",
@@ -670,6 +674,63 @@ def _insider_summary_cache_key(reporting_cik: str, lookback_days: int, issuer: s
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def _insider_analytics_cache_ttl_seconds() -> int:
+    return max(0, min(3600, INSIDER_ANALYTICS_CACHE_TTL_SECONDS))
+
+
+def _insider_analytics_cache_key(
+    kind: str,
+    reporting_cik: str,
+    lookback_days: int,
+    issuer: str | None,
+    *,
+    limit: int | None = None,
+    benchmark: str | None = None,
+) -> str | None:
+    if _insider_analytics_cache_ttl_seconds() <= 0:
+        return None
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        return None
+    issuer_key = normalize_cik(issuer) or normalize_symbol(issuer) or (issuer or "").strip().upper()
+    return "insider_analytics:" + json.dumps(
+        {
+            "kind": kind,
+            "cik": normalized_cik,
+            "lookback_days": int(lookback_days),
+            "issuer": issuer_key,
+            "limit": limit,
+            "benchmark": benchmark,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _insider_analytics_cache_get(cache_key: str | None) -> dict | None:
+    if not cache_key:
+        return None
+    now = monotonic()
+    with _INSIDER_ANALYTICS_CACHE_LOCK:
+        cached = _INSIDER_ANALYTICS_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _INSIDER_ANALYTICS_CACHE.pop(cache_key, None)
+            return None
+        logger.info("insider_analytics_cache_hit key=%s", cache_key.split(":", 1)[0])
+        return copy.deepcopy(payload)
+
+
+def _insider_analytics_cache_set(cache_key: str | None, payload: dict) -> dict:
+    if cache_key:
+        stored = copy.deepcopy(payload)
+        with _INSIDER_ANALYTICS_CACHE_LOCK:
+            _INSIDER_ANALYTICS_CACHE[cache_key] = (monotonic() + _insider_analytics_cache_ttl_seconds(), stored)
+    return payload
 
 
 def _insider_summary_cache_get(cache_key: str | None) -> dict | None:
@@ -1843,6 +1904,7 @@ def _load_insider_events_for_cik(
     *,
     include_non_market_activity: bool = False,
     issuer: str | None = None,
+    max_events: int | None = None,
 ) -> list[tuple[Event, dict]]:
     lookback = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
@@ -1859,6 +1921,8 @@ def _load_insider_events_for_cik(
     )
     if not include_non_market_activity:
         query = query.where(insider_visibility_clause())
+    if max_events is not None:
+        query = query.limit(max(max_events, 1))
 
     rows = db.execute(query).scalars().all()
 
@@ -4470,12 +4534,31 @@ def insider_alpha_summary(
     benchmark: str = "^GSPC",
     issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, issuer=issuer)
+    lookback_days = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    cache_key = _insider_analytics_cache_key(
+        "alpha-summary",
+        reporting_cik,
+        lookback_days,
+        issuer,
+        benchmark=benchmark_symbol,
+    )
+    if cache_key:
+        cache_key = f"{cache_key}:bind={id(db.get_bind())}"
+    cached_response = _insider_analytics_cache_get(cache_key)
+    if cached_response is not None:
+        return cached_response
+    matched = _load_insider_events_for_cik(
+        db,
+        reporting_cik,
+        lookback_days,
+        issuer=issuer,
+        max_events=INSIDER_ANALYTICS_MAX_EVENTS,
+    )
 
     if not matched:
-        return {
+        return _insider_analytics_cache_set(cache_key, {
             "reporting_cik": normalized_cik,
             "lookback_days": lookback_days,
             "benchmark_symbol": benchmark_symbol,
@@ -4497,7 +4580,7 @@ def insider_alpha_summary(
             "member_series": [],
             "benchmark_series": [],
             "performance_series": [],
-        }
+        })
 
     outcome_by_event_id, outcomes = _load_insider_trade_outcomes(
         db,
@@ -4555,7 +4638,7 @@ def insider_alpha_summary(
     # Insider profile analytics mirror member profile semantics: cards average scored
     # trade outcomes individually, while the backtest endpoint reports a simulated
     # portfolio with disclosure-timed entries, configurable hold_days, and benchmark alpha.
-    return {
+    return _insider_analytics_cache_set(cache_key, {
         "reporting_cik": normalized_cik,
         "lookback_days": lookback_days,
         "benchmark_symbol": benchmark_symbol,
@@ -4577,7 +4660,7 @@ def insider_alpha_summary(
         "member_series": curve.member_series,
         "benchmark_series": curve.benchmark_series,
         "performance_series": curve.member_series,
-    }
+    })
 
 @router.get("/insiders/{reporting_cik}/summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_summary(
@@ -4818,10 +4901,31 @@ def insider_top_tickers(
     reporting_cik: str,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=25),
     issuer: str | None = None,
 ):
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
+    lookback_days = _validated_lookback_days(lookback_days)
+    safe_limit = min(max(limit, 1), 25)
+    cache_key = _insider_analytics_cache_key(
+        "top-tickers",
+        reporting_cik,
+        lookback_days,
+        issuer,
+        limit=safe_limit,
+    )
+    if cache_key:
+        cache_key = f"{cache_key}:bind={id(db.get_bind())}"
+    cached_response = _insider_analytics_cache_get(cache_key)
+    if cached_response is not None:
+        return cached_response
+    matched = _load_insider_events_for_cik(
+        db,
+        reporting_cik,
+        lookback_days,
+        include_non_market_activity=True,
+        issuer=issuer,
+        max_events=INSIDER_ANALYTICS_MAX_EVENTS,
+    )
     by_symbol: dict[str, dict] = {}
     for event, payload in matched:
         symbol = _event_symbol(event, payload)
@@ -4850,9 +4954,9 @@ def insider_top_tickers(
         if not row.get("company_name"):
             row["company_name"] = _insider_company_name(event, payload)
 
-    items = sorted(by_symbol.values(), key=lambda row: row["trades"], reverse=True)[:limit]
-    return {
+    items = sorted(by_symbol.values(), key=lambda row: row["trades"], reverse=True)[:safe_limit]
+    return _insider_analytics_cache_set(cache_key, {
         "reporting_cik": normalize_cik(reporting_cik),
         "lookback_days": lookback_days,
         "items": items,
-    }
+    })

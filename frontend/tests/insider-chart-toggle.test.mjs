@@ -27,7 +27,15 @@ test("company stock mode requests insider-scoped stock chart data", () => {
   assert.match(api, /lookback_days: params\.lookback_days/);
   assert.match(api, /symbol: params\.symbol/);
   assert.match(insiderPage, /getInsiderStockChart\(reportingCik/);
-  assert.match(insiderPage, /stockChartPromise/);
+  assert.match(insiderPage, /function DeferredCompanyStockChart/);
+  assert.doesNotMatch(insiderPage, /const stockChartPromise/);
+});
+
+test("secondary insider analytics are requested inside deferred sections", () => {
+  assert.match(insiderPage, /function DeferredTopTickers/);
+  assert.match(insiderPage, /getInsiderTopTickers\(reportingCik, lookbackDays, 10, issuer/);
+  assert.match(insiderPage, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.doesNotMatch(insiderPage, /const topTickersPromise/);
 });
 
 test("insider page offers expanded lookback windows", () => {
