@@ -19,8 +19,9 @@ def test_ticker_signals_summary_is_not_heavy_route_gated():
     assert classify_request("/api/tickers/NBIS/signals-summary", {}) == RoutePriority.NORMAL
 
 
-def test_insider_recent_trades_is_not_heavy_route_gated():
-    assert classify_request("/api/insiders/0001824159/trades", {}) == RoutePriority.NORMAL
+def test_insider_profile_secondary_routes_use_heavy_lane():
+    assert classify_request("/api/insiders/0001824159/summary", {}) == RoutePriority.HEAVY
+    assert classify_request("/api/insiders/0001824159/trades", {}) == RoutePriority.HEAVY
     assert classify_request("/api/insiders/0001824159/alpha-summary", {}) == RoutePriority.HEAVY
     assert classify_request("/api/insiders/0001824159/top-tickers", {}) == RoutePriority.HEAVY
     assert classify_request("/api/insiders/0001824159/stock-chart", {}) == RoutePriority.HEAVY

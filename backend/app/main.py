@@ -2462,7 +2462,7 @@ def _is_secondary_analytics_path(path: str) -> bool:
     lower_path = (path or "").rstrip("/").lower()
     return (
         lower_path.startswith("/api/insiders/")
-        and lower_path.endswith(("/alpha-summary", "/top-tickers", "/stock-chart"))
+        and lower_path.endswith(("/summary", "/trades", "/alpha-summary", "/top-tickers", "/stock-chart"))
     ) or (
         lower_path.startswith("/api/members/")
         and lower_path.endswith(("/alpha-summary", "/performance", "/portfolio-performance"))

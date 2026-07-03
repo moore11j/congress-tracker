@@ -89,9 +89,6 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
         if suffix and "/" not in suffix:
             return RoutePriority.NORMAL
 
-    if lower_path.startswith("/api/insiders/") and lower_path.endswith(("/summary", "/trades")):
-        return RoutePriority.NORMAL
-
     if lower_path == "/api/screener":
         return RoutePriority.NORMAL
 
