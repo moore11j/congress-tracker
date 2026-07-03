@@ -152,6 +152,13 @@ def test_request_attribution_logs_slow_degraded_and_sampled_fast(monkeypatch):
         duration_ms=10,
         priority=RoutePriority.NORMAL,
     )
+    assert _should_log_request_attribution(
+        path="/api/events",
+        status_code=200,
+        duration_ms=10,
+        priority=RoutePriority.NORMAL,
+        user_agent_class="prefetch",
+    )
     monkeypatch.setenv("WALNUT_REQUEST_ATTRIBUTION_DEBUG", "true")
     assert _should_log_request_attribution(
         path="/api/events",

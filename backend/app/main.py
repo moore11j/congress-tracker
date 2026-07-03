@@ -2615,10 +2615,19 @@ def _request_attribution_debug_enabled() -> bool:
     return os.getenv("WALNUT_REQUEST_ATTRIBUTION_DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _should_log_request_attribution(*, path: str, status_code: int, duration_ms: float, priority: RoutePriority) -> bool:
+def _should_log_request_attribution(
+    *,
+    path: str,
+    status_code: int,
+    duration_ms: float,
+    priority: RoutePriority,
+    user_agent_class: str | None = None,
+) -> bool:
     if status_code >= 500:
         return True
     if priority == RoutePriority.HEAVY and status_code >= 400:
+        return True
+    if user_agent_class in {"bot", "crawler", "prefetch"} and _request_route_family(path) != "other":
         return True
     threshold_ms = float(os.getenv("REQUEST_ATTRIBUTION_SLOW_LOG_MS", os.getenv("API_SLOW_REQUEST_LOG_MS", "2000")) or 2000)
     if duration_ms >= threshold_ms:
@@ -2837,6 +2846,7 @@ async def log_slow_requests(request: Request, call_next):
             status_code=response.status_code,
             duration_ms=elapsed_ms,
             priority=priority,
+            user_agent_class=attribution_fields["user_agent_class"],
         ):
             reason = "status_5xx" if response.status_code >= 500 else "status_4xx" if response.status_code >= 400 else "sampled"
             if elapsed_ms >= float(os.getenv("REQUEST_ATTRIBUTION_SLOW_LOG_MS", os.getenv("API_SLOW_REQUEST_LOG_MS", "2000")) or 2000):
