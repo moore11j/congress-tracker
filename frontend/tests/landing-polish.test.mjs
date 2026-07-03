@@ -59,8 +59,11 @@ test("landing macro rows resolve Core CPI by label variants", () => {
 test("public legal navigation includes FAQ across landing and legal shell", () => {
   assert.match(landingPage, /href="\/faq"[\s\S]*?FAQ/);
   assert.match(legalShell, /href="\/faq"[\s\S]*?FAQ/);
-  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/terms", "\/privacy", "\/faq"\]\)/);
-  assert.match(middleware, /matcher: \["\/", "\/landing", "\/terms", "\/privacy", "\/faq"/);
+  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+  assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
+  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
+  assert.match(middleware, /appUrl\.host = appHost/);
+  assert.match(middleware, /matcher: \["\/", "\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
   assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);

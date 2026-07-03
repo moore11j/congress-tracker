@@ -5,7 +5,7 @@ const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/watchlists", "/monitoring", "/signals", "/leaderboards"];
-const publicStaticPaths = new Set(["/landing", "/terms", "/privacy", "/faq"]);
+const publicStaticPaths = new Set(["/landing", "/pricing", "/terms", "/privacy", "/faq"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -14,6 +14,7 @@ const API_BASE =
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
 const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
+const appHost = "app.walnutmarkets.com";
 
 async function resolveMemberCanonicalSlug(slug: string): Promise<string | null> {
   if (!isBioguideId(slug)) return null;
@@ -58,6 +59,13 @@ export async function middleware(request: NextRequest) {
     });
   }
 
+  if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !publicAccountPaths.has(pathname)) {
+    const appUrl = request.nextUrl.clone();
+    appUrl.protocol = "https:";
+    appUrl.host = appHost;
+    return NextResponse.redirect(appUrl, 307);
+  }
+
   const memberMatch = pathname.match(/^\/member\/([^/]+)\/?$/);
   if (memberMatch) {
     const slug = (memberMatch[1] ?? "").trim();
@@ -84,5 +92,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/landing", "/terms", "/privacy", "/faq", "/member/:path*", "/admin/:path*", "/account/:path*", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/", "/landing", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
 };
