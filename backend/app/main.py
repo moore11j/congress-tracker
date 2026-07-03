@@ -6125,7 +6125,7 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
         rows = (
             db.execute(
                 select(PriceCache)
-                .where(func.upper(PriceCache.symbol) == normalized)
+                .where(PriceCache.symbol == normalized)
                 .order_by(PriceCache.date.desc())
                 .limit(max(1, int(limit or 120)))
             )

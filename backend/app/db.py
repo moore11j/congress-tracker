@@ -147,6 +147,18 @@ OPTIONAL_PERFORMANCE_INDEXES: tuple[OptionalIndexSpec, ...] = (
         ),
     ),
     OptionalIndexSpec(
+        name="ix_events_upper_symbol_type_effective_ts_id",
+        table="events",
+        sqlite_sql=(
+            "CREATE INDEX IF NOT EXISTS ix_events_upper_symbol_type_effective_ts_id "
+            "ON events (upper(symbol), event_type, coalesce(event_date, ts) DESC, id DESC)"
+        ),
+        postgres_sql=(
+            "CREATE INDEX {concurrently}IF NOT EXISTS ix_events_upper_symbol_type_effective_ts_id "
+            "ON events ((upper(symbol)), event_type, (coalesce(event_date, ts)) DESC, id DESC)"
+        ),
+    ),
+    OptionalIndexSpec(
         name="idx_events_effective_date_id_desc",
         table="events",
         sqlite_sql=(
