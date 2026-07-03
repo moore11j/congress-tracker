@@ -14,6 +14,7 @@ const root = process.cwd();
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
 const memberPage = read("app/member/[slug]/page.tsx");
+const memberAnalyticsClient = read("components/member/MemberAnalyticsClient.tsx");
 const insiderPage = read("app/insider/[slug]/page.tsx");
 const api = read("lib/api.ts");
 const shareLinks = read("components/member/ShareLinks.tsx");
@@ -189,15 +190,16 @@ function persistedPortfolioFixture() {
 }
 
 test("member page renders persisted Portfolio Mode chart and summary metrics", () => {
-  assert.match(memberPage, /DeferredMemberPortfolioSection/);
-  assert.match(memberPage, /getMemberPortfolioPerformance\(canonicalMemberId/);
-  assert.match(memberPage, /lookback_days: portfolioLookbackDays/);
-  assert.match(memberPage, /mode: PORTFOLIO_MODE/);
-  assert.match(memberPage, /Disclosure-lag realistic portfolio/);
-  assert.match(memberPage, /Trades are simulated after public disclosure, not transaction date\. Open positions are carried forward through the selected window\./);
-  assert.match(memberPage, /<PerformanceChart[\s\S]*subjectLabel="Portfolio"[\s\S]*chartLabel="Portfolio Return"/);
-  assert.match(memberPage, /normalizeMemberPortfolioEventMarkers\(portfolio\)/);
-  assert.match(memberPage, /events=\{portfolioEvents\}/);
+  assert.match(memberPage, /<MemberAnalyticsClient/);
+  assert.doesNotMatch(memberPage, /getMemberPortfolioPerformance\(/);
+  assert.match(memberAnalyticsClient, /getMemberPortfolioPerformance\(memberId/);
+  assert.match(memberAnalyticsClient, /lookback_days: portfolioLookbackDays/);
+  assert.match(memberAnalyticsClient, /mode: PORTFOLIO_MODE/);
+  assert.match(memberAnalyticsClient, /Disclosure-lag realistic portfolio/);
+  assert.match(memberAnalyticsClient, /Trades are simulated after public disclosure, not transaction date\. Open positions are carried forward through the selected window\./);
+  assert.match(memberAnalyticsClient, /<PerformanceChart[\s\S]*subjectLabel="Portfolio"[\s\S]*chartLabel="Portfolio Return"/);
+  assert.match(memberAnalyticsClient, /normalizeMemberPortfolioEventMarkers\(portfolio\)/);
+  assert.match(memberAnalyticsClient, /events=\{portfolioEvents\}/);
 
   for (const label of [
     "Total Return",
@@ -210,20 +212,12 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
     "Simulated Trades",
     "Active Tickers",
   ]) {
-    assert.match(memberPage, new RegExp(label.replace("&", "&")));
+    assert.match(memberAnalyticsClient, new RegExp(label.replace("&", "&")));
   }
-  assert.doesNotMatch(memberPage, /Simulated Trades \/ Active Positions/);
-  assert.match(memberPage, /distinctActiveTickerPositions/);
-  assert.match(memberPage, /portfolioTradeCountPromise/);
-  assert.match(memberPage, /Methodology details/);
-  assert.match(memberPage, /Opening holdings/);
-  assert.match(memberPage, /Estimated openings/);
-  assert.match(memberPage, /Active tickers at end/);
-  assert.match(memberPage, /Excluded/);
-  assert.match(memberPage, /Non-simulatable assets/);
-  assert.match(memberPage, /Missing basis prices/);
-  assert.doesNotMatch(memberPage, /Options, bonds, and other non-equity assets are excluded from the equity portfolio simulation\./);
-  assert.match(memberPage, /conservatively estimated and scaled to the simulated portfolio size/);
+  assert.doesNotMatch(memberAnalyticsClient, /Simulated Trades \/ Active Positions/);
+  assert.match(memberAnalyticsClient, /distinctActiveTickerPositions/);
+  assert.match(memberAnalyticsClient, /portfolioTradeCountSummary/);
+  assert.match(memberAnalyticsClient, /Active position rows at end/);
 });
 
 test("member page action buttons use compact mobile labels", () => {
@@ -238,9 +232,10 @@ test("member page action buttons use compact mobile labels", () => {
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {
-  assert.match(memberPage, /getMemberTrades\(canonicalMemberId,[\s\S]*?\)\.catch\(\(\) => null\)/);
-  assert.match(memberPage, /const memberTradesUnavailable = memberTrades == null/);
-  assert.match(memberPage, /Recent trades are temporarily unavailable\./);
+  assert.doesNotMatch(memberPage, /getMemberTrades\(/);
+  assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
+  assert.match(memberAnalyticsClient, /setTradesUnavailable\(true\)/);
+  assert.match(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
 });
 
 test("member portfolio chart includes ticker-terminal-style hover readout labels", () => {
@@ -340,7 +335,7 @@ test("portfolio lookback controls are capped at 3Y and omit All", () => {
 test("changing portfolio lookback wires the selected days into the read endpoint", () => {
   assert.match(memberPage, /getPortfolioLookbackParam\(sp\)/);
   assert.match(memberPage, /query\.set\("portfolio_lb", String\(portfolioLookbackDays\)\)/);
-  assert.match(memberPage, /lookback_days: portfolioLookbackDays/);
+  assert.match(memberAnalyticsClient, /lookback_days: portfolioLookbackDays/);
   assert.match(api, /\/api\/members\/\$\{bioguideId\}\/portfolio-performance/);
   assert.match(api, /lookback_days: params\?\.lookback_days/);
   assert.match(api, /mode: params\?\.mode/);
@@ -368,12 +363,11 @@ test("portfolio chart does not render a flat line when summary return is non-zer
 });
 
 test("missing or failed portfolio responses stay compact and graceful", () => {
-  assert.match(memberPage, /\.catch\(\(\) => null\)/);
-  assert.match(memberPage, /Portfolio simulation is not available for this lookback yet\./);
-  assert.match(memberPage, /Portfolio simulation could not be loaded\./);
-  assert.match(memberPage, /Portfolio simulation is temporarily unavailable while this run is revalidated\./);
-  assert.match(memberPage, /portfolio\?\.persisted_only === true/);
-  assert.match(memberPage, /portfolio\.status === "ok"/);
+  assert.match(memberAnalyticsClient, /\.catch\(\(\) =>/);
+  assert.match(memberAnalyticsClient, /Portfolio simulation is not available for this lookback yet\./);
+  assert.match(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
+  assert.match(memberAnalyticsClient, /portfolio\?\.persisted_only === true/);
+  assert.match(memberAnalyticsClient, /portfolio\.status === "ok"/);
 });
 
 test("member URLs canonicalize bioguide links back to readable slugs", () => {
@@ -386,11 +380,9 @@ test("member URLs canonicalize bioguide links back to readable slugs", () => {
 });
 
 test("portfolio quality notes render for zero holdings and limited price coverage", () => {
-  assert.match(memberPage, /No simulated holdings were active in this window\./);
-  assert.match(memberPage, /Simulation starts on/);
-  assert.match(memberPage, /when this member first had active holdings in the selected window\./);
-  assert.match(memberPage, /Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing\./);
-  assert.match(memberPage, /curveQualityStatus === "warning" \|\| curveQualityStatus === "poor"/);
+  assert.match(memberAnalyticsClient, /No simulated holdings were active in this window\./);
+  assert.match(memberAnalyticsClient, /Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing\./);
+  assert.match(memberAnalyticsClient, /curveQualityStatus === "warning" \|\| curveQualityStatus === "poor"/);
   assert.match(api, /curve_quality_status\?/);
   assert.match(api, /data_coverage_notes\?/);
   assert.match(api, /effective_start_date\?/);
@@ -398,12 +390,15 @@ test("portfolio quality notes render for zero holdings and limited price coverag
 });
 
 test("member page has one primary performance chart and compact secondary analytics", () => {
-  assert.equal((memberPage.match(/<PerformanceChart/g) ?? []).length, 1);
+  assert.equal((memberPage.match(/<PerformanceChart/g) ?? []).length, 0);
+  assert.equal((memberAnalyticsClient.match(/<PerformanceChart/g) ?? []).length, 1);
   assert.doesNotMatch(memberPage, /Member Alpha Analytics/);
   assert.doesNotMatch(memberPage, /Performance Curve/);
-  assert.match(memberPage, /Trade Outcome Analytics/);
-  assert.match(memberPage, /DeferredMemberAnalyticsStats/);
-  assert.match(memberPage, /Compact metrics from individually scored disclosures\./);
+  assert.match(memberAnalyticsClient, /Trade Outcome Analytics/);
+  assert.match(memberAnalyticsClient, /Compact metrics from individually scored disclosures\./);
+  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
+  assert.doesNotMatch(memberPage, /getMemberTrades/);
+  assert.doesNotMatch(memberPage, /getMemberPortfolioPerformance/);
 });
 
 test("insider Portfolio Mode UI remains unwired", () => {
