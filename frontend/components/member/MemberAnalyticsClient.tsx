@@ -456,7 +456,7 @@ export function MemberAnalyticsClient({
               {loading && initialTopTickers.length === 0 ? (
                 Array.from({ length: 5 }).map((_, idx) => <SkeletonBlock key={idx} className="h-9 w-44" />)
               ) : tradesUnavailable && topTickers.length === 0 ? (
-                <p className="text-sm text-slate-400">No ticker concentration yet.</p>
+                <p className="text-sm text-slate-400">{REFRESHING_COPY}</p>
               ) : topTickers.length === 0 ? (
                 <p className="text-sm text-slate-400">No ticker concentration yet.</p>
               ) : (

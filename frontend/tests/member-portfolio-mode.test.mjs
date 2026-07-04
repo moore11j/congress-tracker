@@ -232,8 +232,8 @@ test("member page action buttons use compact mobile labels", () => {
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {
-  assert.match(memberPage, /getMemberTrades\(/);
-  assert.match(memberPage, /initialTrades=\{initialTrades\}/);
+  assert.doesNotMatch(memberPage, /getMemberTrades\(/);
+  assert.doesNotMatch(memberPage, /initialTrades=\{initialTrades\}/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
   assert.match(memberAnalyticsClient, /initialTrades\?: MemberTradesResponse/);
   assert.match(memberAnalyticsClient, /setTradesUnavailable\(true\)/);
@@ -242,10 +242,10 @@ test("member trades feed failure renders section fallback instead of crashing pa
   assert.doesNotMatch(memberAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
 });
 
-test("member analytics seed alpha and trades to preserve visible data completeness", () => {
-  assert.match(memberPage, /getMemberAlphaSummary/);
-  assert.match(memberPage, /initialAlphaSummary=\{initialAlphaSummary\}/);
-  assert.match(memberPage, /loadMemberPageSection/);
+test("member analytics lazy-load alpha and trades without replacing visible data", () => {
+  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
+  assert.doesNotMatch(memberPage, /initialAlphaSummary=\{initialAlphaSummary\}/);
+  assert.doesNotMatch(memberPage, /loadMemberPageSection/);
   assert.match(memberAnalyticsClient, /initialAlphaSummary\?: MemberAlphaSummary/);
   assert.match(memberAnalyticsClient, /useState<MemberAlphaSummary>\(\(\) => initialAlphaSummary \?\? alphaFallback/);
   assert.match(memberAnalyticsClient, /useState<MemberTradesResponse>\(\(\) => initialTrades \?\? tradesFallback/);
@@ -411,8 +411,10 @@ test("member page has one primary performance chart and compact secondary analyt
   assert.doesNotMatch(memberPage, /Performance Curve/);
   assert.match(memberAnalyticsClient, /Trade Outcome Analytics/);
   assert.match(memberAnalyticsClient, /Compact metrics from individually scored disclosures\./);
-  assert.match(memberPage, /getMemberAlphaSummary/);
-  assert.match(memberPage, /getMemberTrades/);
+  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
+  assert.doesNotMatch(memberPage, /getMemberTrades/);
+  assert.match(memberAnalyticsClient, /getMemberAlphaSummary\(memberId/);
+  assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
   assert.doesNotMatch(memberPage, /getMemberPortfolioPerformance/);
 });
 

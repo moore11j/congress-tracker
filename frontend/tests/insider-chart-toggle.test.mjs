@@ -33,12 +33,12 @@ test("company stock mode requests insider-scoped stock chart data", () => {
   assert.doesNotMatch(insiderPage, /const stockChartPromise/);
 });
 
-test("secondary insider analytics are lazy client sections with server-seeded top tickers", () => {
+test("secondary insider analytics are lazy client sections with summary-seeded top tickers", () => {
   assert.match(insiderPage, /<InsiderAnalyticsClient/);
   assert.doesNotMatch(insiderPage, /getInsiderAlphaSummary/);
   assert.doesNotMatch(insiderPage, /getInsiderTrades/);
-  assert.match(insiderPage, /getInsiderTopTickers/);
-  assert.match(insiderPage, /initialTopTickers=\{topTickersResult\.data\.items \?\? \[\]\}/);
+  assert.doesNotMatch(insiderPage, /getInsiderTopTickers/);
+  assert.match(insiderPage, /initialTopTickers=\{summary\.primary_symbol \? \[\{/);
   assert.match(insiderAnalyticsClient, /"use client"/);
   assert.match(insiderAnalyticsClient, /getInsiderAlphaSummary\(reportingCik/);
   assert.match(insiderAnalyticsClient, /getInsiderTrades\(reportingCik/);

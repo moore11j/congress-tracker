@@ -21,7 +21,8 @@ const typesSource = fs.readFileSync(
 );
 
 test("member recent trades pass outcome enrichment through to feed cards", () => {
-  assert.match(memberPageSource, /initialTrades=\{initialTrades\}/);
+  assert.doesNotMatch(memberPageSource, /initialTrades=\{initialTrades\}/);
+  assert.match(memberAnalyticsSource, /getMemberTrades\(memberId/);
   assert.match(memberAnalyticsSource, /useState<MemberTradesResponse>\(\(\) => initialTrades \?\? tradesFallback/);
   assert.match(memberAnalyticsSource, /trade\.estimated_price != null/);
   assert.match(memberAnalyticsSource, /trade\.current_price != null/);

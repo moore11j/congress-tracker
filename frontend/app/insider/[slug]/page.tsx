@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getInsiderSummary, getInsiderTopTickers } from "@/lib/api";
+import { getInsiderSummary } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -21,7 +21,6 @@ type Lookback = "30" | "90" | "180" | "365" | "1095";
 type ChartMetric = "return" | "alpha";
 type ChartMode = "performance" | "stock";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
-type InsiderTopTickersData = Awaited<ReturnType<typeof getInsiderTopTickers>>;
 
 const LOOKBACK_OPTIONS = [
   { label: "30D", value: "30" },
@@ -89,23 +88,6 @@ function fallbackInsiderSummary(reportingCik: string, lookbackDays: number, issu
     net_flow: 0,
     latest_filing_date: null,
     latest_transaction_date: null,
-  };
-}
-
-function fallbackInsiderTopTickers(summary: InsiderSummaryData): InsiderTopTickersData {
-  return {
-    reporting_cik: summary.reporting_cik,
-    lookback_days: summary.lookback_days,
-    items: summary.primary_symbol
-      ? [{
-          symbol: summary.primary_symbol,
-          company_name: summary.primary_company_name,
-          trades: summary.total_trades,
-          buy_count: summary.buy_count,
-          sell_count: summary.sell_count,
-          net_flow: summary.net_flow,
-        }]
-      : [],
   };
 }
 
@@ -183,12 +165,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
     fallbackInsiderSummary(reportingCik, lookbackDays, normalizedIssuer, slug),
   );
   const summary = summaryResult.data;
-  const topTickersResult = await loadInsiderSection(
-    { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "top-tickers" },
-    () => getInsiderTopTickers(reportingCik, lookbackDays, 10, normalizedIssuer, { source: "InsiderTopTickersInitial" }),
-    fallbackInsiderTopTickers(summary),
-  );
-
   const resolvedInsiderName = getInsiderDisplayName(summary.insider_name);
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
   const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
@@ -248,7 +224,14 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         issuer={normalizedIssuer}
         stockSymbol={stockSymbol}
         recentTradesPage={recentTradesPage}
-        initialTopTickers={topTickersResult.data.items ?? []}
+        initialTopTickers={summary.primary_symbol ? [{
+          symbol: summary.primary_symbol,
+          company_name: summary.primary_company_name,
+          trades: summary.total_trades,
+          buy_count: summary.buy_count,
+          sell_count: summary.sell_count,
+          net_flow: summary.net_flow,
+        }] : []}
       />
     </div>
   );

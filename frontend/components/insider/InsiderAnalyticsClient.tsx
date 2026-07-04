@@ -180,7 +180,7 @@ function TopTickersPanel({
             </div>
           ))
         ) : unavailable && items.length === 0 ? (
-          <p className="text-sm text-slate-400">No ticker concentration yet.</p>
+          <p className="text-sm text-slate-400">{REFRESHING_COPY}</p>
         ) : items.length === 0 ? (
           <p className="text-sm text-slate-400">No ticker concentration yet.</p>
         ) : (

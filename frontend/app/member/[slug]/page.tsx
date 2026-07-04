@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
-import { getMemberAlphaSummary, getMemberProfile, getMemberProfileBySlug, getMemberTrades } from "@/lib/api";
+import { getMemberProfile, getMemberProfileBySlug } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, pillClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import { chamberBadge, partyBadge } from "@/lib/format";
 import { isBioguideId, nameToSlug } from "@/lib/memberSlug";
@@ -20,44 +20,6 @@ type Props = {
 };
 
 const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
-type MemberAlphaSummaryData = Awaited<ReturnType<typeof getMemberAlphaSummary>>;
-type MemberTradesData = Awaited<ReturnType<typeof getMemberTrades>>;
-
-function fallbackMemberAlphaSummary(memberId: string, lookbackDays: number): MemberAlphaSummaryData {
-  return {
-    member_id: memberId,
-    lookback_days: lookbackDays,
-    benchmark_symbol: null,
-    trades_analyzed: 0,
-    avg_return_pct: null,
-    avg_alpha_pct: null,
-    win_rate: null,
-    avg_holding_days: null,
-    best_trades: [],
-    worst_trades: [],
-    member_series: [],
-    benchmark_series: [],
-    performance_series: [],
-  };
-}
-
-function fallbackMemberTrades(memberId: string, lookbackDays: number): MemberTradesData {
-  return {
-    member_id: memberId,
-    lookback_days: lookbackDays,
-    limit: 100,
-    items: [],
-  };
-}
-
-async function loadMemberPageSection<T>(load: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await load();
-  } catch (error) {
-    console.error("[member-profile] section fallback", error);
-    return fallback;
-  }
-}
 
 function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
@@ -186,16 +148,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
-  const [initialAlphaSummary, initialTrades] = await Promise.all([
-    loadMemberPageSection(
-      () => getMemberAlphaSummary(canonicalMemberId, { lookback_days: lb, source: "MemberAlphaInitial" }),
-      fallbackMemberAlphaSummary(canonicalMemberId, lb),
-    ),
-    loadMemberPageSection(
-      () => getMemberTrades(canonicalMemberId, { lookback_days: lb, limit: 100, source: "MemberTradesInitial" }),
-      fallbackMemberTrades(canonicalMemberId, lb),
-    ),
-  ]);
   const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
     ...option,
     href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value),
@@ -237,8 +189,6 @@ export default async function MemberPage({ params, searchParams }: Props) {
         portfolioLookbackDays={portfolioLookbackDays}
         portfolioLookbackLinks={portfolioLookbackLinks}
         initialTopTickers={data.top_tickers}
-        initialAlphaSummary={initialAlphaSummary}
-        initialTrades={initialTrades}
       />
     </div>
   );
