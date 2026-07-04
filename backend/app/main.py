@@ -84,6 +84,7 @@ from app.request_guards import (
     is_explicit_prefetch_request as _shared_is_explicit_prefetch_request,
     is_inactive_logged_out_api_request as _shared_is_inactive_logged_out_api_request,
     is_inactive_logged_out_ssr_request as _shared_is_inactive_logged_out_ssr_request,
+    is_logged_out_direct_api_request as _shared_is_logged_out_direct_api_request,
     is_logged_out_bot_or_crawler_request as _shared_is_logged_out_bot_or_crawler_request,
     request_auth_state as _shared_request_auth_state,
     request_source as _shared_request_source,
@@ -2605,6 +2606,10 @@ def _is_inactive_logged_out_api_request(request: Request) -> bool:
     return _shared_is_inactive_logged_out_api_request(request)
 
 
+def _is_logged_out_direct_api_request(request: Request) -> bool:
+    return _shared_is_logged_out_direct_api_request(request)
+
+
 def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | None:
     return _shared_api_prefetch_response(request, endpoint=endpoint, logger=logger)
 
@@ -2679,6 +2684,7 @@ def _request_attribution_fields(request: Request, *, priority: RoutePriority) ->
         "route_family": route_family,
         "host": _bounded_log_value(request.headers.get("host"), max_length=80),
         "user_agent_class": user_agent_class,
+        "user_agent": _bounded_log_value(user_agent, max_length=120),
         "user_agent_hash": _hash_user_agent(user_agent),
         "referer_host": referer_host,
         "referer_path": referer_path,
@@ -2691,6 +2697,11 @@ def _request_attribution_fields(request: Request, *, priority: RoutePriority) ->
         "sec_purpose": _safe_header_value(request, "sec-purpose", max_length=32),
         "middleware_prefetch": _safe_header_value(request, "x-middleware-prefetch", max_length=16),
         "next_router_prefetch": _safe_header_value(request, "next-router-prefetch", max_length=16),
+        "walnut_request_source": _safe_header_value(request, "x-walnut-request-source", max_length=32),
+        "accept": _safe_header_value(request, "accept", max_length=120),
+        "sec_fetch_site": _safe_header_value(request, "sec-fetch-site", max_length=32),
+        "sec_fetch_mode": _safe_header_value(request, "sec-fetch-mode", max_length=32),
+        "sec_fetch_dest": _safe_header_value(request, "sec-fetch-dest", max_length=32),
         "priority": priority.value,
     }
 
@@ -2709,7 +2720,7 @@ def _log_request_attribution(
         reason = "bot_prefetch"
     log_method = logger.info if reason in {"ok", "sampled"} else logger.warning
     log_method(
-        "request_attribution path=%s method=%s status=%s duration_ms=%.1f route_family=%s host=%s ua_class=%s ua_hash=%s referer_host=%s referer_path=%s auth_state=%s plan_tier=%s request_source=%s panel=%s page_route=%s purpose=%s sec_purpose=%s middleware_prefetch=%s next_router_prefetch=%s priority=%s db_checkout_count=%s db_checkout_slow_count=%s db_query_count=%s reason=%s",
+        "request_attribution path=%s method=%s status=%s duration_ms=%.1f route_family=%s host=%s ua_class=%s ua=%s ua_hash=%s referer_host=%s referer_path=%s auth_state=%s plan_tier=%s request_source=%s panel=%s page_route=%s purpose=%s sec_purpose=%s middleware_prefetch=%s next_router_prefetch=%s walnut_source=%s accept=%s sec_fetch_site=%s sec_fetch_mode=%s sec_fetch_dest=%s priority=%s db_checkout_count=%s db_checkout_slow_count=%s db_query_count=%s reason=%s",
         request.url.path,
         request.method,
         status_code,
@@ -2717,6 +2728,7 @@ def _log_request_attribution(
         fields["route_family"],
         fields["host"],
         fields["user_agent_class"],
+        fields["user_agent"],
         fields["user_agent_hash"],
         fields["referer_host"],
         fields["referer_path"],
@@ -2729,6 +2741,11 @@ def _log_request_attribution(
         fields["sec_purpose"],
         fields["middleware_prefetch"],
         fields["next_router_prefetch"],
+        fields["walnut_request_source"],
+        fields["accept"],
+        fields["sec_fetch_site"],
+        fields["sec_fetch_mode"],
+        fields["sec_fetch_dest"],
         fields["priority"],
         context.get("db_checkout_count", 0),
         context.get("db_checkout_slow_count", 0),
@@ -5554,6 +5571,69 @@ def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
     }
 
 
+def _ticker_context_bundle_lightweight_payload(symbol: str, *, retry_after: int = 60) -> dict[str, Any]:
+    payload = _ticker_context_bundle_bot_payload(symbol)
+    payload["status"] = "lightweight"
+    payload["retry_after"] = retry_after
+    signals_summary = payload.get("signals_summary")
+    if isinstance(signals_summary, dict):
+        signals_summary["status"] = "lightweight"
+        signals_summary["retry_after"] = retry_after
+    return payload
+
+
+def _is_direct_context_bundle_cached_only_request(request: Request) -> bool:
+    user_agent_class = _classify_user_agent(request)
+    source = _request_source(request, user_agent_class)
+    if source not in {"unknown", "direct_api", "monitor_probe"}:
+        return False
+    return _is_logged_out_direct_api_request(request)
+
+
+def _ticker_context_bundle_cached_or_lightweight_response(
+    request: Request,
+    db: Session,
+    *,
+    symbol: str,
+    side: str,
+    limit: int,
+    lookback_days: int,
+    reason: str,
+) -> Any:
+    started_at = perf_counter()
+    normalized_symbol = normalize_symbol(symbol) or symbol
+    cached = _ticker_context_bundle_cached_for_segment(
+        db,
+        symbol=symbol,
+        user_segment="logged_out",
+        side=side,
+        limit=limit,
+        lookback_days=lookback_days,
+        started_at=started_at,
+    )
+    if cached is not None:
+        logger.info(
+            "api_cached_only_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
+            normalized_symbol,
+            reason,
+            _request_source(request, _classify_user_agent(request)),
+            (perf_counter() - started_at) * 1000,
+        )
+        return cached
+    logger.info(
+        "api_lightweight_response endpoint=ticker_context_bundle symbol=%s reason=%s request_source=%s duration_ms=%.1f",
+        normalized_symbol,
+        reason,
+        _request_source(request, _classify_user_agent(request)),
+        (perf_counter() - started_at) * 1000,
+    )
+    return JSONResponse(
+        status_code=200,
+        content=_ticker_context_bundle_lightweight_payload(symbol),
+        headers={"Retry-After": "60", "Cache-Control": "private, no-store"},
+    )
+
+
 def _build_ticker_context_bundle(
     *,
     request: Request,
@@ -5801,25 +5881,25 @@ def ticker_context_bundle(
     if prefetch_response is not None:
         return prefetch_response
     if _is_inactive_logged_out_api_request(request):
-        started_at = perf_counter()
-        cached = _ticker_context_bundle_cached_for_segment(
+        return _ticker_context_bundle_cached_or_lightweight_response(
+            request,
             db,
             symbol=symbol,
-            user_segment="logged_out",
             side=side,
             limit=limit,
             lookback_days=lookback_days,
-            started_at=started_at,
+            reason="inactive_or_bot",
         )
-        if cached is not None:
-            logger.info(
-                "api_bot_cached_response endpoint=ticker_context_bundle symbol=%s duration_ms=%.1f",
-                normalize_symbol(symbol) or symbol,
-                (perf_counter() - started_at) * 1000,
-            )
-            return cached
-        logger.info("api_inactive_lightweight_response endpoint=ticker_context_bundle symbol=%s", normalize_symbol(symbol) or symbol)
-        return _ticker_context_bundle_bot_payload(symbol)
+    if _is_direct_context_bundle_cached_only_request(request):
+        return _ticker_context_bundle_cached_or_lightweight_response(
+            request,
+            db,
+            symbol=symbol,
+            side=side,
+            limit=limit,
+            lookback_days=lookback_days,
+            reason="logged_out_direct_api",
+        )
     return _build_ticker_context_bundle(
         request=request,
         symbol=symbol,

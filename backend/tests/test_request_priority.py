@@ -10,6 +10,7 @@ from app.main import (
     _log_request_attribution,
     _request_attribution_fields,
     _request_route_family,
+    _request_source,
     _sanitize_referer,
     _should_log_request_attribution,
 )
@@ -142,6 +143,38 @@ def test_request_attribution_route_family_fallbacks():
     assert _request_route_family("/api/market/quotes") == "market_quotes"
     assert _request_route_family("/api/insiders/0001/trades") == "insider"
     assert _request_route_family("/institution/0001067983") == "institution"
+
+
+def test_request_attribution_classifies_logged_out_direct_api():
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "accept": "application/json",
+            "user-agent": "Mozilla/5.0 Chrome/126",
+        },
+    )
+
+    fields = _request_attribution_fields(request, priority=RoutePriority.NORMAL)
+
+    assert _request_source(request, "browser") == "direct_api"
+    assert fields["request_source"] == "direct_api"
+    assert fields["referer_host"] == "none"
+    assert fields["user_agent_class"] == "browser"
+    assert fields["accept"] == "application/json"
+
+
+def test_request_attribution_keeps_browser_navigation_out_of_direct_api():
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "accept": "text/html,application/xhtml+xml",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-dest": "document",
+            "user-agent": "Mozilla/5.0 Chrome/126",
+        },
+    )
+
+    assert _request_source(request, "browser") == "unknown"
 
 
 def test_inactive_logged_out_ssr_requires_unknown_ua_no_referer_and_no_auth():

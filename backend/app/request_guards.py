@@ -72,14 +72,32 @@ def request_auth_state(request: Request) -> tuple[str, str]:
 
 def request_source(request: Request, user_agent_class: str) -> str:
     raw = bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32).lower()
-    if raw in {"ssr", "client", "client_fetch", "prefetch", "visibility", "idle", "bot_shell", "prefetch_204", "cron"}:
+    if raw in {
+        "ssr",
+        "client",
+        "client_fetch",
+        "prefetch",
+        "visibility",
+        "idle",
+        "bot_shell",
+        "prefetch_204",
+        "cron",
+        "direct_api",
+        "monitor_probe",
+    }:
         return "client" if raw == "client_fetch" else raw
+    if bounded_log_value(request.headers.get("x-walnut-monitor-probe"), max_length=16).lower() in {"1", "true", "yes", "monitor"}:
+        return "monitor_probe"
+    if "codex-prod-monitor" in bounded_log_value(request.headers.get("user-agent"), max_length=120).lower():
+        return "monitor_probe"
     if user_agent_class == "prefetch":
         return "prefetch"
     if user_agent_class in {"bot", "crawler"}:
         return "bot_shell"
     if request.headers.get("x-supercronic") or request.headers.get("x-walnut-cron"):
         return "cron"
+    if is_logged_out_direct_api_request(request):
+        return "direct_api"
     return "unknown"
 
 
@@ -124,6 +142,36 @@ def is_inactive_logged_out_ssr_request(request: Request) -> bool:
 
 def is_inactive_logged_out_api_request(request: Request) -> bool:
     return is_logged_out_bot_or_crawler_request(request) or is_inactive_logged_out_ssr_request(request)
+
+
+def _looks_like_browser_page_navigation(request: Request) -> bool:
+    accept = bounded_log_value(request.headers.get("accept"), max_length=160).lower()
+    sec_fetch_mode = bounded_log_value(request.headers.get("sec-fetch-mode"), max_length=32).lower()
+    sec_fetch_dest = bounded_log_value(request.headers.get("sec-fetch-dest"), max_length=32).lower()
+    if "text/html" in accept:
+        return True
+    return sec_fetch_mode == "navigate" or sec_fetch_dest in {"document", "iframe"}
+
+
+def is_logged_out_direct_api_request(request: Request) -> bool:
+    if not hasattr(request, "headers"):
+        return False
+    if getattr(getattr(request, "url", None), "path", "") and not request.url.path.startswith("/api/"):
+        return False
+    auth_state, _plan_tier = request_auth_state(request)
+    if auth_state != "logged_out":
+        return False
+    if sanitize_referer(request.headers.get("referer"))[0] != "none":
+        return False
+    if _looks_like_browser_page_navigation(request):
+        return False
+    raw_source = bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32).lower()
+    if raw_source in {"ssr", "client", "visibility", "idle"}:
+        return False
+    active_marker = bounded_log_value(request.headers.get("x-walnut-active-user"), max_length=16).lower()
+    if active_marker in {"1", "true", "yes", "browser"}:
+        return False
+    return True
 
 
 def api_prefetch_response(

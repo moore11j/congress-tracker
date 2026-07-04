@@ -3697,6 +3697,7 @@ export async function getTickerContextBundle(
     activeUser?: boolean;
     signal?: AbortSignal;
     source?: string;
+    requestSource?: "ssr" | "client" | "visibility";
   },
 ): Promise<TickerContextBundleResponse> {
   const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/context-bundle`, {
@@ -3712,6 +3713,9 @@ export async function getTickerContextBundle(
     next: { revalidate: 0 },
     signal: params?.signal,
     source: params?.source ?? "TickerContextBundle",
+    component: "context-bundle",
+    route: "/ticker/[symbol]",
+    requestSource: params?.requestSource ?? (typeof window === "undefined" ? "ssr" : "client"),
   });
 }
 

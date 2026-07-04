@@ -3233,6 +3233,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         authToken: authToken ?? undefined,
         activeUser: activeTickerSsrRequest,
         source: "TickerContextBundle",
+        requestSource: "ssr",
       })
         .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
         .catch((error) => {

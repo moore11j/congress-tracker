@@ -135,6 +135,35 @@ def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatc
     )
     monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
 
+    response = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+    payload = json.loads(response.body)
+
+    assert response.headers["retry-after"] == "60"
+    assert payload["symbol"] == "AAPL"
+    assert payload["status"] == "lightweight"
+    assert payload["signals_summary"]["items"] == []
+
+
+def test_ticker_context_bundle_unknown_direct_api_uses_cached_payload_without_rebuild(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {"accept": "application/json", "user-agent": "Mozilla/5.0 Chrome/126"},
+    )
+    cached_payload = {"symbol": "AAPL", "status": "ok", "signals_summary": {"status": "ok", "items": [{"id": "cached"}]}}
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("direct API must not build fresh context bundle")),
+    )
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: cached_payload)
+
     payload = main_module.ticker_context_bundle(
         request,
         "AAPL",
@@ -144,9 +173,96 @@ def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatc
         db=object(),
     )
 
+    assert payload is cached_payload
+
+
+def test_ticker_context_bundle_uncached_unknown_direct_api_uses_lightweight_payload(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {"accept": "application/json", "user-agent": "Mozilla/5.0 Chrome/126"},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("uncached direct API must not build fresh context bundle")),
+    )
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
+
+    response = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert response.headers["retry-after"] == "60"
     assert payload["symbol"] == "AAPL"
-    assert payload["status"] == "skipped"
+    assert payload["status"] == "lightweight"
+    assert payload["signals_summary"]["status"] == "lightweight"
     assert payload["signals_summary"]["items"] == []
+
+
+def test_ticker_context_bundle_normal_client_request_still_builds_full_payload(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "accept": "*/*",
+            "referer": "https://app.walnutmarkets.com/ticker/AAPL",
+            "x-walnut-request-source": "client",
+            "x-walnut-active-user": "browser",
+        },
+    )
+    built_payload = {"symbol": "AAPL", "status": "ok", "signals_summary": {"status": "ok", "items": []}}
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_context_bundle_cached_for_segment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("normal client should not take cached-only shortcut")),
+    )
+
+    payload = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload is built_payload
+
+
+def test_ticker_context_bundle_logged_in_request_still_builds_full_payload(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "accept": "application/json",
+            "cookie": "ct_session=session-token",
+            "x-walnut-request-source": "client",
+        },
+    )
+    built_payload = {"symbol": "AAPL", "status": "ok", "signals_summary": {"status": "ok", "items": []}}
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_context_bundle_cached_for_segment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("logged-in request should not take cached-only shortcut")),
+    )
+
+    payload = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload is built_payload
 
 
 def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(monkeypatch):
@@ -161,7 +277,7 @@ def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(m
     )
     monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
 
-    payload = main_module.ticker_context_bundle(
+    response = main_module.ticker_context_bundle(
         request,
         "AAPL",
         side="all",
@@ -169,9 +285,11 @@ def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(m
         lookback_days=30,
         db=object(),
     )
+    payload = json.loads(response.body)
 
+    assert response.headers["retry-after"] == "60"
     assert payload["symbol"] == "AAPL"
-    assert payload["status"] == "skipped"
+    assert payload["status"] == "lightweight"
     assert payload["signals_summary"]["items"] == []
 
 
