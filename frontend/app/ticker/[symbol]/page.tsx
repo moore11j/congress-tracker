@@ -2980,12 +2980,13 @@ async function DeferredTickerContent({
                     <ActivityScrollRegion>
                       {congressEvents.map((event) => {
                         const memberName = event.member_name ?? "Unknown";
-                        const memberLink = event.member_bioguide_id
-                          ? memberHref({ name: memberName, memberId: event.member_bioguide_id })
+                        const memberLink = memberName.trim() && memberName !== "Unknown"
+                          ? memberHref({ name: memberName, memberId: event.member_bioguide_id ?? undefined })
                           : null;
                         const chamber = chamberBadge(resolveCongressChamber(event));
                         const affiliation = formatCongressAffiliationText(resolveCongressParty(event), resolveCongressState(event));
                         const signal = resolveSmartSignalValue(event as Record<string, unknown>);
+                        const strengthLabel = formatSignalStrengthText(signal.band);
                         const displayPrice = resolveCongressTradePrice(event);
                         const pnl = readNumeric(event.pnl_pct);
 
@@ -3003,10 +3004,11 @@ async function DeferredTickerContent({
                                   )}
                                   <Badge tone={chamber.tone} className="px-2 py-0.5 text-[10px]">{chamber.label}</Badge>
                                   {affiliation ? <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{affiliation}</span> : null}
+                                  <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
                                 </div>
                               }
                               sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                              dateLabel={<>Filed {formatDateShort(resolveCongressReportDate(event))}</>}
+                              dateLabel={formatDateShort(resolveCongressReportDate(event))}
                               price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
                               tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                               pnl={pnl !== null ? formatPnl(pnl) : "-"}
@@ -3064,6 +3066,7 @@ async function DeferredTickerContent({
                         const insiderRoleRaw = display.role ?? resolveInsiderRole(event);
                         const insiderRoleBadge = resolveInsiderRoleBadge(insiderRoleRaw);
                         const insiderRoleTone = insiderRoleBadgeTone(insiderRoleBadge);
+                        const strengthLabel = formatSignalStrengthText(display.signal.band);
 
                         return (
                         <ActivityCard key={event.id}>
@@ -3078,10 +3081,11 @@ async function DeferredTickerContent({
                                   <span className="text-sm font-semibold text-slate-100">{display.insiderName}</span>
                                 )}
                                 <Badge tone={insiderRoleTone} className="px-2 py-0.5 text-[10px]">{insiderRoleBadge}</Badge>
+                                <span className="text-xs font-medium text-slate-400">{"\u00b7 "}{strengthLabel}</span>
                               </div>
                             }
                             sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                            dateLabel={<>Reported {formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}</>}
+                            dateLabel={formatDateShort(display.filingDate ?? resolveInsiderFilingDate(event))}
                             price={formatActivityPrice(display.displayPrice)}
                             tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                             pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}

@@ -85,10 +85,19 @@ test("ticker trade activity grids disclose price without gain loss and preserve 
   assert.match(page, /price=\{displayPrice !== null \? formatCurrency\(displayPrice\) : "-"\}/);
   assert.match(page, /price=\{formatActivityPrice\(display\.displayPrice\)\}/);
   assert.match(page, /showGainLoss=\{false\}/);
+  assert.match(page, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \?\? undefined \}\)/);
+  assert.match(page, /const strengthLabel = formatSignalStrengthText\(signal\.band\)/);
+  assert.match(page, /const strengthLabel = formatSignalStrengthText\(display\.signal\.band\)/);
+  assert.match(page, /dateLabel=\{formatDateShort\(resolveCongressReportDate\(event\)\)\}/);
+  assert.match(page, /dateLabel=\{formatDateShort\(display\.filingDate \?\? resolveInsiderFilingDate\(event\)\)\}/);
 
   assert.match(detailClient, /import \{ resolveCongressActivityPrice, resolveInsiderActivityDisplay \} from "@\/lib\/tradeDisplay"/);
   assert.match(detailClient, /resolveCongressActivityPrice\(event as Record<string, unknown>\)/);
   assert.match(detailClient, /price=\{formatPrice\(price\)\}/);
+  assert.match(detailClient, /SmartSignalPill score=\{smartSignal\.score\}/);
+  assert.match(detailClient, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \}\)/);
+  assert.match(detailClient, /formatSignalStrengthText\(signal\.band\)/);
+  assert.match(detailClient, /formatSignalStrengthText\(display\.signal\.band\)/);
   assert.match(tradeDisplay, /"trade_price", "tradePrice", "reported_price", "reportedPrice"/);
 
   assert.match(signalClient, /SmartSignalPill score=\{signal\.smart_score \?\? null\}/);
