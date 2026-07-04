@@ -91,6 +91,32 @@ k6 run load_tests/k6/walnut_capacity_smoke.js
 Production smoke supports up to `10` VUs only. Tests at `25` VUs or higher require the staged profile and explicit separate approval.
 Never run a staged profile against production without explicit approval for that exact profile, target, duration, stop plan, and monitoring window.
 
+## Watched Production Wrapper
+
+Use `run_watched_production_smoke.ps1` for watched production runs. The wrapper:
+
+- captures `test_start_utc` immediately before k6 starts
+- starts Docker k6 with a predictable container name, `walnut-k6-smoke`
+- filters Fly log records by timestamp and ignores pre-run backlog
+- stops k6 with `docker stop walnut-k6-smoke` when an in-test stop condition appears
+- verifies no `grafana/k6` container remains after stop
+- always runs post-test core route probes
+- always confirms the institutional scheduler remains disabled
+
+Dry-run validation, no load:
+
+```powershell
+.\load_tests\run_watched_production_smoke.ps1 -Mode staged -TestProfile small -ApproveProduction -DryRun
+```
+
+Separately approved 25-VU production staged smoke:
+
+```powershell
+.\load_tests\run_watched_production_smoke.ps1 -Mode staged -TestProfile small -ApproveProduction
+```
+
+Do not run the staged production command without explicit approval for that exact run.
+
 ## Staged Profiles
 
 Run staged profiles against staging first. Production staged profiles require explicit separate approval; do not infer approval from a passed smoke test.
