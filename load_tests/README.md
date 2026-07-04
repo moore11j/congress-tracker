@@ -73,6 +73,7 @@ The smoke profile defaults to:
 - `SMOKE_VUS=3`
 - `SMOKE_DURATION=90s`
 - Bot/prefetch guard: `1` VU for `30s`
+- `SMOKE_VUS` is capped at `10`
 
 ## Production Smoke Only With Explicit Approval
 
@@ -83,15 +84,16 @@ $env:BASE_URL="https://app.walnutmarkets.com"
 $env:API_BASE_URL="https://congress-tracker-api.fly.dev"
 $env:ALLOW_PRODUCTION_LOAD_TEST="true"
 $env:SMOKE_VUS="3"
-$env:SMOKE_DURATION="60s"
+$env:SMOKE_DURATION="90s"
 k6 run load_tests/k6/walnut_capacity_smoke.js
 ```
 
-Production smoke should stay in the `1-5` VU range unless a separate test plan is approved.
+Production smoke supports up to `10` VUs only. Tests at `25` VUs or higher require the staged profile and explicit separate approval.
+Never run a staged profile against production without explicit approval for that exact profile, target, duration, stop plan, and monitoring window.
 
 ## Staged Profiles
 
-Run staged profiles against staging first.
+Run staged profiles against staging first. Production staged profiles require explicit separate approval; do not infer approval from a passed smoke test.
 
 ```powershell
 $env:BASE_URL="https://staging.example.com"
@@ -102,7 +104,7 @@ k6 run load_tests/k6/walnut_capacity_stages.js
 
 Profiles:
 
-- `small`: ramps to 25 VUs. Staging first.
+- `small`: ramps to 25 VUs. Staging first; production only with explicit separate approval.
 - `medium`: ramps to 100 VUs. Staging only until small is clean.
 - `large`: ramps to 250 VUs. Staging only unless separately approved.
 - `target`: ramps to 1,000 VUs. Config exists for planning; do not run without a dedicated environment and approval.
@@ -252,8 +254,8 @@ Stop the test immediately if any of these occur:
 
 1. Staging `small` profile: 25 VUs.
 2. Staging `medium` profile: 100 VUs.
-3. Watched production smoke only: 1-5 VUs for 60-90 seconds.
-4. Revisit route timings and logs before any larger production test.
+3. Watched production smoke only: 1-10 VUs for 60-90 seconds.
+4. Revisit route timings and logs before any staged production test.
 
 Likely first bottlenecks to watch:
 

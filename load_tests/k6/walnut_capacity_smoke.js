@@ -8,7 +8,7 @@ const BASE_URL = normalizeBaseUrl(__ENV.BASE_URL || DEFAULT_BASE_URL);
 const API_BASE_URL = normalizeBaseUrl(DEFAULT_API_BASE_URL);
 const ALLOW_PRODUCTION = (__ENV.ALLOW_PRODUCTION_LOAD_TEST || "").toLowerCase() === "true";
 const USER_STATE = __ENV.AUTH_TOKEN || __ENV.SESSION_COOKIE ? "authenticated" : "public";
-const SMOKE_VUS = clampInt(__ENV.SMOKE_VUS, 1, 5, 3);
+const SMOKE_VUS = clampInt(__ENV.SMOKE_VUS, 1, 10, 3);
 const SMOKE_DURATION = __ENV.SMOKE_DURATION || "90s";
 
 guardProductionTarget(BASE_URL);
