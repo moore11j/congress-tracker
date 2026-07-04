@@ -1438,6 +1438,31 @@ class TickerContentCache(Base):
     )
 
 
+class TickerContextBundleCache(Base):
+    __tablename__ = "ticker_context_bundle_cache"
+    __table_args__ = (
+        Index("ix_ticker_context_bundle_symbol", "symbol"),
+        Index("ix_ticker_context_bundle_expires_at", "expires_at"),
+    )
+
+    cache_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    user_segment: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    stale_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class InsightsSnapshot(Base):
     __tablename__ = "insights_snapshots"
     __table_args__ = (

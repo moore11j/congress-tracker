@@ -155,7 +155,10 @@ test("ticker server context relies on cookie-backed auth state without client to
   assert.doesNotMatch(accountNav, /syncServerAuthSession|localStorage\.getItem|router\.refresh/);
   assert.doesNotMatch(api, /syncServerAuthSession|response\.token|headers\.set\("Authorization"/);
   assert.match(tickerPage, /const authToken = authState\.token/);
-  assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
+  assert.match(tickerPage, /authToken: authToken \?\? undefined/);
+  assert.match(tickerPage, /contextBundle\?\.signals_summary\s*\?\s*Promise\.resolve\(contextBundle\.signals_summary\)/);
+  assert.match(tickerPage, /:\s*getTickerSignalsSummary\(normalizedSymbol/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
 });
 
@@ -169,7 +172,9 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(tickerPage, /function tickerContextSourceEntitlements/);
   assert.match(tickerPage, /function displaySourceEntitlementsForTickerContext/);
   assert.match(tickerPage, /function displayConfirmationBundleForEntitlements/);
-  assert.match(tickerPage, /const signalSummaryRequest =\s*getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
+  assert.match(tickerPage, /contextBundle\?\.signals_summary\s*\?\s*Promise\.resolve\(contextBundle\.signals_summary\)/);
+  assert.match(tickerPage, /:\s*getTickerSignalsSummary\(normalizedSymbol/);
   assert.doesNotMatch(tickerPage, /const signalSummaryRequest =\s*authToken\s*\?/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
   assert.match(tickerPage, /sourceEntitlements: signalsRes\.source_entitlements \?\? null/);

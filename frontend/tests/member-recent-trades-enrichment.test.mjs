@@ -7,6 +7,10 @@ const memberPageSource = fs.readFileSync(
   path.join(process.cwd(), "app", "member", "[slug]", "page.tsx"),
   "utf8",
 );
+const memberAnalyticsSource = fs.readFileSync(
+  path.join(process.cwd(), "components", "member", "MemberAnalyticsClient.tsx"),
+  "utf8",
+);
 const feedCardSource = fs.readFileSync(
   path.join(process.cwd(), "components", "feed", "FeedCard.tsx"),
   "utf8",
@@ -17,11 +21,12 @@ const typesSource = fs.readFileSync(
 );
 
 test("member recent trades pass outcome enrichment through to feed cards", () => {
-  assert.match(memberPageSource, /estimated_price: trade\.estimated_price \?\? null/);
-  assert.match(memberPageSource, /estimated_shares: trade\.estimated_shares \?\? null/);
-  assert.match(memberPageSource, /current_price: trade\.current_price \?\? null/);
-  assert.match(memberPageSource, /outcome_status: trade\.outcome_status \?\? null/);
-  assert.match(memberPageSource, /outcome_skip_reason: trade\.outcome_skip_reason \?\? null/);
+  assert.match(memberPageSource, /initialTrades=\{initialTrades\}/);
+  assert.match(memberAnalyticsSource, /useState<MemberTradesResponse>\(\(\) => initialTrades \?\? tradesFallback/);
+  assert.match(memberAnalyticsSource, /trade\.estimated_price != null/);
+  assert.match(memberAnalyticsSource, /trade\.current_price != null/);
+  assert.match(memberAnalyticsSource, /tone\(trade\.pnl_pct\)/);
+  assert.match(memberAnalyticsSource, /trade\.pnl_source/);
 });
 
 test("feed cards render compact estimated shares and explicit missing pnl state", () => {

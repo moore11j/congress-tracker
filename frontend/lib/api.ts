@@ -3656,6 +3656,59 @@ export type TickerSignalsSummaryResponse = {
   signal_freshness?: SignalFreshnessBundle | null;
 };
 
+export type TickerContextBundleResponse = TickerProfile & {
+  symbol: string;
+  bundle_version?: number;
+  generated_at?: string | null;
+  identity?: {
+    symbol?: string | null;
+    company_name?: string | null;
+    exchange?: string | null;
+    sector?: string | null;
+    industry?: string | null;
+    country?: string | null;
+    market_cap?: number | null;
+  } | null;
+  quote?: {
+    current_price?: number | null;
+    change?: number | null;
+    change_percent?: number | null;
+    volume?: number | null;
+    avg_volume?: number | null;
+    market_cap?: number | null;
+    as_of?: string | null;
+    stale?: boolean;
+  } | null;
+  source_entitlements?: TickerSourceEntitlements | null;
+  source_cards?: Record<string, unknown> | null;
+  signals_summary: TickerSignalsSummaryResponse;
+};
+
+export async function getTickerContextBundle(
+  symbol: string,
+  params?: {
+    side?: string;
+    limit?: number;
+    lookback_days?: number;
+    authToken?: string;
+    signal?: AbortSignal;
+    source?: string;
+  },
+): Promise<TickerContextBundleResponse> {
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/context-bundle`, {
+    side: params?.side ?? "all",
+    limit: params?.limit ?? 3,
+    lookback_days: params?.lookback_days,
+  });
+  return fetchJson<TickerContextBundleResponse>(url, {
+    headers: authHeaders(params?.authToken),
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+    source: params?.source ?? "TickerContextBundle",
+  });
+}
+
 export async function getSignalsAll(params: {
   mode?: SignalMode;
   side?: string;

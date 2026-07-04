@@ -10,7 +10,8 @@ const screenerPage = read("app/screener/page.tsx");
 const exportButton = read("components/screener/ScreenerExportButton.tsx");
 
 test("screener CSV export lock copy uses the configured required plan label", () => {
-  assert.match(screenerPage, /getPlanConfig\(\)\.catch\(\(\) => defaultPlanConfig\)/);
+  assert.match(screenerPage, /getPlanConfig\(\)/);
+  assert.match(screenerPage, /\.catch\(\(\) => defaultPlanConfig\)/);
   assert.match(screenerPage, /csvExportRequiredPlanLabel\(planConfig, screenerPayload\.data\)/);
   assert.match(screenerPage, /lockedReason=\{csvExportLockedReason\}/);
   assert.match(screenerPage, /requiredPlanLabel=\{csvExportPlanLabel\}/);

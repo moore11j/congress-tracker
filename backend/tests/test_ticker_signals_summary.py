@@ -15,7 +15,7 @@ import app.services.confirmation_score as confirmation_score_module
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
-from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerMeta
+from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerContextBundleCache, TickerMeta
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts, slim_confirmation_score_bundle
 
@@ -1088,6 +1088,206 @@ def test_ticker_signals_summary_free_redacts_signals_and_pro_sources_but_keeps_p
     assert "institutional_activity" not in bundle["active_sources"]
     assert response["source_entitlements"]["signals"]["lock_state"] == "premium_locked"
     assert response["source_entitlements"]["options_flow"]["lock_state"] == "pro_locked"
+
+
+def _mock_ticker_context_bundle_dependencies(monkeypatch, *, tier: str = "premium") -> dict[str, int]:
+    counters = {"profile": 0, "signals": 0}
+    _mock_signal_auth(monkeypatch, tier=tier)
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_profile_response",
+        lambda symbol, db: counters.__setitem__("profile", counters["profile"] + 1) or {
+            "status": "ok",
+            "ticker": {
+                "symbol": symbol,
+                "name": "Apple Inc.",
+                "asset_class": "STOCK",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "country": "US",
+                "exchange": "NASDAQ",
+                "market_cap": 3_000_000_000_000,
+                "volume": 50_000_000,
+                "avg_volume": 55_000_000,
+            },
+            "top_members": [],
+            "trades": [],
+            "confirmation_score_bundle": None,
+            "options_flow_summary": None,
+            "why_now": None,
+            "signal_freshness": None,
+            "technical_indicators": None,
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_current_prices_meta_db",
+        lambda db, symbols, **kwargs: {
+            "AAPL": {
+                "symbol": "AAPL",
+                "price": 308.63,
+                "change": 14.25,
+                "change_percent": 4.84,
+                "volume": 51_000_000,
+                "asof_ts": datetime(2026, 7, 2, 20, 0, tzinfo=timezone.utc),
+                "is_stale": False,
+            }
+        },
+    )
+
+    def fake_query(**kwargs):
+        counters["signals"] += 1
+        return [
+            {
+                "kind": "congress",
+                "event_id": 99,
+                "ts": "2026-07-01T12:00:00Z",
+                "symbol": kwargs["symbol"],
+                "who": "Nancy Pelosi",
+                "trade_type": "purchase",
+                "amount_min": 100_000,
+                "amount_max": 250_000,
+                "smart_score": 88,
+                "smart_band": "exceptional",
+            }
+        ]
+
+    monkeypatch.setattr(main_module, "_query_unified_signals", fake_query)
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: _public_summary_context(symbol) | {
+            "signals": {
+                "status": "active" if kwargs.get("signal_rows") else "inactive",
+                "direction": "bullish" if kwargs.get("signal_rows") else "neutral",
+                "title": "Signal conviction active" if kwargs.get("signal_rows") else "No active signal stack",
+                "subtitle": "1 recent signal." if kwargs.get("signal_rows") else "No qualifying signal entries found.",
+                "recent_count": len(kwargs.get("signal_rows") or []),
+                "latest_score": kwargs.get("latest_signal_score"),
+                "latest_date": "2026-07-01T12:00:00Z" if kwargs.get("signal_rows") else None,
+                "freshness_days": 1 if kwargs.get("signal_rows") else None,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {
+            "confirmation_score_bundle": _full_source_confirmation_bundle(symbol),
+            "options_flow_summary": {
+                "ticker": symbol,
+                "lookback_days": 30,
+                "state": "bullish",
+                "label": "Options flow active",
+                "is_active": True,
+                "confidence": "moderate",
+                "freshness_days": 1,
+                "summary": "Options flow active.",
+                "signals": ["Options flow active"],
+                "metrics": {
+                    "put_call_premium_ratio": 0.8,
+                    "net_premium_skew": 100_000,
+                    "freshness_days": 1,
+                },
+                "can_confirm": True,
+                "provider": "test",
+            },
+            "institutional_activity_summary": {"status": "ok", "active": True},
+        },
+    )
+    return counters
+
+
+def test_ticker_context_bundle_uses_segment_entitlements_and_canonical_context(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        _mock_ticker_context_bundle_dependencies(monkeypatch, tier="premium")
+        premium = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="aapl",
+            side="all",
+            limit=3,
+            lookback_days=365,
+            db=db,
+        )
+        assert premium["symbol"] == "AAPL"
+        assert premium["ticker"]["name"] == "Apple Inc."
+        assert premium["quote"]["current_price"] == 308.63
+        assert premium["source_entitlements"]["signals"]["locked"] is False
+    assert premium["source_entitlements"]["institutional_activity"]["locked"] is True
+    assert premium["confirmation_score_bundle"]["sources"]["institutional_activity"]["locked"] is True
+    assert premium["signals_summary"]["items"][0]["smart_score"] == 88
+    serialized = json.dumps(premium).lower()
+    assert '"provider"' not in serialized
+    assert '"vendor"' not in serialized
+    assert '"cache"' not in serialized
+
+    with Session(engine) as db:
+        _mock_ticker_context_bundle_dependencies(monkeypatch, tier="admin")
+        admin = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="aapl",
+            side="all",
+            limit=3,
+            lookback_days=365,
+            db=db,
+        )
+        assert admin["source_entitlements"]["signals"]["locked"] is False
+        assert admin["source_entitlements"]["institutional_activity"]["locked"] is False
+        assert admin["confirmation_score_bundle"]["sources"]["institutional_activity"].get("locked") is not True
+
+
+def test_ticker_context_bundle_cache_hit_avoids_rebuild(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        counters = _mock_ticker_context_bundle_dependencies(monkeypatch, tier="premium")
+        first = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="all",
+            limit=3,
+            lookback_days=30,
+            db=db,
+        )
+        second = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="all",
+            limit=3,
+            lookback_days=30,
+            db=db,
+        )
+        cache_rows = db.query(TickerContextBundleCache).all()
+
+    assert first["symbol"] == "AAPL"
+    assert second["symbol"] == "AAPL"
+    assert counters["profile"] == 1
+    assert counters["signals"] == 1
+    assert len(cache_rows) == 1
+
+
+def test_ticker_context_bundle_free_does_not_query_premium_signals(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        _mock_ticker_context_bundle_dependencies(monkeypatch, tier="free")
+        monkeypatch.setattr(
+            main_module,
+            "_query_unified_signals",
+            lambda **kwargs: (_ for _ in ()).throw(AssertionError("free bundle must not query premium signal rows")),
+        )
+        response = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="all",
+            limit=3,
+            lookback_days=30,
+            db=db,
+        )
+
+    assert response["signals_summary"]["items"] == []
+    assert response["source_entitlements"]["signals"]["locked"] is True
+    assert response["source_entitlements"]["institutional_activity"]["locked"] is True
+    assert response["confirmation_score_bundle"]["sources"]["signals"]["locked"] is True
 
 
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):

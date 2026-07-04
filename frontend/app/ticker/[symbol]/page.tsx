@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -82,6 +82,7 @@ function normalizeUpperCardWindowCopy(value: string | null | undefined, days: nu
 }
 
 type TickerProfileResponse = Awaited<ReturnType<typeof getTickerProfile>>;
+type TickerContextBundle = TickerContextBundleResponse;
 type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
 type ActivityPageMeta = {
   page: number;
@@ -3143,26 +3144,45 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
 
-  const profileResult = await getTickerProfile(normalizedSymbol, { source: "TickerProfile" })
-    .then((profile) => ({ profile, fallbackMessage: null as string | null }))
+  const contextBundleResult = await getTickerContextBundle(normalizedSymbol, {
+    side,
+    limit: 3,
+    lookback_days: lookbackDays,
+    authToken: authToken ?? undefined,
+    source: "TickerContextBundle",
+  })
+    .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
     .catch((error) => {
-      if (error instanceof ApiError && error.status === 404) return { profile: null, fallbackMessage: null };
+      if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
       if (isRecoverableTickerProfileError(error)) {
-        console.error("[ticker-profile] shell fallback", {
+        console.error("[ticker-context-bundle] shell fallback", {
           symbol: normalizedSymbol,
           status: error instanceof ApiError ? error.status : null,
           name: error instanceof Error ? error.name : "unknown",
         });
-        return {
-          profile: fallbackTickerProfile(normalizedSymbol),
-          fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
-        };
+        return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback" })
+          .then((profile) => ({
+            bundle: null as TickerContextBundle | null,
+            profile,
+            fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+          }))
+          .catch((profileError) => {
+            if (profileError instanceof ApiError && profileError.status === 404) {
+              return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+            }
+            return {
+              bundle: null as TickerContextBundle | null,
+              profile: fallbackTickerProfile(normalizedSymbol),
+              fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+            };
+          });
       }
       throw error;
     });
-  const profile = profileResult.profile;
+  const profile = contextBundleResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
-  const shellFallbackMessage = profileResult.fallbackMessage;
+  const contextBundle = contextBundleResult.bundle;
+  const shellFallbackMessage = contextBundleResult.fallbackMessage;
 
   const shouldLoadSignals = source === "all" || source === "signals";
   const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
@@ -3253,14 +3273,15 @@ export default async function TickerPage({ params, searchParams }: Props) {
       ...((congressActivity?.items ?? []) as EventsResponse["items"]),
       ...((insiderActivity?.items ?? []) as EventsResponse["items"]),
     ];
-    const signalSummaryRequest =
-      getTickerSignalsSummary(normalizedSymbol, {
-        side,
-        limit: 3,
-        lookback_days: lookbackDays,
-        authToken: authToken ?? undefined,
-        source: "TickerSignalsSummary",
-      });
+    const signalSummaryRequest = contextBundle?.signals_summary
+      ? Promise.resolve(contextBundle.signals_summary)
+      : getTickerSignalsSummary(normalizedSymbol, {
+          side,
+          limit: 3,
+          lookback_days: lookbackDays,
+          authToken: authToken ?? undefined,
+          source: "TickerSignalsSummary",
+        });
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve({
         ...emptyEventsResponse(),

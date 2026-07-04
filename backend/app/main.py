@@ -105,6 +105,7 @@ from app.models import (
     Security,
     DataEnrichmentJob,
     TickerContentCache,
+    TickerContextBundleCache,
     TickerFinancialsCache,
     TickerMeta,
     TradeOutcome,
@@ -5094,6 +5095,415 @@ def market_quotes(symbols: str | None = Query(None), db: Session = Depends(get_d
 @app.get("/api/tickers/{symbol}")
 def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     return _ticker_profile_response(symbol, db)
+
+
+_TICKER_CONTEXT_BUNDLE_VERSION = 1
+
+
+def _ticker_context_bundle_cache_ttl_seconds() -> int:
+    try:
+        return max(30, min(int(os.getenv("TICKER_CONTEXT_BUNDLE_TTL_SECONDS", "180") or 180), 600))
+    except ValueError:
+        return 180
+
+
+def _ticker_context_bundle_stale_ttl_seconds() -> int:
+    try:
+        return max(60, min(int(os.getenv("TICKER_CONTEXT_BUNDLE_STALE_TTL_SECONDS", "600") or 600), 1800))
+    except ValueError:
+        return 600
+
+
+def _ticker_context_bundle_segment(
+    *,
+    entitlements: Any,
+    authenticated: bool,
+    user: Any,
+) -> str:
+    tier = str(getattr(entitlements, "tier", "") or "").strip().lower()
+    if tier == "admin" or getattr(user, "role", None) == "admin":
+        return "admin"
+    rank = _ticker_context_tier_rank(entitlements)
+    if rank >= 20:
+        return "pro"
+    if rank >= 10 or _ticker_context_has_feature(entitlements, "signals"):
+        return "premium"
+    return "free" if authenticated else "logged_out"
+
+
+def _ticker_context_bundle_cache_key(
+    symbol: str,
+    *,
+    user_segment: str,
+    side: str,
+    limit: int,
+    lookback_days: int,
+) -> str:
+    return (
+        f"ticker-context-bundle:v{_TICKER_CONTEXT_BUNDLE_VERSION}:"
+        f"{symbol}:{lookback_days}:{side}:{limit}:{user_segment}"
+    )
+
+
+def _ticker_context_bundle_cache_get(
+    db: Session,
+    cache_key: str,
+    *,
+    symbol: str,
+    user_segment: str,
+    started_at: float,
+) -> dict[str, Any] | None:
+    try:
+        row = db.get(TickerContextBundleCache, cache_key)
+    except Exception:
+        db.rollback()
+        logger.debug("ticker_bundle_cache_lookup_failed symbol=%s user_segment=%s", symbol, user_segment, exc_info=True)
+        return None
+    if row is None:
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s", symbol, user_segment)
+        return None
+
+    now = datetime.now(timezone.utc)
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=expired", symbol, user_segment)
+        return None
+    try:
+        payload = json.loads(row.payload_json)
+    except Exception:
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=invalid_payload", symbol, user_segment)
+        return None
+    if not isinstance(payload, dict):
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=non_object_payload", symbol, user_segment)
+        return None
+
+    stale_after = row.stale_after
+    if stale_after.tzinfo is None:
+        stale_after = stale_after.replace(tzinfo=timezone.utc)
+    stale = stale_after <= now
+    logger.info(
+        "ticker_bundle_cache_%s symbol=%s user_segment=%s duration_ms=%.1f",
+        "stale_hit" if stale else "hit",
+        symbol,
+        user_segment,
+        (perf_counter() - started_at) * 1000,
+    )
+    return payload
+
+
+def _ticker_context_bundle_cache_set(
+    db: Session,
+    cache_key: str,
+    *,
+    symbol: str,
+    user_segment: str,
+    payload: dict[str, Any],
+) -> None:
+    now = datetime.now(timezone.utc)
+    ttl = _ticker_context_bundle_cache_ttl_seconds()
+    stale_ttl = _ticker_context_bundle_stale_ttl_seconds()
+    stale_after = now + timedelta(seconds=ttl)
+    expires_at = now + timedelta(seconds=max(ttl, stale_ttl))
+    try:
+        row = db.get(TickerContextBundleCache, cache_key)
+        payload_json = json.dumps(payload, default=str, separators=(",", ":"))
+        if row is None:
+            row = TickerContextBundleCache(
+                cache_key=cache_key,
+                symbol=symbol,
+                user_segment=user_segment,
+                payload_json=payload_json,
+                generated_at=now,
+                stale_after=stale_after,
+                expires_at=expires_at,
+            )
+            db.add(row)
+        else:
+            row.symbol = symbol
+            row.user_segment = user_segment
+            row.payload_json = payload_json
+            row.generated_at = now
+            row.stale_after = stale_after
+            row.expires_at = expires_at
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.debug("ticker_bundle_cache_write_failed symbol=%s user_segment=%s", symbol, user_segment, exc_info=True)
+
+
+def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[str, Any]) -> dict[str, Any]:
+    quote_rows = get_current_prices_meta_db(
+        db,
+        [symbol],
+        allow_cache_write=True,
+        lane="ticker_context_bundle_quote",
+        allow_live_user_fetch=True,
+        stale_while_revalidate=True,
+        coalesce_wait_seconds=0.5,
+        force_quote_endpoint=True,
+    )
+    quote = quote_rows.get(symbol) if isinstance(quote_rows, dict) else None
+    current_price = None
+    change = None
+    change_percent = None
+    as_of = None
+    stale = False
+    if isinstance(quote, dict):
+        try:
+            current_price = float(quote["price"]) if quote.get("price") is not None else None
+        except (TypeError, ValueError):
+            current_price = None
+        try:
+            change = float(quote["change"]) if quote.get("change") is not None else None
+        except (TypeError, ValueError):
+            change = None
+        try:
+            change_percent = float(quote["change_percent"]) if quote.get("change_percent") is not None else None
+        except (TypeError, ValueError):
+            change_percent = None
+        raw_as_of = quote.get("asof_ts") or quote.get("cached_at")
+        as_of = _dt_iso(raw_as_of)
+        stale = bool(quote.get("is_stale"))
+    if current_price is None:
+        current_price = _parse_numeric(profile_ticker.get("current_price") or profile_ticker.get("price"))
+        as_of = _dt_iso(profile_ticker.get("quote_as_of"))
+    return {
+        "current_price": current_price,
+        "change": change,
+        "change_percent": change_percent,
+        "volume": _parse_numeric((quote or {}).get("volume") if isinstance(quote, dict) else None)
+        or _parse_numeric(profile_ticker.get("volume")),
+        "avg_volume": _parse_numeric(profile_ticker.get("avg_volume")),
+        "market_cap": _parse_numeric((quote or {}).get("market_cap") if isinstance(quote, dict) else None)
+        or _parse_numeric(profile_ticker.get("market_cap")),
+        "as_of": as_of,
+        "stale": stale,
+    }
+
+
+def _ticker_context_bundle_public_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        hidden_keys = {"provider", "source_provider", "vendor", "cache", "cache_key", "cache_status"}
+        return {
+            key: _ticker_context_bundle_public_payload(item)
+            for key, item in value.items()
+            if str(key).lower() not in hidden_keys
+        }
+    if isinstance(value, list):
+        return [_ticker_context_bundle_public_payload(item) for item in value]
+    return value
+
+
+def _build_ticker_context_bundle(
+    *,
+    request: Request,
+    symbol: str,
+    side: str,
+    limit: int,
+    lookback_days: int,
+    db: Session,
+) -> dict[str, Any]:
+    started_at = perf_counter()
+    user = current_user(db, request, required=False)
+    is_authenticated = user is not None
+    entitlements = current_entitlements(request, db) if is_authenticated else None
+    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=is_authenticated)
+    user_segment = _ticker_context_bundle_segment(
+        entitlements=entitlements,
+        authenticated=is_authenticated,
+        user=user,
+    )
+    can_view_signal_details = not bool(source_entitlements["signals"]["locked"])
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+
+    bounded_limit = max(1, min(int(limit or 3), 3))
+    requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
+    effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
+    cache_key = _ticker_context_bundle_cache_key(
+        normalized_symbol,
+        user_segment=user_segment,
+        side=side,
+        limit=bounded_limit,
+        lookback_days=requested_lookback_days,
+    )
+    cached = _ticker_context_bundle_cache_get(
+        db,
+        cache_key,
+        symbol=normalized_symbol,
+        user_segment=user_segment,
+        started_at=started_at,
+    )
+    if cached is not None:
+        return cached
+
+    build_started_at = perf_counter()
+    profile_payload = _ticker_profile_response(normalized_symbol, db)
+    profile_ticker = profile_payload.get("ticker") if isinstance(profile_payload.get("ticker"), dict) else {}
+    quote = _ticker_context_bundle_quote(db, normalized_symbol, profile_ticker)
+
+    rows: list[dict[str, Any]] = []
+    if can_view_signal_details:
+        items = _query_unified_signals(
+            db=db,
+            mode="all",
+            sort="smart",
+            limit=bounded_limit,
+            offset=0,
+            baseline_days=365,
+            congress_recent_days=effective_window_days,
+            insider_recent_days=effective_window_days,
+            congress_min_baseline_count=CONGRESS_SIGNAL_DEFAULTS["min_baseline_count"],
+            insider_min_baseline_count=INSIDER_DEFAULTS["min_baseline_count"],
+            congress_multiple=CONGRESS_SIGNAL_DEFAULTS["multiple"],
+            insider_multiple=INSIDER_DEFAULTS["multiple"],
+            congress_min_amount=CONGRESS_SIGNAL_DEFAULTS["min_amount"],
+            insider_min_amount=INSIDER_DEFAULTS["min_amount"],
+            min_smart_score=None,
+            side=side,
+            symbol=normalized_symbol,
+        )
+        rows = [_public_signal_row(item) for item in items[:bounded_limit]]
+
+    latest_score = next(
+        (
+            row.get("smart_score")
+            for row in sorted(rows, key=lambda row: str(row.get("ts") or ""), reverse=True)
+            if isinstance(row.get("smart_score"), (int, float))
+        ),
+        None,
+    )
+    source_contexts = build_ticker_signals_summary_contexts_from_cache(
+        normalized_symbol,
+        window_days=requested_lookback_days,
+        db=db,
+        signal_rows=rows,
+        latest_signal_score=latest_score,
+    )
+    if not can_view_signal_details:
+        source_contexts["signals"] = {
+            "status": "premium_locked",
+            "direction": "neutral",
+            "title": "Premium feature",
+            "subtitle": "Signal stack unlocks with Premium.",
+            "recent_count": 0,
+            "latest_score": None,
+        }
+
+    confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
+    confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+    confirmation_score_bundle = _merge_authorized_signal_context_into_confirmation_bundle(
+        confirmation_score_bundle,
+        source_contexts.get("signals"),
+        source_entitlements,
+    )
+    confirmation_score_bundle = _mark_institutional_unavailable_in_confirmation_bundle(
+        confirmation_score_bundle,
+        confirmation_context.get("institutional_activity_summary"),
+        source_entitlements,
+    )
+    confirmation_score_bundle = _redact_locked_ticker_confirmation_sources(
+        confirmation_score_bundle,
+        source_entitlements,
+    )
+    slim_confirmation = slim_confirmation_score_bundle(confirmation_score_bundle)
+    signal_freshness = slim_confirmation["signal_freshness"]
+    has_canonical_activity = int(slim_confirmation.get("confirmation_source_count") or 0) > 0
+    signals_summary = {
+        "symbol": normalized_symbol,
+        "status": "ok" if rows or has_canonical_activity else "no_data",
+        "lookback_days": effective_window_days,
+        "effective_window_days": effective_window_days,
+        "updated_at": _dt_iso(datetime.now(timezone.utc)),
+        "price_volume": source_contexts["price_volume"],
+        "insiders": source_contexts["insiders"],
+        "congress": source_contexts["congress"],
+        "signals": source_contexts["signals"],
+        "government_contracts": source_contexts["government_contracts"],
+        "source_entitlements": source_entitlements,
+        "confirmation_score_bundle": confirmation_score_bundle,
+        "signal_freshness": signal_freshness,
+        "latest_signal_score": latest_score,
+        "recent_count": len(rows),
+        "recent_signal_count": len(rows),
+        "rows": rows,
+        "items": rows,
+    }
+    payload = {
+        "symbol": normalized_symbol,
+        "status": profile_payload.get("status") or signals_summary["status"],
+        "bundle_version": _TICKER_CONTEXT_BUNDLE_VERSION,
+        "generated_at": _dt_iso(datetime.now(timezone.utc)),
+        "ticker": profile_ticker,
+        "identity": {
+            "symbol": normalized_symbol,
+            "company_name": profile_ticker.get("name"),
+            "exchange": profile_ticker.get("exchange") or profile_ticker.get("exchange_short_name"),
+            "sector": profile_ticker.get("sector"),
+            "industry": profile_ticker.get("industry"),
+            "country": profile_ticker.get("country"),
+            "market_cap": quote.get("market_cap") or profile_ticker.get("market_cap"),
+        },
+        "quote": quote,
+        "top_members": profile_payload.get("top_members") if isinstance(profile_payload.get("top_members"), list) else [],
+        "trades": profile_payload.get("trades") if isinstance(profile_payload.get("trades"), list) else [],
+        "confirmation_score_bundle": confirmation_score_bundle,
+        "options_flow_summary": confirmation_context.get("options_flow_summary"),
+        "why_now": profile_payload.get("why_now"),
+        "signal_freshness": signal_freshness,
+        "technical_indicators": profile_payload.get("technical_indicators"),
+        "source_entitlements": source_entitlements,
+        "source_cards": {
+            "price_volume": source_contexts["price_volume"],
+            "insiders": source_contexts["insiders"],
+            "congress": source_contexts["congress"],
+            "government_contracts": source_contexts["government_contracts"],
+            "signals": source_contexts["signals"],
+            "institutional_activity": (confirmation_score_bundle.get("sources") or {}).get("institutional_activity")
+            if isinstance(confirmation_score_bundle.get("sources"), dict)
+            else None,
+            "options_flow": confirmation_context.get("options_flow_summary"),
+        },
+        "signals_summary": signals_summary,
+    }
+    payload = _ticker_context_bundle_public_payload(payload)
+    _ticker_context_bundle_cache_set(
+        db,
+        cache_key,
+        symbol=normalized_symbol,
+        user_segment=user_segment,
+        payload=payload,
+    )
+    logger.info(
+        "ticker_bundle_build_duration_ms symbol=%s user_segment=%s duration_ms=%.1f total_duration_ms=%.1f",
+        normalized_symbol,
+        user_segment,
+        (perf_counter() - build_started_at) * 1000,
+        (perf_counter() - started_at) * 1000,
+    )
+    return payload
+
+
+@app.get("/api/tickers/{symbol}/context-bundle")
+def ticker_context_bundle(
+    request: Request,
+    symbol: str,
+    side: str = Query("all", pattern="^(all|buy|sell|buy_or_sell|award|inkind|exempt)$"),
+    limit: int = Query(3, ge=1, le=3),
+    lookback_days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    return _build_ticker_context_bundle(
+        request=request,
+        symbol=symbol,
+        side=side,
+        limit=limit,
+        lookback_days=lookback_days,
+        db=db,
+    )
 
 
 def _ticker_profile_response(symbol: str, db: Session) -> dict:
