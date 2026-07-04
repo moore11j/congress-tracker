@@ -32,6 +32,7 @@ def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     monkeypatch.setattr(main_module, "require_feature", lambda *args, **kwargs: None)
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
     main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
+    main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT.clear()
 
 
 def _mock_logged_out_signal_context(monkeypatch):
@@ -1264,6 +1265,91 @@ def test_ticker_context_bundle_cache_hit_avoids_rebuild(monkeypatch):
     assert counters["profile"] == 1
     assert counters["signals"] == 1
     assert len(cache_rows) == 1
+
+
+def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        counters = _mock_ticker_context_bundle_dependencies(monkeypatch, tier="premium")
+        cache_key = main_module._ticker_context_bundle_cache_key(
+            "AAPL",
+            user_segment="premium",
+            side="all",
+            limit=3,
+            lookback_days=30,
+        )
+        now = datetime.now(timezone.utc)
+        db.add(
+            TickerContextBundleCache(
+                cache_key=cache_key,
+                symbol="AAPL",
+                user_segment="premium",
+                payload_json=json.dumps({"symbol": "AAPL", "status": "ok", "stale_fixture": True}),
+                generated_at=now - timedelta(minutes=10),
+                stale_after=now - timedelta(minutes=5),
+                expires_at=now + timedelta(minutes=5),
+            )
+        )
+        db.commit()
+
+        response = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="all",
+            limit=3,
+            lookback_days=30,
+            db=db,
+        )
+
+    assert response["stale_fixture"] is True
+    assert counters["profile"] == 0
+    assert counters["signals"] == 0
+
+
+def test_ticker_context_bundle_build_coalescing_returns_leader_payload(monkeypatch):
+    main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT.clear()
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_coalesce_wait_seconds", lambda: 1.0)
+    state, leader = main_module._ticker_context_bundle_build_inflight_start(
+        "bundle-key",
+        symbol="AAPL",
+        user_segment="premium",
+    )
+    waiter_state, waiter_leader = main_module._ticker_context_bundle_build_inflight_start(
+        "bundle-key",
+        symbol="AAPL",
+        user_segment="premium",
+    )
+    assert leader is True
+    assert waiter_leader is False
+    assert waiter_state is state
+
+    result: list[dict] = []
+
+    def wait_for_payload():
+        payload = main_module._ticker_context_bundle_build_inflight_wait(
+            object(),
+            "bundle-key",
+            waiter_state,
+            symbol="AAPL",
+            user_segment="premium",
+            started_at=time.perf_counter(),
+        )
+        if payload is not None:
+            result.append(payload)
+
+    thread = threading.Thread(target=wait_for_payload)
+    thread.start()
+    time.sleep(0.05)
+    main_module._ticker_context_bundle_build_inflight_finalize(
+        "bundle-key",
+        state,
+        leader=True,
+        payload={"symbol": "AAPL", "coalesced": True},
+    )
+    thread.join(timeout=2)
+
+    assert result == [{"symbol": "AAPL", "coalesced": True}]
+    assert "bundle-key" not in main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT
 
 
 def test_ticker_context_bundle_free_does_not_query_premium_signals(monkeypatch):
