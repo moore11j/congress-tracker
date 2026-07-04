@@ -1,84 +1,61 @@
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { FeedMemberAutosuggestEnhancer } from "@/components/feed/FeedMemberAutosuggestEnhancer";
-import { FeedMinAmountInputEnhancer } from "@/components/feed/FeedMinAmountInputEnhancer";
 import { FeedRoleAutosuggestEnhancer } from "@/components/feed/FeedRoleAutosuggestEnhancer";
 import { FeedSymbolAutosuggestEnhancer } from "@/components/feed/FeedSymbolAutosuggestEnhancer";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
-import { feedModeOptions, isCompactFeedFilterMode, isInstitutionalFeedMode, type FeedMode } from "@/lib/feedModes";
+import { feedModeOptions, type FeedMode } from "@/lib/feedModes";
 import { activeFilterControlClassName, cardClassName, ghostButtonClassName, inputClassName, selectClassName } from "@/lib/styles";
+import type { ReactNode } from "react";
+
+type FeedSortBy = "filed_after" | "amount" | "pnl" | "signal";
+type FeedSortDir = "asc" | "desc";
 
 type FeedFiltersServerProps = {
   mode: FeedMode;
   params: {
     symbol?: string;
-    min_amount?: string;
-    max_amount?: string;
     recent_days?: string;
     member?: string;
     chamber?: string;
     party?: string;
-    asset_class?: string;
     trade_type?: string;
     role?: string;
     department?: string;
-    filed_after_max?: string;
-    pnl_min?: string;
-    pnl_max?: string;
-    signal_min?: string;
+    sort_by?: string;
+    sort_dir?: string;
   };
 };
 
-const departmentOptions = [
-  ["", "Any"],
-  ["Department of Defense", "Department of Defense"],
-  ["Department of Health and Human Services", "Department of Health and Human Services"],
-  ["Department of Agriculture", "Department of Agriculture"],
-  ["Department of Energy", "Department of Energy"],
-  ["Department of Homeland Security", "Department of Homeland Security"],
-  ["Department of Veterans Affairs", "Department of Veterans Affairs"],
-  ["National Aeronautics and Space Administration", "National Aeronautics and Space Administration"],
-  ["General Services Administration", "General Services Administration"],
-  ["Department of Transportation", "Department of Transportation"],
-  ["Department of Justice", "Department of Justice"],
-  ["Other", "Other"],
-] as const;
+const sortOptions = [
+  ["filed_after", "Filed after"],
+  ["amount", "Amount"],
+  ["pnl", "G/L"],
+  ["signal", "Signal"],
+] as const satisfies readonly (readonly [FeedSortBy, string])[];
+
+const directionOptions = [
+  ["desc", "Desc"],
+  ["asc", "Asc"],
+] as const satisfies readonly (readonly [FeedSortDir, string])[];
 
 function modeHref(nextMode: FeedMode, params: FeedFiltersServerProps["params"]) {
   const url = new URLSearchParams();
   url.set("mode", nextMode);
   const keys =
     nextMode === "institutional"
-      ? (["symbol", "min_amount", "max_amount", "recent_days"] as const)
+      ? (["symbol", "member", "trade_type", "sort_by", "sort_dir"] as const)
       : nextMode === "government_contracts"
-      ? (["symbol", "min_amount", "max_amount", "recent_days", "department"] as const)
-      : ([
-          "symbol",
-          "min_amount",
-          "max_amount",
-          "recent_days",
-          "member",
-          "chamber",
-          "party",
-          "asset_class",
-          "trade_type",
-          "role",
-          "department",
-          "filed_after_max",
-          "pnl_min",
-          "pnl_max",
-          "signal_min",
-        ] as const);
+      ? (["symbol", "department", "trade_type", "sort_by", "sort_dir"] as const)
+      : nextMode === "congress"
+      ? (["symbol", "member", "trade_type", "party", "chamber", "sort_by", "sort_dir", "recent_days"] as const)
+      : nextMode === "insider"
+      ? (["symbol", "member", "trade_type", "role", "sort_by", "sort_dir", "recent_days"] as const)
+      : (["symbol", "member", "trade_type", "sort_by", "sort_dir", "recent_days"] as const);
   for (const key of keys) {
     const value = params[key]?.trim();
     if (value) url.set(key, value);
   }
   return `/?${url.toString()}`;
-}
-
-function formatAmountDisplay(value?: string): string {
-  const digits = (value ?? "").replace(/[^\d]/g, "");
-  if (!digits) return "";
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function hasFilterValue(value?: string): boolean {
@@ -93,10 +70,159 @@ function feedSelectClassName(value?: string): string {
   return hasFilterValue(value) ? `${selectClassName} ${activeFilterControlClassName}` : selectClassName;
 }
 
+function normalizeSortBy(value?: string): FeedSortBy {
+  return value === "amount" || value === "pnl" || value === "signal" || value === "filed_after" ? value : "filed_after";
+}
+
+function normalizeSortDir(value?: string): FeedSortDir {
+  return value === "asc" ? "asc" : "desc";
+}
+
+const fieldBaseClassName = "min-w-0";
+const symbolFieldClassName = `${fieldBaseClassName} w-full sm:w-[128px]`;
+const nameFieldClassName = `${fieldBaseClassName} relative w-full sm:w-[230px]`;
+const selectFieldClassName = `${fieldBaseClassName} w-full sm:w-[150px]`;
+const narrowSelectFieldClassName = `${fieldBaseClassName} w-full sm:w-[124px]`;
+const daysFieldClassName = `${fieldBaseClassName} w-full sm:w-[140px]`;
+
+function SymbolField({ mode, value }: { mode: FeedMode; value?: string }) {
+  return (
+    <div className={`${symbolFieldClassName} relative`}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
+      <input id="feed-filter-symbol" name="symbol" defaultValue={value ?? ""} className={feedInputClassName(value)} placeholder="NVDA" autoComplete="off" />
+      <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="symbol" mode={mode} />
+    </div>
+  );
+}
+
+function NameField({ label, value, placeholder = "Pelosi" }: { label: string; value?: string; placeholder?: string }) {
+  return (
+    <div className={nameFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</label>
+      <input id="feed-filter-member" name="member" defaultValue={value ?? ""} className={feedInputClassName(value)} placeholder={placeholder} autoComplete="off" />
+      <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
+    </div>
+  );
+}
+
+function DepartmentField({ value }: { value?: string }) {
+  return (
+    <div className={`${nameFieldClassName} sm:w-[280px]`}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
+      <input id="feed-filter-department" name="department" defaultValue={value ?? ""} className={feedInputClassName(value)} placeholder="Department of Defense" autoComplete="off" />
+      <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="department" mode="government_contracts" selectValue="label" />
+    </div>
+  );
+}
+
+function TradeTypeField({ value }: { value?: string }) {
+  return (
+    <div className={selectFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
+      <select name="trade_type" defaultValue={value ?? ""} className={feedSelectClassName(value)}>
+        <option value="">All types</option>
+        <option value="purchase">Purchase</option>
+        <option value="sale">Sale</option>
+      </select>
+    </div>
+  );
+}
+
+function SortField({ value }: { value?: string }) {
+  const normalized = normalizeSortBy(value);
+  return (
+    <div className={selectFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sort by</label>
+      <select name="sort_by" defaultValue={normalized} className={feedSelectClassName(value)}>
+        {sortOptions.map(([optionValue, label]) => (
+          <option key={optionValue} value={optionValue}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function DirectionField({ value }: { value?: string }) {
+  const normalized = normalizeSortDir(value);
+  return (
+    <div className={narrowSelectFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Direction</label>
+      <select name="sort_dir" defaultValue={normalized} className={feedSelectClassName(value)}>
+        {directionOptions.map(([optionValue, label]) => (
+          <option key={optionValue} value={optionValue}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function RecentDaysField({ value }: { value?: string }) {
+  return (
+    <div className={daysFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent Days</label>
+      <select name="recent_days" defaultValue={value ?? ""} className={feedSelectClassName(value)}>
+        <option value="">Anytime</option>
+        <option value="1">1 day</option>
+        <option value="7">7 days</option>
+        <option value="30">30 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </div>
+  );
+}
+
+function PartyField({ value }: { value?: string }) {
+  return (
+    <div className={selectFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
+      <select name="party" defaultValue={value ?? ""} className={feedSelectClassName(value)}>
+        <option value="">All parties</option>
+        <option value="democrat">Democrat</option>
+        <option value="republican">Republican</option>
+        <option value="independent">Independent</option>
+      </select>
+    </div>
+  );
+}
+
+function ChamberField({ value }: { value?: string }) {
+  return (
+    <div className={selectFieldClassName}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
+      <select name="chamber" defaultValue={value ?? ""} className={feedSelectClassName(value)}>
+        <option value="">All chambers</option>
+        <option value="house">House</option>
+        <option value="senate">Senate</option>
+      </select>
+    </div>
+  );
+}
+
+function RoleField({ value }: { value?: string }) {
+  return (
+    <div className={`${fieldBaseClassName} relative w-full sm:w-[150px]`}>
+      <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
+      <input id="feed-filter-role" name="role" defaultValue={value ?? ""} className={feedInputClassName(value)} placeholder="CEO" autoComplete="off" />
+      <FeedRoleAutosuggestEnhancer formId="feed-filters-form" inputName="role" />
+    </div>
+  );
+}
+
+function FilterRow({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap items-end justify-start gap-3">{children}</div>;
+}
+
 export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
-  const formKey = JSON.stringify({ mode, ...params });
-  const compactMode = isCompactFeedFilterMode(mode);
-  const institutionalMode = isInstitutionalFeedMode(mode);
+  const normalizedParams = {
+    ...params,
+    sort_by: normalizeSortBy(params.sort_by),
+    sort_dir: normalizeSortDir(params.sort_dir),
+  };
+  const formKey = JSON.stringify({ mode, ...normalizedParams });
 
   return (
     <section className={cardClassName}>
@@ -117,20 +243,15 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         paramKeys={[
           "mode",
           "symbol",
-          "min_amount",
-          "max_amount",
           "recent_days",
           "member",
           "chamber",
           "party",
-          "asset_class",
           "trade_type",
           "role",
           "department",
-          "filed_after_max",
-          "pnl_min",
-          "pnl_max",
-          "signal_min",
+          "sort_by",
+          "sort_dir",
           "ownership",
           "whale",
           "limit",
@@ -144,7 +265,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           return (
             <a
               key={value}
-              href={modeHref(value, params)}
+              href={modeHref(value, normalizedParams)}
               className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                 active
                   ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
@@ -157,195 +278,74 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         })}
       </div>
 
-      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 grid gap-2.5 md:grid-cols-2 lg:grid-cols-5">
+      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 flex flex-col gap-3">
         <input type="hidden" name="mode" value={mode} />
 
-        <div className="relative min-w-0 lg:col-start-1 lg:row-start-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Symbol</label>
-          <input id="feed-filter-symbol" name="symbol" defaultValue={params.symbol ?? ""} className={feedInputClassName(params.symbol)} placeholder="NVDA" autoComplete="off" />
-          <FeedSymbolAutosuggestEnhancer formId="feed-filters-form" inputName="symbol" mode={mode} />
-        </div>
-
-        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Min amount</label>
-          <input
-            name="min_amount"
-            inputMode="numeric"
-            defaultValue={formatAmountDisplay(params.min_amount)}
-            className={feedInputClassName(params.min_amount)}
-            placeholder="250,000"
-          />
-        </div>
-
-        <div className="min-w-0 lg:col-start-2 lg:row-start-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Max amount</label>
-          <input
-            name="max_amount"
-            inputMode="numeric"
-            defaultValue={formatAmountDisplay(params.max_amount)}
-            className={feedInputClassName(params.max_amount)}
-            placeholder="5,000,000"
-          />
-        </div>
-
-        <div className="min-w-0 lg:col-start-3 lg:row-start-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent days</label>
-          <select name="recent_days" defaultValue={params.recent_days ?? ""} className={feedSelectClassName(params.recent_days)}>
-            <option value="">Anytime</option>
-            <option value="1">1 day</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-          </select>
-        </div>
-
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-4 lg:row-start-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asset Type</label>
-          <select name="asset_class" defaultValue={params.asset_class ?? ""} className={feedSelectClassName(params.asset_class)}>
-            <option value="">All assets</option>
-            <option value="equity">Public Equities</option>
-            <option value="etf_fund">ETF/Fund</option>
-            <option value="treasury">Treasuries</option>
-            <option value="crypto">Crypto</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
+        {mode === "all" ? (
+          <FilterRow>
+            <SymbolField mode={mode} value={params.symbol} />
+            <NameField label="Name" value={params.member} placeholder="Member, insider, department, institution" />
+            <TradeTypeField value={params.trade_type} />
+            <SortField value={normalizedParams.sort_by} />
+            <DirectionField value={normalizedParams.sort_dir} />
+            <RecentDaysField value={params.recent_days} />
+          </FilterRow>
         ) : null}
 
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-4 lg:row-start-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Trade Type</label>
-          <select name="trade_type" defaultValue={params.trade_type ?? ""} className={feedSelectClassName(params.trade_type)}>
-            <option value="">All types</option>
-            <option value="purchase">Purchase</option>
-            <option value="sale">Sale</option>
-          </select>
-        </div>
+        {mode === "congress" ? (
+          <>
+            <FilterRow>
+              <SymbolField mode={mode} value={params.symbol} />
+              <NameField label="Name" value={params.member} placeholder="Pelosi" />
+              <TradeTypeField value={params.trade_type} />
+              <PartyField value={params.party} />
+              <ChamberField value={params.chamber} />
+            </FilterRow>
+            <FilterRow>
+              <SortField value={normalizedParams.sort_by} />
+              <DirectionField value={normalizedParams.sort_dir} />
+              <RecentDaysField value={params.recent_days} />
+            </FilterRow>
+          </>
         ) : null}
 
-        {!compactMode ? (
-        <div className="relative min-w-0 lg:col-start-5 lg:row-start-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Member / Insider</label>
-          <input id="feed-filter-member" name="member" defaultValue={params.member ?? ""} className={feedInputClassName(params.member)} placeholder="Pelosi" autoComplete="off" />
-          <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
-        </div>
-        ) : null}
-
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamber</label>
-          <select name="chamber" defaultValue={params.chamber ?? ""} className={feedSelectClassName(params.chamber)}>
-            <option value="">All chambers</option>
-            <option value="house">House</option>
-            <option value="senate">Senate</option>
-          </select>
-        </div>
-        ) : null}
-
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-3 lg:row-start-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Party</label>
-          <select name="party" defaultValue={params.party ?? ""} className={feedSelectClassName(params.party)}>
-            <option value="">All parties</option>
-            <option value="democrat">Democrat</option>
-            <option value="republican">Republican</option>
-            <option value="independent">Independent</option>
-          </select>
-        </div>
-        ) : null}
-
-        {!compactMode ? (
-        <div className="relative min-w-0 lg:col-start-1 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role</label>
-          <input id="feed-filter-role" name="role" defaultValue={params.role ?? ""} className={feedInputClassName(params.role)} placeholder="CEO" autoComplete="off" />
-          <FeedRoleAutosuggestEnhancer formId="feed-filters-form" inputName="role" />
-        </div>
+        {mode === "insider" ? (
+          <>
+            <FilterRow>
+              <SymbolField mode={mode} value={params.symbol} />
+              <NameField label="Name" value={params.member} placeholder="Insider name" />
+              <TradeTypeField value={params.trade_type} />
+              <RoleField value={params.role} />
+            </FilterRow>
+            <FilterRow>
+              <SortField value={normalizedParams.sort_by} />
+              <DirectionField value={normalizedParams.sort_dir} />
+              <RecentDaysField value={params.recent_days} />
+            </FilterRow>
+          </>
         ) : null}
 
         {mode === "government_contracts" ? (
-        <div className="min-w-0 lg:col-start-5 lg:row-start-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Department</label>
-          <select name="department" defaultValue={params.department ?? ""} className={feedSelectClassName(params.department)}>
-            {departmentOptions.map(([value, label]) => (
-              <option key={value || "any"} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+          <FilterRow>
+            <SymbolField mode={mode} value={params.symbol} />
+            <DepartmentField value={params.department} />
+            <TradeTypeField value={params.trade_type} />
+            <SortField value={normalizedParams.sort_by} />
+            <DirectionField value={normalizedParams.sort_dir} />
+          </FilterRow>
         ) : null}
 
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-2 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Filed After Max</label>
-          <input
-            name="filed_after_max"
-            type="number"
-            min="0"
-            step="1"
-            inputMode="numeric"
-            defaultValue={params.filed_after_max ?? ""}
-            className={feedInputClassName(params.filed_after_max)}
-            placeholder="45"
-          />
-        </div>
+        {mode === "institutional" ? (
+          <FilterRow>
+            <SymbolField mode={mode} value={params.symbol} />
+            <NameField label="Institution" value={params.member} placeholder="Institution name" />
+            <TradeTypeField value={params.trade_type} />
+            <SortField value={normalizedParams.sort_by} />
+            <DirectionField value={normalizedParams.sort_dir} />
+          </FilterRow>
         ) : null}
 
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-3 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Min</label>
-          <input
-            name="pnl_min"
-            type="number"
-            step="0.1"
-            inputMode="decimal"
-            defaultValue={params.pnl_min ?? ""}
-            className={feedInputClassName(params.pnl_min)}
-            placeholder="5"
-          />
-        </div>
-        ) : null}
-
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-4 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">G/L Max</label>
-          <input
-            name="pnl_max"
-            type="number"
-            step="0.1"
-            inputMode="decimal"
-            defaultValue={params.pnl_max ?? ""}
-            className={feedInputClassName(params.pnl_max)}
-            placeholder="25"
-          />
-        </div>
-        ) : null}
-
-        {!compactMode ? (
-        <div className="min-w-0 lg:col-start-5 lg:row-start-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Signal Min</label>
-          <input
-            name="signal_min"
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            inputMode="numeric"
-            defaultValue={params.signal_min ?? ""}
-            className={feedInputClassName(params.signal_min)}
-            placeholder="70"
-          />
-        </div>
-        ) : null}
-
-        {institutionalMode ? (
-          <div className="md:col-span-2 lg:col-span-2 lg:col-start-4 lg:row-start-1 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs leading-5 text-slate-400">
-            13F filing activity uses filing dates and reported quarter-end holdings.
-          </div>
-        ) : null}
-
-        <div className="md:col-span-2 lg:col-span-5">
+        <div>
           <button
             type="submit"
             className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
@@ -355,8 +355,6 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
       </form>
       <FeedFilterAutoSubmit formId="feed-filters-form" />
-      <FeedMinAmountInputEnhancer formId="feed-filters-form" inputName="min_amount" />
-      <FeedMinAmountInputEnhancer formId="feed-filters-form" inputName="max_amount" />
     </section>
   );
 }

@@ -8,12 +8,13 @@ type FeedSymbolAutosuggestEnhancerProps = {
   formId: string;
   inputName: string;
   mode: FeedMode;
+  selectValue?: "symbol" | "label";
 };
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 100;
 
-export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedSymbolAutosuggestEnhancerProps) {
+export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectValue = "symbol" }: FeedSymbolAutosuggestEnhancerProps) {
   const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -111,12 +112,17 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
       }, DEBOUNCE_MS);
     };
 
+    const suggestionInputValue = (suggestion: SymbolSuggestion) => {
+      if (selectValue === "label") return suggestion.label ?? suggestion.name ?? suggestion.symbol;
+      return suggestion.symbol;
+    };
+
     const selectSuggestion = (suggestion: SymbolSuggestion) => {
-      if (suggestion.type === "government_agency" && suggestion.route) {
+      if (selectValue === "symbol" && suggestion.type === "government_agency" && suggestion.route) {
         window.location.assign(suggestion.route);
         return;
       }
-      input.value = suggestion.symbol;
+      input.value = suggestionInputValue(suggestion);
       clearDropdown();
       form.requestSubmit();
     };
@@ -194,7 +200,7 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
       abortRef.current?.abort();
       if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
     };
-  }, [formId, inputName, mode]);
+  }, [formId, inputName, mode, selectValue]);
 
   const onSuggestionMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -205,12 +211,12 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode }: FeedS
     const form = formRef.current;
     if (!input || !form) return;
 
-    if (suggestion.type === "government_agency" && suggestion.route) {
+    if (selectValue === "symbol" && suggestion.type === "government_agency" && suggestion.route) {
       window.location.assign(suggestion.route);
       return;
     }
 
-    input.value = suggestion.symbol;
+    input.value = selectValue === "label" ? (suggestion.label ?? suggestion.name ?? suggestion.symbol) : suggestion.symbol;
     setOpen(false);
     setSuggestions([]);
     setHighlightedIndex(-1);

@@ -29,18 +29,13 @@ const feedParamKeys = [
   "member",
   "chamber",
   "party",
-  "asset_class",
   "trade_type",
   "role",
   "ownership",
-  "min_amount",
-  "max_amount",
   "recent_days",
   "department",
-  "filed_after_max",
-  "pnl_min",
-  "pnl_max",
-  "signal_min",
+  "sort_by",
+  "sort_dir",
 ] as const;
 
 type FeedParamKey = (typeof feedParamKeys)[number];
@@ -51,16 +46,12 @@ function feedParamsForMode(mode: FeedMode, params: Record<FeedParamKey, string>)
   if (!isCompactFeedFilterMode(mode)) return params;
   return {
     ...params,
-    member: "",
     chamber: "",
     party: "",
-    trade_type: "",
+    member: mode === "institutional" ? params.member : "",
+    trade_type: params.trade_type,
     role: "",
     ownership: "",
-    filed_after_max: "",
-    pnl_min: "",
-    pnl_max: "",
-    signal_min: "",
     department: mode === "government_contracts" ? params.department : "",
   };
 }
@@ -106,6 +97,8 @@ function buildEventsUrl(params: Record<string, string | number | boolean>, tape:
 }
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
+type FeedSortBy = "filed_after" | "amount" | "pnl" | "signal";
+type FeedSortDir = "asc" | "desc";
 
 function DebugMountLogger({
   enabled,
@@ -290,6 +283,78 @@ function companyNameForGovernmentContract(symbol: string | null, payload: Record
     firstTrimmedString(payload.recipient_name, payload.raw_recipient_name) ??
     normalized
   );
+}
+
+function normalizeFeedSortBy(value?: string): FeedSortBy {
+  return value === "amount" || value === "pnl" || value === "signal" || value === "filed_after" ? value : "filed_after";
+}
+
+function normalizeFeedSortDir(value?: string): FeedSortDir {
+  return value === "asc" ? "asc" : "desc";
+}
+
+function feedItemAmountValue(item: FeedItem): number | null {
+  return firstNumber(item.amount_range_max, item.amount_range_min);
+}
+
+function feedItemDateValue(item: FeedItem): number | null {
+  const rawDate = item.report_date ?? item.trade_date ?? (item as any).timestamp ?? null;
+  if (!rawDate) return null;
+  const time = new Date(rawDate).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function feedItemPnlValue(item: FeedItem): number | null {
+  return firstNumber((item as any).pnl_pct, (item as any).pnlPct, (item as any).pnl);
+}
+
+function feedItemSignalValue(item: FeedItem): number | null {
+  return firstNumber((item as any).smart_score, (item as any).smartScore);
+}
+
+function sortFeedItems(items: FeedItem[], sortBy: string, sortDir: string): FeedItem[] {
+  const normalizedSort = normalizeFeedSortBy(sortBy);
+  const direction = normalizeFeedSortDir(sortDir);
+  const multiplier = direction === "asc" ? 1 : -1;
+  const valueFor = (item: FeedItem) => {
+    if (normalizedSort === "amount") return feedItemAmountValue(item);
+    if (normalizedSort === "pnl") return feedItemPnlValue(item);
+    if (normalizedSort === "signal") return feedItemSignalValue(item);
+    return feedItemDateValue(item);
+  };
+  return [...items].sort((left, right) => {
+    const leftValue = valueFor(left);
+    const rightValue = valueFor(right);
+    if (leftValue === null && rightValue === null) return Number(right.id ?? 0) - Number(left.id ?? 0);
+    if (leftValue === null) return 1;
+    if (rightValue === null) return -1;
+    if (leftValue === rightValue) return Number(right.id ?? 0) - Number(left.id ?? 0);
+    return (leftValue - rightValue) * multiplier;
+  });
+}
+
+function redactPremiumFeedMetrics(items: FeedItem[], canViewPremiumMetrics: boolean): FeedItem[] {
+  if (canViewPremiumMetrics) return items;
+  return items.map((item) => {
+    const pnlValue = feedItemPnlValue(item);
+    const signalValue = feedItemSignalValue(item);
+    const payload = parsePayload((item as any).payload);
+    const redactedPayload = {
+      ...payload,
+      pnl_pct: undefined,
+      pnlPct: undefined,
+      pnl: undefined,
+      smart_score: undefined,
+      smartScore: undefined,
+    };
+    return {
+      ...item,
+      payload: redactedPayload,
+      pnl_pct: pnlValue === null ? null : pnlValue < 0 ? -0.1 : pnlValue > 0 ? 0.1 : 0,
+      return_pct: null,
+      smart_score: signalValue === null ? null : undefined,
+    };
+  });
 }
 
 function companyNameForSymbol(symbol: string | null, payload: Record<string, any>, companyNames: CompanyNameMap): string {
@@ -685,6 +750,7 @@ type FeedResultsSectionProps = {
   activeParams: Record<FeedParamKey, string>;
   authToken?: string | null;
   institutionalLocked: boolean;
+  canViewPremiumMetrics: boolean;
 };
 
 function FeedResultsSectionSkeleton() {
@@ -740,7 +806,7 @@ function InstitutionalFeedLockedPanel() {
   );
 }
 
-async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams, authToken, institutionalLocked }: FeedResultsSectionProps) {
+async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, pageSize, activeParams, authToken, institutionalLocked, canViewPremiumMetrics }: FeedResultsSectionProps) {
   if (isInstitutionalFeedMode(feedMode) && institutionalLocked) {
     return <InstitutionalFeedLockedPanel />;
   }
@@ -748,6 +814,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
   const requestParams = {
     ...activeParams,
     enrich_prices: 0,
+    include_net_flows: 0,
     limit: pageSize,
     page_size: pageSize,
     offset: (page - 1) * pageSize,
@@ -813,7 +880,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
     }
   }
 
-  const items = [...events.items]
+  const items = redactPremiumFeedMetrics(sortFeedItems([...events.items]
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .map((event) => {
       const feedItem = mapEventToFeedItem(event, companyNames);
@@ -842,7 +909,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
         quote_asof_ts: (event as any).quote_asof_ts ?? null,
       };
     })
-    .filter(Boolean) as FeedItem[];
+    .filter(Boolean) as FeedItem[], activeParams.sort_by, activeParams.sort_dir), canViewPremiumMetrics);
 
   const total = typeof events.total === "number" ? events.total : null;
   const hasMore = typeof events.has_more === "boolean" ? events.has_more : null;
@@ -931,6 +998,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
           totalPages={totalPages}
           hasMore={hasMore}
           overlaySignals={signalOverlay}
+          canViewPremiumMetrics={canViewPremiumMetrics}
           debugLifecycle={debugLifecycle}
         />
       </div>
@@ -954,6 +1022,7 @@ export default async function FeedPage({
     ? await getEntitlements(authState.token, { source: "FeedPage" }).catch(() => entitlementsFromTierHint(authState.entitlementHint))
     : entitlementsFromTierHint(authState.entitlementHint);
   const canViewInstitutionalFeed = Boolean(authState.token && hasEntitlement(entitlements, "institutional_feed"));
+  const canViewPremiumMetrics = Boolean(authState.token && hasEntitlement(entitlements, "signals"));
   const institutionalFeedLocked = isInstitutionalFeedMode(feedMode) && !canViewInstitutionalFeed;
   const queryDebug = getParam(sp, "debug") === "1";
   const debugDisableFeedFilters = getParam(sp, "debug_disable_feed_filters") === "1";
@@ -994,24 +1063,20 @@ export default async function FeedPage({
     member: getParam(sp, "member"),
     chamber: getParam(sp, "chamber"),
     party: getParam(sp, "party"),
-    asset_class: getParam(sp, "asset_class"),
     trade_type: getParam(sp, "trade_type"),
     role: getParam(sp, "role"),
     ownership: getParam(sp, "ownership"),
-    min_amount: getParam(sp, "min_amount"),
-    max_amount: getParam(sp, "max_amount"),
     recent_days: getParam(sp, "recent_days"),
     department: getParam(sp, "department"),
-    filed_after_max: getParam(sp, "filed_after_max"),
-    pnl_min: getParam(sp, "pnl_min"),
-    pnl_max: getParam(sp, "pnl_max"),
-    signal_min: getParam(sp, "signal_min"),
+    sort_by: getParam(sp, "sort_by"),
+    sort_dir: getParam(sp, "sort_dir"),
   });
   const resultsBoundaryKey = JSON.stringify({
     mode: feedMode,
     page,
     pageSize,
     institutionalFeedLocked,
+    canViewPremiumMetrics,
     ...activeParams,
   });
   if (debugPlainFeedShell) {
@@ -1139,6 +1204,7 @@ export default async function FeedPage({
               activeParams={activeParams}
               authToken={authState.token}
               institutionalLocked={institutionalFeedLocked}
+              canViewPremiumMetrics={canViewPremiumMetrics}
             />
           </Suspense>
           {debugMoveProbeBelowResults ? (

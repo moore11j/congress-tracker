@@ -304,6 +304,7 @@ def _events_response_cache_key(
     limit: int,
     page_size: int | None,
     offset: int,
+    include_net_flows: bool,
 ) -> str | None:
     if request is None and not _is_production_runtime():
         return None
@@ -339,6 +340,7 @@ def _events_response_cache_key(
         "limit": limit,
         "page_size": page_size,
         "offset": offset,
+        "include_net_flows": bool(include_net_flows),
     }
     return "events:" + json.dumps(key_parts, sort_keys=True, separators=(",", ":"), default=str)
 
@@ -3007,6 +3009,7 @@ def _fetch_events_page(
     q,
     limit: int,
     enrich_prices: bool = True,
+    include_net_flows: bool = True,
     use_effective_activity_date: bool = False,
     enqueue_feed_outcomes: bool = True,
     enqueue_metadata_refresh: bool = True,
@@ -3057,8 +3060,8 @@ def _fetch_events_page(
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
 
-    member_net_30d_map = _member_net_30d_map(db, paged_rows)
-    symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows)
+    member_net_30d_map = _member_net_30d_map(db, paged_rows) if include_net_flows else {}
+    symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows) if include_net_flows else {}
     confirmation_metrics_map = get_confirmation_metrics_for_symbols(
         db,
         [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
@@ -3781,6 +3784,7 @@ def list_events(
     offset: int = Query(0, ge=0),
     include_total: bool = Query(False),
     enrich_prices: bool = Query(True),
+    include_net_flows: bool = Query(True),
     debug: bool | None = None,
 ):
     started_at = perf_counter()
@@ -3812,6 +3816,7 @@ def list_events(
     page_size = page_size if isinstance(page_size, int) else None
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
+    include_net_flows = include_net_flows is not False
     debug_enabled = _events_debug_enabled(db, request, debug)
     can_view_institutional = _can_view_institutional_events(db, request)
 
@@ -4093,6 +4098,7 @@ def list_events(
         limit=limit,
         page_size=page_size,
         offset=offset,
+        include_net_flows=include_net_flows,
     )
     if request is not None and hasattr(request, "cookies") and not can_view_institutional:
         response_cache_key = None
@@ -4142,6 +4148,7 @@ def list_events(
             filtered_query.limit(candidate_limit + 1),
             candidate_limit,
             enrich_prices=enrich_prices,
+            include_net_flows=include_net_flows,
             enqueue_feed_outcomes=enqueue_feed_outcomes,
             enqueue_metadata_refresh=enqueue_metadata_refresh,
         )
@@ -4186,6 +4193,7 @@ def list_events(
                     "page_size": page_size,
                     "include_total": include_total,
                     "enrich_prices": enrich_prices,
+                    "include_net_flows": include_net_flows,
                 },
                 applied_filters=applied_filters,
                 count_after_filters=count_after_filters,
@@ -4263,8 +4271,8 @@ def list_events(
         logger.exception("cik_meta resolver failed in /api/events")
         cik_names = {}
 
-    member_net_30d_map = _member_net_30d_map(db, rows)
-    symbol_net_30d_map = _symbol_net_30d_map(db, rows)
+    member_net_30d_map = _member_net_30d_map(db, rows) if include_net_flows else {}
+    symbol_net_30d_map = _symbol_net_30d_map(db, rows) if include_net_flows else {}
     confirmation_metrics_map = get_confirmation_metrics_for_symbols(
         db,
         [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],

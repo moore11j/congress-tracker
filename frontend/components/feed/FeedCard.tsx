@@ -22,7 +22,7 @@ import { departmentHref } from "@/lib/departments";
 import { formatCompanyName } from "@/lib/companyName";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
-import { resolveSmartSignalValue } from "@/lib/smartSignal";
+import { resolveSmartSignalValue, smartSignalDotClasses, smartSignalPillClasses } from "@/lib/smartSignal";
 import { feedGainLossLabel, feedGainLossTooltip, gainLossShortLabel } from "@/lib/gainLossCopy";
 import {
   parseInsiderNumber,
@@ -197,12 +197,6 @@ function firstParsedNumber(...values: unknown[]): number | null {
     if (parsed !== null) return parsed;
   }
   return null;
-}
-
-function netClass(net: number): string {
-  if (net > 0) return "text-emerald-400";
-  if (net < 0) return "text-rose-400";
-  return "text-slate-400";
 }
 
 function pnlClass(p: number, highlighted: boolean) {
@@ -492,6 +486,7 @@ export function FeedCard({
   gridPreset = "default",
   context = "feed",
   tickerAction = null,
+  canViewPremiumMetrics = false,
 }: {
   item: FeedItem;
   whaleMode?: WhaleMode;
@@ -500,6 +495,7 @@ export function FeedCard({
   gridPreset?: "default" | "member" | "watchlist";
   context?: "feed" | "member";
   tickerAction?: ReactNode;
+  canViewPremiumMetrics?: boolean;
 }) {
   if (!item) return null;
 
@@ -598,8 +594,6 @@ export function FeedCard({
     ? "Gain/loss is not calculated for 13F rows because filings disclose quarter-end holdings, not live trade outcomes."
     : feedGainLossTooltip;
   const ownershipLabel = item.insider?.ownership ?? item.owner_type ?? "—";
-  const memberNet30d = parseNum(item.member_net_30d);
-  const symbolNet30d = parseNum((item as any).symbol_net_30d);
   const confirmation = (item as any).confirmation_30d as FeedItem["confirmation_30d"];
   const rawSymbol = item.security?.symbol ?? (item as any).ticker ?? null;
   const symbol = isBadEventIdentityLabel(rawSymbol) ? null : rawSymbol;
@@ -684,6 +678,7 @@ export function FeedCard({
   const isWatchlist = gridPreset === "watchlist";
   const isFeed = !isMember;
   const showOutcomeMetrics = true;
+  const premiumMetricsLocked = !canViewPremiumMetrics;
   const showCrossSourcePill = Boolean(confirmation?.cross_source_confirmed_30d) && isMember;
   const hasSmartSignal = smartScore !== null || Boolean(smartBand);
   const institutionalReportPeriod =
@@ -700,11 +695,76 @@ export function FeedCard({
   const institutionalSecurityName = formatCompanyName(safeSecurityLabel(item.security?.name)) || (symbol ? displaySymbol(symbol) : "Company unavailable");
   const institutionalSecurityPrimaryLabel = isInstitutional && symbol ? displaySymbol(symbol) : institutionalSecurityName;
   const institutionalSecuritySecondaryLabel = isInstitutional ? institutionalSecurityName : null;
-  const smartBadgeNode = isCongressDisclosure && !isCongress ? null : hasSmartSignal ? (
-    <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title={signalTooltip.title} body={signalTooltip.body}>
-      <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
-    </FeedInfoTooltip>
+  const lockedMetricsBody = "Gain/loss and signal data is for Premium or Pro only.";
+  const lockedPnlPlaceholder = pnl !== null && pnl < 0 ? "-00.0%" : "+00.0%";
+  const lockedSignalNode = hasSmartSignal ? (
+    <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${smartSignalPillClasses(smartBand)}`}>
+      <span className={`h-2 w-2 rounded-full ${smartSignalDotClasses(smartBand)}`} />
+      <span className="select-none font-mono blur-[4px]" aria-hidden="true">88</span>
+      <span className="sr-only">Premium signal data locked</span>
+    </span>
   ) : null;
+  const smartBadgeNode = isCongressDisclosure && !isCongress ? null : hasSmartSignal ? (
+    premiumMetricsLocked ? (
+      <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title="Signal Score" body={lockedMetricsBody}>
+        {lockedSignalNode}
+      </FeedInfoTooltip>
+    ) : (
+      <FeedInfoTooltip id={`feed-signal-${context}-${gridPreset}-${item.id}`} title={signalTooltip.title} body={signalTooltip.body}>
+        <SmartSignalPill score={smartScore} band={smartBand} size="compact" />
+      </FeedInfoTooltip>
+    )
+  ) : null;
+
+  const renderOutcomeMetric = (idSuffix: string, alignClassName: string) => (
+    <div className={alignClassName}>
+      {pnl !== null ? (
+        <FeedInfoTooltip
+          id={`feed-outcome-${context}-${gridPreset}-${item.id}${idSuffix}`}
+          title={feedGainLossLabel}
+          body={premiumMetricsLocked ? lockedMetricsBody : outcomeTooltipBody}
+          details={premiumMetricsLocked ? undefined : outcomeDetails}
+        >
+          <span className="inline-flex flex-col items-center md:items-end">
+            <span
+              className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
+                pnl,
+                isHighlighted,
+              )}`}
+            >
+              {isStale && !premiumMetricsLocked ? <span className="opacity-70">~ </span> : null}
+              {premiumMetricsLocked ? (
+                <>
+                  <span className="select-none blur-[5px]" aria-hidden="true">{lockedPnlPlaceholder}</span>
+                  <span className="sr-only">Premium gain/loss data locked</span>
+                </>
+              ) : (
+                formatPnl(pnl)
+              )}
+            </span>
+            {!premiumMetricsLocked && (pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome") ? (
+              <span className="mt-1">
+                <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                  {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
+                </span>
+              </span>
+            ) : null}
+          </span>
+        </FeedInfoTooltip>
+      ) : (
+        <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}${idSuffix}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
+          <div className="inline-flex flex-col items-center md:items-end">
+            <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
+            <span className="mt-1">
+              <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                {gainLossShortLabel}
+              </span>
+            </span>
+          </div>
+        </FeedInfoTooltip>
+      )}
+    </div>
+  );
   const gridClassName = isMember
     ? "lg:grid-cols-[minmax(100px,0.75fr)_minmax(100px,.5fr)_minmax(100px,.4fr)_minmax(100px,.4fr)_minmax(100px,1fr)_minmax(0,0fr)]"
     : isWatchlist
@@ -911,14 +971,6 @@ export function FeedCard({
                 <Badge tone="neutral">{nonEquityBadge}</Badge>
               ) : null}
             </div>
-            {memberNet30d !== null ? (
-              <div className="text-xs mt-1 tabular-nums">
-                <span className="text-white/40">{isInsider ? "Insider Net 30D:" : "Member Net 30D:"}</span>{" "}
-                <span className={netClass(memberNet30d)}>
-                  {formatMoney(memberNet30d)}
-                </span>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
@@ -956,14 +1008,6 @@ export function FeedCard({
                 </div>
               ) : null}
               {isWatchlist && isInsider ? <div className="mt-1 truncate text-[11px] text-slate-500">{securityClass ?? "Insider transaction"}</div> : null}
-              {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
-                <div className="mt-1 text-xs tabular-nums">
-                  <span className="text-white/40">Ticker Net 30D:</span>{" "}
-                  <span className={netClass(symbolNet30d)}>
-                    {formatMoney(symbolNet30d)}
-                  </span>
-                </div>
-              ) : null}
             </div>
           ) : (
             <div className="min-w-0 flex items-center gap-3">
@@ -991,14 +1035,6 @@ export function FeedCard({
                       ? institutionalSecuritySecondaryLabel
                     : (nonEquityDetail ?? item.security?.asset_class ?? "—")}
                 </div>
-                {(isInsider || isCongress) && symbol && symbolNet30d !== null ? (
-                  <div className="mt-1 text-xs tabular-nums">
-                    <span className="text-white/40">Ticker Net 30D:</span>{" "}
-                    <span className={netClass(symbolNet30d)}>
-                      {formatMoney(symbolNet30d)}
-                    </span>
-                  </div>
-                ) : null}
               </div>
             </div>
           )}
@@ -1151,43 +1187,7 @@ export function FeedCard({
                     )}
                 </div>
 
-                {showOutcomeMetrics ? (
-                <div className="text-center lg:text-right">
-                  {pnl !== null ? (
-                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
-                      <span className="inline-flex flex-col items-center lg:items-end">
-                        <span
-                          className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                            pnl,
-                            isHighlighted,
-                          )}`}
-                        >
-                          {isStale ? <span className="opacity-70">~ </span> : null}
-                          {formatPnl(pnl)}
-                        </span>
-                        {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
-                          <span className="mt-1">
-                            <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
-                              {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
-                            </span>
-                          </span>
-                        ) : null}
-                      </span>
-                    </FeedInfoTooltip>
-                  ) : (
-                    <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}-member`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
-                      <div className="inline-flex flex-col items-center lg:items-end">
-                        <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
-                        <span className="mt-1">
-                        <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
-                          {gainLossShortLabel}
-                        </span>
-                        </span>
-                      </div>
-                    </FeedInfoTooltip>
-                  )}
-                </div>
-                ) : null}
+                {showOutcomeMetrics ? renderOutcomeMetric("-member", "text-center lg:text-right") : null}
 
                 <div className="flex justify-center lg:justify-end">{smartBadgeNode}</div>
               </div>
@@ -1231,43 +1231,7 @@ export function FeedCard({
                 )}
               </div>
 
-              {showOutcomeMetrics ? (
-              <div className="text-center md:text-right">
-                {pnl !== null ? (
-                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
-                    <span className="inline-flex flex-col items-center md:items-end">
-                      <span
-                        className={`inline-flex items-center gap-1 whitespace-nowrap tabular-nums ${isCompact ? "text-sm lg:text-base" : "text-base lg:text-lg"} ${pnlClass(
-                          pnl,
-                          isHighlighted,
-                        )}`}
-                      >
-                        {isStale ? <span className="opacity-70">~ </span> : null}
-                        {formatPnl(pnl)}
-                      </span>
-                      {pnlSource === "filing" || pnlSource === "normalized_filing" || pnlSource === "eod" || pnlSource === "trade_outcome" ? (
-                        <span className="mt-1">
-                          <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
-                            {pnlSource === "normalized_filing" ? "NORMALIZED" : pnlSource === "filing" ? "FILING" : pnlSource === "eod" ? "EOD" : "OUTCOME"}
-                          </span>
-                        </span>
-                      ) : null}
-                    </span>
-                  </FeedInfoTooltip>
-                ) : (
-                  <FeedInfoTooltip id={`feed-outcome-${context}-${gridPreset}-${item.id}`} title={feedGainLossLabel} body={outcomeTooltipBody} details={outcomeDetails}>
-                    <div className="inline-flex flex-col items-center md:items-end">
-                      <div className="text-xs font-semibold text-slate-400">{missingPnlLabel}</div>
-                      <span className="mt-1">
-                      <span className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
-                        {gainLossShortLabel}
-                      </span>
-                      </span>
-                    </div>
-                  </FeedInfoTooltip>
-                )}
-              </div>
-              ) : null}
+              {showOutcomeMetrics ? renderOutcomeMetric("", "text-center md:text-right") : null}
 
               <div className="flex justify-center md:justify-end">
                 {smartBadgeNode}

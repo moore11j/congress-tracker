@@ -15,13 +15,14 @@ type FeedListProps = {
   totalPages?: number;
   hasMore?: boolean | null;
   overlaySignals?: SignalOverlayMap;
+  canViewPremiumMetrics?: boolean;
   debugLifecycle?: boolean;
 };
 
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
 type SignalOverlay = { score: number; band: string } | null;
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, debugLifecycle = false }: FeedListProps) {
+export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -83,7 +84,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
       ) : (
         items.map((item) => {
           const overlay: SignalOverlay = overlaySignals ? overlaySignals[String(item.id)] ?? null : null;
-          return <FeedCard key={item.id} item={item} signalOverlay={overlay} />;
+          return <FeedCard key={item.id} item={item} signalOverlay={overlay} canViewPremiumMetrics={canViewPremiumMetrics} />;
         })
       )}
 

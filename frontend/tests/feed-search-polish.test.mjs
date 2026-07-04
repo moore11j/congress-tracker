@@ -6,26 +6,46 @@ import test from "node:test";
 const root = process.cwd();
 const read = (path) => readFileSync(join(root, path), "utf8");
 
-test("feed saved views and URL params preserve advanced filters", () => {
+test("feed filters use sort controls and remove confusing advanced filters", () => {
   const page = read("app/page.tsx");
   const filters = read("components/feed/FeedFiltersServer.tsx");
 
-  for (const key of ["filed_after_max", "pnl_min", "pnl_max", "signal_min"]) {
+  for (const key of ["sort_by", "sort_dir"]) {
     assert.match(page, new RegExp(`"${key}"`));
     assert.match(filters, new RegExp(`"${key}"`));
     assert.match(filters, new RegExp(`name="${key}"`));
   }
-  assert.match(filters, /value="etf_fund"/);
+  for (const key of ["filed_after_max", "pnl_min", "pnl_max", "signal_min", "asset_class", "min_amount", "max_amount"]) {
+    assert.doesNotMatch(page, new RegExp(`"${key}"`));
+    assert.doesNotMatch(filters, new RegExp(`name="${key}"`));
+  }
+  assert.match(filters, /Sort by/);
+  assert.match(filters, /Direction/);
+  assert.match(filters, /Member, insider, department, institution/);
+  assert.match(filters, /selectValue="label"/);
+  assert.doesNotMatch(filters, /value="etf_fund"/);
   assert.match(filters, /FeedRoleAutosuggestEnhancer/);
+  assert.doesNotMatch(filters, /13F filing activity uses filing dates/);
 });
 
-test("feed cards distinguish actor and ticker net flow labels", () => {
+test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
+  const list = read("components/feed/FeedList.tsx");
+  const page = read("app/page.tsx");
 
-  assert.match(card, /Member Net 30D:/);
-  assert.match(card, /Insider Net 30D:/);
-  assert.match(card, /Ticker Net 30D:/);
-  assert.match(card, /\(isInsider \|\| isCongress\) && symbol && symbolNet30d !== null/);
+  assert.doesNotMatch(card, /Member Net 30D:/);
+  assert.doesNotMatch(card, /Insider Net 30D:/);
+  assert.doesNotMatch(card, /Ticker Net 30D:/);
+  assert.match(card, /canViewPremiumMetrics\?: boolean/);
+  assert.match(card, /Gain\/loss and signal data is for Premium or Pro only\./);
+  assert.match(card, /lockedPnlPlaceholder/);
+  assert.match(card, /smartSignalPillClasses/);
+  assert.match(list, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
+  assert.match(page, /hasEntitlement\(entitlements, "signals"\)/);
+  assert.match(page, /function redactPremiumFeedMetrics/);
+  assert.match(page, /pnlValue < 0 \? -0\.1/);
+  assert.match(page, /smart_score: signalValue === null \? null : undefined/);
+  assert.match(page, /include_net_flows: 0/);
 });
 
 test("feed gain/loss tooltip uses simplified percentage copy", () => {
