@@ -103,6 +103,8 @@ def test_request_attribution_classifies_bots_prefetch_and_browsers():
     assert _classify_user_agent(_request("/api/events", {"user-agent": "Googlebot/2.1"})) == "crawler"
     assert _classify_user_agent(_request("/api/events", {"user-agent": "Some uptime bot"})) == "bot"
     assert _classify_user_agent(_request("/api/events", {"user-agent": "Mozilla/5.0", "purpose": "prefetch"})) == "prefetch"
+    assert _classify_user_agent(_request("/api/events", {"user-agent": "Mozilla/5.0", "next-router-prefetch": "1"})) == "prefetch"
+    assert _classify_user_agent(_request("/api/events", {"user-agent": "Mozilla/5.0", "x-walnut-request-source": "prefetch"})) == "prefetch"
     assert _classify_user_agent(_request("/api/events")) == "unknown"
 
 

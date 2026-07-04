@@ -1385,6 +1385,7 @@ def test_ticker_government_contracts_endpoint_returns_local_summary():
         db.commit()
 
         payload = ticker_government_contracts(
+            _request(),
             symbol="LMT",
             lookback_days=365,
             min_amount=1_000_000,
@@ -1429,6 +1430,7 @@ def test_ticker_government_contracts_endpoint_paginates_detail_rows():
         db.commit()
 
         first_page = ticker_government_contracts(
+            _request(),
             symbol="pltr",
             lookback_days=30,
             min_amount=1_000_000,
@@ -1437,6 +1439,7 @@ def test_ticker_government_contracts_endpoint_paginates_detail_rows():
             db=db,
         )
         second_page = ticker_government_contracts(
+            _request(),
             symbol="PLTR",
             lookback_days=30,
             min_amount=1_000_000,
@@ -1477,6 +1480,7 @@ def test_ticker_government_contracts_endpoint_returns_true_empty_state():
         db.commit()
 
         payload = ticker_government_contracts(
+            _request(),
             symbol="PLTR",
             lookback_days=30,
             min_amount=1_000_000,

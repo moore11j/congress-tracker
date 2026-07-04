@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 import app.main as main_module
 import app.routers.signals as signals_module
@@ -24,6 +25,25 @@ def _engine():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return engine
+
+
+def _request(path: str = "/", headers: dict[str, str] | None = None) -> Request:
+    raw_headers = [
+        (key.lower().encode("latin-1"), value.encode("latin-1"))
+        for key, value in (headers or {}).items()
+    ]
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "query_string": b"",
+            "headers": raw_headers,
+            "server": ("testserver", 80),
+            "scheme": "https",
+        }
+    )
 
 
 def _mock_signal_auth(monkeypatch, tier: str = "premium"):
@@ -64,6 +84,7 @@ def test_ticker_government_contracts_fails_soft_when_widget_lane_saturated(monke
     )
 
     payload = main_module.ticker_government_contracts(
+        _request("/api/tickers/NVDA/government-contracts"),
         "NVDA",
         lookback_days=365,
         min_amount=1_000_000,
@@ -75,6 +96,109 @@ def test_ticker_government_contracts_fails_soft_when_widget_lane_saturated(monke
     assert payload["symbol"] == "NVDA"
     assert payload["status"] == "unavailable"
     assert payload["source_status"] == "busy"
+    assert payload["items"] == []
+
+
+def test_ticker_api_prefetch_requests_bypass_expensive_builders(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {"purpose": "prefetch", "x-walnut-request-source": "prefetch"},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("prefetch must not build context bundle")),
+    )
+
+    response = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert response.status_code == 204
+    assert response.headers["x-walnut-prefetch-bypass"] == "1"
+
+
+def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {"user-agent": "Googlebot/2.1"},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("bot must not build fresh context bundle")),
+    )
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
+
+    payload = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "AAPL"
+    assert payload["status"] == "skipped"
+    assert payload["signals_summary"]["items"] == []
+
+
+def test_ticker_government_contracts_prefetch_and_bot_do_not_query_details(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "get_government_contracts_for_symbol",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("prefetch/bot must not query contract details")),
+    )
+
+    prefetch = main_module.ticker_government_contracts(
+        _request("/api/tickers/NVDA/government-contracts", {"next-router-prefetch": "1"}),
+        "NVDA",
+        lookback_days=365,
+        min_amount=1_000_000,
+        limit=10,
+        page=0,
+        db=object(),
+    )
+    bot = main_module.ticker_government_contracts(
+        _request("/api/tickers/NVDA/government-contracts", {"user-agent": "Googlebot/2.1"}),
+        "NVDA",
+        lookback_days=365,
+        min_amount=1_000_000,
+        limit=10,
+        page=0,
+        db=object(),
+    )
+
+    assert prefetch.status_code == 204
+    assert bot["symbol"] == "NVDA"
+    assert bot["status"] == "skipped"
+    assert bot["items"] == []
+
+
+def test_ticker_signals_summary_bot_does_not_query_unified_signals(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("bot must not query unified signals")),
+    )
+
+    payload = main_module.ticker_signals_summary(
+        _request("/api/tickers/AAPL/signals-summary", {"user-agent": "Googlebot/2.1"}),
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "AAPL"
+    assert payload["status"] == "skipped"
     assert payload["items"] == []
 
 

@@ -2552,7 +2552,7 @@ _ATTRIBUTION_FRONTEND_FAMILIES: tuple[tuple[str, str], ...] = (
     ("/watchlists", "watchlists"),
     ("/monitoring", "monitoring"),
 )
-_PREFETCH_HEADER_NAMES = ("purpose", "sec-purpose", "x-middleware-prefetch", "next-router-prefetch")
+_PREFETCH_HEADER_NAMES = ("purpose", "sec-purpose", "x-middleware-prefetch", "next-router-prefetch", "x-nextjs-data")
 _SAFE_TIER_VALUES = {"logged_out", "free", "premium", "pro", "admin"}
 
 
@@ -2575,13 +2575,24 @@ def _hash_user_agent(user_agent: str | None) -> str:
 
 
 def _classify_user_agent(request: Request) -> str:
-    purpose_values = " ".join(
-        str(request.headers.get(name) or "").lower()
-        for name in _PREFETCH_HEADER_NAMES
-    )
-    if "prefetch" in purpose_values:
+    headers = getattr(request, "headers", None)
+    header = lambda name: str((headers.get(name) if headers is not None else "") or "").lower()
+    purpose = header("purpose")
+    sec_purpose = header("sec-purpose")
+    next_router_prefetch = header("next-router-prefetch")
+    middleware_prefetch = header("x-middleware-prefetch")
+    nextjs_data = header("x-nextjs-data")
+    walnut_source = header("x-walnut-request-source")
+    if (
+        purpose == "prefetch"
+        or "prefetch" in sec_purpose
+        or next_router_prefetch in {"1", "true", "prefetch"}
+        or middleware_prefetch in {"1", "true", "prefetch"}
+        or nextjs_data in {"1", "true", "prefetch"}
+        or walnut_source == "prefetch"
+    ):
         return "prefetch"
-    user_agent = (request.headers.get("user-agent") or "").lower()
+    user_agent = header("user-agent")
     if not user_agent:
         return "unknown"
     crawler_terms = ("googlebot", "bingbot", "slurp", "duckduckbot", "baiduspider", "yandexbot", "semrushbot", "ahrefsbot")
@@ -2594,6 +2605,31 @@ def _classify_user_agent(request: Request) -> str:
     if any(term in user_agent for term in browser_terms):
         return "browser"
     return "unknown"
+
+
+def _is_explicit_prefetch_request(request: Request) -> bool:
+    return _classify_user_agent(request) == "prefetch"
+
+
+def _is_logged_out_bot_or_crawler_request(request: Request) -> bool:
+    if not hasattr(request, "headers"):
+        return False
+    if _classify_user_agent(request) not in {"bot", "crawler"}:
+        return False
+    auth_state, _plan_tier = _request_auth_state(request)
+    return auth_state == "logged_out"
+
+
+def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | None:
+    if not _is_explicit_prefetch_request(request):
+        return None
+    logger.info(
+        "api_prefetch_bypass endpoint=%s path=%s panel=%s",
+        endpoint,
+        request.url.path,
+        request.headers.get("x-walnut-panel") or request.headers.get("x-walnut-component") or "unknown",
+    )
+    return Response(status_code=204, headers={"cache-control": "no-store", "x-walnut-prefetch-bypass": "1"})
 
 
 def _request_route_family(path: str, header_family: str | None = None) -> str:
@@ -5417,6 +5453,91 @@ def _ticker_context_bundle_public_payload(value: Any) -> Any:
     return value
 
 
+def _ticker_context_bundle_cached_for_segment(
+    db: Session,
+    *,
+    symbol: str,
+    user_segment: str,
+    side: str,
+    limit: int,
+    lookback_days: int,
+    started_at: float,
+) -> dict[str, Any] | None:
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        return None
+    cache_key = _ticker_context_bundle_cache_key(
+        normalized_symbol,
+        user_segment=user_segment,
+        side=side,
+        limit=max(1, min(int(limit or 3), 3)),
+        lookback_days=max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+    )
+    return _ticker_context_bundle_cache_get(
+        db,
+        cache_key,
+        symbol=normalized_symbol,
+        user_segment=user_segment,
+        started_at=started_at,
+    )
+
+
+def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
+    normalized_symbol = normalize_symbol(symbol) or str(symbol or "").strip().upper()
+    now = _dt_iso(datetime.now(timezone.utc))
+    source_entitlements = _ticker_context_source_entitlements(None, authenticated=False)
+    signals_summary = {
+        "symbol": normalized_symbol,
+        "status": "skipped",
+        "lookback_days": CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        "effective_window_days": CONFIRMATION_SIGNAL_WINDOW_DAYS,
+        "updated_at": now,
+        "price_volume": None,
+        "insiders": None,
+        "congress": None,
+        "signals": {
+            "status": "premium_locked",
+            "direction": "neutral",
+            "title": "Premium feature",
+            "subtitle": "Signal stack unlocks with Premium.",
+            "recent_count": 0,
+            "latest_score": None,
+        },
+        "government_contracts": None,
+        "source_entitlements": source_entitlements,
+        "confirmation_score_bundle": None,
+        "signal_freshness": None,
+        "latest_signal_score": None,
+        "recent_count": 0,
+        "recent_signal_count": 0,
+        "rows": [],
+        "items": [],
+    }
+    return {
+        "symbol": normalized_symbol,
+        "status": "skipped",
+        "bundle_version": _TICKER_CONTEXT_BUNDLE_VERSION,
+        "generated_at": now,
+        "ticker": {
+            "symbol": normalized_symbol,
+            "name": normalized_symbol,
+            "asset_class": "Equity",
+        },
+        "identity": {"symbol": normalized_symbol, "company_name": normalized_symbol},
+        "quote": None,
+        "top_members": [],
+        "trades": [],
+        "confirmation_score_bundle": None,
+        "options_flow_summary": None,
+        "why_now": None,
+        "signal_freshness": None,
+        "technical_indicators": None,
+        "source_entitlements": source_entitlements,
+        "source_cards": {},
+        "signals_summary": signals_summary,
+    }
+
+
 def _build_ticker_context_bundle(
     *,
     request: Request,
@@ -5660,6 +5781,29 @@ def ticker_context_bundle(
     lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_context_bundle")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_logged_out_bot_or_crawler_request(request):
+        started_at = perf_counter()
+        cached = _ticker_context_bundle_cached_for_segment(
+            db,
+            symbol=symbol,
+            user_segment="logged_out",
+            side=side,
+            limit=limit,
+            lookback_days=lookback_days,
+            started_at=started_at,
+        )
+        if cached is not None:
+            logger.info(
+                "api_bot_cached_response endpoint=ticker_context_bundle symbol=%s duration_ms=%.1f",
+                normalize_symbol(symbol) or symbol,
+                (perf_counter() - started_at) * 1000,
+            )
+            return cached
+        logger.info("api_bot_lightweight_response endpoint=ticker_context_bundle symbol=%s", normalize_symbol(symbol) or symbol)
+        return _ticker_context_bundle_bot_payload(symbol)
     return _build_ticker_context_bundle(
         request=request,
         symbol=symbol,
@@ -7820,6 +7964,15 @@ def ticker_signals_summary(
     lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_signals_summary")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_logged_out_bot_or_crawler_request(request):
+        normalized_symbol = normalize_symbol(symbol)
+        if not normalized_symbol:
+            raise HTTPException(status_code=422, detail="Ticker symbol is required")
+        logger.info("api_bot_lightweight_response endpoint=ticker_signals_summary symbol=%s", normalized_symbol)
+        return _ticker_context_bundle_bot_payload(normalized_symbol)["signals_summary"]
     started_at = perf_counter()
     auth_started_at = perf_counter()
     user = current_user(db, request, required=False)
@@ -8044,6 +8197,7 @@ def ticker_signals_summary(
 
 @app.get("/api/tickers/{symbol}/government-contracts")
 def ticker_government_contracts(
+    request: Request,
     symbol: str,
     lookback_days: int = Query(365, ge=1, le=1095),
     min_amount: float = Query(1_000_000, ge=0),
@@ -8051,13 +8205,36 @@ def ticker_government_contracts(
     page: int = Query(0, ge=0, le=1000),
     db: Session = Depends(get_db),
 ):
+    normalized_symbol = normalize_symbol(symbol)
+    bounded_limit = max(1, min(int(limit or 10), 100))
+    bounded_page = max(0, int(page or 0))
+    bounded_lookback_days = max(1, min(int(lookback_days or 365), 1095))
+    minimum_amount = max(float(min_amount or 0), 0.0)
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_government_contracts")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_logged_out_bot_or_crawler_request(request):
+        logger.info("api_bot_lightweight_response endpoint=ticker_government_contracts symbol=%s", normalized_symbol or symbol)
+        return {
+            "symbol": normalized_symbol,
+            "status": "skipped",
+            "source_status": "skipped",
+            "lookback_days": bounded_lookback_days,
+            "cutoff_date": (date.today() - timedelta(days=bounded_lookback_days)).isoformat(),
+            "min_amount": minimum_amount,
+            "page": bounded_page,
+            "limit": bounded_limit,
+            "total": 0,
+            "has_next": False,
+            "contract_count": 0,
+            "total_award_amount": 0.0,
+            "largest_award_amount": None,
+            "latest_award_date": None,
+            "top_agency": None,
+            "items": [],
+        }
     acquired = _TICKER_WIDGET_SEMAPHORE.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
     if not acquired:
-        normalized_symbol = normalize_symbol(symbol)
-        bounded_limit = max(1, min(int(limit or 10), 100))
-        bounded_page = max(0, int(page or 0))
-        bounded_lookback_days = max(1, min(int(lookback_days or 365), 1095))
-        minimum_amount = max(float(min_amount or 0), 0.0)
         logger.warning(
             "api_degraded endpoint=/api/tickers/%s/government-contracts error=heavy_route_saturated",
             normalized_symbol or symbol,
