@@ -70,6 +70,9 @@ test("ticker signal activity uses the Signals page endpoint scoped to the ticker
   assert.match(client, /congress_recent_days: lookbackDays/);
   assert.match(client, /insider_recent_days: lookbackDays/);
   assert.match(client, /source: "TickerSignalActivity"/);
+  assert.match(client, /function isTickerSignalActivityItem/);
+  assert.match(client, /kind === "congress" \|\| kind === "insider"/);
+  assert.match(client, /response\.items\.filter\(isTickerSignalActivityItem\)/);
   assert.match(sourceCard, /getTickerSignalsSummary\(symbol,/);
   assert.match(sourceCard, /sourceFromSummary\(response, visibleItems, lookbackDays, fallbackSource\)/);
   assert.match(tickerPage, /getTickerSignalsSummary\(normalizedSymbol,/);
@@ -80,6 +83,10 @@ test("ticker signal activity uses the Signals page endpoint scoped to the ticker
   assert.match(tickerPage, /initialState=\{null\}/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
   assert.match(tickerPage, /activitySignalFreshness \?\? signalFreshness/);
+  assert.match(tickerPage, /const signalActivityRows = \(signalsRes\.items \?\? \[\]\)\.filter\(\(signal\) => isTickerSignalKind\(signal\.kind\)\)/);
+  assert.match(tickerPage, /const showInstitutional = source === "all" \|\| source === "institutional"/);
+  assert.match(tickerPage, /id="institutional-activity"/);
+  assert.match(tickerPage, /<InstitutionalActivityCard key=\{event\.id\} event=\{event\} \/>/);
   assert.match(tickerPage, /const insiderCardSource = confirmationBundle\.sources\.insiders/);
   assert.match(tickerPage, /const congressCardSource = confirmationBundle\.sources\.congress/);
   assert.match(tickerPage, /summaryCount\(summaryInsiders, "buy_count"\)/);
@@ -95,15 +102,40 @@ test("ticker Signal activity renders historical rows and keeps locked states out
 
   assert.doesNotMatch(api, /signal_activity\?: SignalItem\[\]/);
   assert.doesNotMatch(api, /activity_limit/);
-  assert.match(client, /setItems\(response\.items\)/);
-  assert.match(client, /setTotal\(response\.items\.length\)/);
+  assert.match(client, /const tickerSignalItems = response\.items\.filter\(isTickerSignalActivityItem\)/);
+  assert.match(client, /setItems\(tickerSignalItems\)/);
+  assert.match(client, /setTotal\(tickerSignalItems\.length\)/);
   assert.match(client, /gateFromActivityState\(initialState\)/);
   assert.match(client, /state === "locked"/);
   assert.match(client, /state === "unavailable"/);
   assert.match(client, /No abnormal signal activity found for this ticker in the selected lookback\./);
   assert.match(client, /const visibleTotal = total \?\? visibleItems\.length/);
-  assert.match(tickerPage, /const signalActivityRows = signalsRes\.items \?\? \[\]/);
+  assert.match(tickerPage, /const signalActivityRows = \(signalsRes\.items \?\? \[\]\)\.filter\(\(signal\) => isTickerSignalKind\(signal\.kind\)\)/);
   assert.match(tickerPage, /signalsTotal: signals\.length/);
+});
+
+test("ticker institutional holder activity is separate from Signal activity", () => {
+  const client = read("components/ticker/TickerSignalActivityClient.tsx");
+  const tickerPage = read("app/ticker/[symbol]/page.tsx");
+  const kpi = read("components/ticker/TickerKpiNavigation.tsx");
+
+  assert.match(kpi, /"institutional"/);
+  assert.match(tickerPage, /type SourceFilter = "all" \| "congress" \| "insider" \| "signals" \| "institutional" \| "government_contract"/);
+  assert.match(tickerPage, /\["institutional", "Institutional"\]/);
+  assert.match(tickerPage, /tape: "institutional"/);
+  assert.match(tickerPage, /source: "TickerInstitutionalActivity"/);
+  assert.match(tickerPage, /Institutional activity/);
+  assert.match(tickerPage, /13F filings disclose quarter-end holdings and may not reflect real-time trading\./);
+  assert.match(tickerPage, /function InstitutionalActivityCard/);
+  const institutionalCard = tickerPage.slice(
+    tickerPage.indexOf("function InstitutionalActivityCard"),
+    tickerPage.indexOf("function GovernmentContractActivityCard"),
+  );
+  assert.doesNotMatch(institutionalCard, /pnl=/);
+  assert.doesNotMatch(institutionalCard, /price=/);
+  assert.doesNotMatch(institutionalCard, /ActivityCardGrid/);
+  assert.match(client, /isTickerSignalActivityItem/);
+  assert.match(client, /response\.items\.filter\(isTickerSignalActivityItem\)/);
 });
 
 test("ticker upper Signals source card repairs stale inactive SSR from browser-authenticated summary rows", () => {

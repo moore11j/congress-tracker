@@ -26,6 +26,11 @@ function signalKind(item: SignalItem): string {
   return (item.kind ?? "").trim().toLowerCase();
 }
 
+function isTickerSignalActivityItem(item: SignalItem): boolean {
+  const kind = signalKind(item);
+  return kind === "congress" || kind === "insider";
+}
+
 function formatSignalStrengthText(band?: string | null): string {
   const cleaned = (band ?? "")
     .replace(/[_-]+/g, " ")
@@ -203,8 +208,9 @@ export function TickerSignalActivityClient({
 
   useEffect(() => {
     if (hasInitialItems) {
-      setItems(initialItems ?? []);
-      setTotal(initialTotal ?? initialItems?.length ?? 0);
+      const tickerSignalItems = (initialItems ?? []).filter(isTickerSignalActivityItem);
+      setItems(tickerSignalItems);
+      setTotal(tickerSignalItems.length);
       setGate(gateFromActivityState(initialState));
       setLoading(false);
       return;
@@ -227,8 +233,9 @@ export function TickerSignalActivityClient({
     })
       .then((response) => {
         if (!alive) return;
-        setItems(response.items);
-        setTotal(response.items.length);
+        const tickerSignalItems = response.items.filter(isTickerSignalActivityItem);
+        setItems(tickerSignalItems);
+        setTotal(tickerSignalItems.length);
         setGate(null);
       })
       .catch((error) => {

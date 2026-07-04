@@ -3,7 +3,7 @@
 import { type ReactNode } from "react";
 import { cardClassName } from "@/lib/styles";
 
-type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
+type SourceFilter = "all" | "congress" | "insider" | "signals" | "institutional" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 type MetricIconKind = "congress" | "insider-buy" | "insider-sell" | "signals" | "flow" | "people";
 

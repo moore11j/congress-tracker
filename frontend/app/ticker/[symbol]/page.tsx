@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
@@ -55,7 +55,7 @@ type Props = {
 };
 
 type Lookback = "30" | "90" | "180" | "365";
-type SourceFilter = "all" | "congress" | "insider" | "signals" | "government_contract";
+type SourceFilter = "all" | "congress" | "insider" | "signals" | "institutional" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
@@ -153,6 +153,12 @@ type TickerActivityData = {
   insiderEventsPage: number;
   insiderEventsLimit: number;
   insiderEventsHasNext: boolean;
+  institutionalEvents: EventsResponse["items"];
+  institutionalEventsTotal: number | null;
+  institutionalEventsPage: number;
+  institutionalEventsLimit: number;
+  institutionalEventsHasNext: boolean;
+  institutionalEventsStatus: string;
   governmentContracts: TickerGovernmentContractItem[];
   governmentContractsTotal: number;
   governmentContractsPage: number;
@@ -283,7 +289,7 @@ function clampLookback(v: string): Lookback {
 }
 
 function clampSource(v: string): SourceFilter {
-  return v === "congress" || v === "insider" || v === "signals" || v === "government_contract" || v === "all" ? v : "all";
+  return v === "congress" || v === "insider" || v === "signals" || v === "institutional" || v === "government_contract" || v === "all" ? v : "all";
 }
 
 function clampSide(v: string): SideFilter {
@@ -346,6 +352,97 @@ function formatActivityPrice(value: number | null): string {
     minimumFractionDigits: hasDecimals ? 2 : 0,
     maximumFractionDigits: hasDecimals ? 2 : 0,
   }).format(value);
+}
+
+function titleCase(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isTickerSignalKind(value: string | null | undefined): boolean {
+  const kind = canonicalize(value);
+  return kind === "congress" || kind === "insider";
+}
+
+function isInstitutionalActivityEventType(value?: string | null): boolean {
+  const normalized = canonicalize(value);
+  return normalized === "institutional_buy" || (INSTITUTIONAL_ACTIVITY_EVENT_TYPES as readonly string[]).includes(normalized);
+}
+
+function eventPayload(event: EventsResponse["items"][number]): Record<string, unknown> {
+  return event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+}
+
+function payloadString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function payloadNumber(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function institutionalHolderName(event: EventsResponse["items"][number]): string {
+  const payload = eventPayload(event);
+  return event.member_name?.trim()
+    || payloadString(payload, "holder_name")
+    || payloadString(payload, "institution_name")
+    || "Institution";
+}
+
+function institutionalActionLabel(event: EventsResponse["items"][number]): string {
+  const payload = eventPayload(event);
+  const eventType = canonicalize(event.event_type);
+  const action = payloadString(payload, "action") || event.trade_type || payloadString(payload, "direction");
+  if (eventType === "new_institutional_position") return "New Position";
+  if (eventType === "major_holder_exit") return "Exit";
+  if (eventType === "major_holder_reduction" || eventType === "institutional_distribution" || eventType === "cluster_distribution") return "Reduced";
+  if (eventType === "institutional_accumulation" || eventType === "institutional_buy" || eventType === "cluster_accumulation" || eventType === "contrarian_accumulation") return "Increased";
+  return titleCase(action) || "Reported";
+}
+
+function institutionalTone(event: EventsResponse["items"][number]): "pos" | "neg" | "neutral" {
+  const payload = eventPayload(event);
+  const direction = canonicalize(payloadString(payload, "direction") || event.trade_type || event.event_type);
+  if (direction.includes("bearish") || direction.includes("distribution") || direction.includes("reduction") || direction.includes("exit") || direction.includes("reduced")) return "neg";
+  if (direction.includes("bullish") || direction.includes("accumulation") || direction.includes("buy") || direction.includes("new") || direction.includes("increased")) return "pos";
+  return "neutral";
+}
+
+function institutionalValue(event: EventsResponse["items"][number]): number | null {
+  const payload = eventPayload(event);
+  const candidates = [
+    event.amount_max,
+    event.amount_min,
+    payloadNumber(payload, "reported_value_usd"),
+    payloadNumber(payload, "value_delta_usd"),
+    payloadNumber(payload, "current_value_usd"),
+  ];
+  return candidates.find((value) => typeof value === "number" && Number.isFinite(value) && value > 0) ?? null;
+}
+
+function institutionalDate(event: EventsResponse["items"][number]): string | null {
+  const payload = eventPayload(event);
+  return payloadString(payload, "filing_date") || event.ts || null;
+}
+
+function institutionalReportPeriod(event: EventsResponse["items"][number]): string | null {
+  const payload = eventPayload(event);
+  const reportPeriod = payloadString(payload, "report_period");
+  if (reportPeriod) return reportPeriod;
+  const year = payloadNumber(payload, "report_year");
+  const quarter = payloadNumber(payload, "report_quarter");
+  if (year && quarter) return `Q${quarter} ${year}`;
+  return null;
 }
 
 function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
@@ -1974,6 +2071,57 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
   );
 }
 
+function InstitutionalActivityCard({
+  event,
+}: {
+  event: EventsResponse["items"][number];
+}) {
+  const payload = eventPayload(event);
+  const holderName = institutionalHolderName(event);
+  const cik = event.member_bioguide_id?.trim() || payloadString(payload, "cik");
+  const holderHref = cik ? `/institution/${encodeURIComponent(cik)}` : null;
+  const action = institutionalActionLabel(event);
+  const value = institutionalValue(event);
+  const valueText = value !== null ? formatCurrency(value) : "Value unavailable";
+  const reportPeriod = institutionalReportPeriod(event);
+  const filingDate = institutionalDate(event);
+  const summary = payloadString(payload, "summary") || payloadString(payload, "title") || null;
+  const metaLine = [filingDate ? `Filed ${formatDateShort(filingDate)}` : null, reportPeriod].filter(Boolean).join(" · ");
+
+  return (
+    <ActivityCard>
+      <div className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-[minmax(180px,1.5fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_auto] sm:items-center">
+        <div className="min-w-0">
+          {holderHref ? (
+            <Link href={holderHref} prefetch={false} className="block truncate text-sm font-semibold text-emerald-200">
+              {holderName}
+            </Link>
+          ) : (
+            <p className="truncate text-sm font-semibold text-slate-100">{holderName}</p>
+          )}
+          <p className="mt-1 truncate text-xs text-slate-400">{metaLine || "13F filing"}</p>
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Reported value</div>
+          <div className="truncate text-sm font-semibold tabular-nums text-white">{valueText}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Source</div>
+          <div className="truncate text-sm font-semibold text-slate-200">13F holdings</div>
+        </div>
+        <div className="flex justify-start sm:justify-end">
+          <Badge tone={institutionalTone(event)}>{action}</Badge>
+        </div>
+      </div>
+      {summary ? (
+        <p className="mt-3 max-w-full overflow-hidden break-words text-ellipsis text-sm leading-6 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          {summary}
+        </p>
+      ) : null}
+    </ActivityCard>
+  );
+}
+
 function GovernmentContractActivityCard({
   contract,
 }: {
@@ -2127,6 +2275,7 @@ async function resolveTickerActivityData({
   eventsPromise,
   congressEventsPromise,
   insiderEventsPromise,
+  institutionalEventsPromise,
   governmentContractsPromise,
   signalSummaryRequest,
   signalsUnavailable,
@@ -2136,16 +2285,18 @@ async function resolveTickerActivityData({
   eventsPromise?: ReturnType<typeof getEvents>;
   congressEventsPromise?: ReturnType<typeof getEvents>;
   insiderEventsPromise?: ReturnType<typeof getEvents>;
+  institutionalEventsPromise?: ReturnType<typeof getEvents>;
   governmentContractsPromise?: ReturnType<typeof getTickerGovernmentContracts>;
   signalSummaryRequest?: Promise<TickerSignalsSummaryResponse>;
   signalsUnavailable?: SignalGateState | null;
   lookbackStartKey: string;
   side: SideFilter;
 }): Promise<TickerActivityData> {
-  const [eventsRes, congressEventsRes, insiderEventsRes, governmentContractsRes, signalsResult] = await Promise.all([
+  const [eventsRes, congressEventsRes, insiderEventsRes, institutionalEventsRes, governmentContractsRes, signalsResult] = await Promise.all([
     eventsPromise ?? Promise.resolve(emptyEventsResponse()),
     congressEventsPromise ?? Promise.resolve(emptyEventsResponse()),
     insiderEventsPromise ?? Promise.resolve(emptyEventsResponse()),
+    institutionalEventsPromise ?? Promise.resolve(emptyEventsResponse()),
     governmentContractsPromise ?? Promise.resolve({
       symbol: null,
       status: "ok",
@@ -2201,8 +2352,8 @@ async function resolveTickerActivityData({
     ].join("|");
   });
 
-  const signalActivityRows = signalsRes.items ?? [];
-  const confirmationSignals = dedupeByKey(signalsRes.items ?? [], (signal) => [
+  const signalActivityRows = (signalsRes.items ?? []).filter((signal) => isTickerSignalKind(signal.kind));
+  const confirmationSignals = dedupeByKey(signalActivityRows, (signal) => [
     canonicalize(signal.kind),
     canonicalize(signal.symbol),
     canonicalize(signal.who),
@@ -2238,8 +2389,13 @@ async function resolveTickerActivityData({
   const metricInsiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
   const congressEvents = visibleActivityItems(congressEventsRes, ACTIVITY_PAGE_SIZE);
   const insiderEvents = visibleActivityItems(insiderEventsRes, ACTIVITY_PAGE_SIZE);
+  const institutionalEvents = visibleActivityItems(institutionalEventsRes, ACTIVITY_PAGE_SIZE)
+    .filter((event) => isInstitutionalActivityEventType(event.event_type));
   const congressActivityPage = activityPageMeta(congressEventsRes, 0, ACTIVITY_PAGE_SIZE);
   const insiderActivityPage = activityPageMeta(insiderEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const institutionalActivityPage = activityPageMeta(institutionalEventsRes, 0, ACTIVITY_PAGE_SIZE);
+  const institutionalEventsAvailability = institutionalEventsRes as EventsResponse & { availability_status?: string | null };
+  const institutionalEventsStatus = institutionalEventsAvailability.status ?? institutionalEventsAvailability.availability_status ?? "ok";
   const governmentContracts = governmentContractsRes.items ?? [];
   const governmentContractsTotal = typeof governmentContractsRes.total === "number"
     ? governmentContractsRes.total
@@ -2326,6 +2482,12 @@ async function resolveTickerActivityData({
     insiderEventsPage: insiderActivityPage.page,
     insiderEventsLimit: insiderActivityPage.limit,
     insiderEventsHasNext: insiderActivityPage.hasNext,
+    institutionalEvents,
+    institutionalEventsTotal: institutionalActivityPage.total,
+    institutionalEventsPage: institutionalActivityPage.page,
+    institutionalEventsLimit: institutionalActivityPage.limit,
+    institutionalEventsHasNext: institutionalActivityPage.hasNext,
+    institutionalEventsStatus,
     governmentContracts,
     governmentContractsTotal,
     governmentContractsPage,
@@ -2405,6 +2567,12 @@ async function DeferredTickerContent({
     insiderEventsPage,
     insiderEventsLimit,
     insiderEventsHasNext,
+    institutionalEvents,
+    institutionalEventsTotal,
+    institutionalEventsPage,
+    institutionalEventsLimit,
+    institutionalEventsHasNext,
+    institutionalEventsStatus,
     governmentContracts,
     governmentContractsTotal,
     governmentContractsPage,
@@ -2462,7 +2630,9 @@ async function DeferredTickerContent({
   const showCongress = source === "all" || source === "congress";
   const showInsider = source === "all" || source === "insider";
   const showSignals = source === "all" || source === "signals";
+  const showInstitutional = source === "all" || source === "institutional";
   const showGovernmentContracts = source === "all" || source === "government_contract";
+  const institutionalEventsUnavailable = institutionalEventsStatus === "unavailable";
   const governmentContractsUnavailable = governmentContractsStatus === "unavailable";
   const signalSourceEvents = events.filter((event) => event.event_type === "congress_trade" || event.event_type === "insider_trade");
   const activityPnlByEventId = new Map<number, number | null>(
@@ -2614,7 +2784,7 @@ async function DeferredTickerContent({
         <div className={`${cardClassName} p-4`}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
-            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals / Gov Contracts</p>
+            <p className="text-xs text-slate-500">All / Congress / Insiders / Signals / Institutional / Gov Contracts</p>
           </div>
           <div className="mt-3 flex flex-wrap rounded-xl border border-white/10 bg-slate-950/80 p-1">
             {([
@@ -2622,6 +2792,7 @@ async function DeferredTickerContent({
               ["congress", "Congress"],
               ["insider", "Insiders"],
               ["signals", "Signals"],
+              ["institutional", "Institutional"],
               ["government_contract", "Gov Contracts"],
             ] as const).map(([value, label]) => (
               <Link
@@ -2763,6 +2934,16 @@ async function DeferredTickerContent({
             targetId: "signals-activity",
             title: "View signal activity",
             source: "signals",
+          },
+          {
+            key: "institutional-activity-count",
+            label: "Institutional activity",
+            value: institutionalEventsTotal ?? institutionalEvents.length,
+            toneClass: institutionalEvents.length ? "text-indigo-200" : "text-slate-400",
+            icon: "people",
+            targetId: "institutional-activity",
+            title: "View institutional activity",
+            source: "institutional",
           },
         ]}
       />
@@ -3039,6 +3220,60 @@ async function DeferredTickerContent({
             </section>
           ) : null}
 
+          {showInstitutional ? (
+            <section id="institutional-activity" className={`${cardClassName} scroll-mt-6`}>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Institutional activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    13F filings disclose quarter-end holdings and may not reflect real-time trading.
+                  </p>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {institutionalEventsUnavailable
+                    ? "unavailable"
+                    : `${institutionalEventsTotal ?? institutionalEvents.length} event${(institutionalEventsTotal ?? institutionalEvents.length) === 1 ? "" : "s"}`}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {institutionalCardLocked ? (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                    <p className="text-sm font-semibold text-white">Institutional activity requires Pro.</p>
+                    <p className="mt-1 text-sm text-slate-400">Upgrade to review 13F holder activity for this ticker.</p>
+                    <Link
+                      href="/pricing"
+                      prefetch={false}
+                      className="mt-3 inline-flex rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15"
+                    >
+                      View Pro
+                    </Link>
+                  </div>
+                ) : institutionalEventsUnavailable ? (
+                  <p className="text-sm text-slate-400">Institutional activity is temporarily unavailable.</p>
+                ) : institutionalEvents.length === 0 ? (
+                  <p className="text-sm text-slate-400">No institutional holder activity found for this ticker in the selected lookback.</p>
+                ) : (
+                  <>
+                    <ActivityScrollRegion>
+                      {institutionalEvents.map((event) => (
+                        <InstitutionalActivityCard key={event.id} event={event} />
+                      ))}
+                    </ActivityScrollRegion>
+                    <TickerActivityPaginationFooter
+                      sectionId="institutional-activity"
+                      pageParam="institutional_page"
+                      page={institutionalEventsPage}
+                      limit={institutionalEventsLimit}
+                      total={institutionalEventsTotal}
+                      itemCount={institutionalEvents.length}
+                      hasNext={institutionalEventsHasNext}
+                    />
+                  </>
+                )}
+              </div>
+            </section>
+          ) : null}
+
           {showGovernmentContracts ? (
             <section id="government-contracts-activity" className={`${cardClassName} w-full max-w-full min-w-0 overflow-hidden scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
@@ -3208,6 +3443,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const side = clampSide(one(sp, "side"));
   const congressPage = clampPage(one(sp, "congress_page"));
   const insiderPage = clampPage(one(sp, "insider_page"));
+  const institutionalPage = clampPage(one(sp, "institutional_page"));
   const contractsPage = clampPage(one(sp, "contracts_page"));
   const normalizedSymbol = symbol.trim().toUpperCase();
   const activityDetailsRequested = one(sp, "activity_details") === "1";
@@ -3308,6 +3544,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     const shouldFetchGovernmentContracts = source === "all" || source === "government_contract";
     const shouldFetchCongressActivity = source === "all" || source === "congress";
     const shouldFetchInsiderActivity = source === "all" || source === "insider";
+    const shouldFetchInstitutionalActivity = canViewProContext && (source === "all" || source === "institutional");
     const tradeType = sideToTradeType(side);
     const congressActivity =
       shouldFetchCongressActivity
@@ -3347,6 +3584,28 @@ export default async function TickerPage({ params, searchParams }: Props) {
               name: error instanceof Error ? error.name : "unknown",
             });
             return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
+          })
+        : undefined;
+    const institutionalActivity =
+      shouldFetchInstitutionalActivity
+        ? await getEvents({
+            symbol: normalizedSymbol,
+            recent_days: lookbackDays,
+            limit: ACTIVITY_FETCH_SIZE,
+            offset: institutionalPage * ACTIVITY_PAGE_SIZE,
+            enrich_prices: 0,
+            tape: "institutional",
+            authToken: authToken ?? undefined,
+            source: "TickerInstitutionalActivity",
+            requestSource: "ssr",
+            routeFamily: "ticker",
+          }).catch((error) => {
+            console.error("[ticker-institutional-activity] unavailable", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return emptyEventsResponse(institutionalPage, ACTIVITY_PAGE_SIZE);
           })
         : undefined;
     const governmentContracts =
@@ -3396,6 +3655,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       }),
       congressEventsPromise: congressActivity ? Promise.resolve(congressActivity) : undefined,
       insiderEventsPromise: insiderActivity ? Promise.resolve(insiderActivity) : undefined,
+      institutionalEventsPromise: institutionalActivity ? Promise.resolve(institutionalActivity) : undefined,
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
       signalSummaryRequest,
       signalsUnavailable: signalGateState,
