@@ -150,6 +150,18 @@ function SignalActivitySkeleton() {
   );
 }
 
+function ActivityRangeFooter({ itemCount, total }: { itemCount: number; total: number | null }) {
+  if (itemCount <= 0) return null;
+  const exactTotal = typeof total === "number" ? total : null;
+  return (
+    <div className="border-t border-white/10 pt-3">
+      <span className="text-xs text-slate-500">
+        {exactTotal !== null ? `Showing 1-${Math.min(itemCount, exactTotal)} of ${exactTotal}` : `Showing 1-${itemCount}`}
+      </span>
+    </div>
+  );
+}
+
 export function TickerSignalActivityClient({
   symbol,
   side,
@@ -254,8 +266,9 @@ export function TickerSignalActivityClient({
         ) : visibleItems.length === 0 ? (
           <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
         ) : (
-          <ActivityScrollRegion>
-            {visibleItems.slice(0, 20).map((signal) => {
+          <>
+            <ActivityScrollRegion>
+              {visibleItems.slice(0, 20).map((signal) => {
               const kind = signalKind(signal);
               const isInsiderSignal = kind === "insider";
               const isCongressSignal = kind === "congress";
@@ -303,8 +316,10 @@ export function TickerSignalActivityClient({
                   />
                 </ActivityCard>
               );
-            })}
-          </ActivityScrollRegion>
+              })}
+            </ActivityScrollRegion>
+            <ActivityRangeFooter itemCount={visibleItems.slice(0, 20).length} total={total} />
+          </>
         )}
       </div>
     </section>

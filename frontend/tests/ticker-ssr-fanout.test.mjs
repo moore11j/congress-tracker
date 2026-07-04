@@ -51,8 +51,8 @@ test("ticker deferred SSR renders section placeholders and hydrates details on v
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(page, /<TickerDeferredActivityRefresh enabled=\{activityDetailsDeferred\} symbol=\{normalizedSymbol\} \/>/);
-  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
-  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" \/>/);
   assert.match(page, /activityDetailsDeferred \? "Loading government contract activity\." : "No government contracts in selected window\."/);
   assert.match(refresher, /"use client"/);
   assert.match(refresher, /IntersectionObserver/);

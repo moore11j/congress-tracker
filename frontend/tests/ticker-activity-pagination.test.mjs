@@ -29,6 +29,12 @@ test("ticker activity sections use shared paginated footers", () => {
   assert.match(page, /sectionId="congress-activity"/);
   assert.match(page, /sectionId="insider-activity"/);
   assert.match(page, /sectionId="government-contracts-activity"/);
+  assert.match(page, /id="congress-activity-status"/);
+  assert.match(page, /id="insider-activity-status"/);
+  assert.match(page, /activityCountLabel\(congressEventsTotal, congressEvents\.length, "event"\)/);
+  assert.match(page, /activityCountLabel\(insiderEventsTotal, insiderEvents\.length, "event"\)/);
+  assert.match(page, /statusElementId="congress-activity-status"/);
+  assert.match(page, /statusElementId="insider-activity-status"/);
 });
 
 test("activity footer preserves scroll and anchors back to the section", () => {
@@ -47,6 +53,8 @@ test("activity footer preserves scroll and anchors back to the section", () => {
 
 test("activity footer renders showing range and show-more controls", () => {
   const footer = read("components/ticker/TickerActivityPaginationFooter.tsx");
+  const signalClient = read("components/ticker/TickerSignalActivityClient.tsx");
+  const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(footer, /const hasExactTotal = typeof total === "number"/);
   assert.match(footer, /const showingStart = itemCount > 0 \? page \* safeLimit \+ 1 : 0/);
@@ -54,6 +62,12 @@ test("activity footer renders showing range and show-more controls", () => {
   assert.doesNotMatch(footer, /Showing \{showingStart\}&ndash;\{showingEnd\} of \{total\}/);
   assert.match(footer, />\s*Previous\s*</);
   assert.match(footer, />\s*Show more\s*</);
+  assert.match(signalClient, /function ActivityRangeFooter\(\{ itemCount, total \}/);
+  assert.match(signalClient, /Showing 1-\$\{Math\.min\(itemCount, exactTotal\)\} of \$\{exactTotal\}/);
+  assert.match(signalClient, /<ActivityRangeFooter itemCount=\{visibleItems\.slice\(0, 20\)\.length\} total=\{total\} \/>/);
+  assert.match(detailClient, /function ActivityRangeFooter\(\{ itemCount \}/);
+  assert.match(detailClient, /Showing 1-\{itemCount\}/);
+  assert.match(detailClient, /activityStatusLabel\(\{ loading, unavailable, itemCount: items\.length \}\)/);
 });
 
 test("insider activity cards render one filed-price-first price", () => {

@@ -182,22 +182,56 @@ function unavailableCopy(kind: ActivityKind) {
   return kind === "congress" ? "Congress activity is temporarily unavailable." : "Insider activity is temporarily unavailable.";
 }
 
+function activityStatusLabel({
+  loading,
+  unavailable,
+  itemCount,
+}: {
+  loading: boolean;
+  unavailable: boolean;
+  itemCount: number;
+}) {
+  if (loading) return "loading";
+  if (unavailable) return "unavailable";
+  return `${itemCount} event${itemCount === 1 ? "" : "s"}`;
+}
+
+function ActivityRangeFooter({ itemCount }: { itemCount: number }) {
+  if (itemCount <= 0) return null;
+  return (
+    <div className="border-t border-white/10 pt-3">
+      <span className="text-xs text-slate-500">
+        Showing 1-{itemCount}
+      </span>
+    </div>
+  );
+}
+
 export function TickerActivityDetailClient({
   kind,
   symbol,
   lookbackDays,
   side,
+  statusElementId,
 }: {
   kind: ActivityKind;
   symbol: string;
   lookbackDays: number;
   side: SideFilter;
+  statusElementId?: string;
 }) {
   const markerRef = useRef<HTMLDivElement | null>(null);
   const requestedRef = useRef(false);
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (!statusElementId) return;
+    const element = document.getElementById(statusElementId);
+    if (!element) return;
+    element.textContent = activityStatusLabel({ loading, unavailable, itemCount: items.length });
+  }, [items.length, loading, statusElementId, unavailable]);
 
   useEffect(() => {
     let alive = true;
@@ -292,7 +326,7 @@ export function TickerActivityDetailClient({
   }
 
   return (
-    <div ref={markerRef}>
+    <div ref={markerRef} className="space-y-3">
       <ActivityScrollRegion>
         {items.map((event) => (
           <ActivityCard key={event.id}>
@@ -316,6 +350,7 @@ export function TickerActivityDetailClient({
           </ActivityCard>
         ))}
       </ActivityScrollRegion>
+      <ActivityRangeFooter itemCount={items.length} />
     </div>
   );
 }

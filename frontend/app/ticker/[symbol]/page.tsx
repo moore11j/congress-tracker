@@ -445,6 +445,12 @@ function institutionalReportPeriod(event: EventsResponse["items"][number]): stri
   return null;
 }
 
+function activityCountLabel(total: number | null | undefined, itemCount: number, noun: string, unavailable = false): string {
+  if (unavailable) return "unavailable";
+  const count = total ?? itemCount;
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function normalizeTradeSide(value?: string | null): "buy" | "sell" | null {
   const t = (value ?? "").trim().toLowerCase();
   if (!t) return null;
@@ -2964,17 +2970,13 @@ async function DeferredTickerContent({
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
-                <span className="text-xs text-slate-400">
-                  {congressEvents.length === 0
-                    ? "Latest activity"
-                    : congressEventsTotal !== null
-                      ? `${congressEventsTotal} events`
-                      : `${congressEvents.length}${congressEventsHasNext ? "+" : ""} shown`}
+                <span id="congress-activity-status" className="text-xs text-slate-400">
+                  {activityCountLabel(congressEventsTotal, congressEvents.length, "event")}
                 </span>
               </div>
               <div className="space-y-3">
                 {congressEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} />
+                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" />
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -3046,17 +3048,13 @@ async function DeferredTickerContent({
                     Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">
-                  {insiderEvents.length === 0
-                    ? "Latest activity"
-                    : insiderEventsTotal !== null
-                      ? `${insiderEventsTotal} events`
-                      : `${insiderEvents.length}${insiderEventsHasNext ? "+" : ""} shown`}
+                <span id="insider-activity-status" className="text-xs text-slate-400">
+                  {activityCountLabel(insiderEventsTotal, insiderEvents.length, "event")}
                 </span>
               </div>
               <div className="space-y-3">
                 {insiderEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} />
+                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" />
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -3130,7 +3128,7 @@ async function DeferredTickerContent({
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Signal activity</h2>
                 <span className="text-xs text-slate-400">
-                  {signalsUnavailable ? (signalsUnavailable.reason === "unavailable" ? "unavailable" : "locked") : `${signalsTotal ?? signals.length} signals`}
+                  {signalsUnavailable ? (signalsUnavailable.reason === "unavailable" ? "unavailable" : "locked") : activityCountLabel(signalsTotal, signals.length, "signal")}
                 </span>
               </div>
               <div className="space-y-3">
@@ -3151,7 +3149,8 @@ async function DeferredTickerContent({
                 ) : signals.length === 0 ? (
                   <p className="text-sm text-slate-400">No abnormal signal activity found for this ticker in the selected lookback.</p>
                 ) : (
-                  <ActivityScrollRegion>
+                  <>
+                    <ActivityScrollRegion>
                     {signals.slice(0, 20).map((signal) => {
                       const isInsiderSignal = signal.kind === "insider";
                       const isCongressSignal = signal.kind === "congress";
@@ -3228,7 +3227,13 @@ async function DeferredTickerContent({
                       </ActivityCard>
                       );
                     })}
-                  </ActivityScrollRegion>
+                    </ActivityScrollRegion>
+                    <div className="border-t border-white/10 pt-3">
+                      <span className="text-xs text-slate-500">
+                        Showing {signals.length > 0 ? 1 : 0}-{signals.length}
+                      </span>
+                    </div>
+                  </>
                 )}
               </div>
             </section>
@@ -3244,9 +3249,7 @@ async function DeferredTickerContent({
                   </p>
                 </div>
                 <span className="text-xs text-slate-400">
-                  {institutionalEventsUnavailable
-                    ? "unavailable"
-                    : `${institutionalEventsTotal ?? institutionalEvents.length} event${(institutionalEventsTotal ?? institutionalEvents.length) === 1 ? "" : "s"}`}
+                  {activityCountLabel(institutionalEventsTotal, institutionalEvents.length, "event", institutionalEventsUnavailable)}
                 </span>
               </div>
               <div className="space-y-3">
