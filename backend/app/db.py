@@ -25,14 +25,25 @@ if DATABASE_URL.startswith("sqlite:////data/"):
 
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
+IS_CRON_PROCESS = os.getenv("FLY_PROCESS_GROUP", "").strip().lower() == "cron"
+
+
+def _pool_env(name: str, default: str) -> int:
+    if IS_CRON_PROCESS:
+        cron_name = f"CRON_{name}"
+        if cron_name in os.environ:
+            return int(os.getenv(cron_name, default) or default)
+    return int(os.getenv(name, default) or default)
+
+
 pool_options = (
     {}
     if IS_SQLITE
     else {
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "8")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "4")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "2")),
-        "pool_recycle": int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
+        "pool_size": _pool_env("DB_POOL_SIZE", "8"),
+        "max_overflow": _pool_env("DB_MAX_OVERFLOW", "4"),
+        "pool_timeout": _pool_env("DB_POOL_TIMEOUT", "2"),
+        "pool_recycle": _pool_env("DB_POOL_RECYCLE_SECONDS", "1800"),
         "pool_use_lifo": True,
     }
 )

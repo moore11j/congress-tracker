@@ -28,6 +28,11 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_ENABLED"] == "false"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_START_PAGE"] == "9"
     assert fly_config["env"]["INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS"] == "900"
+    assert fly_config["env"]["BACKGROUND_DB_PRESSURE_GUARD_ENABLED"] == "true"
+    assert fly_config["env"]["BACKGROUND_DB_PRESSURE_GUARD_FAIL_CLOSED"] == "true"
+    assert fly_config["env"]["CRON_DB_POOL_SIZE"] == "2"
+    assert fly_config["env"]["CRON_DB_MAX_OVERFLOW"] == "0"
+    assert fly_config["env"]["CRON_DB_POOL_TIMEOUT"] == "3"
 
 
 def test_dockerfile_lets_fly_process_groups_override_commands():
@@ -91,6 +96,8 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     assert "DATA_ENRICHMENT_QUEUE_ENABLED:-false" in script
     assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-10" in script
     assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-20" in script
+    assert "python -m app.background_job_guard --job enrichment-queue" in script
+    assert "reason=db_pressure_guard" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
     assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
@@ -104,6 +111,8 @@ def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
     assert "FEED_PNL_REPAIR_DAYS:-3" in script
     assert "FEED_PNL_REPAIR_LIMIT:-150" in script
     assert "FEED_PNL_REPAIR_MAX_SECONDS:-30" in script
+    assert "python -m app.background_job_guard --job feed-pnl-repair" in script
+    assert "reason=db_pressure_guard" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "repair_already_running" in script
     assert "timeout \"$max_seconds\" python -m app.repair_recent_feed_pnl" in script
@@ -115,6 +124,8 @@ def test_institutional_latest_job_wrapper_is_disabled_bounded_and_non_overlappin
     assert "INSTITUTIONAL_SCHEDULED_INGEST_ENABLED:-false" in script
     assert "institutional_latest_job_disabled" in script
     assert "INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS:-900" in script
+    assert "python -m app.background_job_guard --job institutional-latest" in script
+    assert "reason=db_pressure_guard" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
     assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --scheduled-latest-once --log-level INFO" in script

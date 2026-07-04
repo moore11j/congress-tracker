@@ -35,6 +35,7 @@ from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_j
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 from app.utils.symbols import normalize_symbol
+from app.background_job_guard import background_job_skip_payload, check_background_job_guard
 
 logger = logging.getLogger(__name__)
 
@@ -846,6 +847,15 @@ def _run_enrichment_queue_job() -> dict[str, object]:
             "skipped": 1,
             "reason": "enrichment_queue_disabled",
         }
+    guard = check_background_job_guard("enrichment-queue")
+    if not guard.proceed:
+        logger.info("data_enrichment_queue_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {
+            **background_job_skip_payload("enrichment-queue", guard),
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+        }
     ensure_ticker_financials_cache_schema(engine)
     limit = int(
         os.getenv("DATA_ENRICHMENT_QUEUE_BATCH_SIZE")
@@ -865,6 +875,15 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
             "job": "priority-ticker-prewarm",
             "status": "skipped",
             "reason": "priority_ticker_prewarm_disabled",
+            "symbol_count": 0,
+            "attempted": 0,
+            "enqueued": 0,
+        }
+    guard = check_background_job_guard("priority-ticker-prewarm")
+    if not guard.proceed:
+        logger.info("prewarm_ticker_cache_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {
+            **background_job_skip_payload("priority-ticker-prewarm", guard),
             "symbol_count": 0,
             "attempted": 0,
             "enqueued": 0,

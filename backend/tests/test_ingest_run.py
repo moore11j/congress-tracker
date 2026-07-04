@@ -163,6 +163,25 @@ def test_enrichment_queue_job_defaults_to_disabled(monkeypatch) -> None:
     assert result["skipped"] == 1
 
 
+def test_enrichment_queue_job_skips_when_background_guard_blocks(monkeypatch) -> None:
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
+    monkeypatch.setattr(
+        "app.ingest_run.check_background_job_guard",
+        lambda job: SimpleNamespace(proceed=False, reason="db_active_connection_pressure", to_dict=lambda: {"job": job}),
+    )
+    monkeypatch.setattr(
+        "app.ingest_run.process_data_enrichment_jobs",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("queue should not run")),
+    )
+
+    result = _run_enrichment_queue_job()
+
+    assert result["job"] == "enrichment-queue"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "db_active_connection_pressure"
+    assert result["processed"] == 0
+
+
 def test_data_enrichment_queue_processes_trade_outcome_jobs(monkeypatch) -> None:
     from app.services.data_enrichment_queue import _process_one
 
@@ -268,3 +287,23 @@ def test_priority_ticker_prewarm_job_defaults_to_disabled(monkeypatch) -> None:
     assert result["job"] == "priority-ticker-prewarm"
     assert result["status"] == "skipped"
     assert result["reason"] == "priority_ticker_prewarm_disabled"
+
+
+def test_priority_ticker_prewarm_job_skips_when_background_guard_blocks(monkeypatch) -> None:
+    monkeypatch.setenv("PRIORITY_TICKER_PREWARM_ENABLED", "true")
+    monkeypatch.setattr(
+        "app.ingest_run.check_background_job_guard",
+        lambda job: SimpleNamespace(proceed=False, reason="db_total_connection_pressure", to_dict=lambda: {"job": job}),
+    )
+    monkeypatch.setattr(
+        "app.ingest_run.enqueue_priority_ticker_prewarm_jobs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("prewarm should not run")),
+    )
+
+    result = _run_priority_ticker_prewarm_job()
+
+    assert result["job"] == "priority-ticker-prewarm"
+    assert result["status"] == "skipped"
+    assert result["reason"] == "db_total_connection_pressure"
+    assert result["attempted"] == 0
+    assert result["enqueued"] == 0

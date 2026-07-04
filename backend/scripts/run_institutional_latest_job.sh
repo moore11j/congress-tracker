@@ -23,6 +23,11 @@ if [ "$max_seconds" -lt 60 ]; then
   exit 64
 fi
 
+if ! python -m app.background_job_guard --job institutional-latest; then
+  echo "institutional_latest_job_skipped status=skipped reason=db_pressure_guard"
+  exit 0
+fi
+
 lock_dir="${INSTITUTIONAL_SCHEDULED_INGEST_LOCK_DIR:-/tmp/institutional_latest_job.lock}"
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "institutional_latest_job_skipped status=skipped_locked reason=worker_already_running"

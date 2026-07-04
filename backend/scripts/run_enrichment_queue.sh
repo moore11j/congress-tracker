@@ -51,6 +51,11 @@ if [ "$max_seconds" -lt 1 ]; then
   exit 64
 fi
 
+if ! python -m app.background_job_guard --job enrichment-queue; then
+  echo "data_enrichment_queue_skipped processed=0 succeeded=0 failed=0 skipped=1 reason=db_pressure_guard"
+  exit 0
+fi
+
 lock_dir="${DATA_ENRICHMENT_QUEUE_LOCK_DIR:-/tmp/data_enrichment_queue.lock}"
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "data_enrichment_queue_skipped processed=0 succeeded=0 failed=0 skipped=1 reason=worker_already_running"
