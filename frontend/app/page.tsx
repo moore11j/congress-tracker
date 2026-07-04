@@ -411,6 +411,10 @@ function mapEventToFeedItem(
   estimated_price?: number | null;
   current_price?: number | null;
   pnl_pct?: number | null;
+  gain_loss_percent?: number | null;
+  gain_loss_amount?: number | null;
+  gain_loss_status?: string | null;
+  gain_loss_as_of?: string | null;
   pnl_source?: string | null;
   quote_is_stale?: boolean | null;
   quote_asof_ts?: string | null;
@@ -503,6 +507,10 @@ function mapEventToFeedItem(
       estimated_price: estimatedPrice,
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      gain_loss_percent: (event as any).gain_loss_percent ?? null,
+      gain_loss_amount: (event as any).gain_loss_amount ?? null,
+      gain_loss_status: (event as any).gain_loss_status ?? null,
+      gain_loss_as_of: (event as any).gain_loss_as_of ?? null,
       pnl_source: (event as any).pnl_source ?? null,
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
@@ -583,6 +591,10 @@ function mapEventToFeedItem(
       kind: "insider_trade",
       current_price: currentPrice,
       pnl_pct: pnlPct,
+      gain_loss_percent: (event as any).gain_loss_percent ?? null,
+      gain_loss_amount: (event as any).gain_loss_amount ?? null,
+      gain_loss_status: (event as any).gain_loss_status ?? null,
+      gain_loss_as_of: (event as any).gain_loss_as_of ?? null,
       pnl_source: (event as any).pnl_source ?? null,
       quote_is_stale: typeof (event as any).quote_is_stale === "boolean" ? (event as any).quote_is_stale : null,
       quote_asof_ts: typeof (event as any).quote_asof_ts === "string" ? (event as any).quote_asof_ts : null,
@@ -904,6 +916,10 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
         payload,
         smart_score: (event as any).smart_score ?? null,
         smart_band: (event as any).smart_band ?? null,
+        gain_loss_percent: (event as any).gain_loss_percent ?? null,
+        gain_loss_amount: (event as any).gain_loss_amount ?? null,
+        gain_loss_status: (event as any).gain_loss_status ?? null,
+        gain_loss_as_of: (event as any).gain_loss_as_of ?? null,
         pnl_source: (event as any).pnl_source ?? null,
         quote_is_stale: (event as any).quote_is_stale ?? null,
         quote_asof_ts: (event as any).quote_asof_ts ?? null,

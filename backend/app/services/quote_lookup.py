@@ -452,6 +452,7 @@ def get_current_prices_meta_db(
     stale_while_revalidate: bool = True,
     coalesce_wait_seconds: float | None = None,
     force_quote_endpoint: bool = False,
+    cache_only: bool = False,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -547,6 +548,19 @@ def get_current_prices_meta_db(
                 miss_skipped += 1
                 continue
             need_fetch.append(symbol)
+
+        if cache_only:
+            logger.info(
+                "quote_lookup cache_only requested=%s mem=%s sqlite_fresh=%s sqlite_stale=%s skipped_fetch=%s miss_skipped=%s returned=%s",
+                len(normalized_symbols),
+                mem_hits,
+                sqlite_fresh_hits,
+                sqlite_stale_hits,
+                len(need_fetch),
+                miss_skipped,
+                len(quote_meta),
+            )
+            return quote_meta
 
         if not need_fetch:
             logger.info(

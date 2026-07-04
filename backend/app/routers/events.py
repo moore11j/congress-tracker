@@ -26,7 +26,7 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_ci
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
 from app.services.quote_lookup import get_current_prices_meta_db
-from app.services.returns import signed_return_pct
+from app.services.returns import signed_return_pct, trade_direction
 from app.services.member_performance import INSIDER_METHODOLOGY_VERSION
 from app.services.congress_assets import (
     CONGRESS_CRYPTO_EVENT_TYPE,
@@ -63,7 +63,14 @@ from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
-from app.request_guards import api_prefetch_response, is_inactive_logged_out_api_request
+from app.request_guards import (
+    api_prefetch_response,
+    bounded_log_value,
+    classify_user_agent,
+    is_inactive_logged_out_api_request,
+    request_auth_state,
+    request_source,
+)
 
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
@@ -85,7 +92,7 @@ FEED_OUTCOME_RETRY_STATUSES = {
     "provider_unavailable",
     "retry_later",
 }
-DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 25
+DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 10
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "10") or 10)
@@ -143,10 +150,32 @@ INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "instit
 
 def _cap_feed_quote_symbols(symbols: set[str]) -> list[str]:
     try:
-        limit = int(os.getenv("MAX_SYMBOLS_PER_REQUEST", str(DEFAULT_FEED_QUOTE_SYMBOL_LIMIT)))
+        limit = int(os.getenv("FEED_PNL_QUOTE_SYMBOL_LIMIT", str(DEFAULT_FEED_QUOTE_SYMBOL_LIMIT)))
     except ValueError:
         limit = DEFAULT_FEED_QUOTE_SYMBOL_LIMIT
-    return sorted(symbols)[: max(limit, 1)]
+    return sorted(symbols)[: max(1, min(limit, DEFAULT_FEED_QUOTE_SYMBOL_LIMIT))]
+
+
+def _allow_visible_feed_quote_fallback(request: Request | None) -> bool:
+    if request is None:
+        return True
+    if not hasattr(request, "headers"):
+        return True
+    if is_inactive_logged_out_api_request(request):
+        return False
+    user_agent_class = classify_user_agent(request)
+    if user_agent_class in {"bot", "crawler", "prefetch"}:
+        return False
+    source = request_source(request, user_agent_class)
+    if source in {"direct_api", "monitor_probe", "cron", "bot_shell", "prefetch", "prefetch_204"}:
+        return False
+    auth_state, _tier = request_auth_state(request)
+    if auth_state in {"logged_in", "admin"}:
+        return True
+    active_marker = bounded_log_value(request.headers.get("x-walnut-active-user"), max_length=16).lower()
+    if active_marker in {"1", "true", "yes", "browser"} and source in {"client", "visibility", "idle"}:
+        return True
+    return source == "ssr" and bounded_log_value(request.headers.get("x-walnut-route-family"), max_length=32).lower() == "feed"
 
 
 def _institutional_all_feed_visibility_clause():
@@ -2482,6 +2511,48 @@ def _safe_outcome_status(status: str | None) -> str | None:
     return status
 
 
+def _gain_loss_status(
+    *,
+    event_type: str,
+    pnl_pct: float | None,
+    trade_price: float | None,
+    current_price: float | None,
+    outcome_status: str | None,
+    outcome_skip_reason: str | None,
+) -> str:
+    if event_type not in {"congress_trade", "insider_trade"}:
+        return "unavailable"
+    if pnl_pct is not None:
+        return "ok"
+    reason = outcome_skip_reason or outcome_status
+    if reason in {"no_entry_price", "no_execution_price", "missing_trade_price"}:
+        return "missing_trade_price"
+    if reason in {"no_current_price", "price_unavailable", "provider_402", "provider_429", "provider_unavailable"}:
+        return "missing_current_price"
+    if trade_price is None:
+        return "missing_trade_price"
+    if current_price is None:
+        return "missing_current_price"
+    return "pending" if outcome_status in {None, "pending"} else "unavailable"
+
+
+def _gain_loss_amount(
+    *,
+    current_price: float | None,
+    trade_price: float | None,
+    trade_type: str | None,
+    shares: float | None,
+) -> float | None:
+    if current_price is None or trade_price is None or shares is None or shares <= 0:
+        return None
+    direction = trade_direction(trade_type)
+    if direction == "sell":
+        return float((trade_price - current_price) * shares)
+    if direction == "buy":
+        return float((current_price - trade_price) * shares)
+    return None
+
+
 def _outcome_needs_feed_pnl_refresh(outcome: TradeOutcome | None) -> bool:
     if outcome is None:
         return True
@@ -2508,6 +2579,7 @@ def _load_visible_feed_quote_meta(
     outcome_by_event_id: dict[int, TradeOutcome],
     *,
     enrich_prices: bool,
+    allow_live_quote_fallback: bool,
 ) -> tuple[dict[str, dict], dict[str, float]]:
     if not enrich_prices:
         return {}, {}
@@ -2531,10 +2603,12 @@ def _load_visible_feed_quote_meta(
         quote_meta = get_current_prices_meta_db(
             db,
             _cap_feed_quote_symbols(quote_symbols),
-            allow_cache_write=True,
-            release_connection_before_fetch=True,
+            allow_cache_write=allow_live_quote_fallback,
+            release_connection_before_fetch=allow_live_quote_fallback,
             lane="feed_quote",
-            allow_live_user_fetch=True,
+            allow_live_user_fetch=allow_live_quote_fallback,
+            stale_while_revalidate=allow_live_quote_fallback,
+            cache_only=not allow_live_quote_fallback,
         )
     except Exception:
         logger.exception("feed_quote_lookup_failed endpoint=/api/events symbols=%s", len(quote_symbols))
@@ -2652,6 +2726,7 @@ def _event_payload(
     outcome_horizon = None
     quote_asof_ts = None
     quote_is_stale = None
+    exact_shares = None
     if outcome is not None and event.event_type in {"congress_trade", "insider_trade"}:
         display_metrics = trade_outcome_display_metrics(outcome)
         estimated_price = display_metrics.trade_price
@@ -2723,6 +2798,7 @@ def _event_payload(
         if display_metrics.trade_price is not None:
             estimated_price = display_metrics.trade_price
         shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
+        exact_shares = shares if shares is not None and shares > 0 else None
         if estimated_price is not None and shares is not None and shares > 0:
             display_value = int(round(estimated_price * shares))
             display_amount_min = display_value
@@ -2764,6 +2840,24 @@ def _event_payload(
         if resolved_member_name and not _first_non_empty_text(payload.get("insider_name")):
             payload["insider_name"] = resolved_member_name
 
+    gain_loss_amount = _gain_loss_amount(
+        current_price=current_price,
+        trade_price=estimated_price,
+        trade_type=event.trade_type or event.transaction_type,
+        shares=exact_shares,
+    )
+    gain_loss_status = _gain_loss_status(
+        event_type=event.event_type,
+        pnl_pct=pnl_pct,
+        trade_price=estimated_price,
+        current_price=current_price,
+        outcome_status=outcome_status,
+        outcome_skip_reason=outcome_skip_reason,
+    )
+    gain_loss_as_of = quote_asof_ts
+    if gain_loss_as_of is None and outcome is not None:
+        gain_loss_as_of = outcome.computed_at
+
     return EventOut(
         id=event.id,
         event_type=event.event_type,
@@ -2785,6 +2879,10 @@ def _event_payload(
         estimated_price=estimated_price,
         current_price=current_price,
         pnl_pct=pnl_pct,
+        gain_loss_percent=pnl_pct,
+        gain_loss_amount=gain_loss_amount,
+        gain_loss_status=gain_loss_status,
+        gain_loss_as_of=gain_loss_as_of,
         return_pct=pnl_pct,
         alpha_pct=alpha_pct,
         benchmark_return_pct=benchmark_return_pct,
@@ -3817,6 +3915,7 @@ def list_events(
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
     include_net_flows = include_net_flows is not False
+    allow_live_feed_quote_fallback = _allow_visible_feed_quote_fallback(request)
     debug_enabled = _events_debug_enabled(db, request, debug)
     can_view_institutional = _can_view_institutional_events(db, request)
 
@@ -4241,6 +4340,7 @@ def list_events(
         rows,
         outcome_by_event_id,
         enrich_prices=enrich_prices,
+        allow_live_quote_fallback=allow_live_feed_quote_fallback,
     )
 
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]

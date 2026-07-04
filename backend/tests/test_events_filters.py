@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,21 @@ def _stub_enrichment(monkeypatch) -> None:
 def _clear_events_response_cache() -> None:
     events_module._EVENTS_RESPONSE_CACHE.clear()
     events_module._EVENTS_RESPONSE_INFLIGHT.clear()
+
+
+def _request(headers: dict[str, str]) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/events",
+            "headers": [(key.lower().encode("latin-1"), value.encode("latin-1")) for key, value in headers.items()],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "client": ("127.0.0.1", 12345),
+        }
+    )
 
 
 def _event(event_id: int, event_type: str, **kwargs) -> Event:
@@ -188,7 +204,7 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
                     symbol="AAPL",
                     member_name="Insider One",
                     trade_type="purchase",
-                    payload={"trade_date": "2026-06-01", "report_date": "2026-06-02", "reporting_cik": "0001"},
+                    payload={"trade_date": "2026-06-01", "report_date": "2026-06-02", "reporting_cik": "0001", "shares": 10},
                 ),
                 TradeOutcome(
                     event_id=201,
@@ -222,7 +238,17 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
         )
         db.commit()
 
-        page = list_events(db=db, mode="all", limit=10, enrich_prices=True)
+        request = _request(
+            {
+                "user-agent": "Mozilla/5.0",
+                "accept": "application/json",
+                "x-walnut-request-source": "client",
+                "x-walnut-active-user": "browser",
+                "x-walnut-route-family": "feed",
+            }
+        )
+
+        page = list_events(request=request, db=db, mode="all", limit=10, enrich_prices=True)
 
         assert calls == [
             (
@@ -232,16 +258,93 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
                     "release_connection_before_fetch": True,
                     "lane": "feed_quote",
                     "allow_live_user_fetch": True,
+                    "stale_while_revalidate": True,
+                    "cache_only": False,
                 },
             )
         ]
         by_id = {item.id: item for item in page.items}
         assert by_id[201].current_price == 110.0
         assert round(by_id[201].pnl_pct or 0, 6) == 10.0
+        assert round(by_id[201].gain_loss_percent or 0, 6) == 10.0
+        assert by_id[201].gain_loss_status == "ok"
+        assert by_id[201].gain_loss_amount is None
         assert by_id[201].pnl_source == "quote_cache"
         assert by_id[202].current_price == 110.0
         assert round(by_id[202].pnl_pct or 0, 6) == 10.0
+        assert round(by_id[202].gain_loss_amount or 0, 6) == 100.0
+        assert by_id[202].gain_loss_status == "ok"
         assert by_id[202].pnl_source == "quote_cache"
+    finally:
+        db.close()
+
+
+def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(monkeypatch):
+    db = _db()
+    try:
+        _clear_events_response_cache()
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: None)
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_quotes(_db, symbols, **kwargs):
+            calls.append((list(symbols), kwargs))
+            assert kwargs["cache_only"] is True
+            assert kwargs["allow_live_user_fetch"] is False
+            return {}
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
+        db.add_all(
+            [
+                _event(
+                    211,
+                    "congress_trade",
+                    symbol="AAPL",
+                    member_name="Member One",
+                    member_bioguide_id="M1",
+                    trade_type="purchase",
+                    payload={"trade_date": "2026-06-01", "report_date": "2026-06-02"},
+                ),
+                TradeOutcome(
+                    event_id=211,
+                    member_id="M1",
+                    member_name="Member One",
+                    symbol="AAPL",
+                    trade_type="purchase",
+                    trade_date=date(2026, 6, 1),
+                    entry_price=100.0,
+                    current_price=None,
+                    return_pct=None,
+                    benchmark_symbol="^GSPC",
+                    scoring_status="no_current_price",
+                    methodology_version="feed_pnl_cache_v1",
+                ),
+            ]
+        )
+        db.commit()
+
+        request = _request({"user-agent": "curl/8.0", "accept": "application/json"})
+        page = list_events(request=request, db=db, mode="all", limit=10, enrich_prices=True)
+
+        assert calls == [
+            (
+                ["AAPL"],
+                {
+                    "allow_cache_write": False,
+                    "release_connection_before_fetch": False,
+                    "lane": "feed_quote",
+                    "allow_live_user_fetch": False,
+                    "stale_while_revalidate": False,
+                    "cache_only": True,
+                },
+            )
+        ]
+        assert page.items[0].current_price is None
+        assert page.items[0].pnl_pct is None
+        assert page.items[0].gain_loss_status == "missing_current_price"
     finally:
         db.close()
 

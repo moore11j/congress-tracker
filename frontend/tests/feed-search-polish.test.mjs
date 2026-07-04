@@ -28,6 +28,21 @@ test("feed filters use sort controls and remove confusing advanced filters", () 
   assert.doesNotMatch(filters, /13F filing activity uses filing dates/);
 });
 
+test("congress and insider feed filters keep sort controls on the primary row", () => {
+  const filters = read("components/feed/FeedFiltersServer.tsx");
+
+  assert.match(
+    filters,
+    /mode === "congress" \? \(\s*<FilterRow>[\s\S]*?<SymbolField[\s\S]*?<NameField[\s\S]*?<TradeTypeField[\s\S]*?<PartyField[\s\S]*?<ChamberField[\s\S]*?<SortField[\s\S]*?<DirectionField[\s\S]*?<RecentDaysField[\s\S]*?<\/FilterRow>\s*\) : null/,
+  );
+  assert.match(
+    filters,
+    /mode === "insider" \? \(\s*<FilterRow>[\s\S]*?<SymbolField[\s\S]*?<NameField[\s\S]*?<TradeTypeField[\s\S]*?<RoleField[\s\S]*?<SortField[\s\S]*?<DirectionField[\s\S]*?<RecentDaysField[\s\S]*?<\/FilterRow>\s*\) : null/,
+  );
+  assert.doesNotMatch(filters, /mode === "congress" \? \(\s*<>\s*<FilterRow>/);
+  assert.doesNotMatch(filters, /mode === "insider" \? \(\s*<>\s*<FilterRow>/);
+});
+
 test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
   const list = read("components/feed/FeedList.tsx");

@@ -1,6 +1,7 @@
-export function nameToSlug(name: string): string {
-  return name
-    .trim()
+export function nameToSlug(name?: string | null): string {
+  const cleaned = (name ?? "").trim();
+  if (!cleaned) return "UNKNOWN";
+  return cleaned
     .replace(/\s+/g, " ")
     .toUpperCase()
     .replace(/[^A-Z0-9 ]/g, "")

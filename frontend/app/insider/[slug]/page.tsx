@@ -18,8 +18,6 @@ type Props = {
 };
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
-type ChartMetric = "return" | "alpha";
-type ChartMode = "performance" | "stock";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
 
 const LOOKBACK_OPTIONS = [
@@ -105,34 +103,6 @@ function clampPage(v: string): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
-function chartMetricFromParams(sp: Record<string, string | string[] | undefined>): ChartMetric {
-  const metric = one(sp, "am");
-  return metric === "alpha" ? "alpha" : "return";
-}
-
-function chartModeFromParams(sp: Record<string, string | string[] | undefined>): ChartMode {
-  return one(sp, "chart") === "stock" ? "stock" : "performance";
-}
-
-function hrefWithParams(
-  name: string | null,
-  reportingCik: string,
-  lookback: Lookback,
-  chartMetric: ChartMetric,
-  issuer?: string,
-  chartMode: ChartMode = "performance",
-  chartSymbol?: string,
-): string {
-  const query = new URLSearchParams();
-  query.set("lookback", lookback);
-  query.set("chart", chartMode);
-  if (chartMetric !== "return") query.set("am", chartMetric);
-  if (issuer) query.set("issuer", issuer);
-  if (chartMode === "stock" && chartSymbol) query.set("symbol", chartSymbol);
-  const slug = insiderSlug(name, reportingCik) ?? reportingCik;
-  return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
-}
-
 function buildInsiderBacktestHref(reportingCik: string, lookbackDays: number) {
   const query = new URLSearchParams({
     strategy: "insider",
@@ -151,8 +121,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   if (!reportingCik) notFound();
   const sp = (await searchParams) ?? {};
   const lookback = clampLookback(one(sp, "lookback"));
-  const chartMetric = chartMetricFromParams(sp);
-  const chartMode = chartModeFromParams(sp);
   const issuer = one(sp, "issuer").trim().toUpperCase();
   const chartSymbol = one(sp, "symbol").trim().toUpperCase();
   const recentTradesPage = clampPage(one(sp, "recent_trades_page"));
@@ -173,10 +141,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
     const query = new URLSearchParams();
     if (lookback !== "90") query.set("lookback", lookback);
-    query.set("chart", chartMode);
-    if (chartMetric !== "return") query.set("am", chartMetric);
+    query.set("chart", "stock");
     if (issuer) query.set("issuer", issuer);
-    if (chartMode === "stock" && chartSymbol) query.set("symbol", chartSymbol);
+    if (chartSymbol) query.set("symbol", chartSymbol);
     if (recentTradesPage > 0) query.set("recent_trades_page", String(recentTradesPage));
     const suffix = query.toString();
     redirect(`/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`);
@@ -219,19 +186,9 @@ export default async function InsiderPage({ params, searchParams }: Props) {
         insiderName={insiderName}
         lookback={lookback}
         lookbackDays={lookbackDays}
-        chartMetric={chartMetric}
-        chartMode={chartMode}
         issuer={normalizedIssuer}
         stockSymbol={stockSymbol}
         recentTradesPage={recentTradesPage}
-        initialTopTickers={summary.primary_symbol ? [{
-          symbol: summary.primary_symbol,
-          company_name: summary.primary_company_name,
-          trades: summary.total_trades,
-          buy_count: summary.buy_count,
-          sell_count: summary.sell_count,
-          net_flow: summary.net_flow,
-        }] : []}
       />
     </div>
   );

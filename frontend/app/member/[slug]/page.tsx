@@ -90,11 +90,19 @@ function buildMemberBacktestHref(memberId: string, lookbackDays: number) {
   return `/backtesting?${query.toString()}`;
 }
 
+function memberNameFallback(slug: string) {
+  return slug.replace(/[_-]+/g, " ").trim() || "Member";
+}
+
+function profileMemberName(name: string | null | undefined, slug: string) {
+  return (name ?? "").trim() || memberNameFallback(slug);
+}
+
 async function resolveMetadataMemberSlug(slug: string) {
   if (!isBioguideId(slug)) return slug;
   try {
     const data = await getMemberProfileBySlug(slug, { include_trades: false });
-    return nameToSlug(data.member.name);
+    return nameToSlug(profileMemberName(data.member.name, slug));
   } catch {
     return slug;
   }
@@ -133,13 +141,14 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const upperSlug = slug.toUpperCase();
   if (upperSlug.startsWith("FMP_")) {
     const legacyData = await getMemberProfile(slug, { source: "MemberProfile" });
-    const cleanSlug = nameToSlug(legacyData.member.name);
+    const cleanSlug = nameToSlug(profileMemberName(legacyData.member.name, slug));
     const query = toQueryString(sp);
     redirect(`/member/${cleanSlug}${query ? `?${query}` : ""}`);
   }
 
   const data = await getMemberProfileBySlug(slug, { include_trades: false, source: "MemberProfile" });
-  const canonicalSlug = nameToSlug(data.member.name);
+  const memberName = profileMemberName(data.member.name, slug);
+  const canonicalSlug = nameToSlug(memberName);
   if (slug !== canonicalSlug) {
     const query = toQueryString(sp);
     redirect(`/member/${canonicalSlug}${query ? `?${query}` : ""}`);
@@ -162,7 +171,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">
             Member profile
           </p>
-          <h1 className="text-3xl font-semibold text-white">{data.member.name}</h1>
+          <h1 className="text-3xl font-semibold text-white">{memberName}</h1>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
             <Badge tone={party.tone}>{party.label}</Badge>
             <Badge tone={chamber.tone}>{chamber.label}</Badge>
@@ -184,7 +193,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
 
       <MemberAnalyticsClient
         memberId={canonicalMemberId}
-        memberName={data.member.name}
+        memberName={memberName}
         lookbackDays={lb}
         portfolioLookbackDays={portfolioLookbackDays}
         portfolioLookbackLinks={portfolioLookbackLinks}

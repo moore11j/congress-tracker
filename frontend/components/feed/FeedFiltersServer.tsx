@@ -293,36 +293,28 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         ) : null}
 
         {mode === "congress" ? (
-          <>
-            <FilterRow>
-              <SymbolField mode={mode} value={params.symbol} />
-              <NameField label="Name" value={params.member} placeholder="Pelosi" />
-              <TradeTypeField value={params.trade_type} />
-              <PartyField value={params.party} />
-              <ChamberField value={params.chamber} />
-            </FilterRow>
-            <FilterRow>
-              <SortField value={normalizedParams.sort_by} />
-              <DirectionField value={normalizedParams.sort_dir} />
-              <RecentDaysField value={params.recent_days} />
-            </FilterRow>
-          </>
+          <FilterRow>
+            <SymbolField mode={mode} value={params.symbol} />
+            <NameField label="Name" value={params.member} placeholder="Pelosi" />
+            <TradeTypeField value={params.trade_type} />
+            <PartyField value={params.party} />
+            <ChamberField value={params.chamber} />
+            <SortField value={normalizedParams.sort_by} />
+            <DirectionField value={normalizedParams.sort_dir} />
+            <RecentDaysField value={params.recent_days} />
+          </FilterRow>
         ) : null}
 
         {mode === "insider" ? (
-          <>
-            <FilterRow>
-              <SymbolField mode={mode} value={params.symbol} />
-              <NameField label="Name" value={params.member} placeholder="Insider name" />
-              <TradeTypeField value={params.trade_type} />
-              <RoleField value={params.role} />
-            </FilterRow>
-            <FilterRow>
-              <SortField value={normalizedParams.sort_by} />
-              <DirectionField value={normalizedParams.sort_dir} />
-              <RecentDaysField value={params.recent_days} />
-            </FilterRow>
-          </>
+          <FilterRow>
+            <SymbolField mode={mode} value={params.symbol} />
+            <NameField label="Name" value={params.member} placeholder="Insider name" />
+            <TradeTypeField value={params.trade_type} />
+            <RoleField value={params.role} />
+            <SortField value={normalizedParams.sort_by} />
+            <DirectionField value={normalizedParams.sort_dir} />
+            <RecentDaysField value={params.recent_days} />
+          </FilterRow>
         ) : null}
 
         {mode === "government_contracts" ? (

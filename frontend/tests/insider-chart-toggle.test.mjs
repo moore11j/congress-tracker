@@ -14,12 +14,13 @@ const tradeDisplay = read("lib/tradeDisplay.ts");
 const addTickerToWatchlist = read("components/watchlists/AddTickerToWatchlist.tsx");
 const tickerChart = read("components/ticker/PremiumTickerChart.tsx");
 
-test("insider page renders chart toggle and defaults to performance curve", () => {
-  assert.match(insiderPage, /type ChartMode = "performance" \| "stock"/);
-  assert.match(insiderPage, /chartModeFromParams/);
-  assert.match(insiderPage, /return one\(sp, "chart"\) === "stock" \? "stock" : "performance"/);
-  assert.match(insiderAnalyticsClient, /Performance Curve/);
-  assert.match(insiderAnalyticsClient, /Company Stock/);
+test("insider page renders company stock chart only", () => {
+  assert.doesNotMatch(insiderPage, /type ChartMode/);
+  assert.doesNotMatch(insiderPage, /chartModeFromParams/);
+  assert.doesNotMatch(insiderAnalyticsClient, /Performance Curve/);
+  assert.doesNotMatch(insiderAnalyticsClient, /<PerformanceChart/);
+  assert.match(insiderAnalyticsClient, /Company Stock Chart/);
+  assert.match(insiderAnalyticsClient, /query\.set\("chart", "stock"\)/);
 });
 
 test("company stock mode requests insider-scoped stock chart data", () => {
@@ -33,18 +34,19 @@ test("company stock mode requests insider-scoped stock chart data", () => {
   assert.doesNotMatch(insiderPage, /const stockChartPromise/);
 });
 
-test("secondary insider analytics are lazy client sections with summary-seeded top tickers", () => {
+test("secondary insider analytics are lazy client sections without top tickers", () => {
   assert.match(insiderPage, /<InsiderAnalyticsClient/);
   assert.doesNotMatch(insiderPage, /getInsiderAlphaSummary/);
   assert.doesNotMatch(insiderPage, /getInsiderTrades/);
   assert.doesNotMatch(insiderPage, /getInsiderTopTickers/);
-  assert.match(insiderPage, /initialTopTickers=\{summary\.primary_symbol \? \[\{/);
+  assert.doesNotMatch(insiderPage, /initialTopTickers/);
   assert.match(insiderAnalyticsClient, /"use client"/);
   assert.match(insiderAnalyticsClient, /getInsiderAlphaSummary\(reportingCik/);
   assert.match(insiderAnalyticsClient, /getInsiderTrades\(reportingCik/);
-  assert.match(insiderAnalyticsClient, /getInsiderTopTickers\(reportingCik, lookbackDays, 10, issuer/);
-  assert.match(insiderAnalyticsClient, /initialTopTickers\?: InsiderTopTicker\[\]/);
-  assert.match(insiderAnalyticsClient, /useState<InsiderTopTicker\[\]>\(initialTopTickers \?\? \[\]\)/);
+  assert.doesNotMatch(insiderAnalyticsClient, /getInsiderTopTickers/);
+  assert.doesNotMatch(insiderAnalyticsClient, /TopTickersPanel/);
+  assert.doesNotMatch(insiderAnalyticsClient, /Top tickers/);
+  assert.doesNotMatch(insiderAnalyticsClient, /initialTopTickers/);
   assert.doesNotMatch(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
   assert.doesNotMatch(insiderPage, /const topTickersPromise/);
 });
@@ -64,11 +66,12 @@ test("insider page offers expanded lookback windows", () => {
 
 test("insider lookback links preserve stock chart and issuer params", () => {
   assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
-  assert.match(insiderPage, /query\.set\("chart", chartMode\)/);
+  assert.match(insiderPage, /query\.set\("chart", "stock"\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
-  assert.match(insiderPage, /if \(chartMode === "stock" && chartSymbol\) query\.set\("symbol", chartSymbol\)/);
-  assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, chartMetric, issuer, chartMode, stockSymbol\)\}/);
-  assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, lookback, chartMetric, issuer, "stock", stockSymbol\)\}/);
+  assert.match(insiderPage, /if \(chartSymbol\) query\.set\("symbol", chartSymbol\)/);
+  assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, issuer, stockSymbol\)\}/);
+  assert.doesNotMatch(insiderAnalyticsClient, /chartMetric/);
+  assert.doesNotMatch(insiderAnalyticsClient, /chartMode/);
 });
 
 test("insider stock chart hides ticker-page overlay controls and only allows insider markers", () => {

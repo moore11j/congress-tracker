@@ -389,9 +389,25 @@ test("member URLs canonicalize bioguide links back to readable slugs", () => {
   const memberSlug = read("lib/memberSlug.ts");
 
   assert.match(memberSlug, /function isBioguideId/);
+  assert.match(memberSlug, /nameToSlug\(name\?: string \| null\)/);
+  assert.match(memberSlug, /const cleaned = \(name \?\? ""\)\.trim\(\)/);
   assert.match(memberSlug, /!\s*isBioguideId\(cleanSlug\)/);
+  assert.match(memberPage, /function profileMemberName\(name: string \| null \| undefined, slug: string\)/);
+  assert.match(memberPage, /return \(name \?\? ""\)\.trim\(\) \|\| memberNameFallback\(slug\)/);
   assert.match(memberPage, /if \(slug !== canonicalSlug\)/);
   assert.match(memberPage, /redirect\(`\/member\/\$\{canonicalSlug\}/);
+});
+
+test("member profile render path guards nullable display strings", () => {
+  const chart = read("components/member/PerformanceChart.tsx");
+  const format = read("lib/format.ts");
+
+  assert.match(memberAnalyticsClient, /function tradeDirection\(tradeType\?: string \| null\)/);
+  assert.match(memberAnalyticsClient, /const normalized = \(tradeType \?\? ""\)\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(chart, /const label = \(subjectLabel \?\? ""\)\.trim\(\) \|\| "Profile"/);
+  assert.match(format, /const cleaned = \(chamber \?\? ""\)\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(format, /const s = \(state \?\? ""\)\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(format, /const cleanedDistrict = \(district \?\? ""\)\.trim\(\)/);
 });
 
 test("portfolio quality notes render for zero holdings and limited price coverage", () => {

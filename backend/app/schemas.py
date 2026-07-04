@@ -39,6 +39,17 @@ class EventOut(BaseModel):
     estimated_price: float | None = None
     current_price: float | None = None
     pnl_pct: float | None = None
+    gain_loss_percent: float | None = None
+    gain_loss_amount: float | None = None
+    gain_loss_status: Literal[
+        "ok",
+        "pending",
+        "unavailable",
+        "missing_trade_price",
+        "missing_current_price",
+        "missing_quantity",
+    ] | None = None
+    gain_loss_as_of: datetime | None = None
     return_pct: float | None = None
     alpha_pct: float | None = None
     benchmark_return_pct: float | None = None

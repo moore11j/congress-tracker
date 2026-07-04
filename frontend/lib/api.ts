@@ -608,6 +608,10 @@ export type EventItem = {
   reported_price?: number | null;
   reported_price_currency?: string | null;
   pnl_pct?: number | null;
+  gain_loss_percent?: number | null;
+  gain_loss_amount?: number | null;
+  gain_loss_status?: string | null;
+  gain_loss_as_of?: string | null;
   return_pct?: number | null;
   pnl_source?: string | null;
   outcome_status?: string | null;

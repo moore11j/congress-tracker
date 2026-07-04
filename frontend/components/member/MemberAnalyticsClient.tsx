@@ -62,8 +62,8 @@ function compactUSD(n: number) {
   return `${Math.round(n)}`;
 }
 
-function tradeDirection(tradeType: string): "buy" | "sell" | null {
-  const normalized = tradeType.trim().toLowerCase();
+function tradeDirection(tradeType?: string | null): "buy" | "sell" | null {
+  const normalized = (tradeType ?? "").trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === "s" || normalized === "s-sale") return "sell";
   if (normalized === "p" || normalized === "p-purchase") return "buy";

@@ -254,6 +254,16 @@ function safeOutcomeStatusLabel(hasPnl: boolean, pnlSource: string | undefined, 
   return "Estimate";
 }
 
+function gainLossStatusLabel(status: unknown, fallback: string): string {
+  if (status === "ok") return "Ready";
+  if (status === "pending") return "Pending";
+  if (status === "missing_trade_price") return "Missing trade price";
+  if (status === "missing_current_price") return "Missing current price";
+  if (status === "missing_quantity") return "Missing quantity";
+  if (status === "unavailable") return "Unavailable";
+  return fallback;
+}
+
 function formatYMD(ymd?: string | null): string {
   if (!ymd) return "—";
   const s = ymd.slice(0, 10);
@@ -577,9 +587,10 @@ export function FeedCard({
   const isStale = Boolean((item as any).quote_is_stale);
   const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
   const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
+  const gainLossStatus = typeof (item as any).gain_loss_status === "string" ? (item as any).gain_loss_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
   const outcomeReasonLabel = isInstitutional ? "N/A" : outcomeIsUnavailable ? "Data unavailable" : "Updating";
-  const missingPnlLabel = outcomeReasonLabel;
+  const missingPnlLabel = gainLossStatusLabel(gainLossStatus, outcomeReasonLabel);
 
   const signalTooltip = signalScoreSummary(smartScore);
   const outcomeStatusLabel = isInstitutional ? "Not applicable" : safeOutcomeStatusLabel(hasPnl, pnlSource, outcomeIsUnavailable);

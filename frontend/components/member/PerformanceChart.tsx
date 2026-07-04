@@ -352,7 +352,7 @@ export function PerformanceChart({
     setActiveReadout(null);
   };
 
-  const label = subjectLabel.trim() || "Profile";
+  const label = (subjectLabel ?? "").trim() || "Profile";
 
   return (
     <div className="mt-3 rounded-2xl border border-white/10 bg-[#07111d] p-3">

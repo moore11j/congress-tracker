@@ -48,6 +48,10 @@ export type FeedItem = {
   smart_score?: number | null;
   smart_band?: string | null;
   pnl_pct?: number | null;
+  gain_loss_percent?: number | null;
+  gain_loss_amount?: number | null;
+  gain_loss_status?: "ok" | "pending" | "unavailable" | "missing_trade_price" | "missing_current_price" | "missing_quantity" | null;
+  gain_loss_as_of?: string | null;
   pnl_source?: "filing" | "normalized_filing" | "eod" | "trade_outcome" | "normalization_unavailable" | "none" | null;
   outcome_status?: string | null;
   outcome_skip_reason?: string | null;
@@ -132,6 +136,10 @@ export type MemberTrade = {
   estimated_shares?: number | null;
   current_price?: number | null;
   pnl_pct?: number | null;
+  gain_loss_percent?: number | null;
+  gain_loss_amount?: number | null;
+  gain_loss_status?: string | null;
+  gain_loss_as_of?: string | null;
   return_pct?: number | null;
   alpha_pct?: number | null;
   benchmark_return_pct?: number | null;

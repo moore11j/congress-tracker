@@ -49,7 +49,7 @@ export function formatDateShort(iso: string | null) {
 
 export function formatSymbol(symbol?: string | null) {
   if (!symbol) return "—";
-  const trimmed = symbol.trim().toUpperCase();
+  const trimmed = String(symbol).trim().toUpperCase();
   return trimmed.length ? trimmed : "—";
 }
 
@@ -73,7 +73,7 @@ export function transactionTone(value?: string | null): BadgeTone {
 }
 
 export function chamberBadge(chamber?: string | null): { label: string; tone: BadgeTone } {
-  const cleaned = (chamber ?? "").toLowerCase();
+  const cleaned = (chamber ?? "").trim().toLowerCase();
   if (cleaned === "house") return { label: "House", tone: "house" };
   if (cleaned === "senate") return { label: "Senate", tone: "senate" };
   return { label: "—", tone: "neutral" };
@@ -109,7 +109,7 @@ export function formatCongressAffiliationText(party?: string | null, state?: str
 
 export function memberTag(party?: string | null, state?: string | null) {
   const p = partyBadge(party).label;
-  const s = state?.trim().toUpperCase();
+  const s = (state ?? "").trim().toUpperCase();
   if (p !== "—" && s) return `${p}-${s}`;
   if (s) return s;
   if (p !== "—") return p;
@@ -117,8 +117,8 @@ export function memberTag(party?: string | null, state?: string | null) {
 }
 
 export function formatStateDistrict(state?: string | null, district?: string | null) {
-  const cleanedState = state?.trim().toUpperCase();
-  const cleanedDistrict = district?.trim();
+  const cleanedState = (state ?? "").trim().toUpperCase();
+  const cleanedDistrict = (district ?? "").trim();
   if (cleanedState && cleanedDistrict) {
     return `${cleanedState}-${cleanedDistrict}`;
   }

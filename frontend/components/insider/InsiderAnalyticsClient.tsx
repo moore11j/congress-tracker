@@ -5,20 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getInsiderAlphaSummary,
   getInsiderStockChart,
-  getInsiderTopTickers,
   getInsiderTrades,
   type InsiderAlphaSummary,
-  type InsiderTopTicker,
 } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
-import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { PremiumTickerChart, PremiumTickerChartSkeleton } from "@/components/ticker/PremiumTickerChart";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { cardClassName, compactInteractiveSurfaceClassName, tickerLinkClassName } from "@/lib/styles";
+import { cardClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { insiderSlug } from "@/lib/insider";
@@ -26,8 +23,6 @@ import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { gainLossLabel, gainLossTooltip } from "@/lib/gainLossCopy";
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
-type ChartMetric = "return" | "alpha";
-type ChartMode = "performance" | "stock";
 
 const RECENT_TRADES_PAGE_SIZE = 20;
 const REFRESHING_COPY = "Refreshing the latest analytics from disclosed activity.";
@@ -132,17 +127,14 @@ function hrefWithParams(
   name: string | null,
   reportingCik: string,
   lookback: Lookback,
-  chartMetric: ChartMetric,
   issuer?: string,
-  chartMode: ChartMode = "performance",
   chartSymbol?: string,
 ): string {
   const query = new URLSearchParams();
   query.set("lookback", lookback);
-  query.set("chart", chartMode);
-  if (chartMetric !== "return") query.set("am", chartMetric);
+  query.set("chart", "stock");
   if (issuer) query.set("issuer", issuer);
-  if (chartMode === "stock" && chartSymbol) query.set("symbol", chartSymbol);
+  if (chartSymbol) query.set("symbol", chartSymbol);
   const slug = insiderSlug(name, reportingCik) ?? reportingCik;
   return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
 }
@@ -160,69 +152,22 @@ function AnalyticsStatsSkeleton() {
   );
 }
 
-function TopTickersPanel({
-  items,
-  loading,
-  unavailable,
-}: {
-  items: InsiderTopTicker[];
-  loading: boolean;
-  unavailable: boolean;
-}) {
-  return (
-    <div className={`${cardClassName} w-full`}>
-      <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-      <div className="mt-4 space-y-2">
-        {loading ? (
-          Array.from({ length: 5 }).map((_, idx) => (
-            <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
-              <SkeletonBlock className="h-4 w-full" />
-            </div>
-          ))
-        ) : unavailable && items.length === 0 ? (
-          <p className="text-sm text-slate-400">{REFRESHING_COPY}</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-slate-400">No ticker concentration yet.</p>
-        ) : (
-          items.map((ticker) => (
-            <div
-              key={ticker.symbol}
-              className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
-            >
-              <div className="flex items-center gap-2">
-                <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
-              </div>
-              <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{ticker.trades} trades</span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function InsiderAnalyticsClient({
   reportingCik,
   insiderName,
   lookback,
   lookbackDays,
-  chartMetric,
-  chartMode,
   issuer,
   stockSymbol,
   recentTradesPage,
-  initialTopTickers,
 }: {
   reportingCik: string;
   insiderName: string;
   lookback: Lookback;
   lookbackDays: number;
-  chartMetric: ChartMetric;
-  chartMode: ChartMode;
   issuer?: string;
   stockSymbol?: string;
   recentTradesPage: number;
-  initialTopTickers?: InsiderTopTicker[];
 }) {
   const [alphaSummary, setAlphaSummary] = useState<InsiderAlphaSummary>(() =>
     fallbackInsiderAlphaSummary(reportingCik, lookbackDays),
@@ -230,13 +175,11 @@ export function InsiderAnalyticsClient({
   const [trades, setTrades] = useState<InsiderTradesData>(() =>
     fallbackInsiderTrades(reportingCik, lookbackDays, recentTradesPage),
   );
-  const [topTickers, setTopTickers] = useState<InsiderTopTicker[]>(initialTopTickers ?? []);
   const [stockChart, setStockChart] = useState<InsiderStockChartData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stockChartLoading, setStockChartLoading] = useState(chartMode === "stock");
+  const [stockChartLoading, setStockChartLoading] = useState(true);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [tradesUnavailable, setTradesUnavailable] = useState(false);
-  const [topTickersUnavailable, setTopTickersUnavailable] = useState(false);
   const [stockChartUnavailable, setStockChartUnavailable] = useState(false);
 
   useEffect(() => {
@@ -245,7 +188,6 @@ export function InsiderAnalyticsClient({
     setLoading(true);
     setAlphaUnavailable(false);
     setTradesUnavailable(false);
-    setTopTickersUnavailable(false);
 
     Promise.all([
       getInsiderAlphaSummary(reportingCik, {
@@ -271,19 +213,6 @@ export function InsiderAnalyticsClient({
         .catch(() => {
           if (!cancelled) setTradesUnavailable(true);
         }),
-      getInsiderTopTickers(reportingCik, lookbackDays, 10, issuer, {
-        source: "InsiderTopTickers",
-        signal: controller.signal,
-      })
-        .then((data) => {
-          if (!cancelled) {
-            const nextItems = data.items ?? [];
-            setTopTickers((currentItems) => (nextItems.length > 0 || currentItems.length === 0 ? nextItems : currentItems));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setTopTickersUnavailable(true);
-        }),
     ]).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -295,7 +224,6 @@ export function InsiderAnalyticsClient({
   }, [issuer, lookbackDays, recentTradesPage, reportingCik]);
 
   useEffect(() => {
-    if (chartMode !== "stock") return;
     const controller = new AbortController();
     let cancelled = false;
     setStockChartLoading(true);
@@ -319,7 +247,7 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [chartMode, lookbackDays, reportingCik, stockSymbol]);
+  }, [lookbackDays, reportingCik, stockSymbol]);
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: numberOrDash(alphaSummary.trades_analyzed), valueClass: "text-white" },
@@ -328,12 +256,6 @@ export function InsiderAnalyticsClient({
     { label: "Win Rate", value: pct0(alphaSummary.win_rate), valueClass: tone(alphaSummary.win_rate == null ? null : (alphaSummary.win_rate - 0.5) * 100) },
     { label: "Avg Holding Days", value: numberOrDash(alphaSummary.avg_holding_days), valueClass: "text-white/90" },
   ];
-  const memberSeries = alphaSummary.member_series ?? alphaSummary.performance_series ?? [];
-  const benchmarkSeries = alphaSummary.benchmark_series ?? [];
-  const chartHasEnoughTrades = memberSeries.filter((point) => {
-    const value = chartMetric === "alpha" ? point.cumulative_alpha_pct : point.cumulative_return_pct;
-    return typeof value === "number" && Number.isFinite(value);
-  }).length >= 2;
   const issuerOptions = useMemo(
     () => Array.from(new Set(trades.items.map((trade) => trade.symbol).filter((symbol): symbol is string => Boolean(symbol)))),
     [trades.items],
@@ -358,7 +280,7 @@ export function InsiderAnalyticsClient({
             {LOOKBACK_OPTIONS.map((option) => (
               <Link
                 key={option.value}
-                href={hrefWithParams(insiderName, reportingCik, option.value, chartMetric, issuer, chartMode, stockSymbol)}
+                href={hrefWithParams(insiderName, reportingCik, option.value, issuer, stockSymbol)}
                 prefetch={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === option.value
@@ -396,117 +318,45 @@ export function InsiderAnalyticsClient({
         ) : null}
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">Insider Performance</h3>
-              <p className="mt-1 text-[11px] text-white/40">
-                {chartMode === "stock"
-                  ? "Company stock with this insider's own disclosed trades."
-                  : "Equal-weight scored trade outcomes, not portfolio CAGR."}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-              <div className="inline-flex rounded-full border border-white/10 bg-slate-950/50 p-1">
+          {issuerOptions.length > 1 ? (
+            <div className="mb-3 flex flex-wrap justify-end gap-1 text-xs">
+              {issuerOptions.slice(0, 5).map((symbol) => (
                 <Link
-                  href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, issuer, "performance")}
+                  key={symbol}
+                  href={hrefWithParams(insiderName, reportingCik, lookback, symbol, symbol)}
                   prefetch={false}
-                  className={`rounded-full px-3 py-1 font-semibold transition ${
-                    chartMode === "performance" ? "bg-white/[0.08] text-white" : "text-white/55 hover:text-white/80"
+                  className={`rounded-full border px-2.5 py-1 ${
+                    issuer === symbol
+                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                      : "border-white/10 text-white/55 hover:text-white/80"
                   }`}
                 >
-                  Performance Curve
+                  {symbol}
                 </Link>
-                <Link
-                  href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, issuer, "stock", stockSymbol)}
-                  prefetch={false}
-                  className={`rounded-full px-3 py-1 font-semibold transition ${
-                    chartMode === "stock" ? "bg-white/[0.08] text-white" : "text-white/55 hover:text-white/80"
-                  }`}
-                >
-                  Company Stock
-                </Link>
-              </div>
-              {issuerOptions.length > 1 ? (
-                <div className="flex flex-wrap items-center gap-1">
-                  {issuerOptions.slice(0, 5).map((symbol) => (
-                    <Link
-                      key={symbol}
-                      href={hrefWithParams(insiderName, reportingCik, lookback, chartMetric, symbol, chartMode, symbol)}
-                      prefetch={false}
-                      className={`rounded-full border px-2.5 py-1 ${
-                        issuer === symbol
-                          ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                          : "border-white/10 text-white/55 hover:text-white/80"
-                      }`}
-                    >
-                      {symbol}
-                    </Link>
-                  ))}
-                </div>
-              ) : null}
-              {chartMode === "performance" ? (
-                <>
-                  <Link
-                    href={hrefWithParams(insiderName, reportingCik, lookback, "return", issuer, chartMode, stockSymbol)}
-                    prefetch={false}
-                    className={`rounded-full border px-2.5 py-1 ${
-                      chartMetric === "return"
-                        ? "border-white/30 bg-white/[0.07] text-white"
-                        : "border-white/10 text-white/55 hover:text-white/80"
-                    }`}
-                  >
-                    Return
-                  </Link>
-                  <Link
-                    href={hrefWithParams(insiderName, reportingCik, lookback, "alpha", issuer, chartMode, stockSymbol)}
-                    prefetch={false}
-                    className={`rounded-full border px-2.5 py-1 ${
-                      chartMetric === "alpha"
-                        ? "border-white/30 bg-white/[0.07] text-white"
-                        : "border-white/10 text-white/55 hover:text-white/80"
-                    }`}
-                  >
-                    Alpha
-                  </Link>
-                </>
-              ) : null}
+              ))}
             </div>
-          </div>
+          ) : null}
 
-          {chartMode === "stock" ? (
-            <div className="mt-4">
-              {stockChartLoading ? (
-                <PremiumTickerChartSkeleton />
-              ) : stockChartUnavailable ? (
-                <p className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-                  {REFRESHING_COPY}
-                </p>
-              ) : (
-                <PremiumTickerChart
-                  bundle={stockChart}
-                  eyebrow="Company stock"
-                  title={stockChart?.symbol ? `${stockChart.symbol} Stock Chart` : "Company Stock Chart"}
-                  subtitle="Showing this insider's disclosed buys and sells only."
-                  allowedMarkerKinds={["insider"]}
-                  showMarkerControls={false}
-                  emptyTitle="No company stock chart is available for this insider yet."
-                  emptyMessage="The chart will appear once this insider has a valid issuer symbol and daily price history."
-                />
-              )}
-            </div>
-          ) : loading ? (
-            <SkeletonBlock className="mt-4 h-64 w-full" />
-          ) : !chartHasEnoughTrades ? (
-            <p className="mt-3 text-sm text-slate-400">Not enough scored trades to render a performance chart.</p>
-          ) : (
-            <PerformanceChart
-              memberSeries={memberSeries}
-              benchmarkSeries={benchmarkSeries}
-              metric={chartMetric}
-              benchmarkLabel="S&P 500"
-              subjectLabel="Insider"
-            />
-          )}
+          <div>
+            {stockChartLoading ? (
+              <PremiumTickerChartSkeleton />
+            ) : stockChartUnavailable ? (
+              <p className="rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+                {REFRESHING_COPY}
+              </p>
+            ) : (
+              <PremiumTickerChart
+                bundle={stockChart}
+                eyebrow="Company stock"
+                title={stockChart?.symbol ? `${stockChart.symbol} Stock Chart` : "Company Stock Chart"}
+                subtitle="Showing this insider's disclosed buys and sells only."
+                allowedMarkerKinds={["insider"]}
+                showMarkerControls={false}
+                emptyTitle="No company stock chart is available for this insider yet."
+                emptyMessage="The chart will appear once this insider has a valid issuer symbol and daily price history."
+              />
+            )}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -557,12 +407,7 @@ export function InsiderAnalyticsClient({
         </div>
       </section>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,2.15fr)]">
-        <div className="w-full min-w-0">
-          <TopTickersPanel items={topTickers} loading={loading} unavailable={topTickersUnavailable} />
-        </div>
-
-        <section id="recent-trades" className={`${cardClassName} w-full min-w-0 scroll-mt-6`}>
+      <section id="recent-trades" className={`${cardClassName} w-full min-w-0 scroll-mt-6`}>
           <h2 className="text-lg font-semibold text-white">Recent trades</h2>
           <p className="mt-1 text-xs text-slate-500">
             Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized. Original reported prices remain shown below.
@@ -675,8 +520,7 @@ export function InsiderAnalyticsClient({
               />
             </div>
           ) : null}
-        </section>
-      </div>
+      </section>
     </>
   );
 }
