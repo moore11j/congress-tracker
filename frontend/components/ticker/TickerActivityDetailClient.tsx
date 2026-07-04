@@ -9,7 +9,7 @@ import { chamberBadge, formatCongressAffiliationText, formatCurrencyRange, forma
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { resolveInsiderRoleBadge, insiderRoleBadgeTone } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
-import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 
 type ActivityKind = "congress" | "insider";
 type SideFilter = "all" | "buy" | "sell" | string;
@@ -68,17 +68,23 @@ function EventGrid({
   identity,
   sideBadge,
   dateLabel,
+  price,
   tradeValue,
 }: {
   identity: ReactNode;
   sideBadge: ReactNode;
   dateLabel: ReactNode;
+  price: ReactNode;
   tradeValue: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.4fr)_minmax(110px,.8fr)_minmax(120px,.8fr)_auto] sm:items-center">
+    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.4fr)_minmax(90px,.7fr)_minmax(120px,.8fr)_auto] sm:items-center">
       <div className="min-w-0">{identity}</div>
       <div className="text-xs text-slate-400">{dateLabel}</div>
+      <div className="min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:hidden">Price</div>
+        <div className="truncate text-sm font-semibold tabular-nums text-white">{price}</div>
+      </div>
       <div className="min-w-0">
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 sm:hidden">Trade value</div>
         <div className="truncate text-sm font-semibold tabular-nums text-white">{tradeValue}</div>
@@ -86,6 +92,16 @@ function EventGrid({
       <div className="flex justify-start sm:justify-end">{sideBadge}</div>
     </div>
   );
+}
+
+function formatPrice(value: number | null): string {
+  if (value === null) return "-";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 100 ? 2 : 2,
+    maximumFractionDigits: value >= 100 ? 2 : 4,
+  }).format(value);
 }
 
 function congressIdentity(event: EventItem) {
@@ -258,12 +274,21 @@ export function TickerActivityDetailClient({
       <ActivityScrollRegion>
         {items.map((event) => (
           <ActivityCard key={event.id}>
-            <EventGrid
-              identity={kind === "congress" ? congressIdentity(event) : insiderIdentity(event)}
-              sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-              dateLabel={rowDateLabel(kind, event)}
-              tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-            />
+            {(() => {
+              const insiderDisplay = kind === "insider" ? resolveInsiderActivityDisplay(event as Record<string, unknown>) : null;
+              const price = kind === "congress" ? resolveCongressActivityPrice(event as Record<string, unknown>) : insiderDisplay?.displayPrice ?? null;
+              const tradeValue = insiderDisplay?.tradeValue ?? null;
+
+              return (
+                <EventGrid
+                  identity={kind === "congress" ? congressIdentity(event) : insiderIdentity(event)}
+                  sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
+                  dateLabel={rowDateLabel(kind, event)}
+                  price={formatPrice(price)}
+                  tradeValue={tradeValue !== null ? formatPrice(tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
+                />
+              );
+            })()}
           </ActivityCard>
         ))}
       </ActivityScrollRegion>

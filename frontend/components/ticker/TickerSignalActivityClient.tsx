@@ -17,7 +17,6 @@ import {
 } from "@/lib/format";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
-import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 
 type GateReason = "auth" | "upgrade" | "unavailable";
 type SignalActivityState = "unlocked" | "locked" | "unavailable" | string;
@@ -71,17 +70,6 @@ function readSignalNumber(item: SignalItem, ...keys: Array<keyof SignalItem>): n
   return null;
 }
 
-function formatPnl(value: number): string {
-  const marker = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${marker} ${Math.abs(value).toFixed(1)}%`;
-}
-
-function pnlClass(value: number): string {
-  if (value > 0) return "text-emerald-300";
-  if (value < 0) return "text-rose-300";
-  return "text-slate-300";
-}
-
 function ActivityCard({ children }: { children: ReactNode }) {
   return (
     <div className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 sm:px-4">
@@ -111,8 +99,6 @@ function ActivityCardGrid({
   dateLabel,
   price,
   tradeValue,
-  pnl,
-  pnlClassName,
   signal,
 }: {
   identity: ReactNode;
@@ -120,29 +106,17 @@ function ActivityCardGrid({
   dateLabel: ReactNode;
   price: ReactNode;
   tradeValue: ReactNode;
-  pnl: ReactNode;
-  pnlClassName?: string;
   signal: ReactNode;
 }) {
   const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
   const metricValueClassName = "truncate text-sm font-semibold tabular-nums";
-  const gainLossLabelNode = (
-    <span
-      className="cursor-help whitespace-nowrap"
-      title={tickerGainLossTooltip}
-      aria-label={`${gainLossLabel}: ${tickerGainLossTooltip}`}
-    >
-      {gainLossLabel}
-    </span>
-  );
 
   return (
-    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(88px,.65fr)_minmax(84px,auto)] sm:items-center lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(92px,.68fr)_minmax(92px,auto)]">
+    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(170px,1.6fr)_minmax(92px,.7fr)_minmax(128px,.95fr)_minmax(92px,auto)] sm:items-center lg:grid-cols-[minmax(190px,1.8fr)_minmax(104px,.72fr)_minmax(140px,.95fr)_minmax(100px,auto)]">
       <div className="min-w-0 sm:col-start-1 sm:row-start-1">{identity}</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-2 sm:row-start-1`}>Price</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-3 sm:row-start-1`}>Trade value</div>
-      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>{gainLossLabelNode}</div>
-      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-1 sm:justify-end">{sideBadge}</div>
+      <div className="flex min-w-0 items-center justify-start sm:col-start-4 sm:row-start-1 sm:justify-end">{sideBadge}</div>
 
       <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
       <div className="min-w-0 sm:col-start-2 sm:row-start-2">
@@ -153,11 +127,7 @@ function ActivityCardGrid({
         <div className={`${metricLabelClassName} sm:hidden`}>Trade value</div>
         <div className={`${metricValueClassName} text-white`}>{tradeValue}</div>
       </div>
-      <div className="min-w-0 sm:col-start-4 sm:row-start-2">
-        <div className={`${metricLabelClassName} sm:hidden`}>{gainLossLabelNode}</div>
-        <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
-      </div>
-      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-2 sm:justify-end">{signal}</div>
+      <div className="flex min-w-0 items-center justify-start sm:col-start-4 sm:row-start-2 sm:justify-end">{signal}</div>
     </div>
   );
 }
@@ -168,8 +138,7 @@ function SignalActivitySkeleton() {
       {Array.from({ length: 4 }).map((_, index) => (
         <div key={index} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
           <SkeletonBlock className="h-4 w-40" />
-          <div className="mt-3 grid gap-3 sm:grid-cols-5">
-            <SkeletonBlock className="h-4 w-full" />
+          <div className="mt-3 grid gap-3 sm:grid-cols-4">
             <SkeletonBlock className="h-4 w-full" />
             <SkeletonBlock className="h-4 w-full" />
             <SkeletonBlock className="h-4 w-full" />
@@ -293,7 +262,6 @@ export function TickerSignalActivityClient({
               const displayName = getInsiderDisplayName(signal.who) ?? "Unknown";
               const insiderProfileHref = isInsiderSignal ? insiderHref(displayName, signal.reporting_cik ?? null) : null;
               const price = readSignalNumber(signal, "estimated_price", "price");
-              const pnl = readSignalNumber(signal, "pnl_pct", "pnlPct");
               const insiderRole = isInsiderSignal ? resolveInsiderRoleBadge(signal.position) : null;
               const congressChamber = isCongressSignal ? chamberBadge(signal.chamber) : null;
               const hasCongressChamber = isCongressSignal && Boolean(signal.chamber?.trim());
@@ -331,8 +299,6 @@ export function TickerSignalActivityClient({
                     dateLabel={formatDateShort(signal.ts)}
                     price={price !== null ? formatCurrency(price) : "-"}
                     tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
-                    pnl={pnl !== null ? formatPnl(pnl) : "-"}
-                    pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
                     signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
                   />
                 </ActivityCard>

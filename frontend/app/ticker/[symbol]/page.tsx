@@ -45,7 +45,7 @@ import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
   resolveInsiderDisplayPrice,
 } from "@/lib/insiderTradeDisplay";
-import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
+import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
 
@@ -701,15 +701,7 @@ function resolveCongressReportDate(event: { ts?: string | null; payload?: any })
 }
 
 function resolveCongressTradePrice(event: { estimated_price?: number | null; payload?: any }): number | null {
-  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
-  return (
-    readNumeric(event.estimated_price) ??
-    readNumeric(payload?.estimated_price) ??
-    readNumeric(payload?.price) ??
-    readNumeric(payload?.raw?.price) ??
-    readNumeric(payload?.raw?.estimatedPrice) ??
-    null
-  );
+  return resolveCongressActivityPrice(event as Record<string, unknown>);
 }
 
 function resolveInsiderTradeDate(event: { ts?: string | null; payload?: any }): string | null {
@@ -2190,6 +2182,7 @@ function ActivityCardGrid({
   pnl,
   pnlClassName,
   signal,
+  showGainLoss = true,
 }: {
   identity: ReactNode;
   sideBadge: ReactNode;
@@ -2200,6 +2193,7 @@ function ActivityCardGrid({
   pnl: ReactNode;
   pnlClassName?: string;
   signal: ReactNode;
+  showGainLoss?: boolean;
 }) {
   const metricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500";
   const metricValueClassName = "truncate text-sm font-semibold tabular-nums";
@@ -2214,12 +2208,17 @@ function ActivityCardGrid({
   );
 
   return (
-    <div className="grid min-w-0 gap-x-3 gap-y-2 sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(88px,.65fr)_minmax(84px,auto)] sm:items-center lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(92px,.68fr)_minmax(92px,auto)]">
+    <div className={[
+      "grid min-w-0 gap-x-3 gap-y-2 sm:items-center",
+      showGainLoss
+        ? "sm:grid-cols-[minmax(150px,1.45fr)_minmax(76px,.7fr)_minmax(104px,.9fr)_minmax(88px,.65fr)_minmax(84px,auto)] lg:grid-cols-[minmax(170px,1.65fr)_minmax(84px,.72fr)_minmax(120px,.95fr)_minmax(92px,.68fr)_minmax(92px,auto)]"
+        : "sm:grid-cols-[minmax(170px,1.6fr)_minmax(92px,.7fr)_minmax(128px,.95fr)_minmax(92px,auto)] lg:grid-cols-[minmax(190px,1.8fr)_minmax(104px,.72fr)_minmax(140px,.95fr)_minmax(100px,auto)]",
+    ].join(" ")}>
       <div className="min-w-0 sm:col-start-1 sm:row-start-1">{identity}</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-2 sm:row-start-1`}>Price</div>
       <div className={`${metricLabelClassName} hidden sm:block sm:col-start-3 sm:row-start-1`}>Trade value</div>
-      <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>{gainLossLabelNode}</div>
-      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-1 sm:justify-end">{sideBadge}</div>
+      {showGainLoss ? <div className={`${metricLabelClassName} hidden sm:block sm:col-start-4 sm:row-start-1`}>{gainLossLabelNode}</div> : null}
+      <div className={`flex min-w-0 items-center justify-start sm:row-start-1 sm:justify-end ${showGainLoss ? "sm:col-start-5" : "sm:col-start-4"}`}>{sideBadge}</div>
 
       <div className="text-xs text-slate-400 sm:col-start-1 sm:row-start-2">{dateLabel}</div>
       <div className="min-w-0 sm:col-start-2 sm:row-start-2">
@@ -2231,11 +2230,13 @@ function ActivityCardGrid({
         <div className={`${metricLabelClassName} sm:hidden`}>Trade value</div>
         <div className={`${metricValueClassName} text-white`}>{tradeValue}</div>
       </div>
-      <div className="min-w-0 sm:col-start-4 sm:row-start-2">
-        <div className={`${metricLabelClassName} sm:hidden`}>{gainLossLabelNode}</div>
-        <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
-      </div>
-      <div className="flex min-w-0 items-center justify-start sm:col-start-5 sm:row-start-2 sm:justify-end">{signal}</div>
+      {showGainLoss ? (
+        <div className="min-w-0 sm:col-start-4 sm:row-start-2">
+          <div className={`${metricLabelClassName} sm:hidden`}>{gainLossLabelNode}</div>
+          <div className={`${metricValueClassName} ${pnlClassName ?? "text-slate-400"}`}>{pnl}</div>
+        </div>
+      ) : null}
+      <div className={`flex min-w-0 items-center justify-start sm:row-start-2 sm:justify-end ${showGainLoss ? "sm:col-start-5" : "sm:col-start-4"}`}>{signal}</div>
     </div>
   );
 }
@@ -2419,10 +2420,16 @@ async function resolveTickerActivityData({
   }, 0);
 
   const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
+  const congressParticipantEvents = side === "all"
+    ? congressEvents
+    : congressEvents.filter((event) => normalizeTradeSide(event.trade_type) === side);
+  const insiderParticipantEvents = side === "all"
+    ? insiderEvents
+    : insiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === side);
   const congressParticipantMap = new Map<string, ParticipantStats>();
   const insiderParticipantMap = new Map<string, ParticipantStats>();
 
-  for (const event of metricCongressEvents) {
+  for (const event of congressParticipantEvents) {
     const who = (event.member_name ?? "Unknown Member").trim();
     const memberId = asTrimmedString(event.member_bioguide_id);
     const participantKey = memberId ? `member:${memberId}` : `name:${who.toLowerCase()}`;
@@ -2444,7 +2451,7 @@ async function resolveTickerActivityData({
     congressParticipantMap.set(participantKey, existing);
   }
 
-  for (const event of metricInsiderEvents) {
+  for (const event of insiderParticipantEvents) {
     const display = resolveInsiderActivityDisplay(event as Record<string, unknown>);
     const who = display.insiderName || resolveInsiderName(event);
     const reportingCik = display.reportingCik ?? resolveInsiderReportingCik(event);
@@ -3004,6 +3011,7 @@ async function DeferredTickerContent({
                               tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                               pnl={pnl !== null ? formatPnl(pnl) : "-"}
                               pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                              showGainLoss={false}
                               signal={
                                 <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
                               }
@@ -3078,6 +3086,7 @@ async function DeferredTickerContent({
                             tradeValue={display.tradeValue !== null ? formatCurrency(display.tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                             pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
                             pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
+                            showGainLoss={false}
                             signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
                           />
                         </ActivityCard>
@@ -3209,6 +3218,7 @@ async function DeferredTickerContent({
                           tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
                           pnl={pnl !== null ? formatPnl(pnl) : "-"}
                           pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
+                          showGainLoss={false}
                           signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
                         />
                       </ActivityCard>

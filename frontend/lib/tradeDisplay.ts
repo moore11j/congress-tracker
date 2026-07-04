@@ -46,6 +46,17 @@ function firstNestedText(record: Record<string, unknown>, ...keys: string[]): st
   return null;
 }
 
+function firstNestedNumber(record: Record<string, unknown>, ...keys: string[]): number | null {
+  const payload = objectRecord(record.payload);
+  const raw = objectRecord(payload.raw);
+  const candidates = [record, payload, raw];
+  for (const candidate of candidates) {
+    const value = readTradeNumber(candidate, ...keys);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function isGenericSecurityName(value: string | null): boolean {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return true;
@@ -105,6 +116,28 @@ export function displayTickerSymbol(symbol?: string | null): string {
   return trimmed.split(":", 2)[1]?.trim() || trimmed;
 }
 
+export function resolveCongressActivityPrice(record: Record<string, unknown>): number | null {
+  return firstNestedNumber(
+    record,
+    "estimated_price",
+    "estimatedPrice",
+    "trade_price",
+    "tradePrice",
+    "price",
+    "display_price",
+    "displayPrice",
+    "reported_price",
+    "reportedPrice",
+    "transaction_price",
+    "transactionPrice",
+    "transactionPricePerShare",
+    "price_per_share",
+    "pricePerShare",
+    "average_price",
+    "averagePrice",
+  );
+}
+
 export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
   const payload = objectRecord(record.payload);
   const displayInput = {
@@ -113,7 +146,7 @@ export function resolveInsiderActivityDisplay(record: Record<string, unknown>) {
     amount_range_max: readTradeNumber(record, "amount_range_max", "amount_max", "amountMax"),
     amount_min: readTradeNumber(record, "amount_min", "amountMin"),
     amount_max: readTradeNumber(record, "amount_max", "amountMax"),
-    estimated_price: readTradeNumber(record, "display_price", "displayPrice", "estimated_price", "price"),
+    estimated_price: readTradeNumber(record, "display_price", "displayPrice", "trade_price", "tradePrice", "reported_price", "reportedPrice", "estimated_price", "price"),
     payload: Object.keys(payload).length ? payload : record,
   };
 
