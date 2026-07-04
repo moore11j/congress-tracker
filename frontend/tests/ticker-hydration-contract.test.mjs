@@ -244,7 +244,7 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   const api = read("lib/api.ts");
 
   assert.match(card, /rawStatus === "warming" \|\| rawStatus === "loading" && items\.length === 0 \? "no_data" : rawStatus === "empty" \? "no_data" : rawStatus/);
-  assert.match(card, /NEWS_EMPTY_MESSAGE = "No recent news found\."/);
+  assert.match(card, /NEWS_EMPTY_MESSAGE = "No recent headlines found\."/);
   assert.match(card, /FILINGS_EMPTY_MESSAGE = "No recent filings found\."/);
   assert.match(api, /function normalizeTickerItemsResponse/);
   assert.match(api, /arrayKeys: \["items", "news", "articles", "results", "data"\]/);

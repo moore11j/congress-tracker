@@ -41,11 +41,16 @@ const FINANCIALS_LOADING_MESSAGE = "Loading financials.";
 const PRESS_LOADING_MESSAGE = "Loading press releases.";
 const FILINGS_LOADING_MESSAGE = "Loading filings.";
 const ACTIVITY_LOADING_MESSAGE = "Loading activity.";
-const NEWS_EMPTY_MESSAGE = "No recent news found.";
+const NEWS_EMPTY_MESSAGE = "No recent headlines found.";
 const PRESS_EMPTY_MESSAGE = "No press releases found.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
 const ACTIVITY_EMPTY_MESSAGE = "No recent disclosure activity found.";
 const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
+const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel";
+const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel";
+const TICKER_PRESS_PANEL_SOURCE = "TickerPressPanel";
+const TICKER_FILINGS_PANEL_SOURCE = "TickerFilingsPanel";
+const TICKER_DISCLOSURE_PANEL_SOURCE = "TickerDisclosurePanel";
 const IMPLEMENTATION_DETAIL_TERMS = [
   ["current", "data", "plan"].join(" "),
   ["data", "plan"].join(" "),
@@ -473,7 +478,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const timeoutGuard = startRequestTimeout(controller, NEWS_REQUEST_TIMEOUT_MS);
     setLoadingNews(true);
 
-    getTickerNews(symbol, { page: 0, limit: 20, signal: controller.signal })
+    getTickerNews(symbol, { page: 0, limit: 20, signal: controller.signal, source: TICKER_NEWS_PANEL_SOURCE })
       .then((response) => {
         if (!controller.signal.aborted) setNewsPages([normalizeNewsPage(response, 20)]);
       })
@@ -509,7 +514,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     const timeoutGuard = startRequestTimeout(controller, FINANCIALS_REQUEST_TIMEOUT_MS);
     setLoadingFinancials(true);
 
-    getTickerFinancials(symbol, { signal: controller.signal })
+    getTickerFinancials(symbol, { signal: controller.signal, source: TICKER_FINANCIALS_PANEL_SOURCE })
       .then((response) => {
         if (!controller.signal.aborted) setFinancials(normalizeFinancialsResponse(symbol, response));
       })
@@ -549,7 +554,10 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
     async function loadPress() {
       try {
-        const response = normalizePressPage(await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal }), 20);
+        const response = normalizePressPage(
+          await getTickerPressReleases(symbol, { page: 0, limit: 20, signal: controller.signal, source: TICKER_PRESS_PANEL_SOURCE }),
+          20,
+        );
         if (controller.signal.aborted) return;
         setPressPages([response]);
       } catch (error) {
@@ -595,6 +603,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           page: 0,
           limit: 100,
           signal: controller.signal,
+          source: TICKER_FILINGS_PANEL_SOURCE,
         }), 100);
         if (!active || controller.signal.aborted) return;
         setSecPages([response]);
@@ -644,7 +653,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           limit: 50,
           enrich_prices: 0,
           signal: controller.signal,
-          source: "TickerPage",
+          source: TICKER_DISCLOSURE_PANEL_SOURCE,
         });
         if (!active || controller.signal.aborted) return;
         const items = response.items
@@ -723,6 +732,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         page: newsResponse.page + 1,
         limit: newsResponse.limit,
         signal: controller.signal,
+        source: TICKER_NEWS_PANEL_SOURCE,
       }), newsResponse.limit);
       if (!controller.signal.aborted) setNewsPages((current) => [...current, next]);
     } catch (error) {
@@ -747,6 +757,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         page: pressResponse.page + 1,
         limit: pressResponse.limit,
         signal: controller.signal,
+        source: TICKER_PRESS_PANEL_SOURCE,
       }), pressResponse.limit);
       if (!controller.signal.aborted) setPressPages((current) => [...current, next]);
     } catch (error) {
@@ -773,6 +784,7 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
         page: secResponse.page + 1,
         limit: secResponse.limit,
         signal: controller.signal,
+        source: TICKER_FILINGS_PANEL_SOURCE,
       }), secResponse.limit);
       if (!controller.signal.aborted) setSecPages((current) => [...current, next]);
     } catch (error) {
