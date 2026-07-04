@@ -23,10 +23,6 @@ import { tickerHref } from "@/lib/ticker";
 import { tickerMonoLinkClassName } from "@/lib/styles";
 import { SIGNALS_COLUMN_DEFINITIONS, SignalColumnHeaderTooltip } from "@/components/signals/SignalColumnHeaderTooltip";
 
-type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
-type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
-type ConfirmationDirectionFilter = "all" | ConfirmationDirection;
-
 function formatUSD(value?: number | null): string {
   if (value == null || !Number.isFinite(value)) return "--";
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
@@ -110,21 +106,6 @@ function sourceBadge(item: SignalItem): { label: string; tone: BadgeTone } {
   return { label: "CONGRESS", tone: "neutral" };
 }
 
-function confirmationClass(direction?: string | null): string {
-  if (direction === "bullish") return "text-emerald-300";
-  if (direction === "bearish") return "text-rose-300";
-  if (direction === "mixed") return "text-amber-300";
-  return "text-slate-300";
-}
-
-function freshnessTextClass(state?: string | null): string {
-  if (state === "fresh" || state === "early") return "text-emerald-300";
-  if (state === "active") return "text-cyan-300";
-  if (state === "maturing") return "text-amber-300";
-  if (state === "stale") return "text-rose-300";
-  return "text-slate-400";
-}
-
 function backtestingHrefFromItems(items: SignalItem[]): string | null {
   const tickers = Array.from(new Set(items.map((item) => item.symbol).filter(Boolean))).slice(0, 25);
   if (tickers.length === 0) return null;
@@ -166,14 +147,9 @@ export function SignalsResultsClient({
   limit,
   debug,
   sort,
-  confirmationBand,
-  confirmationDirection,
-  minConfirmationSources,
-  multiSourceOnly,
   institutionalLookbackDays,
   card,
   pill,
-  activeSort,
   canBacktest,
   upgradeUrl,
 }: {
@@ -182,14 +158,9 @@ export function SignalsResultsClient({
   limit: number;
   debug: boolean;
   sort: SignalSort;
-  confirmationBand: ConfirmationBandFilter;
-  confirmationDirection: ConfirmationDirectionFilter;
-  minConfirmationSources: number;
-  multiSourceOnly: boolean;
   institutionalLookbackDays?: number;
   card: string;
   pill: string;
-  activeSort: string;
   canBacktest: boolean;
   upgradeUrl: string;
 }) {
@@ -229,10 +200,6 @@ export function SignalsResultsClient({
       sort,
       limit,
       debug,
-      confirmation_band: confirmationBand,
-      confirmation_direction: confirmationDirection,
-      min_confirmation_sources: minConfirmationSources,
-      multi_source_only: multiSourceOnly,
       institutional_lookback_days: institutionalLookbackDays,
     })
       .then((response) => {
@@ -250,7 +217,7 @@ export function SignalsResultsClient({
     return () => {
       alive = false;
     };
-  }, [mode, side, sort, limit, debug, confirmationBand, confirmationDirection, minConfirmationSources, multiSourceOnly, institutionalLookbackDays]);
+  }, [mode, side, sort, limit, debug, institutionalLookbackDays]);
 
   return (
     <div className={`${card} min-h-[32rem] overflow-hidden`}>
@@ -301,7 +268,6 @@ export function SignalsResultsClient({
               const roleTone = insiderRoleBadgeTone(roleCode);
               const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(item.who, rawPosition));
               const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(item));
-              const freshness = item.signal_freshness;
 
               return (
                 <article key={item.event_id} className="px-4 py-4">
@@ -357,7 +323,7 @@ export function SignalsResultsClient({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
+                  <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Prior Q Value" : "Baseline"}>{isInstitutional ? "Prior Q Value" : "Base"}</div>
                       <div className="truncate font-mono text-slate-200">{formatUSD(item.baseline_median_amount_max)}</div>
@@ -374,32 +340,6 @@ export function SignalsResultsClient({
                         <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source</div>
-                      <div className="mt-1">
-                        <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
-                      </div>
-                    </div>
-                    <div className="min-w-0" title={item.confirmation_explanation ?? item.confirmation_status ?? undefined}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Confirmation">Conf.</div>
-                      <div className={`mt-1 truncate text-xs font-semibold ${confirmationClass(item.confirmation_direction)}`}>
-                        {titleCase(item.confirmation_band ?? "inactive")}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        {item.confirmation_source_count ?? 0} src
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Fresh</div>
-                      <div
-                        className="mt-1 min-w-0"
-                        title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
-                      >
-                        <span className={`block truncate text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
-                          {titleCase(freshness?.freshness_state ?? "inactive")}
-                        </span>
-                      </div>
-                    </div>
                   </div>
                 </article>
               );
@@ -408,19 +348,16 @@ export function SignalsResultsClient({
         )}
       </div>
       <div className={`${signalsResultsScrollFrameClassName} hidden min-w-0 md:block`}>
-        <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[5rem]" />
-            <col className="w-[5.25rem]" />
-            <col className="w-[9.5rem]" />
-            <col className="w-[4.5rem]" />
-            <col className="w-[5.75rem]" />
-            <col className="w-[5.25rem]" />
-            <col className="w-[5rem]" />
-            <col className="w-[9.25rem]" />
-            <col className="w-[4.75rem]" />
-            <col className="w-[5.75rem]" />
-            <col className="w-[5rem]" />
+            <col className="w-[8%]" />
+            <col className="w-[10%]" />
+            <col className="w-[24%]" />
+            <col className="w-[11%]" />
+            <col className="w-[13%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[12%]" />
           </colgroup>
           <thead className={`${stickyResultsTableHeaderClassName} whitespace-nowrap bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
@@ -438,31 +375,12 @@ export function SignalsResultsClient({
               <th className="px-2 py-3 text-left xl:px-3">
                 <SignalColumnHeaderTooltip id="signals-client-header-conviction" label={<span title={headerLabels.score}>{headerLabels.score}</span>} description={isInstitutionalMode ? "A materiality score for reported 13F institutional activity." : SIGNALS_COLUMN_DEFINITIONS.conviction} />
               </th>
-              <th className="px-2 py-3 text-left xl:px-3">
-                <SignalColumnHeaderTooltip id="signals-client-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
-              </th>
-              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
-                <SignalColumnHeaderTooltip
-                  id="signals-client-header-confirmation"
-                  label={<span title="Confirmation">Conf.</span>}
-                  description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
-                  align="right"
-                />
-              </th>
-              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
-                <SignalColumnHeaderTooltip
-                  id="signals-client-header-freshness"
-                  label={<span title="Freshness">Fresh</span>}
-                  description={SIGNALS_COLUMN_DEFINITIONS.freshness}
-                  align="right"
-                />
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {loading || items.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-slate-400" colSpan={11}>
+                <td className="px-4 py-10 text-center text-slate-400" colSpan={8}>
                   <div className="flex flex-col items-center gap-3">
                     <span>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</span>
                     {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /> : null}
@@ -481,7 +399,6 @@ export function SignalsResultsClient({
                 const roleTone = insiderRoleBadgeTone(roleCode);
                 const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(item.who, rawPosition));
                 const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(item));
-                const freshness = item.signal_freshness;
                 return (
                   <tr key={item.event_id} className="hover:bg-slate-900/20">
                     <td className="px-2 py-3 text-slate-300 xl:px-3"><span className="font-mono text-[12px]" title={item.ts}>{formatSignalDate(item.ts)}</span></td>
@@ -531,24 +448,6 @@ export function SignalsResultsClient({
                         <span className="font-mono">{typeof item.smart_score === "number" && Number.isFinite(item.smart_score) ? item.smart_score : "--"}</span>
                         <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
-                    </td>
-                    <td className="px-2 py-3 xl:px-3"><Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge></td>
-                    <td className="px-2 py-3 xl:px-3">
-                      <div className="min-w-0" title={item.confirmation_explanation ?? item.confirmation_status ?? undefined}>
-                        <div className={`text-xs font-semibold ${confirmationClass(item.confirmation_direction)}`}>
-                          {titleCase(item.confirmation_band ?? "inactive")}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          {item.confirmation_source_count ?? 0} src
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-2 py-3 xl:px-3">
-                      <div title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}>
-                        <span className={`whitespace-nowrap text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
-                          {titleCase(freshness?.freshness_state ?? "inactive")}
-                        </span>
-                      </div>
                     </td>
                   </tr>
                 );

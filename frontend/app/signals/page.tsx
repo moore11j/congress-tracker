@@ -26,14 +26,10 @@ import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const SIGNALS_SYSTEM_DEFAULT_PARAMS: Record<string, string> = {
-  mode: "all",
+  mode: "congress",
   side: "all",
-  limit: "50",
-  sort: "smart",
-  confirmation_band: "all",
-  confirmation_direction: "all",
-  min_confirmation_sources: "0",
-  multi_source_only: "",
+  limit: "25",
+  sort: "recent",
 };
 
 type SignalItem = {
@@ -57,55 +53,6 @@ type SignalItem = {
   smart_score?: number;
   smart_band?: string;
   source?: string;
-  confirmation_30d?: {
-    congress_active_30d: boolean;
-    insider_active_30d: boolean;
-    congress_trade_count_30d: number;
-    insider_trade_count_30d: number;
-    insider_buy_count_30d: number;
-    insider_sell_count_30d: number;
-    cross_source_confirmed_30d: boolean;
-    repeat_congress_30d: boolean;
-    repeat_insider_30d: boolean;
-  } | null;
-  confirmation_score?: number | null;
-  confirmation_band?: ConfirmationBand | null;
-  confirmation_direction?: ConfirmationDirection | null;
-  confirmation_status?: string | null;
-  confirmation_source_count?: number | null;
-  confirmation_explanation?: string | null;
-  is_multi_source?: boolean | null;
-  why_now?: WhyNowBundle | null;
-  signal_freshness?: SignalFreshnessBundle | null;
-};
-
-type ConfirmationBand = "inactive" | "weak" | "moderate" | "strong" | "exceptional";
-type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
-type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
-type ConfirmationDirectionFilter = "all" | ConfirmationDirection;
-type WhyNowState = "early" | "strengthening" | "strong" | "mixed" | "fading" | "inactive";
-type WhyNowBundle = {
-  ticker: string;
-  lookback_days: number;
-  state: WhyNowState;
-  headline: string;
-  evidence: string[];
-  caveat?: string | null;
-};
-type SignalFreshnessState = "fresh" | "early" | "active" | "maturing" | "stale" | "inactive";
-type SignalFreshnessBundle = {
-  ticker: string;
-  lookback_days: number;
-  freshness_score: number;
-  freshness_state: SignalFreshnessState;
-  freshness_label: string;
-  explanation: string;
-  timing: {
-    freshest_source_days: number | null;
-    stalest_active_source_days: number | null;
-    active_source_count: number;
-    overlap_window_days: number | null;
-  };
 };
 
 function getParam(sp: SearchParams, key: string): string {
@@ -114,8 +61,8 @@ function getParam(sp: SearchParams, key: string): string {
 }
 
 function clampMode(modeRaw: string): SignalMode {
-  if (modeRaw === "all" || modeRaw === "congress" || modeRaw === "insider" || modeRaw === "institutional") return modeRaw;
-  return "all";
+  if (modeRaw === "congress" || modeRaw === "insider" || modeRaw === "institutional") return modeRaw;
+  return "congress";
 }
 
 
@@ -150,44 +97,12 @@ function clampSide(sideRaw: string): "all" | "buy" | "sell" | "buy_or_sell" | "a
 function clampLimit(limitRaw: string): 25 | 50 | 100 {
   const n = Number(limitRaw);
   if (n === 25 || n === 50 || n === 100) return n;
-  return 50;
+  return 25;
 }
 
-function clampSort(sortRaw: string): "multiple" | "smart" | "recent" | "amount" | "confirmation" | "freshness" {
-  if (
-    sortRaw === "multiple" ||
-    sortRaw === "smart" ||
-    sortRaw === "recent" ||
-    sortRaw === "amount" ||
-    sortRaw === "confirmation" ||
-    sortRaw === "freshness"
-  ) return sortRaw;
-  return "smart";
-}
-
-function clampConfirmationBand(value: string): ConfirmationBandFilter {
-  if (
-    value === "active" ||
-    value === "weak" ||
-    value === "moderate" ||
-    value === "strong" ||
-    value === "exceptional" ||
-    value === "strong_plus"
-  ) {
-    return value;
-  }
-  return "all";
-}
-
-function clampConfirmationDirection(value: string): ConfirmationDirectionFilter {
-  if (value === "bullish" || value === "bearish" || value === "mixed" || value === "neutral") return value;
-  return "all";
-}
-
-function clampMinConfirmationSources(value: string): 0 | 2 | 3 | 4 {
-  const n = Number(value);
-  if (n === 2 || n === 3 || n === 4) return n;
-  return 0;
+function clampSort(sortRaw: string): "recent" | "amount" | "multiple" | "smart" {
+  if (sortRaw === "recent" || sortRaw === "amount" || sortRaw === "multiple" || sortRaw === "smart") return sortRaw;
+  return "recent";
 }
 
 function clampInstitutionalLookbackDays(value: string, mode: SignalMode): number | undefined {
@@ -208,10 +123,6 @@ function buildSignalsUrl(
   limit: number,
   debug: boolean,
   sort: string,
-  confirmationBand: ConfirmationBandFilter,
-  confirmationDirection: ConfirmationDirectionFilter,
-  minConfirmationSources: number,
-  multiSourceOnly: boolean,
   institutionalLookbackDays?: number,
 ): string {
   const u = new URL("/api/signals/all", apiBase);
@@ -219,10 +130,6 @@ function buildSignalsUrl(
   u.searchParams.set("side", side);
   u.searchParams.set("limit", String(limit));
   u.searchParams.set("sort", sort);
-  if (confirmationBand !== "all") u.searchParams.set("confirmation_band", confirmationBand);
-  if (confirmationDirection !== "all") u.searchParams.set("confirmation_direction", confirmationDirection);
-  if (minConfirmationSources > 0) u.searchParams.set("min_confirmation_sources", String(minConfirmationSources));
-  if (multiSourceOnly) u.searchParams.set("multi_source_only", "1");
   if (institutionalLookbackDays !== undefined) u.searchParams.set("institutional_lookback_days", String(institutionalLookbackDays));
   if (debug) u.searchParams.set("debug", "1");
   return u.toString();
@@ -351,125 +258,6 @@ function smartLabel(band?: string, score?: number): { label: string; klass: stri
   return { label: "Noise", klass: "border-slate-700 text-slate-300 bg-slate-900/30", dotClass: "bg-slate-500" };
 }
 
-function confirmationBandLabel(band?: ConfirmationBand | null): string {
-  if (band === "exceptional") return "Excellent";
-  if (band === "strong") return "Strong";
-  if (band === "moderate") return "Moderate";
-  if (band === "weak") return "Weak";
-  return "Inactive";
-}
-
-function titleCase(value: string): string {
-  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
-}
-
-function confirmationDirectionLabel(direction?: ConfirmationDirection | null): string {
-  if (direction === "bullish") return "Bullish";
-  if (direction === "bearish") return "Bearish";
-  if (direction === "mixed") return "Mixed";
-  return "Neutral";
-}
-
-function confirmationDirectionTextClass(direction?: ConfirmationDirection | null): string {
-  if (direction === "bullish") return "text-emerald-200/90";
-  if (direction === "bearish") return "text-rose-200/90";
-  if (direction === "mixed") return "text-amber-200/90";
-  return "text-slate-400";
-}
-
-function freshnessTextClass(state?: SignalFreshnessState | null): string {
-  if (state === "fresh") return "text-emerald-200";
-  if (state === "early") return "text-cyan-200";
-  if (state === "active") return "text-sky-200";
-  if (state === "maturing") return "text-amber-200";
-  if (state === "stale") return "text-rose-200";
-  return "text-slate-400";
-}
-
-function confirmationDrivers(item: SignalItem): string[] {
-  const seen = new Set<string>();
-  const drivers: string[] = [];
-  const candidates = [item.confirmation_explanation, ...(item.why_now?.evidence ?? [])];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const trimmed = candidate.trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    drivers.push(trimmed);
-    if (drivers.length >= 2) break;
-  }
-
-  return drivers;
-}
-
-function SignalsSortLink({
-  label,
-  active,
-  title,
-}: {
-  label: string;
-  active: boolean;
-  title?: string;
-}) {
-  return (
-    <span
-      title={title}
-      aria-label={title}
-      className={`inline-flex items-center gap-1 ${active ? "text-emerald-100" : ""}`}
-    >
-      {label}
-      <span className={`text-[10px] font-semibold normal-case tracking-normal ${active ? "text-emerald-300/80" : "text-slate-600"}`}>
-        {active ? "desc" : ""}
-      </span>
-    </span>
-  );
-}
-
-function ConfirmHoverCell({ item }: { item: SignalItem }) {
-  const tooltipId = `confirm-${item.event_id}`;
-  const score = typeof item.confirmation_score === "number" && Number.isFinite(item.confirmation_score) ? item.confirmation_score : "--";
-  const directionLabel = confirmationDirectionLabel(item.confirmation_direction);
-  const drivers = confirmationDrivers(item);
-
-  return (
-    <div className="group/confirm relative inline-flex max-w-full items-center">
-      <button
-        type="button"
-        aria-describedby={tooltipId}
-        className="inline-flex max-w-full items-center gap-2 rounded-md px-1 py-0.5 text-left transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
-      >
-        <span className="font-mono text-[13px] font-semibold text-slate-100">{score}</span>
-        <span aria-hidden className="text-slate-600">&middot;</span>
-        <span className={`truncate text-xs font-medium ${confirmationDirectionTextClass(item.confirmation_direction)}`}>{directionLabel}</span>
-      </button>
-      <div
-        id={tooltipId}
-        role="tooltip"
-        className="pointer-events-none invisible absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-white/10 bg-slate-950/95 p-3 text-left opacity-0 shadow-2xl shadow-black/40 backdrop-blur transition delay-75 group-hover/confirm:visible group-hover/confirm:opacity-100 group-focus-within/confirm:visible group-focus-within/confirm:opacity-100"
-      >
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Confirmation</p>
-        <p className="mt-1 text-sm leading-5 text-slate-100">{item.confirmation_status ?? "Confirmation unavailable"}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
-          <span>{confirmationBandLabel(item.confirmation_band)}</span>
-          {typeof item.confirmation_source_count === "number" ? <span>{item.confirmation_source_count} source{item.confirmation_source_count === 1 ? "" : "s"}</span> : null}
-        </div>
-        {drivers.length > 0 ? (
-          <div className="mt-3 space-y-1.5">
-            {drivers.map((driver) => (
-              <p key={driver} className="text-xs leading-4 text-slate-300">
-                {driver}
-              </p>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function sourceBadge(item: SignalItem): { label: string; tone: Parameters<typeof Badge>[0]["tone"] } {
   if (isInstitutionalSignalKind(item.kind)) return { label: "13F", tone: "neutral" };
   const chamber = (item.chamber ?? "").toLowerCase();
@@ -498,10 +286,6 @@ export default async function SignalsPage({
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
   const sort = clampSort(getParam(sp, "sort"));
-  const confirmationBand = clampConfirmationBand(getParam(sp, "confirmation_band"));
-  const confirmationDirection = clampConfirmationDirection(getParam(sp, "confirmation_direction"));
-  const minConfirmationSources = clampMinConfirmationSources(getParam(sp, "min_confirmation_sources"));
-  const multiSourceOnly = isTrue(getParam(sp, "multi_source_only"));
   const institutionalLookbackDays = clampInstitutionalLookbackDays(getParam(sp, "institutional_lookback_days"), mode);
   const debug = isTrue(getParam(sp, "debug"));
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
@@ -512,16 +296,11 @@ export default async function SignalsPage({
     limit,
     debug,
     sort,
-    confirmationBand,
-    confirmationDirection,
-    minConfirmationSources,
-    multiSourceOnly,
     institutionalLookbackDays,
   );
 
   const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
-  const activeMinConfirmationSources = multiSourceOnly && minConfirmationSources < 2 ? 2 : minConfirmationSources;
 
   return (
     <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
@@ -530,7 +309,7 @@ export default async function SignalsPage({
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
         <h1 className="mt-2 text-3xl font-semibold text-white">Unusual trade radar</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300/80">
-          Signals rank high-conviction disclosure activity across Congress trades, insider activity, Institutional Activity, confirmation, freshness, and Why Now context.
+          Signals rank whale-like activity across congress, insider, and institutional activity.
         </p>
       </div>
 
@@ -540,10 +319,6 @@ export default async function SignalsPage({
         limit={limit}
         debug={debug}
         sort={sort}
-        confirmationBand={confirmationBand}
-        confirmationDirection={confirmationDirection}
-        minConfirmationSources={activeMinConfirmationSources}
-        multiSourceOnly={multiSourceOnly}
         card={card}
         pill={pill}
         defaultParams={SIGNALS_SYSTEM_DEFAULT_PARAMS}
@@ -562,15 +337,10 @@ export default async function SignalsPage({
             limit={limit}
             debug={debug}
             sort={sort}
-            confirmationBand={confirmationBand}
-            confirmationDirection={confirmationDirection}
-            minConfirmationSources={activeMinConfirmationSources}
-            multiSourceOnly={multiSourceOnly}
             institutionalLookbackDays={institutionalLookbackDays}
             authToken={authToken}
             card={card}
             pill={pill}
-            activeSort={sort}
             canBacktest={hasEntitlement(entitlements, "backtesting")}
             upgradeUrl={entitlements.upgrade_url || "/pricing"}
           />
@@ -588,7 +358,7 @@ function SignalsResultsFallback({ card }: { card: string }) {
         <SkeletonBlock className="h-4 w-36" />
         <SkeletonBlock className="h-4 w-28" />
       </div>
-      <SkeletonTable columns={11} rows={8} />
+      <SkeletonTable columns={8} rows={8} />
     </div>
   );
 }
@@ -599,15 +369,10 @@ async function SignalsResultsSection({
   limit,
   debug,
   sort,
-  confirmationBand,
-  confirmationDirection,
-  minConfirmationSources,
-  multiSourceOnly,
   institutionalLookbackDays,
   authToken,
   card,
   pill,
-  activeSort,
   canBacktest,
   upgradeUrl,
 }: {
@@ -616,15 +381,10 @@ async function SignalsResultsSection({
   limit: number;
   debug: boolean;
   sort: SignalSort;
-  confirmationBand: ConfirmationBandFilter;
-  confirmationDirection: ConfirmationDirectionFilter;
-  minConfirmationSources: number;
-  multiSourceOnly: boolean;
   institutionalLookbackDays?: number;
   authToken: string;
   card: string;
   pill: string;
-  activeSort: string;
   canBacktest: boolean;
   upgradeUrl: string;
 }) {
@@ -638,14 +398,9 @@ async function SignalsResultsSection({
         limit={limit}
         debug={debug}
         sort={sort}
-        confirmationBand={confirmationBand}
-        confirmationDirection={confirmationDirection}
-        minConfirmationSources={minConfirmationSources}
-        multiSourceOnly={multiSourceOnly}
         institutionalLookbackDays={institutionalLookbackDays}
         card={card}
         pill={pill}
-        activeSort={activeSort}
         canBacktest={canBacktest}
         upgradeUrl={upgradeUrl}
       />
@@ -657,10 +412,6 @@ async function SignalsResultsSection({
       sort,
       limit,
       debug,
-      confirmation_band: confirmationBand,
-      confirmation_direction: confirmationDirection,
-      min_confirmation_sources: minConfirmationSources,
-      multi_source_only: multiSourceOnly,
       institutional_lookback_days: institutionalLookbackDays,
       authToken,
     });
@@ -732,7 +483,6 @@ async function SignalsResultsSection({
             {items.map((it) => {
               const side = sideLabel(it.kind ?? "", it.trade_type);
               const smart = smartLabel(it.smart_band, it.smart_score);
-              const freshness = it.signal_freshness;
               const source = sourceBadge(it);
               const isInsider = isInsiderSignalKind(it.kind);
               const isInstitutional = isInstitutionalSignalKind(it.kind);
@@ -744,8 +494,6 @@ async function SignalsResultsSection({
               const institutionProfileHref = isInstitutional
                 ? institutionHref(it.reporting_cik ?? it.reportingCik ?? it.member_bioguide_id)
                 : null;
-              const confirmationScore = typeof it.confirmation_score === "number" && Number.isFinite(it.confirmation_score) ? it.confirmation_score : "--";
-              const confirmationDirection = confirmationDirectionLabel(it.confirmation_direction);
 
               return (
                 <article key={it.event_id} className="px-4 py-4">
@@ -805,7 +553,7 @@ async function SignalsResultsSection({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
+                  <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-3 border-t border-slate-800/70 pt-3 text-xs">
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Prior Q Value" : "Baseline"}>{isInstitutional ? "Prior Q Value" : "Base"}</div>
                       <div className="truncate font-mono text-slate-200">{formatUSD(it.baseline_median_amount_max)}</div>
@@ -822,37 +570,6 @@ async function SignalsResultsSection({
                         <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Source</div>
-                      <div className="mt-1">
-                        {isInsider ? (
-                          <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
-                        ) : isInstitutional ? (
-                          <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge>
-                        ) : (
-                          <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title="Confirmation">Conf.</div>
-                      <div className="mt-1 flex min-w-0 items-center gap-1.5">
-                        <span className="font-mono font-semibold text-slate-100">{confirmationScore}</span>
-                        <span className="text-slate-600">&middot;</span>
-                        <span className={`min-w-0 truncate font-medium ${confirmationDirectionTextClass(it.confirmation_direction)}`}>{confirmationDirection}</span>
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Fresh</div>
-                      <div
-                        className="mt-1 min-w-0"
-                        title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
-                      >
-                        <span className={`block truncate text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
-                          {titleCase(freshness?.freshness_state ?? "inactive")}
-                        </span>
-                      </div>
-                    </div>
                   </div>
                 </article>
               );
@@ -861,19 +578,16 @@ async function SignalsResultsSection({
         )}
       </div>
       <div className={`${signalsResultsScrollFrameClassName} hidden min-w-0 md:block`}>
-        <table className="w-full min-w-[65rem] table-fixed border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[5rem]" />
-            <col className="w-[5.25rem]" />
-            <col className="w-[9.5rem]" />
-            <col className="w-[4.5rem]" />
-            <col className="w-[5.75rem]" />
-            <col className="w-[5.25rem]" />
-            <col className="w-[5rem]" />
-            <col className="w-[9.25rem]" />
-            <col className="w-[4.75rem]" />
-            <col className="w-[5.75rem]" />
-            <col className="w-[5rem]" />
+            <col className="w-[8%]" />
+            <col className="w-[10%]" />
+            <col className="w-[24%]" />
+            <col className="w-[11%]" />
+            <col className="w-[13%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[12%]" />
           </colgroup>
           <thead className={`${stickyResultsTableHeaderClassName} whitespace-nowrap bg-slate-950 text-xs uppercase tracking-wider text-slate-400`}>
             <tr>
@@ -891,31 +605,12 @@ async function SignalsResultsSection({
               <th className="px-2 py-3 text-left xl:px-3">
                 <SignalColumnHeaderTooltip id="signals-header-conviction" label={<span title={headerLabels.score}>{headerLabels.score}</span>} description={isInstitutionalMode ? "A materiality score for reported 13F institutional activity." : SIGNALS_COLUMN_DEFINITIONS.conviction} />
               </th>
-              <th className="px-2 py-3 text-left xl:px-3">
-                <SignalColumnHeaderTooltip id="signals-header-source" label="Source" description={SIGNALS_COLUMN_DEFINITIONS.source} align="right" />
-              </th>
-              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "confirmation" ? "text-emerald-100" : ""}`}>
-                <SignalColumnHeaderTooltip
-                  id="signals-header-confirmation"
-                  label={<SignalsSortLink label="Conf." active={activeSort === "confirmation"} title="Confirmation" />}
-                  description={SIGNALS_COLUMN_DEFINITIONS.confirmation}
-                  align="right"
-                />
-              </th>
-              <th className={`px-2 py-3 text-left xl:px-3 ${activeSort === "freshness" ? "text-emerald-100" : ""}`}>
-                <SignalColumnHeaderTooltip
-                  id="signals-header-freshness"
-                  label={<SignalsSortLink label="Fresh" active={activeSort === "freshness"} title="Freshness" />}
-                  description={SIGNALS_COLUMN_DEFINITIONS.freshness}
-                  align="right"
-                />
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {items.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-slate-400" colSpan={11}>
+                <td className="px-4 py-10 text-center text-slate-400" colSpan={8}>
                   <div className="flex flex-col items-center gap-3">
                     <span>{errorMessage || "No unusual signals returned."}</span>
                     {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /> : null}
@@ -926,7 +621,6 @@ async function SignalsResultsSection({
               items.map((it) => {
                 const side = sideLabel(it.kind ?? "", it.trade_type);
                 const smart = smartLabel(it.smart_band, it.smart_score);
-                const freshness = it.signal_freshness;
                 const source = sourceBadge(it);
                 const isInsider = isInsiderSignalKind(it.kind);
                 const isInstitutional = isInstitutionalSignalKind(it.kind);
@@ -993,30 +687,6 @@ async function SignalsResultsSection({
                         <span className="font-mono">{typeof it.smart_score === "number" && Number.isFinite(it.smart_score) ? it.smart_score : "—"}</span>
                         <span className="min-w-0 truncate opacity-80">{smart.label}</span>
                       </span>
-                    </td>
-                    <td className="px-2 py-3 xl:px-3">
-                      {isInsider ? (
-                        <Badge tone="insider_default" className="px-2 py-0.5 text-[10px]">INSIDER</Badge>
-                      ) : isInstitutional ? (
-                        <Badge tone="neutral" className="px-2 py-0.5 text-[10px]">13F</Badge>
-                      ) : (
-                        <Badge tone={source.tone} className="px-2 py-0.5 text-[10px]">{source.label}</Badge>
-                      )}
-                    </td>
-                    <td className="px-2 py-3 xl:px-3">
-                      <div className="w-full min-w-0">
-                        <ConfirmHoverCell item={it} />
-                      </div>
-                    </td>
-                    <td className="px-2 py-3 xl:px-3">
-                      <div
-                        className="w-full min-w-0"
-                        title={freshness ? `${freshness.freshness_label} - ${freshness.explanation}` : "Freshness unavailable"}
-                      >
-                        <span className={`whitespace-nowrap text-xs font-medium ${freshnessTextClass(freshness?.freshness_state)}`}>
-                          {titleCase(freshness?.freshness_state ?? "inactive")}
-                        </span>
-                      </div>
                     </td>
                   </tr>
                 );

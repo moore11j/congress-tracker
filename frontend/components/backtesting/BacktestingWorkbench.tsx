@@ -397,7 +397,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [customRows, setCustomRows] = useState<CustomTickerRow[]>(initialTickerRows);
   const [tickerProfiles, setTickerProfiles] = useState<TickerProfilesMap>({});
   const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(initialQuery?.lookback_days, initialPresets.defaults.lookback_days));
-  const [holdDays, setHoldDays] = useState<30 | 60 | 90 | 180 | 365>(parseHoldDays(initialQuery?.hold_days, initialPresets.defaults.hold_days));
+  const holdDays = parseHoldDays(initialQuery?.hold_days, initialPresets.defaults.hold_days);
   const [startBalanceInput, setStartBalanceInput] = useState<string>(String(initialPresets.defaults.start_balance));
   const [contributionAmountInput, setContributionAmountInput] = useState<string>(String(initialPresets.defaults.contribution_amount));
   const [contributionFrequency, setContributionFrequency] = useState<BacktestContributionFrequency>(initialPresets.defaults.contribution_frequency);
@@ -706,11 +706,19 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             ) : null}
 
             <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Lookback<div className="flex flex-wrap gap-2">{presets.lookback_options.map((option) => <button key={option.days} type="button" onClick={() => setLookbackDays(option.days)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`} disabled={!canRun}>{option.label}</button>)}</div></div>
-            <div className="grid gap-2">
-              <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400"><span className="flex items-center gap-1">Hold Period <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] font-semibold text-slate-400" title="For event-driven modes, Hold Period controls how long each qualifying entry stays open before its planned exit. Watchlists, custom portfolios, and current signal symbol sets are held across the selected window.">?</span></span><select value={holdDays} onChange={(event) => setHoldDays(Number(event.target.value) as 30 | 60 | 90 | 180 | 365)} className={selectClassName} disabled={!canRun}>{presets.hold_day_options.map((option) => <option key={option.days} value={option.days}>{option.label} days</option>)}</select></label>
-              <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-3 text-sm text-slate-300">
-                <input type="checkbox" checked={buyAndHold} onChange={(event) => setBuyAndHold(event.target.checked)} disabled={!canRun} className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-emerald-400" />
-                <span><span className="font-semibold text-white">Buy and hold</span><span className="mt-1 block text-xs leading-5 text-slate-500">Hold qualifying entries through the end of the backtest period. For event-driven modes, this overrides the hold period.</span></span>
+            <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <span className="flex items-center gap-1">
+                Hold Period
+                <span
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] font-semibold text-slate-400"
+                  title="Buy and hold keeps qualifying entries open through the end of the backtest period. For event-driven modes, this overrides the default planned hold period."
+                >
+                  ?
+                </span>
+              </span>
+              <label className="flex min-h-12 items-center gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-3 text-sm normal-case tracking-normal text-slate-300">
+                <input type="checkbox" checked={buyAndHold} onChange={(event) => setBuyAndHold(event.target.checked)} disabled={!canRun} className="h-4 w-4 rounded border-white/20 bg-slate-950 text-emerald-400" />
+                <span className="font-semibold text-white">Buy and hold</span>
               </label>
             </div>
             <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Benchmark<select value="^GSPC" className={selectClassName} disabled={true}><option value="^GSPC">S&amp;P 500</option></select></label>

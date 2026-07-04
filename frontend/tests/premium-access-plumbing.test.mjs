@@ -29,10 +29,9 @@ test("signals page preserves the full filter and saved-view surface", () => {
   assert.match(signalsFiltersClient, /Mode/);
   assert.match(signalsFiltersClient, /Side/);
   assert.match(signalsFiltersClient, /Sort/);
-  assert.match(signalsFiltersClient, /Confirm/);
-  assert.match(signalsFiltersClient, /Direction/);
-  assert.match(signalsFiltersClient, /Sources/);
+  assert.match(signalsFiltersClient, /Limit/);
   assert.match(signalsFiltersClient, /INSTITUTIONAL/);
+  assert.doesNotMatch(signalsFiltersClient, /Confirm|Direction|Sources/);
   assert.match(signalsPage, /Signals table/);
   assert.match(signalsPage, /SignalsFiltersClient/);
   assert.match(signalsFiltersClient, /SavedViewsBar/);
@@ -214,6 +213,14 @@ test("leaderboard sort headers render an intentional direction label", () => {
   assert.doesNotMatch(leaderboardTable, />V</);
 });
 
+test("leaderboard links congress members by canonical id and title-cases insider names", () => {
+  assert.match(leaderboardTable, /getInsiderDisplayName/);
+  assert.match(leaderboardTable, /const insiderDisplayName = getInsiderDisplayName\(row\.member_name\) \?\? row\.member_name/);
+  assert.match(leaderboardTable, /const congressMemberId = row\.bioguide_id \?\? row\.member_id/);
+  assert.match(leaderboardTable, /memberHref\(\{ slug: congressMemberId, memberId: congressMemberId \}\)/);
+  assert.doesNotMatch(leaderboardTable, /memberHref\(\{ slug: row\.member_slug, name: row\.member_name, memberId: row\.member_id \}\)/);
+});
+
 test("transition data loaders use shared authenticated API helpers", () => {
   assert.match(signalsPage, /SignalsResultsClient/);
   assert.match(screenerPage, /ScreenerResultsClient/);
@@ -239,7 +246,9 @@ test("backtesting workbench preserves full workflow controls", () => {
   assert.match(backtestingWorkbench, /Buy and hold/);
   assert.match(congressMemberAutosuggest, /Search members by name/);
   assert.match(congressMemberAutosuggest, /Search by insider name or CIK/);
-  assert.match(backtestingWorkbench, /For event-driven modes, this overrides the hold period/);
+  assert.match(backtestingWorkbench, /title="Buy and hold keeps qualifying entries open through the end of the backtest period\. For event-driven modes, this overrides the default planned hold period\."/);
+  assert.doesNotMatch(backtestingWorkbench, /setHoldDays/);
+  assert.doesNotMatch(backtestingWorkbench, /value=\{holdDays\} onChange=/);
   assert.match(backtestingWorkbench, /include_exempt_acquisitions: view === "insider" \? includeExemptAcquisitions : false/);
   assert.match(backtestingWorkbench, /buy_and_hold: buyAndHold/);
   assert.match(backtestingWorkbench, /Portfolio Settings/);

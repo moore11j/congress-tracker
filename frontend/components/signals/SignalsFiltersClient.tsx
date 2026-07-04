@@ -5,20 +5,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import type { SignalMode, SignalSort } from "@/lib/api";
 
-type ConfirmationBandFilter = "all" | "active" | "weak" | "moderate" | "strong" | "exceptional" | "strong_plus";
-type ConfirmationDirection = "bullish" | "bearish" | "neutral" | "mixed";
-type ConfirmationDirectionFilter = "all" | ConfirmationDirection;
-
 type SignalFilters = {
   mode: SignalMode;
   side: string;
   limit: number;
   debug: boolean;
   sort: SignalSort;
-  confirmationBand: ConfirmationBandFilter;
-  confirmationDirection: ConfirmationDirectionFilter;
-  minConfirmationSources: number;
-  multiSourceOnly: boolean;
 };
 
 const signalFilterParamKeys = [
@@ -28,10 +20,6 @@ const signalFilterParamKeys = [
   "sort",
   "debug",
   "symbol",
-  "confirmation_band",
-  "confirmation_direction",
-  "min_confirmation_sources",
-  "multi_source_only",
 ] as const;
 
 function filtersSignature(filters: SignalFilters): string {
@@ -41,23 +29,15 @@ function filtersSignature(filters: SignalFilters): string {
     filters.limit,
     filters.debug ? "1" : "0",
     filters.sort,
-    filters.confirmationBand,
-    filters.confirmationDirection,
-    filters.minConfirmationSources,
-    filters.multiSourceOnly ? "1" : "0",
   ].join("|");
 }
 
-function activeMinConfirmationSources(filters: SignalFilters): number {
-  return filters.multiSourceOnly && filters.minConfirmationSources < 2 ? 2 : filters.minConfirmationSources;
-}
-
 function normalizeFilters(filters: SignalFilters): SignalFilters {
-  const minConfirmationSources = activeMinConfirmationSources(filters);
   return {
     ...filters,
-    minConfirmationSources,
-    multiSourceOnly: minConfirmationSources >= 2,
+    mode: filters.mode === "insider" || filters.mode === "institutional" ? filters.mode : "congress",
+    sort: filters.sort === "amount" || filters.sort === "multiple" || filters.sort === "smart" ? filters.sort : "recent",
+    limit: filters.limit === 50 || filters.limit === 100 ? filters.limit : 25,
   };
 }
 
@@ -74,10 +54,6 @@ function buildSignalsHref(pathname: string, searchParamsString: string, filters:
   params.set("side", filters.side);
   params.set("limit", String(filters.limit));
   params.set("sort", filters.sort);
-  if (filters.confirmationBand !== "all") params.set("confirmation_band", filters.confirmationBand);
-  if (filters.confirmationDirection !== "all") params.set("confirmation_direction", filters.confirmationDirection);
-  if (filters.minConfirmationSources > 0) params.set("min_confirmation_sources", String(filters.minConfirmationSources));
-  if (filters.multiSourceOnly) params.set("multi_source_only", "1");
   if (filters.debug) params.set("debug", "1");
 
   const nextSearch = params.toString();
@@ -90,10 +66,6 @@ export function SignalsFiltersClient({
   limit,
   debug,
   sort,
-  confirmationBand,
-  confirmationDirection,
-  minConfirmationSources,
-  multiSourceOnly,
   card,
   pill,
   defaultParams,
@@ -114,12 +86,8 @@ export function SignalsFiltersClient({
         limit,
         debug,
         sort,
-        confirmationBand,
-        confirmationDirection,
-        minConfirmationSources,
-        multiSourceOnly,
       }),
-    [confirmationBand, confirmationDirection, debug, limit, minConfirmationSources, mode, multiSourceOnly, side, sort],
+    [debug, limit, mode, side, sort],
   );
   const initialFiltersKey = useMemo(() => filtersSignature(initialFilters), [initialFilters]);
   const [draftFilters, setDraftFilters] = useState<SignalFilters>(() => initialFilters);
@@ -127,7 +95,6 @@ export function SignalsFiltersClient({
   const draftFiltersKey = filtersSignature(draftFilters);
   const appliedFiltersKey = filtersSignature(appliedFilters);
   const hasPendingChanges = draftFiltersKey !== appliedFiltersKey;
-  const activeAppliedMinSources = activeMinConfirmationSources(appliedFilters);
 
   useEffect(() => {
     setDraftFilters(initialFilters);
@@ -163,7 +130,6 @@ export function SignalsFiltersClient({
           <div className="text-xs text-slate-400">Mode</div>
           <div className={filterGroup}>
             {([
-              ["all", "ALL"],
               ["congress", "CONGRESS"],
               ["insider", "INSIDER"],
               ["institutional", "INSTITUTIONAL"],
@@ -201,12 +167,10 @@ export function SignalsFiltersClient({
           <div className="text-xs text-slate-400 sm:ml-2">Sort</div>
           <div className={filterGroup}>
             {([
-              ["multiple", "MULTIPLE"],
-              ["smart", "CONVICTION"],
-              ["confirmation", "CONFIRM"],
-              ["freshness", "FRESH"],
               ["recent", "RECENT"],
               ["amount", "AMOUNT"],
+              ["multiple", "MULTIPLE"],
+              ["smart", "SCORE"],
             ] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -221,63 +185,7 @@ export function SignalsFiltersClient({
         </div>
 
         <div className={filterRow}>
-          <div className="text-xs text-slate-400">Confirm</div>
-          <div className={filterGroup}>
-            {([
-              ["all", "All"],
-              ["strong_plus", "Strong+"],
-              ["exceptional", "Exceptional"],
-              ["moderate", "Moderate"],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => updateDraftFilters({ confirmationBand: value })}
-                className={`${btn} ${draftFilters.confirmationBand === value ? btnActive : btnIdle}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="text-xs text-slate-400">Direction</div>
-          <div className={filterGroup}>
-            {([
-              ["all", "All"],
-              ["bullish", "Bull"],
-              ["bearish", "Bear"],
-              ["mixed", "Mixed"],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => updateDraftFilters({ confirmationDirection: value })}
-                className={`${btn} ${draftFilters.confirmationDirection === value ? btnActive : btnIdle}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="text-xs text-slate-400">Sources</div>
-          <div className={filterGroup}>
-            {([
-              [0, "Any"],
-              [2, "2+"],
-              [3, "3+"],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => updateDraftFilters({ minConfirmationSources: value, multiSourceOnly: value >= 2 })}
-                className={`${btn} ${activeMinConfirmationSources(draftFilters) === value ? btnActive : btnIdle}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="text-xs text-slate-400 sm:ml-2">Limit</div>
+          <div className="text-xs text-slate-400">Limit</div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
             {[25, 50, 100].map((value) => (
               <button
@@ -314,18 +222,6 @@ export function SignalsFiltersClient({
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
               sort <span className="text-white">{appliedFilters.sort}</span>
             </span>
-            {appliedFilters.confirmationBand !== "all" || appliedFilters.confirmationDirection !== "all" || activeAppliedMinSources > 0 ? (
-              <span className={`${pill} border-cyan-400/25 text-cyan-100 bg-cyan-400/10`}>
-                confirm{" "}
-                <span className="text-white">
-                  {appliedFilters.confirmationBand !== "all"
-                    ? appliedFilters.confirmationBand
-                    : appliedFilters.confirmationDirection !== "all"
-                      ? appliedFilters.confirmationDirection
-                      : `${activeAppliedMinSources}+ src`}
-                </span>
-              </span>
-            ) : null}
             {hasPendingChanges ? (
               <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>
                 pending

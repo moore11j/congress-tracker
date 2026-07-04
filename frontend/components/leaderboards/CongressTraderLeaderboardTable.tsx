@@ -6,7 +6,7 @@ import {
   type CongressTraderLeaderboardSort,
 } from "@/lib/api";
 import { chamberBadge, partyBadge } from "@/lib/format";
-import { insiderHref } from "@/lib/insider";
+import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
 import { resultsTableFrameClassName, stickyResultsTableHeaderClassName } from "@/components/ui/resultsTableFrame";
@@ -272,8 +272,10 @@ export function CongressTraderLeaderboardTable({
               const party = partyBadge(row.party);
               const roleCode = normalizeInsiderRoleBadge(row.role);
               const roleTone = insiderRoleBadgeTone(roleCode);
-              const insiderLink = insiderHref(row.member_name, row.reporting_cik ?? row.member_id);
-              const memberLink = memberHref({ slug: row.member_slug, name: row.member_name, memberId: row.member_id });
+              const insiderDisplayName = getInsiderDisplayName(row.member_name) ?? row.member_name;
+              const insiderLink = insiderHref(insiderDisplayName, row.reporting_cik ?? row.member_id);
+              const congressMemberId = row.bioguide_id ?? row.member_id;
+              const memberLink = memberHref({ slug: congressMemberId, memberId: congressMemberId });
               const rowTicker = row.symbol ?? row.ticker ?? null;
               const tickerLink = tickerHref(rowTicker);
               return (
@@ -288,10 +290,10 @@ export function CongressTraderLeaderboardTable({
                       <div className="min-w-[210px]">
                         {insiderLink ? (
                           <Link href={insiderLink} prefetch={false} className="font-semibold text-slate-100 hover:text-emerald-200 hover:underline">
-                            {row.member_name}
+                            {insiderDisplayName}
                           </Link>
                         ) : (
-                          <span className="font-semibold text-slate-100">{row.member_name}</span>
+                          <span className="font-semibold text-slate-100">{insiderDisplayName}</span>
                         )}
                         {row.company_name ? <div className="text-xs text-slate-400">{row.company_name}</div> : null}
                       </div>

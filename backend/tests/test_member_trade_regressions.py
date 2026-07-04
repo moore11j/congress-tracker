@@ -463,9 +463,10 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort(monkeypatch):
         db.add_all(rows)
         db.commit()
 
-        perf = member_performance(member_id="W000797", lookback_days=365, db=db)
+        premium_request = _premium_request(db)
+        perf = member_performance(request=premium_request, member_id="W000797", lookback_days=365, db=db)
         leaderboard = congress_trader_leaderboard(
-            request=_premium_request(db),
+            request=premium_request,
             lookback_days=365,
             chamber="all",
             source_mode="congress",
@@ -476,7 +477,7 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort(monkeypatch):
         )
 
         debbie = next(row for row in leaderboard["rows"] if row["member_id"] == "W000797")
-        alpha = member_alpha_summary(member_id="W000797", lookback_days=365, db=db)
+        alpha = member_alpha_summary(request=premium_request, member_id="W000797", lookback_days=365, db=db)
         assert debbie["trade_count_scored"] == perf["trade_count_scored"] == 2
         assert round(float(debbie["avg_alpha"]), 6) == round(float(perf["avg_alpha"]), 6)
         assert [trade["event_id"] for trade in alpha["best_trades"]] == [102]
@@ -1058,6 +1059,100 @@ def test_insider_leaderboard_uses_persisted_market_trade_outcomes_only():
         assert row["trade_count_total"] == 2
         assert row["trade_count_scored"] == 1
         assert row["avg_alpha"] == 9.0
+    finally:
+        db.close()
+
+
+def test_insider_leaderboard_excludes_extreme_public_return_outliers():
+    db = _session()
+    try:
+        today = date.today()
+        outlier_id = "0001111111"
+        normal_id = "0002222222"
+
+        outlier_event = Event(
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="BADX",
+            source="sec_form4",
+            payload_json=json.dumps({"reporting_cik": outlier_id}),
+            member_name="OUTLIER INSIDER",
+            trade_type="purchase",
+            transaction_type="purchase",
+            amount_min=1000,
+            amount_max=5000,
+        )
+        normal_event = Event(
+            event_type="insider_trade",
+            ts=datetime.now(timezone.utc),
+            event_date=datetime.now(timezone.utc),
+            symbol="GOOD",
+            source="sec_form4",
+            payload_json=json.dumps({"reporting_cik": normal_id}),
+            member_name="NORMAL INSIDER",
+            trade_type="purchase",
+            transaction_type="purchase",
+            amount_min=1000,
+            amount_max=5000,
+        )
+        db.add_all([outlier_event, normal_event])
+        db.flush()
+
+        db.add_all(
+            [
+                TradeOutcome(
+                    event_id=outlier_event.id,
+                    member_id=outlier_id,
+                    member_name="OUTLIER INSIDER",
+                    symbol="BADX",
+                    trade_type="purchase",
+                    source="insider",
+                    trade_date=today - timedelta(days=20),
+                    benchmark_symbol="^GSPC",
+                    return_pct=110549464615386.3,
+                    alpha_pct=110549464615387.5,
+                    amount_min=1000,
+                    amount_max=5000,
+                    scoring_status="ok",
+                    methodology_version="insider_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+                TradeOutcome(
+                    event_id=normal_event.id,
+                    member_id=normal_id,
+                    member_name="NORMAL INSIDER",
+                    symbol="GOOD",
+                    trade_type="purchase",
+                    source="insider",
+                    trade_date=today - timedelta(days=10),
+                    benchmark_symbol="^GSPC",
+                    return_pct=12.0,
+                    alpha_pct=8.0,
+                    amount_min=1000,
+                    amount_max=5000,
+                    scoring_status="ok",
+                    methodology_version="insider_v1",
+                    computed_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        db.commit()
+
+        leaderboard = congress_trader_leaderboard(
+            request=_premium_request(db),
+            lookback_days=365,
+            chamber="all",
+            source_mode="insiders",
+            sort="avg_alpha",
+            min_trades=1,
+            limit=50,
+            db=db,
+        )
+
+        assert [row["member_id"] for row in leaderboard["rows"]] == [normal_id]
+        assert leaderboard["rows"][0]["avg_return"] == 12.0
+        assert leaderboard["rows"][0]["avg_alpha"] == 8.0
     finally:
         db.close()
 

@@ -924,6 +924,39 @@ def _leaderboard_sort_value_sql(columns, normalized_sort: str):
     return func.coalesce(columns.avg_alpha, float("-inf"))
 
 
+PUBLIC_LEADERBOARD_MAX_ABS_OUTCOME_PCT = 1000.0
+
+
+def _public_leaderboard_scored_outcome_condition_sql(columns):
+    return and_(
+        columns.scoring_status == "ok",
+        columns.return_pct.is_not(None),
+        func.abs(columns.return_pct) <= PUBLIC_LEADERBOARD_MAX_ABS_OUTCOME_PCT,
+        or_(
+            columns.alpha_pct.is_(None),
+            func.abs(columns.alpha_pct) <= PUBLIC_LEADERBOARD_MAX_ABS_OUTCOME_PCT,
+        ),
+    )
+
+
+def _is_public_leaderboard_trade_outcome(row: TradeOutcome) -> bool:
+    if row.scoring_status != "ok":
+        return False
+    values = [row.return_pct]
+    if row.alpha_pct is not None:
+        values.append(row.alpha_pct)
+    for value in values:
+        if value is None:
+            return False
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(numeric) or abs(numeric) > PUBLIC_LEADERBOARD_MAX_ABS_OUTCOME_PCT:
+            return False
+    return True
+
+
 def _normalize_portfolio_leaderboard_sort(sort: str | None) -> str:
     normalized = (sort or "alpha_pct").strip().lower()
     aliases = {
@@ -1550,7 +1583,7 @@ def _load_congress_leaderboard_rows_from_snapshot(
             filtered,
             func.row_number().over(partition_by=partition_key, order_by=order_key).label("row_rank"),
         )
-        .where(filtered.c.scoring_status == "ok")
+        .where(_public_leaderboard_scored_outcome_condition_sql(filtered.c))
     ).cte("congress_scored_deduped")
 
     total_counts = (
@@ -1608,6 +1641,7 @@ def _load_congress_leaderboard_rows_from_snapshot(
         {
             "group_key": row.group_key,
             "member_id": row.member_id,
+            "bioguide_id": row.member_id if not _is_legacy_fmp_member_id(row.member_id) else None,
             "member_name": row.member_name,
             "member_slug": row.member_slug,
             "chamber": row.chamber,
@@ -1687,13 +1721,13 @@ def _load_member_leaderboard_rows(
     if normalized_chamber in {"house", "senate"}:
         member_outcome_filters.append(func.lower(Member.chamber) == normalized_chamber)
 
-    scored_count = func.sum(case((TradeOutcome.scoring_status == "ok", 1), else_=0)).label("trade_count_scored")
-    avg_return = func.avg(case((TradeOutcome.scoring_status == "ok", TradeOutcome.return_pct), else_=None)).label("avg_return")
-    avg_alpha = func.avg(case((TradeOutcome.scoring_status == "ok", TradeOutcome.alpha_pct), else_=None)).label("avg_alpha")
+    public_scored_outcome = _public_leaderboard_scored_outcome_condition_sql(TradeOutcome)
+    scored_count = func.sum(case((public_scored_outcome, 1), else_=0)).label("trade_count_scored")
+    avg_return = func.avg(case((public_scored_outcome, TradeOutcome.return_pct), else_=None)).label("avg_return")
+    avg_alpha = func.avg(case((public_scored_outcome, TradeOutcome.alpha_pct), else_=None)).label("avg_alpha")
     win_rate = func.avg(
         case(
-            (TradeOutcome.scoring_status != "ok", None),
-            (TradeOutcome.return_pct.is_(None), None),
+            (~public_scored_outcome, None),
             (TradeOutcome.return_pct > 0, 1.0),
             else_=0.0,
         )
@@ -1771,7 +1805,7 @@ def _load_member_leaderboard_rows(
         .join(Event, Event.id == TradeOutcome.event_id)
         .join(Member, Member.bioguide_id == TradeOutcome.member_id, isouter=True)
         .where(*member_outcome_filters)
-        .where(TradeOutcome.scoring_status == "ok")
+        .where(public_scored_outcome)
         .where(TradeOutcome.member_id.in_(top_member_ids))
     ).all()
 
@@ -4703,7 +4737,7 @@ def congress_trader_leaderboard(
                     group_outcomes.extend(outcomes_by_member_id.get(alias, []))
 
             scored_outcomes = dedupe_member_trade_outcomes(
-                [row for row in group_outcomes if row.scoring_status == "ok"]
+                [row for row in group_outcomes if _is_public_leaderboard_trade_outcome(row)]
             )
             trade_count_scored = len(scored_outcomes)
             if trade_count_scored < min_trades:
@@ -4719,6 +4753,7 @@ def congress_trader_leaderboard(
             rows.append(
                 {
                     "member_id": authoritative_member_id,
+                    "bioguide_id": authoritative_member_id if not _is_legacy_fmp_member_id(authoritative_member_id) else None,
                     "member_name": profile["member_name"] or authoritative_member_id,
                     "member_slug": profile["member_slug"] or authoritative_member_id,
                     "chamber": profile["chamber"],
