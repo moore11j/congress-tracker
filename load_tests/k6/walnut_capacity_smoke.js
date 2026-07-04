@@ -65,7 +65,7 @@ export function botPrefetchGuard() {
     "X-Middleware-Prefetch": "1",
     "Next-Router-Prefetch": "1",
   };
-  requestPage("/ticker/AAPL", "ticker_bot_page", "ticker", "core", { headers });
+  requestPage("/ticker/AAPL", "ticker_bot_page", "ticker", "core", { headers }, [200, 204]);
   requestApi("/api/tickers/AAPL/context-bundle", "ticker_context_prefetch", "ticker", "core", { headers }, [200, 204]);
   requestApi("/api/tickers/NVDA/government-contracts", "government_contracts_prefetch", "ticker", "core", { headers }, [200, 204]);
   sleep(randomBetween(2, 5));
