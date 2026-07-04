@@ -81,7 +81,15 @@ def test_core_routes_stay_outside_insider_heavy_lane():
 
 
 def test_ticker_cache_first_section_routes_are_not_outer_heavy_gated():
-    for suffix in ("chart-bundle", "financials", "government-contracts", "news", "press-releases", "sec-filings"):
+    for suffix in (
+        "chart-bundle",
+        "context-bundle",
+        "financials",
+        "government-contracts",
+        "news",
+        "press-releases",
+        "sec-filings",
+    ):
         assert classify_request(f"/api/tickers/NBIS/{suffix}", {}) == RoutePriority.NORMAL
 
 
