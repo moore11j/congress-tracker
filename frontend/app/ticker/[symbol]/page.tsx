@@ -1,10 +1,12 @@
 ﻿import Link from "next/link";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
+import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
@@ -222,6 +224,38 @@ function isRecoverableTickerProfileError(error: unknown): boolean {
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
   return typeof value === "string" ? value : "";
+}
+
+type HeaderReader = Pick<Headers, "get">;
+
+function headerIncludes(headersList: HeaderReader, name: string, expected: string): boolean {
+  return (headersList.get(name) ?? "").toLowerCase().includes(expected);
+}
+
+function userAgentLooksInteractiveBrowser(userAgent: string | null): boolean {
+  const ua = (userAgent ?? "").toLowerCase();
+  if (!ua) return false;
+  if (/bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
+  return /mozilla|chrome|safari|firefox|edg\//.test(ua);
+}
+
+function shouldDeferAnonymousTickerActivityDetails({
+  requestHeaders,
+  authToken,
+  hasAuthHint,
+  activityDetailsRequested,
+}: {
+  requestHeaders: HeaderReader;
+  authToken: string | null | undefined;
+  hasAuthHint: boolean;
+  activityDetailsRequested: boolean;
+}): boolean {
+  if (authToken || hasAuthHint || activityDetailsRequested) return false;
+  if (requestHeaders.get("next-router-prefetch") === "1") return true;
+  if (requestHeaders.get("x-middleware-prefetch") === "1") return true;
+  if (headerIncludes(requestHeaders, "purpose", "prefetch")) return true;
+  if (headerIncludes(requestHeaders, "sec-purpose", "prefetch")) return true;
+  return !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"));
 }
 
 function clampLookback(v: string): Lookback {
@@ -2309,6 +2343,7 @@ async function DeferredTickerContent({
   lookback,
   source,
   side,
+  activityDetailsDeferred,
   signalsAuthPending,
   topMembers,
   confirmationScoreBundle,
@@ -2324,6 +2359,7 @@ async function DeferredTickerContent({
   lookback: Lookback;
   source: SourceFilter;
   side: SideFilter;
+  activityDetailsDeferred: boolean;
   signalsAuthPending: boolean;
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
@@ -2712,6 +2748,7 @@ async function DeferredTickerContent({
       />
 
       <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} />
+      <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
@@ -2725,7 +2762,9 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {congressEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
+                  <p className="text-sm text-slate-400">
+                    {activityDetailsDeferred ? "Loading Congress activity." : "No Congress trades in the selected window."}
+                  </p>
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -2800,7 +2839,9 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {insiderEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
+                  <p className="text-sm text-slate-400">
+                    {activityDetailsDeferred ? "Loading insider activity." : "No insider trades in the selected window."}
+                  </p>
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -2984,7 +3025,9 @@ async function DeferredTickerContent({
                 {governmentContractsUnavailable ? (
                   <p className="text-sm text-slate-400">Government contract activity unavailable.</p>
                 ) : governmentContractsTotal === 0 ? (
-                  <p className="text-sm text-slate-400">No government contracts in selected window.</p>
+                  <p className="text-sm text-slate-400">
+                    {activityDetailsDeferred ? "Loading government contract activity." : "No government contracts in selected window."}
+                  </p>
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -3135,6 +3178,7 @@ async function DeferredTickerContent({
 export default async function TickerPage({ params, searchParams }: Props) {
   const { symbol } = await params;
   const sp = (await searchParams) ?? {};
+  const requestHeaders = await headers();
   const lookback = clampLookback(one(sp, "lookback"));
   const source = clampSource(one(sp, "source"));
   const side = clampSide(one(sp, "side"));
@@ -3142,6 +3186,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const insiderPage = clampPage(one(sp, "insider_page"));
   const contractsPage = clampPage(one(sp, "contracts_page"));
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
   const authState = await optionalPageAuthState();
   const authToken = authState.token;
@@ -3206,7 +3251,21 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
+  const deferTickerActivityDetails = shouldDeferAnonymousTickerActivityDetails({
+    requestHeaders,
+    authToken,
+    hasAuthHint: authState.hasAuthHint,
+    activityDetailsRequested,
+  });
   const activityPromise = (async () => {
+    if (deferTickerActivityDetails) {
+      return resolveTickerActivityData({
+        signalSummaryRequest: contextBundle?.signals_summary ? Promise.resolve(contextBundle.signals_summary) : undefined,
+        signalsUnavailable: signalGateState,
+        lookbackStartKey: lookbackStartDateKey(lookbackDays),
+        side,
+      });
+    }
     const shouldFetchGovernmentContracts = source === "all" || source === "government_contract";
     const shouldFetchCongressActivity = source === "all" || source === "congress";
     const shouldFetchInsiderActivity = source === "all" || source === "insider";
@@ -3343,6 +3402,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           lookback={lookback}
           source={source}
           side={side}
+          activityDetailsDeferred={deferTickerActivityDetails}
           signalsAuthPending={signalActivityAuthPending}
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
