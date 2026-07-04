@@ -250,7 +250,8 @@ test("ticker tabs settle warming responses into public no-data copy", () => {
   assert.match(api, /arrayKeys: \["items", "news", "articles", "results", "data"\]/);
   assert.match(api, /arrayKeys: \["items", "press_releases", "pressReleases", "releases", "results", "data"\]/);
   assert.match(api, /arrayKeys: \["items", "filings", "sec_filings", "secFilings", "results", "data"\]/);
-  assert.match(card, /status === "loading" \? FINANCIALS_LOADING_MESSAGE : response\.message/);
+  assert.match(card, /status === "loading" \? NEWS_LOADING_MESSAGE : status === "no_data" \? NEWS_EMPTY_MESSAGE : response\.message/);
+  assert.match(read("components/ticker/TickerFinancialsPanel.tsx"), /Financial data is temporarily unavailable\./);
   assert.doesNotMatch(card, /FMP|provider|cache|402|heavy-route|budget/);
 });
 
@@ -285,7 +286,7 @@ test("ticker events tab loads filings and activity independently", () => {
   const card = read("components/ticker/TickerContextCard.tsx");
 
   assert.match(card, /const PRESS_LOADING_MESSAGE = "Loading press releases\."/);
-  assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No recent disclosure activity found\."/);
+  assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No disclosure activity found for this ticker\."/);
   assert.match(card, /const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found\."/);
   assert.match(card, /getTickerSecFilings\(symbol,/);
   assert.doesNotMatch(card, /from: dateWindow\.from/);

@@ -44,7 +44,7 @@ const ACTIVITY_LOADING_MESSAGE = "Loading activity.";
 const NEWS_EMPTY_MESSAGE = "No recent headlines found.";
 const PRESS_EMPTY_MESSAGE = "No press releases found.";
 const FILINGS_EMPTY_MESSAGE = "No recent filings found.";
-const ACTIVITY_EMPTY_MESSAGE = "No recent disclosure activity found.";
+const ACTIVITY_EMPTY_MESSAGE = "No disclosure activity found for this ticker.";
 const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
 const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel";
 const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel";
@@ -130,7 +130,7 @@ function normalizeNewsPage(response: InsightsNewsResponse, limit = 20): Insights
     items,
     status,
     item_count: typeof response.item_count === "number" ? response.item_count : items.length,
-    message: status === "loading" ? NEWS_LOADING_MESSAGE : response.message ?? (status === "no_data" ? NEWS_EMPTY_MESSAGE : undefined),
+    message: status === "loading" ? NEWS_LOADING_MESSAGE : status === "no_data" ? NEWS_EMPTY_MESSAGE : response.message,
     page: Number.isFinite(response.page) ? response.page : 0,
     limit: Number.isFinite(response.limit) ? response.limit : limit,
     has_next: Boolean(response.has_next),
@@ -653,6 +653,8 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           limit: 50,
           enrich_prices: 0,
           signal: controller.signal,
+          requestSource: "client",
+          routeFamily: "ticker",
           source: TICKER_DISCLOSURE_PANEL_SOURCE,
         });
         if (!active || controller.signal.aborted) return;

@@ -244,7 +244,6 @@ def get_insights_headlines(db: Session, *, page: int = 0, limit: int = 20) -> di
     row = _load_row(db, INSIGHTS_HEADLINES_KIND)
     if row is None:
         payload = _empty_headlines_payload(page=bounded_page, limit=bounded_limit)
-        payload.pop("message", None)
         return _decorate(
             payload,
             None,

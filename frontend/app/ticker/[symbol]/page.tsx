@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
+import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
 import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh";
@@ -2776,14 +2777,16 @@ async function DeferredTickerContent({
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
                 <span className="text-xs text-slate-400">
-                  {congressEventsTotal !== null ? `${congressEventsTotal} events` : `${congressEvents.length}${congressEventsHasNext ? "+" : ""} shown`}
+                  {congressEvents.length === 0
+                    ? "Latest activity"
+                    : congressEventsTotal !== null
+                      ? `${congressEventsTotal} events`
+                      : `${congressEvents.length}${congressEventsHasNext ? "+" : ""} shown`}
                 </span>
               </div>
               <div className="space-y-3">
                 {congressEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    {activityDetailsDeferred ? "Loading Congress activity." : "No Congress trades in the selected window."}
-                  </p>
+                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} />
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -2853,14 +2856,16 @@ async function DeferredTickerContent({
                   </p>
                 </div>
                 <span className="text-xs text-slate-400">
-                  {insiderEventsTotal !== null ? `${insiderEventsTotal} events` : `${insiderEvents.length}${insiderEventsHasNext ? "+" : ""} shown`}
+                  {insiderEvents.length === 0
+                    ? "Latest activity"
+                    : insiderEventsTotal !== null
+                      ? `${insiderEventsTotal} events`
+                      : `${insiderEvents.length}${insiderEventsHasNext ? "+" : ""} shown`}
                 </span>
               </div>
               <div className="space-y-3">
                 {insiderEvents.length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    {activityDetailsDeferred ? "Loading insider activity." : "No insider trades in the selected window."}
-                  </p>
+                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} />
                 ) : (
                   <>
                     <ActivityScrollRegion>

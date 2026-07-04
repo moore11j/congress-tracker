@@ -48,16 +48,22 @@ test("anonymous unknown ticker SSR uses a lightweight shell before context bundl
 test("ticker deferred SSR renders section placeholders and hydrates details on visibility", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
   const refresher = read("components/ticker/TickerDeferredActivityRefresh.tsx");
+  const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(page, /<TickerDeferredActivityRefresh enabled=\{activityDetailsDeferred\} symbol=\{normalizedSymbol\} \/>/);
-  assert.match(page, /activityDetailsDeferred \? "Loading Congress activity\." : "No Congress trades in the selected window\."/);
-  assert.match(page, /activityDetailsDeferred \? "Loading insider activity\." : "No insider trades in the selected window\."/);
+  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
   assert.match(page, /activityDetailsDeferred \? "Loading government contract activity\." : "No government contracts in selected window\."/);
   assert.match(refresher, /"use client"/);
   assert.match(refresher, /IntersectionObserver/);
   assert.match(refresher, /document\.hidden/);
   assert.match(refresher, /url\.searchParams\.set\("activity_details", "1"\)/);
   assert.match(refresher, /router\.replace/);
+  assert.match(detailClient, /requestSource: "visibility"/);
+  assert.match(detailClient, /routeFamily: "ticker"/);
+  assert.match(detailClient, /source: kind === "congress" \? "congress-detail" : "insider-detail"/);
+  assert.match(detailClient, /No Congress trades in the selected window\./);
+  assert.match(detailClient, /No insider trades in the selected window\./);
 });
 
 test("ticker API attribution headers remain present for client lazy requests", () => {
@@ -67,7 +73,7 @@ test("ticker API attribution headers remain present for client lazy requests", (
   assert.match(api, /typeof window === "undefined" \? "ssr" : "client"/);
   assert.match(api, /"X-Walnut-Active-User": "browser"/);
   assert.match(api, /headers\.set\("X-Walnut-Panel", panelFromSource\(attribution\.component\)\)/);
-  assert.match(api, /headers\.set\("X-Walnut-Route-Family", url \? routeFamilyFromUrl\(url\) : routeFamilyFromPath\(attribution\.route\)\)/);
+  assert.match(api, /_routeFamily \? safeHeaderValue\(_routeFamily\) : url \? routeFamilyFromUrl\(url\) : routeFamilyFromPath\(attribution\.route\)/);
 });
 
 test("middleware bypasses inactive anonymous terminal SSR before app render", () => {

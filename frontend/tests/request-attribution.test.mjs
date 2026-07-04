@@ -30,3 +30,9 @@ test("api attribution classifies major route families", () => {
   assert.match(api, /startsWith\("\/api\/institutions\/"\).*institution/);
   assert.match(api, /startsWith\("\/api\/events"\).*feed/);
 });
+
+test("api attribution supports ticker route-family overrides and rejects JSON 204", () => {
+  assert.match(api, /routeFamily\?: string/);
+  assert.match(api, /_routeFamily \? safeHeaderValue\(_routeFamily\) : url \? routeFamilyFromUrl\(url\) : routeFamilyFromPath\(attribution\.route\)/);
+  assert.match(api, /if \(response\.status === 204\) \{\s*throw new ApiError\(\{ status: response\.status/s);
+});

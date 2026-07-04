@@ -44,7 +44,7 @@ type ChartPoint = TickerFinancialsPoint & {
   estimateHigh?: number | null;
 };
 
-const EMPTY_MESSAGE = "Financial data is not available for this ticker yet.";
+const EMPTY_MESSAGE = "Financial data is temporarily unavailable.";
 const ESTIMATES_UNAVAILABLE_MESSAGE = "Analyst estimates are not available for this ticker.";
 
 function isFiniteNumber(value: unknown): value is number {
@@ -725,7 +725,7 @@ export function TickerFinancialsPanel({ data }: { data: TickerFinancialsResponse
   );
 
   if (data?.status === "warming" || data?.status === "loading") {
-    return <UnavailableState message="Loading financials." />;
+    return <UnavailableState message="Financial data is temporarily unavailable." />;
   }
 
   if (!data || ((data.status === "unavailable" || data.status === "no_data") && !hasAnyData) || !hasAnyData) {

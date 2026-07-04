@@ -64,6 +64,8 @@ type QueryParams = Record<string, QueryValue>;
 type QueryParamsWithRequestOptions = Record<string, QueryValue | AbortSignal | undefined> & {
   authToken?: string;
   mode?: string;
+  requestSource?: ApiRequestInit["requestSource"];
+  routeFamily?: string;
   signal?: AbortSignal;
   source?: string;
 };
@@ -71,6 +73,7 @@ type ApiRequestInit = RequestInit & {
   source?: string;
   component?: string;
   route?: string;
+  routeFamily?: string;
   requestSource?: "ssr" | "client" | "prefetch" | "visibility" | "idle";
 };
 
@@ -365,14 +368,14 @@ function traceApiFetch(url: string, init?: ApiRequestInit) {
 }
 
 function withRequestAttribution(init?: ApiRequestInit, url?: string): RequestInit {
-  const { source: _source, component: _component, route: _route, requestSource: _requestSource, ...fetchInit } = init ?? {};
+  const { source: _source, component: _component, route: _route, routeFamily: _routeFamily, requestSource: _requestSource, ...fetchInit } = init ?? {};
   const headers = new Headers(fetchInit.headers);
   const attribution = requestAttribution(init);
   headers.set("X-Walnut-Route", safeHeaderValue(attribution.route));
   headers.set("X-Walnut-Page-Route", safeHeaderValue(attribution.route));
   headers.set("X-Walnut-Component", safeHeaderValue(attribution.component));
   headers.set("X-Walnut-Panel", panelFromSource(attribution.component));
-  headers.set("X-Walnut-Route-Family", url ? routeFamilyFromUrl(url) : routeFamilyFromPath(attribution.route));
+  headers.set("X-Walnut-Route-Family", _routeFamily ? safeHeaderValue(_routeFamily) : url ? routeFamilyFromUrl(url) : routeFamilyFromPath(attribution.route));
   headers.set("X-Walnut-Request-Source", requestSource(_requestSource));
   return { ...fetchInit, headers };
 }
@@ -528,6 +531,9 @@ async function fetchJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
     const text = await response.text().catch(() => "");
     throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
   }
+  if (response.status === 204) {
+    throw new ApiError({ status: response.status, statusText: response.statusText || "No Content", url, body: "" });
+  }
 
   return (await response.json()) as T;
 }
@@ -549,6 +555,9 @@ async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
+  }
+  if (response.status === 204) {
+    throw new ApiError({ status: response.status, statusText: response.statusText || "No Content", url, body: "" });
   }
 
   return (await response.json()) as T;
@@ -3936,7 +3945,7 @@ export async function globalSearch(q: string, limit = 8, options?: { signal?: Ab
 }
 
 export async function getEvents(params: QueryParamsWithRequestOptions & { tape?: string }): Promise<EventsResponse> {
-  const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, ...queryParams } = params;
+  const { tape: rawTape, signal, source: sourceLabel, authToken: rawAuthToken, requestSource, routeFamily, ...queryParams } = params;
   const nextParams: QueryParams = {};
   Object.entries(queryParams).forEach(([key, value]) => {
     if (value === null || value === undefined || typeof value === "string" || typeof value === "number") {
@@ -3985,6 +3994,8 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
     cache: authToken ? "no-store" : "force-cache",
     next: authToken ? { revalidate: 0 } : { revalidate: 30 },
     signal: canShortCache ? undefined : requestSignal,
+    requestSource,
+    routeFamily,
     source,
   }).then((response) => {
     const normalized = normalizeEventsResponse(response, windowDays);
@@ -4963,7 +4974,7 @@ export async function getTickerNews(
         arrayKeys: ["items", "news", "articles", "results", "data"],
         page: params?.page ?? 0,
         limit: params?.limit ?? 20,
-        emptyMessage: "No recent news found.",
+        emptyMessage: "No recent headlines found.",
       },
     ) as InsightsNewsResponse,
   );

@@ -136,6 +136,27 @@ def _cache_set(key: str, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _financials_payload_has_data(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("sections_present"):
+        return True
+    for key in ("annual", "quarterly", "earnings", "forecasts"):
+        value = payload.get(key)
+        if isinstance(value, list) and value:
+            return True
+    sections = payload.get("sections")
+    if isinstance(sections, dict):
+        for section in sections.values():
+            if isinstance(section, dict):
+                data = section.get("data")
+                if isinstance(data, list) and data:
+                    return True
+                if isinstance(data, dict) and any(bool(item) for item in data.values()):
+                    return True
+    return False
+
+
 def _persistent_financials_cache_enabled() -> bool:
     if not IS_SQLITE:
         return True
@@ -234,7 +255,11 @@ def _reason_code_for_status(status_code: int) -> str:
 def _request_rows(endpoint: str, *, params: dict[str, Any], symbol: str) -> list[dict[str, Any]]:
     category = f"financials:{endpoint}"
     try:
-        ensure_fmp_live_allowed(category=category, symbol=symbol)
+        ensure_fmp_live_allowed(
+            category=category,
+            symbol=symbol,
+            allow_user_request=_is_active_ticker_financials_panel_request(),
+        )
     except ProviderUnavailable as exc:
         raise TickerFinancialsUnavailable(str(exc), reason_code=getattr(exc, "reason", "provider_unavailable")) from exc
     request_params = {"apikey": _api_key()}
@@ -947,7 +972,23 @@ def _enqueue_financials_refresh(symbol: str, *, reason: str) -> None:
 def _is_public_request_context() -> bool:
     context = get_request_context() or {}
     route = str(context.get("path") or "")
+    if _is_active_ticker_financials_panel_request():
+        return False
     return route.startswith("/api/") and not route.startswith("/api/admin/")
+
+
+def _is_active_ticker_financials_panel_request() -> bool:
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    request_source = str(context.get("request_source") or "").lower()
+    route_family = str(context.get("route_family") or "").lower()
+    panel = str(context.get("panel") or "")
+    return (
+        route.startswith("/api/tickers/")
+        and request_source in {"client", "visibility"}
+        and route_family == "ticker"
+        and panel == "TickerFinancialsPanel"
+    )
 
 
 def _section_status(*, failed: bool, has_rows: bool, partial: bool = False) -> str:
@@ -1057,15 +1098,17 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     normalized_symbol = normalize_symbol(symbol)
     if not normalized_symbol:
         return _unavailable("")
+    active_panel_request = _is_active_ticker_financials_panel_request()
     cache_key = f"financials:{normalized_symbol}"
     cached = _cache_get(cache_key)
-    if cached is not None:
+    if cached is not None and (_financials_payload_has_data(cached) or not active_panel_request):
         return cached
     db_cached = _db_cache_get(normalized_symbol)
     if db_cached is not None:
         db_payload, age, fresh = db_cached
-        _cache_set(cache_key, db_payload)
-        if fresh:
+        if _financials_payload_has_data(db_payload) or not active_panel_request:
+            _cache_set(cache_key, db_payload)
+        if fresh and (_financials_payload_has_data(db_payload) or not active_panel_request):
             return db_payload
         if _is_public_request_context():
             _enqueue_financials_refresh(normalized_symbol, reason="stale_cache")

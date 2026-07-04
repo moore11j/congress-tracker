@@ -24,27 +24,24 @@ test("ticker context starts on overview and loads heavy tabs only after tab acti
   const newsEffect = effectBlockStartingWith('if (activeTab !== "news")');
   assert.match(newsEffect, /return;/);
   assert.match(newsEffect, /getTickerNews\(symbol/);
-  assert.ok(newsEffect.indexOf('if (activeTab !== "news")') < newsEffect.indexOf("getTickerNews(symbol"), "news fetch should be gated before the request");
+  assert.ok(newsEffect.indexOf('if (activeTab !== "news")') < newsEffect.indexOf("getTickerNews(symbol"));
 
   const financialsEffect = effectBlockStartingWith('if (activeTab !== "financials")');
   assert.match(financialsEffect, /return;/);
   assert.match(financialsEffect, /getTickerFinancials\(symbol/);
-  assert.ok(
-    financialsEffect.indexOf('if (activeTab !== "financials")') < financialsEffect.indexOf("getTickerFinancials(symbol"),
-    "financials fetch should be gated before the request",
-  );
+  assert.ok(financialsEffect.indexOf('if (activeTab !== "financials")') < financialsEffect.indexOf("getTickerFinancials(symbol"));
 
-  const pressEffect = effectBlockStartingWith('if (activeTab !== "events")');
-  assert.match(pressEffect, /getTickerPressReleases\(symbol/);
-  assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"), "press fetch should be gated before the request");
+  const pressEffect = effectBlockStartingWith('getTickerPressReleases(symbol');
+  assert.match(pressEffect, /if \(activeTab !== "events"\)/);
+  assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"));
 
   const filingsEffect = effectBlockStartingWith('getTickerSecFilings(symbol');
   assert.match(filingsEffect, /if \(activeTab !== "events"\)/);
-  assert.ok(filingsEffect.indexOf('if (activeTab !== "events")') < filingsEffect.indexOf("getTickerSecFilings(symbol"), "filings fetch should be gated before the request");
+  assert.ok(filingsEffect.indexOf('if (activeTab !== "events")') < filingsEffect.indexOf("getTickerSecFilings(symbol"));
 
   const disclosureEffect = effectBlockStartingWith("const response = await getEvents");
   assert.match(disclosureEffect, /if \(activeTab !== "events"\)/);
-  assert.ok(disclosureEffect.indexOf('if (activeTab !== "events")') < disclosureEffect.indexOf("getEvents({"), "events fetch should be gated before the request");
+  assert.ok(disclosureEffect.indexOf('if (activeTab !== "events")') < disclosureEffect.indexOf("getEvents({"));
 });
 
 test("ticker lazy tab requests have panel-specific attribution", () => {
@@ -58,9 +55,23 @@ test("ticker lazy tab requests have panel-specific attribution", () => {
   assert.match(card, /getTickerFinancials\(symbol, \{[^}]*source: TICKER_FINANCIALS_PANEL_SOURCE/s);
   assert.match(card, /getTickerPressReleases\(symbol, \{[^}]*source: TICKER_PRESS_PANEL_SOURCE/s);
   assert.match(card, /getTickerSecFilings\(symbol, \{[^}]*source: TICKER_FILINGS_PANEL_SOURCE/s);
-  assert.match(card, /getEvents\(\{[^}]*source: TICKER_DISCLOSURE_PANEL_SOURCE/s);
+  assert.match(card, /getEvents\(\{[^}]*requestSource: "client"[^}]*routeFamily: "ticker"[^}]*source: TICKER_DISCLOSURE_PANEL_SOURCE/s);
 });
 
-test("ticker news tab uses a truthful empty headline state", () => {
+test("ticker bottom activity detail fallback fetches on visibility with attribution", () => {
+  const page = read("app/ticker/[symbol]/page.tsx");
+  const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
+
+  assert.match(page, /import \{ TickerActivityDetailClient \}/);
+  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} \/>/);
+  assert.match(detailClient, /IntersectionObserver/);
+  assert.match(detailClient, /requestSource: "visibility"/);
+  assert.match(detailClient, /routeFamily: "ticker"/);
+  assert.match(detailClient, /source: kind === "congress" \? "congress-detail" : "insider-detail"/);
+});
+
+test("ticker tabs use truthful public empty states", () => {
   assert.match(card, /const NEWS_EMPTY_MESSAGE = "No recent headlines found\."/);
+  assert.match(card, /const ACTIVITY_EMPTY_MESSAGE = "No disclosure activity found for this ticker\."/);
 });

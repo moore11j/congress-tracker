@@ -253,6 +253,20 @@ def _payload_has_items(payload: dict[str, Any] | None) -> bool:
         return False
 
 
+def _is_active_ticker_panel_request(allowed_panels: set[str]) -> bool:
+    context = get_request_context() or {}
+    route = str(context.get("path") or "")
+    request_source = str(context.get("request_source") or "").lower()
+    route_family = str(context.get("route_family") or "").lower()
+    panel = str(context.get("panel") or "")
+    return (
+        route.startswith("/api/tickers/")
+        and request_source in {"client", "visibility"}
+        and route_family == "ticker"
+        and panel in allowed_panels
+    )
+
+
 def _trimmed(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -366,7 +380,11 @@ def _request_rows(
 ) -> tuple[list[dict[str, Any]], bool]:
     category = f"news:{endpoint}"
     try:
-        ensure_fmp_live_allowed(category=category, symbol=context_symbol)
+        ensure_fmp_live_allowed(
+            category=category,
+            symbol=context_symbol,
+            allow_user_request=_is_active_ticker_panel_request({"TickerFilingsPanel"}),
+        )
     except ProviderUnavailable as exc:
         raise FMPNewsUnavailable(str(exc)) from exc
     request_params = {"apikey": _api_key()}
@@ -444,7 +462,11 @@ def _request_rows(
 def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     category = "news:stock"
     try:
-        ensure_fmp_live_allowed(category=category, symbol=symbol)
+        ensure_fmp_live_allowed(
+            category=category,
+            symbol=symbol,
+            allow_user_request=_is_active_ticker_panel_request({"TickerNewsPanel"}),
+        )
     except ProviderUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category=category, symbol=symbol, reason=reason)
@@ -507,7 +529,11 @@ def _request_ticker_news_rows(*, symbol: str, page: int, limit: int) -> tuple[li
 def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     category = "news:press-releases"
     try:
-        ensure_fmp_live_allowed(category=category, symbol=symbol)
+        ensure_fmp_live_allowed(
+            category=category,
+            symbol=symbol,
+            allow_user_request=_is_active_ticker_panel_request({"TickerPressPanel"}),
+        )
     except ProviderUnavailable as exc:
         reason = reason_from_exception(exc)
         record_fallback(category=category, symbol=symbol, reason=reason)
@@ -644,6 +670,8 @@ def _structured_fallback_fields(*, reason: str, message: str) -> dict[str, Any]:
 def _is_public_request_context() -> bool:
     context = get_request_context() or {}
     route = str(context.get("path") or "")
+    if _is_active_ticker_panel_request({"TickerNewsPanel", "TickerPressPanel", "TickerFilingsPanel"}):
+        return False
     return route.startswith("/api/") and not route.startswith("/api/admin/")
 
 
@@ -1087,6 +1115,7 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
     if not normalized_symbol:
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
 
+    active_panel_request = _is_active_ticker_panel_request({"TickerNewsPanel"})
     cache_key = _cache_key("stock-news", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:stock", symbol=normalized_symbol)
     if _payload_has_items(cached):
@@ -1099,9 +1128,9 @@ def get_stock_news(*, symbol: str, page: int = 0, limit: int = 20) -> dict[str, 
         limit=bounded_limit,
         window_key="latest",
     )
-    if db_cached is not None:
+    if db_cached is not None and (_payload_has_items(db_cached) or not active_panel_request):
         return _cache_set(cache_key, db_cached, ttl_seconds=STOCK_NEWS_TTL_SECONDS, category="news:stock", symbol=normalized_symbol)
-    if cached is not None:
+    if cached is not None and not active_panel_request:
         return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
@@ -1179,6 +1208,7 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
     if not normalized_symbol:
         return _payload_from_items([], page=0, limit=bounded_limit, has_next=False)
 
+    active_panel_request = _is_active_ticker_panel_request({"TickerPressPanel"})
     cache_key = _cache_key("press-releases", {"symbol": normalized_symbol, "page": bounded_page, "limit": bounded_limit})
     cached = _cache_get(cache_key, category="news:press-releases", symbol=normalized_symbol)
     if _payload_has_items(cached):
@@ -1191,9 +1221,9 @@ def get_press_releases(*, symbol: str, page: int = 0, limit: int = 20) -> dict[s
         limit=bounded_limit,
         window_key="latest",
     )
-    if db_cached is not None:
+    if db_cached is not None and (_payload_has_items(db_cached) or not active_panel_request):
         return _cache_set(cache_key, db_cached, ttl_seconds=PRESS_RELEASES_TTL_SECONDS, category="news:press-releases", symbol=normalized_symbol)
-    if cached is not None:
+    if cached is not None and not active_panel_request:
         return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(
@@ -1283,6 +1313,7 @@ def get_sec_filings(
     from_value = from_date or default_from.isoformat()
     to_value = to_date or today.isoformat()
     window_key = ticker_content_window_key("sec_filings", from_date=from_value, to_date=to_value)
+    active_panel_request = _is_active_ticker_panel_request({"TickerFilingsPanel"})
     cache_key = _cache_key(
         "sec-filings",
         {"symbol": normalized_symbol, "from": from_value, "to": to_value, "page": bounded_page, "limit": bounded_limit},
@@ -1300,9 +1331,9 @@ def get_sec_filings(
         from_date=from_value,
         to_date=to_value,
     )
-    if db_cached is not None:
+    if db_cached is not None and (_payload_has_items(db_cached) or not active_panel_request):
         return _cache_set(cache_key, db_cached, ttl_seconds=SEC_FILINGS_TTL_SECONDS, category="news:sec-filings", symbol=normalized_symbol)
-    if cached is not None:
+    if cached is not None and not active_panel_request:
         return cached
     if _is_public_request_context():
         return _public_cache_miss_payload(

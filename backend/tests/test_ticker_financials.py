@@ -497,6 +497,66 @@ def test_ticker_financials_public_endpoint_reads_prewarmed_db_cache(monkeypatch)
     assert public_response["section_statuses"]["forecasts"] == "unavailable"
 
 
+def test_active_ticker_financials_panel_fetches_provider_instead_of_warming(monkeypatch):
+    clear_financials_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)
+    calls = {"count": 0}
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        assert params["symbol"] == "TSM"
+        if url.endswith("/stable/income-statement") and params["period"] == "annual":
+            return _FakeResponse(200, [{"date": "2025-12-31", "period": "FY", "revenue": 100, "netIncome": 25, "eps": 1.25}])
+        if url.endswith("/stable/income-statement") and params["period"] == "quarter":
+            return _FakeResponse(200, [{"date": "2026-03-31", "period": "Q1", "revenue": 30, "netIncome": 8, "eps": 0.4}])
+        if url.endswith("/stable/historical-price-eod/light"):
+            return _FakeResponse(200, [{"date": "2026-06-30", "close": 180.0}])
+        if url.endswith("/stable/quote"):
+            return _FakeResponse(200, [{"price": 180.0}])
+        if url.endswith("/stable/analyst-estimates"):
+            return _FakeResponse(402, {"message": "Restricted Endpoint"})
+        if url.endswith("/stable/ratios-ttm"):
+            return _FakeResponse(200, [{"priceToEarningsRatioTTM": 30.0}])
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
+    token = set_request_context({
+        "path": "/api/tickers/TSM/financials",
+        "request_source": "client",
+        "route_family": "ticker",
+        "panel": "TickerFinancialsPanel",
+    })
+    try:
+        response = ticker_financials("TSM")
+    finally:
+        reset_request_context(token)
+
+    assert calls["count"] > 0
+    assert response["status"] == "partial"
+    assert response["sections_present"]
+    assert response["annual"]
+    assert response["quarterly"]
+
+
+def test_public_ticker_financials_cache_miss_stays_warming_without_active_panel(monkeypatch):
+    clear_financials_cache()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+
+    def fail_get(*_args, **_kwargs):
+        raise AssertionError("inactive public ticker financials should not call provider")
+
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fail_get)
+    token = set_request_context({"path": "/api/tickers/TSM/financials", "request_source": "ssr", "route_family": "ticker", "panel": "TickerPage"})
+    try:
+        response = ticker_financials("TSM")
+    finally:
+        reset_request_context(token)
+
+    assert response["status"] == "loading"
+    assert response["annual"] == []
+
+
 def test_ticker_financials_unavailable_when_provider_missing(monkeypatch):
     clear_financials_cache()
     monkeypatch.delenv("FMP_API_KEY", raising=False)

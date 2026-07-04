@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.main import list_insights_category_news, list_insights_news, ticker_news, ticker_press_releases, ticker_sec_filings
 from app.models import InsightsSnapshot
+from app.request_priority import reset_request_context, set_request_context
 from app.services.insights_snapshots import refresh_insights_headlines
 from app.services.fmp_market_snapshot import (
     _build_core_cpi_point,
@@ -282,6 +283,106 @@ def test_ticker_news_uses_symbol_specific_query_and_caches(monkeypatch):
         "market_read": "bullish",
         "source": "fmp_stock_news",
     }
+
+
+def test_active_ticker_news_panel_fetches_provider_instead_of_warming(monkeypatch):
+    _session()
+    clear_news_cache()
+    calls = {"count": 0}
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        assert url.endswith("/stable/news/stock")
+        assert params["symbols"] == "TSM"
+        return _FakeResponse(
+            200,
+            [
+                {
+                    "symbol": "TSM",
+                    "title": "TSM expands advanced packaging capacity",
+                    "site": "Reuters",
+                    "publishedDate": "2026-07-01T12:00:00Z",
+                    "url": "https://example.com/tsm-news",
+                    "text": "TSM expanded capacity.",
+                },
+            ],
+        )
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+    token = set_request_context({
+        "path": "/api/tickers/TSM/news",
+        "request_source": "client",
+        "route_family": "ticker",
+        "panel": "TickerNewsPanel",
+    })
+    try:
+        response = ticker_news("TSM", page=0, limit=5)
+    finally:
+        reset_request_context(token)
+
+    assert calls["count"] == 1
+    assert response["status"] == "ok"
+    assert response["items"][0]["symbol"] == "TSM"
+
+
+def test_public_ticker_news_cache_miss_stays_warming_without_active_panel(monkeypatch):
+    _session()
+    clear_news_cache()
+
+    def fail_get(*_args, **_kwargs):
+        raise AssertionError("inactive public ticker news should not call provider")
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fail_get)
+    token = set_request_context({"path": "/api/tickers/TSM/news", "request_source": "ssr", "route_family": "ticker", "panel": "TickerPage"})
+    try:
+        response = ticker_news("TSM", page=0, limit=5)
+    finally:
+        reset_request_context(token)
+
+    assert response["status"] in {"loading", "warming"}
+    assert response["items"] == []
+
+
+def test_active_ticker_press_panel_fetches_provider_instead_of_warming(monkeypatch):
+    _session()
+    clear_news_cache()
+    calls = {"count": 0}
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        assert url.endswith("/stable/news/press-releases")
+        assert params["symbols"] == "TSM"
+        return _FakeResponse(
+            200,
+            [
+                {
+                    "symbol": "TSM",
+                    "title": "TSMC reports monthly revenue",
+                    "publishedDate": "2026-07-02T12:00:00Z",
+                    "url": "https://example.com/tsm-press",
+                    "text": "TSMC reported monthly revenue.",
+                },
+            ],
+        )
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.fmp_news.requests.get", fake_get)
+    token = set_request_context({
+        "path": "/api/tickers/TSM/press-releases",
+        "request_source": "client",
+        "route_family": "ticker",
+        "panel": "TickerPressPanel",
+    })
+    try:
+        response = ticker_press_releases("TSM", page=0, limit=5)
+    finally:
+        reset_request_context(token)
+
+    assert calls["count"] == 1
+    assert response["status"] == "ok"
+    assert response["items"][0]["symbol"] == "TSM"
 
 
 def test_ticker_news_logs_debug_status_count_and_preview(monkeypatch, caplog):
