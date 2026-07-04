@@ -10,7 +10,15 @@ from starlette.requests import Request
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.entitlements import seed_plan_config
-from app.main import _member_recent_trades, _member_top_tickers, congress_trader_leaderboard, member_alpha_summary, member_performance
+from app.main import (
+    _MEMBER_ANALYTICS_CACHE,
+    _MEMBER_ANALYTICS_CACHE_LOCK,
+    _member_recent_trades,
+    _member_top_tickers,
+    congress_trader_leaderboard,
+    member_alpha_summary,
+    member_performance,
+)
 from app.models import CongressMemberAlias, Event, FeatureGate, GovernmentContractAction, Member, PlanLimit, PlanPrice, ReplicatedPortfolioRun, Security, TradeOutcome, Transaction, UserAccount
 from app.routers.events import list_events
 from app.services.signal_score import calculate_smart_score
@@ -776,6 +784,8 @@ def test_events_member_nickname_filter_avoids_ambiguous_matches(monkeypatch):
 
 
 def test_member_top_tickers_uses_deduped_outcomes_for_obvious_concentration():
+    with _MEMBER_ANALYTICS_CACHE_LOCK:
+        _MEMBER_ANALYTICS_CACHE.clear()
     db = _session()
     try:
         member = Member(
@@ -842,6 +852,77 @@ def test_member_top_tickers_uses_deduped_outcomes_for_obvious_concentration():
         assert top_tickers[0] == {"symbol": "MSFT", "trades": 2}
         assert top_tickers[1] == {"symbol": "AAPL", "trades": 1}
     finally:
+        db.close()
+
+
+def test_member_top_tickers_reuses_cached_seeded_profile_data():
+    with _MEMBER_ANALYTICS_CACHE_LOCK:
+        _MEMBER_ANALYTICS_CACHE.clear()
+    db = _session()
+    try:
+        member = Member(
+            bioguide_id="P000197",
+            first_name="Nancy",
+            last_name="Pelosi",
+            chamber="house",
+            party="D",
+            state="CA",
+        )
+        db.add(member)
+        db.flush()
+
+        today = date.today()
+        event = Event(
+            id=3901,
+            event_type="congress_trade",
+            ts=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+            event_date=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+            symbol="NVDA",
+            source="congress_disclosure",
+            payload_json=json.dumps({}),
+            member_name="Nancy Pelosi",
+            member_bioguide_id="P000197",
+            chamber="house",
+            party="D",
+            trade_type="purchase",
+            transaction_type="purchase",
+            amount_min=1000,
+            amount_max=15000,
+        )
+        db.add(event)
+        db.add(
+            TradeOutcome(
+                event_id=3901,
+                member_id="P000197",
+                member_name="Nancy Pelosi",
+                symbol="NVDA",
+                trade_type="purchase",
+                source="congress",
+                trade_date=today,
+                benchmark_symbol="^GSPC",
+                return_pct=1.0,
+                alpha_pct=0.5,
+                amount_min=1000,
+                amount_max=15000,
+                scoring_status="ok",
+                methodology_version="congress_v1",
+                computed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        first = _member_top_tickers(db, member, limit=3)
+        db.query(TradeOutcome).delete()
+        db.query(Event).delete()
+        db.commit()
+
+        second = _member_top_tickers(db, member, limit=3)
+
+        assert first == [{"symbol": "NVDA", "trades": 1}]
+        assert second == first
+    finally:
+        with _MEMBER_ANALYTICS_CACHE_LOCK:
+            _MEMBER_ANALYTICS_CACHE.clear()
         db.close()
 
 

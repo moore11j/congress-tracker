@@ -1821,6 +1821,14 @@ def _parse_payload_json(payload_json: str | None) -> dict:
 
 
 def _member_top_tickers(db: Session, member: Member, *, limit: int = 10) -> list[dict]:
+    cache_key = _member_analytics_cache_key("top-tickers", member.bioguide_id or str(member.id), 0, "")
+    cached_response = _member_analytics_cache_get(cache_key)
+    if cached_response is not None:
+        items = cached_response.get("items")
+        if isinstance(items, list):
+            return copy.deepcopy(items)[:limit]
+
+    started = perf_counter()
     try:
         _, analytics_member_ids = _resolve_member_analytics_aliases(db, member.bioguide_id or "")
     except OperationalError:
@@ -1828,45 +1836,81 @@ def _member_top_tickers(db: Session, member: Member, *, limit: int = 10) -> list
 
     normalized_member_ids = [member_id for member_id in sorted(set(analytics_member_ids)) if member_id]
     if normalized_member_ids:
-        outcome_rows = db.execute(
-            select(TradeOutcome)
-            .join(Event, Event.id == TradeOutcome.event_id, isouter=True)
-            .where(TradeOutcome.member_id.in_(normalized_member_ids))
-            .where(TradeOutcome.benchmark_symbol == "^GSPC")
-            .where(or_(Event.id.is_(None), Event.event_type == "congress_trade"))
-            .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
-        ).scalars().all()
+        try:
+            outcome_rows = db.execute(
+                select(TradeOutcome)
+                .join(Event, Event.id == TradeOutcome.event_id, isouter=True)
+                .where(TradeOutcome.member_id.in_(normalized_member_ids))
+                .where(TradeOutcome.benchmark_symbol == "^GSPC")
+                .where(or_(Event.id.is_(None), Event.event_type == "congress_trade"))
+                .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
+            ).scalars().all()
+        except (OperationalError, SATimeoutError) as exc:
+            logger.warning(
+                "member_analytics_panel panel=top-tickers member_id=%s rows=0 status=degraded cache=miss error=%s duration_ms=%.1f",
+                member.bioguide_id or member.id,
+                exc.__class__.__name__,
+                (perf_counter() - started) * 1000,
+            )
+            outcome_rows = []
+
         counts: dict[str, dict] = {}
-        for row in dedupe_member_trade_outcomes(outcome_rows):
-            symbol = (row.symbol or "").strip().upper()
-            if not symbol:
-                continue
-            bucket = counts.setdefault(symbol, {"symbol": symbol, "trades": 0, "notional": 0.0})
-            bucket["trades"] += 1
-            amount = row.amount_max if row.amount_max is not None else row.amount_min
-            if amount is not None:
-                bucket["notional"] += float(amount)
+        if outcome_rows:
+            for row in dedupe_member_trade_outcomes(outcome_rows):
+                symbol = (row.symbol or "").strip().upper()
+                if not symbol:
+                    continue
+                bucket = counts.setdefault(symbol, {"symbol": symbol, "trades": 0, "notional": 0.0})
+                bucket["trades"] += 1
+                amount = row.amount_max if row.amount_max is not None else row.amount_min
+                if amount is not None:
+                    bucket["notional"] += float(amount)
         if counts:
-            return [
+            items = [
                 {"symbol": row["symbol"], "trades": row["trades"]}
                 for row in sorted(counts.values(), key=lambda item: (item["trades"], item["notional"], item["symbol"]), reverse=True)[:limit]
             ]
+            logger.info(
+                "member_analytics_panel panel=top-tickers member_id=%s rows=%s cache=miss duration_ms=%.1f",
+                member.bioguide_id or member.id,
+                len(items),
+                (perf_counter() - started) * 1000,
+            )
+            _member_analytics_cache_set(cache_key, {"items": items})
+            return items
 
-    tx_rows = db.execute(
-        select(Security.symbol, func.count(Transaction.id).label("trade_count"))
-        .select_from(Transaction)
-        .join(Security, Transaction.security_id == Security.id)
-        .where(Transaction.member_id == member.id)
-        .where(Security.symbol.is_not(None))
-        .group_by(Security.symbol)
-        .order_by(func.count(Transaction.id).desc(), Security.symbol.asc())
-        .limit(limit)
-    ).all()
-    return [
+    try:
+        tx_rows = db.execute(
+            select(Security.symbol, func.count(Transaction.id).label("trade_count"))
+            .select_from(Transaction)
+            .join(Security, Transaction.security_id == Security.id)
+            .where(Transaction.member_id == member.id)
+            .where(Security.symbol.is_not(None))
+            .group_by(Security.symbol)
+            .order_by(func.count(Transaction.id).desc(), Security.symbol.asc())
+            .limit(limit)
+        ).all()
+    except (OperationalError, SATimeoutError) as exc:
+        logger.warning(
+            "member_analytics_panel panel=top-tickers member_id=%s rows=0 status=degraded cache=miss error=%s duration_ms=%.1f",
+            member.bioguide_id or member.id,
+            exc.__class__.__name__,
+            (perf_counter() - started) * 1000,
+        )
+        tx_rows = []
+    items = [
         {"symbol": str(symbol).strip().upper(), "trades": int(trade_count)}
         for symbol, trade_count in tx_rows
         if symbol and str(symbol).strip()
     ]
+    logger.info(
+        "member_analytics_panel panel=top-tickers member_id=%s rows=%s cache=miss duration_ms=%.1f",
+        member.bioguide_id or member.id,
+        len(items),
+        (perf_counter() - started) * 1000,
+    )
+    _member_analytics_cache_set(cache_key, {"items": items})
+    return items
 
 
 def _build_member_profile(db: Session, member: Member) -> dict:
