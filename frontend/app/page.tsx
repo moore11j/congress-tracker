@@ -764,7 +764,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
     fetch_error: null,
   };
 
-  let events: EventsResponse = { items: [], limit: null, offset: null, total: null };
+  let events: EventsResponse = { items: [], limit: null, offset: null, total: null, has_more: null };
   try {
     events = await getEvents({ ...requestParams, tape: feedMode, source: "Feed", authToken: authToken ?? undefined });
   } catch (err) {
@@ -845,6 +845,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
     .filter(Boolean) as FeedItem[];
 
   const total = typeof events.total === "number" ? events.total : null;
+  const hasMore = typeof events.has_more === "boolean" ? events.has_more : null;
   const totalPages = total ? Math.max(1, Math.ceil(total / pageSize)) : 1;
 
   const signalOverlay: SignalOverlayMap = {};
@@ -928,6 +929,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
           pageSize={pageSize}
           total={total}
           totalPages={totalPages}
+          hasMore={hasMore}
           overlaySignals={signalOverlay}
           debugLifecycle={debugLifecycle}
         />

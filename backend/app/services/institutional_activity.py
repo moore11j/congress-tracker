@@ -1228,12 +1228,13 @@ def list_institutional_holders(
         query = query.order_by(sort_column.asc())
     else:
         query = query.order_by(sort_column.desc().nullslast())
-    rows = db.execute(query.offset(offset).limit(bounded_limit)).scalars().all()
+    fetched_rows = db.execute(query.offset(offset).limit(bounded_limit + 1)).scalars().all()
+    rows = fetched_rows[:bounded_limit]
     return {
         "items": [holder_payload(row) for row in rows],
         "page": max(0, int(page or 0)),
         "limit": bounded_limit,
-        "has_next": len(rows) == bounded_limit,
+        "has_next": len(fetched_rows) > bounded_limit,
     }
 
 
@@ -1385,12 +1386,13 @@ def positions_for_holder(db: Session, cik: str, *, year: int | None = None, quar
         query = query.join(InstitutionalFiling, InstitutionalFiling.id == InstitutionalPosition.filing_id).where(
             InstitutionalFiling.superseded_by.is_(None)
         )
-    rows = db.execute(
+    fetched_rows = db.execute(
         query.order_by(InstitutionalPosition.report_year.desc(), InstitutionalPosition.report_quarter.desc(), InstitutionalPosition.value_usd.desc().nullslast())
         .offset(max(0, int(page or 0)) * bounded_limit)
-        .limit(bounded_limit)
+        .limit(bounded_limit + 1)
     ).scalars().all()
-    return {"items": [position_payload(row) for row in rows], "page": page, "limit": bounded_limit, "has_next": len(rows) == bounded_limit}
+    rows = fetched_rows[:bounded_limit]
+    return {"items": [position_payload(row) for row in rows], "page": page, "limit": bounded_limit, "has_next": len(fetched_rows) > bounded_limit}
 
 
 def _reported_action_label(change_type: str | None, value_delta_usd: float | None = None) -> str:
@@ -1416,7 +1418,7 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
     if not normalized:
         return {"items": [], "page": page, "limit": limit, "has_next": False}
     bounded_limit = max(1, min(int(limit or 50), 200))
-    rows = db.execute(
+    fetched_rows = db.execute(
         select(InstitutionalPositionChange)
         .where(InstitutionalPositionChange.cik == normalized)
         .where(InstitutionalPositionChange.change_type != "unchanged")
@@ -1426,8 +1428,9 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
             InstitutionalPositionChange.id.desc(),
         )
         .offset(max(0, int(page or 0)) * bounded_limit)
-        .limit(bounded_limit)
+        .limit(bounded_limit + 1)
     ).scalars().all()
+    rows = fetched_rows[:bounded_limit]
     symbols = sorted({row.normalized_symbol for row in rows if row.normalized_symbol})
     issuer_names: dict[str, str | None] = {}
     if symbols:
@@ -1468,7 +1471,7 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
         ],
         "page": page,
         "limit": bounded_limit,
-        "has_next": len(rows) == bounded_limit,
+        "has_next": len(fetched_rows) > bounded_limit,
     }
 
 
@@ -1477,13 +1480,14 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
     if not normalized:
         return {"items": [], "page": page, "limit": limit, "has_next": False}
     bounded_limit = max(1, min(int(limit or 50), 200))
-    rows = db.execute(
+    fetched_rows = db.execute(
         select(InstitutionalFiling)
         .where(InstitutionalFiling.cik == normalized)
         .order_by(InstitutionalFiling.filing_date.desc(), InstitutionalFiling.id.desc())
         .offset(max(0, int(page or 0)) * bounded_limit)
-        .limit(bounded_limit)
+        .limit(bounded_limit + 1)
     ).scalars().all()
+    rows = fetched_rows[:bounded_limit]
     return {
         "items": [
             {
@@ -1515,7 +1519,7 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
         ],
         "page": page,
         "limit": bounded_limit,
-        "has_next": len(rows) == bounded_limit,
+        "has_next": len(fetched_rows) > bounded_limit,
     }
 
 

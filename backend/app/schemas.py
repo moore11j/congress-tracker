@@ -63,6 +63,7 @@ class EventOut(BaseModel):
 class EventsPage(BaseModel):
     items: list[EventOut]
     next_cursor: str | None = None
+    has_more: bool | None = None
     total: int | None = None
     limit: int | None = None
     offset: int | None = None

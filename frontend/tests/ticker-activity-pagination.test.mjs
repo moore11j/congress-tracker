@@ -48,9 +48,10 @@ test("activity footer preserves scroll and anchors back to the section", () => {
 test("activity footer renders showing range and show-more controls", () => {
   const footer = read("components/ticker/TickerActivityPaginationFooter.tsx");
 
-  assert.match(footer, /const showingStart = total > 0 \? Math\.min\(page \* safeLimit \+ 1, total\) : 0/);
-  assert.match(footer, /const showingEnd = total > 0 \? Math\.min\(showingStart \+ Math\.max\(itemCount - 1, 0\), total\) : 0/);
-  assert.match(footer, /Showing \{showingStart\}&ndash;\{showingEnd\} of \{total\}/);
+  assert.match(footer, /const hasExactTotal = typeof total === "number"/);
+  assert.match(footer, /const showingStart = itemCount > 0 \? page \* safeLimit \+ 1 : 0/);
+  assert.match(footer, /More available/);
+  assert.doesNotMatch(footer, /Showing \{showingStart\}&ndash;\{showingEnd\} of \{total\}/);
   assert.match(footer, />\s*Previous\s*</);
   assert.match(footer, />\s*Show more\s*</);
 });

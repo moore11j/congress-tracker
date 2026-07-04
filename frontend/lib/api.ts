@@ -628,6 +628,7 @@ export type EventItem = {
 export type EventsResponse = {
   items: EventItem[];
   next_cursor?: string | null;
+  has_more?: boolean | null;
   limit?: number | null;
   offset?: number | null;
   total?: number | null;
@@ -731,6 +732,7 @@ function normalizeEventsResponse(payload: unknown, windowDays?: number | null): 
     item_count: itemCount,
     window_days: isFiniteNumber(record.window_days) ? record.window_days : windowDays ?? null,
     next_cursor: typeof record.next_cursor === "string" ? record.next_cursor : null,
+    has_more: typeof record.has_more === "boolean" ? record.has_more : typeof record.hasMore === "boolean" ? record.hasMore : null,
     limit: isFiniteNumber(record.limit) ? record.limit : null,
     offset: isFiniteNumber(record.offset) ? record.offset : null,
     total: isFiniteNumber(record.total) ? record.total : null,

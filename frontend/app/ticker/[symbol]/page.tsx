@@ -87,7 +87,7 @@ type EventsResponse = Awaited<ReturnType<typeof getEvents>>;
 type ActivityPageMeta = {
   page: number;
   limit: number;
-  total: number;
+  total: number | null;
   hasNext: boolean;
 };
 type ParticipantStats = {
@@ -141,12 +141,12 @@ type TickerActivityData = {
   summaryCongress: TickerSignalsSummaryResponse["congress"] | null;
   signalsUnavailable: SignalGateState | null;
   congressEvents: EventsResponse["items"];
-  congressEventsTotal: number;
+  congressEventsTotal: number | null;
   congressEventsPage: number;
   congressEventsLimit: number;
   congressEventsHasNext: boolean;
   insiderEvents: EventsResponse["items"];
-  insiderEventsTotal: number;
+  insiderEventsTotal: number | null;
   insiderEventsPage: number;
   insiderEventsLimit: number;
   insiderEventsHasNext: boolean;
@@ -250,7 +250,8 @@ function sideToTradeType(side: SideFilter): "purchase" | "sale" | null {
 function emptyEventsResponse(page = 0, limit = ACTIVITY_PAGE_SIZE): EventsResponse {
   return {
     items: [],
-    total: 0,
+    total: null,
+    has_more: false,
     limit,
     offset: Math.max(page, 0) * Math.max(limit, 1),
     item_count: 0,
@@ -265,16 +266,16 @@ function activityPageMeta(response: EventsResponse, fallbackPage = 0, fallbackLi
   const page = Math.max(Math.floor(offset / Math.max(limit, 1)), 0);
   const visibleCount = Math.min(response.items.length, limit);
   const inferredHasNext = response.items.length > limit;
-  const total = typeof response.total === "number" && response.total >= 0
-    ? response.total
-    : offset + visibleCount + (inferredHasNext ? 1 : 0);
+  const total: number | null = typeof response.total === "number" && response.total >= 0 ? response.total : null;
+  const hasExactTotal = total !== null;
+  const hasMore = typeof response.has_more === "boolean" ? response.has_more : inferredHasNext;
   return {
     page,
     limit,
     total,
-    hasNext: typeof response.total === "number" && response.total >= 0
+    hasNext: hasExactTotal
       ? offset + visibleCount < total
-      : inferredHasNext,
+      : hasMore,
   };
 }
 
@@ -2718,10 +2719,12 @@ async function DeferredTickerContent({
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
-                <span className="text-xs text-slate-400">{congressEventsTotal} events</span>
+                <span className="text-xs text-slate-400">
+                  {congressEventsTotal !== null ? `${congressEventsTotal} events` : `${congressEvents.length}${congressEventsHasNext ? "+" : ""} shown`}
+                </span>
               </div>
               <div className="space-y-3">
-                {congressEventsTotal === 0 ? (
+                {congressEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No Congress trades in the selected window.</p>
                 ) : (
                   <>
@@ -2791,10 +2794,12 @@ async function DeferredTickerContent({
                     Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{insiderEventsTotal} events</span>
+                <span className="text-xs text-slate-400">
+                  {insiderEventsTotal !== null ? `${insiderEventsTotal} events` : `${insiderEvents.length}${insiderEventsHasNext ? "+" : ""} shown`}
+                </span>
               </div>
               <div className="space-y-3">
-                {insiderEventsTotal === 0 ? (
+                {insiderEvents.length === 0 ? (
                   <p className="text-sm text-slate-400">No insider trades in the selected window.</p>
                 ) : (
                   <>

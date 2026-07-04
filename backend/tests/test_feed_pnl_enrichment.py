@@ -437,6 +437,53 @@ def test_events_endpoint_include_total_false_skips_count_query(monkeypatch) -> N
 
         assert [item.id for item in page.items] == [354]
         assert page.total is None
+        assert page.has_more is False
+        assert not any("count(" in statement or "count(*)" in statement for statement in statements)
+    finally:
+        db.close()
+        sqlalchemy_event.remove(engine, "before_cursor_execute", _capture_sql)
+
+
+def test_events_endpoint_include_total_false_returns_has_more_without_count(monkeypatch) -> None:
+    SessionLocal = _session_factory()
+    engine = SessionLocal.kw["bind"]
+    statements: list[str] = []
+
+    def _capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement.lower())
+
+    sqlalchemy_event.listen(engine, "before_cursor_execute", _capture_sql)
+    db = SessionLocal()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        db.add_all([
+            _event(
+                355,
+                "congress_trade",
+                symbol=None,
+                member_bioguide_id=None,
+                amount_min=None,
+                amount_max=None,
+                payload={"asset_class": "other"},
+            ),
+            _event(
+                356,
+                "congress_trade",
+                symbol=None,
+                member_bioguide_id=None,
+                amount_min=None,
+                amount_max=None,
+                payload={"asset_class": "other"},
+            ),
+        ])
+        db.commit()
+        statements.clear()
+
+        page = list_events(db=db, mode="all", limit=1, include_total=False, enrich_prices=False)
+
+        assert len(page.items) == 1
+        assert page.total is None
+        assert page.has_more is True
         assert not any("count(" in statement or "count(*)" in statement for statement in statements)
     finally:
         db.close()

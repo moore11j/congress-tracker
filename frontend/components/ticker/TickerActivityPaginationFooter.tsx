@@ -10,7 +10,7 @@ type Props = {
   pageParam: string;
   page: number;
   limit: number;
-  total: number;
+  total: number | null;
   itemCount: number;
   hasNext: boolean;
 };
@@ -36,9 +36,17 @@ export function TickerActivityPaginationFooter({
   const router = useRouter();
   const searchParams = useSearchParams();
   const safeLimit = Math.max(limit, 1);
-  const showingStart = total > 0 ? Math.min(page * safeLimit + 1, total) : 0;
-  const showingEnd = total > 0 ? Math.min(showingStart + Math.max(itemCount - 1, 0), total) : 0;
+  const hasExactTotal = typeof total === "number";
+  const showingStart = itemCount > 0 ? page * safeLimit + 1 : 0;
+  const showingEnd = itemCount > 0 ? showingStart + Math.max(itemCount - 1, 0) : 0;
+  const exactShowingStart = hasExactTotal && total > 0 ? Math.min(showingStart, total) : showingStart;
+  const exactShowingEnd = hasExactTotal && total > 0 ? Math.min(showingEnd, total) : showingEnd;
   const hasPrevious = page > 0;
+  const rangeLabel = hasExactTotal
+    ? `Showing ${exactShowingStart}-${exactShowingEnd} of ${total}`
+    : hasNext
+      ? `Showing ${showingStart}-${showingEnd} · More available`
+      : `Showing ${showingStart}-${showingEnd}`;
 
   useEffect(() => {
     const pendingTarget = window.sessionStorage.getItem(pendingScrollKey);
@@ -70,7 +78,7 @@ export function TickerActivityPaginationFooter({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
       <span className="text-xs text-slate-500">
-        Showing {showingStart}&ndash;{showingEnd} of {total}
+        {rangeLabel}
       </span>
       <div className="flex items-center gap-2">
         {hasPrevious ? (

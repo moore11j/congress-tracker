@@ -577,7 +577,7 @@ def _list_institutional_activity_feed_events(
         if event_type in INSTITUTIONAL_FEED_MODE_EVENT_TYPES
     ]
     if not allowed_types:
-        return EventsPageDebug(items=[], total=0 if include_total else None, limit=limit, offset=offset)
+        return EventsPageDebug(items=[], has_more=False, total=0 if include_total else None, limit=limit, offset=offset)
 
     q = (
         select(InstitutionalActivityEvent)
@@ -599,10 +599,13 @@ def _list_institutional_activity_feed_events(
     sort_date = InstitutionalActivityEvent.filing_date
     filtered_query = q.order_by(sort_date.desc(), InstitutionalActivityEvent.materiality_score.desc(), InstitutionalActivityEvent.id.desc())
     total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one() if include_total else None
-    rows = db.execute(filtered_query.offset(offset).limit(limit)).scalars().all()
+    fetched_rows = db.execute(filtered_query.offset(offset).limit(limit + 1)).scalars().all()
+    rows = fetched_rows[:limit]
+    has_more = len(fetched_rows) > limit
     holder_names = _institutional_holder_names_for_rows(db, rows)
     return EventsPageDebug(
         items=[_institutional_activity_event_out(row, holder_name=holder_names.get(row.id)) for row in rows],
+        has_more=has_more,
         total=total,
         limit=limit,
         offset=offset,
@@ -3088,7 +3091,7 @@ def _fetch_events_page(
     if enqueue_feed_outcomes:
         _enqueue_missing_trade_outcomes(db, paged_rows, outcome_by_event_id)
 
-    return EventsPage(items=items, next_cursor=next_cursor)
+    return EventsPage(items=items, next_cursor=next_cursor, has_more=next_cursor is not None)
 
 
 def _clean_suggestion(value: str | None) -> str | None:
@@ -3852,6 +3855,7 @@ def list_events(
         if not can_view_institutional:
             return EventsPageDebug(
                 items=[],
+                has_more=False,
                 total=0 if include_total else None,
                 limit=limit,
                 offset=offset,
@@ -4196,7 +4200,7 @@ def list_events(
                 response_cache_key,
                 inflight_state,
                 inflight_leader,
-                EventsPageDebug(items=page.items, next_cursor=page.next_cursor, debug=debug_payload),
+                EventsPageDebug(items=page.items, next_cursor=page.next_cursor, has_more=page.has_more, debug=debug_payload),
             )
         _log_ticker_events_payload(symbols=combined_symbols, items=page.items, recent_days=recent_days, started_at=started_at)
         _log_events_request_summary(
@@ -4211,7 +4215,9 @@ def list_events(
         )
         return _events_response_cache_finalize(response_cache_key, inflight_state, inflight_leader, page)
 
-    rows = db.execute(filtered_query.offset(offset).limit(candidate_limit)).scalars().all()
+    fetched_rows = db.execute(filtered_query.offset(offset).limit(candidate_limit + 1)).scalars().all()
+    rows = fetched_rows[:candidate_limit]
+    has_more = len(fetched_rows) > candidate_limit
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
     price_memo: dict[tuple[str, str], float | None] = {}
@@ -4276,12 +4282,14 @@ def list_events(
         for event in rows
     ]
     if display_filter_active:
-        items = _apply_display_value_filters(
+        filtered_items = _apply_display_value_filters(
             items,
             pnl_min=pnl_min,
             pnl_max=pnl_max,
             signal_min=signal_min,
-        )[:limit]
+        )
+        has_more = has_more or len(filtered_items) > limit
+        items = filtered_items[:limit]
 
     if enqueue_feed_outcomes:
         _enqueue_missing_trade_outcomes(db, rows, outcome_by_event_id)
@@ -4341,7 +4349,7 @@ def list_events(
             response_cache_key,
             inflight_state,
             inflight_leader,
-            EventsPageDebug(items=items, total=total, limit=limit, offset=offset, debug=debug_payload),
+            EventsPageDebug(items=items, has_more=has_more, total=total, limit=limit, offset=offset, debug=debug_payload),
         )
 
     _log_ticker_events_payload(symbols=combined_symbols, items=items, recent_days=recent_days, started_at=started_at)
@@ -4359,7 +4367,7 @@ def list_events(
         response_cache_key,
         inflight_state,
         inflight_leader,
-        EventsPageDebug(items=items, total=total, limit=limit, offset=offset),
+        EventsPageDebug(items=items, has_more=has_more, total=total, limit=limit, offset=offset),
     )
 
 

@@ -13,6 +13,7 @@ type FeedListProps = {
   pageSize?: 25 | 50 | 100;
   total?: number | null;
   totalPages?: number;
+  hasMore?: boolean | null;
   overlaySignals?: SignalOverlayMap;
   debugLifecycle?: boolean;
 };
@@ -20,7 +21,7 @@ type FeedListProps = {
 type SignalOverlayMap = Record<string, { score: number; band: string }>;
 type SignalOverlay = { score: number; band: string } | null;
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, overlaySignals, debugLifecycle = false }: FeedListProps) {
+export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -28,12 +29,14 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [total, setTotal] = useState<number | null>(initialTotal);
+  const [hasMore, setHasMore] = useState<boolean | null>(initialHasMore);
 
   useEffect(() => {
     setPage(initialPage);
     setPageSize(initialPageSize);
     setTotal(initialTotal);
-  }, [initialPage, initialPageSize, initialTotal]);
+    setHasMore(initialHasMore);
+  }, [initialPage, initialPageSize, initialTotal, initialHasMore]);
 
   const totalPages = useMemo(() => {
     if (total) return Math.max(1, Math.ceil(total / pageSize));
@@ -99,7 +102,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
         </div>
 
         <div className="text-sm text-slate-400">
-          {total !== null ? `Page ${page} of ${totalPages}` : `Page ${page}`}
+          {total !== null ? `Page ${page} of ${totalPages}` : hasMore ? `Page ${page} · More available` : `Page ${page}`}
         </div>
 
         <div className="flex gap-1">
@@ -109,7 +112,7 @@ export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSi
           <button type="button" onClick={() => goToPage(page - 1)} disabled={page <= 1} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
             <b>{"<"}</b>
           </button>
-          <button type="button" onClick={() => goToPage(page + 1)} disabled={total !== null && page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
+          <button type="button" onClick={() => goToPage(page + 1)} disabled={total !== null ? page >= totalPages : hasMore === false} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
             <b>{">"}</b>
           </button>
           <button type="button" onClick={() => goToPage(totalPages)} disabled={total === null || page >= totalPages} className={`${ghostButtonClassName} rounded-lg px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50`}>
