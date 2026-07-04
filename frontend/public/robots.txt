@@ -5,18 +5,21 @@ Allow: /faq
 Allow: /terms
 Allow: /privacy
 
-Disallow: /app/
-Disallow: /private/
-Disallow: /account/
-Disallow: /admin/
+Disallow: /ticker/
+Disallow: /insider/
+Disallow: /member/
+Disallow: /institution/
+Disallow: /signals
+Disallow: /screener
+Disallow: /watchlists
+Disallow: /monitoring
+Disallow: /feed
+Disallow: /account
+Disallow: /billing
+Disallow: /admin
 Disallow: /login
 Disallow: /register
 Disallow: /api/
-Disallow: /watchlists
-Disallow: /monitoring
-Disallow: /signals
 Disallow: /leaderboards
-Disallow: /member
-Disallow: /ticker
 
 Sitemap: https://walnutmarkets.com/sitemap.xml

@@ -552,6 +552,22 @@ def latest_job_status_payload(db: Session) -> dict[str, Any]:
     }
 
 
+def scheduled_latest_enabled_check() -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        state = get_or_create_latest_job_state(db)
+        env_enabled = _env_bool(SCHEDULED_ENABLED_ENV, False)
+        enabled = bool(env_enabled and state.enabled)
+        return {
+            "enabled": enabled,
+            "env_enabled": env_enabled,
+            "state_enabled": bool(state.enabled),
+            "state": job_state_payload(state),
+        }
+    finally:
+        db.close()
+
+
 def job_state_payload(state: InstitutionalIngestJobState) -> dict[str, Any]:
     return {
         "job_name": state.job_name,

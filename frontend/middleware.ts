@@ -16,6 +16,34 @@ const API_BASE =
 const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
 const appHost = "app.walnutmarkets.com";
 const terminalRouteFamilies = ["ticker", "insider", "member", "institution"] as const;
+const robotsDisallowPaths = [
+  "/ticker/",
+  "/insider/",
+  "/member/",
+  "/institution/",
+  "/signals",
+  "/screener",
+  "/watchlists",
+  "/monitoring",
+  "/feed",
+  "/account",
+  "/billing",
+  "/admin",
+];
+const noindexAppRoutePrefixes = [
+  "/ticker/",
+  "/insider/",
+  "/member/",
+  "/institution/",
+  "/signals",
+  "/screener",
+  "/watchlists",
+  "/monitoring",
+  "/feed",
+  "/account",
+  "/billing",
+  "/admin",
+];
 
 function routeFamily(pathname: string): string {
   const normalized = (pathname || "/").toLowerCase();
@@ -28,6 +56,34 @@ function routeFamily(pathname: string): string {
 
 function isTerminalRoute(pathname: string): boolean {
   return (terminalRouteFamilies as readonly string[]).some((family) => pathname === `/${family}` || pathname.startsWith(`/${family}/`));
+}
+
+function isNoindexAppRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase();
+  return noindexAppRoutePrefixes.some((prefix) => {
+    const exact = prefix.replace(/\/$/, "");
+    return normalized === exact || normalized.startsWith(`${exact}/`);
+  });
+}
+
+function withNoindex(response: NextResponse): NextResponse {
+  response.headers.set("x-robots-tag", "noindex, nofollow");
+  return response;
+}
+
+function robotsTxtResponse(host: string): NextResponse {
+  const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
+  const marketingAllow = publicLandingHosts.has(host)
+    ? "\nAllow: /\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\n"
+    : "\n";
+  const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
+  return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {
+    status: 200,
+    headers: {
+      "cache-control": "public, max-age=300",
+      "content-type": "text/plain; charset=utf-8",
+    },
+  });
 }
 
 function isPrefetchRequest(request: NextRequest): boolean {
@@ -45,6 +101,13 @@ function isBotUserAgent(userAgent: string): boolean {
   return /bot|crawler|spider|slurp|duckduckbot|baiduspider|yandex|semrush|ahrefs|bytespider|gptbot|claudebot|anthropic|perplexity|facebookexternalhit|twitterbot|linkedinbot|discordbot|telegrambot|whatsapp|preview/i.test(userAgent);
 }
 
+function isInteractiveBrowserUserAgent(userAgent: string): boolean {
+  const ua = userAgent.toLowerCase();
+  if (!ua) return false;
+  if (/bot|crawler|spider|headless|preview|prerender|curl|wget|python|go-http|uptime|monitor/.test(ua)) return false;
+  return /mozilla|chrome|safari|firefox|edg\//.test(ua);
+}
+
 function safeRefererPath(referer: string, request: NextRequest): string {
   if (!referer) return "";
   try {
@@ -54,7 +117,7 @@ function safeRefererPath(referer: string, request: NextRequest): string {
   }
 }
 
-function terminalShellResponse(pathname: string, host: string, reason: "bot" | "prefetch"): NextResponse {
+function terminalShellResponse(pathname: string, host: string, reason: "bot" | "prefetch" | "inactive"): NextResponse {
   const family = routeFamily(pathname);
   const body = reason === "prefetch"
     ? null
@@ -108,6 +171,11 @@ export async function middleware(request: NextRequest) {
   const prefetch = isPrefetchRequest(request);
   const bot = isBotUserAgent(userAgent);
   const family = routeFamily(pathname);
+  const shouldNoindex = host === appHost && isNoindexAppRoute(pathname);
+
+  if (pathname === "/robots.txt") {
+    return robotsTxtResponse(host);
+  }
 
   if (isTerminalRoute(pathname)) {
     console.info(
@@ -127,11 +195,12 @@ export async function middleware(request: NextRequest) {
 
   if (publicStaticPaths.has(pathname) || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
-    return NextResponse.next({
+    const response = NextResponse.next({
       request: {
         headers: requestHeaders,
       },
     });
+    return shouldNoindex ? withNoindex(response) : response;
   }
 
   if (pathname === "/" && publicLandingHosts.has(host)) {
@@ -152,8 +221,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(appUrl, 307);
   }
 
-  if (isTerminalRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot)) {
-    return terminalShellResponse(pathname, host, prefetch ? "prefetch" : "bot");
+  if (isTerminalRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
+    return terminalShellResponse(pathname, host, prefetch ? "prefetch" : bot ? "bot" : "inactive");
   }
 
   const memberMatch = pathname.match(/^\/member\/([^/]+)\/?$/);
@@ -163,22 +232,25 @@ export async function middleware(request: NextRequest) {
     if (canonicalSlug) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = `/member/${canonicalSlug}`;
-      return NextResponse.redirect(redirectUrl, 307);
+      const response = NextResponse.redirect(redirectUrl, 307);
+      return shouldNoindex ? withNoindex(response) : response;
     }
   }
 
   const protectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (!protectedRoute || hasBackendSession || hasAuthHint) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    return shouldNoindex ? withNoindex(response) : response;
   }
 
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.search = "";
   loginUrl.searchParams.set("return_to", `${pathname}${search}`);
-  return NextResponse.redirect(loginUrl);
+  const response = NextResponse.redirect(loginUrl);
+  return shouldNoindex ? withNoindex(response) : response;
 }
 
 export const config = {
-  matcher: ["/", "/landing", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/", "/robots.txt", "/landing", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/billing/:path*", "/feed", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
 };

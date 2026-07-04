@@ -126,6 +126,11 @@ def test_institutional_latest_job_wrapper_is_disabled_bounded_and_non_overlappin
     assert "INSTITUTIONAL_SCHEDULED_INGEST_MAX_SECONDS:-900" in script
     assert "python -m app.background_job_guard --job institutional-latest" in script
     assert "reason=db_pressure_guard" in script
+    assert "python -m app.ingest_institutional_activity --scheduled-latest-enabled-check --log-level INFO" in script
+    assert "reason=durable_or_env_disabled" in script
     assert "mkdir \"$lock_dir\"" in script
     assert "worker_already_running" in script
+    assert "lock_pid_file=\"$lock_dir/pid\"" in script
+    assert "stale_lock_recovered" in script
+    assert "stale_lock_not_empty" in script
     assert "timeout \"$max_seconds\" python -m app.ingest_institutional_activity --scheduled-latest-once --log-level INFO" in script

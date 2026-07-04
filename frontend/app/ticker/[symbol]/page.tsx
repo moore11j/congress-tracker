@@ -258,6 +258,25 @@ function shouldDeferAnonymousTickerActivityDetails({
   return !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"));
 }
 
+function shouldUseAnonymousTickerSsrShell({
+  requestHeaders,
+  authToken,
+  hasAuthHint,
+  activityDetailsRequested,
+}: {
+  requestHeaders: HeaderReader;
+  authToken: string | null | undefined;
+  hasAuthHint: boolean;
+  activityDetailsRequested: boolean;
+}): boolean {
+  if (authToken || hasAuthHint || activityDetailsRequested) return false;
+  if (requestHeaders.get("next-router-prefetch") === "1") return true;
+  if (requestHeaders.get("x-middleware-prefetch") === "1") return true;
+  if (headerIncludes(requestHeaders, "purpose", "prefetch")) return true;
+  if (headerIncludes(requestHeaders, "sec-purpose", "prefetch")) return true;
+  return !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"));
+}
+
 function clampLookback(v: string): Lookback {
   return v === "30" || v === "90" || v === "180" || v === "365" ? v : "365";
 }
@@ -3193,42 +3212,56 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const entitlements = authToken
     ? await getEntitlements(authToken, { source: "TickerPage" }).catch(() => null)
     : entitlementsFromTierHint(authState.entitlementHint);
+  const useAnonymousTickerSsrShell = shouldUseAnonymousTickerSsrShell({
+    requestHeaders,
+    authToken,
+    hasAuthHint: authState.hasAuthHint,
+    activityDetailsRequested,
+  });
+  const activeTickerSsrRequest = !useAnonymousTickerSsrShell;
 
-  const contextBundleResult = await getTickerContextBundle(normalizedSymbol, {
-    side,
-    limit: 3,
-    lookback_days: lookbackDays,
-    authToken: authToken ?? undefined,
-    source: "TickerContextBundle",
-  })
-    .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
-    .catch((error) => {
-      if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
-      if (isRecoverableTickerProfileError(error)) {
-        console.error("[ticker-context-bundle] shell fallback", {
-          symbol: normalizedSymbol,
-          status: error instanceof ApiError ? error.status : null,
-          name: error instanceof Error ? error.name : "unknown",
-        });
-        return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback" })
-          .then((profile) => ({
-            bundle: null as TickerContextBundle | null,
-            profile,
-            fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
-          }))
-          .catch((profileError) => {
-            if (profileError instanceof ApiError && profileError.status === 404) {
-              return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
-            }
-            return {
-              bundle: null as TickerContextBundle | null,
-              profile: fallbackTickerProfile(normalizedSymbol),
-              fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
-            };
-          });
+  const contextBundleResult = useAnonymousTickerSsrShell
+    ? {
+        bundle: null as TickerContextBundle | null,
+        profile: fallbackTickerProfile(normalizedSymbol),
+        fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
       }
-      throw error;
-    });
+    : await getTickerContextBundle(normalizedSymbol, {
+        side,
+        limit: 3,
+        lookback_days: lookbackDays,
+        authToken: authToken ?? undefined,
+        activeUser: activeTickerSsrRequest,
+        source: "TickerContextBundle",
+      })
+        .then((bundle) => ({ bundle, profile: bundle as TickerProfileResponse, fallbackMessage: null as string | null }))
+        .catch((error) => {
+          if (error instanceof ApiError && error.status === 404) return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+          if (isRecoverableTickerProfileError(error)) {
+            console.error("[ticker-context-bundle] shell fallback", {
+              symbol: normalizedSymbol,
+              status: error instanceof ApiError ? error.status : null,
+              name: error instanceof Error ? error.name : "unknown",
+            });
+            return getTickerProfile(normalizedSymbol, { source: "TickerProfileFallback" })
+              .then((profile) => ({
+                bundle: null as TickerContextBundle | null,
+                profile,
+                fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+              }))
+              .catch((profileError) => {
+                if (profileError instanceof ApiError && profileError.status === 404) {
+                  return { bundle: null as TickerContextBundle | null, profile: null, fallbackMessage: null };
+                }
+                return {
+                  bundle: null as TickerContextBundle | null,
+                  profile: fallbackTickerProfile(normalizedSymbol),
+                  fallbackMessage: "Ticker data is loading. Try refreshing shortly.",
+                };
+              });
+          }
+          throw error;
+        });
   const profile = contextBundleResult.profile;
   if (!profile) return <MissingTickerSearchFallback symbol={normalizedSymbol} />;
   const contextBundle = contextBundleResult.bundle;
@@ -3251,7 +3284,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
-  const deferTickerActivityDetails = shouldDeferAnonymousTickerActivityDetails({
+  const deferTickerActivityDetails = useAnonymousTickerSsrShell || shouldDeferAnonymousTickerActivityDetails({
     requestHeaders,
     authToken,
     hasAuthHint: authState.hasAuthHint,
@@ -3317,6 +3350,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
             min_amount: 1_000_000,
             limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
             page: contractsPage,
+            activeUser: activeTickerSsrRequest,
             source: "TickerGovernmentContracts",
           }).catch((error) => {
             console.error("[ticker-government-contracts] unavailable", error);
@@ -3344,6 +3378,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           limit: 3,
           lookback_days: lookbackDays,
           authToken: authToken ?? undefined,
+          activeUser: activeTickerSsrRequest,
           source: "TickerSignalsSummary",
         });
     return resolveTickerActivityData({

@@ -69,7 +69,7 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
-  assert.match(middleware, /matcher: \["\/", "\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
+  assert.match(middleware, /matcher: \["\/", "\/robots\.txt", "\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
   assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);
@@ -86,8 +86,8 @@ test("terminal app routes log request intent and bypass anonymous bot prefetch S
   assert.match(middleware, /referer: safeRefererPath\(referer, request\)/);
   assert.match(middleware, /user_agent: userAgent\.slice\(0, 180\)/);
   assert.match(middleware, /authenticated: hasBackendSession \|\| hasAuthHint/);
-  assert.match(middleware, /isTerminalRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot\)/);
-  assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : "bot"\)/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
+  assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : bot \? "bot" : "inactive"\)/);
   assert.match(middleware, /reason === "prefetch"\s+\?\s+null/);
   assert.match(middleware, /"x-walnut-terminal-shell": reason/);
   assert.match(middleware, /"x-robots-tag": "noindex, nofollow"/);

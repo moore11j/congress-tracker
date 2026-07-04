@@ -63,6 +63,7 @@ from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
+from app.request_guards import api_prefetch_response, is_inactive_logged_out_api_request
 
 router = APIRouter(tags=["events"])
 logger = logging.getLogger(__name__)
@@ -3783,6 +3784,12 @@ def list_events(
     debug: bool | None = None,
 ):
     started_at = perf_counter()
+    prefetch_response = api_prefetch_response(request, endpoint="events", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
+    if request is not None and is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=events")
+        return EventsPageDebug(items=[], has_more=False, total=0 if include_total else None, limit=limit, offset=offset)
     # Manual curl checks:
     # curl "http://localhost:8000/api/events?symbol=NVDA"
     # curl "http://localhost:8000/api/events?member=Pelosi"
@@ -4381,6 +4388,12 @@ def list_ticker_events(
     cursor: str | None = None,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    prefetch_response = api_prefetch_response(request, endpoint="ticker_events", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
+    if request is not None and is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=ticker_events symbol=%s", normalize_symbol(symbol) or symbol)
+        return EventsPage(items=[], next_cursor=None, has_more=False, limit=limit, offset=0)
     symbol_list = [symbol.strip().upper()]
     type_list = [event_type.strip().lower() for event_type in _parse_csv(types)]
     since_dt = _parse_since(since)
@@ -4507,6 +4520,7 @@ def list_watchlist_events(
 @router.get("/insiders/{reporting_cik}/portfolio-performance", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_portfolio_performance(
     reporting_cik: str,
+    request: Request,
     db: Session = Depends(get_db),
     lookback_days: int = Query(1095),
     mode: str = "realistic_disclosure_lag",
@@ -4514,9 +4528,15 @@ def insider_portfolio_performance(
     issuer: str | None = None,
 ):
     """Read-only replicated portfolio performance from persisted portfolio runs."""
+    prefetch_response = api_prefetch_response(request, endpoint="insider_portfolio_performance", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
     normalized_cik = normalize_cik(reporting_cik)
     if not normalized_cik:
         raise HTTPException(status_code=400, detail="Invalid reporting_cik.")
+    if is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_portfolio_performance reporting_cik=%s", normalized_cik)
+        return {"status": "skipped", "entity_type": "insider", "entity_id": normalized_cik, "items": []}
     normalized_mode = (mode or "realistic_disclosure_lag").strip()
     if normalized_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
         raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
@@ -4537,15 +4557,37 @@ def insider_portfolio_performance(
 @router.get("/insiders/{reporting_cik}/alpha-summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_alpha_summary(
     reporting_cik: str,
+    request: Request,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     benchmark: str = "^GSPC",
     issuer: str | None = None,
 ):
     started = perf_counter()
+    prefetch_response = api_prefetch_response(request, endpoint="insider_alpha_summary", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
     lookback_days = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    if is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_alpha_summary reporting_cik=%s", normalized_cik)
+        return {
+            "reporting_cik": normalized_cik,
+            "lookback_days": lookback_days,
+            "benchmark_symbol": benchmark_symbol,
+            "trades_analyzed": 0,
+            "avg_return_pct": None,
+            "avg_alpha_pct": None,
+            "win_rate": None,
+            "avg_holding_days": None,
+            "best_trades": [],
+            "worst_trades": [],
+            "member_series": [],
+            "benchmark_series": [],
+            "performance_series": [],
+            "status": "skipped",
+        }
     cache_key = _insider_analytics_cache_key(
         "alpha-summary",
         reporting_cik,
@@ -4696,12 +4738,36 @@ def insider_alpha_summary(
 @router.get("/insiders/{reporting_cik}/summary", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_summary(
     reporting_cik: str,
+    request: Request,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     issuer: str | None = None,
 ):
     started = perf_counter()
+    prefetch_response = api_prefetch_response(request, endpoint="insider_summary", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
     normalized_cik = normalize_cik(reporting_cik)
+    if is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_summary reporting_cik=%s", normalized_cik)
+        return {
+            "reporting_cik": normalized_cik,
+            "insider_name": None,
+            "primary_company_name": None,
+            "primary_role": None,
+            "primary_symbol": None,
+            "lookback_days": lookback_days,
+            "total_trades": 0,
+            "buy_count": 0,
+            "sell_count": 0,
+            "unique_tickers": 0,
+            "gross_buy_value": 0,
+            "gross_sell_value": 0,
+            "net_flow": 0,
+            "latest_filing_date": None,
+            "latest_transaction_date": None,
+            "status": "skipped",
+        }
     cache_key = _insider_summary_cache_key(reporting_cik, lookback_days, issuer)
     cached_response = _insider_summary_cache_get(cache_key)
     if cached_response is not None:
@@ -4862,6 +4928,7 @@ def insider_summary(
 @router.get("/insiders/{reporting_cik}/trades", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_trades(
     reporting_cik: str,
+    request: Request,
     db: Session = Depends(get_db),
     lookback_days: Annotated[int, Query()] = 90,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -4869,8 +4936,23 @@ def insider_trades(
     issuer: str | None = None,
 ):
     started = perf_counter()
-    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
+    prefetch_response = api_prefetch_response(request, endpoint="insider_trades", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
     normalized_cik = normalize_cik(reporting_cik)
+    if is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_trades reporting_cik=%s", normalized_cik)
+        return {
+            "reporting_cik": normalized_cik,
+            "lookback_days": lookback_days,
+            "total": 0,
+            "page": page,
+            "limit": limit,
+            "has_next": False,
+            "items": [],
+            "status": "skipped",
+        }
+    matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     offset = page * limit
     total = len(matched)
     visible = matched[offset:offset + limit]
@@ -4964,14 +5046,22 @@ def insider_trades(
 @router.get("/insiders/{reporting_cik}/top-tickers", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_top_tickers(
     reporting_cik: str,
+    request: Request,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
     limit: int = Query(10, ge=1, le=25),
     issuer: str | None = None,
 ):
     started = perf_counter()
+    prefetch_response = api_prefetch_response(request, endpoint="insider_top_tickers", logger=logger)
+    if prefetch_response is not None:
+        return prefetch_response
     lookback_days = _validated_lookback_days(lookback_days)
     safe_limit = min(max(limit, 1), 25)
+    normalized_cik = normalize_cik(reporting_cik)
+    if is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_top_tickers reporting_cik=%s", normalized_cik)
+        return {"reporting_cik": normalized_cik, "lookback_days": lookback_days, "items": [], "status": "skipped"}
     cache_key = _insider_analytics_cache_key(
         "top-tickers",
         reporting_cik,

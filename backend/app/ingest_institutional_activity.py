@@ -422,6 +422,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--job-init", action="store_true", help="Initialize durable latest-filings job state without running ingestion.")
     parser.add_argument("--job-run-once", action="store_true", help="Run one durable latest-filings job window and persist status.")
     parser.add_argument("--require-job-enabled", action="store_true", help="Skip --job-run-once unless the persisted job state is enabled.")
+    parser.add_argument("--scheduled-latest-enabled-check", action="store_true", help="Exit zero only when both scheduled latest-filings gates are enabled.")
     parser.add_argument("--scheduled-latest-once", action="store_true", help="Run one scheduled latest-filings page using the persisted cursor.")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
@@ -441,6 +442,15 @@ def main() -> None:
                 max_filings_per_run=args.max_filings,
                 enabled=False,
             )
+        elif args.scheduled_latest_enabled_check:
+            from app.services.institutional_ingest_job import scheduled_latest_enabled_check
+
+            result = scheduled_latest_enabled_check()
+            logger.info("Institutional scheduled latest enabled check: %s", result)
+            print(result)
+            if not result.get("enabled"):
+                raise SystemExit(75)
+            return
         elif args.scheduled_latest_once:
             from app.services.institutional_ingest_job import run_scheduled_latest_once
 

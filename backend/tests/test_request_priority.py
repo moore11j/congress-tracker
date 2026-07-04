@@ -5,6 +5,7 @@ from starlette.requests import Request
 from app.main import (
     _analytics_panel_name,
     _classify_user_agent,
+    _is_inactive_logged_out_ssr_request,
     _is_secondary_analytics_path,
     _log_request_attribution,
     _request_attribution_fields,
@@ -141,6 +142,24 @@ def test_request_attribution_route_family_fallbacks():
     assert _request_route_family("/api/market/quotes") == "market_quotes"
     assert _request_route_family("/api/insiders/0001/trades") == "insider"
     assert _request_route_family("/institution/0001067983") == "institution"
+
+
+def test_inactive_logged_out_ssr_requires_unknown_ua_no_referer_and_no_auth():
+    assert _is_inactive_logged_out_ssr_request(
+        _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "ssr"})
+    )
+    assert not _is_inactive_logged_out_ssr_request(
+        _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "ssr", "user-agent": "Mozilla/5.0 Chrome/126"})
+    )
+    assert not _is_inactive_logged_out_ssr_request(
+        _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "ssr", "referer": "https://app.walnutmarkets.com/ticker/AAPL"})
+    )
+    assert not _is_inactive_logged_out_ssr_request(
+        _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "client"})
+    )
+    assert not _is_inactive_logged_out_ssr_request(
+        _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "ssr", "x-walnut-active-user": "browser"})
+    )
 
 
 def test_request_attribution_logs_slow_degraded_and_sampled_fast(monkeypatch):

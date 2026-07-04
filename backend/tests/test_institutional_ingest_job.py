@@ -284,6 +284,44 @@ def test_scheduled_latest_once_env_disabled_overrides_persisted_enabled(job_env,
     assert "environment" in (result["run"]["error_message"] or "")
 
 
+def test_scheduled_latest_once_persisted_disabled_overrides_env_enabled(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=9, enabled=False)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+    monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", lambda **_kwargs: pytest.fail("state-disabled scheduler must not ingest"))
+
+    result = job_module.run_scheduled_latest_once()
+
+    assert result["status"] == "paused"
+    state = _state(job_env)
+    assert state.enabled is False
+    assert state.cursor_page == 9
+    assert "disabled" in (result["run"]["error_message"] or "")
+
+
+def test_scheduled_latest_enabled_check_requires_env_and_persisted_state(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=14, enabled=False)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+
+    disabled = job_module.scheduled_latest_enabled_check()
+    assert disabled["enabled"] is False
+    assert disabled["env_enabled"] is True
+    assert disabled["state_enabled"] is False
+    assert disabled["state"]["cursor_page"] == 14
+
+    db = job_env()
+    try:
+        state = db.get(InstitutionalIngestJobState, job_module.LATEST_FILINGS_JOB_NAME)
+        state.enabled = True
+        db.commit()
+    finally:
+        db.close()
+
+    enabled = job_module.scheduled_latest_enabled_check()
+    assert enabled["enabled"] is True
+    assert enabled["env_enabled"] is True
+    assert enabled["state_enabled"] is True
+
+
 def test_scheduled_latest_once_cli_invokes_scheduler(monkeypatch, capsys):
     calls = []
 

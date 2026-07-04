@@ -149,6 +149,32 @@ def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatc
     assert payload["signals_summary"]["items"] == []
 
 
+def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {"x-walnut-request-source": "ssr"},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("inactive SSR must not build fresh context bundle")),
+    )
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
+
+    payload = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "AAPL"
+    assert payload["status"] == "skipped"
+    assert payload["signals_summary"]["items"] == []
+
+
 def test_ticker_government_contracts_prefetch_and_bot_do_not_query_details(monkeypatch):
     monkeypatch.setattr(
         main_module,
@@ -181,6 +207,28 @@ def test_ticker_government_contracts_prefetch_and_bot_do_not_query_details(monke
     assert bot["items"] == []
 
 
+def test_ticker_government_contracts_unknown_logged_out_ssr_does_not_query_details(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "get_government_contracts_for_symbol",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("inactive SSR must not query contract details")),
+    )
+
+    payload = main_module.ticker_government_contracts(
+        _request("/api/tickers/NVDA/government-contracts", {"x-walnut-request-source": "ssr"}),
+        "NVDA",
+        lookback_days=365,
+        min_amount=1_000_000,
+        limit=10,
+        page=0,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "NVDA"
+    assert payload["status"] == "skipped"
+    assert payload["items"] == []
+
+
 def test_ticker_signals_summary_bot_does_not_query_unified_signals(monkeypatch):
     monkeypatch.setattr(
         main_module,
@@ -190,6 +238,27 @@ def test_ticker_signals_summary_bot_does_not_query_unified_signals(monkeypatch):
 
     payload = main_module.ticker_signals_summary(
         _request("/api/tickers/AAPL/signals-summary", {"user-agent": "Googlebot/2.1"}),
+        "AAPL",
+        side="all",
+        limit=3,
+        lookback_days=30,
+        db=object(),
+    )
+
+    assert payload["symbol"] == "AAPL"
+    assert payload["status"] == "skipped"
+    assert payload["items"] == []
+
+
+def test_ticker_signals_summary_unknown_logged_out_ssr_does_not_query_unified_signals(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "_query_unified_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("inactive SSR must not query unified signals")),
+    )
+
+    payload = main_module.ticker_signals_summary(
+        _request("/api/tickers/AAPL/signals-summary", {"x-walnut-request-source": "ssr"}),
         "AAPL",
         side="all",
         limit=3,

@@ -78,6 +78,17 @@ from app.request_priority import (
     retry_after_for_priority,
     set_request_context,
 )
+from app.request_guards import (
+    api_prefetch_response as _shared_api_prefetch_response,
+    classify_user_agent as _shared_classify_user_agent,
+    is_explicit_prefetch_request as _shared_is_explicit_prefetch_request,
+    is_inactive_logged_out_api_request as _shared_is_inactive_logged_out_api_request,
+    is_inactive_logged_out_ssr_request as _shared_is_inactive_logged_out_ssr_request,
+    is_logged_out_bot_or_crawler_request as _shared_is_logged_out_bot_or_crawler_request,
+    request_auth_state as _shared_request_auth_state,
+    request_source as _shared_request_source,
+    sanitize_referer as _shared_sanitize_referer,
+)
 from app.security.startup_checks import (
     DEFAULT_LOCAL_FRONTEND_ORIGINS as _DEFAULT_LOCAL_FRONTEND_ORIGINS,
     DEFAULT_PRODUCTION_FRONTEND_ORIGINS as _DEFAULT_PRODUCTION_FRONTEND_ORIGINS,
@@ -2575,61 +2586,27 @@ def _hash_user_agent(user_agent: str | None) -> str:
 
 
 def _classify_user_agent(request: Request) -> str:
-    headers = getattr(request, "headers", None)
-    header = lambda name: str((headers.get(name) if headers is not None else "") or "").lower()
-    purpose = header("purpose")
-    sec_purpose = header("sec-purpose")
-    next_router_prefetch = header("next-router-prefetch")
-    middleware_prefetch = header("x-middleware-prefetch")
-    nextjs_data = header("x-nextjs-data")
-    walnut_source = header("x-walnut-request-source")
-    if (
-        purpose == "prefetch"
-        or "prefetch" in sec_purpose
-        or next_router_prefetch in {"1", "true", "prefetch"}
-        or middleware_prefetch in {"1", "true", "prefetch"}
-        or nextjs_data in {"1", "true", "prefetch"}
-        or walnut_source == "prefetch"
-    ):
-        return "prefetch"
-    user_agent = header("user-agent")
-    if not user_agent:
-        return "unknown"
-    crawler_terms = ("googlebot", "bingbot", "slurp", "duckduckbot", "baiduspider", "yandexbot", "semrushbot", "ahrefsbot")
-    bot_terms = ("bot", "crawler", "spider", "preview", "facebookexternalhit", "linkedinbot", "twitterbot", "uptimerobot")
-    if any(term in user_agent for term in crawler_terms):
-        return "crawler"
-    if any(term in user_agent for term in bot_terms):
-        return "bot"
-    browser_terms = ("mozilla", "chrome", "safari", "firefox", "edg/", "opr/")
-    if any(term in user_agent for term in browser_terms):
-        return "browser"
-    return "unknown"
+    return _shared_classify_user_agent(request)
 
 
 def _is_explicit_prefetch_request(request: Request) -> bool:
-    return _classify_user_agent(request) == "prefetch"
+    return _shared_is_explicit_prefetch_request(request)
 
 
 def _is_logged_out_bot_or_crawler_request(request: Request) -> bool:
-    if not hasattr(request, "headers"):
-        return False
-    if _classify_user_agent(request) not in {"bot", "crawler"}:
-        return False
-    auth_state, _plan_tier = _request_auth_state(request)
-    return auth_state == "logged_out"
+    return _shared_is_logged_out_bot_or_crawler_request(request)
+
+
+def _is_inactive_logged_out_ssr_request(request: Request) -> bool:
+    return _shared_is_inactive_logged_out_ssr_request(request)
+
+
+def _is_inactive_logged_out_api_request(request: Request) -> bool:
+    return _shared_is_inactive_logged_out_api_request(request)
 
 
 def _api_prefetch_response(request: Request, *, endpoint: str) -> Response | None:
-    if not _is_explicit_prefetch_request(request):
-        return None
-    logger.info(
-        "api_prefetch_bypass endpoint=%s path=%s panel=%s",
-        endpoint,
-        request.url.path,
-        request.headers.get("x-walnut-panel") or request.headers.get("x-walnut-component") or "unknown",
-    )
-    return Response(status_code=204, headers={"cache-control": "no-store", "x-walnut-prefetch-bypass": "1"})
+    return _shared_api_prefetch_response(request, endpoint=endpoint, logger=logger)
 
 
 def _request_route_family(path: str, header_family: str | None = None) -> str:
@@ -2647,42 +2624,15 @@ def _request_route_family(path: str, header_family: str | None = None) -> str:
 
 
 def _sanitize_referer(value: str | None) -> tuple[str, str]:
-    if not value:
-        return "none", "none"
-    try:
-        parsed = urlparse(value)
-    except Exception:
-        return "invalid", "invalid"
-    host = _bounded_log_value(parsed.netloc.lower(), max_length=80)
-    path = _bounded_log_value(parsed.path or "/", max_length=120)
-    return host, path
+    return _shared_sanitize_referer(value)
 
 
 def _request_auth_state(request: Request) -> tuple[str, str]:
-    tier = (request.headers.get("x-ct-entitlement-tier") or request.cookies.get("ct_entitlement_hint") or "").strip().lower()
-    if tier not in _SAFE_TIER_VALUES:
-        tier = "unknown"
-    if tier == "admin":
-        return "admin", "admin"
-    has_session = bool(request.cookies.get(SESSION_COOKIE_NAME))
-    if has_session:
-        return "logged_in", tier if tier != "unknown" else "unknown"
-    if tier in {"free", "premium", "pro"}:
-        return "logged_in", tier
-    return "logged_out", "logged_out"
+    return _shared_request_auth_state(request)
 
 
 def _request_source(request: Request, user_agent_class: str) -> str:
-    raw = _bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32).lower()
-    if raw in {"ssr", "client", "client_fetch", "prefetch", "bot_shell", "prefetch_204", "cron"}:
-        return "client_fetch" if raw == "client" else raw
-    if user_agent_class == "prefetch":
-        return "prefetch"
-    if user_agent_class in {"bot", "crawler"}:
-        return "bot_shell"
-    if request.headers.get("x-supercronic") or request.headers.get("x-walnut-cron"):
-        return "cron"
-    return "unknown"
+    return _shared_request_source(request, user_agent_class)
 
 
 def _request_attribution_sample_rate() -> float:
@@ -4167,9 +4117,16 @@ def congress_ingest_freshness(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/members/by-slug/{slug}")
 def member_profile_by_slug(
     slug: str,
+    request: Request,
     include_trades: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
+    prefetch_response = _api_prefetch_response(request, endpoint="member_profile_by_slug")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_profile_by_slug member_id=%s", slug)
+        return {"status": "skipped", "member": {"bioguide_id": slug, "name": None}, "top_tickers": [], "trades": []}
     slug_value = (slug or "").strip()
     if not slug_value:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -4205,7 +4162,13 @@ def member_profile_by_slug(
 
 
 @app.get("/api/members/{bioguide_id}")
-def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
+def member_profile(bioguide_id: str, request: Request, db: Session = Depends(get_db)):
+    prefetch_response = _api_prefetch_response(request, endpoint="member_profile")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_profile member_id=%s", bioguide_id)
+        return {"status": "skipped", "member": {"bioguide_id": bioguide_id, "name": None}, "top_tickers": [], "trades": []}
     member = _resolve_member_legacy_compat(db, bioguide_id)
 
     if not member:
@@ -4214,9 +4177,28 @@ def member_profile(bioguide_id: str, db: Session = Depends(get_db)):
     return _build_member_profile(db, member)
 
 @app.get("/api/members/{member_id}/performance")
-def member_performance(member_id: str, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
+def member_performance(member_id: str, request: Request, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
     """Member performance metrics from persisted trade outcomes."""
     started = perf_counter()
+    prefetch_response = _api_prefetch_response(request, endpoint="member_performance")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_performance member_id=%s", member_id)
+        return {
+            "member_id": member_id,
+            "lookback_days": lookback_days,
+            "trade_count_total": 0,
+            "trade_count_scored": 0,
+            "avg_return": None,
+            "median_return": None,
+            "win_rate": None,
+            "avg_alpha": None,
+            "median_alpha": None,
+            "benchmark_symbol": (benchmark or "^GSPC").strip() or "^GSPC",
+            "persisted_only": True,
+            "pnl_status": "skipped",
+        }
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
@@ -4266,6 +4248,7 @@ def member_performance(member_id: str, lookback_days: int = 365, benchmark: str 
 @app.get("/api/members/{member_id}/portfolio-performance")
 def member_portfolio_performance(
     member_id: str,
+    request: Request,
     lookback_days: int = 1095,
     mode: str = "realistic_disclosure_lag",
     benchmark: str = "^GSPC",
@@ -4273,6 +4256,12 @@ def member_portfolio_performance(
 ):
     """Read-only replicated portfolio performance from persisted portfolio runs."""
     started = perf_counter()
+    prefetch_response = _api_prefetch_response(request, endpoint="member_portfolio_performance")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_portfolio_performance member_id=%s", member_id)
+        return {"status": "skipped", "entity_type": "congress_member", "entity_id": member_id, "items": []}
     resolved_member, _ = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
     normalized_mode = (mode or "realistic_disclosure_lag").strip()
@@ -4308,8 +4297,14 @@ def member_portfolio_performance(
 
 
 @app.get("/api/members/{member_id}/trades")
-def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db: Session = Depends(get_db)):
+def member_trades(member_id: str, request: Request, lookback_days: int = 365, limit: int = 100, db: Session = Depends(get_db)):
     started = perf_counter()
+    prefetch_response = _api_prefetch_response(request, endpoint="member_trades")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_trades member_id=%s", member_id)
+        return {"member_id": member_id, "lookback_days": lookback_days, "limit": min(max(limit, 1), 200), "items": [], "status": "skipped"}
     member = _resolve_member_legacy_compat(db, member_id)
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -4340,15 +4335,36 @@ def member_trades(member_id: str, lookback_days: int = 365, limit: int = 100, db
 @app.get("/api/members/{member_id}/alpha-summary")
 def member_alpha_summary(
     member_id: str,
+    request: Request,
     lookback_days: int = Query(365, ge=30, le=1095),
     benchmark: str = "^GSPC",
     debug_dates: bool = False,
     db: Session = Depends(get_db),
 ):
     started = perf_counter()
+    prefetch_response = _api_prefetch_response(request, endpoint="member_alpha_summary")
+    if prefetch_response is not None:
+        return prefetch_response
+    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=member_alpha_summary member_id=%s", member_id)
+        return {
+            "member_id": member_id,
+            "lookback_days": lookback_days,
+            "benchmark_symbol": benchmark_symbol,
+            "trades_analyzed": 0,
+            "avg_return_pct": None,
+            "avg_alpha_pct": None,
+            "win_rate": None,
+            "avg_holding_days": None,
+            "best_trades": [],
+            "worst_trades": [],
+            "member_series": [],
+            "benchmark_series": [],
+            "status": "skipped",
+        }
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
-    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
     cache_key = _member_analytics_cache_key("alpha-summary", analytics_member_id, lookback_days, benchmark_symbol)
     if cache_key:
         cache_key = f"{cache_key}:bind={id(db.get_bind())}"
@@ -5784,7 +5800,7 @@ def ticker_context_bundle(
     prefetch_response = _api_prefetch_response(request, endpoint="ticker_context_bundle")
     if prefetch_response is not None:
         return prefetch_response
-    if _is_logged_out_bot_or_crawler_request(request):
+    if _is_inactive_logged_out_api_request(request):
         started_at = perf_counter()
         cached = _ticker_context_bundle_cached_for_segment(
             db,
@@ -5802,7 +5818,7 @@ def ticker_context_bundle(
                 (perf_counter() - started_at) * 1000,
             )
             return cached
-        logger.info("api_bot_lightweight_response endpoint=ticker_context_bundle symbol=%s", normalize_symbol(symbol) or symbol)
+        logger.info("api_inactive_lightweight_response endpoint=ticker_context_bundle symbol=%s", normalize_symbol(symbol) or symbol)
         return _ticker_context_bundle_bot_payload(symbol)
     return _build_ticker_context_bundle(
         request=request,
@@ -7967,11 +7983,11 @@ def ticker_signals_summary(
     prefetch_response = _api_prefetch_response(request, endpoint="ticker_signals_summary")
     if prefetch_response is not None:
         return prefetch_response
-    if _is_logged_out_bot_or_crawler_request(request):
+    if _is_inactive_logged_out_api_request(request):
         normalized_symbol = normalize_symbol(symbol)
         if not normalized_symbol:
             raise HTTPException(status_code=422, detail="Ticker symbol is required")
-        logger.info("api_bot_lightweight_response endpoint=ticker_signals_summary symbol=%s", normalized_symbol)
+        logger.info("api_inactive_lightweight_response endpoint=ticker_signals_summary symbol=%s", normalized_symbol)
         return _ticker_context_bundle_bot_payload(normalized_symbol)["signals_summary"]
     started_at = perf_counter()
     auth_started_at = perf_counter()
@@ -8213,8 +8229,8 @@ def ticker_government_contracts(
     prefetch_response = _api_prefetch_response(request, endpoint="ticker_government_contracts")
     if prefetch_response is not None:
         return prefetch_response
-    if _is_logged_out_bot_or_crawler_request(request):
-        logger.info("api_bot_lightweight_response endpoint=ticker_government_contracts symbol=%s", normalized_symbol or symbol)
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=ticker_government_contracts symbol=%s", normalized_symbol or symbol)
         return {
             "symbol": normalized_symbol,
             "status": "skipped",
@@ -9382,14 +9398,21 @@ def _coalesced_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 
 @app.get("/api/tickers/{symbol}/chart-bundle", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_chart_bundle(
+    request: Request,
     symbol: str,
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
     started_at = perf_counter()
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_chart_bundle")
+    if prefetch_response is not None:
+        return prefetch_response
     sym = normalize_symbol(symbol)
     if not sym:
         raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=ticker_chart_bundle symbol=%s", sym)
+        return _normalize_ticker_chart_payload(_chart_unavailable_payload(sym, days, reason="inactive_request"), requested_days=days)
     cache_key = f"chart-bundle:{sym}:{int(days)}"
     cached = _ticker_response_cache_get(_TICKER_CHART_BUNDLE_CACHE, cache_key)
     if cached is not None:
@@ -9425,10 +9448,17 @@ def ticker_chart_bundle(
 @app.get("/api/insiders/{reporting_cik}/stock-chart", dependencies=[Depends(rate_limit_provider_backed)])
 def insider_stock_chart_bundle(
     reporting_cik: str,
+    request: Request,
     lookback_days: int = Query(365, ge=30, le=1095),
     symbol: str | None = None,
     db: Session = Depends(get_db),
 ):
+    prefetch_response = _api_prefetch_response(request, endpoint="insider_stock_chart")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        logger.info("api_inactive_lightweight_response endpoint=insider_stock_chart reporting_cik=%s symbol=%s", reporting_cik, symbol)
+        return {**_chart_unavailable_payload(symbol, lookback_days, reason="inactive_request"), "available_symbols": []}
     with _heavy_route_slot("insider_stock_chart_bundle", _TICKER_CHART_SEMAPHORE):
         try:
             return _build_insider_stock_chart_bundle(reporting_cik, days=lookback_days, symbol=symbol, db=db)
@@ -9445,10 +9475,34 @@ def insider_stock_chart_bundle(
 
 @app.get("/api/tickers/{symbol}/price-history", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_price_history(
+    request: Request,
     symbol: str,
     days: int = Query(365, ge=30, le=365),
     db: Session = Depends(get_db),
 ):
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_price_history")
+    if prefetch_response is not None:
+        return prefetch_response
+    if _is_inactive_logged_out_api_request(request):
+        sym = normalize_symbol(symbol) or str(symbol or "").strip().upper()
+        logger.info("api_inactive_lightweight_response endpoint=ticker_price_history symbol=%s", sym)
+        return {
+            "symbol": sym,
+            "days": days,
+            "start_date": None,
+            "end_date": None,
+            "points": [],
+            "freshness": {
+                "status": "unavailable",
+                "is_stale": True,
+                "latest_date": None,
+                "expected_latest_date": get_expected_latest_market_date().isoformat(),
+                "refresh_attempted": False,
+                "message": "Latest market data is temporarily unavailable.",
+            },
+            "status": "skipped",
+            "message": "Latest market data is temporarily unavailable.",
+        }
     with _heavy_route_slot("ticker_price_history", _TICKER_CHART_SEMAPHORE):
         try:
             return _ticker_price_history_response(symbol, days, db)

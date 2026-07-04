@@ -71,6 +71,7 @@ type ApiRequestInit = RequestInit & {
   source?: string;
   component?: string;
   route?: string;
+  requestSource?: "ssr" | "client" | "prefetch" | "visibility" | "idle";
 };
 
 export const EVENTS_API_MAX_LIMIT = 100;
@@ -345,8 +346,8 @@ function panelFromSource(source: string) {
   return safeHeaderValue(value, "unknown");
 }
 
-function requestSource() {
-  return typeof window === "undefined" ? "ssr" : "client_fetch";
+function requestSource(override?: ApiRequestInit["requestSource"]) {
+  return override ?? (typeof window === "undefined" ? "ssr" : "client");
 }
 
 function traceApiFetch(url: string, init?: ApiRequestInit) {
@@ -364,7 +365,7 @@ function traceApiFetch(url: string, init?: ApiRequestInit) {
 }
 
 function withRequestAttribution(init?: ApiRequestInit, url?: string): RequestInit {
-  const { source: _source, component: _component, route: _route, ...fetchInit } = init ?? {};
+  const { source: _source, component: _component, route: _route, requestSource: _requestSource, ...fetchInit } = init ?? {};
   const headers = new Headers(fetchInit.headers);
   const attribution = requestAttribution(init);
   headers.set("X-Walnut-Route", safeHeaderValue(attribution.route));
@@ -372,7 +373,7 @@ function withRequestAttribution(init?: ApiRequestInit, url?: string): RequestIni
   headers.set("X-Walnut-Component", safeHeaderValue(attribution.component));
   headers.set("X-Walnut-Panel", panelFromSource(attribution.component));
   headers.set("X-Walnut-Route-Family", url ? routeFamilyFromUrl(url) : routeFamilyFromPath(attribution.route));
-  headers.set("X-Walnut-Request-Source", requestSource());
+  headers.set("X-Walnut-Request-Source", requestSource(_requestSource));
   return { ...fetchInit, headers };
 }
 
@@ -3693,6 +3694,7 @@ export async function getTickerContextBundle(
     limit?: number;
     lookback_days?: number;
     authToken?: string;
+    activeUser?: boolean;
     signal?: AbortSignal;
     source?: string;
   },
@@ -3702,8 +3704,10 @@ export async function getTickerContextBundle(
     limit: params?.limit ?? 3,
     lookback_days: params?.lookback_days,
   });
+  const headers = authHeaders(params?.authToken);
+  if (params?.activeUser) headers["X-Walnut-Active-User"] = "browser";
   return fetchJson<TickerContextBundleResponse>(url, {
-    headers: authHeaders(params?.authToken),
+    headers,
     cache: "no-store",
     next: { revalidate: 0 },
     signal: params?.signal,
@@ -3774,6 +3778,7 @@ export async function getTickerSignalsSummary(
     limit?: number;
     lookback_days?: number;
     authToken?: string;
+    activeUser?: boolean;
     signal?: AbortSignal;
     source?: string;
   },
@@ -3784,7 +3789,10 @@ export async function getTickerSignalsSummary(
     lookback_days: params?.lookback_days,
   });
   const request = (signal?: AbortSignal) => fetchJson<TickerSignalsSummaryResponse>(url, {
-    headers: authHeaders(params?.authToken),
+    headers: {
+      ...authHeaders(params?.authToken),
+      ...(params?.activeUser ? { "X-Walnut-Active-User": "browser" } : {}),
+    },
     cache: "no-store",
     next: { revalidate: 0 },
     signal,
@@ -4734,7 +4742,7 @@ export async function getTickerProfile(symbol: string, options?: { source?: stri
   );
 }
 
-export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
+export async function getTickerGovernmentContracts(symbol: string, params?: { lookback_days?: number; min_amount?: number; limit?: number; page?: number; activeUser?: boolean; signal?: AbortSignal; source?: string }): Promise<TickerGovernmentContractsResponse> {
   return fetchJson<TickerGovernmentContractsResponse>(
     buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/government-contracts`, {
       lookback_days: params?.lookback_days,
@@ -4742,7 +4750,13 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       limit: params?.limit,
       page: params?.page,
     }),
-    { cache: "no-store", next: { revalidate: 0 }, signal: params?.signal, source: params?.source ?? "TickerGovernmentContracts" },
+    {
+      headers: params?.activeUser ? { "X-Walnut-Active-User": "browser" } : undefined,
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "TickerGovernmentContracts",
+    },
   );
 }
 

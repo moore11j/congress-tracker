@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.models import InstitutionalHolderIndustryBreakdown
+from app.request_guards import api_prefetch_response, is_inactive_logged_out_api_request
 from app.services.institutional_activity import (
     INSTITUTIONAL_ACTIVITY_TOOLTIP,
     activity_for_holder,
@@ -24,6 +25,10 @@ from app.services.institutional_activity import (
 from app.utils.symbols import normalize_symbol
 
 router = APIRouter(tags=["institutional"])
+
+
+def _prefetch_response(request: Request, endpoint: str):
+    return api_prefetch_response(request, endpoint=endpoint)
 
 
 def _has_institutional_access(request: Request, db: Session) -> bool:
@@ -80,6 +85,11 @@ def ticker_institutional_summary(
     lookback_days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "ticker_institutional_summary")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_ticker_payload(symbol)["summary"]
     if not _has_institutional_access(request, db):
         return _locked_ticker_payload(symbol)["summary"]
     payload = get_ticker_institutional_activity(db, symbol, lookback_days=lookback_days, limit=1)
@@ -94,6 +104,11 @@ def ticker_institutional_activity(
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "ticker_institutional_activity")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_ticker_payload(symbol)
     if not _has_institutional_access(request, db):
         return _locked_ticker_payload(symbol)
     return get_ticker_institutional_activity(db, symbol, lookback_days=lookback_days, limit=limit)
@@ -109,12 +124,34 @@ def institutions(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institutions")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return {"status": "skipped", "items": [], "page": page, "limit": limit, "has_next": False}
     _require_institutional_access(request, db)
     return list_institutional_holders(db, q=q, sort=sort, direction=direction, page=page, limit=limit)
 
 
 @router.get("/institutions/{cik}")
 def institution_profile(cik: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_profile")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        payload = _locked_institution_payload(cik)
+        payload.update(
+            {
+                "holder_name": None,
+                "latest_filing_date": None,
+                "latest_report_year": None,
+                "latest_report_quarter": None,
+                "total_reported_value_usd": None,
+                "holdings_count": None,
+                "status": "skipped",
+            }
+        )
+        return payload
     if not _has_institutional_access(request, db):
         payload = _locked_institution_payload(cik)
         payload.update(
@@ -156,6 +193,11 @@ def institution_positions(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_positions")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_institution_payload(cik)
     if not _has_institutional_access(request, db):
         return _locked_institution_payload(cik)
     return positions_for_holder(db, cik, year=year, quarter=quarter, page=page, limit=limit)
@@ -171,6 +213,11 @@ def institution_holdings(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_holdings")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_institution_payload(cik)
     if not _has_institutional_access(request, db):
         return _locked_institution_payload(cik)
     return positions_for_holder(db, cik, year=year, quarter=quarter, page=page, limit=limit)
@@ -184,6 +231,11 @@ def institution_activity(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_activity")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_institution_payload(cik)
     if not _has_institutional_access(request, db):
         return _locked_institution_payload(cik)
     return activity_for_holder(db, cik, page=page, limit=limit)
@@ -197,6 +249,11 @@ def institution_filings(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_filings")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_institution_payload(cik)
     if not _has_institutional_access(request, db):
         return _locked_institution_payload(cik)
     return filings_for_holder(db, cik, page=page, limit=limit)
@@ -204,6 +261,11 @@ def institution_filings(
 
 @router.get("/institutions/{cik}/performance")
 def institution_performance(cik: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_performance")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return {"status": "skipped", "cik": normalize_cik(cik), "items": []}
     _require_institutional_access(request, db)
     profile = holder_profile(db, cik)
     if profile is None:
@@ -226,6 +288,11 @@ def institution_industry_breakdown(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institution_industry_breakdown")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return {"status": "skipped", "cik": normalize_cik(cik), "items": []}
     _require_institutional_access(request, db)
     normalized = normalize_cik(cik)
     if not normalized:
@@ -268,5 +335,10 @@ def institutional_industry_summary(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "institutional_industry_summary")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return {"status": "skipped", "items": []}
     _require_institutional_access(request, db)
     return {"status": "ok", **industry_summary_payload(db, year=year, quarter=quarter, limit=limit)}
