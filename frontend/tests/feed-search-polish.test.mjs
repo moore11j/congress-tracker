@@ -56,6 +56,16 @@ test("feed autosuggest popovers render above result cards", () => {
   }
 });
 
+test("visible feed SSR requests bounded gain/loss enrichment", () => {
+  const page = read("app/page.tsx");
+
+  assert.match(page, /enrich_prices:\s*1/);
+  assert.match(page, /include_net_flows:\s*0/);
+  assert.match(page, /requestSource:\s*"ssr"/);
+  assert.match(page, /routeFamily:\s*"feed"/);
+  assert.doesNotMatch(page, /enrich_prices:\s*0/);
+});
+
 test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
   const list = read("components/feed/FeedList.tsx");

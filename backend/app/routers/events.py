@@ -43,6 +43,7 @@ from app.services.confirmation_metrics import ConfirmationMetrics, get_confirmat
 from app.services.event_activity_filters import VISIBLE_INSIDER_TRADE_TYPES, insider_visibility_clause
 from app.services.ticker_identity import safe_company_identity_candidate
 from app.services.trade_outcome_display import (
+    trade_outcome_display_row,
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
@@ -1876,14 +1877,15 @@ def _to_trade_outcome_member_series(
 
 
 def _to_trade_outcome_trade_view(row: TradeOutcome) -> dict:
+    display_metrics = trade_outcome_display_metrics(row)
     return {
         "event_id": row.event_id,
         "symbol": row.symbol or "—",
         "trade_type": row.trade_type,
         "asof_date": row.trade_date.isoformat() if row.trade_date else None,
-        "return_pct": row.return_pct,
-        "alpha_pct": row.alpha_pct,
-        "holding_days": row.holding_days,
+        "return_pct": display_metrics.return_pct,
+        "alpha_pct": display_metrics.alpha_pct,
+        "holding_days": display_metrics.holding_period_days,
     }
 
 def _insider_filing_date(event: Event, payload: dict) -> str:
@@ -2772,8 +2774,8 @@ def _event_payload(
         sym, trade_date = _congress_symbol_and_trade_date(event, payload)
         if outcome is not None:
             display_metrics = trade_outcome_display_metrics(outcome)
-            estimated_price = float(outcome.entry_price) if outcome.entry_price is not None else None
-            current_price = float(outcome.current_price) if outcome.current_price is not None else None
+            estimated_price = display_metrics.trade_price
+            current_price = display_metrics.current_or_horizon_price
             if current_price is None and sym:
                 current_price = current_price_memo.get(sym)
             pnl_pct = display_metrics.return_pct
@@ -4812,18 +4814,19 @@ def insider_alpha_summary(
         [*outcomes, *transient_outcomes],
         key=lambda row: (row.trade_date, row.event_id),
     )
+    display_outcomes = [trade_outcome_display_row(row) for row in analytics_outcomes]
 
-    scored = [row for row in analytics_outcomes if row.return_pct is not None]
+    scored = [row for row in display_outcomes if row.return_pct is not None]
     return_values = [row.return_pct for row in scored if row.return_pct is not None]
     alpha_values = [row.alpha_pct for row in scored if row.alpha_pct is not None]
     holding_day_values = [row.holding_days for row in scored if isinstance(row.holding_days, int)]
 
-    best_trade_rows, worst_trade_rows = rank_extreme_trade_outcomes(scored)
+    best_trade_rows, worst_trade_rows = rank_extreme_trade_outcomes(analytics_outcomes)
     best_trades = [_to_trade_outcome_trade_view(row) for row in best_trade_rows]
     worst_trades = [_to_trade_outcome_trade_view(row) for row in worst_trade_rows]
 
     curve = build_normalized_profile_curve(
-        outcomes=analytics_outcomes,
+        outcomes=display_outcomes,
         timeline_dates=timeline_dates,
         benchmark_close_map=benchmark_close_map,
         benchmark_dates=benchmark_dates,

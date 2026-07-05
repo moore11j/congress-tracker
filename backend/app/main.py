@@ -186,6 +186,7 @@ from app.services.trade_outcomes import (
 )
 from app.services.trade_outcome_display import (
     normalize_trade_side,
+    trade_outcome_display_row,
     trade_outcome_display_metrics,
     trade_outcome_logical_key,
 )
@@ -942,9 +943,10 @@ def _public_leaderboard_scored_outcome_condition_sql(columns):
 def _is_public_leaderboard_trade_outcome(row: TradeOutcome) -> bool:
     if row.scoring_status != "ok":
         return False
-    values = [row.return_pct]
-    if row.alpha_pct is not None:
-        values.append(row.alpha_pct)
+    display_metrics = trade_outcome_display_metrics(row)
+    values = [display_metrics.return_pct]
+    if display_metrics.alpha_pct is not None:
+        values.append(display_metrics.alpha_pct)
     for value in values:
         if value is None:
             return False
@@ -3976,7 +3978,7 @@ def feed(
         outcome_skip_reason = None
         if event.event_type == "congress_trade" and outcome is not None:
             display_metrics = trade_outcome_display_metrics(outcome)
-            current_price = outcome.current_price if outcome.current_price is not None else current_price
+            current_price = display_metrics.current_or_horizon_price if display_metrics.current_or_horizon_price is not None else current_price
             pnl_pct = display_metrics.return_pct
             pnl_source = "eod" if pnl_pct is not None and outcome.entry_price is not None else display_metrics.pnl_source
             outcome_status = _safe_outcome_status(outcome.scoring_status)
@@ -4268,8 +4270,9 @@ def member_performance(member_id: str, request: Request, lookback_days: int = 36
         benchmark_symbol=benchmark_symbol,
     )
 
-    return_values = [row.return_pct for row in rows if row.return_pct is not None]
-    alpha_values = [row.alpha_pct for row in rows if row.alpha_pct is not None]
+    display_rows = [trade_outcome_display_row(row) for row in rows]
+    return_values = [row.return_pct for row in display_rows if row.return_pct is not None]
+    alpha_values = [row.alpha_pct for row in display_rows if row.alpha_pct is not None]
     trade_count_scored = len(rows)
 
     payload = {
@@ -4438,19 +4441,21 @@ def member_alpha_summary(
     )
 
     count = len(rows)
-    return_values = [row.return_pct for row in rows if row.return_pct is not None]
-    alpha_values = [row.alpha_pct for row in rows if row.alpha_pct is not None]
-    holding_day_values = [row.holding_days for row in rows if isinstance(row.holding_days, int)]
+    display_rows = [trade_outcome_display_row(row) for row in rows]
+    return_values = [row.return_pct for row in display_rows if row.return_pct is not None]
+    alpha_values = [row.alpha_pct for row in display_rows if row.alpha_pct is not None]
+    holding_day_values = [row.holding_days for row in display_rows if isinstance(row.holding_days, int)]
 
     def _trade_view(row: TradeOutcome) -> dict:
+        display_metrics = trade_outcome_display_metrics(row)
         return {
             "event_id": row.event_id,
             "symbol": row.symbol,
             "trade_type": row.trade_type,
             "asof_date": row.trade_date.isoformat() if row.trade_date else None,
-            "return_pct": row.return_pct,
-            "alpha_pct": row.alpha_pct,
-            "holding_days": row.holding_days,
+            "return_pct": display_metrics.return_pct,
+            "alpha_pct": display_metrics.alpha_pct,
+            "holding_days": display_metrics.holding_period_days,
         }
 
     best_trade_rows, worst_trade_rows = rank_extreme_trade_outcomes(rows)
@@ -4492,13 +4497,13 @@ def member_alpha_summary(
         )
 
     curve = build_normalized_profile_curve(
-        outcomes=rows,
+        outcomes=display_rows,
         timeline_dates=timeline_dates,
         benchmark_close_map=benchmark_close_map,
         benchmark_dates=benchmark_dates,
         price_close_maps=load_profile_price_close_maps(
             db=db,
-            outcomes=rows,
+            outcomes=display_rows,
             start_date=start_date,
             end_date=end_date,
         ),
@@ -4744,8 +4749,9 @@ def congress_trader_leaderboard(
                 continue
 
             trade_count_total = len(dedupe_member_trade_outcomes(group_outcomes))
-            return_values = [row.return_pct for row in scored_outcomes if row.return_pct is not None]
-            alpha_values = [row.alpha_pct for row in scored_outcomes if row.alpha_pct is not None]
+            display_scored_outcomes = [trade_outcome_display_row(row) for row in scored_outcomes]
+            return_values = [row.return_pct for row in display_scored_outcomes if row.return_pct is not None]
+            alpha_values = [row.alpha_pct for row in display_scored_outcomes if row.alpha_pct is not None]
             authoritative_member_id = sorted(
                 aliases,
                 key=lambda value: (_is_legacy_fmp_member_id(value), value),

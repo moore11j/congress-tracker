@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from app.models import Event, TradeOutcome
 from app.routers.events import _event_payload, _parse_event_payload
 
@@ -138,3 +140,50 @@ def test_event_payload_uses_persisted_outcome_when_price_enrichment_is_disabled(
     assert out.trade_price == 10.0
     assert out.current_price == 8.75
     assert out.holding_period_days == 14
+
+
+def test_event_payload_corrects_scaled_persisted_current_price():
+    event = _insider_event(
+        {
+            "raw": {"companyName": "InMed Pharmaceuticals Inc.", "price": 1.55, "securitiesTransacted": 147},
+            "trade_type": "purchase",
+            "symbol": "INM",
+            "shares": 147,
+        }
+    )
+    event.symbol = "INM"
+    event.trade_type = "purchase"
+    outcome = TradeOutcome(
+        event_id=event.id,
+        symbol="INM",
+        trade_type="purchase",
+        entry_price=1.55,
+        current_price=1517.6,
+        return_pct=97809.67741935483,
+        alpha_pct=97808.59746727414,
+        benchmark_return_pct=1.0799520807,
+        holding_days=3,
+        scoring_status="ok",
+        methodology_version="insider_v1",
+    )
+
+    out = _event_payload(
+        event,
+        NoWriteSession(),  # type: ignore[arg-type]
+        price_memo={},
+        current_price_memo={},
+        current_quote_meta={},
+        member_net_30d_map={},
+        symbol_net_30d_map={},
+        confirmation_metrics_map={},
+        ticker_meta={},
+        cik_names={},
+        baseline_map={},
+        enrich_prices=True,
+        outcome=outcome,
+    )
+
+    assert out.trade_price == 1.55
+    assert out.current_price == pytest.approx(1.5176)
+    assert out.pnl_pct == pytest.approx(-2.09032258)
+    assert out.payload["alpha_pct"] == pytest.approx(-3.17027466)

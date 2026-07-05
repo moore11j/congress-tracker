@@ -13,6 +13,7 @@ from app.services.member_performance import (
     compute_congress_trade_outcomes,
     compute_insider_trade_outcomes,
 )
+from app.services.trade_outcome_display import trade_outcome_display_metrics
 from app.services.ticker_meta import normalize_cik
 
 
@@ -96,19 +97,20 @@ def dedupe_member_trade_outcomes(rows: list[TradeOutcome]) -> list[TradeOutcome]
 
 
 def rank_extreme_trade_outcomes(rows: list[TradeOutcome], limit: int = 5) -> tuple[list[TradeOutcome], list[TradeOutcome]]:
-    scored = [row for row in rows if row.return_pct is not None]
+    scored = [(row, trade_outcome_display_metrics(row).return_pct) for row in rows]
+    scored = [(row, return_pct) for row, return_pct in scored if return_pct is not None]
     if not scored:
         return [], []
     if len(scored) == 1:
-        return scored, []
+        return [scored[0][0]], []
 
     tail_size = min(limit, len(scored) // 2)
-    ranked_best = sorted(scored, key=lambda item: (item.return_pct, item.event_id or 0), reverse=True)
-    best_rows = ranked_best[:tail_size]
+    ranked_best = sorted(scored, key=lambda item: (item[1], item[0].event_id or 0), reverse=True)
+    best_rows = [row for row, _return_pct in ranked_best[:tail_size]]
     best_row_ids = {id(row) for row in best_rows}
 
-    ranked_worst = sorted(scored, key=lambda item: (item.return_pct, item.event_id or 0))
-    worst_rows = [row for row in ranked_worst if id(row) not in best_row_ids][:tail_size]
+    ranked_worst = sorted(scored, key=lambda item: (item[1], item[0].event_id or 0))
+    worst_rows = [row for row, _return_pct in ranked_worst if id(row) not in best_row_ids][:tail_size]
     return best_rows, worst_rows
 
 

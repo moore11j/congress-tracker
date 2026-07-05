@@ -825,7 +825,7 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   const requestParams = {
     ...activeParams,
-    enrich_prices: 0,
+    enrich_prices: 1,
     include_net_flows: 0,
     limit: pageSize,
     page_size: pageSize,
@@ -845,7 +845,14 @@ async function FeedResultsSection({ feedMode, queryDebug, debugLifecycle, page, 
 
   let events: EventsResponse = { items: [], limit: null, offset: null, total: null, has_more: null };
   try {
-    events = await getEvents({ ...requestParams, tape: feedMode, source: "Feed", authToken: authToken ?? undefined });
+    events = await getEvents({
+      ...requestParams,
+      tape: feedMode,
+      source: "Feed",
+      authToken: authToken ?? undefined,
+      requestSource: "ssr",
+      routeFamily: "feed",
+    });
   } catch (err) {
     debug.fetch_error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[feed] fetch failed:", err);
