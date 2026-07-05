@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.auth import current_user, is_admin_user
+from app.auth import SESSION_COOKIE_NAME, current_user, is_admin_user
 from app.db import get_db
 from app.entitlements import entitlements_for_user
 from app.rate_limit import rate_limit_provider_backed
@@ -389,8 +389,25 @@ def _events_response_cache_key(
 def _can_view_institutional_events(db: Session, request: Request | None) -> bool:
     if request is None or not hasattr(request, "cookies"):
         return False
+    auth_state, _tier = request_auth_state(request)
+    if auth_state == "logged_out" and not request.headers.get("authorization"):
+        return False
     user = current_user(db, request, required=False)
     return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
+
+
+def _events_response_cache_allowed_for_request(request: Request | None, *, can_view_institutional: bool) -> bool:
+    if request is None or not hasattr(request, "headers") or not hasattr(request, "cookies"):
+        return True
+    if can_view_institutional:
+        return True
+    if request.headers.get("authorization"):
+        return False
+    cookies = getattr(request, "cookies", {}) or {}
+    if cookies.get(SESSION_COOKIE_NAME) or cookies.get("ct_entitlement_hint"):
+        return False
+    auth_state, _tier = request_auth_state(request)
+    return auth_state == "logged_out"
 
 
 def _institutional_feed_action_label(event_type: str, row: InstitutionalActivityEvent | None = None) -> str:
@@ -4485,7 +4502,7 @@ def list_events(
         offset=offset,
         include_net_flows=include_net_flows,
     )
-    if request is not None and hasattr(request, "cookies") and not can_view_institutional:
+    if not _events_response_cache_allowed_for_request(request, can_view_institutional=can_view_institutional):
         response_cache_key = None
     cached_response = _events_response_cache_get(response_cache_key)
     if cached_response is not None:

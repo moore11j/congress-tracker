@@ -818,6 +818,72 @@ def test_list_events_caches_production_http_read_path(monkeypatch):
         db.close()
 
 
+def test_list_events_caches_anonymous_http_requests_but_not_session_requests(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        first_ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                11,
+                "congress_trade",
+                ts=first_ts,
+                event_date=first_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        anonymous_request = _request({"x-walnut-request-source": "load_test", "user-agent": "k6/0.49.0"})
+        first_page = list_events(request=anonymous_request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert [item.id for item in first_page.items] == [11]
+
+        second_ts = datetime(2026, 5, 20, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                12,
+                "congress_trade",
+                ts=second_ts,
+                event_date=second_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        cached_page = list_events(request=anonymous_request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert [item.id for item in cached_page.items] == [11]
+
+        _clear_events_response_cache()
+        session_request = _request({"cookie": "ct_session=invalid", "user-agent": "Mozilla/5.0"})
+        session_first_page = list_events(request=session_request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert [item.id for item in session_first_page.items] == [12, 11]
+
+        third_ts = datetime(2026, 5, 21, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                13,
+                "congress_trade",
+                ts=third_ts,
+                event_date=third_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        uncached_session_page = list_events(request=session_request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert [item.id for item in uncached_session_page.items] == [13, 12, 11]
+    finally:
+        _clear_events_response_cache()
+        db.close()
+
+
 def test_feed_mode_options_include_institutional_without_renaming_contracts():
     feed_modes = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "feedModes.ts"
     text = feed_modes.read_text(encoding="utf-8")

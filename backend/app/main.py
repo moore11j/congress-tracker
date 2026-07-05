@@ -3157,6 +3157,7 @@ async def handle_db_operational_error(request: Request, exc: OperationalError):
     )
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 
 def _runtime_environment() -> str:
@@ -3189,6 +3190,11 @@ app.add_middleware(
         "X-Walnut-Route",
         "X-Walnut-Component",
     ],
+)
+
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=max(512, int(os.getenv("GZIP_MINIMUM_SIZE_BYTES", "1024") or 1024)),
 )
 
 
