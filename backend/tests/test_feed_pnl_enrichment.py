@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from fastapi import Request
 from sqlalchemy import create_engine, event as sqlalchemy_event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.services.data_enrichment_queue as queue_module
+import app.routers.events as events_module
 from app.db import Base
 from app.models import DataEnrichmentJob, Event, PriceCache, QuoteCache, TradeOutcome
 from app.routers.events import list_events
@@ -48,6 +50,21 @@ def _stub_feed_dependencies(monkeypatch) -> None:
     monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+
+
+def _request(headers: dict[str, str]) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/events",
+            "headers": [(key.lower().encode("latin-1"), value.encode("latin-1")) for key, value in headers.items()],
+            "query_string": b"limit=50&enrich_prices=1",
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "client": ("127.0.0.1", 12345),
+        }
+    )
 
 
 def test_new_insider_event_enqueues_targeted_feed_pnl_jobs_without_duplicates() -> None:
@@ -596,6 +613,143 @@ def test_events_endpoint_batches_missing_outcome_enqueue(monkeypatch) -> None:
         assert sorted(batches[0]) == [352, 353]
     finally:
         db.close()
+
+
+def test_events_active_feed_quote_fallback_is_db_free_and_capped(monkeypatch) -> None:
+    db = _session_factory()()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        events_module._EVENTS_RESPONSE_CACHE.clear()
+        events_module._EVENTS_RESPONSE_INFLIGHT.clear()
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "app.routers.events.enqueue_feed_pnl_enrichment_for_events",
+            lambda _db, events, **_kwargs: {"events": len(events)},
+        )
+        calls: list[dict] = []
+
+        def fake_quotes(quote_db, symbols, **kwargs):
+            calls.append({"db": quote_db, "symbols": list(symbols), "kwargs": kwargs})
+            return {symbol: {"price": 12.0, "asof_ts": datetime(2026, 7, 2, tzinfo=timezone.utc)} for symbol in symbols}
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
+        events = [_event(360 + idx, "congress_trade", symbol=f"SYM{idx}") for idx in range(12)]
+        db.add_all(events)
+        db.add_all(
+            [
+                TradeOutcome(
+                    event_id=event.id,
+                    member_id="M1",
+                    member_name="Member",
+                    symbol=event.symbol,
+                    trade_type="purchase",
+                    trade_date=datetime(2026, 6, 15, tzinfo=timezone.utc).date(),
+                    entry_price=10.0,
+                    current_price=None,
+                    return_pct=None,
+                    benchmark_symbol="^GSPC",
+                    scoring_status="provider_429",
+                    methodology_version="feed_pnl_cache_v1",
+                )
+                for event in events
+            ]
+        )
+        db.commit()
+
+        page = list_events(
+            request=_request(
+                {
+                    "user-agent": "Mozilla/5.0 Chrome/137",
+                    "x-walnut-request-source": "client",
+                    "x-walnut-active-user": "true",
+                    "x-walnut-route-family": "feed",
+                }
+            ),
+            db=db,
+            mode="all",
+            limit=12,
+            enrich_prices=True,
+        )
+
+        assert len(page.items) == 12
+        assert calls
+        assert calls[0]["db"] is None
+        assert len(calls[0]["symbols"]) == 10
+        assert calls[0]["kwargs"]["allow_live_user_fetch"] is True
+        assert calls[0]["kwargs"]["cache_only"] is False
+        assert calls[0]["kwargs"]["force_quote_endpoint"] is True
+        assert calls[0]["kwargs"]["release_connection_before_fetch"] is False
+        assert calls[0]["kwargs"]["skip_db_sanity"] is True
+    finally:
+        db.close()
+        events_module._EVENTS_RESPONSE_CACHE.clear()
+        events_module._EVENTS_RESPONSE_INFLIGHT.clear()
+
+
+def test_events_monitor_feed_quote_lookup_stays_cache_only_with_request_db(monkeypatch) -> None:
+    db = _session_factory()()
+    try:
+        _stub_feed_dependencies(monkeypatch)
+        events_module._EVENTS_RESPONSE_CACHE.clear()
+        events_module._EVENTS_RESPONSE_INFLIGHT.clear()
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "app.routers.events.enqueue_feed_pnl_enrichment_for_events",
+            lambda _db, events, **_kwargs: {"events": len(events)},
+        )
+        calls: list[dict] = []
+
+        def fake_quotes(quote_db, symbols, **kwargs):
+            calls.append({"db": quote_db, "symbols": list(symbols), "kwargs": kwargs})
+            return {}
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
+        event = _event(380, "congress_trade", symbol="ORKA")
+        db.add(event)
+        db.add(
+            TradeOutcome(
+                event_id=380,
+                member_id="M1",
+                member_name="Member",
+                symbol="ORKA",
+                trade_type="purchase",
+                trade_date=datetime(2026, 6, 15, tzinfo=timezone.utc).date(),
+                entry_price=10.0,
+                current_price=None,
+                return_pct=None,
+                benchmark_symbol="^GSPC",
+                scoring_status="provider_429",
+                methodology_version="feed_pnl_cache_v1",
+            )
+        )
+        db.commit()
+
+        page = list_events(
+            request=_request(
+                {
+                    "user-agent": "codex-prod-monitor",
+                    "x-walnut-monitor-probe": "true",
+                    "x-walnut-request-source": "monitor_probe",
+                }
+            ),
+            db=db,
+            mode="all",
+            limit=10,
+            enrich_prices=True,
+        )
+
+        assert [item.id for item in page.items] == [380]
+        assert calls
+        assert calls[0]["db"] is db
+        assert calls[0]["symbols"] == ["ORKA"]
+        assert calls[0]["kwargs"]["allow_live_user_fetch"] is False
+        assert calls[0]["kwargs"]["cache_only"] is True
+        assert calls[0]["kwargs"]["force_quote_endpoint"] is False
+        assert calls[0]["kwargs"]["release_connection_before_fetch"] is False
+    finally:
+        db.close()
+        events_module._EVENTS_RESPONSE_CACHE.clear()
+        events_module._EVENTS_RESPONSE_INFLIGHT.clear()
 
 
 def test_events_endpoint_include_total_false_skips_count_query(monkeypatch) -> None:

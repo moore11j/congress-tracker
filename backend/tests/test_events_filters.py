@@ -285,19 +285,20 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
         page = list_events(request=request, db=db, mode="all", limit=10, enrich_prices=True)
 
         assert calls == [
-            (
-                ["AAPL"],
-                {
-                    "allow_cache_write": True,
-                    "release_connection_before_fetch": True,
-                    "lane": "feed_quote",
-                    "allow_live_user_fetch": True,
-                    "stale_while_revalidate": True,
-                    "cache_only": False,
-                    "force_quote_endpoint": True,
-                },
-            )
-        ]
+                (
+                    ["AAPL"],
+                    {
+                        "allow_cache_write": False,
+                        "release_connection_before_fetch": False,
+                        "lane": "feed_quote",
+                        "allow_live_user_fetch": True,
+                        "stale_while_revalidate": True,
+                        "cache_only": False,
+                        "force_quote_endpoint": True,
+                        "skip_db_sanity": True,
+                    },
+                )
+            ]
         by_id = {item.id: item for item in page.items}
         assert by_id[201].current_price == 110.0
         assert round(by_id[201].pnl_pct or 0, 6) == 10.0
@@ -371,13 +372,14 @@ def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(m
                     "allow_cache_write": False,
                     "release_connection_before_fetch": False,
                     "lane": "feed_quote",
-                    "allow_live_user_fetch": False,
-                    "stale_while_revalidate": False,
-                    "cache_only": True,
-                    "force_quote_endpoint": False,
-                },
-            )
-        ]
+                        "allow_live_user_fetch": False,
+                        "stale_while_revalidate": False,
+                        "cache_only": True,
+                        "force_quote_endpoint": False,
+                        "skip_db_sanity": False,
+                    },
+                )
+            ]
         assert page.items[0].current_price is None
         assert page.items[0].pnl_pct is None
         assert page.items[0].gain_loss_status == "missing_current_price"
@@ -442,19 +444,20 @@ def test_symbol_scoped_feed_uses_payload_trade_price_for_visible_pnl(monkeypatch
         page = list_events(request=request, db=db, symbol="TSM", limit=10, enrich_prices=True)
 
         assert calls == [
-            (
-                ["TSM"],
-                {
-                    "allow_cache_write": True,
-                    "release_connection_before_fetch": True,
-                    "lane": "feed_quote",
-                    "allow_live_user_fetch": True,
-                    "stale_while_revalidate": True,
-                    "cache_only": False,
-                    "force_quote_endpoint": True,
-                },
-            )
-        ]
+                (
+                    ["TSM"],
+                    {
+                        "allow_cache_write": False,
+                        "release_connection_before_fetch": False,
+                        "lane": "feed_quote",
+                        "allow_live_user_fetch": True,
+                        "stale_while_revalidate": True,
+                        "cache_only": False,
+                        "force_quote_endpoint": True,
+                        "skip_db_sanity": True,
+                    },
+                )
+            ]
         assert enqueue_calls == []
         item = page.items[0]
         assert item.trade_price == 75.7

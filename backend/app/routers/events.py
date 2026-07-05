@@ -2702,16 +2702,19 @@ def _load_visible_feed_quote_meta(
         return {}, {}
 
     try:
+        capped_symbols = _cap_feed_quote_symbols(quote_symbols)
+        quote_db = None if allow_live_quote_fallback else db
         quote_meta = get_current_prices_meta_db(
-            db,
-            _cap_feed_quote_symbols(quote_symbols),
-            allow_cache_write=allow_live_quote_fallback,
-            release_connection_before_fetch=allow_live_quote_fallback,
+            quote_db,
+            capped_symbols,
+            allow_cache_write=False,
+            release_connection_before_fetch=False,
             lane="feed_quote",
             allow_live_user_fetch=allow_live_quote_fallback,
             stale_while_revalidate=allow_live_quote_fallback,
             cache_only=not allow_live_quote_fallback,
             force_quote_endpoint=allow_live_quote_fallback,
+            skip_db_sanity=allow_live_quote_fallback,
         )
     except Exception:
         logger.exception("feed_quote_lookup_failed endpoint=/api/events symbols=%s", len(quote_symbols))
@@ -3256,14 +3259,6 @@ def _fetch_events_page(
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
 
     price_memo: dict[tuple[str, str], float | None] = {}
-    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
-        db,
-        paged_rows,
-        outcome_by_event_id,
-        enrich_prices=enrich_prices,
-        allow_live_quote_fallback=allow_live_quote_fallback,
-    )
-
     ticker_symbols = {
         symbol
         for event in paged_rows
@@ -3304,6 +3299,16 @@ def _fetch_events_page(
         [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
     )
     baseline_map = _congress_baseline_map(db, paged_rows)
+    if enqueue_feed_outcomes:
+        _enqueue_missing_trade_outcomes(db, paged_rows, outcome_by_event_id)
+
+    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
+        db,
+        paged_rows,
+        outcome_by_event_id,
+        enrich_prices=enrich_prices,
+        allow_live_quote_fallback=allow_live_quote_fallback,
+    )
     items = [
         _event_payload(
             event,
@@ -3328,9 +3333,6 @@ def _fetch_events_page(
         last = rows[limit - 1]
         cursor_ts = _event_effective_activity_ts(last) if use_effective_activity_date else last.event_date or last.ts
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
-
-    if enqueue_feed_outcomes:
-        _enqueue_missing_trade_outcomes(db, paged_rows, outcome_by_event_id)
 
     return EventsPage(items=items, next_cursor=next_cursor, has_more=next_cursor is not None)
 
@@ -4619,14 +4621,6 @@ def list_events(
     event_ids = [event.id for event in rows]
     outcome_by_event_id = _load_trade_outcomes_for_events(db, event_ids) if enrich_prices else {}
     price_memo: dict[tuple[str, str], float | None] = {}
-    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
-        db,
-        rows,
-        outcome_by_event_id,
-        enrich_prices=enrich_prices,
-        allow_live_quote_fallback=allow_live_feed_quote_fallback,
-    )
-
     ticker_symbols = [_event_symbol(event, _parse_event_payload(event)) for event in rows]
     try:
         ticker_meta = _ticker_meta_with_security_names(
@@ -4662,6 +4656,16 @@ def list_events(
         [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
     )
     baseline_map = _congress_baseline_map(db, rows)
+    if enqueue_feed_outcomes:
+        _enqueue_missing_trade_outcomes(db, rows, outcome_by_event_id)
+
+    current_quote_meta, current_price_memo = _load_visible_feed_quote_meta(
+        db,
+        rows,
+        outcome_by_event_id,
+        enrich_prices=enrich_prices,
+        allow_live_quote_fallback=allow_live_feed_quote_fallback,
+    )
     items = [
         _event_payload(
             event,
@@ -4689,9 +4693,6 @@ def list_events(
         )
         has_more = has_more or len(filtered_items) > limit
         items = filtered_items[:limit]
-
-    if enqueue_feed_outcomes:
-        _enqueue_missing_trade_outcomes(db, rows, outcome_by_event_id)
 
     if debug_enabled:
         count_query = select(func.count()).select_from(q.subquery())

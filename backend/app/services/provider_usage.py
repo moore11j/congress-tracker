@@ -197,6 +197,8 @@ def _source_context(route: str) -> str:
 def _persist_event(event: dict[str, Any]) -> None:
     if not _env_bool("FMP_PERSIST_USAGE_EVENTS", True):
         return
+    if _skip_hot_route_usage_persistence(event):
+        return
     global _PERSIST_FAILURE_LOGGED
     try:
         from app.db import SessionLocal
@@ -227,6 +229,19 @@ def _persist_event(event: dict[str, Any]) -> None:
         if not _PERSIST_FAILURE_LOGGED:
             logger.info("provider_usage persistence unavailable; continuing with in-process counters", exc_info=True)
             _PERSIST_FAILURE_LOGGED = True
+
+
+def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
+    if _env_bool("FMP_PERSIST_HOT_ROUTE_USAGE_EVENTS", False):
+        return False
+    route = str(event.get("route") or "")
+    if route in {"/api/events", "/api/market/quotes"}:
+        return True
+    context = get_request_context() or {}
+    path = str(context.get("path") or context.get("walnut_route") or "")
+    if path in {"/api/events", "/api/market/quotes"}:
+        return True
+    return False
 
 
 def reset_provider_usage() -> None:
