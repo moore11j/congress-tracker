@@ -274,6 +274,133 @@ def test_market_quotes_response_cache_hit_avoids_repeated_db_heavy_path(monkeypa
     assert calls == {"meta": 1, "closes": 1, "quotes": 1, "eod": 1}
 
 
+def test_market_quotes_cache_key_normalizes_order_case_and_duplicates(monkeypatch):
+    db = _session()
+    calls = []
+
+    def fake_quotes(_db_arg, symbols, **_kwargs):
+        calls.append(tuple(symbols))
+        return {
+            symbol: {
+                "symbol": symbol,
+                "price": 100.0,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            }
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr(app_main, "get_current_prices_meta_db", fake_quotes)
+    monkeypatch.setattr(app_main, "_latest_eod_light_closes_by_symbol", lambda _symbols: {})
+
+    first = _build_market_quotes_response("NVDA,AAPL,LMT,PLTR", db)
+    reordered = _build_market_quotes_response("pltr,lmt,aapl,nvda,NVDA", db)
+
+    assert reordered == first
+    assert calls == [("NVDA", "AAPL", "LMT", "PLTR")]
+    assert app_main._market_quotes_response_cache_key(["pltr", "AAPL", "NVDA", "aapl"]) == (
+        "AAPL",
+        "NVDA",
+        "PLTR",
+    )
+
+
+def test_market_quotes_cached_response_does_not_open_db_session(monkeypatch):
+    symbols = ["AAPL"]
+    app_main._market_quotes_response_cache_set(
+        symbols,
+        {
+            "items": [
+                {
+                    "symbol": "AAPL",
+                    "company_name": "Apple Inc",
+                    "current_price": 210.0,
+                    "day_change_pct": 0.5,
+                    "as_of": "2026-07-03T15:30:00",
+                }
+            ],
+            "status": "ok",
+        },
+    )
+    monkeypatch.setattr(app_main, "SessionLocal", lambda: pytest.fail("cache hit should not open a DB session"))
+
+    response = _build_market_quotes_response("aapl")
+
+    assert response["status"] == "ok"
+    assert response["items"][0]["symbol"] == "AAPL"
+
+
+def test_market_quotes_hot_symbol_rebuild_does_not_open_db_session(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(app_main, "SessionLocal", lambda: pytest.fail("hot market quotes should not open a DB session"))
+
+    def fake_quotes(db_arg, symbols, **kwargs):
+        calls.append((db_arg, tuple(symbols), kwargs))
+        return {
+            "NVDA": {
+                "symbol": "NVDA",
+                "price": 160.0,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            },
+            "AAPL": {
+                "symbol": "AAPL",
+                "price": 210.0,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            },
+        }
+
+    monkeypatch.setattr(app_main, "get_current_prices_meta_db", fake_quotes)
+    monkeypatch.setattr(
+        app_main,
+        "_latest_eod_light_closes_by_symbol",
+        lambda _symbols: {
+            "NVDA": [{"date": "2026-07-02", "close": 150.0}],
+            "AAPL": [{"date": "2026-07-02", "close": 200.0}],
+        },
+    )
+
+    response = _build_market_quotes_response("NVDA,AAPL")
+
+    assert response["status"] == "ok"
+    assert response["items"] == [
+        {
+            "symbol": "NVDA",
+            "company_name": "NVIDIA Corp",
+            "current_price": 160.0,
+            "day_change_pct": (160.0 - 150.0) / 150.0 * 100,
+            "as_of": "2026-07-03T15:30:00",
+        },
+        {
+            "symbol": "AAPL",
+            "company_name": "Apple Inc",
+            "current_price": 210.0,
+            "day_change_pct": 5.0,
+            "as_of": "2026-07-03T15:30:00",
+        },
+    ]
+    assert calls[0][0] is None
+    assert calls[0][1] == ("NVDA", "AAPL")
+    assert calls[0][2]["skip_db_sanity"] is True
+    assert calls[0][2]["force_quote_endpoint"] is True
+
+
+def test_market_quotes_prefetch_does_not_open_db_session(monkeypatch):
+    monkeypatch.setattr(app_main, "SessionLocal", lambda: pytest.fail("prefetch should not open a DB session"))
+
+    request = SimpleNamespace(
+        headers={"purpose": "prefetch"},
+        cookies={},
+        url=SimpleNamespace(path="/api/market/quotes"),
+    )
+    response = app_main.market_quotes(request, symbols="AAPL")
+
+    assert response.status_code == 204
+    assert response.headers["x-walnut-prefetch-bypass"] == "1"
+
+
 def test_market_quotes_concurrent_requests_coalesce_same_symbol_set(monkeypatch):
     db = object()
     quote_calls = []
@@ -370,7 +497,7 @@ def test_market_quotes_prefetch_bypasses_rebuild(monkeypatch):
         cookies={},
         url=SimpleNamespace(path="/api/market/quotes"),
     )
-    response = app_main.market_quotes(request, symbols="AAPL", db=object())
+    response = app_main.market_quotes(request, symbols="AAPL")
 
     assert response.status_code == 204
     assert response.headers["x-walnut-prefetch-bypass"] == "1"

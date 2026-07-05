@@ -534,7 +534,7 @@ def get_index_quote(symbol: str) -> float:
 
 
 def get_current_prices_meta_db(
-    db: Session,
+    db: Session | None,
     symbols: list[str],
     *,
     allow_cache_write: bool = True,
@@ -546,6 +546,7 @@ def get_current_prices_meta_db(
     coalesce_wait_seconds: float | None = None,
     force_quote_endpoint: bool = False,
     cache_only: bool = False,
+    skip_db_sanity: bool = False,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -574,11 +575,11 @@ def get_current_prices_meta_db(
                     remaining_symbols.append(symbol)
                     continue
                 record_cache_hit(category="quote", symbol=symbol)
-                quote_meta[symbol] = _quote_meta_with_eod_sanity(
-                    db,
-                    symbol,
-                    {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"},
-                    lane=lane,
+                raw_meta = {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"}
+                quote_meta[symbol] = (
+                    raw_meta
+                    if skip_db_sanity or db is None
+                    else _quote_meta_with_eod_sanity(db, symbol, raw_meta, lane=lane)
                 )
                 if quote_meta[symbol].get("source") == "eod_sanity_fallback":
                     _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
@@ -590,7 +591,7 @@ def get_current_prices_meta_db(
 
         sqlite_fresh: dict[str, float] = {}
         sqlite_stale: dict[str, float] = {}
-        if remaining_symbols and not force_quote_endpoint:
+        if remaining_symbols and not force_quote_endpoint and db is not None:
             ttl = _cache_ttl_seconds(lane=lane, ttl_seconds=ttl_seconds)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             sqlite_map = quote_cache_get_many_with_age(db, remaining_symbols)
@@ -606,18 +607,18 @@ def get_current_prices_meta_db(
 
             for symbol, price in sqlite_fresh.items():
                 record_cache_hit(category="quote", symbol=symbol, cache_age_seconds=0)
-                quote_meta[symbol] = _quote_meta_with_eod_sanity(
-                    db,
-                    symbol,
-                    {
-                        "symbol": symbol,
-                        "price": price,
-                        "asof_ts": sqlite_map[symbol][1],
-                        "cached_at": sqlite_map[symbol][1],
-                        "is_stale": False,
-                        "source": "cache",
-                    },
-                    lane=lane,
+                raw_meta = {
+                    "symbol": symbol,
+                    "price": price,
+                    "asof_ts": sqlite_map[symbol][1],
+                    "cached_at": sqlite_map[symbol][1],
+                    "is_stale": False,
+                    "source": "cache",
+                }
+                quote_meta[symbol] = (
+                    raw_meta
+                    if skip_db_sanity
+                    else _quote_meta_with_eod_sanity(db, symbol, raw_meta, lane=lane)
                 )
                 _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
                 logger.info("quote_cache_hit lane=%s symbol=%s source=db", lane, symbol)
@@ -625,18 +626,18 @@ def get_current_prices_meta_db(
 
             for symbol, price in sqlite_stale.items():
                 record_cache_hit(category="quote", symbol=symbol)
-                quote_meta[symbol] = _quote_meta_with_eod_sanity(
-                    db,
-                    symbol,
-                    {
-                        "symbol": symbol,
-                        "price": price,
-                        "asof_ts": sqlite_map[symbol][1],
-                        "cached_at": sqlite_map[symbol][1],
-                        "is_stale": True,
-                        "source": "stale_cache",
-                    },
-                    lane=lane,
+                raw_meta = {
+                    "symbol": symbol,
+                    "price": price,
+                    "asof_ts": sqlite_map[symbol][1],
+                    "cached_at": sqlite_map[symbol][1],
+                    "is_stale": True,
+                    "source": "stale_cache",
+                }
+                quote_meta[symbol] = (
+                    raw_meta
+                    if skip_db_sanity
+                    else _quote_meta_with_eod_sanity(db, symbol, raw_meta, lane=lane)
                 )
                 logger.info("quote_cache_stale_hit lane=%s symbol=%s", lane, symbol)
             sqlite_stale_hits = len(sqlite_stale)
@@ -685,7 +686,7 @@ def get_current_prices_meta_db(
             )
             return quote_meta
 
-        if release_connection_before_fetch:
+        if release_connection_before_fetch and db is not None:
             db.close()
 
         fetch_cap = _network_fetch_cap()
@@ -849,7 +850,7 @@ def get_current_prices_meta_db(
                         intraday_request,
                         eod_request,
                     ]
-                else:
+                elif db is not None:
                     endpoint_requests = fmp_endpoint_requests_for_domain(
                         db,
                         "prices_intraday",
@@ -857,6 +858,8 @@ def get_current_prices_meta_db(
                         api_key=api_key,
                         include_fallback=True,
                     )
+                else:
+                    endpoint_requests = []
             except Exception:
                 logger.info("quote_lookup endpoint settings unavailable; using historical EOD light fallback", exc_info=True)
                 endpoint_requests = []
@@ -1046,19 +1049,19 @@ def get_current_prices_meta_db(
             existing_asof = quote_meta.get(symbol, {}).get("asof_ts")
             if isinstance(existing_asof, datetime) and isinstance(row_asof, datetime) and row_asof <= existing_asof:
                 continue
-            quote_meta[symbol] = _quote_meta_with_eod_sanity(
-                db,
-                symbol,
-                {
-                    "symbol": symbol,
-                    "price": price,
-                    "asof_ts": row_asof,
-                    "provider_timestamp": row_asof if isinstance(row.get("asof_ts"), datetime) else None,
-                    "cached_at": fetched_at,
-                    "is_stale": False,
-                    "source": "live_quote" if force_quote_endpoint else "live_provider",
-                },
-                lane=lane,
+            raw_meta = {
+                "symbol": symbol,
+                "price": price,
+                "asof_ts": row_asof,
+                "provider_timestamp": row_asof if isinstance(row.get("asof_ts"), datetime) else None,
+                "cached_at": fetched_at,
+                "is_stale": False,
+                "source": "live_quote" if force_quote_endpoint else "live_provider",
+            }
+            quote_meta[symbol] = (
+                raw_meta
+                if skip_db_sanity or db is None
+                else _quote_meta_with_eod_sanity(db, symbol, raw_meta, lane=lane)
             )
             for field in ("change", "change_percent", "volume", "market_cap"):
                 if row.get(field) is not None:
@@ -1067,7 +1070,7 @@ def get_current_prices_meta_db(
             new_prices[symbol] = float(quote_meta[symbol]["price"])
             logger.info("quote_live_fetch lane=%s symbol=%s", lane, symbol)
 
-        if allow_cache_write:
+        if allow_cache_write and db is not None:
             quote_cache_upsert_many(db, new_prices)
 
         if attempted_symbols and not disable_triggered:
