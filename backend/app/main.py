@@ -2572,9 +2572,9 @@ def _csrf_origin_check_required(request: Request) -> bool:
 
 def _public_get_cache_ttl_seconds() -> int:
     try:
-        return max(0, min(60, int(os.getenv("PUBLIC_GET_RESPONSE_CACHE_TTL_SECONDS", "12") or 12)))
+        return max(0, min(60, int(os.getenv("PUBLIC_GET_RESPONSE_CACHE_TTL_SECONDS", "30") or 30)))
     except ValueError:
-        return 12
+        return 30
 
 
 def _public_get_cache_dedupe_wait_seconds() -> float:
@@ -2590,6 +2590,8 @@ def _is_public_get_cacheable_path(path: str) -> bool:
         return True
     parts = [part for part in lower_path.split("/") if part]
     if len(parts) == 3 and parts[:2] == ["api", "tickers"]:
+        return True
+    if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] in {"signals-summary", "government-contracts"}:
         return True
     if len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] == "chart-bundle":
         return True
@@ -2847,8 +2849,18 @@ def _public_get_cache_key(request: Request) -> str | None:
         return None
     if not _is_public_get_cacheable_path(request.url.path):
         return None
+    if request.headers.get("authorization") or request.cookies:
+        return None
+    user_agent_class = _classify_user_agent(request)
+    if user_agent_class in {"bot", "crawler", "prefetch"} or _is_explicit_prefetch_request(request):
+        return None
     query_items = sorted((key, value) for key, value in request.query_params.multi_items())
-    return json.dumps([request.url.path.rstrip("/"), query_items], separators=(",", ":"), sort_keys=True)
+    request_variant = {
+        "request_source": _request_source(request, user_agent_class),
+        "walnut_source": _bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32),
+        "ua_class": user_agent_class,
+    }
+    return json.dumps([request.url.path.rstrip("/"), query_items, request_variant], separators=(",", ":"), sort_keys=True)
 
 
 @contextmanager
