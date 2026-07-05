@@ -29,7 +29,8 @@ $ProductionHosts = @(
 )
 
 $CoreSlowPattern = "db_pool_checkout_slow.*path=/api/(events|tickers/[^ ]+/(context-bundle|signals-summary|government-contracts)|institutions/|market/quotes)"
-$HardStopPattern = "db_pool_timeout|heavy_route_saturated|OperationalError|status=50[03]| 500 | 503 |institutional_latest_job|ingest_institutional|institutional scheduled"
+$HardStopPattern = "db_pool_timeout|heavy_route_saturated|OperationalError|status=50[03]| 500 | 503 "
+$InstitutionalHardStopPattern = "institutional_latest_job_start|institutional_latest_job_invalid|institutional_latest_job_stale_lock_recovered|ingest_institutional|scheduled[-_]latest"
 
 function Normalize-ProcessPathEnvironment {
   $envVars = [Environment]::GetEnvironmentVariables("Process")
@@ -81,6 +82,32 @@ function Try-ParseLogUtc {
       [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
     )
   }
+  return $null
+}
+
+function Get-HardStopMatch {
+  param([string]$Line)
+
+  if ($Line -match $HardStopPattern) {
+    return $Matches[0]
+  }
+
+  if ($Line -match "institutional_latest_job_disabled.*reason=(env_disabled|durable_or_env_disabled)") {
+    return $null
+  }
+  if ($Line -match "institutional_latest_job_skipped") {
+    return $null
+  }
+  if ($Line -match 'job succeeded.*run_institutional_latest_job\.sh') {
+    return $null
+  }
+  if ($Line -match 'msg=starting iteration=.*run_institutional_latest_job\.sh') {
+    return $null
+  }
+  if ($Line -match $InstitutionalHardStopPattern) {
+    return $Matches[0]
+  }
+
   return $null
 }
 
@@ -380,8 +407,9 @@ try {
         continue
       }
 
-      if ($line -match $HardStopPattern) {
-        $stopReason = "in-test hard-stop log pattern at $($currentRecordUtc.ToString("o")): $($Matches[0])"
+      $hardStopMatch = Get-HardStopMatch $line
+      if ($hardStopMatch) {
+        $stopReason = "in-test hard-stop log pattern at $($currentRecordUtc.ToString("o")): $hardStopMatch"
         break
       }
 
