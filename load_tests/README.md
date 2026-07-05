@@ -132,9 +132,12 @@ Profiles:
 
 - `small`: ramps to 25 VUs. Staging first; production only with explicit separate approval.
 - `prod50`: production-only watched profile that ramps to 25 VUs over 2m, ramps to 50 VUs over 3m, holds 50 VUs for 2m, then ramps down over 2m. Requires explicit separate approval for the exact run; do not substitute `medium`.
+- `prod75`: the only approved 75-VU production staged profile. It ramps to 25 VUs over 2m, 50 VUs over 3m, 75 VUs over 3m, holds 75 VUs for 2m, then ramps down over 2m. Requires explicit separate approval for the exact run; do not substitute `medium`.
 - `medium`: ramps to 100 VUs. Staging only until small is clean.
 - `large`: ramps to 250 VUs. Staging only unless separately approved.
 - `target`: ramps to 1,000 VUs. Config exists for planning; do not run without a dedicated environment and approval.
+
+`medium` must not be used as a substitute for a production 75-VU run because it ramps to 100 VUs. Production runs at 100+ VUs require separate explicit approval for the exact profile and command.
 
 ## Traffic Mix
 

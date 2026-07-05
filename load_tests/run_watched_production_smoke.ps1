@@ -2,7 +2,7 @@ param(
   [ValidateSet("smoke", "staged")]
   [string]$Mode = "staged",
 
-  [ValidateSet("small", "prod50", "medium", "large", "target")]
+  [ValidateSet("small", "prod50", "prod75", "medium", "large", "target")]
   [string]$TestProfile = "small",
 
   [ValidateRange(1, 10)]
@@ -202,6 +202,9 @@ function Run-RouteProbes {
   $routes = @(
     @{ name = "/health"; url = "https://congress-tracker-api.fly.dev/health"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
     @{ name = "/api/events?limit=5&enrich_prices=0"; url = "$ApiBaseUrl/api/events?limit=5&enrich_prices=0"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
+    @{ name = "/api/events?limit=10&enrich_prices=1"; url = "$ApiBaseUrl/api/events?limit=10&enrich_prices=1"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
+    @{ name = "/api/events?limit=50&enrich_prices=1"; url = "$ApiBaseUrl/api/events?limit=50&enrich_prices=1"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
+    @{ name = "/api/market/quotes"; url = "$ApiBaseUrl/api/market/quotes?symbols=NVDA,AAPL,LMT,PLTR"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
     @{ name = "/api/tickers/AAPL/context-bundle"; url = "$ApiBaseUrl/api/tickers/AAPL/context-bundle"; headers = @("Accept: application/json", "User-Agent: Mozilla/5.0 Walnut-k6-watch/1.0", "Referer: $BaseUrl/ticker/AAPL", "X-Walnut-Request-Source: client", "X-Walnut-Panel: context-bundle", "X-Walnut-Route-Family: ticker", "X-Walnut-Active-User: browser") },
     @{ name = "/api/tickers/AAPL/signals-summary"; url = "$ApiBaseUrl/api/tickers/AAPL/signals-summary"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },
     @{ name = "/api/tickers/NVDA/government-contracts"; url = "$ApiBaseUrl/api/tickers/NVDA/government-contracts"; headers = @("User-Agent: Walnut-k6-watch/1.0", "X-Walnut-Monitor-Probe: 1") },

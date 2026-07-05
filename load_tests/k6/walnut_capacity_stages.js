@@ -24,6 +24,18 @@ const profiles = {
     coreP95Ms: 2000,
     overallP95Ms: 2500,
   },
+  prod75: {
+    vus: 75,
+    stages: [
+      { duration: "2m", target: 25 },
+      { duration: "3m", target: 50 },
+      { duration: "3m", target: 75 },
+      { duration: "2m", target: 75 },
+      { duration: "2m", target: 0 },
+    ],
+    coreP95Ms: 2000,
+    overallP95Ms: 2500,
+  },
   medium: {
     vus: 100,
     stages: [
@@ -57,7 +69,7 @@ const profiles = {
 };
 
 if (!profiles[profile]) {
-  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, medium, large, or target.`);
+  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, prod75, medium, large, or target.`);
 }
 
 const selected = profiles[profile];
