@@ -31,6 +31,30 @@ $ProductionHosts = @(
 $CoreSlowPattern = "db_pool_checkout_slow.*path=/api/(events|tickers/[^ ]+/(context-bundle|signals-summary|government-contracts)|institutions/|market/quotes)"
 $HardStopPattern = "db_pool_timeout|heavy_route_saturated|OperationalError|status=50[03]| 500 | 503 |institutional_latest_job|ingest_institutional|institutional scheduled"
 
+function Normalize-ProcessPathEnvironment {
+  $envVars = [Environment]::GetEnvironmentVariables("Process")
+  $pathValue = $null
+
+  foreach ($entry in $envVars.GetEnumerator()) {
+    if ($entry.Key.ToString().ToLowerInvariant() -eq "path" -and $entry.Value) {
+      $pathValue = [string]$entry.Value
+      break
+    }
+  }
+
+  if (-not $pathValue) {
+    return
+  }
+
+  foreach ($entry in @($envVars.GetEnumerator() | Where-Object { $_.Key.ToString().ToLowerInvariant() -eq "path" })) {
+    [Environment]::SetEnvironmentVariable([string]$entry.Key, $null, "Process")
+  }
+
+  [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+}
+
+Normalize-ProcessPathEnvironment
+
 function Test-ProductionTarget {
   param([string]$Url)
   $lower = $Url.ToLowerInvariant()
@@ -126,52 +150,18 @@ function Start-NativeCommandToFiles {
     [string]$StderrPath
   )
 
-  $utf8 = New-Object System.Text.UTF8Encoding $false
-  $stdoutWriter = New-Object System.IO.StreamWriter $StdoutPath, $false, $utf8
-  $stderrWriter = New-Object System.IO.StreamWriter $StderrPath, $false, $utf8
-
-  $processInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $processInfo.FileName = $FilePath
-  $processInfo.Arguments = Join-NativeArguments $Arguments
-  $processInfo.UseShellExecute = $false
-  $processInfo.RedirectStandardOutput = $true
-  $processInfo.RedirectStandardError = $true
-  $processInfo.CreateNoWindow = $true
-
-  $process = New-Object System.Diagnostics.Process
-  $process.StartInfo = $processInfo
-  $process.EnableRaisingEvents = $true
-
-  $process.add_OutputDataReceived({
-    param($sender, $event)
-    if ($null -ne $event.Data) {
-      $stdoutWriter.WriteLine($event.Data)
-      $stdoutWriter.Flush()
-    }
-  }.GetNewClosure())
-  $process.add_ErrorDataReceived({
-    param($sender, $event)
-    if ($null -ne $event.Data) {
-      $stderrWriter.WriteLine($event.Data)
-      $stderrWriter.Flush()
-    }
-  }.GetNewClosure())
-
-  try {
-    [void]$process.Start()
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
-  } catch {
-    $stdoutWriter.Dispose()
-    $stderrWriter.Dispose()
-    $process.Dispose()
-    throw
-  }
+  $process = Start-Process `
+    -FilePath $FilePath `
+    -ArgumentList (Join-NativeArguments $Arguments) `
+    -RedirectStandardOutput $StdoutPath `
+    -RedirectStandardError $StderrPath `
+    -NoNewWindow `
+    -PassThru
 
   [pscustomobject]@{
     Process = $process
-    StdoutWriter = $stdoutWriter
-    StderrWriter = $stderrWriter
+    StdoutWriter = $null
+    StderrWriter = $null
   }
 }
 
@@ -427,6 +417,12 @@ try {
 
   if ($fly) {
     Stop-CapturedProcess $fly
+  }
+
+  if ($k6 -and -not $k6.Process.HasExited) {
+    Write-Warning "Wrapper exiting while k6 is still running; stopping $ContainerName."
+    Stop-K6Container
+    Stop-CapturedProcess $k6
   }
 
   Write-Host "Post-test: verify no k6 container remains"
