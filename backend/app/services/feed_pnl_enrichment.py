@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -769,7 +770,12 @@ def _write_structural_outcome_for_enqueue(
         local_db.close()
 
 
-def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
+def process_feed_pnl_refresh_job(
+    db: Session,
+    *,
+    event_id: int,
+    quote_meta_by_symbol: Mapping[str, dict[str, Any]] | None = None,
+) -> None:
     event = db.get(Event, event_id)
     if event is None:
         logger.info("feed_pnl_jobs_skipped_duplicate event_id=%s reason=missing_event", event_id)
@@ -783,22 +789,23 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
         _write_structural_outcome(db, event, inputs)
         return
 
-    quote_meta = {}
-    try:
-        from app.services.quote_lookup import get_current_prices_meta_db
+    quote_meta: Mapping[str, dict[str, Any]] = quote_meta_by_symbol or {}
+    if quote_meta_by_symbol is None:
+        try:
+            from app.services.quote_lookup import get_current_prices_meta_db
 
-        quote_meta = get_current_prices_meta_db(
-            db,
-            [inputs.symbol],
-            allow_cache_write=True,
-            release_connection_before_fetch=False,
-            lane="pnl_quote",
-            allow_live_user_fetch=True,
-            stale_while_revalidate=True,
-            force_quote_endpoint=True,
-        )
-    except Exception:
-        logger.exception("feed_pnl_quote_refresh_failed event_id=%s symbol=%s", event.id, inputs.symbol)
+            quote_meta = get_current_prices_meta_db(
+                db,
+                [inputs.symbol],
+                allow_cache_write=True,
+                release_connection_before_fetch=False,
+                lane="pnl_quote",
+                allow_live_user_fetch=True,
+                stale_while_revalidate=True,
+                force_quote_endpoint=True,
+            )
+        except Exception:
+            logger.exception("feed_pnl_quote_refresh_failed event_id=%s symbol=%s", event.id, inputs.symbol)
 
     quote = db.get(QuoteCache, inputs.symbol)
     fresh_quote = quote_meta.get(inputs.symbol) if isinstance(quote_meta, dict) else None
@@ -905,19 +912,14 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
     )
 
 
-def repair_recent_feed_pnl(
+def _recent_feed_pnl_events(
     db: Session,
     *,
     days: int = 3,
     limit: int = 200,
     symbols: list[str] | None = None,
-) -> dict[str, Any]:
+) -> list[Event]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, int(days)))
-    try:
-        stale_hours = float(os.getenv("FEED_PNL_REFRESH_STALE_HOURS", "6") or 6)
-    except ValueError:
-        stale_hours = 6.0
-    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=max(0.25, stale_hours))
     normalized_symbols = sorted({symbol for symbol in (normalize_symbol(s) for s in symbols or []) if symbol})
     q = (
         select(Event)
@@ -928,7 +930,22 @@ def repair_recent_feed_pnl(
     )
     if normalized_symbols:
         q = q.where(Event.symbol.in_(normalized_symbols))
-    events = db.execute(q).scalars().all()
+    return list(db.execute(q).scalars().all())
+
+
+def repair_recent_feed_pnl(
+    db: Session,
+    *,
+    days: int = 3,
+    limit: int = 200,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    try:
+        stale_hours = float(os.getenv("FEED_PNL_REFRESH_STALE_HOURS", "6") or 6)
+    except ValueError:
+        stale_hours = 6.0
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=max(0.25, stale_hours))
+    events = _recent_feed_pnl_events(db, days=days, limit=limit, symbols=symbols)
     event_ids = [event.id for event in events]
     outcomes = (
         {
@@ -982,5 +999,73 @@ def repair_recent_feed_pnl(
                 counts[enqueued_key] += 1
             else:
                 counts[skipped_key] += 1
+    counts["symbols_affected"] = sorted(affected)
+    return counts
+
+
+def refresh_recent_feed_pnl_now(
+    db: Session,
+    *,
+    days: int = 3,
+    limit: int = 200,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    events = _recent_feed_pnl_events(db, days=days, limit=limit, symbols=symbols)
+    normalized_symbols = sorted(
+        {
+            inputs.symbol
+            for inputs in (feed_pnl_inputs_for_event(event) for event in events)
+            if inputs.symbol and not inputs.structural_status
+        }
+    )
+    quote_meta: Mapping[str, dict[str, Any]] = {}
+    if normalized_symbols:
+        try:
+            from app.services.quote_lookup import get_current_prices_meta_db
+
+            quote_meta = get_current_prices_meta_db(
+                db,
+                normalized_symbols,
+                allow_cache_write=True,
+                release_connection_before_fetch=False,
+                lane="pnl_quote",
+                allow_live_user_fetch=True,
+                stale_while_revalidate=True,
+                force_quote_endpoint=True,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "feed_pnl_bulk_quote_refresh_failed symbols=%s",
+                ",".join(normalized_symbols[:25]),
+            )
+            quote_meta = {}
+
+    counts: dict[str, Any] = {
+        "events_scanned": len(events),
+        "symbols_requested": len(normalized_symbols),
+        "symbols_refreshed": len(quote_meta) if isinstance(quote_meta, Mapping) else 0,
+        "pnl_refreshed": 0,
+        "pnl_missing_inputs": 0,
+        "pnl_failed": 0,
+        "symbols_affected": [],
+    }
+    affected: set[str] = set()
+    for event in events:
+        inputs = feed_pnl_inputs_for_event(event)
+        if inputs.symbol:
+            affected.add(inputs.symbol)
+        try:
+            process_feed_pnl_refresh_job(db, event_id=event.id, quote_meta_by_symbol=quote_meta)
+            db.commit()
+            counts["pnl_refreshed"] += 1
+        except FeedPnlInputMissing:
+            db.rollback()
+            counts["pnl_missing_inputs"] += 1
+        except Exception:
+            db.rollback()
+            logger.exception("feed_pnl_direct_refresh_failed event_id=%s", event.id)
+            counts["pnl_failed"] += 1
     counts["symbols_affected"] = sorted(affected)
     return counts

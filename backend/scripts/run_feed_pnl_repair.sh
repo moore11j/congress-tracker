@@ -55,4 +55,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "feed_pnl_repair_start days=$days limit=$limit max_seconds=$max_seconds"
-timeout "$max_seconds" python -m app.repair_recent_feed_pnl --days "$days" --limit "$limit"
+timeout "$max_seconds" python -m app.repair_recent_feed_pnl --days "$days" --limit "$limit" --process-now
