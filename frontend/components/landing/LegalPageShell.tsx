@@ -8,10 +8,28 @@ type LegalPageShellProps = {
   title: string;
   description: string;
   lastUpdated: string;
+  chrome?: "public" | "embedded";
   children: ReactNode;
 };
 
-export function LegalPageShell({ eyebrow, title, description, lastUpdated, children }: LegalPageShellProps) {
+export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrome = "public", children }: LegalPageShellProps) {
+  const content = (
+    <div className={chrome === "embedded" ? "mx-auto max-w-5xl px-0 py-0" : "mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:px-8"}>
+      <div className="border-b border-white/10 pb-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{eyebrow}</p>
+        <h1 className="mt-4 text-4xl font-semibold text-white">{title}</h1>
+        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">{description}</p>
+        <p className="mt-4 text-sm text-slate-500">Last updated: {lastUpdated}</p>
+      </div>
+
+      <div className="legal-content mt-10 space-y-8 text-sm leading-7 text-slate-300">{children}</div>
+    </div>
+  );
+
+  if (chrome === "embedded") {
+    return <section className="text-slate-100">{content}</section>;
+  }
+
   return (
     <main className="min-h-screen bg-[#030712] text-slate-100">
       <header className="border-b border-white/10 bg-slate-950/88">
@@ -45,16 +63,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, child
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:px-8">
-        <div className="border-b border-white/10 pb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{eyebrow}</p>
-          <h1 className="mt-4 text-4xl font-semibold text-white">{title}</h1>
-          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">{description}</p>
-          <p className="mt-4 text-sm text-slate-500">Last updated: {lastUpdated}</p>
-        </div>
-
-        <div className="legal-content mt-10 space-y-8 text-sm leading-7 text-slate-300">{children}</div>
-      </div>
+      {content}
 
       <footer className="border-t border-white/10 px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-5xl flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">

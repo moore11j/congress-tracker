@@ -6,12 +6,14 @@ import {
   ApiError,
   getWatchlist,
   getWatchlistConfirmationEvents,
+  getEntitlements,
   getWatchlistEvents,
   getWatchlistSignals,
   hasClientAuthHint,
   type EventItem,
   type SignalItem,
 } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement } from "@/lib/entitlements";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import type { ConfirmationMonitoringEvent, FeedItem, WatchlistDetail } from "@/lib/types";
 import {
@@ -37,6 +39,7 @@ type LoadState =
       confirmationEvents: ConfirmationMonitoringEvent[];
       initialState: WatchlistActivityState;
       initialData: RecentActivityData;
+      canViewPremiumMetrics: boolean;
     }
   | { status: "error"; code: number | null; message: string };
 
@@ -139,7 +142,8 @@ export function WatchlistDetailClient({
         const hydratedState = initialState.onlyNew
           ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }
           : initialState;
-        const [confirmationEventsResponse, activity] = await Promise.all([
+        const [entitlements, confirmationEventsResponse, activity] = await Promise.all([
+          getEntitlements(undefined, { source: "WatchlistDetailClient" }).catch(() => defaultEntitlements),
           getWatchlistConfirmationEvents(watchlistId, {
             limit: 5,
             signal: controller.signal,
@@ -183,6 +187,7 @@ export function WatchlistDetailClient({
               offset: hydratedState.mode === "signals" ? items.length : 0,
               hasMore: hydratedState.mode === "signals" ? items.length === hydratedState.limit : Boolean("next_cursor" in activity && activity.next_cursor),
             },
+            canViewPremiumMetrics: hasEntitlement(entitlements, "premium_feed_metrics"),
           });
         }
       } catch (error) {
@@ -209,6 +214,7 @@ export function WatchlistDetailClient({
       confirmationEvents={state.confirmationEvents}
       initialState={state.initialState}
       initialData={state.initialData}
+      canViewPremiumMetrics={state.canViewPremiumMetrics}
     />
   );
 }

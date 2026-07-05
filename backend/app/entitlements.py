@@ -20,6 +20,7 @@ BillingInterval = Literal["monthly", "annual"]
 EffectivePlanSource = Literal["stripe_subscription", "admin_subscription", "manual_override", "free", "suspended", "admin"]
 FeatureKey = Literal[
     "signals",
+    "premium_feed_metrics",
     "leaderboards",
     "backtesting",
     "screener",
@@ -77,6 +78,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=0,
         limits={
             "signals": 0,
+            "premium_feed_metrics": 0,
             "leaderboards": 0,
             "backtesting": 0,
             "screener": 0,
@@ -124,6 +126,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=10,
         limits={
             "signals": 1,
+            "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
             "screener": 1,
@@ -153,6 +156,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         features=frozenset(
             {
                 "signals",
+                "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
                 "screener",
@@ -180,6 +184,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=20,
         limits={
             "signals": 1,
+            "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
             "screener": 1,
@@ -209,6 +214,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         features=frozenset(
             {
                 "signals",
+                "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
                 "screener",
@@ -242,6 +248,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "signals": {
         "required_tier": "premium",
         "description": "Signal conviction screens and unusual activity research.",
+    },
+    "premium_feed_metrics": {
+        "required_tier": "premium",
+        "description": "Visible gain/loss percentages and signal scores in feed and watchlist activity cards.",
     },
     "leaderboards": {
         "required_tier": "premium",
@@ -360,6 +370,14 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 10,
         "pricing_description": "Premium signal screens for unusual Congress and insider activity.",
+    },
+    "premium_feed_metrics": {
+        "label": "Feed and watchlist metrics",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 12,
+        "pricing_description": "Gain/loss percentages and signal scores in feed and watchlist activity cards.",
     },
     "leaderboards": {
         "label": "Leaderboards",

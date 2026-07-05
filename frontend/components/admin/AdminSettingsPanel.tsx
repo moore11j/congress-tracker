@@ -180,6 +180,10 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
   const gates = useMemo(() => settings?.feature_gates ?? [], [settings]);
   const planLimits = useMemo(() => settings?.plan_config.plan_limits ?? [], [settings]);
   const planPrices = useMemo(() => settings?.plan_config.plan_prices ?? [], [settings]);
+  const featureLabels = useMemo(
+    () => new Map((settings?.plan_config.features ?? []).map((feature) => [feature.feature_key, feature.label])),
+    [settings],
+  );
   const monitoringLimits = useMemo(
     () =>
       planLimits.filter(
@@ -812,7 +816,7 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
                   {screenerGates.map((gate) => (
                     <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
                       <div>
-                        <div className="font-semibold text-white">{gate.feature_key}</div>
+                        <div className="font-semibold text-white">{featureLabels.get(gate.feature_key) ?? gate.feature_key}</div>
                         <p className="text-sm text-slate-400">{gate.description}</p>
                       </div>
                       <div className="flex gap-2">
@@ -855,7 +859,7 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
                   {generalGates.map((gate) => (
                     <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
                       <div>
-                        <div className="font-semibold text-white">{gate.feature_key}</div>
+                        <div className="font-semibold text-white">{featureLabels.get(gate.feature_key) ?? gate.feature_key}</div>
                         <p className="text-sm text-slate-400">{gate.description}</p>
                       </div>
                       <div className="flex gap-2">

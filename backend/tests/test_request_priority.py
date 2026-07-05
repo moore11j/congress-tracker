@@ -199,6 +199,12 @@ def test_inactive_logged_out_ssr_requires_unknown_ua_no_referer_and_no_auth():
             {"x-walnut-request-source": "ssr", "x-walnut-route-family": "insider"},
         )
     )
+    assert not _is_inactive_logged_out_ssr_request(
+        _request(
+            "/api/events",
+            {"x-walnut-request-source": "ssr", "x-walnut-route-family": "feed"},
+        )
+    )
 
 
 def test_request_attribution_logs_slow_degraded_and_sampled_fast(monkeypatch):

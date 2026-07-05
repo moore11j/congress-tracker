@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import Event, GovernmentContractAction, MonitoringAlert, Security, UserAccount, Watchlist, WatchlistItem
+from app.models import Event, FeatureGate, GovernmentContractAction, MonitoringAlert, PlanLimit, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.events import list_events, list_watchlist_events
 
 
@@ -23,6 +23,8 @@ def _session():
             Event.__table__,
             GovernmentContractAction.__table__,
             MonitoringAlert.__table__,
+            FeatureGate.__table__,
+            PlanLimit.__table__,
             UserAccount.__table__,
             Watchlist.__table__,
             WatchlistItem.__table__,
@@ -230,6 +232,37 @@ def test_watchlist_recent_activity_includes_same_event_in_thirty_day_window(monk
 
         assert len(page.items) == 1
         assert page.items[0].id == 1
+    finally:
+        db.close()
+
+
+def test_watchlist_recent_activity_logging_tolerates_missing_dates(monkeypatch):
+    db = _session()
+    try:
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+
+        user = UserAccount(email="owner@example.com", role="admin", entitlement_tier="pro")
+        security = Security(symbol="AAPL", name="APPLE INC", asset_class="stock", sector=None)
+        db.add_all([user, security])
+        db.flush()
+        watchlist = Watchlist(name="Core", owner_user_id=user.id)
+        db.add(watchlist)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id))
+        now = datetime(2026, 4, 30, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                Event(id=21, event_type="congress_trade", ts=now, event_date=now, symbol="AAPL", source="test", impact_score=0, payload_json="{}"),
+                Event(id=22, event_type="congress_trade", ts=now, event_date=now, symbol="AAPL", source="test", impact_score=0, payload_json="{}"),
+            ]
+        )
+        db.commit()
+
+        page = list_watchlist_events(watchlist.id, _request_for_user(user), db, limit=10)
+
+        assert [item.id for item in page.items] == [22, 21]
     finally:
         db.close()
 

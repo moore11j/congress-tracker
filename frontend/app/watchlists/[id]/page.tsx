@@ -1,7 +1,8 @@
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { WatchlistDetailClient } from "@/components/watchlists/WatchlistDetailClient";
 import { WatchlistDetailContent } from "@/components/watchlists/WatchlistDetailContent";
-import { getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
+import { getEntitlements, getWatchlist, getWatchlistConfirmationEvents, getWatchlistEvents, getWatchlistSignals, type EventItem, type SignalItem } from "@/lib/api";
+import { defaultEntitlements, hasEntitlement } from "@/lib/entitlements";
 import { buildReturnTo, requirePageAuth } from "@/lib/serverAuth";
 import { eventToFeedItem, getParam, parseMode, resolveWatchlistEventSince, signalToFeedItem, type WatchlistActivityState } from "@/lib/watchlistActivity";
 
@@ -18,6 +19,10 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo(`/watchlists/${id}`, sp);
   const authToken = await requirePageAuth(returnTo);
+  const entitlements = authToken
+    ? await getEntitlements(authToken, { source: "WatchlistDetailPage" }).catch(() => defaultEntitlements)
+    : defaultEntitlements;
+  const canViewPremiumMetrics = Boolean(authToken && hasEntitlement(entitlements, "premium_feed_metrics"));
 
   const mode = parseMode(getParam(sp, "mode"));
   const recentDays = getParam(sp, "recent_days") || "30";
@@ -55,27 +60,37 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
   const hydratedState = initialState.onlyNew
     ? { ...initialState, newSince: initialState.newSince || watchlist.unseen_since || "" }
     : initialState;
-  const activity =
-    mode === "signals"
-      ? await getWatchlistSignals(watchlistId, {
-          mode: "all",
-          sort: "smart",
-          limit: numericLimit,
-          offset: Number.isFinite(offset) ? offset : 0,
-          authToken,
-        })
-      : hydratedState.onlyNew && !hydratedState.newSince
-      ? { items: [], next_cursor: null }
-      : await getWatchlistEvents(watchlistId, {
-          mode,
-          recent_days: Number(recentDays),
-          since: resolveWatchlistEventSince(hydratedState),
-          unread_only: hydratedState.onlyNew ? 1 : undefined,
-          cursor: cursor || undefined,
-          limit: numericLimit,
-          authToken,
-          source: "WatchlistPage",
-        });
+  const activity = await (async () => {
+    try {
+      return mode === "signals"
+        ? await getWatchlistSignals(watchlistId, {
+            mode: "all",
+            sort: "smart",
+            limit: numericLimit,
+            offset: Number.isFinite(offset) ? offset : 0,
+            authToken,
+          })
+        : hydratedState.onlyNew && !hydratedState.newSince
+          ? { items: [], next_cursor: null }
+          : await getWatchlistEvents(watchlistId, {
+              mode,
+              recent_days: Number(recentDays),
+              since: resolveWatchlistEventSince(hydratedState),
+              unread_only: hydratedState.onlyNew ? 1 : undefined,
+              cursor: cursor || undefined,
+              limit: numericLimit,
+              authToken,
+              source: "WatchlistPage",
+            });
+    } catch (error) {
+      console.error("watchlist_activity_ssr_failed", {
+        watchlistId,
+        mode,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return { items: [], next_cursor: null };
+    }
+  })();
 
   const items =
     mode === "signals"
@@ -88,6 +103,7 @@ export default async function WatchlistDetailPage({ params, searchParams }: Prop
         watchlist={watchlist}
         confirmationEvents={confirmationEvents}
         initialState={hydratedState}
+        canViewPremiumMetrics={canViewPremiumMetrics}
         initialData={{
           items,
           nextCursor: "next_cursor" in activity ? activity.next_cursor ?? null : null,

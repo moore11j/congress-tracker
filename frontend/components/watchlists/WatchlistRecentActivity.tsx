@@ -97,6 +97,7 @@ export function WatchlistRecentActivity({
   unseenSince,
   initialState,
   initialData,
+  canViewPremiumMetrics,
 }: {
   watchlistId: number;
   tickerCount: number;
@@ -104,6 +105,7 @@ export function WatchlistRecentActivity({
   unseenSince: string;
   initialState: WatchlistActivityState;
   initialData: RecentActivityData;
+  canViewPremiumMetrics: boolean;
 }) {
   const [state, setState] = useState(initialState);
   const [draftRecentDays, setDraftRecentDays] = useState(initialState.recentDays);
@@ -359,6 +361,7 @@ export function WatchlistRecentActivity({
                     </button>
                   ) : null
                 }
+                canViewPremiumMetrics={canViewPremiumMetrics}
               />
             );
           })

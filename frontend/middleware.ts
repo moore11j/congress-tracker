@@ -193,7 +193,8 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (publicStaticPaths.has(pathname) || publicAccountPaths.has(pathname)) {
+  const isMarketingStaticPage = publicStaticPaths.has(pathname) && publicLandingHosts.has(host);
+  if (isMarketingStaticPage || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
     const response = NextResponse.next({
       request: {

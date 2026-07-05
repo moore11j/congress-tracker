@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
+import { legalPageChrome } from "@/lib/legalPageChrome";
 
 const lastUpdated = "June 20, 2026";
 
@@ -179,13 +180,16 @@ export const metadata: Metadata = {
     "Answers about data sources, disclosures, billing, privacy, security, and how Walnut Intelligence Inc. operates Walnut Market Terminal.",
 };
 
-export default function FaqPage() {
+export default async function FaqPage() {
+  const chrome = await legalPageChrome();
+
   return (
     <LegalPageShell
       eyebrow="Support"
       title="Frequently Asked Questions"
       description="Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works."
       lastUpdated={lastUpdated}
+      chrome={chrome}
     >
       {faqCategories.map((category) => (
         <LegalSection key={category.title} title={category.title}>

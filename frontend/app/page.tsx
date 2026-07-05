@@ -305,7 +305,7 @@ function feedItemDateValue(item: FeedItem): number | null {
 }
 
 function feedItemPnlValue(item: FeedItem): number | null {
-  return firstNumber((item as any).pnl_pct, (item as any).pnlPct, (item as any).pnl);
+  return firstNumber((item as any).gain_loss_percent, (item as any).gainLossPercent, (item as any).pnl_pct, (item as any).pnlPct, (item as any).pnl);
 }
 
 function feedItemSignalValue(item: FeedItem): number | null {
@@ -468,10 +468,15 @@ function mapEventToFeedItem(
       typeof (event as any).current_price === "number"
         ? (event as any).current_price
         : asNumber(payload.current_price);
+    const gainLossPercent =
+      typeof (event as any).gain_loss_percent === "number"
+        ? (event as any).gain_loss_percent
+        : asNumber(payload.gain_loss_percent);
     const pnlPct =
-      typeof (event as any).pnl_pct === "number"
+      gainLossPercent ??
+      (typeof (event as any).pnl_pct === "number"
         ? (event as any).pnl_pct
-        : asNumber(payload.pnl_pct);
+        : asNumber(payload.pnl_pct));
     const documentUrl = asTrimmedString(payload.document_url) ?? event.url ?? null;
     const memberNet30d =
       typeof (event as any).member_net_30d === "number"
@@ -507,7 +512,7 @@ function mapEventToFeedItem(
       estimated_price: estimatedPrice,
       current_price: currentPrice,
       pnl_pct: pnlPct,
-      gain_loss_percent: (event as any).gain_loss_percent ?? null,
+      gain_loss_percent: gainLossPercent,
       gain_loss_amount: (event as any).gain_loss_amount ?? null,
       gain_loss_status: (event as any).gain_loss_status ?? null,
       gain_loss_as_of: (event as any).gain_loss_as_of ?? null,
@@ -554,10 +559,15 @@ function mapEventToFeedItem(
       typeof (event as any).current_price === "number"
         ? (event as any).current_price
         : asNumber(payload.current_price);
+    const gainLossPercent =
+      typeof (event as any).gain_loss_percent === "number"
+        ? (event as any).gain_loss_percent
+        : asNumber(payload.gain_loss_percent);
     const pnlPct =
-      typeof (event as any).pnl_pct === "number"
+      gainLossPercent ??
+      (typeof (event as any).pnl_pct === "number"
         ? (event as any).pnl_pct
-        : asNumber(payload.pnl_pct);
+        : asNumber(payload.pnl_pct));
     const memberNet30d =
       typeof (event as any).member_net_30d === "number"
         ? (event as any).member_net_30d
@@ -591,7 +601,7 @@ function mapEventToFeedItem(
       kind: "insider_trade",
       current_price: currentPrice,
       pnl_pct: pnlPct,
-      gain_loss_percent: (event as any).gain_loss_percent ?? null,
+      gain_loss_percent: gainLossPercent,
       gain_loss_amount: (event as any).gain_loss_amount ?? null,
       gain_loss_status: (event as any).gain_loss_status ?? null,
       gain_loss_as_of: (event as any).gain_loss_as_of ?? null,
@@ -1045,7 +1055,7 @@ export default async function FeedPage({
     ? await getEntitlements(authState.token, { source: "FeedPage" }).catch(() => entitlementsFromTierHint(authState.entitlementHint))
     : entitlementsFromTierHint(authState.entitlementHint);
   const canViewInstitutionalFeed = Boolean(authState.token && hasEntitlement(entitlements, "institutional_feed"));
-  const canViewPremiumMetrics = Boolean(authState.token && hasEntitlement(entitlements, "signals"));
+  const canViewPremiumMetrics = Boolean(authState.token && hasEntitlement(entitlements, "premium_feed_metrics"));
   const institutionalFeedLocked = isInstitutionalFeedMode(feedMode) && !canViewInstitutionalFeed;
   const queryDebug = getParam(sp, "debug") === "1";
   const debugDisableFeedFilters = getParam(sp, "debug_disable_feed_filters") === "1";

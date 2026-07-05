@@ -163,6 +163,40 @@ def test_symbol_scoped_events_return_base_rows_when_price_enrichment_unavailable
         db.close()
 
 
+def test_logged_out_feed_ssr_returns_public_events(monkeypatch):
+    db = _db()
+    try:
+        _clear_events_response_cache()
+        _stub_enrichment(monkeypatch)
+        db.add(
+            _event(
+                151,
+                "congress_trade",
+                symbol="T",
+                member_name="Gary Peters",
+                member_bioguide_id="P000595",
+                trade_type="purchase",
+                payload={"trade_date": "2026-06-29", "report_date": "2026-07-02"},
+            )
+        )
+        db.commit()
+
+        request = _request(
+            {
+                "x-walnut-request-source": "ssr",
+                "x-walnut-route-family": "feed",
+                "x-walnut-component": "Feed",
+                "x-walnut-panel": "Feed",
+            }
+        )
+        page = list_events(request=request, db=db, mode="all", limit=10, enrich_prices=False)
+
+        assert [item.id for item in page.items] == [151]
+        assert page.items[0].event_type == "congress_trade"
+    finally:
+        db.close()
+
+
 def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
     db = _db()
     try:
@@ -432,6 +466,108 @@ def test_symbol_scoped_feed_uses_payload_trade_price_for_visible_pnl(monkeypatch
         db.close()
 
 
+def test_feed_gain_loss_recomputes_from_visible_prices_when_persisted_return_is_stale(monkeypatch):
+    db = _db()
+    try:
+        _clear_events_response_cache()
+        _stub_enrichment(monkeypatch)
+        db.add_all(
+            [
+                _event(
+                    231,
+                    "congress_trade",
+                    symbol="IBP",
+                    member_name="David Taylor",
+                    member_bioguide_id="TAYLOR",
+                    trade_type="purchase",
+                    payload={"trade_date": "2026-07-01", "report_date": "2026-07-02"},
+                ),
+                _event(
+                    232,
+                    "congress_trade",
+                    symbol="SEPN",
+                    member_name="David Long",
+                    member_bioguide_id="LONG",
+                    trade_type="sale",
+                    payload={"trade_date": "2026-07-01", "report_date": "2026-07-02"},
+                ),
+                _event(
+                    233,
+                    "congress_trade",
+                    symbol="MCB",
+                    member_name="Nick Rosenberg",
+                    member_bioguide_id="ROSENBERG",
+                    trade_type="sale",
+                    payload={"trade_date": "2026-07-01", "report_date": "2026-07-02"},
+                ),
+                TradeOutcome(
+                    event_id=231,
+                    member_id="TAYLOR",
+                    member_name="David Taylor",
+                    symbol="IBP",
+                    trade_type="purchase",
+                    trade_date=date(2026, 7, 1),
+                    entry_price=209.0,
+                    current_price=228.0,
+                    return_pct=-43.0,
+                    benchmark_symbol="^GSPC",
+                    benchmark_return_pct=0.0,
+                    scoring_status="ok",
+                    methodology_version="feed_pnl_cache_v1",
+                ),
+                TradeOutcome(
+                    event_id=232,
+                    member_id="LONG",
+                    member_name="David Long",
+                    symbol="SEPN",
+                    trade_type="sale",
+                    trade_date=date(2026, 7, 1),
+                    entry_price=35.0,
+                    current_price=34.0,
+                    return_pct=38.0,
+                    benchmark_symbol="^GSPC",
+                    benchmark_return_pct=0.0,
+                    scoring_status="ok",
+                    methodology_version="feed_pnl_cache_v1",
+                ),
+                TradeOutcome(
+                    event_id=233,
+                    member_id="ROSENBERG",
+                    member_name="Nick Rosenberg",
+                    symbol="MCB",
+                    trade_type="sale",
+                    trade_date=date(2026, 7, 1),
+                    entry_price=100.0,
+                    current_price=98.53,
+                    return_pct=40.0,
+                    benchmark_symbol="^GSPC",
+                    benchmark_return_pct=0.0,
+                    scoring_status="ok",
+                    methodology_version="feed_pnl_cache_v1",
+                ),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, mode="all", limit=10, enrich_prices=True)
+        by_id = {item.id: item for item in page.items}
+
+        assert by_id[231].trade_price == 209.0
+        assert by_id[231].current_price == 228.0
+        assert by_id[231].gain_loss_percent == by_id[231].pnl_pct
+        assert round(by_id[231].gain_loss_percent or 0, 6) == round(((228.0 - 209.0) / 209.0) * 100, 6)
+
+        assert by_id[232].trade_price == 35.0
+        assert by_id[232].current_price == 34.0
+        assert round(by_id[232].gain_loss_percent or 0, 6) == round(((35.0 - 34.0) / 35.0) * 100, 6)
+
+        assert by_id[233].trade_price == 100.0
+        assert by_id[233].current_price == 98.53
+        assert round(by_id[233].gain_loss_percent or 0, 6) == round(((100.0 - 98.53) / 100.0) * 100, 6)
+    finally:
+        db.close()
+
+
 def test_insider_name_and_role_filters_work_in_all_and_insider_modes(monkeypatch):
     db = _db()
     try:
@@ -551,6 +687,8 @@ def test_filed_after_pnl_and_signal_filters(monkeypatch):
                     symbol="MSFT",
                     trade_type="purchase",
                     trade_date=datetime(2026, 5, 1, tzinfo=timezone.utc).date(),
+                    entry_price=100.0,
+                    current_price=112.5,
                     return_pct=12.5,
                     benchmark_symbol="^GSPC",
                     scoring_status="ok",
@@ -563,6 +701,8 @@ def test_filed_after_pnl_and_signal_filters(monkeypatch):
                     symbol="TSLA",
                     trade_type="purchase",
                     trade_date=datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                    entry_price=100.0,
+                    current_price=97.0,
                     return_pct=-3.0,
                     benchmark_symbol="^GSPC",
                     scoring_status="ok",

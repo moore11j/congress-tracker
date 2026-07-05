@@ -7,6 +7,7 @@ const root = process.cwd();
 const landingPage = fs.readFileSync(path.join(root, "app/landing/page.tsx"), "utf8");
 const faqPage = fs.readFileSync(path.join(root, "app/faq/page.tsx"), "utf8");
 const legalShell = fs.readFileSync(path.join(root, "components/landing/LegalPageShell.tsx"), "utf8");
+const legalPageChrome = fs.readFileSync(path.join(root, "lib/legalPageChrome.ts"), "utf8");
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 
 test("landing insights link keeps label and arrow on one line", () => {
@@ -65,8 +66,15 @@ test("landing macro rows resolve Core CPI by label variants", () => {
 test("public legal navigation includes FAQ across landing and legal shell", () => {
   assert.match(landingPage, /href="\/faq"[\s\S]*?FAQ/);
   assert.match(legalShell, /href="\/faq"[\s\S]*?FAQ/);
+  assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
+  assert.match(legalShell, /if \(chrome === "embedded"\)/);
+  assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
+  assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
+  assert.match(faqPage, /chrome=\{chrome\}/);
   assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
+  assert.match(middleware, /const isMarketingStaticPage = publicStaticPaths\.has\(pathname\) && publicLandingHosts\.has\(host\)/);
+  assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
   assert.match(middleware, /matcher: \["\/", "\/robots\.txt", "\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);

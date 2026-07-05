@@ -2613,6 +2613,17 @@ def _gain_loss_amount(
     return None
 
 
+def _visible_price_gain_loss_pct(
+    *,
+    current_price: float | None,
+    trade_price: float | None,
+    trade_type: str | None,
+) -> float | None:
+    if current_price is None or trade_price is None or trade_price <= 0:
+        return None
+    return signed_return_pct(current_price, trade_price, trade_type)
+
+
 def _outcome_needs_feed_pnl_refresh(outcome: TradeOutcome | None) -> bool:
     if outcome is None:
         return True
@@ -2851,22 +2862,23 @@ def _event_payload(
                 current_price = current_price_memo.get(sym)
             elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
                 current_price = current_price_memo.get(sym)
-            pnl_pct = display_metrics.return_pct
-            if (
-                (pnl_pct is None or _outcome_needs_current_price_sanity(outcome))
-                and current_price is not None
-                and estimated_price is not None
-                and estimated_price > 0
-            ):
-                pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
-            alpha_pct = display_metrics.alpha_pct
             benchmark_return_pct = display_metrics.benchmark_return_pct
+            pnl_pct = _visible_price_gain_loss_pct(
+                current_price=current_price,
+                trade_price=estimated_price,
+                trade_type=event.trade_type or event.transaction_type,
+            )
+            alpha_pct = (
+                float(pnl_pct - benchmark_return_pct)
+                if pnl_pct is not None and benchmark_return_pct is not None
+                else None
+            )
             holding_period_days = display_metrics.holding_period_days
-            outcome_horizon = display_metrics.outcome_horizon
+            outcome_horizon = display_metrics.outcome_horizon if pnl_pct is not None else None
             pnl_source = (
-                display_metrics.pnl_source
-                or ("quote_cache" if pnl_pct is not None and current_price_memo.get(sym) is not None else None)
-                or ("eod" if pnl_pct is not None and estimated_price is not None else "trade_outcome")
+                ("quote_cache" if pnl_pct is not None and current_price_memo.get(sym) is not None else None)
+                or (display_metrics.pnl_source if pnl_pct is not None else None)
+                or ("eod" if pnl_pct is not None and estimated_price is not None else "none")
             )
             outcome_status = _safe_outcome_status(outcome.scoring_status)
             if pnl_pct is None:
@@ -2924,29 +2936,29 @@ def _event_payload(
             current_price = current_price_memo.get(sym)
         elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
             current_price = current_price_memo.get(sym)
-        if display_metrics.return_pct is not None:
-            pnl_pct = display_metrics.return_pct
-            alpha_pct = display_metrics.alpha_pct
-            benchmark_return_pct = display_metrics.benchmark_return_pct
-            holding_period_days = display_metrics.holding_period_days
-            outcome_horizon = display_metrics.outcome_horizon
-            pnl_source = display_metrics.pnl_source or "trade_outcome"
-            payload["alpha_pct"] = display_metrics.alpha_pct
-            payload["alphaPct"] = display_metrics.alpha_pct
-            payload["benchmark_return_pct"] = display_metrics.benchmark_return_pct
-            payload["benchmarkReturnPct"] = display_metrics.benchmark_return_pct
-            payload["holding_period_days"] = display_metrics.holding_period_days
-            payload["holdingPeriodDays"] = display_metrics.holding_period_days
-            payload["outcome_horizon"] = display_metrics.outcome_horizon
-            payload["outcomeHorizon"] = display_metrics.outcome_horizon
-        if (
-            (display_metrics.return_pct is None or _outcome_needs_current_price_sanity(outcome))
-            and current_price is not None
-            and estimated_price is not None
-            and estimated_price > 0
-        ):
-            pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
-            pnl_source = "quote_cache"
+        benchmark_return_pct = display_metrics.benchmark_return_pct
+        holding_period_days = display_metrics.holding_period_days
+        pnl_pct = _visible_price_gain_loss_pct(
+            current_price=current_price,
+            trade_price=estimated_price,
+            trade_type=event.trade_type or event.transaction_type,
+        )
+        alpha_pct = (
+            float(pnl_pct - benchmark_return_pct)
+            if pnl_pct is not None and benchmark_return_pct is not None
+            else None
+        )
+        outcome_horizon = display_metrics.outcome_horizon if pnl_pct is not None else None
+        if pnl_pct is not None:
+            pnl_source = "quote_cache" if sym and current_price_memo.get(sym) is not None else (display_metrics.pnl_source or "trade_outcome")
+            payload["alpha_pct"] = alpha_pct
+            payload["alphaPct"] = alpha_pct
+            payload["benchmark_return_pct"] = benchmark_return_pct
+            payload["benchmarkReturnPct"] = benchmark_return_pct
+            payload["holding_period_days"] = holding_period_days
+            payload["holdingPeriodDays"] = holding_period_days
+            payload["outcome_horizon"] = outcome_horizon
+            payload["outcomeHorizon"] = outcome_horizon
 
     resolved_member_name = event.member_name
     if event.event_type == "insider_trade":
@@ -3229,6 +3241,7 @@ def _fetch_events_page(
     use_effective_activity_date: bool = False,
     enqueue_feed_outcomes: bool = True,
     enqueue_metadata_refresh: bool = True,
+    allow_live_quote_fallback: bool = False,
 ) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
@@ -3241,6 +3254,7 @@ def _fetch_events_page(
         paged_rows,
         outcome_by_event_id,
         enrich_prices=enrich_prices,
+        allow_live_quote_fallback=allow_live_quote_fallback,
     )
 
     ticker_symbols = {
@@ -4854,20 +4868,30 @@ def list_watchlist_events(
         congress_filters=[],
         use_effective_activity_date=True,
     )
-    page = _fetch_events_page(db, q, limit, use_effective_activity_date=True)
+    page = _fetch_events_page(
+        db,
+        q,
+        limit,
+        use_effective_activity_date=True,
+        allow_live_quote_fallback=_allow_visible_feed_quote_fallback(request),
+    )
 
     if not _is_production_runtime() or is_admin_user(user):
         oldest_trade_date = min(
             (
-                _first_text_field(item.payload or {}, "trade_date", "transaction_date", "tradeDate", "transactionDate")
+                value
                 for item in page.items
+                for value in [_first_text_field(item.payload or {}, "trade_date", "transaction_date", "tradeDate", "transactionDate")]
+                if value
             ),
             default=None,
         )
         oldest_report_date = min(
             (
-                _first_text_field(item.payload or {}, "report_date", "filing_date", "reportDate", "filingDate")
+                value
                 for item in page.items
+                for value in [_first_text_field(item.payload or {}, "report_date", "filing_date", "reportDate", "filingDate")]
+                if value
             ),
             default=None,
         )

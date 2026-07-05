@@ -58,12 +58,16 @@ test("feed autosuggest popovers render above result cards", () => {
 
 test("visible feed SSR requests bounded gain/loss enrichment", () => {
   const page = read("app/page.tsx");
+  const api = read("lib/api.ts");
 
   assert.match(page, /enrich_prices:\s*1/);
   assert.match(page, /include_net_flows:\s*0/);
   assert.match(page, /requestSource:\s*"ssr"/);
   assert.match(page, /routeFamily:\s*"feed"/);
   assert.doesNotMatch(page, /enrich_prices:\s*0/);
+  assert.match(api, /const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";/);
+  assert.match(api, /cache: authToken \|\| bypassPublicFetchCache \? "no-store" : "force-cache"/);
+  assert.match(api, /next: authToken \|\| bypassPublicFetchCache \? \{ revalidate: 0 \} : \{ revalidate: 30 \}/);
 });
 
 test("feed cards hide net flow labels and gate premium metrics", () => {
@@ -79,11 +83,29 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(card, /lockedPnlPlaceholder/);
   assert.match(card, /smartSignalPillClasses/);
   assert.match(list, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
-  assert.match(page, /hasEntitlement\(entitlements, "signals"\)/);
+  assert.match(page, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
   assert.match(page, /function redactPremiumFeedMetrics/);
   assert.match(page, /pnlValue < 0 \? -0\.1/);
   assert.match(page, /smart_score: signalValue === null \? null : undefined/);
   assert.match(page, /include_net_flows: 0/);
+});
+
+test("watchlist activity unlocks premium metrics for entitled users", () => {
+  const entitlements = read("lib/entitlements.ts");
+  const watchlistPage = read("app/watchlists/[id]/page.tsx");
+  const watchlistContent = read("components/watchlists/WatchlistDetailContent.tsx");
+  const watchlistRecentActivity = read("components/watchlists/WatchlistRecentActivity.tsx");
+  const watchlistClient = read("components/watchlists/WatchlistDetailClient.tsx");
+
+  assert.match(entitlements, /\| "premium_feed_metrics"/);
+  assert.match(entitlements, /premium_feed_metrics: 0/);
+  assert.match(entitlements, /premium_feed_metrics: 1/);
+  assert.match(watchlistPage, /getEntitlements\(authToken, \{ source: "WatchlistDetailPage" \}/);
+  assert.match(watchlistPage, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
+  assert.match(watchlistContent, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
+  assert.match(watchlistRecentActivity, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
+  assert.match(watchlistClient, /getEntitlements\(undefined, \{ source: "WatchlistDetailClient" \}/);
+  assert.match(watchlistClient, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
 });
 
 test("feed gain/loss tooltip uses simplified percentage copy", () => {

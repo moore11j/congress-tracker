@@ -580,14 +580,16 @@ export function FeedCard({
   const smartScore = signalValue.score ?? overlaySmartScore;
   const smartBand = signalValue.band ?? signalOverlay?.band ?? null;
 
-  const pnlPct = (item as any).pnl_pct;
-  const pnl = parseInsiderNumber(pnlPct);
+  const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
+  const gainLossStatus = typeof (item as any).gain_loss_status === "string" ? (item as any).gain_loss_status : null;
+  const gainLossPercent = firstParsedNumber((item as any).gain_loss_percent, payload.gain_loss_percent, payload.gainLossPercent);
+  const hasAuthoritativeGainLoss = gainLossPercent !== null || gainLossStatus !== null || (item as any).gain_loss_as_of != null || payload.gain_loss_as_of != null;
+  const legacyPnl = parseInsiderNumber((item as any).pnl_pct ?? payload.pnl_pct ?? payload.pnlPct ?? payload.pnl);
+  const pnl = gainLossPercent ?? (hasAuthoritativeGainLoss ? null : legacyPnl);
   const hasPnl = pnl !== null;
   const pnlSource = (item as any).pnl_source as string | undefined;
   const isStale = Boolean((item as any).quote_is_stale);
   const latestPrice = firstParsedNumber((item as any).current_price, payload.current_price, payload.latest_price, payload.latestPrice);
-  const outcomeStatus = typeof (item as any).outcome_status === "string" ? (item as any).outcome_status : null;
-  const gainLossStatus = typeof (item as any).gain_loss_status === "string" ? (item as any).gain_loss_status : null;
   const outcomeIsUnavailable = Boolean(outcomeStatus && outcomeStatus !== "pending" && outcomeStatus !== "ok");
   const outcomeReasonLabel = isInstitutional ? "N/A" : outcomeIsUnavailable ? "Data unavailable" : "Updating";
   const missingPnlLabel = gainLossStatusLabel(gainLossStatus, outcomeReasonLabel);

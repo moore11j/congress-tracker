@@ -153,6 +153,7 @@ def test_admin_entitlements_include_all_paid_feature_sources():
         assert payload["is_admin"] is True
         for feature in (
             "signals",
+            "premium_feed_metrics",
             "backtesting",
             "screener_intelligence",
             "options_flow_feed",
@@ -164,6 +165,25 @@ def test_admin_entitlements_include_all_paid_feature_sources():
             assert entitlements.has_feature(feature) is True
             assert feature in payload["features"]
             assert int(payload["limits"][feature]) >= 1
+    finally:
+        db.close()
+
+
+def test_premium_feed_metrics_gate_defaults_to_premium_and_unlocks_paid_users():
+    db = _session()
+    try:
+        free_user = _user(db, "metrics-free@example.com", tier="free")
+        premium_user = _user(db, "metrics-premium@example.com", tier="premium")
+        pro_user = _user(db, "metrics-pro@example.com", tier="pro")
+
+        assert DEFAULT_FEATURE_GATES["premium_feed_metrics"]["required_tier"] == "premium"
+        assert entitlements_for_user(db, free_user).has_feature("premium_feed_metrics") is False
+        assert entitlements_for_user(db, premium_user).has_feature("premium_feed_metrics") is True
+        assert entitlements_for_user(db, pro_user).has_feature("premium_feed_metrics") is True
+
+        gates = {row["feature_key"]: row for row in feature_gate_payloads(db)}
+        assert gates["premium_feed_metrics"]["required_tier"] == "premium"
+        assert "gain/loss" in gates["premium_feed_metrics"]["description"].lower()
     finally:
         db.close()
 

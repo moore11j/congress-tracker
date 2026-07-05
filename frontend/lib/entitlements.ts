@@ -2,6 +2,7 @@ export type EntitlementTier = "free" | "premium" | "pro" | "admin";
 
 export type EntitlementFeature =
   | "signals"
+  | "premium_feed_metrics"
   | "leaderboards"
   | "backtesting"
   | "screener"
@@ -55,6 +56,7 @@ export const defaultEntitlements: Entitlements = {
   tier: "free",
   limits: {
     signals: 0,
+    premium_feed_metrics: 0,
     leaderboards: 0,
     backtesting: 0,
     screener: 0,
@@ -89,6 +91,7 @@ export const premiumEntitlements: Entitlements = {
   tier: "premium",
   limits: {
     signals: 1,
+    premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
     screener: 1,
@@ -117,6 +120,7 @@ export const premiumEntitlements: Entitlements = {
   },
   features: [
     "signals",
+    "premium_feed_metrics",
     "leaderboards",
     "backtesting",
     "screener",
@@ -144,6 +148,7 @@ export const proEntitlements: Entitlements = {
   tier: "pro",
   limits: {
     signals: 1,
+    premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
     screener: 1,
@@ -172,6 +177,7 @@ export const proEntitlements: Entitlements = {
   },
   features: [
     "signals",
+    "premium_feed_metrics",
     "leaderboards",
     "backtesting",
     "screener",

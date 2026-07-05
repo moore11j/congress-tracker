@@ -4,6 +4,7 @@ type PlanTier = "free" | "premium" | "pro";
 type BillingInterval = "monthly" | "annual";
 type FeatureKey =
   | "signals"
+  | "premium_feed_metrics"
   | "leaderboards"
   | "backtesting"
   | "screener"
@@ -40,6 +41,7 @@ const planTiers: PlanTier[] = ["free", "premium", "pro"];
 const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   free: {
     signals: 0,
+    premium_feed_metrics: 0,
     leaderboards: 0,
     backtesting: 0,
     screener: 0,
@@ -68,6 +70,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   },
   premium: {
     signals: 1,
+    premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
     screener: 1,
@@ -96,6 +99,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   },
   pro: {
     signals: 1,
+    premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
     screener: 1,
@@ -134,6 +138,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 10,
+  },
+  {
+    feature_key: "premium_feed_metrics",
+    label: "Feed and watchlist metrics",
+    kind: "feature",
+    description: "Gain/loss percentages and signal scores in feed and watchlist activity cards.",
+    required_tier: "premium",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 12,
   },
   {
     feature_key: "leaderboards",

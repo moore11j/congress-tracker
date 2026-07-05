@@ -22,11 +22,12 @@ type Props = {
   confirmationEvents: ConfirmationMonitoringEvent[];
   initialState: WatchlistActivityState;
   initialData: RecentActivityData;
+  canViewPremiumMetrics: boolean;
 };
 
 const pendingWatchlistToastKey = "watchlist:create-toast";
 
-export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData }: Props) {
+export function WatchlistDetailContent({ watchlist, confirmationEvents, initialState, initialData, canViewPremiumMetrics }: Props) {
   const unseenCount = Math.max(Number(watchlist.unread_count ?? watchlist.unseen_count) || 0, 0);
   const [createToast, setCreateToast] = useState<string | null>(null);
 
@@ -100,6 +101,7 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
             unseenSince={watchlist.unseen_since ?? ""}
             initialState={initialState}
             initialData={initialData}
+            canViewPremiumMetrics={canViewPremiumMetrics}
           />
         </section>
       </div>

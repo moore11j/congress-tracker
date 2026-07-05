@@ -3579,6 +3579,10 @@ export type SignalItem = {
   current_price?: number | null;
   pnl_pct?: number | null;
   return_pct?: number | null;
+  gain_loss_percent?: number | null;
+  gain_loss_amount?: number | null;
+  gain_loss_status?: string | null;
+  gain_loss_as_of?: string | null;
   pnl_source?: string | null;
   outcome_status?: string | null;
   outcome_skip_reason?: string | null;
@@ -4003,7 +4007,8 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   }
   const windowDays = isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null;
   const cacheKey = `events:${url}`;
-  const canShortCache = !authToken && nextParams.debug === undefined && !requestSignal?.aborted;
+  const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";
+  const canShortCache = !authToken && !bypassPublicFetchCache && nextParams.debug === undefined && !requestSignal?.aborted;
   if (canShortCache) {
     const now = Date.now();
     const cached = eventsCache.get(cacheKey);
@@ -4014,8 +4019,8 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
 
   const request = fetchJson<unknown>(url, {
     headers: authHeaders(authToken),
-    cache: authToken ? "no-store" : "force-cache",
-    next: authToken ? { revalidate: 0 } : { revalidate: 30 },
+    cache: authToken || bypassPublicFetchCache ? "no-store" : "force-cache",
+    next: authToken || bypassPublicFetchCache ? { revalidate: 0 } : { revalidate: 30 },
     signal: canShortCache ? undefined : requestSignal,
     requestSource,
     routeFamily,

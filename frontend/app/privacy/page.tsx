@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
+import { legalPageChrome } from "@/lib/legalPageChrome";
 
 const lastUpdated = "June 4, 2026";
 
@@ -8,13 +9,16 @@ export const metadata: Metadata = {
   description: "Privacy Policy for Walnut Intelligence Inc. and Walnut Market Terminal.",
 };
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const chrome = await legalPageChrome();
+
   return (
     <LegalPageShell
       eyebrow="Legal"
       title="Privacy Policy"
       description="This Privacy Policy explains how Walnut Intelligence Inc. collects, uses, and shares information in connection with Walnut Market Terminal."
       lastUpdated={lastUpdated}
+      chrome={chrome}
     >
       <LegalSection title="1. Overview">
         <p>Walnut Intelligence Inc. provides market intelligence tools for informational and research purposes only. We collect information needed to operate, secure, bill for, support, and improve the service.</p>
