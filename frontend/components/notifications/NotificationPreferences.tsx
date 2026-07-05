@@ -106,7 +106,7 @@ export function NotificationPreferences({
       ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
       : "border-amber-300/30 bg-amber-300/10 text-amber-100"
     : "border-white/10 bg-white/[0.03] text-slate-300";
-  const eyebrow = sourceType === "watchlist" ? "Watchlist notifications" : "Saved screen notifications";
+  const eyebrow = sourceType === "watchlist" ? "Watchlist notifications" : "Saved view notifications";
 
   useEffect(() => {
     if (!accountEmailDestination) {

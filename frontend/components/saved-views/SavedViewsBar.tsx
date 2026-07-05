@@ -161,6 +161,13 @@ function defaultName(surface: SavedViewSurface, params: Record<string, string>) 
     return `screen/${sector}/${sort}`;
   }
 
+  if (surface === "leaderboard") {
+    const mode = params.source_mode || "congress";
+    const model = params.performance_model || "portfolio";
+    const window = params.lookback_days ? `${params.lookback_days}d` : "365d";
+    return `leaderboard/${mode}/${model}/${window}`;
+  }
+
   const mode = params.mode || "all";
   const side = params.side && params.side !== "all" ? `:${params.side}` : "";
   return `signals/${mode}${side}`;
@@ -271,7 +278,8 @@ export function SavedViewsBar({
   const viewNoun = surface === "screener" ? "screen" : "view";
   const viewNounPlural = surface === "screener" ? "screens" : "views";
   const savedLabel = surface === "screener" ? "Saved screens" : "Saved views";
-  const savedFeatureKey = surface === "screener" ? "screener_saved_screens" : "saved_views";
+  const savedPermissionFeatureKey = surface === "screener" ? "screener_saved_screens" : surface === "leaderboard" ? "leaderboards" : "saved_views";
+  const savedLimitFeatureKey = surface === "screener" ? "screener_saved_screens" : "saved_views";
 
   const urlParams = useMemo(() => {
     return compactParams(new URLSearchParams(searchParamsString), paramKeys, defaultParams);
@@ -299,7 +307,7 @@ export function SavedViewsBar({
     return surfaceViews.find((view) => view.id === exactMatchViewId) ?? surfaceViews.find((view) => view.id === selectedViewId) ?? null;
   }, [exactMatchViewId, selectedViewId, surfaceViews, suppressActiveView]);
   const activeViewIsDirty = Boolean(activeView && activeView.id !== restoreTargetViewId && normalizedParamsSignature(activeView.params, paramKeys, defaultParams) !== currentSignature);
-  const savedViewLimit = limitFor(entitlements, savedFeatureKey);
+  const savedViewLimit = limitFor(entitlements, savedLimitFeatureKey);
   const usageCopy =
     surface === "screener"
       ? `${surfaceViews.length} of ${savedViewLimit} ${entitlements.tier === "premium" ? "Premium" : "free"} saved screens used`
@@ -504,8 +512,14 @@ export function SavedViewsBar({
       setAuthGateOpen(true);
       return false;
     }
-    if (!hasEntitlement(entitlements, savedFeatureKey)) {
-      setUpgradeReason(surface === "screener" ? "Saved screens are currently a Premium feature." : "Saved views are currently a Premium feature.");
+    if (!hasEntitlement(entitlements, savedPermissionFeatureKey)) {
+      setUpgradeReason(
+        surface === "screener"
+          ? "Saved screens are currently a Premium feature."
+          : surface === "leaderboard"
+            ? "Saved leaderboard views are currently a Premium or Pro feature."
+            : "Saved views are currently a Premium feature.",
+      );
       return false;
     }
     const currentCount = surface === "screener" ? surfaceViews.length : totalSavedViewCount;

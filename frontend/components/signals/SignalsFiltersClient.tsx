@@ -61,6 +61,14 @@ function buildSignalsHref(pathname: string, searchParamsString: string, filters:
   return `${pathname}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
+const defaultSignalFilters: SignalFilters = {
+  mode: "congress",
+  side: "all",
+  limit: 25,
+  debug: false,
+  sort: "recent",
+};
+
 const modeOptions = [
   ["congress", "Congress"],
   ["insider", "Insider"],
@@ -125,7 +133,9 @@ export function SignalsFiltersClient({
   const [appliedFilters, setAppliedFilters] = useState<SignalFilters>(() => initialFilters);
   const draftFiltersKey = filtersSignature(draftFilters);
   const appliedFiltersKey = filtersSignature(appliedFilters);
+  const defaultFiltersKey = filtersSignature(defaultSignalFilters);
   const hasPendingChanges = draftFiltersKey !== appliedFiltersKey;
+  const canReset = draftFiltersKey !== defaultFiltersKey || appliedFiltersKey !== defaultFiltersKey;
 
   useEffect(() => {
     setDraftFilters(initialFilters);
@@ -145,12 +155,22 @@ export function SignalsFiltersClient({
     router.push(buildSignalsHref(pathname, searchParamsString, nextFilters), { scroll: false });
   };
 
+  const resetFilters = () => {
+    if (!canReset) return;
+    setDraftFilters(defaultSignalFilters);
+    setAppliedFilters(defaultSignalFilters);
+    router.push(buildSignalsHref(pathname, searchParamsString, defaultSignalFilters), { scroll: false });
+  };
+
   const filterLabel = "text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500";
   const filterGroup = "space-y-1.5";
   const pillGroup = "flex flex-wrap items-center gap-1";
   const applyButtonClassName = hasPendingChanges
     ? "inline-flex h-10 w-full items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 sm:w-auto"
     : "inline-flex h-10 w-full cursor-not-allowed items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/30 px-4 text-sm font-semibold text-slate-500 sm:w-auto";
+  const resetButtonClassName = canReset
+    ? "inline-flex h-10 w-full items-center justify-center rounded-2xl border border-white/15 bg-slate-950/40 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] sm:w-auto"
+    : "inline-flex h-10 w-full cursor-not-allowed items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/30 px-4 text-sm font-semibold text-slate-600 sm:w-auto";
 
   return (
     <div className="mt-6 rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card backdrop-blur">
@@ -235,27 +255,31 @@ export function SignalsFiltersClient({
           </div>
         </div>
 
-        <div className="pt-1">
-          <button type="button" disabled={!hasPendingChanges} onClick={applyFilters} className={applyButtonClassName}>
-            Apply filters
-          </button>
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 border-t border-slate-800 pt-3 sm:justify-end">
-          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-            mode <span className="text-white">{optionLabel(modeOptions, appliedFilters.mode)}</span>
-          </span>
-          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-            side <span className="text-white">{optionLabel(sideOptions, appliedFilters.side as (typeof sideOptions)[number][0])}</span>
-          </span>
-          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-            sort <span className="text-white">{optionLabel(sortOptions, appliedFilters.sort)}</span>
-          </span>
-          {hasPendingChanges ? (
-            <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>
-              pending
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <button type="button" disabled={!hasPendingChanges} onClick={applyFilters} className={applyButtonClassName}>
+              Apply filters
+            </button>
+            <button type="button" disabled={!canReset} onClick={resetFilters} className={resetButtonClassName}>
+              Reset
+            </button>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              mode <span className="text-white">{optionLabel(modeOptions, appliedFilters.mode)}</span>
             </span>
-          ) : null}
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              side <span className="text-white">{optionLabel(sideOptions, appliedFilters.side as (typeof sideOptions)[number][0])}</span>
+            </span>
+            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+              sort <span className="text-white">{optionLabel(sortOptions, appliedFilters.sort)}</span>
+            </span>
+            {hasPendingChanges ? (
+              <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>
+                pending
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

@@ -273,7 +273,7 @@ const featureDefinitions: FeatureDefinition[] = [
     feature_key: "saved_views",
     label: "Saved views",
     kind: "limit",
-    description: "Reusable feed, signal, and watchlist filters.",
+    description: "Reusable feed, signal, leaderboard, and watchlist filters.",
     required_tier: "free",
     unit_singular: "view",
     unit_plural: "views",

@@ -111,15 +111,15 @@ const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }>
   },
   "saved_views:free": {
     label: "Saved Views \u2014 Free",
-    helperText: "Number of saved table/feed views free users can save.",
+    helperText: "Number of saved feed, signal, leaderboard, and table views free users can save.",
   },
   "saved_views:premium": {
     label: "Saved Views \u2014 Premium",
-    helperText: "Number of saved table/feed views premium users can save.",
+    helperText: "Number of saved feed, signal, leaderboard, and table views premium users can save.",
   },
   "saved_views:pro": {
     label: "Saved Views \u2014 Pro",
-    helperText: "Number of saved table/feed views pro users can save.",
+    helperText: "Number of saved feed, signal, leaderboard, and table views pro users can save.",
   },
 };
 

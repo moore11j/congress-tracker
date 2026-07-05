@@ -17,6 +17,7 @@ const signalsResultsClient = read("components/signals/SignalsResultsClient.tsx")
 const signalsFiltersClient = read("components/signals/SignalsFiltersClient.tsx");
 const screenerResultsClient = read("components/screener/ScreenerResultsClient.tsx");
 const leaderboardResultsClient = read("components/leaderboards/CongressTraderLeaderboardClientResults.tsx");
+const savedViewsBar = read("components/saved-views/SavedViewsBar.tsx");
 const entitlements = read("lib/entitlements.ts");
 const api = read("lib/api.ts");
 const serverAuth = read("lib/serverAuth.ts");
@@ -30,7 +31,8 @@ test("signals page preserves the full filter and saved-view surface", () => {
   assert.match(signalsFiltersClient, /Side/);
   assert.match(signalsFiltersClient, /Sort/);
   assert.match(signalsFiltersClient, /Limit/);
-  assert.match(signalsFiltersClient, /INSTITUTIONAL/);
+  assert.match(signalsFiltersClient, /Institutional/);
+  assert.match(signalsFiltersClient, /Reset/);
   assert.doesNotMatch(signalsFiltersClient, /Confirm|Direction|Sources/);
   assert.match(signalsPage, /Signals table/);
   assert.match(signalsPage, /SignalsFiltersClient/);
@@ -72,17 +74,31 @@ test("screener page preserves presets, filter sections, and workflow controls", 
 test("leaderboard page uses compact segmented control groups", () => {
   assert.match(leaderboardFiltersClient, /Congress/);
   assert.match(leaderboardFiltersClient, /Insiders/);
-  assert.match(leaderboardFiltersClient, /Universe/);
+  assert.match(leaderboardFiltersClient, /Mode/);
   assert.match(leaderboardFiltersClient, /Performance Model/);
   assert.match(leaderboardFiltersClient, /Trade Outcomes/);
   assert.match(leaderboardFiltersClient, /Portfolio Simulation/);
   assert.match(leaderboardFiltersClient, /Simulation Window/);
   assert.match(leaderboardFiltersClient, /Rows/);
   assert.match(leaderboardFiltersClient, /Apply filters/);
+  assert.match(leaderboardFiltersClient, /Reset/);
+  assert.match(leaderboardFiltersClient, /SavedViewsBar/);
+  assert.match(leaderboardFiltersClient, /surface="leaderboard"/);
+  assert.match(leaderboardFiltersClient, /statusPill\("mode"/);
+  assert.match(leaderboardFiltersClient, /statusPill\("model"/);
+  assert.match(leaderboardFiltersClient, /statusPill\("window"/);
+  assert.match(leaderboardFiltersClient, /statusPill\("rows"/);
   assert.match(leaderboardPage, /CongressTraderLeaderboardFiltersClient/);
   assert.doesNotMatch(leaderboardFiltersClient, /<select/);
   assert.doesNotMatch(leaderboardFiltersClient, /selectClassName/);
   assert.doesNotMatch(leaderboardPage, /CongressTraderLeaderboardClientPage/);
+});
+
+test("leaderboard saved views use monitoring plumbing and premium leaderboard access", () => {
+  assert.match(leaderboardFiltersClient, /<SavedViewsBar[\s\S]*surface="leaderboard"[\s\S]*allowNotifications=\{true\}/);
+  assert.match(savedViewsBar, /surface === "leaderboard" \? "leaderboards" : "saved_views"/);
+  assert.match(savedViewsBar, /const savedLimitFeatureKey = surface === "screener" \? "screener_saved_screens" : "saved_views"/);
+  assert.match(savedViewsBar, /Saved leaderboard views are currently a Premium or Pro feature/);
 });
 
 test("leaderboard row limit defaults to 10 and applies through the filter button", () => {
