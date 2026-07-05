@@ -1,4 +1,7 @@
 from datetime import datetime
+from types import SimpleNamespace
+import threading
+import time
 
 import pytest
 from sqlalchemy import create_engine
@@ -15,9 +18,11 @@ from app.request_priority import RoutePriority, classify_request
 def clear_market_quote_caches():
     app_main._MARKET_QUOTES_EOD_CACHE.clear()
     app_main._MARKET_QUOTES_RESPONSE_CACHE.clear()
+    app_main._MARKET_QUOTES_RESPONSE_INFLIGHT.clear()
     yield
     app_main._MARKET_QUOTES_EOD_CACHE.clear()
     app_main._MARKET_QUOTES_RESPONSE_CACHE.clear()
+    app_main._MARKET_QUOTES_RESPONSE_INFLIGHT.clear()
 
 
 def _session():
@@ -227,6 +232,179 @@ def test_market_quotes_response_cache_hit_avoids_repeated_quote_fetch(monkeypatc
 
     assert first == second
     assert calls == [("AAPL",)]
+
+
+def test_market_quotes_response_cache_hit_avoids_repeated_db_heavy_path(monkeypatch):
+    db = _session()
+    calls = {"meta": 0, "closes": 0, "quotes": 0, "eod": 0}
+
+    def fake_meta(_db_arg, symbols, **_kwargs):
+        calls["meta"] += 1
+        return {symbol: {"company_name": symbol, "exchange": None} for symbol in symbols}
+
+    def fake_closes(_db_arg, symbols):
+        calls["closes"] += 1
+        return {}
+
+    def fake_quotes(_db_arg, symbols, **_kwargs):
+        calls["quotes"] += 1
+        return {
+            symbol: {
+                "symbol": symbol,
+                "price": 100.0,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            }
+            for symbol in symbols
+        }
+
+    def fake_eod(_symbols):
+        calls["eod"] += 1
+        return {}
+
+    monkeypatch.setattr(app_main, "_ticker_meta_with_security_names", fake_meta)
+    monkeypatch.setattr(app_main, "_latest_cached_closes_by_symbol", fake_closes)
+    monkeypatch.setattr(app_main, "get_current_prices_meta_db", fake_quotes)
+    monkeypatch.setattr(app_main, "_latest_eod_light_closes_by_symbol", fake_eod)
+
+    first = _build_market_quotes_response("AAPL,NVDA", db)
+    second = _build_market_quotes_response("AAPL,NVDA", db)
+
+    assert first == second
+    assert calls == {"meta": 1, "closes": 1, "quotes": 1, "eod": 1}
+
+
+def test_market_quotes_concurrent_requests_coalesce_same_symbol_set(monkeypatch):
+    db = object()
+    quote_calls = []
+    leader_entered = threading.Event()
+
+    monkeypatch.setenv("MARKET_QUOTES_RESPONSE_COALESCE_WAIT_SECONDS", "1.0")
+    monkeypatch.setattr(
+        app_main,
+        "_ticker_meta_with_security_names",
+        lambda _db_arg, symbols, **_kwargs: {
+            symbol: {"company_name": symbol, "exchange": None} for symbol in symbols
+        },
+    )
+    monkeypatch.setattr(app_main, "_latest_cached_closes_by_symbol", lambda _db_arg, _symbols: {})
+    monkeypatch.setattr(app_main, "_latest_eod_light_closes_by_symbol", lambda _symbols: {})
+
+    def fake_quotes(_db_arg, symbols, **_kwargs):
+        quote_calls.append(tuple(symbols))
+        leader_entered.set()
+        time.sleep(0.15)
+        return {
+            symbol: {
+                "symbol": symbol,
+                "price": 100.0,
+                "asof_ts": datetime(2026, 7, 3, 15, 30, 0),
+                "is_stale": False,
+            }
+            for symbol in symbols
+        }
+
+    monkeypatch.setattr(app_main, "get_current_prices_meta_db", fake_quotes)
+
+    results = []
+
+    def run_request():
+        results.append(_build_market_quotes_response("AAPL,NVDA", db))
+
+    first = threading.Thread(target=run_request)
+    second = threading.Thread(target=run_request)
+    first.start()
+    assert leader_entered.wait(1)
+    second.start()
+    first.join()
+    second.join()
+
+    assert len(results) == 2
+    assert results[0] == results[1]
+    assert quote_calls == [("AAPL", "NVDA")]
+
+
+def test_market_quotes_waiter_can_use_stale_response_during_rebuild(monkeypatch):
+    db = object()
+    symbols = ["AAPL"]
+    stale_payload = {
+        "items": [
+            {
+                "symbol": "AAPL",
+                "company_name": "Apple Inc",
+                "current_price": 210.0,
+                "day_change_pct": 0.5,
+                "as_of": "2026-07-03T15:30:00",
+            }
+        ],
+        "status": "ok",
+    }
+    now_ts = time.time()
+    app_main._MARKET_QUOTES_RESPONSE_CACHE[tuple(symbols)] = (
+        stale_payload,
+        now_ts - 1,
+        now_ts + 120,
+    )
+    app_main._MARKET_QUOTES_RESPONSE_INFLIGHT[tuple(symbols)] = threading.Event()
+    monkeypatch.setenv("MARKET_QUOTES_RESPONSE_COALESCE_WAIT_SECONDS", "0.05")
+    monkeypatch.setattr(
+        app_main,
+        "get_current_prices_meta_db",
+        lambda *_args, **_kwargs: pytest.fail("waiter should not rebuild while stale response is available"),
+    )
+
+    response = _build_market_quotes_response("AAPL", db)
+
+    assert response == stale_payload
+
+
+def test_market_quotes_prefetch_bypasses_rebuild(monkeypatch):
+    monkeypatch.setattr(
+        app_main,
+        "_build_market_quotes_response",
+        lambda *_args, **_kwargs: pytest.fail("prefetch should not rebuild market quotes"),
+    )
+
+    request = SimpleNamespace(
+        headers={"purpose": "prefetch"},
+        cookies={},
+        url=SimpleNamespace(path="/api/market/quotes"),
+    )
+    response = app_main.market_quotes(request, symbols="AAPL", db=object())
+
+    assert response.status_code == 204
+    assert response.headers["x-walnut-prefetch-bypass"] == "1"
+
+
+def test_market_quotes_low_value_direct_request_uses_stale_cache():
+    symbols = ["AAPL"]
+    stale_payload = {
+        "items": [
+            {
+                "symbol": "AAPL",
+                "company_name": "Apple Inc",
+                "current_price": 210.0,
+                "day_change_pct": 0.5,
+                "as_of": "2026-07-03T15:30:00",
+            }
+        ],
+        "status": "ok",
+    }
+    now_ts = time.time()
+    app_main._MARKET_QUOTES_RESPONSE_CACHE[tuple(symbols)] = (
+        stale_payload,
+        now_ts - 1,
+        now_ts + 120,
+    )
+    request = SimpleNamespace(
+        headers={},
+        cookies={},
+        url=SimpleNamespace(path="/api/market/quotes"),
+    )
+
+    response = app_main._market_quotes_low_value_cached_response(request, symbols)
+
+    assert response == stale_payload
 
 
 def test_market_quotes_response_cache_key_respects_symbols(monkeypatch):

@@ -5012,8 +5012,10 @@ _MARKET_QUOTES_SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,14}$")
 _MARKET_QUOTES_MAX_SYMBOLS = 12
 _MARKET_QUOTES_EOD_CACHE: dict[str, tuple[list[dict], float]] = {}
 _MARKET_QUOTES_EOD_CACHE_LOCK = threading.Lock()
-_MARKET_QUOTES_RESPONSE_CACHE: dict[tuple[str, ...], tuple[dict, float]] = {}
+_MARKET_QUOTES_RESPONSE_CACHE: dict[tuple[str, ...], tuple[dict, float, float]] = {}
 _MARKET_QUOTES_RESPONSE_CACHE_LOCK = threading.Lock()
+_MARKET_QUOTES_RESPONSE_INFLIGHT: dict[tuple[str, ...], threading.Event] = {}
+_MARKET_QUOTES_RESPONSE_INFLIGHT_LOCK = threading.Lock()
 
 
 def _parse_market_quote_symbols(symbols: str | None) -> list[str]:
@@ -5037,25 +5039,77 @@ def _market_quotes_response_cache_ttl_seconds() -> int:
         return 45
 
 
-def _market_quotes_response_cache_get(parsed_symbols: list[str]) -> dict | None:
+def _market_quotes_response_stale_ttl_seconds() -> int:
+    try:
+        return max(
+            _market_quotes_response_cache_ttl_seconds(),
+            int(os.getenv("MARKET_QUOTES_RESPONSE_STALE_TTL_SECONDS", "180") or 180),
+        )
+    except ValueError:
+        return 180
+
+
+def _market_quotes_response_coalesce_wait_seconds() -> float:
+    try:
+        return max(0.05, float(os.getenv("MARKET_QUOTES_RESPONSE_COALESCE_WAIT_SECONDS", "2.0") or 2.0))
+    except ValueError:
+        return 2.0
+
+
+def _market_quotes_response_cache_get(parsed_symbols: list[str], *, allow_stale: bool = False) -> dict | None:
     key = tuple(parsed_symbols)
     now_ts = time.time()
     with _MARKET_QUOTES_RESPONSE_CACHE_LOCK:
         cached = _MARKET_QUOTES_RESPONSE_CACHE.get(key)
         if not cached:
             return None
-        payload, expires_at = cached
-        if now_ts >= expires_at:
+        payload, fresh_expires_at, stale_expires_at = cached
+        if now_ts < fresh_expires_at or (allow_stale and now_ts < stale_expires_at):
+            return copy.deepcopy(payload)
+        if now_ts >= stale_expires_at:
             _MARKET_QUOTES_RESPONSE_CACHE.pop(key, None)
             return None
-        return copy.deepcopy(payload)
+        return None
 
 
 def _market_quotes_response_cache_set(parsed_symbols: list[str], payload: dict) -> None:
     key = tuple(parsed_symbols)
-    expires_at = time.time() + _market_quotes_response_cache_ttl_seconds()
+    now_ts = time.time()
+    fresh_expires_at = now_ts + _market_quotes_response_cache_ttl_seconds()
+    stale_expires_at = now_ts + _market_quotes_response_stale_ttl_seconds()
     with _MARKET_QUOTES_RESPONSE_CACHE_LOCK:
-        _MARKET_QUOTES_RESPONSE_CACHE[key] = (copy.deepcopy(payload), expires_at)
+        _MARKET_QUOTES_RESPONSE_CACHE[key] = (copy.deepcopy(payload), fresh_expires_at, stale_expires_at)
+
+
+def _market_quotes_response_inflight_enter(parsed_symbols: list[str]) -> tuple[bool, threading.Event]:
+    key = tuple(parsed_symbols)
+    with _MARKET_QUOTES_RESPONSE_INFLIGHT_LOCK:
+        existing = _MARKET_QUOTES_RESPONSE_INFLIGHT.get(key)
+        if existing is not None:
+            return False, existing
+        event = threading.Event()
+        _MARKET_QUOTES_RESPONSE_INFLIGHT[key] = event
+        return True, event
+
+
+def _market_quotes_response_inflight_exit(parsed_symbols: list[str], event: threading.Event) -> None:
+    key = tuple(parsed_symbols)
+    with _MARKET_QUOTES_RESPONSE_INFLIGHT_LOCK:
+        if _MARKET_QUOTES_RESPONSE_INFLIGHT.get(key) is event:
+            _MARKET_QUOTES_RESPONSE_INFLIGHT.pop(key, None)
+        event.set()
+
+
+def _market_quotes_low_value_cached_response(request: Request, parsed_symbols: list[str]) -> dict | None:
+    if not parsed_symbols:
+        return None
+    if not (
+        _is_logged_out_bot_or_crawler_request(request)
+        or _is_logged_out_direct_api_request(request)
+        or _is_inactive_logged_out_api_request(request)
+    ):
+        return None
+    return _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
 
 
 def _latest_cached_closes_by_symbol(db: Session, symbols: list[str]) -> dict[str, list[dict]]:
@@ -5216,77 +5270,110 @@ def _build_market_quotes_response(symbols: str | None, db: Session) -> dict:
     if cached_response is not None:
         return cached_response
 
-    ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
-    cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
-    quote_rows = get_current_prices_meta_db(
-        db,
-        parsed_symbols,
-        allow_cache_write=False,
-        lane="ticker_quote",
-        allow_live_user_fetch=True,
-        release_connection_before_fetch=True,
-        stale_while_revalidate=False,
-        coalesce_wait_seconds=1.0,
-        force_quote_endpoint=True,
-    )
-    eod_light_closes = _latest_eod_light_closes_by_symbol(parsed_symbols)
-    items: list[dict] = []
-    available_count = 0
+    owns_rebuild, inflight_event = _market_quotes_response_inflight_enter(parsed_symbols)
+    if not owns_rebuild:
+        inflight_event.wait(_market_quotes_response_coalesce_wait_seconds())
+        cached_response = _market_quotes_response_cache_get(parsed_symbols)
+        if cached_response is not None:
+            return cached_response
+        stale_response = _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
+        if stale_response is not None:
+            return stale_response
+        owns_rebuild, inflight_event = _market_quotes_response_inflight_enter(parsed_symbols)
+        if not owns_rebuild:
+            inflight_event.wait(_market_quotes_response_coalesce_wait_seconds())
+            cached_response = _market_quotes_response_cache_get(parsed_symbols, allow_stale=True)
+            if cached_response is not None:
+                return cached_response
+            # Extremely slow rebuilds should still return complete data instead of failing open.
+            # Build independently, but do not signal or clear another request's in-flight marker.
+            inflight_event = None
 
-    for symbol in parsed_symbols:
-        quote = quote_rows.get(symbol)
-        current_price = None
-        asof_ts = None
-        if isinstance(quote, dict):
-            try:
-                current_price = float(quote["price"]) if quote.get("price") is not None else None
-            except (TypeError, ValueError):
-                current_price = None
-            raw_asof = quote.get("asof_ts")
-            asof_ts = raw_asof if isinstance(raw_asof, datetime) else None
-        eod_close_rows = eod_light_closes.get(symbol) or []
-        previous_close_rows = eod_close_rows or cached_closes.get(symbol, [])
-        if current_price is not None and asof_ts is not None and eod_close_rows:
-            latest_eod_date = str(eod_close_rows[0].get("date") or "")
-            if latest_eod_date == asof_ts.date().isoformat():
-                current_price = eod_close_rows[0]["close"]
-                previous_close_rows = eod_close_rows[1:]
-                try:
-                    asof_ts = datetime.strptime(latest_eod_date, "%Y-%m-%d").replace(hour=16)
-                except ValueError:
-                    pass
-        previous_close = _previous_close_for_quote(previous_close_rows, asof_ts)
-        day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
-        if day_change_pct is None and current_price is not None and previous_close not in (None, 0):
-            day_change_pct = ((current_price - previous_close) / previous_close) * 100
-        if current_price is not None:
-            available_count += 1
+    try:
+        cached_response = _market_quotes_response_cache_get(parsed_symbols)
+        if cached_response is not None:
+            return cached_response
 
-        meta = ticker_meta.get(symbol, {})
-        company_name = meta.get("company_name") if isinstance(meta, dict) else None
-        items.append(
-            {
-                "symbol": symbol,
-                "company_name": company_name or symbol,
-                "current_price": current_price,
-                "day_change_pct": day_change_pct,
-                "as_of": asof_ts.isoformat() if asof_ts is not None else None,
-            }
+        ticker_meta = _ticker_meta_with_security_names(db, parsed_symbols)
+        cached_closes = _latest_cached_closes_by_symbol(db, parsed_symbols)
+        quote_rows = get_current_prices_meta_db(
+            db,
+            parsed_symbols,
+            allow_cache_write=False,
+            lane="ticker_quote",
+            allow_live_user_fetch=True,
+            release_connection_before_fetch=True,
+            stale_while_revalidate=False,
+            coalesce_wait_seconds=1.0,
+            force_quote_endpoint=True,
         )
+        eod_light_closes = _latest_eod_light_closes_by_symbol(parsed_symbols)
+        items: list[dict] = []
+        available_count = 0
 
-    if available_count == len(parsed_symbols):
-        status = "ok"
-    elif available_count > 0:
-        status = "partial"
-    else:
-        status = "unavailable"
-    payload = {"items": items, "status": status}
-    _market_quotes_response_cache_set(parsed_symbols, payload)
-    return payload
+        for symbol in parsed_symbols:
+            quote = quote_rows.get(symbol)
+            current_price = None
+            asof_ts = None
+            if isinstance(quote, dict):
+                try:
+                    current_price = float(quote["price"]) if quote.get("price") is not None else None
+                except (TypeError, ValueError):
+                    current_price = None
+                raw_asof = quote.get("asof_ts")
+                asof_ts = raw_asof if isinstance(raw_asof, datetime) else None
+            eod_close_rows = eod_light_closes.get(symbol) or []
+            previous_close_rows = eod_close_rows or cached_closes.get(symbol, [])
+            if current_price is not None and asof_ts is not None and eod_close_rows:
+                latest_eod_date = str(eod_close_rows[0].get("date") or "")
+                if latest_eod_date == asof_ts.date().isoformat():
+                    current_price = eod_close_rows[0]["close"]
+                    previous_close_rows = eod_close_rows[1:]
+                    try:
+                        asof_ts = datetime.strptime(latest_eod_date, "%Y-%m-%d").replace(hour=16)
+                    except ValueError:
+                        pass
+            previous_close = _previous_close_for_quote(previous_close_rows, asof_ts)
+            day_change_pct = _quote_float(quote, "change_percent") if isinstance(quote, dict) else None
+            if day_change_pct is None and current_price is not None and previous_close not in (None, 0):
+                day_change_pct = ((current_price - previous_close) / previous_close) * 100
+            if current_price is not None:
+                available_count += 1
+
+            meta = ticker_meta.get(symbol, {})
+            company_name = meta.get("company_name") if isinstance(meta, dict) else None
+            items.append(
+                {
+                    "symbol": symbol,
+                    "company_name": company_name or symbol,
+                    "current_price": current_price,
+                    "day_change_pct": day_change_pct,
+                    "as_of": asof_ts.isoformat() if asof_ts is not None else None,
+                }
+            )
+
+        if available_count == len(parsed_symbols):
+            status = "ok"
+        elif available_count > 0:
+            status = "partial"
+        else:
+            status = "unavailable"
+        payload = {"items": items, "status": status}
+        _market_quotes_response_cache_set(parsed_symbols, payload)
+        return payload
+    finally:
+        if owns_rebuild and inflight_event is not None:
+            _market_quotes_response_inflight_exit(parsed_symbols, inflight_event)
 
 
 @app.get("/api/market/quotes")
-def market_quotes(symbols: str | None = Query(None), db: Session = Depends(get_db)):
+def market_quotes(request: Request, symbols: str | None = Query(None), db: Session = Depends(get_db)):
+    prefetch_response = _api_prefetch_response(request, endpoint="market_quotes")
+    if prefetch_response is not None:
+        return prefetch_response
+    low_value_cached = _market_quotes_low_value_cached_response(request, _parse_market_quote_symbols(symbols))
+    if low_value_cached is not None:
+        return low_value_cached
     return _build_market_quotes_response(symbols, db)
 
 
