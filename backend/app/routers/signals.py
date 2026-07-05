@@ -714,7 +714,7 @@ def _query_unified_signals(
             )
         )
 
-    if include_institutional and mode in {"all", "institutional"} and (mode == "institutional" or side == "all"):
+    if include_institutional and mode in {"all", "institutional"} and (mode == "institutional" or side in {"all", "buy", "sell"}):
         items.extend(
             _query_institutional_signal_items(
                 db=db,
@@ -729,6 +729,7 @@ def _query_unified_signals(
                 confirmation_direction=confirmation_direction,
                 min_confirmation_sources=min_confirmation_source_count,
                 sort=sort,
+                side=side,
             )
         )
 
@@ -760,6 +761,8 @@ def _query_unified_signals(
             ),
             reverse=True,
         )
+    elif mode == "institutional":
+        items.sort(key=lambda item: (abs((item.unusual_multiple or 1.0) - 1.0), item.smart_score, item.ts), reverse=True)
     else:
         items.sort(key=lambda item: (item.unusual_multiple, item.ts), reverse=True)
 
@@ -791,6 +794,7 @@ def _query_institutional_signal_items(
     confirmation_direction: str,
     min_confirmation_sources: int,
     sort: str,
+    side: str,
 ) -> list[UnifiedSignalOut]:
     bounded_lookback = max(1, min(int(lookback_days or 30), 365))
     since = datetime.now(timezone.utc).date() - timedelta(days=bounded_lookback)
@@ -862,6 +866,11 @@ def _query_institutional_signal_items(
     inactive_confirmation_summary = _inactive_confirmation_summary()
     items: list[UnifiedSignalOut] = []
     for row in rows:
+        institutional_side = _institutional_side(row)
+        if side == "buy" and institutional_side != "buy":
+            continue
+        if side == "sell" and institutional_side != "sell":
+            continue
         symbol_key = (row.normalized_symbol or row.symbol or "").strip().upper()
         confirmation_metrics = confirmation_metrics_by_symbol.get(symbol_key)
         confirmation_summary = confirmation_metrics.as_dict() if confirmation_metrics else None
@@ -942,6 +951,8 @@ def _query_institutional_signal_items(
         items.sort(key=lambda item: item.confirmation_score or -1, reverse=True)
     elif sort == "freshness":
         items.sort(key=lambda item: item.signal_freshness.freshness_score if item.signal_freshness else -1, reverse=True)
+    elif sort == "multiple":
+        items.sort(key=lambda item: (abs((item.unusual_multiple or 1.0) - 1.0), item.smart_score, item.ts), reverse=True)
     else:
         items.sort(key=lambda item: (item.smart_score, item.ts), reverse=True)
     return items
@@ -962,11 +973,21 @@ def _institutional_prior_value(row: InstitutionalActivityEvent, metadata: dict) 
     return 0.0
 
 
+def _institutional_delta_pct(row: InstitutionalActivityEvent, metadata: dict) -> float | None:
+    parsed_pct = _parse_numeric(metadata.get("value_delta_pct"))
+    if parsed_pct is not None:
+        return parsed_pct
+    prior_value = _institutional_prior_value(row, metadata)
+    if prior_value <= 0 or row.value_delta_usd is None:
+        return None
+    return (float(row.value_delta_usd) / prior_value) * 100.0
+
+
 def _institutional_unusual_multiple(row: InstitutionalActivityEvent, metadata: dict) -> float:
-    pct = abs(_parse_numeric(metadata.get("value_delta_pct")) or 0.0)
-    if pct > 0:
-        return round(max(1.0, 1.0 + pct / 100.0), 2)
-    return round(max(1.0, float(row.materiality_score or 0) / 25.0), 2)
+    pct = _institutional_delta_pct(row, metadata)
+    if pct is None:
+        return 1.0
+    return round(1.0 + (pct / 100.0), 4)
 
 
 def _institutional_smart_score(row: InstitutionalActivityEvent) -> int:
@@ -1006,6 +1027,15 @@ def _institutional_action_label(row: InstitutionalActivityEvent) -> str:
         if row.value_delta_usd > 0:
             return "Reported Increase"
     return "Reported Activity"
+
+
+def _institutional_side(row: InstitutionalActivityEvent) -> str | None:
+    label = _institutional_action_label(row).lower()
+    if "increase" in label or "new position" in label:
+        return "buy"
+    if "reduction" in label or "exit" in label:
+        return "sell"
+    return None
 
 
 def _query_unusual_signals(

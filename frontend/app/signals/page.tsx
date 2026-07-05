@@ -79,12 +79,11 @@ function resolveSignalReportingCik(item: SignalItem): string | null {
   return item.reporting_cik ?? item.reportingCik ?? null;
 }
 
-function clampSide(sideRaw: string): "all" | "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" {
+function clampSide(sideRaw: string): "all" | "buy" | "sell" | "award" | "inkind" | "exempt" {
   if (
     sideRaw === "all" ||
     sideRaw === "buy" ||
     sideRaw === "sell" ||
-    sideRaw === "buy_or_sell" ||
     sideRaw === "award" ||
     sideRaw === "inkind" ||
     sideRaw === "exempt"
@@ -175,6 +174,14 @@ function formatUSD(n?: number): string {
 function formatMultiple(n?: number): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   return `${n.toFixed(1)}×`;
+}
+
+function formatInstitutionalDeltaPercent(item: SignalItem): string {
+  const priorValue = item.baseline_median_amount_max;
+  const multiple = item.unusual_multiple;
+  if (typeof priorValue !== "number" || !Number.isFinite(priorValue) || priorValue <= 0) return "â€”";
+  if (typeof multiple !== "number" || !Number.isFinite(multiple)) return "â€”";
+  return `${((multiple - 1) * 100).toFixed(1)}%`;
 }
 
 function formatSignalDate(value?: string): string {
@@ -560,7 +567,7 @@ async function SignalsResultsSection({
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Delta %" : "Multiple"}>{isInstitutional ? "Delta %" : "Mult"}</div>
-                      <div className="truncate font-mono text-slate-200">{isInstitutional ? `${(((it.unusual_multiple ?? 1) - 1) * 100).toFixed(1)}%` : formatMultiple(it.unusual_multiple)}</div>
+                      <div className="truncate font-mono text-slate-200">{isInstitutional ? formatInstitutionalDeltaPercent(it) : formatMultiple(it.unusual_multiple)}</div>
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500" title={isInstitutional ? "Institutional Score" : "Conviction"}>{isInstitutional ? "Institutional Score" : "Score"}</div>
@@ -680,7 +687,7 @@ async function SignalsResultsSection({
                     <td className="px-2 py-3 xl:px-3"><span className={`${pill} max-w-full px-2.5 ${side.klass}`}>{side.label}</span></td>
                     <td className="px-2 py-3 text-slate-200 xl:px-3" title={`${formatUSD(it.amount_min)} – ${formatUSD(it.amount_max)}`}>{formatUSD(it.amount_max)}</td>
                     <td className="px-2 py-3 text-slate-200 xl:px-3">{formatUSD(it.baseline_median_amount_max)}</td>
-                    <td className="px-2 py-3 text-slate-200 xl:px-3">{isInstitutional ? `${(((it.unusual_multiple ?? 1) - 1) * 100).toFixed(1)}%` : formatMultiple(it.unusual_multiple)}</td>
+                    <td className="px-2 py-3 text-slate-200 xl:px-3">{isInstitutional ? formatInstitutionalDeltaPercent(it) : formatMultiple(it.unusual_multiple)}</td>
                     <td className="px-2 py-3 xl:px-3">
                       <span className={`${pill} min-w-[7.75rem] max-w-full justify-center gap-1.5 px-2 text-[11px] leading-none ${smart.klass}`}>
                         <span className={`h-2 w-2 rounded-full ${smart.dotClass}`} />

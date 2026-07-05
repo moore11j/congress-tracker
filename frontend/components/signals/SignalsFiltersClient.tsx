@@ -36,6 +36,7 @@ function normalizeFilters(filters: SignalFilters): SignalFilters {
   return {
     ...filters,
     mode: filters.mode === "insider" || filters.mode === "institutional" ? filters.mode : "congress",
+    side: filters.side === "buy" || filters.side === "sell" ? filters.side : "all",
     sort: filters.sort === "amount" || filters.sort === "multiple" || filters.sort === "smart" ? filters.sort : "recent",
     limit: filters.limit === 50 || filters.limit === 100 ? filters.limit : 25,
   };
@@ -70,7 +71,6 @@ const sideOptions = [
   ["all", "All"],
   ["buy", "Buy"],
   ["sell", "Sell"],
-  ["buy_or_sell", "Buy/Sell"],
 ] as const;
 
 const sortOptions = [
