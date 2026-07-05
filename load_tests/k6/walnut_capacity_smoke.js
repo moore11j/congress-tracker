@@ -50,6 +50,7 @@ const fiveXxRate = new Rate("five_xx_rate");
 const tickers = ["AAPL", "NVDA", "INTC", "PLTR", "LMT", "MSFT", "TSLA"];
 
 const diagnosticRouteFamilies = [
+  "health",
   "feed",
   "ticker",
   "market",
@@ -64,10 +65,19 @@ const diagnosticRouteFamilies = [
 ];
 
 const diagnosticEndpoints = [
+  "health",
   "events_feed",
+  "events_feed_10_enriched",
+  "events_feed_50_enriched",
   "feed_page",
+  "feed_mode_all_page",
+  "home_page",
   "ticker_page",
+  "ticker_aapl_page",
+  "ticker_tsm_page",
   "ticker_context_bundle",
+  "ticker_aapl_context_bundle",
+  "ticker_tsm_context_bundle",
   "ticker_signals_summary",
   "ticker_government_contracts",
   "market_quotes",
@@ -127,6 +137,42 @@ export function botPrefetchGuard() {
   requestApi("/api/tickers/AAPL/context-bundle", "ticker_context_prefetch", "ticker", "core", { headers }, [200, 204]);
   requestApi("/api/tickers/NVDA/government-contracts", "government_contracts_prefetch", "ticker", "core", { headers }, [200, 204]);
   sleep(randomBetween(2, 5));
+}
+
+export function backendApiDiagnostic() {
+  runWeighted([
+    [6, () => requestApi("/health", "health", "health", "core")],
+    [18, () => requestApi("/api/events?limit=50&enrich_prices=1", "events_feed_50_enriched", "feed", "core")],
+    [14, () => requestApi("/api/events?limit=10&enrich_prices=1", "events_feed_10_enriched", "feed", "core")],
+    [10, () => requestApi("/api/market/quotes?symbols=NVDA,AAPL,LMT,PLTR", "market_quotes", "market", "core")],
+    [12, () => requestApi("/api/tickers/AAPL/context-bundle", "ticker_aapl_context_bundle", "ticker", "core")],
+    [12, () => requestApi("/api/tickers/TSM/context-bundle", "ticker_tsm_context_bundle", "ticker", "core")],
+    [8, () => requestApi("/api/tickers/NVDA/government-contracts", "ticker_government_contracts", "ticker", "core")],
+    [10, () => requestApi("/api/tickers/AAPL/signals-summary", "ticker_signals_summary", "ticker", "core")],
+    [6, () => requestApi("/api/institutions/0001067983", "institution_profile", "institution", "core")],
+    [4, () => requestApi("/api/plan-config", "plan_config", "auth", "secondary")],
+  ]);
+  think();
+}
+
+export function appHostApiDiagnostic() {
+  backendApiDiagnostic();
+}
+
+export function appHostPagesDiagnostic() {
+  runWeighted([
+    [10, () => requestPage("/", "home_page", "feed", "core")],
+    [16, () => requestPage("/?mode=all", "feed_mode_all_page", "feed", "core")],
+    [10, () => requestPage("/pricing", "pricing_page", "auth", "secondary")],
+    [12, () => requestPage("/signals", "signals_page", "signals", "core")],
+    [12, () => requestPage("/screener", "screener_page", "screener", "core")],
+    [8, () => requestPage("/watchlists", "watchlists_page", "watchlists", "secondary", {}, [200, 302, 307])],
+    [8, () => requestPage("/monitoring", "monitoring_page", "monitoring", "secondary", {}, [200, 302, 307])],
+    [10, () => requestPage("/ticker/AAPL", "ticker_aapl_page", "ticker", "core")],
+    [10, () => requestPage("/ticker/TSM", "ticker_tsm_page", "ticker", "core")],
+    [4, () => requestPage("/institution/0001067983", "institution_profile", "institution", "core")],
+  ]);
+  think();
 }
 
 function feedEventsFlow() {

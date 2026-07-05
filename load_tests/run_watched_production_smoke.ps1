@@ -2,7 +2,7 @@ param(
   [ValidateSet("smoke", "staged")]
   [string]$Mode = "staged",
 
-  [ValidateSet("small", "prod50", "prod75", "prod200", "prod300", "prod400", "medium", "large", "target")]
+  [ValidateSet("small", "prod50", "prod75", "prod200", "prod300", "prod400", "backend_api_400", "apphost_api_400", "apphost_pages_400", "medium", "large", "target")]
   [string]$TestProfile = "small",
 
   [ValidateRange(1, 10)]
