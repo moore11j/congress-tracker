@@ -2868,6 +2868,10 @@ def _event_payload(
         resolved_member_name = _insider_display_name(event, payload)
         if resolved_member_name and not _first_non_empty_text(payload.get("insider_name")):
             payload["insider_name"] = resolved_member_name
+        resolved_role = _insider_role(payload)
+        if resolved_role and not _first_non_empty_text(payload.get("role")):
+            payload["role"] = resolved_role
+            payload["insiderRole"] = resolved_role
 
     gain_loss_amount = _gain_loss_amount(
         current_price=current_price,

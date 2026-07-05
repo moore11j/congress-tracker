@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event, TradeOutcome
@@ -15,6 +16,10 @@ def _db() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return Session(engine)
+
+
+def _request() -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
 
 
 def test_tim_cook_nke_scoped_profile_uses_one_outcome_set(monkeypatch):
@@ -124,9 +129,10 @@ def test_tim_cook_nke_scoped_profile_uses_one_outcome_set(monkeypatch):
         )
         db.commit()
 
-        trades = events_router.insider_trades(cik, db=db, lookback_days=90, limit=50, issuer="NKE")
-        alpha = events_router.insider_alpha_summary(cik, db=db, lookback_days=90, issuer="NKE")
-        summary = events_router.insider_summary(cik, db=db, lookback_days=90, issuer="NKE")
+        request = _request()
+        trades = events_router.insider_trades(cik, request=request, db=db, lookback_days=90, limit=50, issuer="NKE")
+        alpha = events_router.insider_alpha_summary(cik, request=request, db=db, lookback_days=90, issuer="NKE")
+        summary = events_router.insider_summary(cik, request=request, db=db, lookback_days=90, issuer="NKE")
 
         assert [item["symbol"] for item in trades["items"]] == ["NKE"]
         assert trades["items"][0]["pnl_pct"] == 33.2

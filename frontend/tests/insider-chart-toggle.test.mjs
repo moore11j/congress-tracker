@@ -37,7 +37,7 @@ test("company stock mode requests insider-scoped stock chart data", () => {
 test("secondary insider analytics are lazy client sections without top tickers", () => {
   assert.match(insiderPage, /<InsiderAnalyticsClient/);
   assert.doesNotMatch(insiderPage, /getInsiderAlphaSummary/);
-  assert.doesNotMatch(insiderPage, /getInsiderTrades/);
+  assert.match(insiderPage, /getInsiderTrades\(reportingCik, lookbackDays, 5, normalizedIssuer/);
   assert.doesNotMatch(insiderPage, /getInsiderTopTickers/);
   assert.doesNotMatch(insiderPage, /initialTopTickers/);
   assert.match(insiderAnalyticsClient, /"use client"/);
@@ -49,6 +49,14 @@ test("secondary insider analytics are lazy client sections without top tickers",
   assert.doesNotMatch(insiderAnalyticsClient, /initialTopTickers/);
   assert.doesNotMatch(insiderAnalyticsClient, /Analytics temporarily unavailable\. Try again shortly\./);
   assert.doesNotMatch(insiderPage, /const topTickersPromise/);
+});
+
+test("insider profile header falls back to recent trade identity", () => {
+  assert.match(insiderPage, /needsHeaderFallback = !summary\.primary_company_name \|\| !summary\.primary_role/);
+  assert.match(insiderPage, /section: "header-trades"/);
+  assert.match(insiderPage, /source: "InsiderHeaderTrades"/);
+  assert.match(insiderPage, /firstText\(summary\.primary_role, headerTrade\?\.role\)/);
+  assert.match(insiderPage, /firstText\(summary\.primary_company_name, headerTrade\?\.company_name, headerTrade\?\.companyName/);
 });
 
 test("insider page offers expanded lookback windows", () => {

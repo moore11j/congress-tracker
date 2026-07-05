@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getInsiderSummary } from "@/lib/api";
+import { getInsiderSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
@@ -19,6 +19,7 @@ type Props = {
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
+type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
 
 const LOOKBACK_OPTIONS = [
   { label: "30D", value: "30" },
@@ -89,6 +90,26 @@ function fallbackInsiderSummary(reportingCik: string, lookbackDays: number, issu
   };
 }
 
+function firstText(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function fallbackInsiderTrades(reportingCik: string, lookbackDays: number): InsiderTradesData {
+  return {
+    reporting_cik: reportingCik,
+    lookback_days: lookbackDays,
+    total: 0,
+    page: 0,
+    limit: 5,
+    has_next: false,
+    items: [],
+  };
+}
+
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {
   const value = sp[key];
   return typeof value === "string" ? value : "";
@@ -150,8 +171,21 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   }
 
   const stockSymbol = chartSymbol || issuer || summary.primary_symbol || undefined;
-  const roleText = summary.primary_role ?? "Role unavailable";
-  const companyText = summary.primary_company_name ?? "Company unavailable";
+  const needsHeaderFallback = !summary.primary_company_name || !summary.primary_role;
+  const headerTradesResult = needsHeaderFallback
+    ? await loadInsiderSection(
+        { reportingCik, lookbackDays, issuer: normalizedIssuer, section: "header-trades" },
+        () => getInsiderTrades(reportingCik, lookbackDays, 5, normalizedIssuer, { source: "InsiderHeaderTrades" }),
+        fallbackInsiderTrades(reportingCik, lookbackDays),
+      )
+    : null;
+  const headerTrade = headerTradesResult?.data.items.find(
+    (item) => firstText(item.company_name, item.companyName, item.security_name, item.securityName) || firstText(item.role),
+  );
+  const roleText = firstText(summary.primary_role, headerTrade?.role) ?? "Role unavailable";
+  const companyText =
+    firstText(summary.primary_company_name, headerTrade?.company_name, headerTrade?.companyName, headerTrade?.security_name, headerTrade?.securityName) ??
+    "Company unavailable";
 
   return (
     <div className="space-y-6">

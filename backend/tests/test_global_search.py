@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event
@@ -15,6 +16,10 @@ def _db() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return Session(engine)
+
+
+def _request() -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
 
 
 def test_global_search_returns_insider_result_and_route():
@@ -159,8 +164,9 @@ def test_company_scoped_insider_endpoints_filter_trades_by_issuer():
         )
         db.commit()
 
-        summary = insider_summary(db=db, reporting_cik="0001214156", lookback_days=90, issuer="AAPL")
-        trades = insider_trades(db=db, reporting_cik="0001214156", lookback_days=90, issuer="AAPL", limit=10)
+        request = _request()
+        summary = insider_summary(request=request, db=db, reporting_cik="0001214156", lookback_days=90, issuer="AAPL")
+        trades = insider_trades(request=request, db=db, reporting_cik="0001214156", lookback_days=90, issuer="AAPL", limit=10)
 
         assert summary["primary_symbol"] == "AAPL"
         assert summary["primary_company_name"] == "Apple Inc."

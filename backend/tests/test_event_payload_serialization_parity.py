@@ -187,3 +187,35 @@ def test_event_payload_corrects_scaled_persisted_current_price():
     assert out.current_price == pytest.approx(1.5176)
     assert out.pnl_pct == pytest.approx(-2.09032258)
     assert out.payload["alpha_pct"] == pytest.approx(-3.17027466)
+
+
+def test_event_payload_promotes_raw_insider_role():
+    event = _insider_event(
+        {
+            "raw": {
+                "companyName": "InMed Pharmaceuticals Inc.",
+                "typeOfOwner": "10 percent owner",
+            },
+            "symbol": "INM",
+        }
+    )
+    event.symbol = "INM"
+
+    out = _event_payload(
+        event,
+        NoWriteSession(),  # type: ignore[arg-type]
+        price_memo={},
+        current_price_memo={},
+        current_quote_meta={},
+        member_net_30d_map={},
+        symbol_net_30d_map={},
+        confirmation_metrics_map={},
+        ticker_meta={},
+        cik_names={},
+        baseline_map={},
+        enrich_prices=False,
+    )
+
+    assert out.payload["company_name"] == "InMed Pharmaceuticals Inc."
+    assert out.payload["role"] == "10 percent owner"
+    assert out.payload["insiderRole"] == "10 percent owner"
