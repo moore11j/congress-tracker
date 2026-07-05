@@ -148,14 +148,14 @@ export function FeedRoleAutosuggestEnhancer({ formId, inputName }: FeedRoleAutos
     form.requestSubmit();
   };
 
-  if (!open || suggestions.length === 0) return <div ref={hostRef} className="relative" />;
+  if (!open || suggestions.length === 0) return <div ref={hostRef} className="relative z-[120]" />;
 
   return (
-    <div ref={hostRef} className="relative">
+    <div ref={hostRef} className="relative z-[120]">
       <div
         id={listboxId}
         role="listbox"
-        className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-xl shadow-black/30"
+        className="absolute z-[1200] mt-1 w-full overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-xl shadow-black/30"
       >
         {suggestions.map((suggestion, index) => (
           <button

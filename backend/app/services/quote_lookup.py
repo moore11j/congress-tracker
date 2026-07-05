@@ -27,7 +27,7 @@ from app.services.provider_usage import (
     record_provider_response,
 )
 from app.services.provider_endpoints import build_fmp_endpoint_request, fmp_endpoint_requests_for_domain
-from app.services.provider_registry import FMP_INTRADAY_CHART_CONTRACT_JSON
+from app.services.provider_registry import FMP_EOD_LIGHT_QUOTE_CONTRACT_JSON, FMP_INTRADAY_CHART_CONTRACT_JSON
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.models import QuoteCache
 from app.utils.symbols import normalize_symbol
@@ -419,25 +419,44 @@ def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_c
     return payload
 
 def get_index_quote(symbol: str) -> float:
-    """Fetch current index price (e.g. ^GSPC) from FMP stable quote endpoint."""
+    """Fetch current index price (e.g. ^GSPC) from FMP chart/EOD endpoints."""
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")
 
     ensure_fmp_live_allowed(category="quote:index", symbol=symbol)
-    response = requests.get(
-        f"{FMP_BASE_URL}/quote",
-        params={"symbol": symbol, "apikey": api_key},
-        timeout=10,
-    )
-    record_provider_response(category="quote:index", symbol=symbol, status_code=response.status_code)
-    response.raise_for_status()
+    today = datetime.now(timezone.utc).date()
+    last_response: requests.Response | None = None
+    for endpoint, params in (
+        (
+            "historical-chart/1min",
+            {
+                "symbol": symbol,
+                "from": (today - timedelta(days=7)).isoformat(),
+                "to": today.isoformat(),
+                "apikey": api_key,
+            },
+        ),
+        ("historical-price-eod/light", {"symbol": symbol, "apikey": api_key}),
+    ):
+        response = requests.get(
+            f"{FMP_BASE_URL}/{endpoint}",
+            params=params,
+            timeout=10,
+        )
+        last_response = response
+        record_provider_response(category="quote:index", symbol=symbol, status_code=response.status_code)
+        response.raise_for_status()
+        data = response.json()
+        rows = data if isinstance(data, list) else []
+        if rows and isinstance(rows[0], dict):
+            price = rows[0].get("close", rows[0].get("price"))
+            if price is not None:
+                return float(price)
 
-    data = response.json()
-    if not isinstance(data, list) or not data or "price" not in data[0]:
-        raise RuntimeError(f"No quote data for {symbol}")
-
-    return float(data[0]["price"])
+    if last_response is not None:
+        last_response.raise_for_status()
+    raise RuntimeError(f"No quote data for {symbol}")
 
 
 def get_current_prices_meta_db(
@@ -724,8 +743,17 @@ def get_current_prices_meta_db(
                     )
                     intraday_request.request_params["from"] = intraday_start_day.isoformat()
                     intraday_request.request_params["to"] = intraday_end_day.isoformat()
+                    eod_request = build_fmp_endpoint_request(
+                        role="fallback",
+                        provider="fmp",
+                        endpoint_url=f"{FMP_BASE_URL}/historical-price-eod/light?symbol={{symbol}}",
+                        api_key=api_key,
+                        symbol=symbol,
+                        endpoint_contract_json=FMP_EOD_LIGHT_QUOTE_CONTRACT_JSON,
+                    )
                     endpoint_requests = [
-                        intraday_request
+                        intraday_request,
+                        eod_request,
                     ]
                 else:
                     endpoint_requests = fmp_endpoint_requests_for_domain(

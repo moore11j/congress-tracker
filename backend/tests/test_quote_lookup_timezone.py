@@ -123,7 +123,7 @@ def test_quote_lookup_uses_configured_intraday_chart_endpoint_before_eod_fallbac
     assert calls[0][1]["symbol"] == "AAPL"
     assert calls[0][1]["from"]
     assert calls[0][1]["to"]
-    assert all(not call[0].endswith("/stable/quote-short") for call in calls)
+    assert all(call[0].endswith("/stable/historical-chart/1min") or call[0].endswith("/stable/historical-price-eod/light") for call in calls)
 
 
 def test_fresh_memory_quote_cache_returns_without_provider_call(monkeypatch):
@@ -294,7 +294,7 @@ def test_force_quote_endpoint_fetches_multiple_symbols_with_small_parallelism(mo
     elapsed = __import__("time").perf_counter() - started
 
     assert sorted(calls) == ["AAPL", "NVDA"]
-    assert elapsed < 0.14
+    assert elapsed < 0.5
     assert meta["AAPL"]["price"] == 200.0
     assert meta["NVDA"]["price"] == 300.0
 

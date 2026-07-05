@@ -29,8 +29,6 @@ DATE_FORMAT_ALIASES = {
     "YYYY-MM-DD HH:MM:SS": "%Y-%m-%d %H:%M:%S",
 }
 SYMBOL_ENDPOINT_SUFFIXES = {
-    "quote",
-    "quote-short",
     "profile",
     "historical-price-eod/full",
     "historical-price-eod/light",

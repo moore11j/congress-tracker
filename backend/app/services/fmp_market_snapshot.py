@@ -525,7 +525,7 @@ def _quote_row_has_change(row: dict[str, Any] | None) -> bool:
 
 
 def _request_index_quote(symbol: str, *, debug_label: str | None = None) -> dict[str, Any] | None:
-    for endpoint in ("historical-chart/1min", "historical-price-eod/light", "quote", "quote-short"):
+    for endpoint in ("historical-chart/1min", "historical-price-eod/light"):
         status: int | str | None = None
         rows: list[dict[str, Any]] = []
         try:
@@ -568,7 +568,7 @@ def _proxy_rows(targets: tuple[dict[str, Any], ...]) -> dict[str, dict[str, Any]
         if symbol.upper() in by_symbol:
             continue
         try:
-            row = _latest_row(_rows(_request_payload("quote", params={"symbol": symbol})))
+            row = _latest_row(_rows(_request_payload("historical-price-eod/light", params={"symbol": symbol})))
         except Exception:
             row = None
         if row:
@@ -636,7 +636,7 @@ def _build_indexes(targets: tuple[dict[str, Any], ...] = INDEX_TARGETS) -> list[
             found_targets.add(str(target["label"]))
         elif not target.get("proxy_symbol") and _debug_logs_enabled():
             logger.info(
-                "Market snapshot index unavailable: label=%s attempted_symbols=%s attempted_proxies=%s helper=batch-index-quotes,quote,quote-short",
+                "Market snapshot index unavailable: label=%s attempted_symbols=%s attempted_proxies=%s helper=batch-index-quotes,historical-chart/1min,historical-price-eod/light",
                 target["label"],
                 ",".join(str(symbol) for symbol in target["symbols"]),
                 ",".join(str(symbol) for symbol in target.get("proxy_symbols", ())),
@@ -738,7 +738,7 @@ def _request_quote_rows(symbols: list[str], *, endpoint: str = "batch-quote") ->
 
 
 def _request_single_quote_row(symbol: str) -> dict[str, Any] | None:
-    for endpoint in ("historical-chart/1min", "historical-price-eod/light", "quote", "quote-short"):
+    for endpoint in ("historical-chart/1min", "historical-price-eod/light"):
         try:
             row = _latest_row(_rows(_request_payload(endpoint, params={"symbol": symbol})))
         except Exception:

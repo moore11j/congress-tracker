@@ -142,7 +142,7 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     }
     db.add(
         InsightsSnapshot(
-            kind="insights-quote:global_markets:MCHI:quote-short",
+            kind="insights-quote:global_markets:MCHI:historical-chart/1min",
             payload_json=json.dumps(cached),
             source="test",
             fetched_at=datetime.now(timezone.utc) - timedelta(minutes=30),

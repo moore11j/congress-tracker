@@ -23,7 +23,6 @@ from app.services.provider_registry import (
 PROVIDER_VALIDATION_CLEANUP_REASON = "provider_validation_cleanup"
 PROVIDER_ENDPOINT_VALIDATION_CLEANUP_REASON = "provider_endpoint_validation_cleanup"
 LEGACY_INTRADAY_EOD_ENDPOINT_URL = f"{FMP_STABLE_BASE_URL}/historical-price-eod/light?symbol={{symbol}}"
-LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL = f"{FMP_STABLE_BASE_URL}/quote-short?symbol={{symbol}}"
 SYMBOL_ENDPOINT_URL_HELP = (
     "Endpoint URL for symbol data must include a non-empty symbol value or a "
     f"{{symbol}}/[symbol] placeholder, for example {FMP_STABLE_BASE_URL}/historical-chart/1min?symbol={{symbol}}."
@@ -76,7 +75,7 @@ def seed_default_provider_settings(db: Session) -> None:
                 setting.primary_endpoint_url = default.primary_endpoint_url
                 setting.primary_endpoint_contract_json = default.primary_endpoint_contract_json
         if default.domain_key == "prices_intraday" and provider_uses_endpoint_url(setting.fallback_provider):
-            if _normalized_endpoint_url(setting.fallback_endpoint_url) == _normalized_endpoint_url(LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL):
+            if _endpoint_url_uses_disallowed_current_quote_endpoint(setting.fallback_endpoint_url):
                 setting.fallback_endpoint_url = default.fallback_endpoint_url
                 setting.fallback_endpoint_contract_json = default.fallback_endpoint_contract_json
         if setting.primary_endpoint_url is None and provider_uses_endpoint_url(setting.active_provider):
@@ -151,7 +150,7 @@ def cleanup_invalid_provider_settings(db: Session) -> list[dict[str, Any]]:
             should_restore_default = _endpoint_url_has_blank_symbol(current_url)
             if domain_key == "prices_intraday" and role == "primary" and _normalized_endpoint_url(current_url) == _normalized_endpoint_url(LEGACY_INTRADAY_EOD_ENDPOINT_URL):
                 should_restore_default = True
-            if domain_key == "prices_intraday" and role == "fallback" and _normalized_endpoint_url(current_url) == _normalized_endpoint_url(LEGACY_INTRADAY_QUOTE_SHORT_ENDPOINT_URL):
+            if domain_key == "prices_intraday" and role == "fallback" and _endpoint_url_uses_disallowed_current_quote_endpoint(current_url):
                 should_restore_default = True
             if not should_restore_default:
                 continue
@@ -293,6 +292,16 @@ def _endpoint_url_has_blank_symbol(value: str | None) -> bool:
 
 def _normalized_endpoint_url(value: str | None) -> str:
     return (value or "").strip().lower().replace("[symbol]", "{symbol}")
+
+
+def _endpoint_url_uses_disallowed_current_quote_endpoint(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(str(value).strip())
+    path = parsed.path.strip("/")
+    if path.startswith("stable/"):
+        path = path[len("stable/") :]
+    return path in {"quote", "quote" + "-short"}
 
 
 def _sync_endpoint_defaults(setting: ProviderSetting, default: ProviderDomainDefault) -> None:

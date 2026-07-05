@@ -260,6 +260,7 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
                     "allow_live_user_fetch": True,
                     "stale_while_revalidate": True,
                     "cache_only": False,
+                    "force_quote_endpoint": True,
                 },
             )
         ]
@@ -339,12 +340,94 @@ def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(m
                     "allow_live_user_fetch": False,
                     "stale_while_revalidate": False,
                     "cache_only": True,
+                    "force_quote_endpoint": False,
                 },
             )
         ]
         assert page.items[0].current_price is None
         assert page.items[0].pnl_pct is None
         assert page.items[0].gain_loss_status == "missing_current_price"
+    finally:
+        db.close()
+
+
+def test_symbol_scoped_feed_uses_payload_trade_price_for_visible_pnl(monkeypatch):
+    db = _db()
+    try:
+        _clear_events_response_cache()
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+        enqueue_calls: list[int] = []
+        monkeypatch.setattr("app.routers.events._enqueue_missing_trade_outcomes", lambda *_args, **_kwargs: enqueue_calls.append(1))
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_quotes(_db, symbols, **kwargs):
+            calls.append((list(symbols), kwargs))
+            return {
+                "TSM": {
+                    "symbol": "TSM",
+                    "price": 80.0,
+                    "asof_ts": datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    "is_stale": False,
+                    "source": "live_quote",
+                }
+            }
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
+        db.add(
+            _event(
+                221,
+                "insider_trade",
+                symbol="TSM",
+                member_name="Tien Bor-Zen",
+                trade_type="purchase",
+                amount_min=75_700,
+                amount_max=75_700,
+                payload={
+                    "transaction_date": "2026-06-30",
+                    "filing_date": "2026-06-30",
+                    "price": 75.7,
+                    "shares": 1000,
+                    "raw": {"price": 75.7, "securitiesTransacted": 1000},
+                },
+            )
+        )
+        db.commit()
+
+        request = _request(
+            {
+                "user-agent": "Mozilla/5.0",
+                "accept": "application/json",
+                "x-walnut-request-source": "client",
+                "x-walnut-active-user": "browser",
+                "x-walnut-route-family": "feed",
+            }
+        )
+        page = list_events(request=request, db=db, symbol="TSM", limit=10, enrich_prices=True)
+
+        assert calls == [
+            (
+                ["TSM"],
+                {
+                    "allow_cache_write": True,
+                    "release_connection_before_fetch": True,
+                    "lane": "feed_quote",
+                    "allow_live_user_fetch": True,
+                    "stale_while_revalidate": True,
+                    "cache_only": False,
+                    "force_quote_endpoint": True,
+                },
+            )
+        ]
+        assert enqueue_calls == []
+        item = page.items[0]
+        assert item.trade_price == 75.7
+        assert item.current_price == 80.0
+        assert round(item.gain_loss_percent or 0, 6) == round(((80.0 - 75.7) / 75.7) * 100, 6)
+        assert round(item.gain_loss_amount or 0, 6) == 4300.0
+        assert item.gain_loss_status == "ok"
     finally:
         db.close()
 

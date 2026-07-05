@@ -225,7 +225,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
   const formKey = JSON.stringify({ mode, ...normalizedParams });
 
   return (
-    <section className={cardClassName}>
+    <section className={`${cardClassName} relative z-30 overflow-visible`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>

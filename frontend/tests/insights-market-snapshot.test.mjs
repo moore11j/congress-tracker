@@ -11,13 +11,17 @@ const marketSnapshotLib = read("lib/marketSnapshot.ts");
 const insightsClient = read("components/insights/InsightsMarketSnapshotClient.tsx");
 const categoryClient = read("components/insights/MarketSnapshotCategoryClient.tsx");
 const api = read("lib/api.ts");
+const withoutHiddenComments = (source) => source.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");
 
-test("insights market snapshot renders the requested 4x2 block order", () => {
-  assert.match(marketSnapshot, /const worldIndexes = indexesToInstruments\(snapshot\.world_indexes, FALLBACK_WORLD_INDEXES\)/);
+test("insights market snapshot renders only entitlement-ready widgets", () => {
+  const activeSnapshot = withoutHiddenComments(marketSnapshot);
+
+  assert.match(marketSnapshot, /Entitlement-gated market widgets are hidden until coverage is ready/);
+  assert.doesNotMatch(activeSnapshot, /const worldIndexes = indexesToInstruments\(snapshot\.world_indexes, FALLBACK_WORLD_INDEXES\)/);
   assert.match(marketSnapshot, /const usIndexes = indexesToInstruments\(snapshot\.indexes, FALLBACK_US_INDEXES\)/);
-  assert.match(marketSnapshot, /const currencies = instrumentsOrFallback\(snapshot\.currencies, FALLBACK_CURRENCIES\)/);
-  assert.match(marketSnapshot, /const commodities = instrumentsOrFallback\(snapshot\.commodities, FALLBACK_COMMODITIES\)/);
-  assert.match(marketSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
+  assert.doesNotMatch(activeSnapshot, /const currencies = instrumentsOrFallback\(snapshot\.currencies, FALLBACK_CURRENCIES\)/);
+  assert.doesNotMatch(activeSnapshot, /const commodities = instrumentsOrFallback\(snapshot\.commodities, FALLBACK_COMMODITIES\)/);
+  assert.doesNotMatch(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
   assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
   assert.match(insightsClient, /getInsightsOverview/);
   assert.match(categoryClient, /getInsightsOverview/);
@@ -28,20 +32,20 @@ test("insights market snapshot renders the requested 4x2 block order", () => {
   assert.match(api, /\/api\/insights\/news\/\$\{encodeURIComponent\(category\)\}/);
 
   const order = [
-    'title="Global Markets"',
-    'title="Commodities"',
-    'title="Currencies"',
-    'title="Crypto"',
     'title="US Macro"',
     'title="US Treasury"',
     'title="US Markets"',
     'title="Sectors"',
-  ].map((needle) => marketSnapshot.indexOf(needle));
+  ].map((needle) => activeSnapshot.indexOf(needle));
   assert.deepEqual(
     order,
     [...order].sort((a, b) => a - b),
-    "snapshot cards should render in the requested row-major order",
+    "snapshot cards should render in the requested entitlement-ready order",
   );
+  assert.doesNotMatch(activeSnapshot, /title="Global Markets"/);
+  assert.doesNotMatch(activeSnapshot, /title="Commodities"/);
+  assert.doesNotMatch(activeSnapshot, /title="Currencies"/);
+  assert.doesNotMatch(activeSnapshot, /title="Crypto"/);
 
   assert.doesNotMatch(marketSnapshot, /subtitle="Coming Soon"/);
   assert.match(marketSnapshot, /unavailableText="-"/);

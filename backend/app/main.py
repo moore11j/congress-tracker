@@ -8698,15 +8698,36 @@ def _quote_snapshot_from_fmp(symbol: str) -> dict:
 
     try:
         ensure_fmp_live_allowed(category="ticker:quote-snapshot", symbol=normalized)
-        response = requests.get(
-            f"{FMP_BASE_URL}/quote",
-            params={"symbol": normalized, "apikey": api_key},
-            timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
-        )
-        record_provider_response(category="ticker:quote-snapshot", symbol=normalized, status_code=response.status_code)
-        if response.status_code != 200:
+        today = datetime.now(timezone.utc).date()
+        timeout_s = float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3)
+        payload = None
+        for endpoint, params in (
+            (
+                "historical-chart/1min",
+                {
+                    "symbol": normalized,
+                    "from": (today - timedelta(days=7)).isoformat(),
+                    "to": today.isoformat(),
+                    "apikey": api_key,
+                },
+            ),
+            ("historical-price-eod/light", {"symbol": normalized, "apikey": api_key}),
+        ):
+            response = requests.get(
+                f"{FMP_BASE_URL}/{endpoint}",
+                params=params,
+                timeout=timeout_s,
+            )
+            record_provider_response(category="ticker:quote-snapshot", symbol=normalized, status_code=response.status_code)
+            if response.status_code != 200:
+                continue
+            candidate_payload = response.json()
+            candidate_row = _first_payload_row(candidate_payload)
+            if candidate_row.get("close") is not None or candidate_row.get("price") is not None:
+                payload = candidate_payload
+                break
+        if payload is None:
             return {}
-        payload = response.json()
     except ProviderUnavailable as exc:
         record_fallback(category="ticker:quote-snapshot", symbol=normalized, reason=reason_from_exception(exc))
         enqueue_data_enrichment_job(

@@ -43,6 +43,19 @@ test("congress and insider feed filters keep sort controls on the primary row", 
   assert.doesNotMatch(filters, /mode === "insider" \? \(\s*<>\s*<FilterRow>/);
 });
 
+test("feed autosuggest popovers render above result cards", () => {
+  const filters = read("components/feed/FeedFiltersServer.tsx");
+  const memberAutosuggest = read("components/feed/FeedMemberAutosuggestEnhancer.tsx");
+  const symbolAutosuggest = read("components/feed/FeedSymbolAutosuggestEnhancer.tsx");
+  const roleAutosuggest = read("components/feed/FeedRoleAutosuggestEnhancer.tsx");
+
+  assert.match(filters, /relative z-30 overflow-visible/);
+  for (const source of [memberAutosuggest, symbolAutosuggest, roleAutosuggest]) {
+    assert.match(source, /relative z-\[120\]/);
+    assert.match(source, /absolute z-\[1200\]/);
+  }
+});
+
 test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
   const list = read("components/feed/FeedList.tsx");

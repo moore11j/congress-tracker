@@ -863,9 +863,9 @@ def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
         assert timeout == 8
         if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(200, [])
-        if url.endswith("/stable/quote"):
+        if url.endswith("/stable/historical-chart/1min"):
             symbol = params["symbol"]
-            return _FakeResponse(200, [{"symbol": symbol, "price": 100.0, "change": 1.0, "previousClose": 99.0}])
+            return _FakeResponse(200, [{"symbol": symbol, "close": 100.0, "change": 1.0, "previousClose": 99.0}])
         if url.endswith("/stable/treasury-rates"):
             return _FakeResponse(200, [])
         if url.endswith("/stable/economic-indicators"):
@@ -923,7 +923,7 @@ def test_macro_snapshot_adds_context_quotes_and_fed_rate(monkeypatch):
                 if symbol in quote_map:
                     rows.append(quote_map[symbol])
             return _FakeResponse(200, rows)
-        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+        if url.endswith("/stable/historical-chart/1min") or url.endswith("/stable/historical-price-eod/light"):
             return _FakeResponse(200, [])
         if url.endswith("/stable/treasury-rates"):
             return _FakeResponse(
@@ -998,7 +998,7 @@ def test_macro_snapshot_derives_macro_formats_from_level_series(monkeypatch):
             return _FakeResponse(200, [])
         if url.endswith("/stable/batch-quote"):
             return _FakeResponse(200, [])
-        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+        if url.endswith("/stable/historical-chart/1min") or url.endswith("/stable/historical-price-eod/light"):
             return _FakeResponse(200, [])
         if url.endswith("/stable/treasury-rates"):
             return _FakeResponse(200, [])
@@ -1220,11 +1220,11 @@ def test_macro_snapshot_resolves_world_index_and_copper_aliases(monkeypatch):
         assert timeout == 8
         if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(200, [])
-        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+        if url.endswith("/stable/historical-chart/1min") or url.endswith("/stable/historical-price-eod/light"):
             symbol = params["symbol"]
             rows = {
-                ".GSPTSE": [{"symbol": ".GSPTSE", "price": 30500.0, "changesPercentage": 0.2}],
-                "DAX40": [{"symbol": "DAX40", "price": 24000.0, "changesPercentage": -0.1}],
+                ".GSPTSE": [{"symbol": ".GSPTSE", "close": 30500.0, "changesPercentage": 0.2}],
+                "DAX40": [{"symbol": "DAX40", "close": 24000.0, "changesPercentage": -0.1}],
             }
             return _FakeResponse(200, rows.get(symbol, []))
         if url.endswith("/stable/batch-commodity-quotes"):
@@ -1266,10 +1266,10 @@ def test_macro_snapshot_uses_honest_canada_tsx_proxy_after_aliases_fail(monkeypa
         assert timeout == 8
         if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(200, [])
-        if url.endswith("/stable/quote") or url.endswith("/stable/quote-short"):
+        if url.endswith("/stable/historical-chart/1min") or url.endswith("/stable/historical-price-eod/light"):
             symbol = params["symbol"]
             if symbol == "XIC.TO":
-                return _FakeResponse(200, [{"symbol": "XIC.TO", "price": 42.5, "changesPercentage": 0.18}])
+                return _FakeResponse(200, [{"symbol": "XIC.TO", "close": 42.5, "changesPercentage": 0.18}])
             return _FakeResponse(200, [])
         if url.endswith("/stable/batch-commodity-quotes"):
             return _FakeResponse(200, [])
@@ -1304,9 +1304,7 @@ def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkey
         assert timeout == 8
         if url.endswith("/stable/batch-index-quotes"):
             return _FakeResponse(403, [], text="Forbidden")
-        if url.endswith("/stable/quote") and str(params.get("symbol", "")).startswith("^"):
-            return _FakeResponse(403, [], text="Forbidden")
-        if url.endswith("/stable/quote-short") and str(params.get("symbol", "")).startswith("^"):
+        if (url.endswith("/stable/historical-chart/1min") or url.endswith("/stable/historical-price-eod/light")) and str(params.get("symbol", "")).startswith("^"):
             return _FakeResponse(403, [], text="Forbidden")
         if url.endswith("/stable/batch-quote"):
             return _FakeResponse(

@@ -2589,9 +2589,12 @@ def _load_visible_feed_quote_meta(
         if event.event_type not in {"congress_trade", "insider_trade"}:
             continue
         outcome = outcome_by_event_id.get(event.id)
-        if outcome is None or outcome.entry_price is None or outcome.current_price is not None:
+        if outcome is not None and outcome.current_price is not None:
             continue
         payload = _parse_event_payload(event)
+        trade_price = _visible_feed_trade_price(event, payload, outcome)
+        if trade_price is None:
+            continue
         symbol = _event_symbol(event, payload)
         if symbol:
             quote_symbols.add(symbol)
@@ -2609,6 +2612,7 @@ def _load_visible_feed_quote_meta(
             allow_live_user_fetch=allow_live_quote_fallback,
             stale_while_revalidate=allow_live_quote_fallback,
             cache_only=not allow_live_quote_fallback,
+            force_quote_endpoint=allow_live_quote_fallback,
         )
     except Exception:
         logger.exception("feed_quote_lookup_failed endpoint=/api/events symbols=%s", len(quote_symbols))
@@ -2620,6 +2624,29 @@ def _load_visible_feed_quote_meta(
         if isinstance(meta, dict) and meta.get("price") is not None
     }
     return quote_meta, price_memo
+
+
+def _visible_feed_trade_price(event: Event, payload: dict, outcome: TradeOutcome | None) -> float | None:
+    if outcome is not None and outcome.entry_price is not None:
+        return float(outcome.entry_price)
+    if event.event_type == "insider_trade":
+        sym, trade_date = _insider_symbol_and_trade_date(event, payload)
+        normalized = normalize_insider_price(symbol=sym, payload=payload, trade_date=trade_date)
+        if normalized.is_comparable and normalized.display_price is not None:
+            return float(normalized.display_price)
+        return None
+    if event.event_type == "congress_trade":
+        return _first_numeric_field(
+            payload,
+            "trade_price",
+            "tradePrice",
+            "execution_price",
+            "executionPrice",
+            "price",
+            "reported_price",
+            "reportedPrice",
+        )
+    return None
 
 
 def _enqueue_missing_trade_outcomes(
@@ -3930,13 +3957,13 @@ def list_events(
     if raw_event_type is None and mode is not None:
         raw_event_type = mode
     type_list = _expand_event_type_aliases(_parse_csv(raw_event_type))
-    if combined_symbols and enrich_prices:
+    symbol_scoped_price_enrichment = bool(combined_symbols) and enrich_prices
+    if symbol_scoped_price_enrichment:
         logger.info(
-            "events_price_enrichment_skipped symbols=%s reason=symbol_scoped_base_rows",
+            "events_price_enrichment_limited symbols=%s reason=symbol_scoped_visible_rows",
             ",".join(combined_symbols),
         )
-        enrich_prices = False
-    enqueue_feed_outcomes = enrich_prices
+    enqueue_feed_outcomes = enrich_prices and not symbol_scoped_price_enrichment
     enqueue_metadata_refresh = bool(combined_symbols) or enrich_prices or debug_enabled
     tape_value = None
     if tape is not None:

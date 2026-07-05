@@ -16,7 +16,7 @@ from app.models import InsightsSnapshot
 logger = logging.getLogger(__name__)
 
 InsightQuoteGroup = Literal["global_markets", "commodities", "currencies", "crypto"]
-InsightQuoteEndpoint = Literal["quote-short", "quote"]
+InsightQuoteEndpoint = Literal["historical-chart/1min", "historical-price-eod/light"]
 
 BASE_URL = "https://financialmodelingprep.com"
 QUOTE_TTL = timedelta(minutes=10)
@@ -34,31 +34,31 @@ class InsightQuoteConfig:
 
 QUOTE_GROUPS: dict[InsightQuoteGroup, tuple[InsightQuoteConfig, ...]] = {
     "global_markets": (
-        InsightQuoteConfig("China", "MCHI", "MCHI", "quote-short"),
-        InsightQuoteConfig("Germany", "EWG", "EWG", "quote-short"),
-        InsightQuoteConfig("Japan", "IJP.AX", "IJP", "quote-short"),
-        InsightQuoteConfig("UK", "ISF.L", "ISF", "quote-short"),
-        InsightQuoteConfig("Canada", "VFV.TO", "VFV", "quote-short"),
+        InsightQuoteConfig("China", "MCHI", "MCHI", "historical-chart/1min"),
+        InsightQuoteConfig("Germany", "EWG", "EWG", "historical-chart/1min"),
+        InsightQuoteConfig("Japan", "IJP.AX", "IJP", "historical-chart/1min"),
+        InsightQuoteConfig("UK", "ISF.L", "ISF", "historical-chart/1min"),
+        InsightQuoteConfig("Canada", "VFV.TO", "VFV", "historical-chart/1min"),
     ),
     "commodities": (
-        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "quote-short"),
-        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "quote-short"),
-        InsightQuoteConfig("Brent Crude Oil", "BZUSD", "BZUSD", "quote-short"),
-        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "quote-short"),
+        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "historical-chart/1min"),
+        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "historical-chart/1min"),
+        InsightQuoteConfig("Brent Crude Oil", "BZUSD", "BZUSD", "historical-chart/1min"),
+        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "historical-chart/1min"),
     ),
     "currencies": (
-        InsightQuoteConfig("USD/CAD", "USDCAD", "USDCAD", "quote-short"),
-        InsightQuoteConfig("EUR/USD", "EURUSD", "EURUSD", "quote-short"),
-        InsightQuoteConfig("GBP/USD", "GBPUSD", "GBPUSD", "quote-short"),
-        InsightQuoteConfig("USD/JPY", "USDJPY", "USDJPY", "quote-short"),
-        InsightQuoteConfig("EUR/CAD", "EURCAD", "EURCAD", "quote-short"),
+        InsightQuoteConfig("USD/CAD", "USDCAD", "USDCAD", "historical-chart/1min"),
+        InsightQuoteConfig("EUR/USD", "EURUSD", "EURUSD", "historical-chart/1min"),
+        InsightQuoteConfig("GBP/USD", "GBPUSD", "GBPUSD", "historical-chart/1min"),
+        InsightQuoteConfig("USD/JPY", "USDJPY", "USDJPY", "historical-chart/1min"),
+        InsightQuoteConfig("EUR/CAD", "EURCAD", "EURCAD", "historical-chart/1min"),
     ),
     "crypto": (
-        InsightQuoteConfig("BTC/USD", "BTCUSD", "BTCUSD", "quote"),
-        InsightQuoteConfig("ETH/USD", "ETHUSD", "ETHUSD", "quote"),
-        InsightQuoteConfig("SOL/USD", "SOLUSD", "SOLUSD", "quote"),
-        InsightQuoteConfig("XRP/USD", "XRPUSD", "XRPUSD", "quote"),
-        InsightQuoteConfig("BNB/USD", "BNBUSD", "BNBUSD", "quote"),
+        InsightQuoteConfig("BTC/USD", "BTCUSD", "BTCUSD", "historical-chart/1min"),
+        InsightQuoteConfig("ETH/USD", "ETHUSD", "ETHUSD", "historical-chart/1min"),
+        InsightQuoteConfig("SOL/USD", "SOLUSD", "SOLUSD", "historical-chart/1min"),
+        InsightQuoteConfig("XRP/USD", "XRPUSD", "XRPUSD", "historical-chart/1min"),
+        InsightQuoteConfig("BNB/USD", "BNBUSD", "BNBUSD", "historical-chart/1min"),
     ),
 }
 
@@ -175,7 +175,7 @@ def normalize_insights_quote_response(
         return _unavailable_item(group, config)
 
     now = fetched_at or _utcnow()
-    price = _number_from(record, "price", "last", "lastPrice", "bid", "ask")
+    price = _number_from(record, "price", "close", "last", "lastPrice", "bid", "ask")
     item = {
         "group": group,
         "label": config.label,
@@ -244,14 +244,27 @@ def _fetch_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[s
     api_key = _api_key()
     if not api_key:
         raise RuntimeError("missing market data API key")
-    endpoint = f"/stable/{config.endpoint_type}"
-    response = requests.get(
-        f"{BASE_URL}{endpoint}",
-        params={"symbol": config.symbol, "apikey": api_key},
-        timeout=10,
-    )
-    response.raise_for_status()
-    return normalize_insights_quote_response(group, config, response.json())
+    today = _utcnow().date()
+    endpoints = (config.endpoint_type, "historical-price-eod/light")
+    last_response: requests.Response | None = None
+    for endpoint_type in dict.fromkeys(endpoints):
+        params = {"symbol": config.symbol, "apikey": api_key}
+        if endpoint_type == "historical-chart/1min":
+            params["from"] = (today - timedelta(days=7)).isoformat()
+            params["to"] = today.isoformat()
+        response = requests.get(
+            f"{BASE_URL}/stable/{endpoint_type}",
+            params=params,
+            timeout=10,
+        )
+        last_response = response
+        response.raise_for_status()
+        item = normalize_insights_quote_response(group, config, response.json())
+        if item.get("status") == "ok":
+            return item
+    if last_response is not None:
+        last_response.raise_for_status()
+    return _unavailable_item(group, config)
 
 
 def _quote_item(db: Session, group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:

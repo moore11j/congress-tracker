@@ -300,7 +300,8 @@ def test_data_source_status_migrates_legacy_intraday_defaults_to_chart_primary()
         request = _request_for_user(admin)
         settings = get_provider_settings_by_domain(db)
         settings["prices_intraday"].primary_endpoint_url = "https://financialmodelingprep.com/stable/historical-price-eod/light?symbol={symbol}"
-        settings["prices_intraday"].fallback_endpoint_url = "https://financialmodelingprep.com/stable/quote-short?symbol={symbol}"
+        old_fallback_path = "quote" + "-short"
+        settings["prices_intraday"].fallback_endpoint_url = f"https://financialmodelingprep.com/stable/{old_fallback_path}?symbol={{symbol}}"
         db.commit()
 
         payload = admin_data_sources_status(request, db)

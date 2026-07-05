@@ -352,10 +352,11 @@ function SectorList({ items }: { items: SectorPerformancePoint[] }) {
 }
 
 export function MarketSnapshot({ snapshot }: Props) {
-  const worldIndexes = indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES);
-  const currencies = instrumentsOrFallback(snapshot.currencies, FALLBACK_CURRENCIES);
-  const commodities = instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES);
-  const crypto = instrumentsOrFallback(snapshot.crypto, FALLBACK_CRYPTO);
+  // Entitlement-gated market widgets are hidden until coverage is ready:
+  // const worldIndexes = indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES);
+  // const currencies = instrumentsOrFallback(snapshot.currencies, FALLBACK_CURRENCIES);
+  // const commodities = instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES);
+  // const crypto = instrumentsOrFallback(snapshot.crypto, FALLBACK_CRYPTO);
   const economics = pointsOrFallback(snapshot.economics, FALLBACK_MACRO);
   const treasury = pointsOrFallback(snapshot.treasury, FALLBACK_TREASURY);
   const usIndexes = indexesToInstruments(snapshot.indexes, FALLBACK_US_INDEXES);
@@ -375,6 +376,9 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/*
+          Entitlement-gated market widgets are hidden until coverage is ready.
+
         <SectionShell title="Global Markets" subtitle="Daily Change" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
@@ -390,6 +394,7 @@ export function MarketSnapshot({ snapshot }: Props) {
         <SectionShell title="Crypto" subtitle="Daily Change" href="/insights/crypto">
           <InstrumentList items={crypto} unavailableText="-" />
         </SectionShell>
+        */}
 
         <SectionShell title="US Macro" subtitle="Macro Data" href="/insights/us-macro">
           <MacroPointList items={economics} showChange />

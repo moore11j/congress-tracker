@@ -223,14 +223,14 @@ export function FeedSymbolAutosuggestEnhancer({ formId, inputName, mode, selectV
     form.requestSubmit();
   };
 
-  if (!open || (!hasSuggestions && !loading)) return <div ref={hostRef} className="relative" />;
+  if (!open || (!hasSuggestions && !loading)) return <div ref={hostRef} className="relative z-[120]" />;
 
   return (
-    <div ref={hostRef} className="relative">
+    <div ref={hostRef} className="relative z-[120]">
       <div
         id={listboxId}
         role="listbox"
-        className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-xl shadow-black/30"
+        className="absolute z-[1200] mt-1 w-full overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-xl shadow-black/30"
       >
         {loading && !hasSuggestions ? <div className="px-3 py-2 text-sm text-slate-400">Searching…</div> : null}
         {suggestions.map((suggestion, index) => (

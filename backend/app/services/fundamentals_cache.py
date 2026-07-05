@@ -282,7 +282,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
             if normalize_symbol(row.get("symbol")) == normalized_symbol:
                 screener_row = row
                 break
-        quote_row = next(iter(_request_rows("quote", params={"symbol": normalized_symbol})), {})
+        quote_row = next(iter(_request_rows("historical-price-eod/light", params={"symbol": normalized_symbol})), {})
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
         growth_row = next(iter(_request_rows("financial-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
