@@ -21,6 +21,7 @@ from app.services.data_enrichment_queue import (
     build_dedupe_key,
     enqueue_data_enrichment_job,
 )
+from app.services.foreign_trade_normalization import normalize_insider_price
 from app.services.returns import signed_return_pct
 from app.utils.symbols import normalize_symbol
 
@@ -677,6 +678,20 @@ def _cached_entry_close(db: Session, symbol: str, trade_date: str) -> PriceCache
     ).scalar_one_or_none()
 
 
+def _entry_price_for_feed_pnl(db: Session, event: Event, inputs: FeedPnlInputs) -> tuple[float | None, date | None]:
+    payload = _payload_dict(event.payload_json)
+    if inputs.event_type == "insider_trade":
+        normalized = normalize_insider_price(symbol=inputs.symbol, payload=payload, trade_date=inputs.trade_date)
+        if normalized.is_comparable and normalized.display_price is not None and normalized.display_price > 0:
+            return float(normalized.display_price), _parse_cache_date(inputs.trade_date)
+
+    if inputs.symbol and inputs.trade_date:
+        entry = _cached_entry_close(db, inputs.symbol, inputs.trade_date)
+        if entry is not None and entry.close is not None and entry.close > 0:
+            return float(entry.close), _parse_cache_date(entry.date)
+    return None, None
+
+
 def _parse_cache_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -795,7 +810,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
             fresh_quote_asof = fresh_quote.get("asof_ts")
         except (TypeError, ValueError):
             fresh_quote_price = None
-    entry = _cached_entry_close(db, inputs.symbol, inputs.trade_date)
+    entry_price, entry_date = _entry_price_for_feed_pnl(db, event, inputs)
     missing: list[str] = []
     cached_quote_price = float(quote.price) if quote is not None and quote.price is not None else None
     current_quote_price = fresh_quote_price if fresh_quote_price is not None else cached_quote_price
@@ -811,7 +826,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
             priority=FEED_PNL_QUOTE_PRIORITY,
             max_attempts=5,
         )
-    if entry is None or entry.close is None or entry.close <= 0:
+    if entry_price is None or entry_price <= 0:
         missing.append("entry_eod")
         _enqueue_job(
             None,
@@ -835,19 +850,16 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
         raise FeedPnlInputMissing(event.id, missing)
 
     existing = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == event.id)).scalar_one_or_none()
-    if (
+    preserve_existing_methodology = (
         existing is not None
-        and existing.return_pct is not None
-        and existing.scoring_status == "ok"
+        and bool(existing.methodology_version)
         and existing.methodology_version != FEED_PNL_METHODOLOGY_VERSION
-    ):
-        return
+    )
 
     trade_date = _parse_cache_date(inputs.trade_date)
-    entry_date = _parse_cache_date(entry.date)
     quote_asof = fresh_quote_asof if isinstance(fresh_quote_asof, datetime) else (quote.asof_ts if quote is not None else None)
     current_price_date = quote_asof.date() if isinstance(quote_asof, datetime) else None
-    return_pct = signed_return_pct(current_quote_price, entry.close, inputs.trade_type or event.trade_type)
+    return_pct = signed_return_pct(current_quote_price, entry_price, inputs.trade_type or event.trade_type)
     holding_days = (datetime.now(timezone.utc).date() - trade_date).days if trade_date else None
     target = existing or TradeOutcome(event_id=event.id)
     target.member_id = inputs.member_id
@@ -856,7 +868,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
     target.trade_type = inputs.trade_type or event.trade_type
     target.source = event.source
     target.trade_date = trade_date
-    target.entry_price = float(entry.close)
+    target.entry_price = float(entry_price)
     target.entry_price_date = entry_date
     target.current_price = float(current_quote_price)
     target.current_price_date = current_price_date
@@ -871,7 +883,11 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
     target.amount_max = event.amount_max
     target.scoring_status = "ok"
     target.scoring_error = None
-    target.methodology_version = FEED_PNL_METHODOLOGY_VERSION
+    target.methodology_version = (
+        existing.methodology_version
+        if preserve_existing_methodology and existing is not None
+        else FEED_PNL_METHODOLOGY_VERSION
+    )
     target.computed_at = datetime.now(timezone.utc)
     if existing is None:
         db.add(target)

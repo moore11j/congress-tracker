@@ -569,7 +569,7 @@ def get_current_prices_meta_db(
         for symbol in normalized_symbols:
             cached_meta = _cache_get_meta(symbol)
             if cached_meta is not None and cached_meta.get("price") is not None:
-                if force_quote_endpoint and cached_meta.get("source") != "live_quote":
+                if force_quote_endpoint:
                     record_cache_miss(category="quote", symbol=symbol)
                     remaining_symbols.append(symbol)
                     continue

@@ -338,6 +338,49 @@ def test_force_quote_endpoint_skips_persistent_quote_cache(monkeypatch):
     assert meta["AAPL"]["price"] != 142.02
 
 
+def test_force_quote_endpoint_skips_memory_live_quote_cache(monkeypatch):
+    _reset_quote_lookup_state()
+    calls: list[str] = []
+
+    quote_lookup._cache_set_meta(
+        "MGRC",
+        {
+            "symbol": "MGRC",
+            "price": 78.67,
+            "asof_ts": datetime(2026, 7, 2, 15, 59, 0),
+            "source": "live_quote",
+        },
+        lane="feed_quote",
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"date": "2026-07-02", "symbol": "MGRC", "price": 117.91}]
+
+    def fake_get(url, params=None, timeout=10):
+        calls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setenv("FMP_QUOTE_PROCESS_CALLS_PER_MINUTE", "10")
+    monkeypatch.setattr(quote_lookup.requests, "get", fake_get)
+
+    meta = quote_lookup.get_current_prices_meta_db(
+        SimpleNamespace(),
+        ["MGRC"],
+        lane="feed_quote",
+        allow_live_user_fetch=True,
+        force_quote_endpoint=True,
+    )
+
+    assert calls
+    assert meta["MGRC"]["price"] == 117.91
+    assert meta["MGRC"]["price"] != 78.67
+
+
 def test_quote_budget_exhausted_returns_stale_cache_without_provider_call(monkeypatch):
     _reset_quote_lookup_state()
     asof_ts = datetime.now(timezone.utc) - timedelta(minutes=5)

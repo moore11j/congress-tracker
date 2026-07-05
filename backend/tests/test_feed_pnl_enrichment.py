@@ -10,7 +10,7 @@ import app.services.data_enrichment_queue as queue_module
 from app.db import Base
 from app.models import DataEnrichmentJob, Event, PriceCache, QuoteCache, TradeOutcome
 from app.routers.events import list_events
-from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import enqueue_feed_pnl_enrichment_for_event, process_feed_pnl_refresh_job
 
 
 def _session_factory():
@@ -278,6 +278,76 @@ def test_event_scoped_pnl_refresh_writes_trade_outcome_when_inputs_exist(monkeyp
         assert round(outcome.return_pct or 0, 2) == 30.0
         assert outcome.scoring_status == "ok"
         assert outcome.methodology_version == "feed_pnl_cache_v1"
+    finally:
+        db.close()
+
+
+def test_event_scoped_pnl_refresh_updates_existing_insider_outcome_without_methodology_downgrade(monkeypatch) -> None:
+    SessionLocal = _session_factory()
+    monkeypatch.setattr(queue_module, "SessionLocal", SessionLocal)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
+
+    def fake_quote(db: Session, symbols: list[str], **_kwargs):
+        for symbol in symbols:
+            db.merge(QuoteCache(symbol=symbol, price=117.91, asof_ts=datetime(2026, 7, 2)))
+        return {symbol: {"price": 117.91, "asof_ts": datetime(2026, 7, 2)} for symbol in symbols}
+
+    monkeypatch.setattr("app.services.quote_lookup.get_current_prices_meta_db", fake_quote)
+
+    db = SessionLocal()
+    try:
+        db.add(
+            _event(
+                203,
+                "insider_trade",
+                symbol="MGRC",
+                trade_type="sale",
+                event_date=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                payload={
+                    "symbol": "MGRC",
+                    "transaction_date": "2026-07-01",
+                    "transaction_type": "S-Sale",
+                    "is_market_trade": True,
+                    "price": 121.2318,
+                    "insider_name": "Joseph F Hanna",
+                    "reporting_cik": "0000000001",
+                },
+            )
+        )
+        db.add(PriceCache(symbol="MGRC", date="2026-07-01", close=119.89))
+        db.add(
+            TradeOutcome(
+                event_id=203,
+                member_id="M1",
+                member_name="Member",
+                symbol="MGRC",
+                trade_type="sale",
+                trade_date=datetime(2026, 7, 1, tzinfo=timezone.utc).date(),
+                entry_price=119.89,
+                current_price=78.67,
+                current_price_date=datetime(2026, 7, 3, tzinfo=timezone.utc).date(),
+                return_pct=34.39,
+                benchmark_symbol="^GSPC",
+                benchmark_return_pct=1.2,
+                alpha_pct=33.19,
+                scoring_status="ok",
+                methodology_version="insider_v1",
+            )
+        )
+        db.commit()
+
+        process_feed_pnl_refresh_job(db, event_id=203)
+        db.commit()
+
+        outcome = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == 203)).scalar_one()
+        assert outcome.methodology_version == "insider_v1"
+        assert outcome.entry_price == 121.2318
+        assert outcome.current_price == 117.91
+        assert outcome.entry_price_date == datetime(2026, 7, 1, tzinfo=timezone.utc).date()
+        assert outcome.current_price_date == datetime(2026, 7, 2, tzinfo=timezone.utc).date()
+        assert round(outcome.return_pct or 0, 2) == 2.74
+        assert outcome.benchmark_return_pct == 1.2
+        assert outcome.alpha_pct == 33.19
     finally:
         db.close()
 
