@@ -33,6 +33,7 @@ type SavedViewsBarProps = {
   rightSlot?: ReactNode;
   formId?: string;
   dense?: boolean;
+  inline?: boolean;
   clearSelectionWhenPristine?: boolean;
   allowNotifications?: boolean;
   allowDefaultView?: boolean;
@@ -238,6 +239,7 @@ export function SavedViewsBar({
   rightSlot,
   formId,
   dense = false,
+  inline = false,
   clearSelectionWhenPristine = false,
   allowNotifications = true,
   allowDefaultView = true,
@@ -762,14 +764,22 @@ export function SavedViewsBar({
     }
   };
 
-  const containerClassName = dense
-    ? "rounded-2xl border border-slate-800 bg-slate-950/45 p-3 text-xs"
-    : "border-t border-slate-800 pt-3 text-xs";
+  const containerClassName = inline
+    ? "text-xs"
+    : dense
+      ? "rounded-2xl border border-slate-800 bg-slate-950/45 p-3 text-xs"
+      : "border-t border-slate-800 pt-3 text-xs";
+  const rowClassName = inline
+    ? "flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center"
+    : "flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between";
+  const controlsClassName = inline
+    ? "flex min-w-0 flex-wrap items-center gap-2"
+    : "flex min-w-0 flex-1 flex-wrap items-center gap-2";
 
   return (
     <div className={containerClassName}>
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div className={rowClassName}>
+        <div className={controlsClassName}>
           <span className={`uppercase tracking-wide ${dense ? "text-slate-400" : "text-slate-500"}`}>{viewNounPlural}</span>
           {!authResolved ? (
             <span className="inline-flex h-8 items-center rounded-lg border border-slate-800 bg-slate-950/30 px-3 text-slate-500">

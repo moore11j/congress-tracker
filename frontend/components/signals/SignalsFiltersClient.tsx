@@ -206,6 +206,16 @@ export function SignalsFiltersClient({
               </button>
             ))}
           </div>
+
+          <div className="min-w-[280px] max-w-full rounded-2xl bg-slate-900/35 p-2 sm:ml-auto">
+            <SavedViewsBar
+              surface="signals"
+              restoreOnLoad={true}
+              defaultParams={defaultParams}
+              paramKeys={[...signalFilterParamKeys]}
+              inline={true}
+            />
+          </div>
         </div>
 
         <div className="pt-1">
@@ -213,31 +223,24 @@ export function SignalsFiltersClient({
             Apply filters
           </button>
         </div>
+
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 border-t border-slate-800 pt-3 sm:justify-end">
+          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+            mode <span className="text-white">{optionLabel(modeOptions, appliedFilters.mode)}</span>
+          </span>
+          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+            side <span className="text-white">{optionLabel(sideOptions, appliedFilters.side as (typeof sideOptions)[number][0])}</span>
+          </span>
+          <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
+            sort <span className="text-white">{optionLabel(sortOptions, appliedFilters.sort)}</span>
+          </span>
+          {hasPendingChanges ? (
+            <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>
+              pending
+            </span>
+          ) : null}
+        </div>
       </div>
-      <SavedViewsBar
-        surface="signals"
-        restoreOnLoad={true}
-        defaultParams={defaultParams}
-        paramKeys={[...signalFilterParamKeys]}
-        rightSlot={
-          <>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              mode <span className="text-white">{optionLabel(modeOptions, appliedFilters.mode)}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              side <span className="text-white">{optionLabel(sideOptions, appliedFilters.side as (typeof sideOptions)[number][0])}</span>
-            </span>
-            <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              sort <span className="text-white">{optionLabel(sortOptions, appliedFilters.sort)}</span>
-            </span>
-            {hasPendingChanges ? (
-              <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>
-                pending
-              </span>
-            ) : null}
-          </>
-        }
-      />
     </div>
   );
 }
