@@ -2,7 +2,7 @@ param(
   [ValidateSet("smoke", "staged")]
   [string]$Mode = "staged",
 
-  [ValidateSet("small", "medium", "large", "target")]
+  [ValidateSet("small", "prod50", "medium", "large", "target")]
   [string]$TestProfile = "small",
 
   [ValidateRange(1, 10)]
@@ -82,20 +82,22 @@ function Invoke-CapturedNativeCommand {
     [switch]$AllowFailure
   )
 
-  $stdoutPath = [IO.Path]::GetTempFileName()
-  $stderrPath = [IO.Path]::GetTempFileName()
-  try {
-    $process = Start-Process `
-      -FilePath $FilePath `
-      -ArgumentList (Join-NativeArguments $Arguments) `
-      -RedirectStandardOutput $stdoutPath `
-      -RedirectStandardError $stderrPath `
-      -NoNewWindow `
-      -Wait `
-      -PassThru
+  $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $processInfo.FileName = $FilePath
+  $processInfo.Arguments = Join-NativeArguments $Arguments
+  $processInfo.UseShellExecute = $false
+  $processInfo.RedirectStandardOutput = $true
+  $processInfo.RedirectStandardError = $true
+  $processInfo.CreateNoWindow = $true
 
-    $stdout = if (Test-Path $stdoutPath) { Get-Content -Raw $stdoutPath } else { "" }
-    $stderr = if (Test-Path $stderrPath) { Get-Content -Raw $stderrPath } else { "" }
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $processInfo
+
+  try {
+    [void]$process.Start()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
     $combined = (($stdout, $stderr) | Where-Object { $_ -and $_.Length -gt 0 }) -join "`n"
 
     $result = [pscustomobject]@{
@@ -112,7 +114,97 @@ function Invoke-CapturedNativeCommand {
 
     return $result
   } finally {
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    $process.Dispose()
+  }
+}
+
+function Start-NativeCommandToFiles {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments,
+    [string]$StdoutPath,
+    [string]$StderrPath
+  )
+
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $stdoutWriter = New-Object System.IO.StreamWriter $StdoutPath, $false, $utf8
+  $stderrWriter = New-Object System.IO.StreamWriter $StderrPath, $false, $utf8
+
+  $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $processInfo.FileName = $FilePath
+  $processInfo.Arguments = Join-NativeArguments $Arguments
+  $processInfo.UseShellExecute = $false
+  $processInfo.RedirectStandardOutput = $true
+  $processInfo.RedirectStandardError = $true
+  $processInfo.CreateNoWindow = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $processInfo
+  $process.EnableRaisingEvents = $true
+
+  $process.add_OutputDataReceived({
+    param($sender, $event)
+    if ($null -ne $event.Data) {
+      $stdoutWriter.WriteLine($event.Data)
+      $stdoutWriter.Flush()
+    }
+  }.GetNewClosure())
+  $process.add_ErrorDataReceived({
+    param($sender, $event)
+    if ($null -ne $event.Data) {
+      $stderrWriter.WriteLine($event.Data)
+      $stderrWriter.Flush()
+    }
+  }.GetNewClosure())
+
+  try {
+    [void]$process.Start()
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
+  } catch {
+    $stdoutWriter.Dispose()
+    $stderrWriter.Dispose()
+    $process.Dispose()
+    throw
+  }
+
+  [pscustomobject]@{
+    Process = $process
+    StdoutWriter = $stdoutWriter
+    StderrWriter = $stderrWriter
+  }
+}
+
+function Stop-CapturedProcess {
+  param([object]$CapturedProcess)
+  if (-not $CapturedProcess) {
+    return
+  }
+
+  $process = $CapturedProcess.Process
+  if ($process -and -not $process.HasExited) {
+    try {
+      $process.Kill()
+    } catch {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Dispose-CapturedProcess {
+  param([object]$CapturedProcess)
+  if (-not $CapturedProcess) {
+    return
+  }
+
+  if ($CapturedProcess.Process) {
+    $CapturedProcess.Process.Dispose()
+  }
+  if ($CapturedProcess.StdoutWriter) {
+    $CapturedProcess.StdoutWriter.Dispose()
+  }
+  if ($CapturedProcess.StderrWriter) {
+    $CapturedProcess.StderrWriter.Dispose()
   }
 }
 
@@ -204,7 +296,19 @@ if ($Mode -eq "staged") {
   $dockerArgs += @("-e", "SMOKE_VUS=$SmokeVus", "-e", "SMOKE_DURATION=$SmokeDuration")
 }
 
-$dockerArgs += @("grafana/k6", "run", $k6Script)
+$k6EnvArgs = @(
+  "-e", "ALLOW_PRODUCTION_LOAD_TEST=true",
+  "-e", "BASE_URL=$BaseUrl",
+  "-e", "API_BASE_URL=$ApiBaseUrl"
+)
+
+if ($Mode -eq "staged") {
+  $k6EnvArgs += @("-e", "TEST_PROFILE=$TestProfile")
+} else {
+  $k6EnvArgs += @("-e", "SMOKE_VUS=$SmokeVus", "-e", "SMOKE_DURATION=$SmokeDuration")
+}
+
+$dockerArgs += @("grafana/k6", "run") + $k6EnvArgs + @($k6Script)
 
 if ($DryRun) {
   Write-Host "Dry run only. No production load, Fly log stream, scheduler probe, or Docker container was started."
@@ -245,6 +349,7 @@ $k6Err = Join-Path $env:TEMP "walnut-k6-$stamp.err.log"
 
 $fly = $null
 $k6 = $null
+$k6ExitCode = 1
 $stopReason = $null
 $lineOffset = 0
 $currentRecordUtc = $null
@@ -254,12 +359,12 @@ try {
   $testStartUtc = [datetime]::UtcNow
   Write-Host "test_start_utc=$($testStartUtc.ToString("o"))"
 
-  $fly = Start-Process -FilePath "flyctl" -ArgumentList @("logs", "-a", $FlyApp) -RedirectStandardOutput $logOut -RedirectStandardError $logErr -PassThru -WindowStyle Hidden
+  $fly = Start-NativeCommandToFiles "flyctl" @("logs", "-a", $FlyApp) $logOut $logErr
   Start-Sleep -Seconds 2
 
-  $k6 = Start-Process -FilePath "docker" -ArgumentList $dockerArgs -RedirectStandardOutput $k6Out -RedirectStandardError $k6Err -PassThru -WindowStyle Hidden
+  $k6 = Start-NativeCommandToFiles "docker" $dockerArgs $k6Out $k6Err
 
-  while (-not $k6.HasExited) {
+  while (-not $k6.Process.HasExited) {
     Start-Sleep -Seconds 5
     if (-not (Test-Path $logOut)) {
       continue
@@ -313,14 +418,15 @@ try {
   }
 
   if ($k6) {
-    $k6.WaitForExit()
+    $k6.Process.WaitForExit()
+    $k6ExitCode = $k6.Process.ExitCode
   }
 } finally {
   $testEndUtc = [datetime]::UtcNow
   Write-Host "test_end_utc=$($testEndUtc.ToString("o"))"
 
-  if ($fly -and -not $fly.HasExited) {
-    Stop-Process -Id $fly.Id -Force -ErrorAction SilentlyContinue
+  if ($fly) {
+    Stop-CapturedProcess $fly
   }
 
   Write-Host "Post-test: verify no k6 container remains"
@@ -338,6 +444,9 @@ try {
   Write-Host "k6 stderr: $k6Err"
   Write-Host "Fly stdout: $logOut"
   Write-Host "Fly stderr: $logErr"
+
+  Dispose-CapturedProcess $k6
+  Dispose-CapturedProcess $fly
 }
 
 if ($stopReason) {
@@ -346,7 +455,7 @@ if ($stopReason) {
 }
 
 if ($k6) {
-  exit $k6.ExitCode
+  exit $k6ExitCode
 }
 
 exit 1

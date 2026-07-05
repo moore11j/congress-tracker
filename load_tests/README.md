@@ -131,6 +131,7 @@ k6 run load_tests/k6/walnut_capacity_stages.js
 Profiles:
 
 - `small`: ramps to 25 VUs. Staging first; production only with explicit separate approval.
+- `prod50`: production-only watched profile that ramps to 25 VUs over 2m, ramps to 50 VUs over 3m, holds 50 VUs for 2m, then ramps down over 2m. Requires explicit separate approval for the exact run; do not substitute `medium`.
 - `medium`: ramps to 100 VUs. Staging only until small is clean.
 - `large`: ramps to 250 VUs. Staging only unless separately approved.
 - `target`: ramps to 1,000 VUs. Config exists for planning; do not run without a dedicated environment and approval.
@@ -279,9 +280,10 @@ Stop the test immediately if any of these occur:
 ## Recommended First Real Test Plan
 
 1. Staging `small` profile: 25 VUs.
-2. Staging `medium` profile: 100 VUs.
-3. Watched production smoke only: 1-10 VUs for 60-90 seconds.
-4. Revisit route timings and logs before any staged production test.
+2. Watched production smoke only: 1-10 VUs for 60-90 seconds.
+3. Watched production `small` profile only after separate approval.
+4. Watched production `prod50` profile only after a clean 25-VU staged production result and explicit separate approval.
+5. Staging `medium` profile: 100 VUs. Do not run in production without a later dedicated approval.
 
 Likely first bottlenecks to watch:
 
