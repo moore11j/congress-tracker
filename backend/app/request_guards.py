@@ -137,7 +137,7 @@ def is_inactive_logged_out_ssr_request(request: Request) -> bool:
     if request_source(request, user_agent_class) != "ssr":
         return False
     route_family = bounded_log_value(request.headers.get("x-walnut-route-family"), max_length=32).lower()
-    if route_family in {"feed", "insider"}:
+    if route_family == "feed":
         return False
     referer_host, _referer_path = sanitize_referer(request.headers.get("referer"))
     return referer_host == "none"

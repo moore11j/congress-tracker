@@ -230,7 +230,7 @@ def test_inactive_logged_out_ssr_requires_unknown_ua_no_referer_and_no_auth():
     assert not _is_inactive_logged_out_ssr_request(
         _request("/api/tickers/AAPL/context-bundle", {"x-walnut-request-source": "ssr", "x-walnut-active-user": "browser"})
     )
-    assert not _is_inactive_logged_out_ssr_request(
+    assert _is_inactive_logged_out_ssr_request(
         _request(
             "/api/insiders/0001728970/summary",
             {"x-walnut-request-source": "ssr", "x-walnut-route-family": "insider"},
