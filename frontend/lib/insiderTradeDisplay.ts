@@ -3,6 +3,7 @@ export type InsiderTradeDisplayInput = {
   amount_range_max?: number | string | null;
   amount_min?: number | string | null;
   amount_max?: number | string | null;
+  trade_price?: number | string | null;
   estimated_price?: number | string | null;
   payload?: any;
   insider?: {
@@ -30,10 +31,11 @@ function text(value: unknown): string | null {
 
 export function resolveInsiderDisplayPrice(item: InsiderTradeDisplayInput): number | null {
   return (
+    parseInsiderNumber(item.trade_price) ??
+    parseInsiderNumber(item.estimated_price) ??
     parseInsiderNumber(item.insider?.display_price) ??
     parseInsiderNumber(item.payload?.display_price) ??
     parseInsiderNumber(item.payload?.displayPrice) ??
-    parseInsiderNumber(item.estimated_price) ??
     parseInsiderNumber(item.insider?.price) ??
     parseInsiderNumber(item.payload?.price) ??
     parseInsiderNumber(item.payload?.raw?.price) ??
