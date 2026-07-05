@@ -5413,6 +5413,15 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
 _TICKER_CONTEXT_BUNDLE_VERSION = 1
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
+_TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()
+_TICKER_CONTEXT_BUNDLE_MEMORY_CACHE: dict[str, tuple[float, float, dict[str, Any]]] = {}
+
+
+def _ticker_context_bundle_memory_cache_max_entries() -> int:
+    try:
+        return max(64, min(int(os.getenv("TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_MAX", "512") or 512), 4096))
+    except ValueError:
+        return 512
 
 
 def _ticker_context_bundle_cache_ttl_seconds() -> int:
@@ -5434,6 +5443,89 @@ def _ticker_context_bundle_coalesce_wait_seconds() -> float:
         return max(0.1, min(float(os.getenv("TICKER_CONTEXT_BUNDLE_COALESCE_WAIT_SECONDS", "2.0") or 2.0), 5.0))
     except ValueError:
         return 2.0
+
+
+def _ticker_context_bundle_max_concurrent_builds() -> int:
+    try:
+        return max(1, min(int(os.getenv("TICKER_CONTEXT_BUNDLE_MAX_CONCURRENT_BUILDS", "4") or 4), 16))
+    except ValueError:
+        return 4
+
+
+def _ticker_context_bundle_build_slot_timeout_seconds() -> float:
+    try:
+        return max(0.1, min(float(os.getenv("TICKER_CONTEXT_BUNDLE_BUILD_SLOT_TIMEOUT_SECONDS", "3.0") or 3.0), 15.0))
+    except ValueError:
+        return 3.0
+
+
+_TICKER_CONTEXT_BUNDLE_BUILD_SEMAPHORE = threading.BoundedSemaphore(_ticker_context_bundle_max_concurrent_builds())
+
+
+def _ticker_context_bundle_datetime_to_ts(value: datetime) -> float:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
+
+
+def _ticker_context_bundle_memory_cache_get(
+    cache_key: str,
+    *,
+    symbol: str,
+    user_segment: str,
+    started_at: float,
+) -> dict[str, Any] | None:
+    now_ts = time.time()
+    with _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK:
+        cached = _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        stale_after_ts, expires_at_ts, payload = cached
+        if expires_at_ts <= now_ts:
+            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
+            return None
+        result = copy.deepcopy(payload)
+
+    logger.info(
+        "ticker_bundle_cache_%s symbol=%s user_segment=%s source=memory duration_ms=%.1f",
+        "stale_hit" if stale_after_ts <= now_ts else "hit",
+        symbol,
+        user_segment,
+        (perf_counter() - started_at) * 1000,
+    )
+    return result
+
+
+def _ticker_context_bundle_memory_cache_set(
+    cache_key: str,
+    *,
+    payload: dict[str, Any],
+    stale_after: datetime,
+    expires_at: datetime,
+) -> None:
+    stale_after_ts = _ticker_context_bundle_datetime_to_ts(stale_after)
+    expires_at_ts = _ticker_context_bundle_datetime_to_ts(expires_at)
+    now_ts = time.time()
+    with _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK:
+        expired_keys = [
+            key
+            for key, (_stale_ts, cache_expires_at_ts, _payload) in _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.items()
+            if cache_expires_at_ts <= now_ts
+        ]
+        for key in expired_keys:
+            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(key, None)
+        max_entries = _ticker_context_bundle_memory_cache_max_entries()
+        while len(_TICKER_CONTEXT_BUNDLE_MEMORY_CACHE) >= max_entries:
+            oldest_key = min(
+                _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE,
+                key=lambda key: _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE[key][1],
+            )
+            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(oldest_key, None)
+        _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE[cache_key] = (
+            stale_after_ts,
+            expires_at_ts,
+            copy.deepcopy(payload),
+        )
 
 
 def _ticker_context_bundle_segment(
@@ -5475,6 +5567,15 @@ def _ticker_context_bundle_cache_get(
     user_segment: str,
     started_at: float,
 ) -> dict[str, Any] | None:
+    memory_cached = _ticker_context_bundle_memory_cache_get(
+        cache_key,
+        symbol=symbol,
+        user_segment=user_segment,
+        started_at=started_at,
+    )
+    if memory_cached is not None:
+        return memory_cached
+
     try:
         row = db.get(TickerContextBundleCache, cache_key)
     except Exception:
@@ -5511,6 +5612,12 @@ def _ticker_context_bundle_cache_get(
         symbol,
         user_segment,
         (perf_counter() - started_at) * 1000,
+    )
+    _ticker_context_bundle_memory_cache_set(
+        cache_key,
+        payload=payload,
+        stale_after=stale_after,
+        expires_at=expires_at,
     )
     return payload
 
@@ -5618,6 +5725,12 @@ def _ticker_context_bundle_cache_set(
             row.stale_after = stale_after
             row.expires_at = expires_at
         db.commit()
+        _ticker_context_bundle_memory_cache_set(
+            cache_key,
+            payload=payload,
+            stale_after=stale_after,
+            expires_at=expires_at,
+        )
     except Exception:
         db.rollback()
         logger.debug("ticker_bundle_cache_write_failed symbol=%s user_segment=%s", symbol, user_segment, exc_info=True)
@@ -5630,6 +5743,7 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         allow_cache_write=True,
         lane="ticker_context_bundle_quote",
         allow_live_user_fetch=True,
+        release_connection_before_fetch=True,
         stale_while_revalidate=True,
         coalesce_wait_seconds=0.5,
         force_quote_endpoint=True,
@@ -5897,7 +6011,23 @@ def _build_ticker_context_bundle(
 
     build_started_at = perf_counter()
     payload: dict[str, Any] | None = None
+    build_slot_acquired = False
     try:
+        build_slot_started_at = perf_counter()
+        build_slot_acquired = _TICKER_CONTEXT_BUNDLE_BUILD_SEMAPHORE.acquire(
+            timeout=_ticker_context_bundle_build_slot_timeout_seconds()
+        )
+        if not build_slot_acquired:
+            logger.warning(
+                "ticker_bundle_build_slot_wait_timeout symbol=%s user_segment=%s waited_ms=%.1f",
+                normalized_symbol,
+                user_segment,
+                (perf_counter() - build_slot_started_at) * 1000,
+            )
+            _TICKER_CONTEXT_BUNDLE_BUILD_SEMAPHORE.acquire()
+            build_slot_acquired = True
+        build_slot_wait_ms = (perf_counter() - build_slot_started_at) * 1000
+
         profile_started_at = perf_counter()
         profile_payload = _ticker_profile_response(normalized_symbol, db)
         profile_ms = (perf_counter() - profile_started_at) * 1000
@@ -6047,7 +6177,7 @@ def _build_ticker_context_bundle(
             payload=payload,
         )
         logger.info(
-            "ticker_bundle_build_duration_ms symbol=%s user_segment=%s duration_ms=%.1f total_duration_ms=%.1f profile_ms=%.1f quote_ms=%.1f signals_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f",
+            "ticker_bundle_build_duration_ms symbol=%s user_segment=%s duration_ms=%.1f total_duration_ms=%.1f profile_ms=%.1f quote_ms=%.1f signals_ms=%.1f source_context_ms=%.1f confirmation_ms=%.1f build_slot_wait_ms=%.1f",
             normalized_symbol,
             user_segment,
             (perf_counter() - build_started_at) * 1000,
@@ -6057,9 +6187,12 @@ def _build_ticker_context_bundle(
             signals_ms,
             source_context_ms,
             confirmation_ms,
+            build_slot_wait_ms,
         )
         return payload
     finally:
+        if build_slot_acquired:
+            _TICKER_CONTEXT_BUNDLE_BUILD_SEMAPHORE.release()
         _ticker_context_bundle_build_inflight_finalize(
             cache_key,
             inflight_state,

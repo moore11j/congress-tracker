@@ -53,6 +53,7 @@ def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
     main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
     main_module._TICKER_CONTEXT_BUNDLE_INFLIGHT.clear()
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
 
 
 def _mock_logged_out_signal_context(monkeypatch):
@@ -60,6 +61,7 @@ def _mock_logged_out_signal_context(monkeypatch):
     monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS["free"])
     main_module._TICKER_SIGNALS_SUMMARY_CACHE.clear()
     main_module._TICKER_SIGNALS_SUMMARY_INFLIGHT.clear()
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
 
 
 def test_symbol_scoped_signal_queries_use_smaller_candidate_floor():
@@ -1576,6 +1578,120 @@ def test_ticker_context_bundle_cache_hit_avoids_rebuild(monkeypatch):
     assert counters["profile"] == 1
     assert counters["signals"] == 1
     assert len(cache_rows) == 1
+
+
+def test_ticker_context_bundle_memory_cache_hit_avoids_db_lookup(monkeypatch):
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
+    cache_key = main_module._ticker_context_bundle_cache_key(
+        "AAPL",
+        user_segment="premium",
+        side="all",
+        limit=3,
+        lookback_days=30,
+    )
+    now = datetime.now(timezone.utc)
+    main_module._ticker_context_bundle_memory_cache_set(
+        cache_key,
+        payload={"symbol": "AAPL", "from_memory": True},
+        stale_after=now + timedelta(minutes=1),
+        expires_at=now + timedelta(minutes=5),
+    )
+
+    class NoDbLookup:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("memory context-bundle hit must not touch the DB cache table")
+
+        def rollback(self):
+            raise AssertionError("memory context-bundle hit must not roll back")
+
+    response = main_module._ticker_context_bundle_cache_get(
+        NoDbLookup(),
+        cache_key,
+        symbol="AAPL",
+        user_segment="premium",
+        started_at=time.perf_counter(),
+    )
+
+    assert response == {"symbol": "AAPL", "from_memory": True}
+
+
+def test_ticker_context_bundle_db_cache_populates_memory_cache(monkeypatch):
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
+    engine = _engine()
+    cache_key = main_module._ticker_context_bundle_cache_key(
+        "AAPL",
+        user_segment="premium",
+        side="all",
+        limit=3,
+        lookback_days=30,
+    )
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            TickerContextBundleCache(
+                cache_key=cache_key,
+                symbol="AAPL",
+                user_segment="premium",
+                payload_json=json.dumps({"symbol": "AAPL", "db_cached": True}),
+                generated_at=now,
+                stale_after=now + timedelta(minutes=1),
+                expires_at=now + timedelta(minutes=5),
+            )
+        )
+        db.commit()
+
+        first = main_module._ticker_context_bundle_cache_get(
+            db,
+            cache_key,
+            symbol="AAPL",
+            user_segment="premium",
+            started_at=time.perf_counter(),
+        )
+
+    class NoDbLookup:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("second cache hit should use process memory")
+
+        def rollback(self):
+            raise AssertionError("second cache hit should not roll back")
+
+    second = main_module._ticker_context_bundle_cache_get(
+        NoDbLookup(),
+        cache_key,
+        symbol="AAPL",
+        user_segment="premium",
+        started_at=time.perf_counter(),
+    )
+
+    assert first == {"symbol": "AAPL", "db_cached": True}
+    assert second == {"symbol": "AAPL", "db_cached": True}
+
+
+def test_ticker_context_bundle_quote_releases_connection_before_live_fetch(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_quote_lookup(db, symbols, **kwargs):
+        captured.update(kwargs)
+        return {
+            "AAPL": {
+                "symbol": "AAPL",
+                "price": 308.63,
+                "change": 1.25,
+                "change_percent": 0.4,
+                "volume": 51_000_000,
+                "asof_ts": datetime(2026, 7, 2, 20, 0, tzinfo=timezone.utc),
+                "is_stale": False,
+            }
+        }
+
+    monkeypatch.setattr(main_module, "get_current_prices_meta_db", fake_quote_lookup)
+
+    quote = main_module._ticker_context_bundle_quote(object(), "AAPL", {})
+
+    assert quote["current_price"] == 308.63
+    assert captured["release_connection_before_fetch"] is True
+    assert captured["force_quote_endpoint"] is True
+    assert captured["allow_live_user_fetch"] is True
 
 
 def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
