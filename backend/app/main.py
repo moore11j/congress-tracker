@@ -5737,6 +5737,18 @@ def _ticker_context_bundle_cache_set(
 
 
 def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[str, Any]) -> dict[str, Any]:
+    if str(profile_ticker.get("identity_status") or "").lower() == "unknown":
+        logger.info("ticker_context_bundle_quote_skipped symbol=%s reason=unknown_identity", symbol)
+        return {
+            "current_price": None,
+            "change": None,
+            "change_percent": None,
+            "volume": _parse_numeric(profile_ticker.get("volume")),
+            "avg_volume": _parse_numeric(profile_ticker.get("avg_volume")),
+            "market_cap": _parse_numeric(profile_ticker.get("market_cap")),
+            "as_of": _dt_iso(profile_ticker.get("quote_as_of")),
+            "stale": False,
+        }
     quote_rows = get_current_prices_meta_db(
         db,
         [symbol],

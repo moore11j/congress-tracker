@@ -241,6 +241,8 @@ def _skip_hot_route_usage_persistence(event: dict[str, Any]) -> bool:
     path = str(context.get("path") or context.get("walnut_route") or "")
     if path in {"/api/events", "/api/market/quotes"}:
         return True
+    if path.startswith("/api/tickers/") and path.endswith("/context-bundle"):
+        return True
     return False
 
 

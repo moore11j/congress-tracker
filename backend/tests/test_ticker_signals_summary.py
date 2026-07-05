@@ -1694,6 +1694,28 @@ def test_ticker_context_bundle_quote_releases_connection_before_live_fetch(monke
     assert captured["allow_live_user_fetch"] is True
 
 
+def test_ticker_context_bundle_quote_skips_live_fetch_for_unknown_identity(monkeypatch):
+    def fail_quote_lookup(*_args, **_kwargs):
+        raise AssertionError("unknown ticker identity should not run live quote fetch")
+
+    monkeypatch.setattr(main_module, "get_current_prices_meta_db", fail_quote_lookup)
+
+    quote = main_module._ticker_context_bundle_quote(
+        object(),
+        "ZZZ",
+        {
+            "symbol": "ZZZ",
+            "identity_status": "unknown",
+            "volume": None,
+            "avg_volume": None,
+            "market_cap": None,
+        },
+    )
+
+    assert quote["current_price"] is None
+    assert quote["as_of"] is None
+
+
 def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
     engine = _engine()
     with Session(engine) as db:
