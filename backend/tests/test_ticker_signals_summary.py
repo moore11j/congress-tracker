@@ -295,6 +295,35 @@ def test_ticker_context_bundle_unknown_logged_out_ssr_uses_lightweight_payload(m
     assert payload["signals_summary"]["items"] == []
 
 
+def test_ticker_context_bundle_logged_out_ssr_no_referer_uses_cached_only_even_with_active_marker(monkeypatch):
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "x-walnut-request-source": "ssr",
+            "x-walnut-active-user": "browser",
+            "user-agent": "node",
+        },
+    )
+    cached_payload = {"symbol": "AAPL", "status": "ok", "signals_summary": {"status": "ok", "items": [{"id": "cached"}]}}
+    monkeypatch.setattr(
+        main_module,
+        "_build_ticker_context_bundle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("logged-out no-referer SSR must not build fresh context bundle")),
+    )
+    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: cached_payload)
+
+    payload = main_module.ticker_context_bundle(
+        request,
+        "AAPL",
+        side="sell",
+        limit=3,
+        lookback_days=365,
+        db=object(),
+    )
+
+    assert payload is cached_payload
+
+
 def test_ticker_government_contracts_prefetch_and_bot_do_not_query_details(monkeypatch):
     monkeypatch.setattr(
         main_module,

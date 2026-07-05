@@ -5919,6 +5919,11 @@ def _ticker_context_bundle_lightweight_payload(symbol: str, *, retry_after: int 
 def _is_direct_context_bundle_cached_only_request(request: Request) -> bool:
     user_agent_class = _classify_user_agent(request)
     source = _request_source(request, user_agent_class)
+    if source == "ssr":
+        auth_state, _plan_tier = _request_auth_state(request)
+        referer_host, _referer_path = _sanitize_referer(request.headers.get("referer"))
+        if auth_state == "logged_out" and referer_host == "none":
+            return True
     if source not in {"unknown", "direct_api", "monitor_probe"}:
         return False
     return _is_logged_out_direct_api_request(request)
