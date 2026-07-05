@@ -5737,8 +5737,16 @@ def _ticker_context_bundle_cache_set(
 
 
 def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[str, Any]) -> dict[str, Any]:
-    if str(profile_ticker.get("identity_status") or "").lower() == "unknown":
-        logger.info("ticker_context_bundle_quote_skipped symbol=%s reason=unknown_identity", symbol)
+    has_local_identity = any(
+        _shell_text(profile_ticker.get(key))
+        for key in ("exchange", "exchange_short_name", "sector", "industry", "country")
+    )
+    profile_name = _shell_text(profile_ticker.get("name"))
+    if profile_name and profile_name.upper() != symbol.upper():
+        has_local_identity = True
+    cached_profile_price = _parse_numeric(profile_ticker.get("current_price") or profile_ticker.get("price"))
+    if not has_local_identity and cached_profile_price is None:
+        logger.info("ticker_context_bundle_quote_skipped symbol=%s reason=no_local_identity_or_quote", symbol)
         return {
             "current_price": None,
             "change": None,

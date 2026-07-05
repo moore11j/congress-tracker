@@ -344,6 +344,9 @@ if not IS_SQLITE:
         if elapsed_ms < threshold_ms:
             return
         context["db_checkout_slow_count"] = int(context.get("db_checkout_slow_count") or 0) + 1
+        if context.get("db_checkout_slow_logged"):
+            return
+        context["db_checkout_slow_logged"] = True
         logger.warning(
             "db_pool_checkout_slow path=%s priority=%s route_family=%s request_source=%s walnut_route=%s walnut_component=%s panel=%s ua_class=%s elapsed_ms=%.1f",
             context.get("path", "unknown"),

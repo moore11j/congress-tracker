@@ -1686,7 +1686,11 @@ def test_ticker_context_bundle_quote_releases_connection_before_live_fetch(monke
 
     monkeypatch.setattr(main_module, "get_current_prices_meta_db", fake_quote_lookup)
 
-    quote = main_module._ticker_context_bundle_quote(object(), "AAPL", {})
+    quote = main_module._ticker_context_bundle_quote(
+        object(),
+        "AAPL",
+        {"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"},
+    )
 
     assert quote["current_price"] == 308.63
     assert captured["release_connection_before_fetch"] is True
