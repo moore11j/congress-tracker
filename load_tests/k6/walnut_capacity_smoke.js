@@ -1,6 +1,7 @@
 import http from "k6/http";
 import { check, fail, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
+import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 
 const DEFAULT_BASE_URL = "http://localhost:3000";
 const DEFAULT_API_BASE_URL = __ENV.API_BASE_URL || __ENV.BASE_URL || DEFAULT_BASE_URL;
@@ -40,10 +41,67 @@ export const options = {
 };
 
 const routeDuration = new Trend("walnut_route_duration", true);
+const routeRequests = new Counter("walnut_route_requests");
+const routeFailures = new Counter("walnut_route_failures");
+const routeFiveXx = new Counter("walnut_route_5xx");
 const statusCodes = new Counter("walnut_status_codes");
 const fiveXxRate = new Rate("five_xx_rate");
 
 const tickers = ["AAPL", "NVDA", "INTC", "PLTR", "LMT", "MSFT", "TSLA"];
+
+const diagnosticRouteFamilies = [
+  "feed",
+  "ticker",
+  "market",
+  "signals",
+  "screener",
+  "institution",
+  "auth",
+  "watchlists",
+  "monitoring",
+  "insider",
+  "member",
+];
+
+const diagnosticEndpoints = [
+  "events_feed",
+  "feed_page",
+  "ticker_page",
+  "ticker_context_bundle",
+  "ticker_signals_summary",
+  "ticker_government_contracts",
+  "market_quotes",
+  "signals_page",
+  "screener_page",
+  "watchlists_page",
+  "monitoring_page",
+  "institution_profile",
+  "login_page",
+  "pricing_page",
+  "plan_config",
+  "insider_profile",
+  "member_profile",
+  "ticker_bot_page",
+  "ticker_context_prefetch",
+  "government_contracts_prefetch",
+];
+
+export function diagnosticThresholds() {
+  const thresholds = {};
+  for (const family of diagnosticRouteFamilies) {
+    thresholds[`walnut_route_duration{route_family:${family}}`] = ["p(95)<60000"];
+    thresholds[`walnut_route_requests{route_family:${family}}`] = ["count>=0"];
+    thresholds[`walnut_route_failures{route_family:${family}}`] = ["count>=0"];
+    thresholds[`walnut_route_5xx{route_family:${family}}`] = ["count>=0"];
+  }
+  for (const endpoint of diagnosticEndpoints) {
+    thresholds[`walnut_route_duration{endpoint_name:${endpoint}}`] = ["p(95)<60000"];
+    thresholds[`walnut_route_requests{endpoint_name:${endpoint}}`] = ["count>=0"];
+    thresholds[`walnut_route_failures{endpoint_name:${endpoint}}`] = ["count>=0"];
+    thresholds[`walnut_route_5xx{endpoint_name:${endpoint}}`] = ["count>=0"];
+  }
+  return thresholds;
+}
 
 export function smoke() {
   runWeighted([
@@ -149,6 +207,13 @@ function request(baseUrl, path, endpointName, routeFamily, routePriority, init =
     redirects: 2,
   });
   routeDuration.add(response.timings.duration, tags);
+  routeRequests.add(1, tags);
+  if (!expectedStatuses.includes(response.status)) {
+    routeFailures.add(1, tags);
+  }
+  if (response.status >= 500) {
+    routeFiveXx.add(1, tags);
+  }
   statusCodes.add(1, { ...tags, status: String(response.status) });
   fiveXxRate.add(response.status >= 500, tags);
   check(response, {
@@ -156,6 +221,137 @@ function request(baseUrl, path, endpointName, routeFamily, routePriority, init =
     [`${endpointName} no 5xx`]: (res) => res.status < 500,
   }, tags);
   return response;
+}
+
+export function handleSummary(data) {
+  const routeRows = collectRouteRows(data);
+  const topByP95 = [...routeRows]
+    .filter((row) => row.kind === "family")
+    .sort((a, b) => (b.p95 || 0) - (a.p95 || 0))
+    .slice(0, 10);
+  const endpointRows = routeRows
+    .filter((row) => row.kind === "endpoint")
+    .sort((a, b) => (b.p95 || 0) - (a.p95 || 0));
+
+  return {
+    stdout: [
+      textSummary(data, { indent: " ", enableColors: true }),
+      "",
+      "Walnut route-family latency attribution",
+      formatRouteTable(topByP95),
+      "",
+      "Walnut endpoint latency attribution",
+      formatRouteTable(endpointRows),
+      "",
+    ].join("\n"),
+  };
+}
+
+function collectRouteRows(data) {
+  const rows = new Map();
+
+  for (const [metricName, metric] of Object.entries(data.metrics || {})) {
+    const parsed = parseTaggedMetric(metricName);
+    if (!parsed) continue;
+
+    const routeKey = parsed.tags.endpoint_name || parsed.tags.route_family;
+    if (!routeKey) continue;
+
+    const kind = parsed.tags.endpoint_name ? "endpoint" : "family";
+    const key = `${kind}:${routeKey}`;
+    const existing = rows.get(key) || {
+      kind,
+      route: routeKey,
+      count: 0,
+      failed: 0,
+      five_xx: 0,
+      p50: null,
+      p90: null,
+      p95: null,
+      p99: null,
+      max: null,
+    };
+
+    const values = metric.values || {};
+    if (parsed.baseName === "walnut_route_duration") {
+      existing.p50 = numericValue(values["p(50)"] ?? values.med);
+      existing.p90 = numericValue(values["p(90)"]);
+      existing.p95 = numericValue(values["p(95)"]);
+      existing.p99 = numericValue(values["p(99)"]);
+      existing.max = numericValue(values.max);
+      existing.count = numericValue(values.count) ?? existing.count;
+    } else if (parsed.baseName === "walnut_route_requests") {
+      existing.count = numericValue(values.count) ?? existing.count;
+    } else if (parsed.baseName === "walnut_route_failures") {
+      existing.failed = numericValue(values.count) ?? existing.failed;
+    } else if (parsed.baseName === "walnut_route_5xx") {
+      existing.five_xx = numericValue(values.count) ?? existing.five_xx;
+    }
+
+    rows.set(key, existing);
+  }
+
+  return [...rows.values()].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    return a.route.localeCompare(b.route);
+  });
+}
+
+function parseTaggedMetric(metricName) {
+  const match = metricName.match(/^([^{}]+)\{(.+)\}$/);
+  if (!match) return null;
+  const baseName = match[1];
+  if (!["walnut_route_duration", "walnut_route_requests", "walnut_route_failures", "walnut_route_5xx"].includes(baseName)) {
+    return null;
+  }
+  const tags = {};
+  for (const part of match[2].split(",")) {
+    const [key, ...rest] = part.split(":");
+    if (!key || rest.length === 0) continue;
+    tags[key.trim()] = rest.join(":").trim();
+  }
+  return { baseName, tags };
+}
+
+function numericValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatRouteTable(rows) {
+  if (!rows.length) return "  no route attribution metrics found";
+  const header = ["route", "requests", "failed", "5xx", "p50", "p90", "p95", "p99", "max"];
+  const tableRows = rows.map((row) => [
+    row.route,
+    formatCount(row.count),
+    formatCount(row.failed),
+    formatCount(row.five_xx),
+    formatMs(row.p50),
+    formatMs(row.p90),
+    formatMs(row.p95),
+    formatMs(row.p99),
+    formatMs(row.max),
+  ]);
+  return renderTextTable(header, tableRows);
+}
+
+function renderTextTable(header, rows) {
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map((row) => String(row[index] || "").length))
+  );
+  const formatRow = (row) =>
+    row.map((cell, index) => String(cell || "").padEnd(widths[index])).join("  ");
+  return [formatRow(header), formatRow(widths.map((width) => "-".repeat(width))), ...rows.map(formatRow)]
+    .map((line) => `  ${line}`)
+    .join("\n");
+}
+
+function formatMs(value) {
+  return value === null || value === undefined ? "-" : `${Math.round(value)}ms`;
+}
+
+function formatCount(value) {
+  return value === null || value === undefined ? "-" : String(Math.round(value));
 }
 
 function authHeaders() {

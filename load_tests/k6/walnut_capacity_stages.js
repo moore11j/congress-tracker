@@ -1,4 +1,4 @@
-import { smoke, botPrefetchGuard } from "./walnut_capacity_smoke.js";
+import { smoke, botPrefetchGuard, diagnosticThresholds, handleSummary } from "./walnut_capacity_smoke.js";
 
 const profile = (__ENV.TEST_PROFILE || "small").toLowerCase();
 
@@ -132,7 +132,8 @@ export const options = {
     [`http_req_duration{route_priority:core}`]: [`p(95)<${selected.coreP95Ms}`],
     http_req_duration: [`p(95)<${selected.overallP95Ms}`],
     five_xx_rate: ["rate<0.001"],
+    ...diagnosticThresholds(),
   },
 };
 
-export { smoke, botPrefetchGuard };
+export { smoke, botPrefetchGuard, handleSummary };
