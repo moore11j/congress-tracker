@@ -679,17 +679,44 @@ def _cached_entry_close(db: Session, symbol: str, trade_date: str) -> PriceCache
     ).scalar_one_or_none()
 
 
+def _is_plausible_vs_market_close(
+    filing_price: float | None,
+    market_close: float | None,
+    *,
+    min_ratio: float = 0.5,
+    max_ratio: float = 1.5,
+) -> bool:
+    if filing_price is None or market_close is None:
+        return False
+    if filing_price <= 0 or market_close <= 0:
+        return False
+    ratio = filing_price / market_close
+    return min_ratio <= ratio <= max_ratio
+
+
 def _entry_price_for_feed_pnl(db: Session, event: Event, inputs: FeedPnlInputs) -> tuple[float | None, date | None]:
     payload = _payload_dict(event.payload_json)
+    entry = _cached_entry_close(db, inputs.symbol, inputs.trade_date) if inputs.symbol and inputs.trade_date else None
+    entry_close = float(entry.close) if entry is not None and entry.close is not None and entry.close > 0 else None
+    entry_date = _parse_cache_date(entry.date) if entry is not None else None
     if inputs.event_type == "insider_trade":
         normalized = normalize_insider_price(symbol=inputs.symbol, payload=payload, trade_date=inputs.trade_date)
-        if normalized.is_comparable and normalized.display_price is not None and normalized.display_price > 0:
+        if (
+            normalized.status == "normalized"
+            and normalized.display_price is not None
+            and normalized.display_price > 0
+        ):
+            return float(normalized.display_price), _parse_cache_date(inputs.trade_date)
+        if (
+            normalized.is_comparable
+            and normalized.display_price is not None
+            and normalized.display_price > 0
+            and _is_plausible_vs_market_close(float(normalized.display_price), entry_close)
+        ):
             return float(normalized.display_price), _parse_cache_date(inputs.trade_date)
 
-    if inputs.symbol and inputs.trade_date:
-        entry = _cached_entry_close(db, inputs.symbol, inputs.trade_date)
-        if entry is not None and entry.close is not None and entry.close > 0:
-            return float(entry.close), _parse_cache_date(entry.date)
+    if entry_close is not None:
+        return entry_close, entry_date
     return None, None
 
 

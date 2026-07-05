@@ -429,6 +429,50 @@ def test_direct_feed_pnl_refresh_batches_current_quote_per_unique_symbol(monkeyp
         db.close()
 
 
+def test_feed_pnl_refresh_falls_back_to_market_close_for_implausible_insider_price(monkeypatch) -> None:
+    SessionLocal = _session_factory()
+
+    def fake_quote(db: Session, symbols: list[str], **_kwargs):
+        for symbol in symbols:
+            db.merge(QuoteCache(symbol=symbol, price=193.98, asof_ts=datetime(2026, 7, 2)))
+        return {symbol: {"price": 193.98, "asof_ts": datetime(2026, 7, 2)} for symbol in symbols}
+
+    monkeypatch.setattr("app.services.quote_lookup.get_current_prices_meta_db", fake_quote)
+
+    db = SessionLocal()
+    try:
+        db.add(
+            _event(
+                206,
+                "insider_trade",
+                symbol="CRWD",
+                trade_type="sale",
+                event_date=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                payload={
+                    "symbol": "CRWD",
+                    "transaction_date": "2026-07-01",
+                    "transaction_type": "S-Sale",
+                    "is_market_trade": True,
+                    "price": 785.7,
+                    "insider_name": "Split Adjusted Example",
+                    "reporting_cik": "0000000001",
+                },
+            )
+        )
+        db.add(PriceCache(symbol="CRWD", date="2026-07-01", close=193.98))
+        db.commit()
+
+        process_feed_pnl_refresh_job(db, event_id=206)
+        db.commit()
+
+        outcome = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == 206)).scalar_one()
+        assert outcome.entry_price == 193.98
+        assert outcome.current_price == 193.98
+        assert round(outcome.return_pct or 0, 2) == 0.0
+    finally:
+        db.close()
+
+
 def test_event_scoped_pnl_refresh_stays_retryable_when_inputs_missing(monkeypatch) -> None:
     SessionLocal = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", SessionLocal)
