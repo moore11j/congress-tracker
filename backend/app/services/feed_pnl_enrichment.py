@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -767,10 +768,38 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
         _write_structural_outcome(db, event, inputs)
         return
 
+    quote_meta = {}
+    try:
+        from app.services.quote_lookup import get_current_prices_meta_db
+
+        quote_meta = get_current_prices_meta_db(
+            db,
+            [inputs.symbol],
+            allow_cache_write=True,
+            release_connection_before_fetch=False,
+            lane="pnl_quote",
+            allow_live_user_fetch=True,
+            stale_while_revalidate=True,
+            force_quote_endpoint=True,
+        )
+    except Exception:
+        logger.exception("feed_pnl_quote_refresh_failed event_id=%s symbol=%s", event.id, inputs.symbol)
+
     quote = db.get(QuoteCache, inputs.symbol)
+    fresh_quote = quote_meta.get(inputs.symbol) if isinstance(quote_meta, dict) else None
+    fresh_quote_price = None
+    fresh_quote_asof = None
+    if isinstance(fresh_quote, dict) and fresh_quote.get("price") is not None:
+        try:
+            fresh_quote_price = float(fresh_quote["price"])
+            fresh_quote_asof = fresh_quote.get("asof_ts")
+        except (TypeError, ValueError):
+            fresh_quote_price = None
     entry = _cached_entry_close(db, inputs.symbol, inputs.trade_date)
     missing: list[str] = []
-    if quote is None or quote.price is None or quote.price <= 0:
+    cached_quote_price = float(quote.price) if quote is not None and quote.price is not None else None
+    current_quote_price = fresh_quote_price if fresh_quote_price is not None else cached_quote_price
+    if current_quote_price is None or current_quote_price <= 0:
         missing.append("quote")
         _enqueue_job(
             None,
@@ -816,8 +845,9 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
 
     trade_date = _parse_cache_date(inputs.trade_date)
     entry_date = _parse_cache_date(entry.date)
-    current_price_date = quote.asof_ts.date() if isinstance(quote.asof_ts, datetime) else None
-    return_pct = signed_return_pct(quote.price, entry.close, inputs.trade_type or event.trade_type)
+    quote_asof = fresh_quote_asof if isinstance(fresh_quote_asof, datetime) else (quote.asof_ts if quote is not None else None)
+    current_price_date = quote_asof.date() if isinstance(quote_asof, datetime) else None
+    return_pct = signed_return_pct(current_quote_price, entry.close, inputs.trade_type or event.trade_type)
     holding_days = (datetime.now(timezone.utc).date() - trade_date).days if trade_date else None
     target = existing or TradeOutcome(event_id=event.id)
     target.member_id = inputs.member_id
@@ -828,7 +858,7 @@ def process_feed_pnl_refresh_job(db: Session, *, event_id: int) -> None:
     target.trade_date = trade_date
     target.entry_price = float(entry.close)
     target.entry_price_date = entry_date
-    target.current_price = float(quote.price)
+    target.current_price = float(current_quote_price)
     target.current_price_date = current_price_date
     target.benchmark_symbol = existing.benchmark_symbol if existing is not None and existing.benchmark_symbol else "^GSPC"
     target.benchmark_entry_price = existing.benchmark_entry_price if existing is not None else None
@@ -867,6 +897,11 @@ def repair_recent_feed_pnl(
     symbols: list[str] | None = None,
 ) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(0, int(days)))
+    try:
+        stale_hours = float(os.getenv("FEED_PNL_REFRESH_STALE_HOURS", "6") or 6)
+    except ValueError:
+        stale_hours = 6.0
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=max(0.25, stale_hours))
     normalized_symbols = sorted({symbol for symbol in (normalize_symbol(s) for s in symbols or []) if symbol})
     q = (
         select(Event)
@@ -887,14 +922,23 @@ def repair_recent_feed_pnl(
         if event_ids
         else {}
     )
-    missing = [
-        event
-        for event in events
-        if event.id not in outcomes or outcomes[event.id].return_pct is None
-    ]
+    def _computed_at_is_stale(outcome: TradeOutcome | None) -> bool:
+        if outcome is None or outcome.return_pct is None:
+            return True
+        computed_at = outcome.computed_at
+        if computed_at is None:
+            return True
+        if computed_at.tzinfo is None:
+            computed_at = computed_at.replace(tzinfo=timezone.utc)
+        return computed_at < stale_cutoff
+
+    refresh_candidates = [event for event in events if _computed_at_is_stale(outcomes.get(event.id))]
+    missing_count = sum(1 for event in events if event.id not in outcomes or outcomes[event.id].return_pct is None)
     counts = {
         "events_scanned": len(events),
-        "events_missing_pnl": len(missing),
+        "events_missing_pnl": missing_count,
+        "events_stale_or_missing_pnl": len(refresh_candidates),
+        "stale_hours": stale_hours,
         "quote_enqueued": 0,
         "quote_skipped": 0,
         "price_eod_enqueued": 0,
@@ -904,12 +948,12 @@ def repair_recent_feed_pnl(
         "symbols_affected": [],
     }
     affected: set[str] = set()
-    for event in missing:
+    for event in refresh_candidates:
         result = enqueue_feed_pnl_enrichment_for_event(
             db,
             event,
             source="repair_recent_feed_pnl",
-            reason="missing_feed_pnl",
+            reason="stale_or_missing_feed_pnl",
             priority=FEED_PNL_PRIORITY_BASE,
             use_current_session=False,
         )

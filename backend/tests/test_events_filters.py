@@ -470,7 +470,21 @@ def test_feed_gain_loss_recomputes_from_visible_prices_when_persisted_return_is_
     db = _db()
     try:
         _clear_events_response_cache()
-        _stub_enrichment(monkeypatch)
+        monkeypatch.setattr("app.routers.events.get_eod_close", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.routers.events.get_confirmation_metrics_for_symbols", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
+        monkeypatch.setattr("app.routers.events.get_cik_meta", lambda *_args, **_kwargs: {})
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_quotes(_db, symbols, **kwargs):
+            calls.append((list(symbols), kwargs))
+            return {
+                "IBP": {"symbol": "IBP", "price": 228.0, "asof_ts": datetime(2026, 7, 5, tzinfo=timezone.utc), "is_stale": False},
+                "SEPN": {"symbol": "SEPN", "price": 34.0, "asof_ts": datetime(2026, 7, 5, tzinfo=timezone.utc), "is_stale": False},
+                "MCB": {"symbol": "MCB", "price": 98.53, "asof_ts": datetime(2026, 7, 5, tzinfo=timezone.utc), "is_stale": False},
+            }
+
+        monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
         db.add_all(
             [
                 _event(
@@ -508,7 +522,7 @@ def test_feed_gain_loss_recomputes_from_visible_prices_when_persisted_return_is_
                     trade_type="purchase",
                     trade_date=date(2026, 7, 1),
                     entry_price=209.0,
-                    current_price=228.0,
+                    current_price=117.65,
                     return_pct=-43.0,
                     benchmark_symbol="^GSPC",
                     benchmark_return_pct=0.0,
@@ -523,7 +537,7 @@ def test_feed_gain_loss_recomputes_from_visible_prices_when_persisted_return_is_
                     trade_type="sale",
                     trade_date=date(2026, 7, 1),
                     entry_price=35.0,
-                    current_price=34.0,
+                    current_price=21.4,
                     return_pct=38.0,
                     benchmark_symbol="^GSPC",
                     benchmark_return_pct=0.0,
@@ -552,6 +566,8 @@ def test_feed_gain_loss_recomputes_from_visible_prices_when_persisted_return_is_
         page = list_events(db=db, mode="all", limit=10, enrich_prices=True)
         by_id = {item.id: item for item in page.items}
 
+        assert calls and calls[0][0] == ["MCB", "SEPN", "IBP"]
+        assert calls[0][1]["cache_only"] is False
         assert by_id[231].trade_price == 209.0
         assert by_id[231].current_price == 228.0
         assert by_id[231].gain_loss_percent == by_id[231].pnl_pct

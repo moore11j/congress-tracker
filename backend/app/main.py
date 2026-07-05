@@ -139,6 +139,7 @@ from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
 from app.routers.events import (
+    _cap_feed_quote_symbols,
     _enrich_payload_company_name as _enrich_event_payload_company_name,
     _event_cik as _event_payload_cik,
     _event_symbol as _event_payload_symbol,
@@ -2025,6 +2026,30 @@ def _member_recent_trades(
             ]
             baseline_map = _congress_baseline_map_for_symbols(db, event_symbols) if event_symbols else {}
             confirmation_metrics_map = get_confirmation_metrics_for_symbols(db, event_symbols) if event_symbols else {}
+            quote_symbols = _cap_feed_quote_symbols(event_symbols)
+            try:
+                current_quote_meta = (
+                    get_current_prices_meta_db(
+                        db,
+                        quote_symbols,
+                        allow_cache_write=True,
+                        release_connection_before_fetch=True,
+                        lane="feed_quote",
+                        allow_live_user_fetch=True,
+                        stale_while_revalidate=True,
+                        force_quote_endpoint=True,
+                    )
+                    if quote_symbols
+                    else {}
+                )
+            except Exception:
+                logger.exception("member_trades_quote_lookup_failed member_pk=%s symbols=%s", member_pk, len(quote_symbols))
+                current_quote_meta = {}
+            current_price_memo = {
+                symbol: float(meta["price"])
+                for symbol, meta in current_quote_meta.items()
+                if isinstance(meta, dict) and meta.get("price") is not None
+            }
             trades = []
             for event in events:
                 payload = _parse_payload_json(event.payload_json)
@@ -2092,12 +2117,31 @@ def _member_recent_trades(
                             smart_score = calc_score
                         if not isinstance(smart_band, str):
                             smart_band = calc_band
+                trade_price = event_outcome.entry_price if event_outcome is not None else None
+                fresh_current_price = current_price_memo.get(symbol) if symbol else None
+                current_price = (
+                    fresh_current_price
+                    if fresh_current_price is not None
+                    else display_metrics.current_or_horizon_price
+                )
+                pnl_pct = (
+                    signed_return_pct(current_price, trade_price, event.transaction_type or event.trade_type)
+                    if current_price is not None and trade_price is not None and trade_price > 0
+                    else None
+                )
+                benchmark_return_pct = display_metrics.benchmark_return_pct
+                alpha_pct = (
+                    float(pnl_pct - benchmark_return_pct)
+                    if pnl_pct is not None and benchmark_return_pct is not None
+                    else None
+                )
+                outcome_status = _safe_outcome_status(event_outcome.scoring_status) if event_outcome is not None else "pending"
                 trades.append({
                     "estimated_trade_value": _estimated_trade_value(event.amount_min, event.amount_max),
                     "estimated_shares": _estimated_shares(
                         event.amount_min,
                         event.amount_max,
-                        event_outcome.entry_price if event_outcome is not None else None,
+                        trade_price,
                     ),
                     "id": event.id,
                     "event_id": event.id,
@@ -2115,26 +2159,26 @@ def _member_recent_trades(
                     "report_date": report_date,
                     "amount_range_min": event.amount_min,
                     "amount_range_max": event.amount_max,
-                    "price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
-                    "trade_price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
-                    "estimated_price": outcome_by_event_id.get(event.id).entry_price if outcome_by_event_id.get(event.id) is not None else None,
-                    "current_price": outcome_by_event_id.get(event.id).current_price if outcome_by_event_id.get(event.id) is not None else None,
-                    "pnl_pct": display_metrics.return_pct,
-                    "return_pct": display_metrics.return_pct,
-                    "alpha_pct": display_metrics.alpha_pct,
-                    "benchmark_return_pct": display_metrics.benchmark_return_pct,
+                    "price": trade_price,
+                    "trade_price": trade_price,
+                    "estimated_price": trade_price,
+                    "current_price": current_price,
+                    "pnl_pct": pnl_pct,
+                    "return_pct": pnl_pct,
+                    "alpha_pct": alpha_pct,
+                    "benchmark_return_pct": benchmark_return_pct,
                     "holding_period_days": display_metrics.holding_period_days,
-                    "outcome_horizon": display_metrics.outcome_horizon,
-                    "return_label": display_metrics.outcome_horizon,
+                    "outcome_horizon": display_metrics.outcome_horizon if pnl_pct is not None else None,
+                    "return_label": display_metrics.outcome_horizon if pnl_pct is not None else None,
                     "pnl_source": (
-                        "eod"
-                        if display_metrics.return_pct is not None and event_outcome is not None and event_outcome.entry_price is not None
-                        else display_metrics.pnl_source
+                        "quote_cache"
+                        if pnl_pct is not None and fresh_current_price is not None
+                        else (display_metrics.pnl_source if pnl_pct is not None else "none")
                     ),
-                    "outcome_status": _safe_outcome_status(event_outcome.scoring_status) if event_outcome is not None else "pending",
+                    "outcome_status": outcome_status,
                     "outcome_skip_reason": (
-                        _safe_outcome_status(event_outcome.scoring_status)
-                        if event_outcome is not None and display_metrics.return_pct is None
+                        outcome_status
+                        if event_outcome is not None and pnl_pct is None
                         else ("no_trade_outcomes_row" if event_outcome is None else None)
                     ),
                     "outcome_methodology": event_outcome.methodology_version if event_outcome is not None else None,

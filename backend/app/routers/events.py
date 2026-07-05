@@ -149,12 +149,23 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
 
 
-def _cap_feed_quote_symbols(symbols: set[str]) -> list[str]:
+def _cap_feed_quote_symbols(symbols: Iterable[str]) -> list[str]:
     try:
         limit = int(os.getenv("FEED_PNL_QUOTE_SYMBOL_LIMIT", str(DEFAULT_FEED_QUOTE_SYMBOL_LIMIT)))
     except ValueError:
         limit = DEFAULT_FEED_QUOTE_SYMBOL_LIMIT
-    return sorted(symbols)[: max(1, min(limit, DEFAULT_FEED_QUOTE_SYMBOL_LIMIT))]
+    capped_limit = max(1, min(limit, DEFAULT_FEED_QUOTE_SYMBOL_LIMIT))
+    capped: list[str] = []
+    seen: set[str] = set()
+    for symbol in symbols:
+        normalized = (symbol or "").strip().upper()
+        if not normalized or normalized in seen:
+            continue
+        capped.append(normalized)
+        seen.add(normalized)
+        if len(capped) >= capped_limit:
+            break
+    return capped
 
 
 def _allow_visible_feed_quote_fallback(request: Request | None) -> bool:
@@ -1761,6 +1772,7 @@ def _insider_trade_row(
     payload: dict,
     outcome: TradeOutcome | None = None,
     fallback_pnl_pct: float | None = None,
+    fallback_current_price: float | None = None,
     prefer_fallback_pnl: bool = False,
 ) -> dict:
     raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
@@ -1808,20 +1820,23 @@ def _insider_trade_row(
 
     display_metrics = trade_outcome_display_metrics(outcome)
     payload_pnl_pct = _first_numeric_field(payload, "pnl_pct", "pnlPct", "pnl", "return_pct", "returnPct")
-    if payload_pnl_pct is not None:
+    if prefer_fallback_pnl and fallback_pnl_pct is not None:
+        pnl_pct = fallback_pnl_pct
+        pnl_source = "quote_cache"
+    elif payload_pnl_pct is not None:
         pnl_pct = payload_pnl_pct
         pnl_source = "persisted_payload"
     elif display_metrics.return_pct is not None:
         pnl_pct = display_metrics.return_pct
         pnl_source = display_metrics.pnl_source
-    elif prefer_fallback_pnl and fallback_pnl_pct is not None:
-        pnl_pct = fallback_pnl_pct
-        pnl_source = "normalized_filing"
     else:
         pnl_pct = None
         pnl_source = None
     if pnl_pct is None:
-        if payload_pnl_pct is not None:
+        if prefer_fallback_pnl and fallback_pnl_pct is not None:
+            pnl_pct = fallback_pnl_pct
+            pnl_source = "quote_cache"
+        elif payload_pnl_pct is not None:
             pnl_pct = payload_pnl_pct
             pnl_source = "persisted_payload"
         elif display_metrics.return_pct is not None:
@@ -1869,6 +1884,8 @@ def _insider_trade_row(
         "price": price,
         "display_price": price,
         "displayPrice": price,
+        "current_price": fallback_current_price,
+        "currentPrice": fallback_current_price,
         "display_price_currency": normalized_price.display_currency,
         "displayPriceCurrency": normalized_price.display_currency,
         "display_share_basis": normalized_price.display_share_basis,
@@ -2664,24 +2681,22 @@ def _load_visible_feed_quote_meta(
     if not enrich_prices:
         return {}, {}
 
-    quote_symbols: set[str] = set()
+    quote_symbols: list[str] = []
+    seen_quote_symbols: set[str] = set()
     for event in paged_rows:
         if event.event_type not in {"congress_trade", "insider_trade"}:
             continue
         outcome = outcome_by_event_id.get(event.id)
-        if (
-            outcome is not None
-            and trade_outcome_display_metrics(outcome).current_or_horizon_price is not None
-            and not _outcome_needs_current_price_sanity(outcome)
-        ):
-            continue
         payload = _parse_event_payload(event)
         trade_price = _visible_feed_trade_price(event, payload, outcome)
         if trade_price is None:
             continue
         symbol = _event_symbol(event, payload)
         if symbol:
-            quote_symbols.add(symbol)
+            normalized_symbol = symbol.strip().upper()
+            if normalized_symbol and normalized_symbol not in seen_quote_symbols:
+                quote_symbols.append(normalized_symbol)
+                seen_quote_symbols.add(normalized_symbol)
 
     if not quote_symbols:
         return {}, {}
@@ -2857,11 +2872,7 @@ def _event_payload(
         if outcome is not None:
             display_metrics = trade_outcome_display_metrics(outcome)
             estimated_price = display_metrics.trade_price
-            current_price = display_metrics.current_or_horizon_price
-            if current_price is None and sym:
-                current_price = current_price_memo.get(sym)
-            elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
-                current_price = current_price_memo.get(sym)
+            current_price = current_price_memo.get(sym) if sym and current_price_memo.get(sym) is not None else display_metrics.current_or_horizon_price
             benchmark_return_pct = display_metrics.benchmark_return_pct
             pnl_pct = _visible_price_gain_loss_pct(
                 current_price=current_price,
@@ -2931,11 +2942,7 @@ def _event_payload(
         if q:
             quote_asof_ts = q.get("asof_ts")
             quote_is_stale = q.get("is_stale")
-        current_price = display_metrics.current_or_horizon_price
-        if current_price is None and sym:
-            current_price = current_price_memo.get(sym)
-        elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
-            current_price = current_price_memo.get(sym)
+        current_price = current_price_memo.get(sym) if sym and current_price_memo.get(sym) is not None else display_metrics.current_or_horizon_price
         benchmark_return_pct = display_metrics.benchmark_return_pct
         holding_period_days = display_metrics.holding_period_days
         pnl_pct = _visible_price_gain_loss_pct(
@@ -5353,13 +5360,11 @@ def insider_trades(
     total = len(matched)
     visible = matched[offset:offset + limit]
 
-    insider_symbols = sorted(
-        {
-            symbol
-            for event, payload in visible
-            for symbol in [_event_symbol(event, payload)]
-            if symbol
-        }
+    insider_symbols = _cap_feed_quote_symbols(
+        symbol
+        for event, payload in visible
+        for symbol in [_event_symbol(event, payload)]
+        if symbol
     )
     ticker_meta = _ticker_meta_with_security_names(db, insider_symbols) if insider_symbols else {}
     cik_values = sorted(
@@ -5387,8 +5392,12 @@ def insider_trades(
         get_current_prices_meta_db(
             db,
             insider_symbols,
-            allow_cache_write=False,
+            allow_cache_write=True,
             release_connection_before_fetch=True,
+            lane="feed_quote",
+            allow_live_user_fetch=True,
+            stale_while_revalidate=True,
+            force_quote_endpoint=True,
         )
         if insider_symbols
         else {}
@@ -5414,6 +5423,7 @@ def insider_trades(
                 payload,
                 outcome_by_event_id.get(event.id),
                 fallback_pnl_pct,
+                fallback_current_price=current_price,
                 prefer_fallback_pnl=True,
             )
         )

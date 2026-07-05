@@ -65,9 +65,20 @@ def _stub_event_route_enrichment(monkeypatch):
     monkeypatch.setattr("app.routers.events._ticker_meta_with_security_names", lambda *_args, **_kwargs: {})
 
 
-def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
+def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields(monkeypatch):
     db = _session()
     try:
+        monkeypatch.setattr(
+            "app.main.get_current_prices_meta_db",
+            lambda _db, symbols, **_kwargs: {
+                "AAPL": {
+                    "symbol": "AAPL",
+                    "price": 140.0,
+                    "asof_ts": datetime.now(timezone.utc),
+                    "is_stale": False,
+                }
+            },
+        )
         member = Member(
             bioguide_id="W000797",
             first_name="Debbie",
@@ -145,7 +156,7 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields():
         assert items[0]["estimated_trade_value"] == 8000.0
         assert items[0]["estimated_shares"] == 64.0
         assert items[0]["current_price"] == 140.0
-        assert items[0]["pnl_pct"] == 12.5
+        assert round(items[0]["pnl_pct"], 6) == 12.0
         assert items[0]["outcome_status"] == "ok"
         assert items[0]["outcome_methodology"] == "congress_v1"
         assert items[0]["smart_score"] == 84
@@ -486,9 +497,20 @@ def test_congress_leaderboard_matches_member_alpha_summary_cohort(monkeypatch):
         db.close()
 
 
-def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_safe_labels():
+def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_safe_labels(monkeypatch):
     db = _session()
     try:
+        monkeypatch.setattr(
+            "app.main.get_current_prices_meta_db",
+            lambda _db, symbols, **_kwargs: {
+                "JPM": {
+                    "symbol": "JPM",
+                    "price": 96.75,
+                    "asof_ts": datetime.now(timezone.utc),
+                    "is_stale": False,
+                }
+            },
+        )
         member = Member(
             bioguide_id="K000375",
             first_name="William",
@@ -557,10 +579,12 @@ def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_sa
                 member_name="William Keating",
                 symbol="JPM",
                 trade_type="sale",
-                source="congress",
-                trade_date=date(2026, 4, 1),
-                benchmark_symbol="^GSPC",
-                return_pct=3.25,
+                    source="congress",
+                    trade_date=date(2026, 4, 1),
+                    entry_price=100.0,
+                    current_price=96.75,
+                    benchmark_symbol="^GSPC",
+                    return_pct=3.25,
                 alpha_pct=1.0,
                 amount_min=1001,
                 amount_max=15000,
@@ -576,7 +600,7 @@ def test_member_recent_trades_uses_canonical_events_sorted_by_report_date_and_sa
         assert [item["event_id"] for item in items] == [older_trade_newer_report.id, newer_trade_older_report.id]
         assert items[0]["symbol"] == "JPM"
         assert items[0]["security_name"] == "JPMorgan Chase & Co"
-        assert items[0]["pnl_pct"] == 3.25
+        assert round(items[0]["pnl_pct"], 6) == 3.25
         assert items[1]["symbol"] is None
         assert items[1]["security_name"] == "First Citizens BancShares Inc"
         assert all(item["security_name"] != "congress_trade" for item in items)
