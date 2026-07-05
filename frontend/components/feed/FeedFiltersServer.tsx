@@ -226,40 +226,40 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
 
   return (
     <section className={`${cardClassName} relative z-30 overflow-visible`}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
           <p className="text-sm text-slate-400">Filter the live feed with mode-aware controls.</p>
         </div>
-        <a href={`/?mode=${mode}`} className={ghostButtonClassName}>
-          Reset
-        </a>
+
+        <div className="min-w-[280px] max-w-full rounded-2xl bg-slate-900/35 p-2 sm:ml-auto">
+          <SavedViewsBar
+            surface="feed"
+            restoreOnLoad={true}
+            defaultParams={{ mode }}
+            paramKeys={[
+              "mode",
+              "symbol",
+              "recent_days",
+              "member",
+              "chamber",
+              "party",
+              "trade_type",
+              "role",
+              "department",
+              "sort_by",
+              "sort_dir",
+              "ownership",
+              "whale",
+              "limit",
+              "page_size",
+            ]}
+            inline={true}
+          />
+        </div>
       </div>
 
-      <SavedViewsBar
-        surface="feed"
-        restoreOnLoad={true}
-        defaultParams={{ mode }}
-        paramKeys={[
-          "mode",
-          "symbol",
-          "recent_days",
-          "member",
-          "chamber",
-          "party",
-          "trade_type",
-          "role",
-          "department",
-          "sort_by",
-          "sort_dir",
-          "ownership",
-          "whale",
-          "limit",
-          "page_size",
-        ]}
-      />
-
-      <div className="mt-4 flex flex-wrap gap-1">
+      <div className="mt-4 flex flex-wrap gap-1 border-t border-slate-800 pt-3">
         {feedModeOptions.map(([value, label]) => {
           const active = mode === value;
           return (
@@ -278,7 +278,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         })}
       </div>
 
-      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-4 flex flex-col gap-3">
+      <form key={formKey} id="feed-filters-form" method="GET" action="/" className="mt-5 flex flex-col gap-4">
         <input type="hidden" name="mode" value={mode} />
 
         {mode === "all" ? (
@@ -337,13 +337,16 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
           </FilterRow>
         ) : null}
 
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
             className="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
           >
             Apply filters
           </button>
+          <a href={`/?mode=${mode}`} className={ghostButtonClassName}>
+            Reset
+          </a>
         </div>
       </form>
       <FeedFilterAutoSubmit formId="feed-filters-form" />
