@@ -23,6 +23,8 @@ class TradeOutcomeDisplayMetrics:
 
 
 _PRICE_SCALE_DIVISORS = (1000.0, 100.0)
+_RECENT_RETURN_SANITY_DAYS = 10
+_RECENT_RETURN_SANITY_ABS_PCT = 50.0
 
 
 def _safe_float(value: int | float | None) -> float | None:
@@ -68,6 +70,28 @@ def corrected_current_price_for_display(
                 best = (score, scaled)
 
     return best[1] if best is not None else current
+
+
+def _recent_holding_days(outcome: TradeOutcome) -> int | None:
+    if isinstance(outcome.holding_days, int):
+        return outcome.holding_days
+    trade_date = getattr(outcome, "trade_date", None)
+    if isinstance(trade_date, date):
+        return (date.today() - trade_date).days
+    return None
+
+
+def _is_implausible_recent_return(outcome: TradeOutcome, return_pct: float | None) -> bool:
+    if return_pct is None:
+        return False
+    try:
+        numeric_return = float(return_pct)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(numeric_return) or abs(numeric_return) <= _RECENT_RETURN_SANITY_ABS_PCT:
+        return False
+    holding_days = _recent_holding_days(outcome)
+    return holding_days is not None and 0 <= holding_days <= _RECENT_RETURN_SANITY_DAYS
 
 
 def normalize_trade_side(value: str | None) -> str | None:
@@ -153,6 +177,11 @@ def trade_outcome_display_metrics(outcome: TradeOutcome | None) -> TradeOutcomeD
             if return_pct is not None and outcome.benchmark_return_pct is not None
             else None
         )
+
+    if _is_implausible_recent_return(outcome, return_pct):
+        current_price = None
+        return_pct = None
+        alpha_pct = None
 
     has_return = return_pct is not None
     horizon = f"{outcome.holding_days}D Return" if isinstance(outcome.holding_days, int) and outcome.holding_days > 0 else "Scored Return"

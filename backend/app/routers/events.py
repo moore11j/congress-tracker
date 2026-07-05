@@ -2564,6 +2564,15 @@ def _outcome_needs_feed_pnl_refresh(outcome: TradeOutcome | None) -> bool:
     return status in FEED_OUTCOME_RETRY_STATUSES or status.startswith("provider_")
 
 
+def _outcome_needs_current_price_sanity(outcome: TradeOutcome | None) -> bool:
+    if outcome is None or outcome.return_pct is None:
+        return False
+    try:
+        return abs(float(outcome.return_pct)) > 50.0
+    except (TypeError, ValueError):
+        return False
+
+
 def _load_trade_outcomes_for_events(db: Session, event_ids: list[int]) -> dict[int, TradeOutcome]:
     if not event_ids:
         return {}
@@ -2591,7 +2600,11 @@ def _load_visible_feed_quote_meta(
         if event.event_type not in {"congress_trade", "insider_trade"}:
             continue
         outcome = outcome_by_event_id.get(event.id)
-        if outcome is not None and outcome.current_price is not None:
+        if (
+            outcome is not None
+            and trade_outcome_display_metrics(outcome).current_or_horizon_price is not None
+            and not _outcome_needs_current_price_sanity(outcome)
+        ):
             continue
         payload = _parse_event_payload(event)
         trade_price = _visible_feed_trade_price(event, payload, outcome)
@@ -2778,8 +2791,15 @@ def _event_payload(
             current_price = display_metrics.current_or_horizon_price
             if current_price is None and sym:
                 current_price = current_price_memo.get(sym)
+            elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
+                current_price = current_price_memo.get(sym)
             pnl_pct = display_metrics.return_pct
-            if pnl_pct is None and current_price is not None and estimated_price is not None and estimated_price > 0:
+            if (
+                (pnl_pct is None or _outcome_needs_current_price_sanity(outcome))
+                and current_price is not None
+                and estimated_price is not None
+                and estimated_price > 0
+            ):
                 pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
             alpha_pct = display_metrics.alpha_pct
             benchmark_return_pct = display_metrics.benchmark_return_pct
@@ -2844,6 +2864,8 @@ def _event_payload(
         current_price = display_metrics.current_or_horizon_price
         if current_price is None and sym:
             current_price = current_price_memo.get(sym)
+        elif sym and _outcome_needs_current_price_sanity(outcome) and current_price_memo.get(sym) is not None:
+            current_price = current_price_memo.get(sym)
         if display_metrics.return_pct is not None:
             pnl_pct = display_metrics.return_pct
             alpha_pct = display_metrics.alpha_pct
@@ -2859,7 +2881,12 @@ def _event_payload(
             payload["holdingPeriodDays"] = display_metrics.holding_period_days
             payload["outcome_horizon"] = display_metrics.outcome_horizon
             payload["outcomeHorizon"] = display_metrics.outcome_horizon
-        elif current_price is not None and estimated_price is not None and estimated_price > 0:
+        if (
+            (display_metrics.return_pct is None or _outcome_needs_current_price_sanity(outcome))
+            and current_price is not None
+            and estimated_price is not None
+            and estimated_price > 0
+        ):
             pnl_pct = signed_return_pct(current_price, estimated_price, event.trade_type or event.transaction_type)
             pnl_source = "quote_cache"
 

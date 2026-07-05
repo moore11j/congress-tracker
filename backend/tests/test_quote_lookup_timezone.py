@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, ensure_provider_control_schema
+from app.models import PriceCache
 import app.services.quote_lookup as quote_lookup
 
 
@@ -364,6 +365,31 @@ def test_quote_budget_exhausted_returns_stale_cache_without_provider_call(monkey
 
     assert meta["AAPL"]["price"] == 190.0
     assert meta["AAPL"]["is_stale"] is True
+
+
+def test_quote_lookup_replaces_implausible_cached_quote_with_recent_eod(monkeypatch):
+    _reset_quote_lookup_state()
+    db = _db()
+    db.add(PriceCache(symbol="BOLD", date=datetime.now(timezone.utc).date().isoformat(), close=2.5))
+    db.commit()
+    asof_ts = datetime.now(timezone.utc) - timedelta(minutes=1)
+    monkeypatch.setenv("QUOTE_FEED_TTL_SECONDS", "300")
+    monkeypatch.setattr(
+        quote_lookup,
+        "quote_cache_get_many_with_age",
+        lambda _db, _symbols: {"BOLD": (14.25, asof_ts)},
+    )
+
+    meta = quote_lookup.get_current_prices_meta_db(
+        db,
+        ["BOLD"],
+        lane="feed_quote",
+        cache_only=True,
+    )
+
+    assert meta["BOLD"]["price"] == 2.5
+    assert meta["BOLD"]["source"] == "eod_sanity_fallback"
+    assert meta["BOLD"]["quote_sanity_original_price"] == 14.25
 
 
 def test_quote_circuit_open_returns_unavailable_without_provider_call(monkeypatch):

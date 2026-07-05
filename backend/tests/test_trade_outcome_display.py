@@ -66,6 +66,26 @@ def test_trade_outcome_display_does_not_adjust_normal_large_price_outcomes() -> 
     assert corrected_current_price_for_display(entry_price=125.0, current_price=250.0) == 250.0
 
 
+def test_trade_outcome_display_suppresses_implausible_recent_returns() -> None:
+    outcome = _outcome(
+        event_id=295412,
+        symbol="BOLD",
+        trade_type="purchase",
+        entry_price=2.49,
+        current_price=14.25,
+        return_pct=472.289156626506,
+        benchmark_return_pct=1.0,
+        alpha_pct=471.2,
+    )
+
+    metrics = trade_outcome_display_metrics(outcome)
+
+    assert metrics.current_or_horizon_price is None
+    assert metrics.return_pct is None
+    assert metrics.alpha_pct is None
+    assert metrics.pnl_source is None
+
+
 def test_display_row_and_extreme_ranking_use_corrected_returns() -> None:
     scaled_bad = _outcome(
         event_id=1,

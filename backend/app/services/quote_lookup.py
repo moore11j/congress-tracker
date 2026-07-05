@@ -5,7 +5,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,7 +29,7 @@ from app.services.provider_usage import (
 from app.services.provider_endpoints import build_fmp_endpoint_request, fmp_endpoint_requests_for_domain
 from app.services.provider_registry import FMP_EOD_LIGHT_QUOTE_CONTRACT_JSON, FMP_INTRADAY_CHART_CONTRACT_JSON
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
-from app.models import QuoteCache
+from app.models import PriceCache, QuoteCache
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,9 @@ _last_paywall_log: datetime | None = None
 _last_quotes_disable_log: datetime | None = None
 _quotes_disabled_until: datetime | None = None
 _quotes_disable_reason: str | None = None
+
+_QUOTE_EOD_SANITY_MAX_AGE_DAYS = 10
+_QUOTE_EOD_SANITY_MAX_DEVIATION = 0.50
 
 
 def _miss_cache_hit(symbol: str) -> bool:
@@ -241,6 +244,77 @@ def _freshness_datetime(value: datetime | None) -> datetime | None:
     if value.tzinfo is not None:
         return value.astimezone(timezone.utc).replace(tzinfo=None)
     return value
+
+
+def _latest_cached_eod_for_quote_sanity(db: Session, symbol: str) -> tuple[float, datetime] | None:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return None
+    try:
+        row = (
+            db.query(PriceCache.date, PriceCache.close)
+            .filter(PriceCache.symbol == normalized)
+            .order_by(PriceCache.date.desc())
+            .first()
+        )
+    except Exception:
+        return None
+    if row is None or row.close is None:
+        return None
+    try:
+        close = float(row.close)
+    except (TypeError, ValueError):
+        return None
+    if close <= 0:
+        return None
+    try:
+        close_date = datetime.strptime(str(row.date)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    if (datetime.now(timezone.utc).date() - close_date).days > _QUOTE_EOD_SANITY_MAX_AGE_DAYS:
+        return None
+    return close, datetime.combine(close_date, datetime_time.min, tzinfo=timezone.utc)
+
+
+def _quote_meta_with_eod_sanity(
+    db: Session,
+    symbol: str,
+    meta: dict[str, Any],
+    *,
+    lane: str,
+) -> dict[str, Any]:
+    try:
+        price = float(meta.get("price"))
+    except (TypeError, ValueError):
+        return meta
+    if price <= 0:
+        return meta
+    latest = _latest_cached_eod_for_quote_sanity(db, symbol)
+    if latest is None:
+        return meta
+    eod_close, eod_asof = latest
+    deviation = abs(price - eod_close) / eod_close
+    if deviation <= _QUOTE_EOD_SANITY_MAX_DEVIATION:
+        return meta
+
+    logger.warning(
+        "quote_sanity_eod_fallback lane=%s symbol=%s quote_price=%s eod_close=%s deviation=%.3f",
+        lane,
+        symbol,
+        price,
+        eod_close,
+        deviation,
+    )
+    sanitized = {
+        **meta,
+        "price": eod_close,
+        "asof_ts": eod_asof,
+        "provider_timestamp": meta.get("provider_timestamp"),
+        "quote_sanity_original_price": price,
+        "quote_sanity_source": meta.get("source"),
+        "source": "eod_sanity_fallback",
+    }
+    return sanitized
 
 
 def quote_cache_get_many(db: Session, symbols: list[str]) -> dict[str, float]:
@@ -500,7 +574,14 @@ def get_current_prices_meta_db(
                     remaining_symbols.append(symbol)
                     continue
                 record_cache_hit(category="quote", symbol=symbol)
-                quote_meta[symbol] = {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"}
+                quote_meta[symbol] = _quote_meta_with_eod_sanity(
+                    db,
+                    symbol,
+                    {**cached_meta, "is_stale": False, "source": cached_meta.get("source") or "cache"},
+                    lane=lane,
+                )
+                if quote_meta[symbol].get("source") == "eod_sanity_fallback":
+                    _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
                 logger.info("quote_cache_hit lane=%s symbol=%s source=memory", lane, symbol)
                 mem_hits += 1
             else:
@@ -525,28 +606,38 @@ def get_current_prices_meta_db(
 
             for symbol, price in sqlite_fresh.items():
                 record_cache_hit(category="quote", symbol=symbol, cache_age_seconds=0)
-                quote_meta[symbol] = {
-                    "symbol": symbol,
-                    "price": price,
-                    "asof_ts": sqlite_map[symbol][1],
-                    "cached_at": sqlite_map[symbol][1],
-                    "is_stale": False,
-                    "source": "cache",
-                }
+                quote_meta[symbol] = _quote_meta_with_eod_sanity(
+                    db,
+                    symbol,
+                    {
+                        "symbol": symbol,
+                        "price": price,
+                        "asof_ts": sqlite_map[symbol][1],
+                        "cached_at": sqlite_map[symbol][1],
+                        "is_stale": False,
+                        "source": "cache",
+                    },
+                    lane=lane,
+                )
                 _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
                 logger.info("quote_cache_hit lane=%s symbol=%s source=db", lane, symbol)
             sqlite_fresh_hits = len(sqlite_fresh)
 
             for symbol, price in sqlite_stale.items():
                 record_cache_hit(category="quote", symbol=symbol)
-                quote_meta[symbol] = {
-                    "symbol": symbol,
-                    "price": price,
-                    "asof_ts": sqlite_map[symbol][1],
-                    "cached_at": sqlite_map[symbol][1],
-                    "is_stale": True,
-                    "source": "stale_cache",
-                }
+                quote_meta[symbol] = _quote_meta_with_eod_sanity(
+                    db,
+                    symbol,
+                    {
+                        "symbol": symbol,
+                        "price": price,
+                        "asof_ts": sqlite_map[symbol][1],
+                        "cached_at": sqlite_map[symbol][1],
+                        "is_stale": True,
+                        "source": "stale_cache",
+                    },
+                    lane=lane,
+                )
                 logger.info("quote_cache_stale_hit lane=%s symbol=%s", lane, symbol)
             sqlite_stale_hits = len(sqlite_stale)
 
@@ -686,10 +777,13 @@ def get_current_prices_meta_db(
                 logger.info("quote_coalesced_waiter lane=%s symbol=%s wait_seconds=%s", lane, symbol, wait_seconds)
                 if wait_seconds > 0 and lock.acquire(timeout=max(0.0, wait_seconds)):
                     lock.release()
-                    refreshed = _cache_get_meta(symbol)
-                    if refreshed is not None and refreshed.get("price") is not None:
-                        payload.append({**refreshed, "symbol": symbol})
-                        return True
+                    deadline = time.monotonic() + max(0.05, wait_seconds)
+                    while time.monotonic() < deadline:
+                        refreshed = _cache_get_meta(symbol)
+                        if refreshed is not None and refreshed.get("price") is not None:
+                            payload.append({**refreshed, "symbol": symbol})
+                            return True
+                        time.sleep(0.01)
                 return True
             if not _quote_budget_allows(lane=lane, symbol=symbol):
                 with mutation_lock:
@@ -952,20 +1046,25 @@ def get_current_prices_meta_db(
             existing_asof = quote_meta.get(symbol, {}).get("asof_ts")
             if isinstance(existing_asof, datetime) and isinstance(row_asof, datetime) and row_asof <= existing_asof:
                 continue
-            quote_meta[symbol] = {
-                "symbol": symbol,
-                "price": price,
-                "asof_ts": row_asof,
-                "provider_timestamp": row_asof if isinstance(row.get("asof_ts"), datetime) else None,
-                "cached_at": fetched_at,
-                "is_stale": False,
-                "source": "live_quote" if force_quote_endpoint else "live_provider",
-            }
+            quote_meta[symbol] = _quote_meta_with_eod_sanity(
+                db,
+                symbol,
+                {
+                    "symbol": symbol,
+                    "price": price,
+                    "asof_ts": row_asof,
+                    "provider_timestamp": row_asof if isinstance(row.get("asof_ts"), datetime) else None,
+                    "cached_at": fetched_at,
+                    "is_stale": False,
+                    "source": "live_quote" if force_quote_endpoint else "live_provider",
+                },
+                lane=lane,
+            )
             for field in ("change", "change_percent", "volume", "market_cap"):
                 if row.get(field) is not None:
                     quote_meta[symbol][field] = row.get(field)
             _cache_set_meta(symbol, quote_meta[symbol], lane=lane, ttl_seconds=ttl_seconds)
-            new_prices[symbol] = price
+            new_prices[symbol] = float(quote_meta[symbol]["price"])
             logger.info("quote_live_fetch lane=%s symbol=%s", lane, symbol)
 
         if allow_cache_write:
