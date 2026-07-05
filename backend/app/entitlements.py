@@ -983,16 +983,108 @@ def _limits_for_tier(db: Session | None, tier: TierName) -> dict[FeatureKey, int
 
 
 def plan_config_payload(db: Session) -> dict[str, Any]:
-    seed_plan_config(db)
-    gates_by_key = {row["feature_key"]: row for row in feature_gate_payloads(db)}
+    gate_rows = db.execute(select(FeatureGate)).scalars().all()
+    gates_by_key: dict[str, dict[str, str]] = {
+        feature_key: {
+            "feature_key": feature_key,
+            "required_tier": _effective_required_tier(feature_key, str(config["required_tier"])),
+            "description": str(config["description"]),
+        }
+        for feature_key, config in DEFAULT_FEATURE_GATES.items()
+    }
+    for row in gate_rows:
+        if row.feature_key not in DEFAULT_FEATURE_GATES:
+            continue
+        gates_by_key[row.feature_key] = {
+            "feature_key": row.feature_key,
+            "required_tier": _effective_required_tier(row.feature_key, row.required_tier),  # type: ignore[arg-type]
+            "description": row.description or DEFAULT_FEATURE_GATES.get(row.feature_key, {}).get("description", ""),
+        }
+
     limits_by_tier: dict[str, dict[str, int]] = {
-        tier: {key: int(value) for key, value in _limits_for_tier(db, tier).items()}
+        tier: {key: int(value) for key, value in ENTITLEMENTS[tier].limits.items()}
         for tier in PLAN_TIERS
     }
-    prices = plan_price_payloads(db)
+    plan_limit_rows = db.execute(select(PlanLimit)).scalars().all()
+    for row in plan_limit_rows:
+        if row.tier in PLAN_TIERS and row.feature_key in DEFAULT_FEATURE_GATES:
+            limits_by_tier[row.tier][row.feature_key] = int(row.limit_value or 0)  # type: ignore[index]
+
+    setting_keys = set(PLAN_LIMIT_SETTING_KEYS.values())
+    for fallback_keys in LEGACY_PLAN_LIMIT_SETTING_KEYS.values():
+        setting_keys.update(fallback_keys)
+    setting_rows = (
+        db.execute(select(AppSetting).where(AppSetting.key.in_(sorted(setting_keys)))).scalars().all()
+        if setting_keys
+        else []
+    )
+    setting_values: dict[str, int] = {}
+    for row in setting_rows:
+        if row.value is None:
+            continue
+        try:
+            setting_values[row.key] = max(int(str(row.value).strip()), 0)
+        except (TypeError, ValueError):
+            continue
+
+    for (tier, feature_key), setting_key in PLAN_LIMIT_SETTING_KEYS.items():
+        if tier not in PLAN_TIERS or feature_key not in DEFAULT_FEATURE_GATES:
+            continue
+        value = setting_values.get(setting_key)
+        if value is None:
+            for fallback_key in LEGACY_PLAN_LIMIT_SETTING_KEYS.get((tier, feature_key), ()):
+                value = setting_values.get(fallback_key)
+                if value is not None:
+                    break
+        if value is not None:
+            limits_by_tier[tier][feature_key] = value
+
     prices_by_tier: dict[str, dict[str, dict[str, Any]]] = {tier: {} for tier in PLAN_TIERS}
-    for price in prices:
-        prices_by_tier.setdefault(price["tier"], {})[price["billing_interval"]] = price
+    for tier, intervals in DEFAULT_PLAN_PRICES.items():
+        if tier not in PLAN_TIERS:
+            continue
+        for billing_interval, price in intervals.items():
+            prices_by_tier[tier][billing_interval] = {
+                "tier": tier,
+                "billing_interval": billing_interval,
+                "amount_cents": int(price["amount_cents"]),
+                "currency": str(price["currency"]).upper(),
+            }
+    price_rows = db.execute(select(PlanPrice)).scalars().all()
+    for row in price_rows:
+        tier = normalize_tier(row.tier)
+        billing_interval = "annual" if row.billing_interval == "annual" else "monthly"
+        if tier not in PLAN_TIERS:
+            continue
+        prices_by_tier.setdefault(tier, {})[billing_interval] = {
+            "tier": tier,
+            "billing_interval": billing_interval,
+            "amount_cents": int(row.amount_cents or 0),
+            "currency": (row.currency or "USD").upper(),
+        }
+
+    prices = sorted(
+        [price for tier_prices in prices_by_tier.values() for price in tier_prices.values()],
+        key=lambda item: (PLAN_RANKS.get(item["tier"], 999), item["billing_interval"]),
+    )
+    plan_limits = sorted(
+        [
+            {
+                "feature_key": feature_key,
+                "tier": tier,
+                "limit_value": int(limit_value or 0),
+                "label": PLAN_FEATURES.get(feature_key, {}).get("label", feature_key),
+                "unit_singular": PLAN_FEATURES.get(feature_key, {}).get("unit_singular", ""),
+                "unit_plural": PLAN_FEATURES.get(feature_key, {}).get("unit_plural", ""),
+                "sort_order": int(PLAN_FEATURES.get(feature_key, {}).get("sort_order", 999)),
+            }
+            for tier in PLAN_TIERS
+            for feature_key, limit_value in limits_by_tier[tier].items()
+            if feature_key in DEFAULT_FEATURE_GATES
+        ],
+        key=lambda item: (int(item["sort_order"]), PLAN_RANKS.get(item["tier"], 999), str(item["feature_key"])),
+    )
+    feature_gates = sorted(gates_by_key.values(), key=lambda item: str(item["feature_key"]))
 
     features = []
     for feature_key, meta in sorted(PLAN_FEATURES.items(), key=lambda item: int(item[1]["sort_order"])):
@@ -1044,8 +1136,8 @@ def plan_config_payload(db: Session) -> dict[str, Any]:
             },
         ],
         "features": features,
-        "feature_gates": feature_gate_payloads(db),
-        "plan_limits": plan_limit_payloads(db),
+        "feature_gates": feature_gates,
+        "plan_limits": plan_limits,
         "plan_prices": prices,
     }
 
