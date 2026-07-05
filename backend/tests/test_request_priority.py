@@ -12,6 +12,7 @@ from app.main import (
     _request_route_family,
     _request_source,
     _sanitize_referer,
+    _should_bypass_heavy_route_slot,
     _should_log_request_attribution,
 )
 from app.request_priority import RoutePriority, classify_request
@@ -65,6 +66,42 @@ def test_member_profile_secondary_routes_use_heavy_lane():
     assert classify_request("/api/members/P000197/portfolio-performance", {}) == RoutePriority.HEAVY
     assert classify_request("/api/members/P000197/trades", {}) == RoutePriority.HEAVY
     assert classify_request("/api/members/P000197/alpha-summary", {}) == RoutePriority.HEAVY
+
+
+def test_inactive_logged_out_heavy_routes_bypass_outer_heavy_gate():
+    assert _should_bypass_heavy_route_slot(
+        _request("/api/insiders/0002005219/summary", {"x-walnut-request-source": "ssr"}),
+        RoutePriority.HEAVY,
+    )
+    assert _should_bypass_heavy_route_slot(
+        _request("/api/insiders/0002005219/trades", {"x-walnut-request-source": "ssr"}),
+        RoutePriority.HEAVY,
+    )
+
+
+def test_active_or_logged_in_heavy_routes_still_use_outer_heavy_gate():
+    assert not _should_bypass_heavy_route_slot(
+        _request(
+            "/api/insiders/0002005219/summary",
+            {
+                "x-walnut-request-source": "ssr",
+                "referer": "https://app.walnutmarkets.com/insider/vivo-opportunity-llc-0002005219",
+                "x-walnut-active-user": "browser",
+            },
+        ),
+        RoutePriority.HEAVY,
+    )
+    assert not _should_bypass_heavy_route_slot(
+        _request(
+            "/api/insiders/0002005219/summary",
+            {"x-walnut-request-source": "ssr", "cookie": "ct_session=session-id"},
+        ),
+        RoutePriority.HEAVY,
+    )
+    assert not _should_bypass_heavy_route_slot(
+        _request("/api/events", {"x-walnut-request-source": "ssr"}),
+        RoutePriority.NORMAL,
+    )
 
 
 def test_secondary_analytics_fail_soft_includes_member_trades():

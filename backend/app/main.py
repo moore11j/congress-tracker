@@ -2686,6 +2686,12 @@ def _is_inactive_logged_out_api_request(request: Request) -> bool:
     return _shared_is_inactive_logged_out_api_request(request)
 
 
+def _should_bypass_heavy_route_slot(request: Request, priority: RoutePriority) -> bool:
+    if priority != RoutePriority.HEAVY:
+        return False
+    return _is_inactive_logged_out_api_request(request)
+
+
 def _is_logged_out_direct_api_request(request: Request) -> bool:
     return _shared_is_logged_out_direct_api_request(request)
 
@@ -2900,6 +2906,7 @@ async def log_slow_requests(request: Request, call_next):
         }
     )
     heavy_slot_acquired = False
+    heavy_slot_bypassed = _should_bypass_heavy_route_slot(request, priority)
     try:
         request_trace_enabled = os.getenv("WALNUT_REQUEST_TRACE") == "1" or not is_production()
         if request_trace_enabled and request.url.path.startswith("/api/"):
@@ -2912,7 +2919,7 @@ async def log_slow_requests(request: Request, call_next):
                 walnut_component,
             )
 
-        if priority == RoutePriority.HEAVY:
+        if priority == RoutePriority.HEAVY and not heavy_slot_bypassed:
             heavy_slot_acquired = _HEAVY_ROUTE_SEMAPHORE.acquire(timeout=max(_HEAVY_ROUTE_WAIT_SECONDS, 0))
             if not heavy_slot_acquired:
                 elapsed_ms = (perf_counter() - started) * 1000
