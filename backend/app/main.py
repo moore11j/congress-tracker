@@ -2586,7 +2586,7 @@ def _public_get_cache_dedupe_wait_seconds() -> float:
 
 def _is_public_get_cacheable_path(path: str) -> bool:
     lower_path = (path or "").rstrip("/").lower()
-    if lower_path in {"/api/feed", "/api/events", "/api/search/suggest"}:
+    if lower_path in {"/api/feed", "/api/events", "/api/plan-config", "/api/search/suggest"}:
         return True
     parts = [part for part in lower_path.split("/") if part]
     if len(parts) == 3 and parts[:2] == ["api", "tickers"]:

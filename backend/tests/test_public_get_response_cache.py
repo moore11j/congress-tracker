@@ -6,6 +6,7 @@ from app.main import _is_public_get_cacheable_path
 def test_public_get_response_cache_allowlist_only_market_data_paths():
     assert _is_public_get_cacheable_path("/api/feed")
     assert _is_public_get_cacheable_path("/api/events")
+    assert _is_public_get_cacheable_path("/api/plan-config")
     assert _is_public_get_cacheable_path("/api/search/suggest")
     assert _is_public_get_cacheable_path("/api/tickers/AAPL")
     assert _is_public_get_cacheable_path("/api/tickers/AAPL/chart-bundle")
