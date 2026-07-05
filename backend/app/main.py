@@ -5816,9 +5816,9 @@ def _ticker_context_bundle_cached_for_segment(
     cache_key = _ticker_context_bundle_cache_key(
         normalized_symbol,
         user_segment=user_segment,
-        side=side,
+        side="all",
         limit=max(1, min(int(limit or 3), 3)),
-        lookback_days=max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
     )
     return _ticker_context_bundle_cache_get(
         db,
@@ -5975,12 +5975,13 @@ def _build_ticker_context_bundle(
     bounded_limit = max(1, min(int(limit or 3), 3))
     requested_lookback_days = max(1, min(int(lookback_days or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365))
     effective_window_days = CONFIRMATION_SIGNAL_WINDOW_DAYS
+    cache_side = side if can_view_signal_details else "all"
     cache_key = _ticker_context_bundle_cache_key(
         normalized_symbol,
         user_segment=user_segment,
-        side=side,
+        side=cache_side,
         limit=bounded_limit,
-        lookback_days=requested_lookback_days,
+        lookback_days=effective_window_days,
     )
     cached = _ticker_context_bundle_cache_get(
         db,
@@ -6074,7 +6075,7 @@ def _build_ticker_context_bundle(
         source_context_started_at = perf_counter()
         source_contexts = build_ticker_signals_summary_contexts_from_cache(
             normalized_symbol,
-            window_days=requested_lookback_days,
+            window_days=effective_window_days,
             db=db,
             signal_rows=rows,
             latest_signal_score=latest_score,

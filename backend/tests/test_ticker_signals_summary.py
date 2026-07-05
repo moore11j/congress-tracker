@@ -1803,6 +1803,33 @@ def test_ticker_context_bundle_free_does_not_query_premium_signals(monkeypatch):
     assert response["confirmation_score_bundle"]["sources"]["signals"]["locked"] is True
 
 
+def test_ticker_context_bundle_locked_segments_share_canonical_side_and_lookback_cache(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        counters = _mock_ticker_context_bundle_dependencies(monkeypatch, tier="free")
+        first = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="sell",
+            limit=3,
+            lookback_days=365,
+            db=db,
+        )
+        second = main_module._build_ticker_context_bundle(
+            request=object(),
+            symbol="AAPL",
+            side="all",
+            limit=3,
+            lookback_days=30,
+            db=db,
+        )
+
+    assert first["symbol"] == "AAPL"
+    assert second["symbol"] == "AAPL"
+    assert counters["profile"] == 1
+    assert counters["signals"] == 0
+
+
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):
     _mock_signal_auth(monkeypatch)
     monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
