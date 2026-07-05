@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
+import { getInsightsMacroSnapshot } from "@/lib/api";
 import type { MacroSnapshotResponse } from "@/lib/types";
-import { applyInsightsOverview } from "@/lib/marketSnapshot";
 import { MarketSnapshot } from "@/components/insights/MarketSnapshot";
 import { cardClassName } from "@/lib/styles";
 
@@ -32,7 +31,7 @@ function SnapshotSkeleton() {
         <div className="h-8 w-28 animate-pulse rounded bg-white/10" />
       </div>
       <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
+        {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="min-h-[18rem] rounded-2xl border border-white/10 bg-slate-950/55 p-4">
             <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
             <div className="mt-2 h-3 w-20 animate-pulse rounded bg-white/10" />
@@ -57,16 +56,14 @@ export function InsightsMarketSnapshotClient() {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.allSettled([
-      getInsightsMacroSnapshot({ signal: controller.signal }),
-      getInsightsOverview({ signal: controller.signal }),
-    ])
-      .then(([snapshotResult, overviewResult]) => {
+    // Global markets, commodities, currencies, and crypto widgets are hidden until
+    // provider entitlements are re-enabled, so do not call /api/insights/overview here.
+    Promise.allSettled([getInsightsMacroSnapshot({ signal: controller.signal })])
+      .then(([snapshotResult]) => {
         if (controller.signal.aborted) return;
         const base = snapshotResult.status === "fulfilled" ? snapshotResult.value : { ...EMPTY_SNAPSHOT, status: "unavailable" };
-        const merged = overviewResult.status === "fulfilled" ? applyInsightsOverview(base, overviewResult.value) : base;
-        setSnapshot(merged);
-        setFailed(snapshotResult.status === "rejected" && overviewResult.status === "rejected");
+        setSnapshot(base);
+        setFailed(snapshotResult.status === "rejected");
       })
       .catch(() => {
         if (!controller.signal.aborted) {

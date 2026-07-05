@@ -3031,6 +3031,17 @@ export type MemberInsiderSuggestResponse = {
   items: MemberInsiderSuggestion[];
 };
 
+export type FeedNameSuggestion = Omit<MemberInsiderSuggestion, "category"> & {
+  category: "congress" | "insider" | "department" | "institution";
+  route?: string | null;
+  subtitle?: string | null;
+  institution_cik?: string | null;
+};
+
+export type FeedNameSuggestResponse = {
+  items: FeedNameSuggestion[];
+};
+
 export type GlobalSearchResult = {
   type: "ticker" | "member" | "insider" | "government_agency" | "event";
   id: string;
@@ -3920,6 +3931,14 @@ export async function suggestMembers(q: string, limit = 10, options?: { signal?:
 
 export async function suggestMemberInsiders(q: string, limit = 10, options?: { signal?: AbortSignal; source?: string }): Promise<MemberInsiderSuggestResponse> {
   return fetchJson<MemberInsiderSuggestResponse>(buildApiUrl("/api/suggest/member-insider", { q, limit }), {
+    cache: "no-store",
+    signal: options?.signal,
+    source: options?.source,
+  });
+}
+
+export async function suggestFeedNames(q: string, mode: string, limit = 10, options?: { signal?: AbortSignal; source?: string }): Promise<FeedNameSuggestResponse> {
+  return fetchJson<FeedNameSuggestResponse>(buildApiUrl("/api/suggest/feed-name", { q, mode, limit }), {
     cache: "no-store",
     signal: options?.signal,
     source: options?.source,

@@ -1,18 +1,20 @@
 "use client";
 
-import { suggestMemberInsiders, type MemberInsiderSuggestion } from "@/lib/api";
+import { suggestFeedNames, type FeedNameSuggestion } from "@/lib/api";
+import type { FeedMode } from "@/lib/feedModes";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 type FeedMemberAutosuggestEnhancerProps = {
   formId: string;
   inputName: string;
+  mode: FeedMode;
 };
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 100;
 
-export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberAutosuggestEnhancerProps) {
-  const [suggestions, setSuggestions] = useState<MemberInsiderSuggestion[]>([]);
+export function FeedMemberAutosuggestEnhancer({ formId, inputName, mode }: FeedMemberAutosuggestEnhancerProps) {
+  const [suggestions, setSuggestions] = useState<FeedNameSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
   const abortRef = useRef<AbortController | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
-  const suggestionsRef = useRef<MemberInsiderSuggestion[]>([]);
+  const suggestionsRef = useRef<FeedNameSuggestion[]>([]);
   const highlightedIndexRef = useRef(-1);
   const openRef = useRef(false);
 
@@ -76,7 +78,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
       setLoading(true);
 
       try {
-        const response = await suggestMemberInsiders(query, 10, { signal: controller.signal, source: "FeedMemberAutosuggest" });
+        const response = await suggestFeedNames(query, mode, 10, { signal: controller.signal, source: "FeedNameAutosuggest" });
         if (requestIdRef.current !== requestId) return;
 
         const next = Array.isArray(response.items) ? response.items : [];
@@ -110,7 +112,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
       }, DEBOUNCE_MS);
     };
 
-    const selectSuggestion = (suggestion: MemberInsiderSuggestion) => {
+    const selectSuggestion = (suggestion: FeedNameSuggestion) => {
       input.value = suggestion.value;
       clearDropdown();
       form.requestSubmit();
@@ -189,13 +191,13 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
       abortRef.current?.abort();
       if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
     };
-  }, [formId, inputName]);
+  }, [formId, inputName, mode]);
 
   const onSuggestionMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
   };
 
-  const onSuggestionClick = (suggestion: MemberInsiderSuggestion) => {
+  const onSuggestionClick = (suggestion: FeedNameSuggestion) => {
     const input = inputRef.current;
     const form = formRef.current;
     if (!input || !form) return;
@@ -208,6 +210,13 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
   };
 
   if (!open || (!hasSuggestions && !loading)) return <div ref={hostRef} className="relative z-[120]" />;
+
+  const categoryLabel = (category: FeedNameSuggestion["category"]) => {
+    if (category === "congress") return "Member";
+    if (category === "insider") return "Insider";
+    if (category === "department") return "Department";
+    return "Institution";
+  };
 
   return (
     <div ref={hostRef} className="relative z-[120]">
@@ -230,7 +239,7 @@ export function FeedMemberAutosuggestEnhancer({ formId, inputName }: FeedMemberA
             onClick={() => onSuggestionClick(suggestion)}
           >
             <span className="block truncate">{suggestion.label || suggestion.value}</span>
-            <span className="mt-0.5 block truncate text-xs text-slate-400">{suggestion.category === "congress" ? "Member" : "Insider"}</span>
+            <span className="mt-0.5 block truncate text-xs text-slate-400">{suggestion.subtitle || categoryLabel(suggestion.category)}</span>
           </button>
         ))}
       </div>

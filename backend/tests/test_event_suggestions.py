@@ -8,11 +8,12 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, Member
+from app.models import Event, InstitutionalHolder, Member
 from app.routers.events import (
     _member_insider_event_suggestions_query,
     _member_suggestions_query,
     list_events,
+    suggest_feed_name,
     suggest_member_insider,
     suggest_role,
 )
@@ -119,6 +120,45 @@ def test_member_insider_suggest_searches_congress_members_by_name_only():
 
     assert any(item["category"] == "congress" and item["value"] == "Nancy Pelosi" for item in name_response["items"])
     assert not any(item["category"] == "congress" for item in id_response["items"])
+
+
+def test_feed_name_suggest_institutional_mode_returns_institutions_only():
+    with Session(_engine()) as db:
+        db.add_all(
+            [
+                InstitutionalHolder(cik="0001067983", holder_name="Berkshire Hathaway Inc.", normalized_holder_name="berkshire hathaway inc"),
+                Member(bioguide_id="B000001", first_name="Berkshire", last_name="Member", chamber="House", party="D", state="CA"),
+                Event(
+                    id=30,
+                    event_type="insider_trade",
+                    ts=datetime(2026, 5, 17, tzinfo=timezone.utc),
+                    event_date=datetime(2026, 5, 17, tzinfo=timezone.utc),
+                    symbol="BRK.B",
+                    source="test",
+                    member_name="Berkshire Insider",
+                    payload_json=json.dumps({"reporting_cik": "0002222222"}),
+                ),
+            ]
+        )
+        db.commit()
+
+        response = suggest_feed_name(db=db, q="berkshire", mode="institutional", limit=10)
+
+    assert response["items"]
+    assert {item["category"] for item in response["items"]} == {"institution"}
+    assert response["items"][0]["value"] == "Berkshire Hathaway Inc."
+
+
+def test_feed_name_suggest_all_mode_includes_departments_and_institutions():
+    with Session(_engine()) as db:
+        db.add(InstitutionalHolder(cik="0001067983", holder_name="Berkshire Hathaway Inc.", normalized_holder_name="berkshire hathaway inc"))
+        db.commit()
+
+        institution_response = suggest_feed_name(db=db, q="berkshire", mode="all", limit=10)
+        department_response = suggest_feed_name(db=db, q="defense", mode="all", limit=10)
+
+    assert any(item["category"] == "institution" and item["value"] == "Berkshire Hathaway Inc." for item in institution_response["items"])
+    assert any(item["category"] == "department" and item["value"] == "Department of Defense" for item in department_response["items"])
 
 
 def test_role_suggest_returns_canonical_aliases():

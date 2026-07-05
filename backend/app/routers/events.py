@@ -591,6 +591,60 @@ def _institutional_holder_names_for_rows(db: Session, rows: list[InstitutionalAc
     return names_by_id
 
 
+def _institutional_holder_cik_matches(db: Session, query: str, *, limit: int = 100) -> set[str]:
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return set()
+    pattern = f"%{cleaned.lower()}%"
+    matches: set[str] = set()
+    normalized_query_cik = normalize_cik(cleaned)
+    if normalized_query_cik:
+        matches.update(_institutional_cik_variants(normalized_query_cik))
+
+    sources = (
+        select(InstitutionalHolder.cik)
+        .where(
+            or_(
+                func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(pattern),
+                func.lower(func.coalesce(InstitutionalHolder.normalized_holder_name, "")).like(pattern),
+                func.lower(func.coalesce(InstitutionalHolder.cik, "")).like(pattern),
+            )
+        )
+        .limit(limit),
+        select(InstitutionalPositionChange.cik)
+        .where(
+            or_(
+                func.lower(func.coalesce(InstitutionalPositionChange.holder_name, "")).like(pattern),
+                func.lower(func.coalesce(InstitutionalPositionChange.cik, "")).like(pattern),
+            )
+        )
+        .distinct()
+        .limit(limit),
+    )
+    for query_stmt in sources:
+        try:
+            for cik in db.execute(query_stmt).scalars().all():
+                matches.update(_institutional_cik_variants(cik))
+        except Exception:
+            logger.exception("institutional_holder_cik_match_failed query=%s", cleaned)
+    return matches
+
+
+def _institutional_holder_filter_clause(db: Session, query: str | None):
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return None
+    pattern = f"%{cleaned.lower()}%"
+    clauses = [
+        func.lower(func.coalesce(InstitutionalActivityEvent.holder_name, "")).like(pattern),
+        func.lower(func.coalesce(InstitutionalActivityEvent.cik, "")).like(pattern),
+    ]
+    cik_matches = _institutional_holder_cik_matches(db, cleaned)
+    if cik_matches:
+        clauses.append(InstitutionalActivityEvent.cik.in_(sorted(cik_matches)))
+    return or_(*clauses)
+
+
 def _list_institutional_activity_feed_events(
     *,
     db: Session,
@@ -600,6 +654,7 @@ def _list_institutional_activity_feed_events(
     recent_since: datetime | None,
     min_amount: float | None,
     max_amount: float | None,
+    holder_query: str | None,
     limit: int,
     offset: int,
     include_total: bool,
@@ -628,6 +683,9 @@ def _list_institutional_activity_feed_events(
         q = q.where(InstitutionalActivityEvent.reported_value_usd >= min_amount)
     if max_amount is not None:
         q = q.where(InstitutionalActivityEvent.reported_value_usd <= max_amount)
+    holder_clause = _institutional_holder_filter_clause(db, holder_query)
+    if holder_clause is not None:
+        q = q.where(holder_clause)
 
     sort_date = InstitutionalActivityEvent.filing_date
     filtered_query = q.order_by(sort_date.desc(), InstitutionalActivityEvent.materiality_score.desc(), InstitutionalActivityEvent.id.desc())
@@ -3830,6 +3888,150 @@ def suggest_member_insider(
     return {"items": items}
 
 
+def _institution_suggestions(db: Session, prefix: str, *, limit: int) -> list[dict[str, str | None]]:
+    cleaned = prefix.strip()
+    if not cleaned:
+        return []
+    pattern = f"%{cleaned.lower()}%"
+    rows: list[tuple[str | None, str | None, str | None]] = []
+    try:
+        rows.extend(
+            (cik, holder_name, "Institution")
+            for cik, holder_name in db.execute(
+                select(InstitutionalHolder.cik, InstitutionalHolder.holder_name)
+                .where(
+                    or_(
+                        func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(pattern),
+                        func.lower(func.coalesce(InstitutionalHolder.normalized_holder_name, "")).like(pattern),
+                        func.lower(func.coalesce(InstitutionalHolder.cik, "")).like(pattern),
+                    )
+                )
+                .order_by(func.lower(InstitutionalHolder.holder_name))
+                .limit(limit * 3)
+            ).all()
+        )
+    except Exception:
+        logger.exception("institution_suggest_holder_query_failed query=%s", cleaned)
+
+    try:
+        rows.extend(
+            (cik, holder_name, "Institutional activity")
+            for cik, holder_name in db.execute(
+                select(InstitutionalActivityEvent.cik, InstitutionalActivityEvent.holder_name)
+                .where(
+                    or_(
+                        func.lower(func.coalesce(InstitutionalActivityEvent.holder_name, "")).like(pattern),
+                        func.lower(func.coalesce(InstitutionalActivityEvent.cik, "")).like(pattern),
+                    )
+                )
+                .order_by(InstitutionalActivityEvent.filing_date.desc(), InstitutionalActivityEvent.materiality_score.desc())
+                .limit(limit * 3)
+            ).all()
+        )
+    except Exception:
+        logger.exception("institution_suggest_activity_query_failed query=%s", cleaned)
+
+    try:
+        rows.extend(
+            (cik, holder_name, "Institutional holdings")
+            for cik, holder_name in db.execute(
+                select(InstitutionalPositionChange.cik, InstitutionalPositionChange.holder_name)
+                .where(
+                    or_(
+                        func.lower(func.coalesce(InstitutionalPositionChange.holder_name, "")).like(pattern),
+                        func.lower(func.coalesce(InstitutionalPositionChange.cik, "")).like(pattern),
+                    )
+                )
+                .order_by(InstitutionalPositionChange.filing_date.desc(), InstitutionalPositionChange.materiality_score.desc())
+                .limit(limit * 3)
+            ).all()
+        )
+    except Exception:
+        logger.exception("institution_suggest_position_query_failed query=%s", cleaned)
+
+    items: list[dict[str, str | None]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_cik, raw_name, subtitle in rows:
+        name = _institutional_display_name(raw_name)
+        if not name:
+            continue
+        normalized_cik = normalize_cik(raw_cik)
+        key = ("cik", normalized_cik) if normalized_cik else ("name", name.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "label": name,
+                "value": name,
+                "category": "institution",
+                "institution_cik": normalized_cik,
+                "route": f"/institution/{normalized_cik}" if normalized_cik else None,
+                "subtitle": subtitle,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _department_feed_name_suggestions(db: Session, prefix: str, *, limit: int) -> list[dict[str, str | None]]:
+    items: list[dict[str, str | None]] = []
+    for item in department_suggestions(db, prefix, limit=limit):
+        label = _clean_suggestion(item.get("label"))
+        if not label:
+            continue
+        items.append(
+            {
+                "label": label,
+                "value": label,
+                "category": "department",
+                "route": _clean_suggestion(item.get("route")),
+                "subtitle": _clean_suggestion(item.get("subtitle")) or "Government department",
+            }
+        )
+    return items
+
+
+@router.get("/suggest/feed-name")
+def suggest_feed_name(
+    db: Session = Depends(get_db),
+    q: str = "",
+    mode: str = Query("all"),
+    limit: int = Query(10, ge=1, le=MAX_SUGGEST_LIMIT),
+):
+    prefix = q.strip()
+    if not prefix:
+        return {"items": []}
+
+    mode_value = (mode or "all").strip().lower()
+    if mode_value not in {"all", "congress", "insider", "government_contracts", "government_contract", "institutional", "institutional_activity", "institutional_13f"}:
+        raise HTTPException(status_code=400, detail="Invalid mode. Allowed values: all, congress, insider, government_contracts, institutional.")
+
+    items: list[dict[str, str | None]] = []
+    if mode_value in {"all", "congress", "insider"}:
+        member_items = suggest_member_insider(db=db, q=prefix, limit=limit).get("items", [])
+        for item in member_items:
+            category = item.get("category")
+            if mode_value == "congress" and category != "congress":
+                continue
+            if mode_value == "insider" and category != "insider":
+                continue
+            items.append(item)
+            if len(items) >= limit:
+                return {"items": items}
+
+    if mode_value in {"all", "government_contracts", "government_contract"}:
+        items.extend(_department_feed_name_suggestions(db, prefix, limit=max(limit - len(items), 0)))
+        if len(items) >= limit:
+            return {"items": items[:limit]}
+
+    if mode_value in {"all", "institutional", "institutional_activity", "institutional_13f"}:
+        items.extend(_institution_suggestions(db, prefix, limit=max(limit - len(items), 0)))
+
+    return {"items": items[:limit]}
+
+
 @router.get("/suggest/role")
 def suggest_role(
     db: Session = Depends(get_db),
@@ -4039,6 +4241,7 @@ def list_events(
             recent_since=recent_since,
             min_amount=min_amount,
             max_amount=max_amount,
+            holder_query=member,
             limit=limit,
             offset=offset,
             include_total=include_total,

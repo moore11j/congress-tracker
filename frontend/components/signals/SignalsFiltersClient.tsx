@@ -60,6 +60,30 @@ function buildSignalsHref(pathname: string, searchParamsString: string, filters:
   return `${pathname}${nextSearch ? `?${nextSearch}` : ""}`;
 }
 
+const modeOptions = [
+  ["congress", "Congress"],
+  ["insider", "Insider"],
+  ["institutional", "Institutional"],
+] as const;
+
+const sideOptions = [
+  ["all", "All"],
+  ["buy", "Buy"],
+  ["sell", "Sell"],
+  ["buy_or_sell", "Buy/Sell"],
+] as const;
+
+const sortOptions = [
+  ["recent", "Recent"],
+  ["amount", "Amount"],
+  ["multiple", "Multiple"],
+  ["smart", "Score"],
+] as const;
+
+function optionLabel<T extends string>(options: readonly (readonly [T, string])[], value: T): string {
+  return options.find(([optionValue]) => optionValue === value)?.[1] ?? value;
+}
+
 export function SignalsFiltersClient({
   mode,
   side,
@@ -129,11 +153,7 @@ export function SignalsFiltersClient({
         <div className={filterRow}>
           <div className="text-xs text-slate-400">Mode</div>
           <div className={filterGroup}>
-            {([
-              ["congress", "CONGRESS"],
-              ["insider", "INSIDER"],
-              ["institutional", "INSTITUTIONAL"],
-            ] as const).map(([value, label]) => (
+            {modeOptions.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -147,12 +167,7 @@ export function SignalsFiltersClient({
 
           <div className="text-xs text-slate-400">Side</div>
           <div className={filterGroup}>
-            {([
-              ["all", "All"],
-              ["buy", "Buy"],
-              ["sell", "Sell"],
-              ["buy_or_sell", "Buy/Sell"],
-            ] as const).map(([value, label]) => (
+            {sideOptions.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -166,12 +181,7 @@ export function SignalsFiltersClient({
 
           <div className="text-xs text-slate-400 sm:ml-2">Sort</div>
           <div className={filterGroup}>
-            {([
-              ["recent", "RECENT"],
-              ["amount", "AMOUNT"],
-              ["multiple", "MULTIPLE"],
-              ["smart", "SCORE"],
-            ] as const).map(([value, label]) => (
+            {sortOptions.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -182,10 +192,8 @@ export function SignalsFiltersClient({
               </button>
             ))}
           </div>
-        </div>
 
-        <div className={filterRow}>
-          <div className="text-xs text-slate-400">Limit</div>
+          <div className="text-xs text-slate-400 sm:ml-2">Limit</div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
             {[25, 50, 100].map((value) => (
               <button
@@ -214,13 +222,13 @@ export function SignalsFiltersClient({
         rightSlot={
           <>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              mode <span className="text-white">{appliedFilters.mode}</span>
+              mode <span className="text-white">{optionLabel(modeOptions, appliedFilters.mode)}</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              side <span className="text-white">{appliedFilters.side}</span>
+              side <span className="text-white">{optionLabel(sideOptions, appliedFilters.side as (typeof sideOptions)[number][0])}</span>
             </span>
             <span className={`${pill} border-slate-800 text-slate-300 bg-slate-950/30`}>
-              sort <span className="text-white">{appliedFilters.sort}</span>
+              sort <span className="text-white">{optionLabel(sortOptions, appliedFilters.sort)}</span>
             </span>
             {hasPendingChanges ? (
               <span className={`${pill} border-amber-300/25 text-amber-100 bg-amber-300/10`}>

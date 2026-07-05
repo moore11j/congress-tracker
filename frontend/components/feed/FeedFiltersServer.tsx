@@ -95,12 +95,12 @@ function SymbolField({ mode, value }: { mode: FeedMode; value?: string }) {
   );
 }
 
-function NameField({ label, value, placeholder = "Pelosi" }: { label: string; value?: string; placeholder?: string }) {
+function NameField({ label, value, mode, placeholder = "Pelosi" }: { label: string; value?: string; mode: FeedMode; placeholder?: string }) {
   return (
     <div className={nameFieldClassName}>
       <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</label>
       <input id="feed-filter-member" name="member" defaultValue={value ?? ""} className={feedInputClassName(value)} placeholder={placeholder} autoComplete="off" />
-      <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" />
+      <FeedMemberAutosuggestEnhancer formId="feed-filters-form" inputName="member" mode={mode} />
     </div>
   );
 }
@@ -284,7 +284,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         {mode === "all" ? (
           <FilterRow>
             <SymbolField mode={mode} value={params.symbol} />
-            <NameField label="Name" value={params.member} placeholder="Member, insider, department, institution" />
+            <NameField label="Name" value={params.member} mode={mode} placeholder="Member, insider, department, institution" />
             <TradeTypeField value={params.trade_type} />
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />
@@ -295,7 +295,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         {mode === "congress" ? (
           <FilterRow>
             <SymbolField mode={mode} value={params.symbol} />
-            <NameField label="Name" value={params.member} placeholder="Pelosi" />
+            <NameField label="Name" value={params.member} mode={mode} placeholder="Pelosi" />
             <TradeTypeField value={params.trade_type} />
             <PartyField value={params.party} />
             <ChamberField value={params.chamber} />
@@ -308,7 +308,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         {mode === "insider" ? (
           <FilterRow>
             <SymbolField mode={mode} value={params.symbol} />
-            <NameField label="Name" value={params.member} placeholder="Insider name" />
+            <NameField label="Name" value={params.member} mode={mode} placeholder="Insider name" />
             <TradeTypeField value={params.trade_type} />
             <RoleField value={params.role} />
             <SortField value={normalizedParams.sort_by} />
@@ -330,7 +330,7 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         {mode === "institutional" ? (
           <FilterRow>
             <SymbolField mode={mode} value={params.symbol} />
-            <NameField label="Institution" value={params.member} placeholder="Institution name" />
+            <NameField label="Institution" value={params.member} mode={mode} placeholder="Institution name" />
             <TradeTypeField value={params.trade_type} />
             <SortField value={normalizedParams.sort_by} />
             <DirectionField value={normalizedParams.sort_dir} />

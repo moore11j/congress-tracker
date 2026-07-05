@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getInsightsCategoryNews, getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
+import { getInsightsCategoryNews, getInsightsMacroSnapshot } from "@/lib/api";
 import {
-  applyInsightsOverview,
   deltaClassName,
   formatSnapshotUpdatedAt,
   marketSnapshotDetailRows,
@@ -141,16 +140,14 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.allSettled([
-      getInsightsMacroSnapshot({ signal: controller.signal }),
-      getInsightsOverview({ signal: controller.signal }),
-    ])
-      .then(([snapshotResult, overviewResult]) => {
+    // Global markets, commodities, currencies, and crypto detail data are paused
+    // until provider entitlements are re-enabled, so skip /api/insights/overview.
+    Promise.allSettled([getInsightsMacroSnapshot({ signal: controller.signal })])
+      .then(([snapshotResult]) => {
         if (controller.signal.aborted) return;
         const base = snapshotResult.status === "fulfilled" ? snapshotResult.value : { ...EMPTY_SNAPSHOT, status: "unavailable" };
-        const merged = overviewResult.status === "fulfilled" ? applyInsightsOverview(base, overviewResult.value) : base;
-        setSnapshot(merged);
-        setFailed(snapshotResult.status === "rejected" && overviewResult.status === "rejected");
+        setSnapshot(base);
+        setFailed(snapshotResult.status === "rejected");
       })
       .catch(() => {
         if (!controller.signal.aborted) {

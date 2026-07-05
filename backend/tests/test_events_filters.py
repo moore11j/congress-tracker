@@ -777,6 +777,28 @@ def test_institutional_feed_mode_resolves_holder_name_from_cik_meta(monkeypatch)
         db.close()
 
 
+def test_institutional_feed_mode_filters_by_holder_name(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setattr(events_module, "_can_view_institutional_events", lambda *_args, **_kwargs: True)
+        db.add_all(
+            [
+                InstitutionalHolder(cik="0001067983", holder_name="Berkshire Hathaway Inc."),
+                _institutional_event(208, "institutional_accumulation", holder_name=None, cik="0001067983", normalized_symbol="AAPL"),
+                _institutional_event(209, "institutional_accumulation", holder_name="Example Capital Management", cik="0009999999", normalized_symbol="MSFT"),
+            ]
+        )
+        db.commit()
+
+        page = list_events(db=db, tape="institutional", member="Berkshire", limit=10, enrich_prices=False)
+
+        assert len(page.items) == 1
+        assert page.items[0].member_name == "Berkshire Hathaway Inc."
+        assert page.items[0].symbol == "AAPL"
+    finally:
+        db.close()
+
+
 def test_institutional_feed_mode_returns_no_detail_for_unentitled_users():
     db = _db()
     try:
