@@ -4,8 +4,10 @@ import { FeedClientProbe } from "@/components/feed/FeedClientProbe";
 import { FeedEntitledResultsClient } from "@/components/feed/FeedEntitledResultsClient";
 import { FeedFiltersServer } from "@/components/feed/FeedFiltersServer";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
+import { FeedShellFallback } from "@/components/feed/FeedShellFallback";
 import { isCompactFeedFilterMode, isValidFeedMode, type FeedMode } from "@/lib/feedModes";
 import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const feedParamKeys = [
   "symbol",
@@ -55,7 +57,12 @@ function DebugMountLogger({
 }
 
 export function FeedPageClient() {
+  const [mounted, setMounted] = useState(false);
   const sp = useSearchParams();
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return <FeedShellFallback />;
+
   const modeParam = getParam(sp, "mode");
   const feedMode = isValidFeedMode(modeParam) ? modeParam : "all";
   const queryDebug = getParam(sp, "debug") === "1";
