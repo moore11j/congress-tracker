@@ -283,9 +283,10 @@ def test_compact_event_payload_keeps_feed_card_fields_without_raw_blob():
 
     assert out.payload["symbol"] == "ACME"
     assert out.payload["transaction_date"] == "2026-01-10"
-    assert out.payload["raw"]["companyName"] == "Acme Corp"
-    assert out.payload["raw"]["typeOfOwner"] == "director"
-    assert "unusedLargeBlob" not in out.payload["raw"]
+    assert out.payload["company_name"] == "Acme Corp"
+    assert out.payload["role"] == "director"
+    assert "raw" not in out.payload
+    assert "price_normalization" not in out.payload
 
 
 def test_compact_congress_payload_promotes_feed_card_identity_and_amounts():

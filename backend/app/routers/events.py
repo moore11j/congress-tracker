@@ -250,8 +250,6 @@ COMPACT_COMMON_PAYLOAD_KEYS = {
     "holdingPeriodDays",
     "outcome_horizon",
     "outcomeHorizon",
-    "price_normalization",
-    "priceNormalization",
     "maturity_date",
     "maturityDate",
     "duration_label",
@@ -3089,23 +3087,41 @@ def _compact_event_payload(event: Event, payload: dict) -> dict:
 
     if event.event_type == "government_contract":
         compact = _copy_payload_keys(payload, COMPACT_GOVERNMENT_CONTRACT_KEYS)
-        raw = _compact_raw_payload(payload.get("raw"), COMPACT_GOVERNMENT_CONTRACT_RAW_KEYS)
-        if raw:
-            compact["raw"] = raw
+        raw = payload.get("raw")
+        if isinstance(raw, dict):
+            parent_award = raw.get("parent_award")
+            if isinstance(parent_award, dict):
+                for key in ("period_end", "end_date"):
+                    if compact.get(key) is None and parent_award.get(key) is not None:
+                        compact[key] = parent_award.get(key)
         return compact
 
     if event.event_type in INSTITUTIONAL_EVENT_TYPES:
-        compact = _copy_payload_keys(payload, COMPACT_INSTITUTIONAL_KEYS)
-        raw = _compact_raw_payload(payload.get("raw"), {"holder", "institutionName", "cik", "symbol", "ticker"})
-        if raw:
-            compact["raw"] = raw
-        return compact
+        return _copy_payload_keys(payload, COMPACT_INSTITUTIONAL_KEYS)
 
     compact = _copy_payload_keys(payload, COMPACT_COMMON_PAYLOAD_KEYS)
     if event.event_type == "insider_trade":
-        raw = _compact_raw_payload(payload.get("raw"), COMPACT_INSIDER_RAW_KEYS)
-        if raw:
-            compact["raw"] = raw
+        raw = payload.get("raw")
+        if isinstance(raw, dict):
+            alias_fields = {
+                "company_name": ("companyName", "issuerName"),
+                "security_name": ("securityName",),
+                "insider_name": ("insiderName",),
+                "reporting_cik": ("reportingCik",),
+                "transaction_type": ("transactionType",),
+                "transaction_date": ("transactionDate",),
+                "filing_date": ("filingDate",),
+                "shares": ("securitiesTransacted", "transactionShares"),
+                "price": ("transactionPrice", "transactionPricePerShare"),
+                "role": ("typeOfOwner", "officerTitle", "insiderRole", "position"),
+            }
+            for target, aliases in alias_fields.items():
+                if compact.get(target) is None:
+                    for alias in aliases:
+                        value = raw.get(alias)
+                        if value is not None:
+                            compact[target] = value
+                            break
     if event.symbol:
         compact.setdefault("symbol", event.symbol)
         compact.setdefault("ticker", event.symbol)

@@ -869,8 +869,9 @@ def test_list_events_cache_separates_compact_and_full_payload(monkeypatch):
         compact_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
         full_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False, payload_mode="full")
 
-        assert compact_page.items[0].payload["raw"]["companyName"] == "Apple Inc."
-        assert "unusedLargeBlob" not in compact_page.items[0].payload["raw"]
+        assert compact_page.items[0].payload["company_name"] == "Apple Inc."
+        assert compact_page.items[0].payload["role"] == "director"
+        assert "raw" not in compact_page.items[0].payload
         assert full_page.items[0].payload["raw"]["unusedLargeBlob"] == "x" * 1000
     finally:
         _clear_events_response_cache()
