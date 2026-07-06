@@ -9,7 +9,7 @@ import threading
 from datetime import date, datetime, timedelta, timezone
 from time import monotonic, perf_counter
 from types import SimpleNamespace
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, exists, func, or_, select, text
@@ -147,6 +147,218 @@ INSTITUTIONAL_ALL_MODE_EVENT_TYPES = (
     "new_institutional_position",
 )
 INSTITUTIONAL_MODE_ALIASES = {"institutional", "institutional_activity", "institutional_13f"}
+COMPACT_COMMON_PAYLOAD_KEYS = {
+    "symbol",
+    "ticker",
+    "company_name",
+    "companyName",
+    "issuer_name",
+    "issuerName",
+    "security_name",
+    "securityName",
+    "security_description",
+    "securityDescription",
+    "description",
+    "headline",
+    "summary",
+    "asset_class",
+    "assetClass",
+    "sector",
+    "instrument_type",
+    "instrumentType",
+    "trade_type",
+    "tradeType",
+    "transaction_type",
+    "transactionType",
+    "owner_type",
+    "ownerType",
+    "ownership",
+    "trade_date",
+    "tradeDate",
+    "transaction_date",
+    "transactionDate",
+    "report_date",
+    "reportDate",
+    "filing_date",
+    "filingDate",
+    "amount_range_min",
+    "amountRangeMin",
+    "amount_range_max",
+    "amountRangeMax",
+    "amount_min",
+    "amountMin",
+    "amount_max",
+    "amountMax",
+    "price",
+    "trade_price",
+    "tradePrice",
+    "estimated_price",
+    "estimatedPrice",
+    "current_price",
+    "currentPrice",
+    "latest_price",
+    "latestPrice",
+    "gain_loss_percent",
+    "gainLossPercent",
+    "gain_loss_as_of",
+    "gainLossAsOf",
+    "pnl_pct",
+    "pnlPct",
+    "shares",
+    "display_price",
+    "displayPrice",
+    "reported_price",
+    "reportedPrice",
+    "reported_price_currency",
+    "reportedPriceCurrency",
+    "reported_share_basis",
+    "reportedShareBasis",
+    "display_share_basis",
+    "displayShareBasis",
+    "display_trade_value",
+    "displayTradeValue",
+    "role",
+    "relationship",
+    "title",
+    "typeOfOwner",
+    "officerTitle",
+    "insiderRole",
+    "position",
+    "insider_name",
+    "insiderName",
+    "reporting_cik",
+    "reportingCik",
+    "document_url",
+    "documentUrl",
+    "source_url",
+    "sourceUrl",
+    "url",
+    "link",
+    "finalLink",
+    "smart_score",
+    "smartScore",
+    "smart_band",
+    "smartBand",
+    "unusual_multiple",
+    "unusualMultiple",
+    "alpha_pct",
+    "alphaPct",
+    "benchmark_return_pct",
+    "benchmarkReturnPct",
+    "holding_period_days",
+    "holdingPeriodDays",
+    "outcome_horizon",
+    "outcomeHorizon",
+    "price_normalization",
+    "priceNormalization",
+    "maturity_date",
+    "maturityDate",
+    "duration_label",
+    "durationLabel",
+    "member",
+}
+COMPACT_INSIDER_RAW_KEYS = {
+    "symbol",
+    "ticker",
+    "companyName",
+    "company_name",
+    "issuerName",
+    "issuer_name",
+    "securityName",
+    "security_name",
+    "transactionType",
+    "transaction_type",
+    "acquisitionOrDisposition",
+    "insiderName",
+    "insider_name",
+    "reportingCik",
+    "reporting_cik",
+    "companyCik",
+    "companyCIK",
+    "directOrIndirect",
+    "typeOfOwner",
+    "officerTitle",
+    "insiderRole",
+    "relationship",
+    "title",
+    "position",
+    "transactionDate",
+    "transaction_date",
+    "filingDate",
+    "filing_date",
+    "price",
+    "transactionPrice",
+    "transactionPricePerShare",
+    "securitiesTransacted",
+    "transactionShares",
+}
+COMPACT_GOVERNMENT_CONTRACT_KEYS = {
+    "symbol",
+    "ticker",
+    "company_name",
+    "companyName",
+    "recipient_name",
+    "raw_recipient_name",
+    "awarding_agency",
+    "department",
+    "agency",
+    "funding_agency",
+    "title",
+    "description",
+    "award_description",
+    "contract_description",
+    "source_url",
+    "sourceUrl",
+    "url",
+    "report_date",
+    "action_date",
+    "created_at",
+    "period_end",
+    "end_date",
+    "obligated_amount",
+    "transaction_obligated_amount",
+    "award_amount",
+    "contract_value",
+    "amount",
+    "total_obligated_amount",
+    "total_obligated",
+    "total_obligation",
+    "current_total_obligation",
+    "event_subtype",
+    "modification_number",
+    "award_id",
+    "parent_award_id",
+}
+COMPACT_GOVERNMENT_CONTRACT_RAW_KEYS = {
+    "total_obligated_amount",
+    "totalObligatedAmount",
+    "current_total_obligation",
+    "currentTotalObligation",
+    "period_end",
+    "end_date",
+    "award_amount",
+    "award_id",
+    "awardId",
+    "generated_internal_id",
+}
+COMPACT_INSTITUTIONAL_KEYS = {
+    "symbol",
+    "ticker",
+    "holder_name",
+    "institution_name",
+    "institution_cik",
+    "cik",
+    "report_period",
+    "report_quarter",
+    "report_year",
+    "filing_date",
+    "reported_value_usd",
+    "market_value",
+    "value_delta_usd",
+    "direction",
+    "data_semantics",
+    "timing_note",
+}
 
 
 def _cap_feed_quote_symbols(symbols: Iterable[str]) -> list[str]:
@@ -346,6 +558,7 @@ def _events_response_cache_key(
     page_size: int | None,
     offset: int,
     include_net_flows: bool,
+    payload_mode: Literal["compact", "full"],
 ) -> str | None:
     if request is None and not _is_production_runtime():
         return None
@@ -382,6 +595,7 @@ def _events_response_cache_key(
         "page_size": page_size,
         "offset": offset,
         "include_net_flows": bool(include_net_flows),
+        "payload": payload_mode,
     }
     return "events:" + json.dumps(key_parts, sort_keys=True, separators=(",", ":"), default=str)
 
@@ -398,8 +612,6 @@ def _can_view_institutional_events(db: Session, request: Request | None) -> bool
 
 def _events_response_cache_allowed_for_request(request: Request | None, *, can_view_institutional: bool) -> bool:
     if request is None or not hasattr(request, "headers") or not hasattr(request, "cookies"):
-        return True
-    if can_view_institutional:
         return True
     if request.headers.get("authorization"):
         return False
@@ -2797,6 +3009,95 @@ def _enqueue_missing_trade_outcomes(
         logger.exception("feed_pnl_batch_enqueue_failed endpoint=/api/events events=%s", len(missing))
 
 
+def _copy_payload_keys(payload: dict, keys: set[str]) -> dict:
+    return {key: payload[key] for key in keys if key in payload and payload.get(key) is not None}
+
+
+def _compact_raw_payload(raw: object, keys: set[str]) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    compact = _copy_payload_keys(raw, keys)
+    parent_award = raw.get("parent_award")
+    if isinstance(parent_award, dict):
+        compact_parent = _copy_payload_keys(parent_award, COMPACT_GOVERNMENT_CONTRACT_RAW_KEYS)
+        if compact_parent:
+            compact["parent_award"] = compact_parent
+    return compact or None
+
+
+def _compact_event_payload(event: Event, payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+
+    if event.event_type == "government_contract":
+        compact = _copy_payload_keys(payload, COMPACT_GOVERNMENT_CONTRACT_KEYS)
+        raw = _compact_raw_payload(payload.get("raw"), COMPACT_GOVERNMENT_CONTRACT_RAW_KEYS)
+        if raw:
+            compact["raw"] = raw
+        return compact
+
+    if event.event_type in INSTITUTIONAL_EVENT_TYPES:
+        compact = _copy_payload_keys(payload, COMPACT_INSTITUTIONAL_KEYS)
+        raw = _compact_raw_payload(payload.get("raw"), {"holder", "institutionName", "cik", "symbol", "ticker"})
+        if raw:
+            compact["raw"] = raw
+        return compact
+
+    compact = _copy_payload_keys(payload, COMPACT_COMMON_PAYLOAD_KEYS)
+    if event.event_type == "insider_trade":
+        raw = _compact_raw_payload(payload.get("raw"), COMPACT_INSIDER_RAW_KEYS)
+        if raw:
+            compact["raw"] = raw
+    if event.symbol:
+        compact.setdefault("symbol", event.symbol)
+        compact.setdefault("ticker", event.symbol)
+    if event.member_name:
+        compact.setdefault("member_name", event.member_name)
+        compact.setdefault("memberName", event.member_name)
+    if event.member_bioguide_id:
+        compact.setdefault("member_bioguide_id", event.member_bioguide_id)
+        compact.setdefault("memberBioguideId", event.member_bioguide_id)
+    if event.chamber:
+        compact.setdefault("chamber", event.chamber)
+    if event.party:
+        compact.setdefault("party", event.party)
+    if event.trade_type:
+        compact.setdefault("trade_type", event.trade_type)
+        compact.setdefault("tradeType", event.trade_type)
+        compact.setdefault("transaction_type", event.trade_type)
+        compact.setdefault("transactionType", event.trade_type)
+    if event.transaction_type:
+        compact.setdefault("transaction_type", event.transaction_type)
+        compact.setdefault("transactionType", event.transaction_type)
+    if event.amount_min is not None:
+        compact.setdefault("amount_min", event.amount_min)
+        compact.setdefault("amountMin", event.amount_min)
+        compact.setdefault("amount_range_min", event.amount_min)
+        compact.setdefault("amountRangeMin", event.amount_min)
+    if event.amount_max is not None:
+        compact.setdefault("amount_max", event.amount_max)
+        compact.setdefault("amountMax", event.amount_max)
+        compact.setdefault("amount_range_max", event.amount_max)
+        compact.setdefault("amountRangeMax", event.amount_max)
+    if event.source_document_url:
+        compact.setdefault("document_url", event.source_document_url)
+        compact.setdefault("documentUrl", event.source_document_url)
+    if event.event_type in CONGRESS_DISCLOSURE_EVENT_TYPES and "member" not in compact:
+        member_payload = {
+            key: value
+            for key, value in {
+                "name": event.member_name,
+                "bioguide_id": event.member_bioguide_id,
+                "chamber": event.chamber,
+                "party": event.party,
+            }.items()
+            if value is not None
+        }
+        if member_payload:
+            compact["member"] = member_payload
+    return compact
+
+
 def _event_payload(
     event: Event,
     db: Session,
@@ -2811,6 +3112,7 @@ def _event_payload(
     baseline_map: dict[str, tuple[float, int]],
     enrich_prices: bool = True,
     outcome: TradeOutcome | None = None,
+    payload_mode: Literal["compact", "full"] = "full",
 ) -> EventOut:
     payload = _ensure_insider_payload_company_fields(
         event,
@@ -3015,6 +3317,8 @@ def _event_payload(
     if gain_loss_as_of is None and outcome is not None:
         gain_loss_as_of = outcome.computed_at
 
+    response_payload = payload if payload_mode == "full" else _compact_event_payload(event, payload)
+
     return EventOut(
         id=event.id,
         event_type=event.event_type,
@@ -3030,7 +3334,7 @@ def _event_payload(
         amount_min=display_amount_min,
         amount_max=display_amount_max,
         impact_score=event.impact_score,
-        payload=payload,
+        payload=response_payload,
         price=estimated_price,
         trade_price=estimated_price,
         estimated_price=estimated_price,
@@ -3269,6 +3573,7 @@ def _fetch_events_page(
     enqueue_feed_outcomes: bool = True,
     enqueue_metadata_refresh: bool = True,
     allow_live_quote_fallback: bool = False,
+    payload_mode: Literal["compact", "full"] = "full",
 ) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
@@ -3341,6 +3646,7 @@ def _fetch_events_page(
             baseline_map,
             enrich_prices=enrich_prices,
             outcome=outcome_by_event_id.get(event.id),
+            payload_mode=payload_mode,
         )
         for event in paged_rows
     ]
@@ -4185,6 +4491,7 @@ def list_events(
     include_total: bool = Query(False),
     enrich_prices: bool = Query(True),
     include_net_flows: bool = Query(True),
+    payload_mode: Literal["compact", "full"] = Query("compact", alias="payload"),
     debug: bool | None = None,
 ):
     started_at = perf_counter()
@@ -4501,6 +4808,7 @@ def list_events(
         page_size=page_size,
         offset=offset,
         include_net_flows=include_net_flows,
+        payload_mode=payload_mode,
     )
     if not _events_response_cache_allowed_for_request(request, can_view_institutional=can_view_institutional):
         response_cache_key = None
@@ -4553,6 +4861,7 @@ def list_events(
             include_net_flows=include_net_flows,
             enqueue_feed_outcomes=enqueue_feed_outcomes,
             enqueue_metadata_refresh=enqueue_metadata_refresh,
+            payload_mode=payload_mode,
         )
         if display_filter_active:
             page.items = _apply_display_value_filters(
@@ -4596,6 +4905,7 @@ def list_events(
                     "include_total": include_total,
                     "enrich_prices": enrich_prices,
                     "include_net_flows": include_net_flows,
+                    "payload": payload_mode,
                 },
                 applied_filters=applied_filters,
                 count_after_filters=count_after_filters,
@@ -4698,6 +5008,7 @@ def list_events(
             baseline_map,
             enrich_prices=enrich_prices,
             outcome=outcome_by_event_id.get(event.id),
+            payload_mode=payload_mode,
         )
         for event in rows
     ]
@@ -4745,6 +5056,8 @@ def list_events(
                     "page_size": page_size,
                     "include_total": include_total,
                     "enrich_prices": enrich_prices,
+                    "include_net_flows": include_net_flows,
+                    "payload": payload_mode,
                 },
             applied_filters=applied_filters,
             count_after_filters=count_after_filters,

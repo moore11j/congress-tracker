@@ -42,6 +42,28 @@ def _insider_event(payload) -> Event:
     )
 
 
+def _congress_event(payload) -> Event:
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    return Event(
+        id=43,
+        event_type="congress_trade",
+        ts=now,
+        event_date=now,
+        symbol="AAPL",
+        source="congress",
+        impact_score=1.0,
+        payload_json=payload,
+        member_name="Nancy Pelosi",
+        member_bioguide_id="P000197",
+        chamber="House",
+        party="D",
+        trade_type="purchase",
+        amount_min=1001,
+        amount_max=15000,
+        created_at=now,
+    )
+
+
 def _serialize(event: Event):
     return _event_payload(
         event,
@@ -219,3 +241,74 @@ def test_event_payload_promotes_raw_insider_role():
     assert out.payload["company_name"] == "InMed Pharmaceuticals Inc."
     assert out.payload["role"] == "10 percent owner"
     assert out.payload["insiderRole"] == "10 percent owner"
+
+
+def test_compact_event_payload_keeps_feed_card_fields_without_raw_blob():
+    event = _insider_event(
+        {
+            "raw": {
+                "companyName": "Acme Corp",
+                "insiderName": "Jane Example",
+                "typeOfOwner": "director",
+                "transactionDate": "2026-01-10",
+                "securityName": "Common Stock",
+                "securitiesTransacted": 100,
+                "unusedLargeBlob": "x" * 5000,
+            },
+            "symbol": "ACME",
+            "trade_type": "purchase",
+            "transaction_date": "2026-01-10",
+            "filing_date": "2026-01-11",
+            "shares": 100,
+        }
+    )
+    event.symbol = "ACME"
+    event.trade_type = "purchase"
+
+    out = _event_payload(
+        event,
+        NoWriteSession(),  # type: ignore[arg-type]
+        price_memo={},
+        current_price_memo={},
+        current_quote_meta={},
+        member_net_30d_map={},
+        symbol_net_30d_map={},
+        confirmation_metrics_map={},
+        ticker_meta={},
+        cik_names={},
+        baseline_map={},
+        enrich_prices=False,
+        payload_mode="compact",
+    )
+
+    assert out.payload["symbol"] == "ACME"
+    assert out.payload["transaction_date"] == "2026-01-10"
+    assert out.payload["raw"]["companyName"] == "Acme Corp"
+    assert out.payload["raw"]["typeOfOwner"] == "director"
+    assert "unusedLargeBlob" not in out.payload["raw"]
+
+
+def test_compact_congress_payload_promotes_feed_card_identity_and_amounts():
+    event = _congress_event({"raw": {"unusedLargeBlob": "x" * 5000}, "company_name": "Apple Inc."})
+
+    out = _event_payload(
+        event,
+        NoWriteSession(),  # type: ignore[arg-type]
+        price_memo={},
+        current_price_memo={},
+        current_quote_meta={},
+        member_net_30d_map={},
+        symbol_net_30d_map={},
+        confirmation_metrics_map={},
+        ticker_meta={},
+        cik_names={},
+        baseline_map={},
+        enrich_prices=False,
+        payload_mode="compact",
+    )
+
+    assert out.payload["member"]["name"] == "Nancy Pelosi"
+    assert out.payload["amount_range_min"] == 1001
+    assert out.payload["amount_range_max"] == 15000
+    assert out.payload["trade_type"] == "purchase"
+    assert "raw" not in out.payload

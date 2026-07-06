@@ -818,6 +818,46 @@ def test_list_events_caches_production_http_read_path(monkeypatch):
         db.close()
 
 
+def test_list_events_cache_separates_compact_and_full_payload(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                21,
+                "insider_trade",
+                ts=ts,
+                event_date=ts,
+                symbol="AAPL",
+                member_name="Example Insider",
+                trade_type="purchase",
+                payload={
+                    "symbol": "AAPL",
+                    "trade_type": "purchase",
+                    "raw": {
+                        "companyName": "Apple Inc.",
+                        "typeOfOwner": "director",
+                        "unusedLargeBlob": "x" * 1000,
+                    },
+                },
+            )
+        )
+        db.commit()
+
+        request = object()
+        compact_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        full_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False, payload_mode="full")
+
+        assert compact_page.items[0].payload["raw"]["companyName"] == "Apple Inc."
+        assert "unusedLargeBlob" not in compact_page.items[0].payload["raw"]
+        assert full_page.items[0].payload["raw"]["unusedLargeBlob"] == "x" * 1000
+    finally:
+        _clear_events_response_cache()
+        db.close()
+
+
 def test_list_events_caches_anonymous_http_requests_but_not_session_requests(monkeypatch):
     _clear_events_response_cache()
     db = _db()
