@@ -192,6 +192,57 @@ function Start-NativeCommandToFiles {
   }
 }
 
+function Ensure-Directory {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) {
+    New-Item -ItemType Directory -Path $Path | Out-Null
+  }
+}
+
+function Initialize-ResultFile {
+  param([string]$Path)
+  $parent = Split-Path -Parent $Path
+  Ensure-Directory $parent
+  Set-Content -Path $Path -Value "" -Encoding UTF8
+}
+
+function Save-DockerLogs {
+  param(
+    [string]$Name,
+    [string]$StdoutPath,
+    [string]$StderrPath,
+    [string]$CombinedPath
+  )
+
+  $result = Invoke-CapturedNativeCommand "docker" @("logs", $Name) -AllowFailure
+  Set-Content -Path $StdoutPath -Value $result.Stdout -Encoding UTF8 -NoNewline
+  Set-Content -Path $StderrPath -Value $result.Stderr -Encoding UTF8 -NoNewline
+  Set-Content -Path $CombinedPath -Value $result.Output -Encoding UTF8
+
+  return $result
+}
+
+function Get-DockerContainerState {
+  param([string]$Name)
+
+  $result = Invoke-CapturedNativeCommand "docker" @("inspect", "--format", "{{.State.Running}} {{.State.ExitCode}}", $Name) -AllowFailure
+  if ($result.ExitCode -ne 0 -or -not $result.Stdout.Trim()) {
+    return $null
+  }
+
+  $parts = $result.Stdout.Trim() -split "\s+"
+  [pscustomobject]@{
+    Running = $parts[0] -eq "true"
+    ExitCode = [int]$parts[1]
+  }
+}
+
+function Start-DetachedDockerContainer {
+  param([string[]]$Arguments)
+  $result = Invoke-CapturedNativeCommand "docker" $Arguments
+  return $result.Stdout.Trim()
+}
+
 function Stop-CapturedProcess {
   param([object]$CapturedProcess)
   if (-not $CapturedProcess) {
@@ -283,7 +334,7 @@ function Confirm-SchedulerDisabled {
 }
 
 function Assert-NoRunningK6Container {
-  $existing = Invoke-CapturedNativeCommand "docker" @("ps", "--filter", "ancestor=grafana/k6", "--format", "{{.ID}} {{.Names}} {{.Status}}") -AllowFailure
+  $existing = Invoke-CapturedNativeCommand "docker" @("ps", "-a", "--filter", "ancestor=grafana/k6", "--format", "{{.ID}} {{.Names}} {{.Status}}") -AllowFailure
   $matching = @($existing.Output -split "`n" | Where-Object { $_.Trim().Length -gt 0 })
   if ($matching.Count -gt 0 -and ($matching -join "").Trim().Length -gt 0) {
     throw "A grafana/k6 container is still running:`n$($matching -join "`n")"
@@ -301,7 +352,7 @@ if ($isProduction -and -not $ApproveProduction) {
 
 $k6Script = if ($Mode -eq "staged") { "load_tests/k6/walnut_capacity_stages.js" } else { "load_tests/k6/walnut_capacity_smoke.js" }
 $dockerArgs = @(
-  "run", "--rm", "-i",
+  "run", "-d",
   "--name", $ContainerName,
   "-v", "${PWD}:/work",
   "-w", "/work",
@@ -362,18 +413,30 @@ if ($PreflightOnly) {
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$logOut = Join-Path $env:TEMP "walnut-k6-fly-$stamp.out.log"
-$logErr = Join-Path $env:TEMP "walnut-k6-fly-$stamp.err.log"
-$k6Out = Join-Path $env:TEMP "walnut-k6-$stamp.out.log"
-$k6Err = Join-Path $env:TEMP "walnut-k6-$stamp.err.log"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$resultsDir = Join-Path $scriptDir "results"
+$resultBaseName = "walnut-k6-$Mode-$TestProfile-$stamp"
+$logOut = Join-Path $resultsDir "$resultBaseName.fly.out.log"
+$logErr = Join-Path $resultsDir "$resultBaseName.fly.err.log"
+$k6Out = Join-Path $resultsDir "$resultBaseName.k6.out.log"
+$k6Err = Join-Path $resultsDir "$resultBaseName.k6.err.log"
+$k6Combined = Join-Path $resultsDir "$resultBaseName.k6.combined.log"
+
+Ensure-Directory $resultsDir
+Initialize-ResultFile $logOut
+Initialize-ResultFile $logErr
+Initialize-ResultFile $k6Out
+Initialize-ResultFile $k6Err
+Initialize-ResultFile $k6Combined
 
 $fly = $null
-$k6 = $null
+$k6ContainerId = $null
 $k6ExitCode = 1
 $stopReason = $null
 $lineOffset = 0
 $currentRecordUtc = $null
 $slowEvents = New-Object System.Collections.Generic.List[datetime]
+$lastK6ConsoleUpdateUtc = [datetime]::MinValue
 
 try {
   $testStartUtc = [datetime]::UtcNow
@@ -382,10 +445,39 @@ try {
   $fly = Start-NativeCommandToFiles "flyctl" @("logs", "-a", $FlyApp) $logOut $logErr
   Start-Sleep -Seconds 2
 
-  $k6 = Start-NativeCommandToFiles "docker" $dockerArgs $k6Out $k6Err
+  $k6ContainerId = Start-DetachedDockerContainer $dockerArgs
+  Write-Host "k6_container=$k6ContainerId"
 
-  while (-not $k6.Process.HasExited) {
+  while ($true) {
     Start-Sleep -Seconds 5
+    Save-DockerLogs $ContainerName $k6Out $k6Err $k6Combined | Out-Null
+
+    $nowUtc = [datetime]::UtcNow
+    if (($nowUtc - $lastK6ConsoleUpdateUtc).TotalSeconds -ge 60) {
+      $lastK6ConsoleUpdateUtc = $nowUtc
+      Write-Host "k6 progress tail ($($nowUtc.ToString("o"))):"
+      if (Test-Path $k6Out) {
+        Get-Content -Path $k6Out -Tail 5 | ForEach-Object { Write-Host $_ }
+      }
+      if (Test-Path $k6Err) {
+        $stderrTail = @(Get-Content -Path $k6Err -Tail 3 | Where-Object { $_.Trim().Length -gt 0 })
+        if ($stderrTail.Count -gt 0) {
+          Write-Host "k6 stderr tail:"
+          $stderrTail | ForEach-Object { Write-Host $_ }
+        }
+      }
+    }
+
+    $state = Get-DockerContainerState $ContainerName
+    if (-not $state) {
+      throw "Unable to inspect k6 container $ContainerName. Logs so far: $k6Combined"
+    }
+
+    if (-not $state.Running) {
+      $k6ExitCode = $state.ExitCode
+      break
+    }
+
     if (-not (Test-Path $logOut)) {
       continue
     }
@@ -438,9 +530,15 @@ try {
     }
   }
 
-  if ($k6) {
-    $k6.Process.WaitForExit()
-    $k6ExitCode = $k6.Process.ExitCode
+  if ($stopReason) {
+    do {
+      Start-Sleep -Seconds 2
+      $state = Get-DockerContainerState $ContainerName
+    } while ($state -and $state.Running)
+
+    if ($state) {
+      $k6ExitCode = $state.ExitCode
+    }
   }
 } finally {
   $testEndUtc = [datetime]::UtcNow
@@ -450,14 +548,19 @@ try {
     Stop-CapturedProcess $fly
   }
 
-  if ($k6 -and -not $k6.Process.HasExited) {
+  $finalState = Get-DockerContainerState $ContainerName
+  if ($finalState -and $finalState.Running) {
     Write-Warning "Wrapper exiting while k6 is still running; stopping $ContainerName."
     Stop-K6Container
-    Stop-CapturedProcess $k6
+  }
+
+  if ($finalState) {
+    Save-DockerLogs $ContainerName $k6Out $k6Err $k6Combined | Out-Null
+    Invoke-CapturedNativeCommand "docker" @("rm", "-f", $ContainerName) -AllowFailure | Out-Null
   }
 
   Write-Host "Post-test: verify no k6 container remains"
-  Invoke-CapturedNativeCommand "docker" @("ps", "--filter", "ancestor=grafana/k6", "--format", "table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}") -AllowFailure | Select-Object -ExpandProperty Output
+  Invoke-CapturedNativeCommand "docker" @("ps", "-a", "--filter", "ancestor=grafana/k6", "--format", "table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}") -AllowFailure | Select-Object -ExpandProperty Output
   Assert-NoRunningK6Container
 
   Write-Host "Post-test: scheduler and lock state"
@@ -469,10 +572,10 @@ try {
   Write-Host "Output files:"
   Write-Host "k6 stdout: $k6Out"
   Write-Host "k6 stderr: $k6Err"
+  Write-Host "k6 combined: $k6Combined"
   Write-Host "Fly stdout: $logOut"
   Write-Host "Fly stderr: $logErr"
 
-  Dispose-CapturedProcess $k6
   Dispose-CapturedProcess $fly
 }
 
@@ -481,7 +584,7 @@ if ($stopReason) {
   exit 2
 }
 
-if ($k6) {
+if ($k6ContainerId) {
   exit $k6ExitCode
 }
 
