@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { countryOptions, normalizeCountryInput, normalizeRegionInput, regionOptionsForCountry } from "@/lib/billingLocation";
@@ -23,7 +24,12 @@ export function LoginRegisterPanel({
   reactivated?: boolean;
 }) {
   const router = useRouter();
-  const nextPath = safeAppReturnPath(returnTo, reactivated ? reactivatedBillingPath : defaultPostLoginPath);
+  const searchParams = useSearchParams();
+  const resolvedResetStatus = resetStatus ?? searchParams.get("reset") ?? undefined;
+  const resolvedReturnTo = returnTo ?? searchParams.get("return_to") ?? undefined;
+  const resolvedAccountDeleted = accountDeleted ?? searchParams.get("account_deleted") === "1";
+  const resolvedReactivated = reactivated ?? searchParams.get("reactivated") === "1";
+  const nextPath = safeAppReturnPath(resolvedReturnTo, resolvedReactivated ? reactivatedBillingPath : defaultPostLoginPath);
   const [mode, setMode] = useState<Mode>("login");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -37,11 +43,11 @@ export function LoginRegisterPanel({
   const [addressLine2, setAddressLine2] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [status, setStatus] = useState<string | null>(
-    accountDeleted
+    resolvedAccountDeleted
       ? "Your account has been deleted."
-      : reactivated
+      : resolvedReactivated
         ? "Your account has been reactivated. Please sign in to continue."
-        : resetStatus === "success"
+        : resolvedResetStatus === "success"
           ? "Password reset successful. Please sign in with your new password."
           : null,
   );

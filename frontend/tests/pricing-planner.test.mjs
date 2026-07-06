@@ -130,7 +130,7 @@ test("pricing actions render current plan states from fresh account entitlements
 
 test("pricing page renders a static public shell and refreshes live config client-side", () => {
   assert.match(pricingPage, /export const dynamic = "force-static"/);
-  assert.match(pricingPage, /export const revalidate = 3600/);
+  assert.match(pricingPage, /export const revalidate = false/);
   assert.doesNotMatch(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)/);
   assert.match(pricingPage, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
   assert.match(source, /getPlanConfig\(\)/);

@@ -4,7 +4,7 @@ import { PricingPlanner } from "@/components/billing/PricingPlanner";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 
 export const dynamic = "force-static";
-export const revalidate = 3600;
+export const revalidate = false;
 
 export const metadata: Metadata = {
   title: "Pricing | Walnut Market Terminal",

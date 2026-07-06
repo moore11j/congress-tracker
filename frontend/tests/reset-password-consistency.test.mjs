@@ -51,6 +51,9 @@ test("login page displays password reset success message from query param", () =
   const loginPage = read("app/login/page.tsx");
   const loginPanel = read("components/auth/LoginRegisterPanel.tsx");
 
-  assert.match(loginPage, /resetStatus=\{getParam\(sp, "reset"\)\}/);
+  assert.match(loginPage, /export const dynamic = "force-static"/);
+  assert.match(loginPage, /<Suspense fallback=\{<LoginFallback \/>\}>/);
+  assert.match(loginPanel, /useSearchParams\(\)/);
+  assert.match(loginPanel, /searchParams\.get\("reset"\)/);
   assert.match(loginPanel, /Password reset successful\. Please sign in with your new password\./);
 });
