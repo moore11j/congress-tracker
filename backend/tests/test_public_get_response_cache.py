@@ -84,6 +84,34 @@ def test_public_get_response_cache_key_separates_request_source_variants():
     assert browser_key != load_test_key
 
 
+def test_public_events_cache_key_normalizes_equivalent_query_variants():
+    base = _public_get_cache_key(
+        _request(
+            "/api/events?limit=50&enrich_prices=1",
+            headers={"User-Agent": "Mozilla/5.0", "X-Walnut-Request-Source": "client"},
+        )
+    )
+    variant = _public_get_cache_key(
+        _request(
+            "/api/events?enrich_prices=true&page_size=50&offset=0&include_net_flows=0&payload=compact&limit=50",
+            headers={"User-Agent": "k6/0.49.0", "X-Walnut-Request-Source": "load_test"},
+        )
+    )
+    assert base is not None
+    assert variant == base
+
+    compact_default = _public_get_cache_key(_request("/api/events?limit=10&enrich_prices=1"))
+    compact_explicit = _public_get_cache_key(_request("/api/events?enrich_prices=true&limit=10&payload=compact"))
+    full_payload = _public_get_cache_key(_request("/api/events?limit=10&enrich_prices=1&payload=full"))
+    assert compact_default == compact_explicit
+    assert full_payload is not None
+    assert full_payload != compact_default
+
+    symbol_a = _public_get_cache_key(_request("/api/events?ticker=nvda&symbol=AAPL&limit=50"))
+    symbol_b = _public_get_cache_key(_request("/api/events?symbol=aapl&ticker=NVDA&limit=50&offset=0"))
+    assert symbol_a == symbol_b
+
+
 def test_public_get_response_cache_serves_stale_payload_on_downstream_503(monkeypatch):
     monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_STALE_SECONDS", "120")
     request = _request(
@@ -114,6 +142,45 @@ def test_public_get_response_cache_serves_stale_payload_on_downstream_503(monkey
 
     assert response.status_code == 200
     assert response.body == stale_body
+
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+
+
+def test_public_get_response_cache_coalesces_concurrent_misses(monkeypatch):
+    monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_DEDUPE_WAIT_SECONDS", "0.01")
+    request = _request(
+        "/api/events?limit=50&enrich_prices=1",
+        headers={"User-Agent": "k6/0.49.0", "X-Walnut-Request-Source": "load_test"},
+    )
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+    calls = 0
+
+    async def call_next(_request):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return JSONResponse(
+            status_code=200,
+            content={"items": [{"id": 1, "gain_loss_status": "ok", "gain_loss_percent": 9.4}], "limit": 50},
+        )
+
+    async def run_pair():
+        return await asyncio.gather(
+            public_get_response_cache(request, call_next),
+            public_get_response_cache(request, call_next),
+        )
+
+    first, second = asyncio.run(run_pair())
+
+    assert calls == 1
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["x-walnut-public-cache"] == "store"
+    assert second.headers["x-walnut-public-cache"] == "hit"
 
     with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
         _PUBLIC_GET_RESPONSE_CACHE.clear()

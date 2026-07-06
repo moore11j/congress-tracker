@@ -4679,7 +4679,7 @@ def list_events(
     offset: int = Query(0, ge=0),
     include_total: bool = Query(False),
     enrich_prices: bool = Query(True),
-    include_net_flows: bool = Query(True),
+    include_net_flows: bool = Query(False),
     payload_mode: Literal["compact", "full"] = Query("compact", alias="payload"),
     debug: bool | None = None,
 ):

@@ -2494,6 +2494,7 @@ def _member_analytics_cache_set(cache_key: str | None, payload: dict[str, Any]) 
 _PUBLIC_GET_RESPONSE_CACHE: dict[str, tuple[float, int, dict[str, str], bytes]] = {}
 _PUBLIC_GET_RESPONSE_INFLIGHT: dict[str, asyncio.Event] = {}
 _PUBLIC_GET_RESPONSE_CACHE_LOCK = threading.Lock()
+_PUBLIC_GET_RESPONSE_CACHE_STATS: dict[str, int] = {"hit": 0, "stale": 0, "store": 0, "miss": 0, "bypass": 0}
 _TICKER_CHART_INFLIGHT: dict[str, dict] = {}
 _TICKER_CHART_INFLIGHT_LOCK = threading.Lock()
 _CSRF_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -2605,6 +2606,80 @@ def _is_public_get_cacheable_path(path: str) -> bool:
     if len(parts) == 4 and parts[:2] == ["api", "insiders"] and parts[3] == "summary":
         return True
     return False
+
+
+def _public_get_cache_stat(name: str) -> None:
+    _PUBLIC_GET_RESPONSE_CACHE_STATS[name] = _PUBLIC_GET_RESPONSE_CACHE_STATS.get(name, 0) + 1
+
+
+def _public_get_cache_key_hash(cache_key: str) -> str:
+    return hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
+
+
+def _normalized_public_bool(value: str | None, *, default: bool) -> str:
+    if value is None or value == "":
+        return "1" if default else "0"
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return "1"
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return "0"
+    return "1" if default else "0"
+
+
+def _normalized_public_int(value: str | None, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value) if value not in {None, ""} else default
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _normalized_public_string(value: str | None, *, default: str = "") -> str:
+    cleaned = (value or default or "").strip()
+    return cleaned.casefold()
+
+
+def _normalized_events_public_query(request: Request) -> list[tuple[str, str]]:
+    params = request.query_params
+    limit = _normalized_public_int(params.get("limit"), default=50, minimum=1, maximum=100)
+    page_size = _normalized_public_int(params.get("page_size"), default=limit, minimum=1, maximum=200)
+    offset = _normalized_public_int(params.get("offset"), default=0, minimum=0, maximum=1_000_000)
+    payload = _normalized_public_string(params.get("payload"), default="compact") or "compact"
+    if payload not in {"compact", "full"}:
+        payload = "compact"
+    normalized: list[tuple[str, str]] = [
+        ("asset_class", _normalized_public_string(params.get("asset_class") or params.get("asset_type"))),
+        ("chamber", _normalized_public_string(params.get("chamber"))),
+        ("cursor", (params.get("cursor") or "").strip()),
+        ("department", _normalized_public_string(params.get("department"))),
+        ("enrich_prices", _normalized_public_bool(params.get("enrich_prices"), default=True)),
+        ("event_type", _normalized_public_string(params.get("event_type") or params.get("types") or params.get("mode"))),
+        ("filed_after_max", (params.get("filed_after_max") or "").strip()),
+        ("include_net_flows", _normalized_public_bool(params.get("include_net_flows"), default=False)),
+        ("limit", str(limit)),
+        ("max_amount", (params.get("max_amount") or "").strip()),
+        ("member", _normalized_public_string(params.get("member"))),
+        ("member_id", _normalized_public_string(params.get("member_id"))),
+        ("min_amount", (params.get("min_amount") or "").strip()),
+        ("offset", str(offset)),
+        ("ownership", _normalized_public_string(params.get("ownership"))),
+        ("page_size", str(page_size)),
+        ("party", _normalized_public_string(params.get("party"))),
+        ("payload", payload),
+        ("pnl_max", (params.get("pnl_max") or "").strip()),
+        ("pnl_min", (params.get("pnl_min") or "").strip()),
+        ("recent_days", (params.get("recent_days") or "").strip()),
+        ("role", _normalized_public_string(params.get("role"))),
+        ("signal_min", (params.get("signal_min") or "").strip()),
+        ("since", (params.get("since") or "").strip()),
+        ("symbol", ",".join(sorted({normalize_symbol(value) or value.strip().upper() for value in params.getlist("symbol") + params.getlist("ticker") if value.strip()}))),
+        ("tape", _normalized_public_string(params.get("tape"))),
+        ("trade_type", _normalized_public_string(params.get("trade_type"))),
+        ("transaction_type", _normalized_public_string(params.get("transaction_type"))),
+        ("whale", _normalized_public_bool(params.get("whale"), default=False)),
+    ]
+    return normalized
 
 
 def _is_secondary_analytics_path(path: str) -> bool:
@@ -2865,13 +2940,17 @@ def _public_get_cache_key(request: Request) -> str | None:
     user_agent_class = _classify_user_agent(request)
     if user_agent_class in {"bot", "crawler", "prefetch"} or _is_explicit_prefetch_request(request):
         return None
+    normalized_path = request.url.path.rstrip("/")
+    if normalized_path.lower() == "/api/events":
+        query_items = _normalized_events_public_query(request)
+        return json.dumps([normalized_path, query_items], separators=(",", ":"), sort_keys=True)
     query_items = sorted((key, value) for key, value in request.query_params.multi_items())
     request_variant = {
         "request_source": _request_source(request, user_agent_class),
         "walnut_source": _bounded_log_value(request.headers.get("x-walnut-request-source"), max_length=32),
         "ua_class": user_agent_class,
     }
-    return json.dumps([request.url.path.rstrip("/"), query_items, request_variant], separators=(",", ":"), sort_keys=True)
+    return json.dumps([normalized_path, query_items, request_variant], separators=(",", ":"), sort_keys=True)
 
 
 @contextmanager
@@ -3041,6 +3120,7 @@ async def log_slow_requests(request: Request, call_next):
 @app.middleware("http")
 async def public_get_response_cache(request: Request, call_next):
     cache_key = _public_get_cache_key(request)
+    cache_key_hash = _public_get_cache_key_hash(cache_key) if cache_key else None
     inflight_event: asyncio.Event | None = None
     inflight_leader = False
     stale_cached: tuple[int, dict[str, str], bytes] | None = None
@@ -3051,9 +3131,11 @@ async def public_get_response_cache(request: Request, call_next):
             if cached is not None:
                 expires_at, status_code, headers, body = cached
                 if expires_at > now:
-                    logger.info("public_get_response_cache_hit path=%s", request.url.path)
+                    _public_get_cache_stat("hit")
+                    logger.info("public_get_response_cache_hit path=%s key=%s bytes=%s", request.url.path, cache_key_hash, len(body))
                     hit_headers = dict(headers)
                     hit_headers["x-walnut-public-cache"] = "hit"
+                    hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
                     return Response(content=body, status_code=status_code, headers=hit_headers)
                 if expires_at + _public_get_cache_stale_seconds() > now:
                     stale_cached = (status_code, dict(headers), body)
@@ -3077,9 +3159,11 @@ async def public_get_response_cache(request: Request, call_next):
                     if cached is not None:
                         expires_at, status_code, headers, body = cached
                         if expires_at > now:
-                            logger.info("public_get_response_cache_hit path=%s", request.url.path)
+                            _public_get_cache_stat("hit")
+                            logger.info("public_get_response_cache_hit path=%s key=%s bytes=%s reason=inflight_wait", request.url.path, cache_key_hash, len(body))
                             hit_headers = dict(headers)
                             hit_headers["x-walnut-public-cache"] = "hit"
+                            hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
                             return Response(content=body, status_code=status_code, headers=hit_headers)
                         if expires_at + _public_get_cache_stale_seconds() > now:
                             stale_cached = (status_code, dict(headers), body)
@@ -3087,12 +3171,33 @@ async def public_get_response_cache(request: Request, call_next):
                             _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
             if not inflight_leader and stale_cached is not None:
                 status_code, headers, body = stale_cached
-                logger.info("public_get_response_cache_stale_hit path=%s reason=inflight_wait", request.url.path)
+                _public_get_cache_stat("stale")
+                logger.info("public_get_response_cache_stale_hit path=%s key=%s bytes=%s reason=inflight_wait", request.url.path, cache_key_hash, len(body))
                 stale_headers = dict(headers)
-                stale_headers["x-walnut-public-cache"] = "hit"
+                stale_headers["x-walnut-public-cache"] = "stale"
+                stale_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
                 return Response(content=body, status_code=status_code, headers=stale_headers)
+            if not inflight_leader and inflight_event is not None:
+                await inflight_event.wait()
+                now = time.time()
+                with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+                    cached = _PUBLIC_GET_RESPONSE_CACHE.get(cache_key)
+                    if cached is not None:
+                        expires_at, status_code, headers, body = cached
+                        if expires_at > now:
+                            _public_get_cache_stat("hit")
+                            logger.info("public_get_response_cache_hit path=%s key=%s bytes=%s reason=inflight_complete", request.url.path, cache_key_hash, len(body))
+                            hit_headers = dict(headers)
+                            hit_headers["x-walnut-public-cache"] = "hit"
+                            hit_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+                            return Response(content=body, status_code=status_code, headers=hit_headers)
 
     try:
+        if cache_key:
+            _public_get_cache_stat("miss")
+            logger.info("public_get_response_cache_miss path=%s key=%s", request.url.path, cache_key_hash)
+        else:
+            _public_get_cache_stat("bypass")
         response = await call_next(request)
     except BaseException:
         if cache_key and inflight_leader and inflight_event is not None:
@@ -3107,9 +3212,11 @@ async def public_get_response_cache(request: Request, call_next):
             inflight_event.set()
         if cache_key and response.status_code == 503 and stale_cached is not None:
             status_code, headers, body = stale_cached
-            logger.info("public_get_response_cache_stale_hit path=%s reason=downstream_503", request.url.path)
+            _public_get_cache_stat("stale")
+            logger.info("public_get_response_cache_stale_hit path=%s key=%s bytes=%s reason=downstream_503", request.url.path, cache_key_hash, len(body))
             stale_headers = dict(headers)
-            stale_headers["x-walnut-public-cache"] = "hit"
+            stale_headers["x-walnut-public-cache"] = "stale"
+            stale_headers["x-walnut-public-cache-key"] = cache_key_hash or ""
             return Response(content=body, status_code=status_code, headers=stale_headers)
         return response
     headers = {
@@ -3118,8 +3225,13 @@ async def public_get_response_cache(request: Request, call_next):
         if key.lower() not in {"content-length", "set-cookie"}
     }
     body = b""
-    async for chunk in response.body_iterator:
-        body += bytes(chunk)
+    body_iterator = getattr(response, "body_iterator", None)
+    if body_iterator is not None:
+        async for chunk in body_iterator:
+            body += bytes(chunk)
+    else:
+        raw_body = getattr(response, "body", b"")
+        body = bytes(raw_body or b"")
     headers["x-walnut-public-cache"] = "store"
     with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
         _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
@@ -3131,7 +3243,9 @@ async def public_get_response_cache(request: Request, call_next):
         _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
     if inflight_leader and inflight_event is not None:
         inflight_event.set()
-    logger.info("public_get_response_cache_store path=%s bytes=%s", request.url.path, len(body))
+    _public_get_cache_stat("store")
+    headers["x-walnut-public-cache-key"] = cache_key_hash or ""
+    logger.info("public_get_response_cache_store path=%s key=%s bytes=%s", request.url.path, cache_key_hash, len(body))
     return Response(content=body, status_code=response.status_code, headers=headers)
 
 
