@@ -18,8 +18,12 @@ def _db() -> Session:
     return Session(engine)
 
 
-def _request() -> Request:
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+def _request(path: str = "/", headers: dict[str, str] | None = None) -> Request:
+    raw_headers = [
+        (key.lower().encode("latin-1"), value.encode("latin-1"))
+        for key, value in (headers or {}).items()
+    ]
+    return Request({"type": "http", "method": "GET", "path": path, "headers": raw_headers})
 
 
 def test_global_search_returns_insider_result_and_route():
@@ -171,5 +175,52 @@ def test_company_scoped_insider_endpoints_filter_trades_by_issuer():
         assert summary["primary_symbol"] == "AAPL"
         assert summary["primary_company_name"] == "Apple Inc."
         assert [item["symbol"] for item in trades["items"]] == ["AAPL"]
+    finally:
+        db.close()
+
+
+def test_insider_summary_guest_ssr_preserves_identity_fields():
+    db = _db()
+    try:
+        now = datetime.now(timezone.utc)
+        db.add(
+            Event(
+                id=30,
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                symbol="NKE",
+                source="test",
+                member_name="Tim Cook",
+                trade_type="purchase",
+                amount_max=1060750,
+                payload_json=json.dumps(
+                    {
+                        "reporting_cik": "0001214156",
+                        "company_name": "Nike Inc.",
+                        "role": "Director",
+                        "transaction_date": now.date().isoformat(),
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        summary = insider_summary(
+            request=_request(
+                "/api/insiders/0001214156/summary",
+                {"x-walnut-request-source": "ssr"},
+            ),
+            db=db,
+            reporting_cik="0001214156",
+            lookback_days=90,
+        )
+
+        assert summary["status"] == "identity_only"
+        assert summary["insider_name"] == "Tim Cook"
+        assert summary["primary_symbol"] == "NKE"
+        assert summary["primary_company_name"] == "Nike Inc."
+        assert summary["primary_role"] == "Director"
+        assert summary["total_trades"] == 1
     finally:
         db.close()

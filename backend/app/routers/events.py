@@ -2340,6 +2340,114 @@ def _load_insider_events_for_cik(
     return matched
 
 
+def _empty_insider_summary_payload(
+    reporting_cik: str | None,
+    lookback_days: int,
+    *,
+    status: str | None = None,
+) -> dict:
+    payload = {
+        "reporting_cik": reporting_cik,
+        "insider_name": None,
+        "primary_company_name": None,
+        "primary_role": None,
+        "primary_symbol": None,
+        "lookback_days": lookback_days,
+        "total_trades": 0,
+        "buy_count": 0,
+        "sell_count": 0,
+        "unique_tickers": 0,
+        "gross_buy_value": 0,
+        "gross_sell_value": 0,
+        "net_flow": 0,
+        "latest_filing_date": None,
+        "latest_transaction_date": None,
+    }
+    if status:
+        payload["status"] = status
+    return payload
+
+
+def _insider_identity_summary_from_recent_events(
+    db: Session,
+    reporting_cik: str,
+    lookback_days: int,
+    *,
+    issuer: str | None = None,
+) -> dict:
+    normalized_cik = normalize_cik(reporting_cik)
+    matched = _load_insider_events_for_cik(
+        db,
+        reporting_cik,
+        lookback_days,
+        include_non_market_activity=True,
+        issuer=issuer,
+        max_events=25,
+    )
+    if not matched:
+        return _empty_insider_summary_payload(normalized_cik, lookback_days, status="identity_unavailable")
+
+    symbols = sorted(
+        {
+            symbol
+            for event, payload in matched
+            for symbol in [_event_symbol(event, payload)]
+            if symbol
+        }
+    )
+    ticker_meta = _ticker_meta_with_security_names(db, symbols) if symbols else {}
+    company_ciks = sorted(
+        {
+            cik
+            for _, payload in matched
+            for cik in [_event_cik(payload)]
+            if cik
+        }
+    )
+    cik_names = get_cik_meta(db, company_ciks, allow_refresh=False) if company_ciks else {}
+    enriched = [
+        (event, _enrich_payload_company_name(event, payload, ticker_meta, cik_names))
+        for event, payload in matched
+    ]
+
+    symbol_counts: dict[str, int] = {}
+    name_counts: dict[str, int] = {}
+    role_counts: dict[str, int] = {}
+    latest_transaction_date: str | None = None
+    for event, payload in enriched:
+        symbol = _event_symbol(event, payload)
+        if symbol:
+            symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+        insider_name = _insider_display_name(event, payload)
+        if insider_name:
+            name_counts[insider_name] = name_counts.get(insider_name, 0) + 1
+        role = _insider_role(payload)
+        if role:
+            role_counts[role] = role_counts.get(role, 0) + 1
+        tx_date = _insider_trade_date(event, payload)
+        if tx_date and (latest_transaction_date is None or tx_date > latest_transaction_date):
+            latest_transaction_date = tx_date
+
+    latest_event, latest_payload = enriched[0]
+    latest_trade_row = _insider_trade_row(latest_event, latest_payload)
+    primary_company_name = (
+        _insider_company_name(latest_event, latest_payload)
+        or _first_non_empty_text(latest_trade_row.get("company_name"))
+    )
+    primary_symbol = max(symbol_counts.items(), key=lambda item: item[1])[0] if symbol_counts else None
+    return {
+        **_empty_insider_summary_payload(normalized_cik, lookback_days, status="identity_only"),
+        "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else _insider_display_name(latest_event, latest_payload),
+        "primary_company_name": primary_company_name,
+        "primary_role": max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else _insider_role(latest_payload),
+        "primary_symbol": primary_symbol,
+        "total_trades": len(enriched),
+        "unique_tickers": len(symbol_counts),
+        "latest_filing_date": _insider_filing_date(latest_event, latest_payload),
+        "latest_transaction_date": latest_transaction_date,
+    }
+
+
 def _insider_trade_date(event: Event, payload: dict) -> str | None:
     value = _first_text_field(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate")
     if not value:
@@ -5617,24 +5725,7 @@ def insider_summary(
     normalized_cik = normalize_cik(reporting_cik)
     if is_inactive_logged_out_api_request(request):
         logger.info("api_inactive_lightweight_response endpoint=insider_summary reporting_cik=%s", normalized_cik)
-        return {
-            "reporting_cik": normalized_cik,
-            "insider_name": None,
-            "primary_company_name": None,
-            "primary_role": None,
-            "primary_symbol": None,
-            "lookback_days": lookback_days,
-            "total_trades": 0,
-            "buy_count": 0,
-            "sell_count": 0,
-            "unique_tickers": 0,
-            "gross_buy_value": 0,
-            "gross_sell_value": 0,
-            "net_flow": 0,
-            "latest_filing_date": None,
-            "latest_transaction_date": None,
-            "status": "skipped",
-        }
+        return _insider_identity_summary_from_recent_events(db, reporting_cik, lookback_days, issuer=issuer)
     cache_key = _insider_summary_cache_key(reporting_cik, lookback_days, issuer)
     cached_response = _insider_summary_cache_get(cache_key)
     if cached_response is not None:
@@ -5663,23 +5754,12 @@ def insider_summary(
             lookback_days,
             (perf_counter() - started) * 1000,
         )
-        return _insider_summary_cache_finalize(cache_key, inflight_state, inflight_leader, {
-            "reporting_cik": normalized_cik,
-            "insider_name": None,
-            "primary_company_name": None,
-            "primary_role": None,
-            "primary_symbol": None,
-            "lookback_days": lookback_days,
-            "total_trades": 0,
-            "buy_count": 0,
-            "sell_count": 0,
-            "unique_tickers": 0,
-            "gross_buy_value": 0,
-            "gross_sell_value": 0,
-            "net_flow": 0,
-            "latest_filing_date": None,
-            "latest_transaction_date": None,
-        })
+        return _insider_summary_cache_finalize(
+            cache_key,
+            inflight_state,
+            inflight_leader,
+            _empty_insider_summary_payload(normalized_cik, lookback_days),
+        )
 
     buy_count = 0
     sell_count = 0
