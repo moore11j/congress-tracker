@@ -3187,6 +3187,7 @@ def _event_payload(
     enrich_prices: bool = True,
     outcome: TradeOutcome | None = None,
     payload_mode: Literal["compact", "full"] = "full",
+    include_confirmation_metrics: bool = True,
 ) -> EventOut:
     payload = _ensure_insider_payload_company_fields(
         event,
@@ -3212,7 +3213,7 @@ def _event_payload(
 
     confirmation_summary = (
         confirmation_metrics_map.get(sym_norm or "").as_dict()
-        if sym_norm and sym_norm in confirmation_metrics_map
+        if include_confirmation_metrics and sym_norm and sym_norm in confirmation_metrics_map
         else None
     )
 
@@ -3648,6 +3649,7 @@ def _fetch_events_page(
     enqueue_metadata_refresh: bool = True,
     allow_live_quote_fallback: bool = False,
     payload_mode: Literal["compact", "full"] = "full",
+    include_confirmation_metrics: bool = True,
 ) -> EventsPage:
     rows = db.execute(q).scalars().all()
     paged_rows = rows[:limit]
@@ -3690,9 +3692,13 @@ def _fetch_events_page(
 
     member_net_30d_map = _member_net_30d_map(db, paged_rows) if include_net_flows else {}
     symbol_net_30d_map = _symbol_net_30d_map(db, paged_rows) if include_net_flows else {}
-    confirmation_metrics_map = get_confirmation_metrics_for_symbols(
-        db,
-        [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+    confirmation_metrics_map = (
+        get_confirmation_metrics_for_symbols(
+            db,
+            [symbol for event in paged_rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+        )
+        if include_confirmation_metrics
+        else {}
     )
     baseline_map = _congress_baseline_map(db, paged_rows)
     if enqueue_feed_outcomes:
@@ -3721,6 +3727,7 @@ def _fetch_events_page(
             enrich_prices=enrich_prices,
             outcome=outcome_by_event_id.get(event.id),
             payload_mode=payload_mode,
+            include_confirmation_metrics=include_confirmation_metrics,
         )
         for event in paged_rows
     ]
@@ -4614,6 +4621,7 @@ def list_events(
         raw_event_type = mode
     type_list = _expand_event_type_aliases(_parse_csv(raw_event_type))
     symbol_scoped_price_enrichment = bool(combined_symbols) and enrich_prices
+    include_confirmation_metrics = payload_mode == "full" or bool(combined_symbols or member or member_id)
     if symbol_scoped_price_enrichment:
         logger.info(
             "events_price_enrichment_limited symbols=%s reason=symbol_scoped_visible_rows",
@@ -4981,6 +4989,7 @@ def list_events(
             enqueue_feed_outcomes=enqueue_feed_outcomes,
             enqueue_metadata_refresh=enqueue_metadata_refresh,
             payload_mode=payload_mode,
+            include_confirmation_metrics=include_confirmation_metrics,
         )
         if display_filter_active:
             page.items = _apply_display_value_filters(
@@ -5097,9 +5106,13 @@ def list_events(
 
     member_net_30d_map = _member_net_30d_map(db, rows) if include_net_flows else {}
     symbol_net_30d_map = _symbol_net_30d_map(db, rows) if include_net_flows else {}
-    confirmation_metrics_map = get_confirmation_metrics_for_symbols(
-        db,
-        [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+    confirmation_metrics_map = (
+        get_confirmation_metrics_for_symbols(
+            db,
+            [symbol for event in rows for symbol in [_event_symbol(event, _parse_event_payload(event))] if symbol],
+        )
+        if include_confirmation_metrics
+        else {}
     )
     baseline_map = _congress_baseline_map(db, rows)
     if enqueue_feed_outcomes:
@@ -5128,6 +5141,7 @@ def list_events(
             enrich_prices=enrich_prices,
             outcome=outcome_by_event_id.get(event.id),
             payload_mode=payload_mode,
+            include_confirmation_metrics=include_confirmation_metrics,
         )
         for event in rows
     ]

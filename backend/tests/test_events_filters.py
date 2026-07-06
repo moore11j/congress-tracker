@@ -878,6 +878,62 @@ def test_list_events_cache_separates_compact_and_full_payload(monkeypatch):
         db.close()
 
 
+def test_generic_compact_events_omit_confirmation_metrics(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        monkeypatch.setattr(
+            "app.routers.events.get_confirmation_metrics_for_symbols",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("generic compact feed should skip confirmation lookup")),
+        )
+        db.add(_event(26, "congress_trade", symbol="AAPL", member_name="Nancy Pelosi"))
+        db.commit()
+
+        page = list_events(request=object(), db=db, limit=10, enrich_prices=False)
+
+        assert page.items[0].confirmation_30d is None
+    finally:
+        _clear_events_response_cache()
+        db.close()
+
+
+def test_symbol_scoped_compact_events_keep_confirmation_metrics(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+
+    class FakeConfirmation:
+        def as_dict(self):
+            return {
+                "congress_active_30d": True,
+                "insider_active_30d": False,
+                "congress_trade_count_30d": 1,
+                "insider_trade_count_30d": 0,
+                "insider_buy_count_30d": 0,
+                "insider_sell_count_30d": 0,
+                "cross_source_confirmed_30d": False,
+                "repeat_congress_30d": False,
+                "repeat_insider_30d": False,
+            }
+
+    try:
+        _stub_enrichment(monkeypatch)
+        monkeypatch.setattr(
+            "app.routers.events.get_confirmation_metrics_for_symbols",
+            lambda _db, symbols: {symbol: FakeConfirmation() for symbol in symbols},
+        )
+        db.add(_event(27, "congress_trade", symbol="AAPL", member_name="Nancy Pelosi"))
+        db.commit()
+
+        page = list_events(request=object(), db=db, symbol="AAPL", limit=10, enrich_prices=False)
+
+        assert page.items[0].confirmation_30d is not None
+        assert page.items[0].confirmation_30d.congress_active_30d is True
+    finally:
+        _clear_events_response_cache()
+        db.close()
+
+
 def test_events_response_cache_key_normalizes_default_page_size():
     key_without_page_size = events_module._events_response_cache_key(
         request=_request({"user-agent": "k6/0.49.0"}),
