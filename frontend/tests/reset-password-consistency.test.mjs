@@ -49,10 +49,14 @@ test("reset password API submits confirmation with included credentials", () => 
 
 test("login page displays password reset success message from query param", () => {
   const loginPage = read("app/login/page.tsx");
+  const deferredPanel = read("components/auth/LoginRegisterPanelDeferred.tsx");
   const loginPanel = read("components/auth/LoginRegisterPanel.tsx");
 
   assert.match(loginPage, /export const dynamic = "force-static"/);
-  assert.match(loginPage, /<Suspense fallback=\{<LoginFallback \/>\}>/);
+  assert.match(loginPage, /<LoginRegisterPanelDeferred \/>/);
+  assert.match(deferredPanel, /dynamic\(/);
+  assert.match(deferredPanel, /ssr: false/);
+  assert.match(deferredPanel, /loading: \(\) => <LoginFallback \/>/);
   assert.match(loginPanel, /useSearchParams\(\)/);
   assert.match(loginPanel, /searchParams\.get\("reset"\)/);
   assert.match(loginPanel, /Password reset successful\. Please sign in with your new password\./);

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PricingPlanner } from "@/components/billing/PricingPlanner";
+import { PricingPlannerDeferred } from "@/components/billing/PricingPlannerDeferred";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 
 export const dynamic = "force-static";
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 export default async function PricingPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <PricingPlanner config={defaultPlanConfig} />
+      <PricingPlannerDeferred config={defaultPlanConfig} />
       <div className="flex flex-wrap gap-3 text-sm">
         <Link href="/login" className="rounded-lg border border-white/10 px-4 py-2 font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">
           Login / Register
