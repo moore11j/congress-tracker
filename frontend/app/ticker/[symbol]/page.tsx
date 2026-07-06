@@ -112,6 +112,12 @@ type SignalGateState = {
   reason: SignalGateReason;
   message: string;
 };
+type TickerConfirmationGate = {
+  locked: boolean;
+  href: string;
+  label: string;
+  message: string;
+};
 
 type ConfirmationSummary = {
   congress_active_30d: boolean;
@@ -969,6 +975,11 @@ function canUseSignalActivity(entitlements: Entitlements | null): boolean {
   return entitlements ? hasEntitlement(entitlements, "signals") : true;
 }
 
+function canUseTickerConfirmation(entitlements: Entitlements | null): boolean {
+  if (entitlements?.status === "temporarily_unavailable") return true;
+  return entitlements ? hasEntitlement(entitlements, "ticker_confirmation") : true;
+}
+
 function canUseProTickerContext(entitlements: Entitlements | null): boolean {
   if (entitlements?.status === "temporarily_unavailable") return true;
   if (!entitlements) return true;
@@ -1067,18 +1078,21 @@ function TickerOverviewPanel({
   freshnessBundle,
   alignedSources,
   intelligenceBullets,
+  confirmationGate,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
   freshnessBundle: SignalFreshnessBundle;
   alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
+  confirmationGate?: TickerConfirmationGate | null;
 }) {
   const displayBundle = sourceDisplayBundle;
   const lookbackDays = displayBundle.lookback_days;
   const lockedOnly = displayBundle.status === "Locked source context";
   const hasHiddenLockedContext = lockedOnly || displayBundle.status === "Visible context";
   const mutedLine = hasHiddenLockedContext ? null : overviewMutedLine(sourceDisplayBundle);
+  const confirmationLocked = Boolean(confirmationGate?.locked);
 
   return (
     <div>
@@ -1090,46 +1104,65 @@ function TickerOverviewPanel({
         <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
       </div>
 
-      <div className="mt-7">
-        <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
-          {overviewHeadline(displayBundle)}
-        </p>
-        <p className="mt-3 text-sm text-slate-300">
-          {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : overviewSubheadline(alignedSources)}
-        </p>
-        {lockedOnly ? null : (
-          <p className={`mt-4 text-base font-semibold ${sourceStateClass(displayBundle.direction)}`}>{overviewScoreLine(displayBundle)}</p>
-        )}
-      </div>
-
-      {lockedOnly ? (
-        <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-          <p className="text-sm font-semibold text-slate-200">Locked source context</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Upgrade to inspect Premium and Pro-only context for this ticker.</p>
-        </div>
-      ) : (
-        <div className="mt-7 grid gap-3 text-sm text-slate-300">
-        {intelligenceBullets.map((bullet) => (
-          <div key={bullet} className="flex gap-3">
-            <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${displayBundle.direction === "bearish" ? "bg-rose-300" : displayBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
-            <p className="leading-relaxed">{bullet}</p>
+      <div className="relative mt-7">
+        <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
+          <div>
+            <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
+              {overviewHeadline(displayBundle)}
+            </p>
+            <p className="mt-3 text-sm text-slate-300">
+              {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : overviewSubheadline(alignedSources)}
+            </p>
+            {lockedOnly ? null : (
+              <p className={`mt-4 text-base font-semibold ${sourceStateClass(displayBundle.direction)}`}>{overviewScoreLine(displayBundle)}</p>
+            )}
           </div>
-        ))}
-        </div>
-      )}
 
-      {lockedOnly ? null : (
-        <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
-        </div>
-      )}
+          {lockedOnly ? (
+            <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+              <p className="text-sm font-semibold text-slate-200">Locked source context</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Upgrade to inspect Premium and Pro-only context for this ticker.</p>
+            </div>
+          ) : (
+            <div className="mt-7 grid gap-3 text-sm text-slate-300">
+              {intelligenceBullets.map((bullet) => (
+                <div key={bullet} className="flex gap-3">
+                  <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${displayBundle.direction === "bearish" ? "bg-rose-300" : displayBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
+                  <p className="leading-relaxed">{bullet}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
-      {!lockedOnly && mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
-      {lockedOnly ? null : <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>}
+          {lockedOnly ? null : (
+            <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
+                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
+            </div>
+          )}
+
+          {!lockedOnly && mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
+          {lockedOnly ? null : <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>}
+        </div>
+
+        {confirmationLocked && confirmationGate ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/35 p-4 backdrop-blur-[1px]">
+            <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
+              <p className="text-sm font-semibold text-white">Premium confirmation</p>
+              <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
+              <Link
+                href={confirmationGate.href}
+                className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+              >
+                {confirmationGate.label}
+              </Link>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -2548,6 +2581,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
   canViewProTickerContext,
+  tickerConfirmationGate,
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
@@ -2564,6 +2598,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
   canViewProTickerContext: boolean;
+  tickerConfirmationGate?: TickerConfirmationGate | null;
 }) {
   const {
     events,
@@ -2690,6 +2725,7 @@ async function DeferredTickerContent({
                 freshnessBundle={freshnessBundle}
                 alignedSources={alignedSources}
                 intelligenceBullets={intelligenceBullets}
+                confirmationGate={tickerConfirmationGate}
               />
             }
           />
@@ -3530,6 +3566,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const signalActivityAuthPending = shouldLoadSignals && !authToken && authState.hasAuthHint;
   const hasAuthForEntitlementDisplay = Boolean(authToken || authState.hasAuthHint);
   const canViewSignalActivity = hasAuthForEntitlementDisplay ? canUseSignalActivity(entitlements) : false;
+  const canViewTickerConfirmation = hasAuthForEntitlementDisplay ? canUseTickerConfirmation(entitlements) : false;
   const canViewProContext = hasAuthForEntitlementDisplay && canUseProTickerContext(entitlements);
   const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
   const signalGateState = !shouldLoadSignals || signalActivityAuthPending
@@ -3539,6 +3576,14 @@ export default async function TickerPage({ params, searchParams }: Props) {
       : canViewSignalActivity
         ? null
         : signalGateForAuthenticatedFreeUser();
+  const tickerConfirmationGate: TickerConfirmationGate | null = canViewTickerConfirmation
+    ? null
+    : {
+        locked: true,
+        href: "/pricing",
+        label: "Upgrade to Premium",
+        message: "Confirmation score, active-source alignment, and freshness setup are available with Premium or Pro.",
+      };
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
@@ -3730,6 +3775,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}
           canViewProTickerContext={canViewProContext}
+          tickerConfirmationGate={tickerConfirmationGate}
         />
       </Suspense>
     </div>

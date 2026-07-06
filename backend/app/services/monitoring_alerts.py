@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 
 ALERTABLE_EVENT_TYPES = ("congress_trade", "insider_trade", "signal", "government_contract", *INSTITUTIONAL_EVENT_TYPES)
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
+SIGNAL_ALERT_TYPES = ("signal",)
+PREMIUM_SIGNAL_PAYLOAD_KEYS = {
+    "confirmation",
+    "confirmation_score",
+    "confirmationScore",
+    "score",
+    "signal",
+    "signals",
+    "signal_score",
+    "signalScore",
+    "signal_freshness",
+    "signalFreshness",
+    "smart_band",
+    "smartBand",
+    "smart_score",
+    "smartScore",
+}
 
 
 def event_freshness_at(event: Event) -> datetime:
@@ -77,10 +94,20 @@ def _user_can_view_institutional_activity(db: Session, user_id: int | None) -> b
     return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
 
 
+def _user_can_view_signal_context(db: Session, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    user = db.get(UserAccount, user_id)
+    return bool(user and entitlements_for_user(db, user).has_feature("signals"))
+
+
 def _event_types_for_user(db: Session, user_id: int | None) -> tuple[str, ...]:
-    if _user_can_view_institutional_activity(db, user_id):
-        return ALERTABLE_EVENT_TYPES
-    return tuple(event_type for event_type in ALERTABLE_EVENT_TYPES if event_type not in INSTITUTIONAL_EVENT_TYPES)
+    event_types = ALERTABLE_EVENT_TYPES
+    if not _user_can_view_institutional_activity(db, user_id):
+        event_types = tuple(event_type for event_type in event_types if event_type not in INSTITUTIONAL_EVENT_TYPES)
+    if not _user_can_view_signal_context(db, user_id):
+        event_types = tuple(event_type for event_type in event_types if event_type not in SIGNAL_ALERT_TYPES)
+    return event_types
 
 
 def _is_institutional_alert_type(value: str | None) -> bool:
@@ -88,9 +115,23 @@ def _is_institutional_alert_type(value: str | None) -> bool:
 
 
 def _exclude_institutional_alerts(query, db: Session, user_id: int | None):
-    if _user_can_view_institutional_activity(db, user_id):
-        return query
-    return query.where(MonitoringAlert.alert_type.notin_(INSTITUTIONAL_ALERT_TYPES))
+    if not _user_can_view_institutional_activity(db, user_id):
+        query = query.where(MonitoringAlert.alert_type.notin_(INSTITUTIONAL_ALERT_TYPES))
+    if not _user_can_view_signal_context(db, user_id):
+        query = query.where(MonitoringAlert.alert_type.notin_(SIGNAL_ALERT_TYPES))
+    return query
+
+
+def _redact_premium_signal_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _redact_premium_signal_payload(item)
+            for key, item in value.items()
+            if key not in PREMIUM_SIGNAL_PAYLOAD_KEYS
+        }
+    if isinstance(value, list):
+        return [_redact_premium_signal_payload(item) for item in value]
+    return value
 
 
 def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime | None = None, user_id: int | None = None) -> int:
@@ -455,7 +496,7 @@ def mark_watchlist_source_unread(db: Session, *, user_id: int, watchlist: Watchl
     return marked
 
 
-def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
+def alert_to_dict(alert: MonitoringAlert, *, can_view_signal_context: bool = True) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     try:
         parsed = json.loads(alert.payload_json or "{}")
@@ -463,6 +504,8 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
             payload = parsed
     except Exception:
         payload = {}
+    if not can_view_signal_context:
+        payload = _redact_premium_signal_payload(payload)
     score = payload.get("smart_score") or payload.get("score")
     event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else {}
     if score is None and isinstance(event_payload, dict):
@@ -495,6 +538,9 @@ def alert_to_dict(alert: MonitoringAlert) -> dict[str, Any]:
 def _ensure_alert_for_event(db: Session, *, user_id: int, watchlist: Watchlist, event: Event) -> bool:
     if event.event_type in INSTITUTIONAL_EVENT_TYPES and not _user_can_view_institutional_activity(db, user_id):
         return False
+    can_view_signal_context = _user_can_view_signal_context(db, user_id)
+    if event.event_type in SIGNAL_ALERT_TYPES and not can_view_signal_context:
+        return False
     existing = db.execute(
         select(MonitoringAlert.id).where(
             MonitoringAlert.user_id == user_id,
@@ -507,6 +553,8 @@ def _ensure_alert_for_event(db: Session, *, user_id: int, watchlist: Watchlist, 
         return False
 
     payload = _event_payload(event)
+    if not can_view_signal_context:
+        payload = _redact_premium_signal_payload(payload)
     alert = MonitoringAlert(
         user_id=user_id,
         source_type="watchlist",
@@ -534,6 +582,7 @@ def ensure_alert_for_saved_screen_event(
 ) -> bool:
     if _is_institutional_alert_type(event.event_type) and not _user_can_view_institutional_activity(db, event.user_id):
         return False
+    can_view_signal_context = _user_can_view_signal_context(db, event.user_id)
     source_id = str(event.saved_screen_id)
     existing = db.execute(
         select(MonitoringAlert.id).where(
@@ -547,14 +596,19 @@ def ensure_alert_for_saved_screen_event(
         return False
 
     resolved_name = screen_name or (screen.name if screen is not None else None) or "Saved screen"
+    before_snapshot = _loads_dict_or_none(event.before_json)
+    after_snapshot = _loads_dict_or_none(event.after_json)
+    if not can_view_signal_context:
+        before_snapshot = _redact_premium_signal_payload(before_snapshot)
+        after_snapshot = _redact_premium_signal_payload(after_snapshot)
     payload = {
         "saved_screen_event": {
             "id": event.id,
             "saved_screen_id": event.saved_screen_id,
             "ticker": event.ticker,
             "event_type": event.event_type,
-            "before": _loads_dict_or_none(event.before_json),
-            "after": _loads_dict_or_none(event.after_json),
+            "before": before_snapshot,
+            "after": after_snapshot,
         }
     }
     after = payload["saved_screen_event"].get("after") or {}
@@ -571,7 +625,7 @@ def ensure_alert_for_saved_screen_event(
         payload_json=json.dumps(
             {
                 **payload,
-                "score": after.get("confirmation_score") if isinstance(after, dict) else None,
+                "score": after.get("confirmation_score") if can_view_signal_context and isinstance(after, dict) else None,
             },
             default=str,
         ),

@@ -61,6 +61,9 @@ def test_public_get_response_cache_key_skips_user_specific_and_prefetch_variants
     assert _public_get_cache_key(_request("/api/events", headers={"Cookie": "walnut_session=abc"})) is None
     assert _public_get_cache_key(_request("/api/events", headers={"Purpose": "prefetch"})) is None
     assert _public_get_cache_key(_request("/api/events", headers={"User-Agent": "Googlebot/2.1"})) is None
+    assert _public_get_cache_key(_request("/api/plan-config", headers={"Cache-Control": "no-cache"})) is None
+    assert _public_get_cache_key(_request("/api/plan-config", headers={"Cache-Control": "no-store"})) is None
+    assert _public_get_cache_key(_request("/api/plan-config", headers={"Pragma": "no-cache"})) is None
 
 
 def test_public_get_response_cache_key_separates_request_source_variants():

@@ -4,6 +4,7 @@ type PlanTier = "free" | "premium" | "pro";
 type BillingInterval = "monthly" | "annual";
 type FeatureKey =
   | "signals"
+  | "ticker_confirmation"
   | "premium_feed_metrics"
   | "leaderboards"
   | "backtesting"
@@ -41,6 +42,7 @@ const planTiers: PlanTier[] = ["free", "premium", "pro"];
 const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   free: {
     signals: 0,
+    ticker_confirmation: 0,
     premium_feed_metrics: 0,
     leaderboards: 0,
     backtesting: 0,
@@ -70,6 +72,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   },
   premium: {
     signals: 1,
+    ticker_confirmation: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -99,6 +102,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   },
   pro: {
     signals: 1,
+    ticker_confirmation: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -138,6 +142,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 10,
+  },
+  {
+    feature_key: "ticker_confirmation",
+    label: "Ticker confirmation",
+    kind: "feature",
+    description: "Ticker confirmation score, active-source readout, and freshness setup details.",
+    required_tier: "premium",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 11,
   },
   {
     feature_key: "premium_feed_metrics",

@@ -2,6 +2,7 @@ export type EntitlementTier = "free" | "premium" | "pro" | "admin";
 
 export type EntitlementFeature =
   | "signals"
+  | "ticker_confirmation"
   | "premium_feed_metrics"
   | "leaderboards"
   | "backtesting"
@@ -56,6 +57,7 @@ export const defaultEntitlements: Entitlements = {
   tier: "free",
   limits: {
     signals: 0,
+    ticker_confirmation: 0,
     premium_feed_metrics: 0,
     leaderboards: 0,
     backtesting: 0,
@@ -91,6 +93,7 @@ export const premiumEntitlements: Entitlements = {
   tier: "premium",
   limits: {
     signals: 1,
+    ticker_confirmation: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -120,6 +123,7 @@ export const premiumEntitlements: Entitlements = {
   },
   features: [
     "signals",
+    "ticker_confirmation",
     "premium_feed_metrics",
     "leaderboards",
     "backtesting",
@@ -148,6 +152,7 @@ export const proEntitlements: Entitlements = {
   tier: "pro",
   limits: {
     signals: 1,
+    ticker_confirmation: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -177,6 +182,7 @@ export const proEntitlements: Entitlements = {
   },
   features: [
     "signals",
+    "ticker_confirmation",
     "premium_feed_metrics",
     "leaderboards",
     "backtesting",

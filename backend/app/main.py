@@ -2854,6 +2854,10 @@ def _public_get_cache_key(request: Request) -> str | None:
         return None
     if _public_get_cache_ttl_seconds() <= 0:
         return None
+    cache_control = (request.headers.get("cache-control") or "").lower()
+    pragma = (request.headers.get("pragma") or "").lower()
+    if "no-cache" in cache_control or "no-store" in cache_control or "no-cache" in pragma:
+        return None
     if not _is_public_get_cacheable_path(request.url.path):
         return None
     if request.headers.get("authorization") or request.cookies:
@@ -10827,7 +10831,11 @@ def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
     db.commit()
 
     counts = _monitoring_counts_payload(request, db, user, watchlists=watchlists, saved_screens=saved_screens)
-    alerts = [monitoring_alert_to_dict(alert) for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=100)]
+    entitlements = entitlements_for_user(db, user)
+    alerts = [
+        monitoring_alert_to_dict(alert, can_view_signal_context=entitlements.has_feature("signals"))
+        for alert in recent_alerts(db, user_id=user.id, unread_only=False, limit=100)
+    ]
     unread_alerts = [item for item in alerts if item.get("is_unread")]
     return {
         "unread_total": counts["total_unread"],

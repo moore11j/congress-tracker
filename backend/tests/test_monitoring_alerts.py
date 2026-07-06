@@ -411,6 +411,87 @@ def test_inbox_returns_individual_items_with_stable_keys_and_states():
         assert item["timestamp"]
         assert item["is_unread"] is True
         assert item["is_read"] is False
+        assert item["score"] is None
+        assert "smart_score" not in item["payload"].get("event", {})
+    finally:
+        db.close()
+
+
+def test_free_watchlist_alerts_exclude_signal_events_and_redact_scores():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add_all(
+            [
+                Event(
+                    event_type="signal",
+                    ts=now,
+                    event_date=now,
+                    created_at=now,
+                    symbol="AAPL",
+                    source="signals",
+                    trade_type="purchase",
+                    payload_json=json.dumps({"smart_score": 91, "signal": {"direction": "bullish"}}),
+                    impact_score=91,
+                ),
+                Event(
+                    event_type="insider_trade",
+                    ts=now + timedelta(seconds=1),
+                    event_date=now + timedelta(seconds=1),
+                    created_at=now + timedelta(seconds=1),
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="purchase",
+                    payload_json=json.dumps({"smart_score": 82, "confirmation_score": 77, "insider_name": "Jane Insider"}),
+                    impact_score=82,
+                ),
+            ]
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
+        db.commit()
+        inbox = get_monitoring_inbox(_request_for_user(user), db)
+
+        assert inbox["unread_total"] == 1
+        item = inbox["items"][0]
+        assert item["alert_type"] == "insider_trade"
+        assert item["score"] is None
+        event_payload = item["payload"]["event"]
+        assert event_payload["insider_name"] == "Jane Insider"
+        assert "smart_score" not in event_payload
+        assert "confirmation_score" not in event_payload
+    finally:
+        db.close()
+
+
+def test_premium_watchlist_alerts_keep_signal_scores():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        user.entitlement_tier = "premium"
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="purchase",
+                payload_json=json.dumps({"smart_score": 82, "confirmation_score": 77, "insider_name": "Jane Insider"}),
+                impact_score=82,
+            )
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
+        db.commit()
+        item = get_monitoring_inbox(_request_for_user(user), db)["items"][0]
+
+        assert item["score"] == 82
+        assert item["payload"]["event"]["smart_score"] == 82
+        assert item["payload"]["event"]["confirmation_score"] == 77
     finally:
         db.close()
 

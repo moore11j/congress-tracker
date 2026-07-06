@@ -59,6 +59,19 @@ test("ticker institutional card uses the product state label contract", () => {
   assert.doesNotMatch(tickerInstitutionalSourceCard, /return "INACTIVE"/);
 });
 
+test("ticker confirmation score and freshness are premium gated", () => {
+  assert.match(entitlements, /\| "ticker_confirmation"/);
+  assert.match(entitlements, /ticker_confirmation: 0/);
+  assert.match(entitlements, /ticker_confirmation: 1/);
+  assert.match(defaultPlanConfig, /feature_key: "ticker_confirmation"/);
+  assert.match(defaultPlanConfig, /Ticker confirmation/);
+  assert.match(tickerPage, /function canUseTickerConfirmation/);
+  assert.match(tickerPage, /hasEntitlement\(entitlements, "ticker_confirmation"\)/);
+  assert.match(tickerPage, /confirmationGate=\{tickerConfirmationGate\}/);
+  assert.match(tickerPage, /Confirmation score, active-source alignment, and freshness setup are available with Premium or Pro\./);
+  assert.match(tickerPage, /Upgrade to Premium/);
+});
+
 test("screener page preserves presets, filter sections, and workflow controls", () => {
   assert.match(screenerPage, /Starter presets/);
   assert.match(screenerPage, /Core Filters/);

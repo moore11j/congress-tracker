@@ -153,6 +153,7 @@ def test_admin_entitlements_include_all_paid_feature_sources():
         assert payload["is_admin"] is True
         for feature in (
             "signals",
+            "ticker_confirmation",
             "premium_feed_metrics",
             "backtesting",
             "screener_intelligence",
@@ -184,6 +185,27 @@ def test_premium_feed_metrics_gate_defaults_to_premium_and_unlocks_paid_users():
         gates = {row["feature_key"]: row for row in feature_gate_payloads(db)}
         assert gates["premium_feed_metrics"]["required_tier"] == "premium"
         assert "gain/loss" in gates["premium_feed_metrics"]["description"].lower()
+    finally:
+        db.close()
+
+
+def test_ticker_confirmation_gate_defaults_to_premium_and_unlocks_paid_users():
+    db = _session()
+    try:
+        free_user = _user(db, "ticker-confirmation-free@example.com", tier="free")
+        premium_user = _user(db, "ticker-confirmation-premium@example.com", tier="premium")
+        pro_user = _user(db, "ticker-confirmation-pro@example.com", tier="pro")
+
+        assert DEFAULT_FEATURE_GATES["ticker_confirmation"]["required_tier"] == "premium"
+        assert entitlements_for_user(db, free_user).has_feature("ticker_confirmation") is False
+        assert entitlements_for_user(db, premium_user).has_feature("ticker_confirmation") is True
+        assert entitlements_for_user(db, pro_user).has_feature("ticker_confirmation") is True
+
+        gates = {row["feature_key"]: row for row in feature_gate_payloads(db)}
+        config = {row["feature_key"]: row for row in plan_config_payload(db)["features"]}
+        assert gates["ticker_confirmation"]["required_tier"] == "premium"
+        assert "confirmation score" in gates["ticker_confirmation"]["description"].lower()
+        assert config["ticker_confirmation"]["required_tier"] == "premium"
     finally:
         db.close()
 

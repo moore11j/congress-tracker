@@ -20,6 +20,7 @@ BillingInterval = Literal["monthly", "annual"]
 EffectivePlanSource = Literal["stripe_subscription", "admin_subscription", "manual_override", "free", "suspended", "admin"]
 FeatureKey = Literal[
     "signals",
+    "ticker_confirmation",
     "premium_feed_metrics",
     "leaderboards",
     "backtesting",
@@ -78,6 +79,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=0,
         limits={
             "signals": 0,
+            "ticker_confirmation": 0,
             "premium_feed_metrics": 0,
             "leaderboards": 0,
             "backtesting": 0,
@@ -126,6 +128,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=10,
         limits={
             "signals": 1,
+            "ticker_confirmation": 1,
             "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
@@ -156,6 +159,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         features=frozenset(
             {
                 "signals",
+                "ticker_confirmation",
                 "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
@@ -184,6 +188,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         rank=20,
         limits={
             "signals": 1,
+            "ticker_confirmation": 1,
             "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
@@ -214,6 +219,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         features=frozenset(
             {
                 "signals",
+                "ticker_confirmation",
                 "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
@@ -248,6 +254,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "signals": {
         "required_tier": "premium",
         "description": "Signal conviction screens and unusual activity research.",
+    },
+    "ticker_confirmation": {
+        "required_tier": "premium",
+        "description": "Ticker confirmation score, active-source readout, and freshness setup details.",
     },
     "premium_feed_metrics": {
         "required_tier": "premium",
@@ -370,6 +380,14 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 10,
         "pricing_description": "Premium signal screens for unusual Congress and insider activity.",
+    },
+    "ticker_confirmation": {
+        "label": "Ticker confirmation",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 11,
+        "pricing_description": "Ticker confirmation score, active-source readout, and freshness setup details.",
     },
     "premium_feed_metrics": {
         "label": "Feed and watchlist metrics",

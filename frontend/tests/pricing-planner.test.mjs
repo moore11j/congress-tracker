@@ -5,6 +5,8 @@ import test from "node:test";
 
 const pricingPlannerPath = path.join(process.cwd(), "components", "billing", "PricingPlanner.tsx");
 const source = fs.readFileSync(pricingPlannerPath, "utf8");
+const pricingPage = fs.readFileSync(path.join(process.cwd(), "app", "pricing", "page.tsx"), "utf8");
+const apiSource = fs.readFileSync(path.join(process.cwd(), "lib", "api.ts"), "utf8");
 const defaultPlanConfig = fs.readFileSync(path.join(process.cwd(), "lib", "defaultPlanConfig.ts"), "utf8");
 const entitlementConfig = fs.readFileSync(path.join(process.cwd(), "lib", "entitlements.ts"), "utf8");
 
@@ -124,6 +126,18 @@ test("pricing actions render current plan states from fresh account entitlements
   assert.match(actions, /payload\.code !== "active_subscription_exists"/);
   assert.match(actions, /window\.location\.href = redirectPath/);
   assert.match(actions, /disabled=\{disabled\}/);
+});
+
+test("pricing page fetches live admin plan config instead of static defaults", () => {
+  assert.match(pricingPage, /export const dynamic = "force-dynamic"/);
+  assert.match(pricingPage, /export const revalidate = 0/);
+  assert.match(pricingPage, /import \{ getPlanConfig \} from "@\/lib\/api"/);
+  assert.match(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)\.catch\(\(\) => defaultPlanConfig\)/);
+  assert.match(pricingPage, /<PricingPlanner config=\{planConfig\} \/>/);
+  assert.doesNotMatch(pricingPage, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
+  assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "no-store"/);
+  assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?headers: \{ "Cache-Control": "no-cache" \}/);
+  assert.doesNotMatch(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "force-cache"/);
 });
 
 test("pricing CTA labels distinguish current, upgrade, and downgrade plans", () => {
