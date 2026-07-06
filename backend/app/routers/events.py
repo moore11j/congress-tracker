@@ -325,8 +325,6 @@ COMPACT_GOVERNMENT_CONTRACT_KEYS = {
     "current_total_obligation",
     "event_subtype",
     "modification_number",
-    "award_id",
-    "parent_award_id",
 }
 COMPACT_GOVERNMENT_CONTRACT_RAW_KEYS = {
     "total_obligated_amount",
@@ -3087,6 +3085,8 @@ def _compact_event_payload(event: Event, payload: dict) -> dict:
 
     if event.event_type == "government_contract":
         compact = _copy_payload_keys(payload, COMPACT_GOVERNMENT_CONTRACT_KEYS)
+        if compact.get("title") and compact.get("description") == compact.get("title"):
+            compact.pop("description", None)
         raw = payload.get("raw")
         if isinstance(raw, dict):
             parent_award = raw.get("parent_award")
