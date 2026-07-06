@@ -1,9 +1,7 @@
 import Page from "../page";
 
-type Props = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-};
+export const dynamic = "force-static";
 
-export default function FeedPage({ searchParams }: Props) {
-  return <Page searchParams={searchParams} />;
+export default function FeedPage() {
+  return <Page />;
 }

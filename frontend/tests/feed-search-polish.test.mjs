@@ -7,16 +7,16 @@ const root = process.cwd();
 const read = (path) => readFileSync(join(root, path), "utf8");
 
 test("feed filters use sort controls and remove confusing advanced filters", () => {
-  const page = read("app/page.tsx");
+  const pageClient = read("components/feed/FeedPageClient.tsx");
   const filters = read("components/feed/FeedFiltersServer.tsx");
 
   for (const key of ["sort_by", "sort_dir"]) {
-    assert.match(page, new RegExp(`"${key}"`));
+    assert.match(pageClient, new RegExp(`"${key}"`));
     assert.match(filters, new RegExp(`"${key}"`));
     assert.match(filters, new RegExp(`name="${key}"`));
   }
   for (const key of ["filed_after_max", "pnl_min", "pnl_max", "signal_min", "asset_class", "min_amount", "max_amount"]) {
-    assert.doesNotMatch(page, new RegExp(`"${key}"`));
+    assert.doesNotMatch(pageClient, new RegExp(`"${key}"`));
     assert.doesNotMatch(filters, new RegExp(`name="${key}"`));
   }
   assert.match(filters, /Sort by/);
@@ -58,18 +58,30 @@ test("feed autosuggest popovers render above result cards", () => {
 
 test("visible feed results load client-side with bounded gain/loss enrichment", () => {
   const page = read("app/page.tsx");
+  const pageClient = read("components/feed/FeedPageClient.tsx");
   const client = read("components/feed/FeedResultsClient.tsx");
+  const entitledClient = read("components/feed/FeedEntitledResultsClient.tsx");
   const api = read("lib/api.ts");
 
-  assert.match(page, /<FeedResultsClient/);
+  assert.match(page, /<FeedPageClient/);
   assert.doesNotMatch(page, /getEvents/);
   assert.doesNotMatch(page, /\/api\/events/);
   assert.doesNotMatch(page, /requestSource:\s*"ssr"/);
+  assert.doesNotMatch(page, /getEntitlements/);
+  assert.doesNotMatch(page, /optionalPageAuthState/);
+  assert.doesNotMatch(page, /force-dynamic/);
+  assert.match(pageClient, /useSearchParams/);
+  assert.match(pageClient, /<FeedEntitledResultsClient/);
   assert.match(client, /getEvents\(/);
   assert.match(client, /enrich_prices:\s*1/);
   assert.match(client, /include_net_flows:\s*0/);
   assert.match(client, /requestSource:\s*"client"/);
   assert.match(client, /routeFamily:\s*"feed"/);
+  assert.match(entitledClient, /getEntitlements/);
+  assert.match(entitledClient, /isInstitutionalFeedMode/);
+  assert.match(entitledClient, /if \(institutionalMode && !loaded\)/);
+  assert.match(entitledClient, /if \(institutionalMode && !canViewInstitutionalFeed\)/);
+  assert.match(entitledClient, /canViewPremiumMetrics=\{loaded \? canViewPremiumMetrics : false\}/);
   assert.doesNotMatch(page, /enrich_prices:\s*0/);
   assert.match(api, /const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";/);
   assert.match(api, /cache: authToken \|\| bypassPublicFetchCache \? "no-store" : "force-cache"/);
@@ -80,6 +92,8 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
   const list = read("components/feed/FeedList.tsx");
   const page = read("app/page.tsx");
+  const pageClient = read("components/feed/FeedPageClient.tsx");
+  const entitledClient = read("components/feed/FeedEntitledResultsClient.tsx");
   const mapper = read("lib/feedEventMapper.ts");
   const client = read("components/feed/FeedResultsClient.tsx");
 
@@ -91,7 +105,9 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(card, /lockedPnlPlaceholder/);
   assert.match(card, /smartSignalPillClasses/);
   assert.match(list, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
-  assert.match(page, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
+  assert.match(page, /<FeedPageClient/);
+  assert.match(pageClient, /<FeedEntitledResultsClient/);
+  assert.match(entitledClient, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
   assert.match(mapper, /function redactPremiumFeedMetrics/);
   assert.match(mapper, /pnlValue < 0 \? -0\.1/);
   assert.match(mapper, /smart_score: signalValue === null \? null : undefined/);

@@ -1,3 +1,5 @@
+"use client";
+
 import { FeedFilterAutoSubmit } from "@/components/feed/FeedFilterAutoSubmit";
 import { FeedMemberAutosuggestEnhancer } from "@/components/feed/FeedMemberAutosuggestEnhancer";
 import { FeedRoleAutosuggestEnhancer } from "@/components/feed/FeedRoleAutosuggestEnhancer";
