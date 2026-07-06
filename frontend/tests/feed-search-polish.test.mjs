@@ -98,6 +98,19 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(client, /include_net_flows: 0/);
 });
 
+test("insider feed mapper keeps top-level transaction side payloads", () => {
+  const mapper = read("lib/feedEventMapper.ts");
+
+  assert.match(mapper, /function normalizeInsiderDirection/);
+  assert.match(mapper, /payload\.transaction_type/);
+  assert.match(mapper, /payload\.transactionType/);
+  assert.match(mapper, /payload\.trade_type/);
+  assert.match(mapper, /payload\.tradeType/);
+  assert.match(mapper, /t\.startsWith\("S"\)/);
+  assert.match(mapper, /t\.startsWith\("P"\)/);
+  assert.match(mapper, /if \(!direction\) return null/);
+});
+
 test("feed list defaults to compact table while preserving card view", () => {
   const list = read("components/feed/FeedList.tsx");
   const table = read("components/feed/FeedTable.tsx");

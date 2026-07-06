@@ -129,13 +129,19 @@ function insiderRole(payload: Record<string, any>): string | null {
 }
 
 function normalizeInsiderDirection(payload: Record<string, any>): "Purchase" | "Sale" | null {
-  const t = asTrimmedString(payload?.raw?.transactionType)?.toUpperCase();
+  const t = firstTrimmedString(
+    payload.transaction_type,
+    payload.transactionType,
+    payload.trade_type,
+    payload.tradeType,
+    payload?.raw?.transactionType,
+  )?.toUpperCase();
   if (t) {
-    if (t.includes("SALE")) return "Sale";
-    if (t.includes("PURCHASE")) return "Purchase";
+    if (t.startsWith("S") || t.includes("SALE")) return "Sale";
+    if (t.startsWith("P") || t.includes("PURCHASE")) return "Purchase";
     return null;
   }
-  const ad = asTrimmedString(payload?.raw?.acquisitionOrDisposition)?.toUpperCase();
+  const ad = firstTrimmedString(payload.acquisitionOrDisposition, payload.acquisition_or_disposition, payload?.raw?.acquisitionOrDisposition)?.toUpperCase();
   if (ad === "A") return "Purchase";
   if (ad === "D") return "Sale";
   return null;
