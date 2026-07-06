@@ -131,6 +131,8 @@ test("feed list defaults to compact table while preserving card view", () => {
   assert.match(table, /Reported Reduction/);
   assert.match(table, /Reported Increase/);
   assert.match(table, /Reported Exit/);
+  assert.match(table, /AddTickerToWatchlist/);
+  assert.match(table, /variant="compact"/);
   assert.match(table, /function contractDescription/);
   assert.match(table, /Gov Contracts/);
   assert.match(table, /getInsiderDisplayName/);

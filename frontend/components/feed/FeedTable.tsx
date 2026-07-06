@@ -5,6 +5,7 @@ import { Fragment } from "react";
 import type { KeyboardEvent } from "react";
 import type { FeedItem } from "@/lib/types";
 import { FeedCard } from "@/components/feed/FeedCard";
+import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { formatCurrencyRange, formatDateShort, formatTransactionLabel } from "@/lib/format";
 import { formatCompanyName } from "@/lib/companyName";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
@@ -413,13 +414,16 @@ export function FeedTable({
                     <td className="px-3 py-3 font-semibold text-slate-100">{sourceLabel(item)}</td>
                     <td className="px-3 py-3">
                       <div className="min-w-0">
-                        {symbolHref ? (
-                          <Link href={symbolHref} prefetch={false} className="font-mono font-semibold text-emerald-200 hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
-                            {symbol}
-                          </Link>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
+                        <div className="flex min-w-0 items-center gap-2">
+                          {symbol ? <AddTickerToWatchlist symbol={symbol} variant="compact" align="left" /> : null}
+                          {symbolHref ? (
+                            <Link href={symbolHref} prefetch={false} className="min-w-0 font-mono font-semibold text-emerald-200 hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
+                              {symbol}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </div>
                         <div className="mt-0.5 break-words text-xs leading-4 text-slate-500">
                           {isGovernmentContract(item) ? contractDescription(item) : companyLabel(item)}
                         </div>
@@ -484,6 +488,7 @@ export function FeedTable({
                     {sourceLabel(item)} / {dateLabel(item)}
                   </span>
                   <span className="mt-1 flex items-center gap-2">
+                    {symbol !== "-" ? <AddTickerToWatchlist symbol={symbol} variant="compact" align="left" /> : null}
                     <span className="font-mono text-sm font-semibold text-emerald-200">{symbol}</span>
                     <span className="min-w-0 break-words text-sm font-semibold text-slate-100">{entityLabel(item)}</span>
                   </span>
