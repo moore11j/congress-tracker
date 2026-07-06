@@ -398,6 +398,10 @@ export function MemberAnalyticsClient({
       setPortfolioLoading(false);
       return () => undefined;
     }
+    if (loading) {
+      setPortfolioLoading(true);
+      return () => undefined;
+    }
 
     setPortfolioLoading(true);
     setPortfolioUnavailable(false);
@@ -436,7 +440,7 @@ export function MemberAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [canViewPortfolio, entitlementsLoaded, lookbackDays, memberId, portfolioLookbackDays]);
+  }, [canViewPortfolio, entitlementsLoaded, loading, lookbackDays, memberId, portfolioLookbackDays]);
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: String(alphaSummary.trades_analyzed ?? 0), valueClass: "text-white" },
