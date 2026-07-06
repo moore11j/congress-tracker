@@ -333,7 +333,7 @@ test("portfolio event markers expose simulated buys, sells, and skipped disclosu
 });
 
 test("portfolio lookback controls are capped at 3Y and omit All", () => {
-  assert.equal(DEFAULT_PORTFOLIO_LOOKBACK_DAYS, 1095);
+  assert.equal(DEFAULT_PORTFOLIO_LOOKBACK_DAYS, 365);
   assert.deepEqual(
     PORTFOLIO_LOOKBACK_OPTIONS.map((option) => option.label),
     ["30D", "90D", "180D", "1Y", "3Y"],
@@ -344,6 +344,16 @@ test("portfolio lookback controls are capped at 3Y and omit All", () => {
   );
   assert.doesNotMatch(JSON.stringify(PORTFOLIO_LOOKBACK_OPTIONS), /\bAll\b/i);
   assert.doesNotMatch(memberPage, />All</);
+});
+
+test("member portfolio simulation is gated without hiding public member analytics", () => {
+  assert.match(memberAnalyticsClient, /getEntitlements\(undefined, \{ source: "MemberAnalytics" \}\)/);
+  assert.match(memberAnalyticsClient, /hasEntitlement\(entitlements, "backtesting"\)/);
+  assert.match(memberAnalyticsClient, /locked=\{entitlementsLoaded && !canViewPortfolio\}/);
+  assert.match(memberAnalyticsClient, /Portfolio simulation is available with Premium and Pro/);
+  assert.match(memberAnalyticsClient, /Unlock member portfolio simulation/);
+  assert.match(memberAnalyticsClient, /getMemberAlphaSummary\(memberId/);
+  assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
 });
 
 test("changing portfolio lookback wires the selected days into the read endpoint", () => {

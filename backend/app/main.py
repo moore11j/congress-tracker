@@ -4276,8 +4276,8 @@ def member_profile_by_slug(
     prefetch_response = _api_prefetch_response(request, endpoint="member_profile_by_slug")
     if prefetch_response is not None:
         return prefetch_response
-    if _is_inactive_logged_out_api_request(request):
-        logger.info("api_inactive_lightweight_response endpoint=member_profile_by_slug member_id=%s", slug)
+    if _is_logged_out_bot_or_crawler_request(request):
+        logger.info("api_bot_lightweight_response endpoint=member_profile_by_slug member_id=%s", slug)
         return {"status": "skipped", "member": {"bioguide_id": slug, "name": None}, "top_tickers": [], "trades": []}
     slug_value = (slug or "").strip()
     if not slug_value:
@@ -4318,8 +4318,8 @@ def member_profile(bioguide_id: str, request: Request, db: Session = Depends(get
     prefetch_response = _api_prefetch_response(request, endpoint="member_profile")
     if prefetch_response is not None:
         return prefetch_response
-    if _is_inactive_logged_out_api_request(request):
-        logger.info("api_inactive_lightweight_response endpoint=member_profile member_id=%s", bioguide_id)
+    if _is_logged_out_bot_or_crawler_request(request):
+        logger.info("api_bot_lightweight_response endpoint=member_profile member_id=%s", bioguide_id)
         return {"status": "skipped", "member": {"bioguide_id": bioguide_id, "name": None}, "top_tickers": [], "trades": []}
     member = _resolve_member_legacy_compat(db, bioguide_id)
 

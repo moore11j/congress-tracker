@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.requests import Request
 
 import app.compute_replicated_portfolios as compute_module
 import app.backfill_price_cache as backfill_module
@@ -58,6 +59,20 @@ def _session_factory():
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
     return engine, SessionLocal
+
+
+def _browser_request(path: str = "/") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": [
+                (b"user-agent", b"Mozilla/5.0"),
+                (b"x-walnut-request-source", b"client"),
+            ],
+        }
+    )
 
 
 def _event(
@@ -2393,6 +2408,7 @@ def test_portfolio_endpoint_returns_persisted_run_without_writes():
 
         response = insider_portfolio_performance(
             "0000001111",
+            request=_browser_request("/api/insiders/0000001111/portfolio-performance"),
             db=db,
             lookback_days=1095,
             mode="realistic_disclosure_lag",
@@ -2491,6 +2507,7 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
 
         response = member_portfolio_performance(
             "M_PORT",
+            request=_browser_request("/api/members/M_PORT/portfolio-performance"),
             db=db,
             lookback_days=1095,
             mode="realistic_disclosure_lag",

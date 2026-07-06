@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  getEntitlements,
   getMemberAlphaSummary,
   getMemberPortfolioPerformance,
   getMemberTrades,
@@ -10,6 +11,7 @@ import {
   type MemberPortfolioPerformance,
   type MemberTradesResponse,
 } from "@/lib/api";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
@@ -17,6 +19,13 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { cardClassName, compactInteractiveSurfaceClassName } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import {
+  defaultEntitlements,
+  entitlementsFromTierHint,
+  hasEntitlement,
+  storedEntitlementTier,
+  type Entitlements,
+} from "@/lib/entitlements";
 import { tickerHref } from "@/lib/ticker";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
@@ -149,6 +158,7 @@ function MemberPortfolioPanel({
   portfolio,
   unavailable,
   loading,
+  locked,
   selectedLookbackDays,
   lookbackLinks,
   simulatedTradesCount,
@@ -156,11 +166,32 @@ function MemberPortfolioPanel({
   portfolio: MemberPortfolioPerformance | null;
   unavailable: boolean;
   loading: boolean;
+  locked: boolean;
   selectedLookbackDays: number;
   lookbackLinks: Array<{ label: string; value: number; href: string }>;
   simulatedTradesCount: number | null;
 }) {
   if (loading) return <PortfolioSkeleton />;
+  if (locked) {
+    return (
+      <section className={`${cardClassName} p-4 sm:p-6`}>
+        <div>
+          <h2 className="text-lg font-semibold text-white">Portfolio Performance</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Premium simulation</p>
+          <p className="mt-2 max-w-3xl text-sm text-white/45">
+            The member profile, trade analytics, top tickers, and recent disclosures remain visible. Portfolio simulation is available with Premium and Pro.
+          </p>
+        </div>
+        <div className="mt-4 max-w-xl">
+          <UpgradePrompt
+            title="Unlock member portfolio simulation"
+            body="Premium and Pro members can view disclosure-lag portfolio performance without limiting the rest of the member profile."
+            compact={true}
+          />
+        </div>
+      </section>
+    );
+  }
   const summary = portfolio?.summary ?? null;
   const { memberSeries: portfolioSeries, benchmarkSeries } = normalizeMemberPortfolioChartData(portfolio);
   const portfolioEvents = normalizeMemberPortfolioEventMarkers(portfolio);
@@ -286,17 +317,38 @@ export function MemberAnalyticsClient({
   const [portfolioTradeCountSummary, setPortfolioTradeCountSummary] = useState<MemberAlphaSummary | null>(null);
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
   const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
+  const [entitlements, setEntitlements] = useState<Entitlements>(() => entitlementsFromTierHint(storedEntitlementTier()));
+  const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [portfolioUnavailable, setPortfolioUnavailable] = useState(false);
   const [tradesUnavailable, setTradesUnavailable] = useState(false);
+  const canViewPortfolio = hasEntitlement(entitlements, "backtesting");
+
+  useEffect(() => {
+    let cancelled = false;
+    getEntitlements(undefined, { source: "MemberAnalytics" })
+      .then((nextEntitlements) => {
+        if (!cancelled) setEntitlements(nextEntitlements);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitlements(defaultEntitlements);
+      })
+      .finally(() => {
+        if (!cancelled) setEntitlementsLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
     setLoading(true);
     setAlphaUnavailable(false);
-    setPortfolioUnavailable(false);
     setTradesUnavailable(false);
 
     const alphaRequest = getMemberAlphaSummary(memberId, {
@@ -324,6 +376,32 @@ export function MemberAnalyticsClient({
         if (!cancelled) setTradesUnavailable(true);
       });
 
+    Promise.allSettled([alphaRequest, tradesRequest]).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [lookbackDays, memberId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
+    if (!entitlementsLoaded) return () => undefined;
+    if (!canViewPortfolio) {
+      setPortfolio(null);
+      setPortfolioTradeCountSummary(null);
+      setPortfolioUnavailable(false);
+      setPortfolioLoading(false);
+      return () => undefined;
+    }
+
+    setPortfolioLoading(true);
+    setPortfolioUnavailable(false);
+
     const portfolioRequest = getMemberPortfolioPerformance(memberId, {
       lookback_days: portfolioLookbackDays,
       mode: PORTFOLIO_MODE,
@@ -350,15 +428,15 @@ export function MemberAnalyticsClient({
       if (!cancelled) setPortfolioTradeCountSummary(data);
     });
 
-    Promise.allSettled([alphaRequest, tradesRequest, portfolioRequest, portfolioTradeCountRequest]).finally(() => {
-      if (!cancelled) setLoading(false);
+    Promise.allSettled([portfolioRequest, portfolioTradeCountRequest]).finally(() => {
+      if (!cancelled) setPortfolioLoading(false);
     });
 
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [lookbackDays, memberId, portfolioLookbackDays]);
+  }, [canViewPortfolio, entitlementsLoaded, lookbackDays, memberId, portfolioLookbackDays]);
 
   const analyticsStats = [
     { label: "Trades Analyzed", value: String(alphaSummary.trades_analyzed ?? 0), valueClass: "text-white" },
@@ -412,7 +490,8 @@ export function MemberAnalyticsClient({
       <MemberPortfolioPanel
         portfolio={portfolio}
         unavailable={portfolioUnavailable}
-        loading={loading}
+        loading={!entitlementsLoaded || portfolioLoading}
+        locked={entitlementsLoaded && !canViewPortfolio}
         selectedLookbackDays={portfolioLookbackDays}
         lookbackLinks={portfolioLookbackLinks}
         simulatedTradesCount={simulatedTradesCount}

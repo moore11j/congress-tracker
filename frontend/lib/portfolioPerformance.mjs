@@ -8,7 +8,7 @@ export const PORTFOLIO_LOOKBACK_OPTIONS = [
   { label: "3Y", value: 1095 },
 ];
 
-export const DEFAULT_PORTFOLIO_LOOKBACK_DAYS = 1095;
+export const DEFAULT_PORTFOLIO_LOOKBACK_DAYS = 365;
 
 function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
