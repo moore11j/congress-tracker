@@ -11,7 +11,7 @@ from time import monotonic, perf_counter
 from types import SimpleNamespace
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import DateTime, Float, Integer, String, and_, bindparam, case, cast, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import OperationalError
@@ -96,9 +96,10 @@ FEED_OUTCOME_RETRY_STATUSES = {
 DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 10
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
-EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "10") or 10)
+EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "60") or 60)
+EVENTS_RESPONSE_CACHE_STALE_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_STALE_SECONDS", "600") or 600)
 EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS = float(os.getenv("EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS", "3") or 3)
-_EVENTS_RESPONSE_CACHE: dict[str, tuple[float, EventsPage | EventsPageDebug]] = {}
+_EVENTS_RESPONSE_CACHE: dict[str, dict[str, object]] = {}
 _EVENTS_RESPONSE_INFLIGHT: dict[str, dict[str, object]] = {}
 _EVENTS_RESPONSE_CACHE_LOCK = threading.Lock()
 INSIDER_SUMMARY_CACHE_TTL_SECONDS = int(os.getenv("INSIDER_SUMMARY_CACHE_TTL_SECONDS", "60") or 60)
@@ -525,6 +526,10 @@ def _events_response_cache_ttl_seconds() -> int:
     return max(0, min(60, EVENTS_RESPONSE_CACHE_TTL_SECONDS))
 
 
+def _events_response_cache_stale_seconds() -> int:
+    return max(0, min(600, EVENTS_RESPONSE_CACHE_STALE_SECONDS))
+
+
 def _events_response_cache_key(
     *,
     request: Request | None,
@@ -566,6 +571,7 @@ def _events_response_cache_key(
         return None
     if _events_response_cache_ttl_seconds() <= 0:
         return None
+    page_size_key = None if page_size is None or page_size == limit else page_size
     key_parts = {
         "symbols": tuple(sorted(combined_symbols)),
         "types": tuple(sorted(type_list)),
@@ -592,7 +598,7 @@ def _events_response_cache_key(
         "recent_days": recent_days,
         "cursor": cursor,
         "limit": limit,
-        "page_size": page_size,
+        "page_size": page_size_key,
         "offset": offset,
         "include_net_flows": bool(include_net_flows),
         "payload": payload_mode,
@@ -620,6 +626,10 @@ def _events_response_cache_allowed_for_request(request: Request | None, *, can_v
         return False
     auth_state, _tier = request_auth_state(request)
     return auth_state == "logged_out"
+
+
+def _events_response_can_return_bytes(request: Request | None) -> bool:
+    return isinstance(request, Request) and "app" in getattr(request, "scope", {})
 
 
 def _institutional_feed_action_label(event_type: str, row: InstitutionalActivityEvent | None = None) -> str:
@@ -943,7 +953,35 @@ def _list_institutional_activity_feed_events(
     )
 
 
-def _events_response_cache_get(cache_key: str | None) -> EventsPage | EventsPageDebug | None:
+def _events_response_json_bytes(payload: EventsPage | EventsPageDebug) -> bytes:
+    if hasattr(payload, "model_dump_json"):
+        return payload.model_dump_json(exclude_none=True).encode("utf-8")
+    return payload.json(exclude_none=True).encode("utf-8")
+
+
+def _events_response_from_cached(entry: dict[str, object], *, status: str) -> Response:
+    body = entry.get("body")
+    if not isinstance(body, bytes):
+        payload = entry.get("payload")
+        if isinstance(payload, (EventsPage, EventsPageDebug)):
+            body = _events_response_json_bytes(payload)
+        else:
+            body = b'{"items":[]}'
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=30, stale-while-revalidate=600"},
+    )
+
+
+def _events_response_cached_payload(entry: dict[str, object]) -> EventsPage | EventsPageDebug | None:
+    payload = entry.get("payload")
+    if isinstance(payload, (EventsPage, EventsPageDebug)):
+        return copy.deepcopy(payload)
+    return None
+
+
+def _events_response_cache_get(cache_key: str | None, *, allow_stale: bool = False) -> tuple[dict[str, object], str] | None:
     if not cache_key:
         return None
     now = monotonic()
@@ -951,11 +989,16 @@ def _events_response_cache_get(cache_key: str | None) -> EventsPage | EventsPage
         cached = _EVENTS_RESPONSE_CACHE.get(cache_key)
         if cached is None:
             return None
-        expires_at, payload = cached
-        if expires_at <= now:
+        expires_at = float(cached.get("expires_at") or 0.0)
+        stale_until = float(cached.get("stale_until") or expires_at)
+        if expires_at > now:
+            return cached, "fresh"
+        if allow_stale and stale_until > now:
+            return cached, "stale"
+        if stale_until <= now:
             _EVENTS_RESPONSE_CACHE.pop(cache_key, None)
             return None
-        return copy.deepcopy(payload)
+        return None
 
 
 def _events_response_inflight_start(cache_key: str | None) -> tuple[dict[str, object] | None, bool]:
@@ -980,10 +1023,25 @@ def _events_response_cache_finalize(
     if not cache_key:
         return payload
     stored = copy.deepcopy(payload)
+    body = _events_response_json_bytes(stored)
+    now = monotonic()
     with _EVENTS_RESPONSE_CACHE_LOCK:
-        _EVENTS_RESPONSE_CACHE[cache_key] = (monotonic() + _events_response_cache_ttl_seconds(), stored)
+        _EVENTS_RESPONSE_CACHE[cache_key] = {
+            "expires_at": now + _events_response_cache_ttl_seconds(),
+            "stale_until": now + _events_response_cache_ttl_seconds() + _events_response_cache_stale_seconds(),
+            "payload": stored,
+            "body": body,
+        }
+    logger.info(
+        "events_response_cache_store item_count=%s bytes=%s ttl_seconds=%s stale_seconds=%s",
+        len(payload.items),
+        len(body),
+        _events_response_cache_ttl_seconds(),
+        _events_response_cache_stale_seconds(),
+    )
     if inflight_leader and inflight_state is not None:
         inflight_state["result"] = copy.deepcopy(payload)
+        inflight_state["body"] = body
         event = inflight_state.get("event")
         if isinstance(event, threading.Event):
             event.set()
@@ -4814,25 +4872,70 @@ def list_events(
         response_cache_key = None
     cached_response = _events_response_cache_get(response_cache_key)
     if cached_response is not None:
-        logger.info("events_response_cache_hit symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
+        cached_entry, cache_status = cached_response
+        cached_payload = _events_response_cached_payload(cached_entry)
+        cached_items = len(cached_payload.items) if cached_payload is not None else 0
+        cached_body = cached_entry.get("body")
+        cached_bytes = len(cached_body) if isinstance(cached_body, bytes) else None
+        logger.info(
+            "events_response_cache_hit status=%s symbols=%s limit=%s offset=%s bytes=%s",
+            cache_status,
+            ",".join(combined_symbols),
+            limit,
+            offset,
+            cached_bytes,
+        )
         _log_events_request_summary(
             started_at=started_at,
-            item_count=len(cached_response.items),
-            total=cached_response.total,
+            item_count=cached_items,
+            total=cached_payload.total if cached_payload is not None else None,
             include_total=include_total,
             enrich_prices=enrich_prices,
             limit=limit,
             page_size=page_size,
             offset=offset,
         )
-        return cached_response
+        if _events_response_can_return_bytes(request):
+            return _events_response_from_cached(cached_entry, status=cache_status)
+        if cached_payload is not None:
+            return cached_payload
     inflight_state, inflight_leader = _events_response_inflight_start(response_cache_key)
     if response_cache_key and not inflight_leader and inflight_state is not None:
+        stale_response = _events_response_cache_get(response_cache_key, allow_stale=True)
+        if stale_response is not None:
+            stale_entry, stale_status = stale_response
+            stale_payload = _events_response_cached_payload(stale_entry)
+            stale_body = stale_entry.get("body")
+            logger.info(
+                "events_response_cache_hit status=%s symbols=%s limit=%s offset=%s bytes=%s reason=inflight",
+                stale_status,
+                ",".join(combined_symbols),
+                limit,
+                offset,
+                len(stale_body) if isinstance(stale_body, bytes) else None,
+            )
+            if _events_response_can_return_bytes(request):
+                return _events_response_from_cached(stale_entry, status=stale_status)
+            if stale_payload is not None:
+                return stale_payload
         event = inflight_state.get("event")
         if isinstance(event, threading.Event) and event.wait(timeout=max(EVENTS_RESPONSE_DEDUPE_WAIT_SECONDS, 0)):
             result = inflight_state.get("result")
             if isinstance(result, (EventsPage, EventsPageDebug)):
-                logger.info("events_response_dedupe_hit symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
+                body = inflight_state.get("body")
+                logger.info(
+                    "events_response_dedupe_hit symbols=%s limit=%s offset=%s bytes=%s",
+                    ",".join(combined_symbols),
+                    limit,
+                    offset,
+                    len(body) if isinstance(body, bytes) else None,
+                )
+                if _events_response_can_return_bytes(request) and isinstance(body, bytes):
+                    return Response(
+                        content=body,
+                        media_type="application/json",
+                        headers={"Cache-Control": "public, max-age=30, stale-while-revalidate=600"},
+                    )
                 return copy.deepcopy(result)
         logger.info("events_response_dedupe_timeout symbols=%s limit=%s offset=%s", ",".join(combined_symbols), limit, offset)
 

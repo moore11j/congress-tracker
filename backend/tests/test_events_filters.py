@@ -48,6 +48,25 @@ def _request(headers: dict[str, str]) -> Request:
     )
 
 
+def _route_request(headers: dict[str, str] | None = None, query_string: bytes = b"") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/events",
+            "headers": [
+                (key.lower().encode("latin-1"), value.encode("latin-1"))
+                for key, value in (headers or {}).items()
+            ],
+            "query_string": query_string,
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "client": ("127.0.0.1", 12345),
+            "app": object(),
+        }
+    )
+
+
 def _event(event_id: int, event_type: str, **kwargs) -> Event:
     now = kwargs.pop("ts", datetime(2026, 5, 19, tzinfo=timezone.utc))
     return Event(
@@ -856,6 +875,168 @@ def test_list_events_cache_separates_compact_and_full_payload(monkeypatch):
     finally:
         _clear_events_response_cache()
         db.close()
+
+
+def test_events_response_cache_key_normalizes_default_page_size():
+    key_without_page_size = events_module._events_response_cache_key(
+        request=_request({"user-agent": "k6/0.49.0"}),
+        debug_enabled=False,
+        include_total=False,
+        enrich_prices=True,
+        combined_symbols=[],
+        type_list=[],
+        tape_value=None,
+        since=None,
+        member=None,
+        member_id=None,
+        chamber_value=None,
+        party_value=None,
+        asset_filter_value="",
+        trade_value=None,
+        transaction_type=None,
+        role=None,
+        ownership=None,
+        department=None,
+        min_amount=None,
+        max_amount=None,
+        filed_after_max=None,
+        pnl_min=None,
+        pnl_max=None,
+        signal_min=None,
+        whale=None,
+        recent_days=None,
+        cursor=None,
+        limit=50,
+        page_size=None,
+        offset=0,
+        include_net_flows=True,
+        payload_mode="compact",
+    )
+    key_with_default_page_size = events_module._events_response_cache_key(
+        request=_request({"user-agent": "k6/0.49.0"}),
+        debug_enabled=False,
+        include_total=False,
+        enrich_prices=True,
+        combined_symbols=[],
+        type_list=[],
+        tape_value=None,
+        since=None,
+        member=None,
+        member_id=None,
+        chamber_value=None,
+        party_value=None,
+        asset_filter_value="",
+        trade_value=None,
+        transaction_type=None,
+        role=None,
+        ownership=None,
+        department=None,
+        min_amount=None,
+        max_amount=None,
+        filed_after_max=None,
+        pnl_min=None,
+        pnl_max=None,
+        signal_min=None,
+        whale=None,
+        recent_days=None,
+        cursor=None,
+        limit=50,
+        page_size=50,
+        offset=0,
+        include_net_flows=True,
+        payload_mode="compact",
+    )
+    key_with_full_payload = events_module._events_response_cache_key(
+        request=_request({"user-agent": "k6/0.49.0"}),
+        debug_enabled=False,
+        include_total=False,
+        enrich_prices=True,
+        combined_symbols=[],
+        type_list=[],
+        tape_value=None,
+        since=None,
+        member=None,
+        member_id=None,
+        chamber_value=None,
+        party_value=None,
+        asset_filter_value="",
+        trade_value=None,
+        transaction_type=None,
+        role=None,
+        ownership=None,
+        department=None,
+        min_amount=None,
+        max_amount=None,
+        filed_after_max=None,
+        pnl_min=None,
+        pnl_max=None,
+        signal_min=None,
+        whale=None,
+        recent_days=None,
+        cursor=None,
+        limit=50,
+        page_size=50,
+        offset=0,
+        include_net_flows=True,
+        payload_mode="full",
+    )
+
+    assert key_without_page_size == key_with_default_page_size
+    assert key_without_page_size != key_with_full_payload
+
+
+def test_list_events_returns_preencoded_response_for_route_cache_hit(monkeypatch):
+    _clear_events_response_cache()
+    db = _db()
+    try:
+        _stub_enrichment(monkeypatch)
+        first_ts = datetime(2026, 5, 19, tzinfo=timezone.utc)
+        db.add(
+            _event(
+                31,
+                "congress_trade",
+                ts=first_ts,
+                event_date=first_ts,
+                symbol="AAPL",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+            )
+        )
+        db.commit()
+
+        request = _route_request({"x-walnut-request-source": "load_test", "user-agent": "k6/0.49.0"})
+        first_page = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert [item.id for item in first_page.items] == [31]
+
+        cached_response = list_events(request=request, db=db, symbol="AAPL", limit=10, enrich_prices=False)
+        assert getattr(cached_response, "media_type", None) == "application/json"
+        body = json.loads(cached_response.body.decode("utf-8"))
+        assert [item["id"] for item in body["items"]] == [31]
+    finally:
+        _clear_events_response_cache()
+        db.close()
+
+
+def test_events_response_cache_can_return_stale_during_inflight(monkeypatch):
+    _clear_events_response_cache()
+    try:
+        page = events_module.EventsPageDebug(items=[], has_more=False, limit=50, offset=0)
+        key = "events:test-stale"
+        now = events_module.monotonic()
+        events_module._EVENTS_RESPONSE_CACHE[key] = {
+            "expires_at": now - 1,
+            "stale_until": now + 30,
+            "payload": page,
+            "body": page.model_dump_json(exclude_none=True).encode("utf-8"),
+        }
+
+        cached = events_module._events_response_cache_get(key, allow_stale=True)
+
+        assert cached is not None
+        _entry, status = cached
+        assert status == "stale"
+    finally:
+        _clear_events_response_cache()
 
 
 def test_list_events_caches_anonymous_http_requests_but_not_session_requests(monkeypatch):
