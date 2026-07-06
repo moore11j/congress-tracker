@@ -98,6 +98,66 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(client, /include_net_flows: 0/);
 });
 
+test("feed list defaults to compact table while preserving card view", () => {
+  const list = read("components/feed/FeedList.tsx");
+  const table = read("components/feed/FeedTable.tsx");
+  const client = read("components/feed/FeedResultsClient.tsx");
+
+  assert.match(list, /useState<FeedViewMode>\("table"\)/);
+  assert.match(list, /const feedViewStorageKey = "walnut:feed:view"/);
+  assert.match(list, /<FeedTable/);
+  assert.match(list, /viewMode === "table"/);
+  assert.match(list, /<FeedCard key=\{item\.id\}/);
+  assert.match(list, /Table/);
+  assert.match(list, /Cards/);
+  assert.match(table, /Date/);
+  assert.match(table, /Source/);
+  assert.match(table, /Ticker/);
+  assert.match(table, /Person \/ Entity/);
+  assert.match(table, /Action/);
+  assert.match(table, /Amount/);
+  assert.match(table, /G\/L/);
+  assert.match(table, /Signal/);
+  assert.match(table, /Disclosure/);
+  assert.match(table, /lg:hidden/);
+  assert.match(table, /hidden lg:block/);
+  assert.match(table, /table-fixed/);
+  assert.match(table, /<colgroup>/);
+  assert.doesNotMatch(table, /overflow-x-auto/);
+  assert.doesNotMatch(table, /min-w-\[/);
+  assert.match(table, /<FeedCard item=\{item\}/);
+  assert.match(table, /expandedItemId === item\.id/);
+  assert.match(table, /function institutionalActionLabel/);
+  assert.match(table, /Reported Reduction/);
+  assert.match(table, /Reported Increase/);
+  assert.match(table, /Reported Exit/);
+  assert.match(table, /function contractDescription/);
+  assert.match(table, /Gov Contracts/);
+  assert.match(table, /getInsiderDisplayName/);
+  assert.match(client, /getEvents\(/);
+  assert.equal((client.match(/getEvents\(/g) ?? []).length, 1);
+  assert.doesNotMatch(client, /payload:\s*"full"|payload=full|getEventDetails/);
+});
+
+test("feed table keeps truthful gain loss states without internal wording", () => {
+  const table = read("components/feed/FeedTable.tsx");
+
+  assert.match(table, /function gainLossLabel/);
+  assert.match(table, /status === "pending"/);
+  assert.match(table, /status === "unavailable"/);
+  assert.match(table, /status === "missing_trade_price"/);
+  assert.match(table, /status === "missing_current_price"/);
+  assert.match(table, /status === "missing_quantity"/);
+  assert.match(table, /status === "ok" \? "Ready"/);
+  assert.match(table, /canViewPremiumMetrics/);
+  assert.match(table, /Locked/);
+  assert.match(table, /gain_loss_amount/);
+  assert.match(table, /gain_loss_percent/);
+  assert.match(table, /Change N\/A/);
+  assert.match(table, /recipient_name/);
+  assert.doesNotMatch(table, /provider|vendor|cache|FMP/);
+});
+
 test("watchlist activity unlocks premium metrics for entitled users", () => {
   const entitlements = read("lib/entitlements.ts");
   const watchlistPage = read("app/watchlists/[id]/page.tsx");
