@@ -35,6 +35,50 @@ def _truthy_query_value(value: str) -> bool:
     return value not in {"", "0", "false", "no", "off", "none"}
 
 
+def _int_query_value(query_params: Mapping[str, str], key: str, default: int) -> int:
+    raw = _param_value(query_params, key)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _has_any_param(query_params: Mapping[str, str], keys: tuple[str, ...]) -> bool:
+    return any(_param_value(query_params, key) for key in keys)
+
+
+def _is_visible_feed_read(query_params: Mapping[str, str]) -> bool:
+    limit = _int_query_value(query_params, "limit", 50)
+    if limit > 50:
+        return False
+    if _truthy_query_value(_param_value(query_params, "debug")):
+        return False
+    if _truthy_query_value(_param_value(query_params, "include_total")):
+        return False
+    return not _has_any_param(
+        query_params,
+        (
+            "pnl_min",
+            "pnl_max",
+            "signal_min",
+            "export",
+            "download",
+        ),
+    )
+
+
+def _is_protected_feed_read(query_params: Mapping[str, str]) -> bool:
+    if _int_query_value(query_params, "limit", 50) > 50:
+        return True
+    if _truthy_query_value(_param_value(query_params, "debug")):
+        return True
+    if _truthy_query_value(_param_value(query_params, "include_total")):
+        return True
+    return _has_any_param(query_params, ("export", "download", "pnl_min", "pnl_max", "signal_min"))
+
+
 def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriority:
     normalized_path = (path or "/").rstrip("/") or "/"
     lower_path = normalized_path.lower()
@@ -61,6 +105,10 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
 
     if lower_path == "/api/events":
         if _param_value(query_params, "symbol") or _param_value(query_params, "ticker"):
+            return RoutePriority.NORMAL
+        if _is_protected_feed_read(query_params):
+            return RoutePriority.HEAVY
+        if _is_visible_feed_read(query_params):
             return RoutePriority.NORMAL
         if _truthy_query_value(_param_value(query_params, "enrich_prices")):
             return RoutePriority.HEAVY

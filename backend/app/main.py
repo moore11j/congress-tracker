@@ -2577,6 +2577,13 @@ def _public_get_cache_ttl_seconds() -> int:
         return 30
 
 
+def _public_get_cache_stale_seconds() -> int:
+    try:
+        return max(0, min(300, int(os.getenv("PUBLIC_GET_RESPONSE_CACHE_STALE_SECONDS", "120") or 120)))
+    except ValueError:
+        return 120
+
+
 def _public_get_cache_dedupe_wait_seconds() -> float:
     try:
         return max(0.0, min(5.0, float(os.getenv("PUBLIC_GET_RESPONSE_CACHE_DEDUPE_WAIT_SECONDS", "3") or 3)))
@@ -3032,6 +3039,7 @@ async def public_get_response_cache(request: Request, call_next):
     cache_key = _public_get_cache_key(request)
     inflight_event: asyncio.Event | None = None
     inflight_leader = False
+    stale_cached: tuple[int, dict[str, str], bytes] | None = None
     if cache_key:
         now = time.time()
         with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
@@ -3043,7 +3051,10 @@ async def public_get_response_cache(request: Request, call_next):
                     hit_headers = dict(headers)
                     hit_headers["x-walnut-public-cache"] = "hit"
                     return Response(content=body, status_code=status_code, headers=hit_headers)
-                _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
+                if expires_at + _public_get_cache_stale_seconds() > now:
+                    stale_cached = (status_code, dict(headers), body)
+                else:
+                    _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
             inflight_event = _PUBLIC_GET_RESPONSE_INFLIGHT.get(cache_key)
             if inflight_event is None:
                 inflight_event = asyncio.Event()
@@ -3066,7 +3077,16 @@ async def public_get_response_cache(request: Request, call_next):
                             hit_headers = dict(headers)
                             hit_headers["x-walnut-public-cache"] = "hit"
                             return Response(content=body, status_code=status_code, headers=hit_headers)
-                        _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
+                        if expires_at + _public_get_cache_stale_seconds() > now:
+                            stale_cached = (status_code, dict(headers), body)
+                        else:
+                            _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
+            if not inflight_leader and stale_cached is not None:
+                status_code, headers, body = stale_cached
+                logger.info("public_get_response_cache_stale_hit path=%s reason=inflight_wait", request.url.path)
+                stale_headers = dict(headers)
+                stale_headers["x-walnut-public-cache"] = "hit"
+                return Response(content=body, status_code=status_code, headers=stale_headers)
 
     try:
         response = await call_next(request)
@@ -3081,6 +3101,12 @@ async def public_get_response_cache(request: Request, call_next):
             with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
                 _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
             inflight_event.set()
+        if cache_key and response.status_code == 503 and stale_cached is not None:
+            status_code, headers, body = stale_cached
+            logger.info("public_get_response_cache_stale_hit path=%s reason=downstream_503", request.url.path)
+            stale_headers = dict(headers)
+            stale_headers["x-walnut-public-cache"] = "hit"
+            return Response(content=body, status_code=status_code, headers=stale_headers)
         return response
     headers = {
         key: value

@@ -114,9 +114,18 @@ def test_secondary_analytics_fail_soft_includes_member_trades():
 
 def test_core_routes_stay_outside_insider_heavy_lane():
     assert classify_request("/api/events", {"limit": "5", "enrich_prices": "0"}) == RoutePriority.NORMAL
+    assert classify_request("/api/events", {"limit": "10", "enrich_prices": "1"}) == RoutePriority.NORMAL
+    assert classify_request("/api/events", {"limit": "50", "enrich_prices": "1"}) == RoutePriority.NORMAL
     assert classify_request("/api/tickers/AAPL/signals-summary", {}) == RoutePriority.NORMAL
     assert classify_request("/api/tickers/NVDA/government-contracts", {}) == RoutePriority.NORMAL
     assert classify_request("/api/tickers/AAPL", {}) == RoutePriority.NORMAL
+
+
+def test_broad_or_filter_heavy_events_still_use_heavy_lane():
+    assert classify_request("/api/events", {"limit": "51", "enrich_prices": "1"}) == RoutePriority.HEAVY
+    assert classify_request("/api/events", {"limit": "51", "enrich_prices": "0"}) == RoutePriority.HEAVY
+    assert classify_request("/api/events", {"limit": "50", "enrich_prices": "1", "include_total": "1"}) == RoutePriority.HEAVY
+    assert classify_request("/api/events", {"limit": "50", "enrich_prices": "1", "pnl_min": "10"}) == RoutePriority.HEAVY
 
 
 def test_ticker_cache_first_section_routes_are_not_outer_heavy_gated():

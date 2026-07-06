@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import time
+
+from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
-from app.main import _is_public_get_cacheable_path, _public_get_cache_key
+from app.main import (
+    _PUBLIC_GET_RESPONSE_CACHE,
+    _PUBLIC_GET_RESPONSE_CACHE_LOCK,
+    _PUBLIC_GET_RESPONSE_INFLIGHT,
+    _is_public_get_cacheable_path,
+    _public_get_cache_key,
+    public_get_response_cache,
+)
 
 
 def _request(path: str, *, headers: dict[str, str] | None = None) -> Request:
@@ -68,3 +79,39 @@ def test_public_get_response_cache_key_separates_request_source_variants():
     assert browser_key is not None
     assert load_test_key is not None
     assert browser_key != load_test_key
+
+
+def test_public_get_response_cache_serves_stale_payload_on_downstream_503(monkeypatch):
+    monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_STALE_SECONDS", "120")
+    request = _request(
+        "/api/events?limit=50&enrich_prices=1",
+        headers={"User-Agent": "k6/0.49.0", "X-Walnut-Request-Source": "load_test"},
+    )
+    cache_key = _public_get_cache_key(request)
+    assert cache_key is not None
+
+    stale_body = b'{"items":[{"id":1,"gain_loss_status":"ok","gain_loss_percent":9.4}],"limit":50}'
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+        _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
+            time.time() - 1,
+            200,
+            {"content-type": "application/json"},
+            stale_body,
+        )
+
+    async def call_next(_request):
+        return JSONResponse(
+            status_code=503,
+            content={"reason": "heavy_route_saturated"},
+        )
+
+    response = asyncio.run(public_get_response_cache(request, call_next))
+
+    assert response.status_code == 200
+    assert response.body == stale_body
+
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
