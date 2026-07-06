@@ -346,10 +346,13 @@ test("ticker disclosure activity renders links from event url payload fields", (
 });
 
 test("landing feed government contract profile lookup falls back without server error", () => {
-  const page = read("app/page.tsx");
+  const client = read("components/feed/FeedResultsClient.tsx");
+  const mapper = read("lib/feedEventMapper.ts");
   const api = read("lib/api.ts");
 
   assert.match(api, /"tickers" in data/);
-  assert.match(page, /companyNames = \{\};/);
-  assert.doesNotMatch(page, /console\.error\("\[feed\] ticker profiles unavailable for government contracts/);
+  assert.match(client, /companyNames = \{\};/);
+  assert.match(mapper, /function companyNameForGovernmentContract/);
+  assert.match(mapper, /governmentContractCompanyFallbacks/);
+  assert.doesNotMatch(client, /console\.error\("\[feed\] ticker profiles unavailable for government contracts/);
 });

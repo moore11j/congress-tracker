@@ -56,14 +56,20 @@ test("feed autosuggest popovers render above result cards", () => {
   }
 });
 
-test("visible feed SSR requests bounded gain/loss enrichment", () => {
+test("visible feed results load client-side with bounded gain/loss enrichment", () => {
   const page = read("app/page.tsx");
+  const client = read("components/feed/FeedResultsClient.tsx");
   const api = read("lib/api.ts");
 
-  assert.match(page, /enrich_prices:\s*1/);
-  assert.match(page, /include_net_flows:\s*0/);
-  assert.match(page, /requestSource:\s*"ssr"/);
-  assert.match(page, /routeFamily:\s*"feed"/);
+  assert.match(page, /<FeedResultsClient/);
+  assert.doesNotMatch(page, /getEvents/);
+  assert.doesNotMatch(page, /\/api\/events/);
+  assert.doesNotMatch(page, /requestSource:\s*"ssr"/);
+  assert.match(client, /getEvents\(/);
+  assert.match(client, /enrich_prices:\s*1/);
+  assert.match(client, /include_net_flows:\s*0/);
+  assert.match(client, /requestSource:\s*"client"/);
+  assert.match(client, /routeFamily:\s*"feed"/);
   assert.doesNotMatch(page, /enrich_prices:\s*0/);
   assert.match(api, /const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";/);
   assert.match(api, /cache: authToken \|\| bypassPublicFetchCache \? "no-store" : "force-cache"/);
@@ -74,6 +80,8 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   const card = read("components/feed/FeedCard.tsx");
   const list = read("components/feed/FeedList.tsx");
   const page = read("app/page.tsx");
+  const mapper = read("lib/feedEventMapper.ts");
+  const client = read("components/feed/FeedResultsClient.tsx");
 
   assert.doesNotMatch(card, /Member Net 30D:/);
   assert.doesNotMatch(card, /Insider Net 30D:/);
@@ -84,10 +92,10 @@ test("feed cards hide net flow labels and gate premium metrics", () => {
   assert.match(card, /smartSignalPillClasses/);
   assert.match(list, /canViewPremiumMetrics=\{canViewPremiumMetrics\}/);
   assert.match(page, /hasEntitlement\(entitlements, "premium_feed_metrics"\)/);
-  assert.match(page, /function redactPremiumFeedMetrics/);
-  assert.match(page, /pnlValue < 0 \? -0\.1/);
-  assert.match(page, /smart_score: signalValue === null \? null : undefined/);
-  assert.match(page, /include_net_flows: 0/);
+  assert.match(mapper, /function redactPremiumFeedMetrics/);
+  assert.match(mapper, /pnlValue < 0 \? -0\.1/);
+  assert.match(mapper, /smart_score: signalValue === null \? null : undefined/);
+  assert.match(client, /include_net_flows: 0/);
 });
 
 test("watchlist activity unlocks premium metrics for entitled users", () => {
@@ -125,7 +133,7 @@ test("feed gain/loss tooltip uses simplified percentage copy", () => {
 
 test("institutional feed cards use compact values and text activity labels", () => {
   const card = read("components/feed/FeedCard.tsx");
-  const page = read("app/page.tsx");
+  const mapper = read("lib/feedEventMapper.ts");
 
   assert.match(card, /function formatMoneyCompactRange/);
   assert.match(card, /function formatSignedMoneyCompact/);
@@ -146,15 +154,15 @@ test("institutional feed cards use compact values and text activity labels", () 
   assert.doesNotMatch(card, /Prior value exited/);
   assert.match(card, /Change \{formatSignedMoneyCompact\(institutionalValueDelta\)\}/);
   assert.match(card, /isInstitutional \? "flex flex-col items-center gap-2 text-center md:grid md:\[grid-template-columns:minmax\(125px,170px\)_90px_60px\]/);
-  assert.match(page, /companyNameForSymbol/);
-  assert.match(page, /function institutionalDisplayName/);
-  assert.match(page, /institutionalDisplayName\(event\.member_name\)/);
-  assert.match(page, /normalized === "institutional activity"/);
-  assert.match(page, /function institutionalTransactionLabel/);
-  assert.match(page, /institutionalTransactionLabel\(event\.event_type, payload, event\.trade_type\)/);
-  assert.doesNotMatch(page, /Multiple institutions/);
-  assert.doesNotMatch(page, /`CIK \$\{event\.member_bioguide_id\}`/);
-  assert.match(page, /institutionalSymbols/);
+  assert.match(mapper, /companyNameForSymbol/);
+  assert.match(mapper, /function institutionalDisplayName/);
+  assert.match(mapper, /institutionalDisplayName\(event\.member_name\)/);
+  assert.match(mapper, /normalized === "institutional activity"/);
+  assert.match(mapper, /function institutionalTransactionLabel/);
+  assert.match(mapper, /institutionalTransactionLabel\(event\.event_type, payload, event\.trade_type\)/);
+  assert.doesNotMatch(mapper, /Multiple institutions/);
+  assert.doesNotMatch(mapper, /`CIK \$\{event\.member_bioguide_id\}`/);
+  assert.match(mapper, /feedProfileSymbols/);
 });
 
 test("global search UI advertises insider search and renders insider grouping", () => {
