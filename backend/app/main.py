@@ -5977,6 +5977,9 @@ def _is_direct_context_bundle_cached_only_request(request: Request) -> bool:
     if source == "ssr":
         auth_state, _plan_tier = _request_auth_state(request)
         referer_host, _referer_path = _sanitize_referer(request.headers.get("referer"))
+        active_marker = str(request.headers.get("x-walnut-active-user") or "").strip().lower()
+        if active_marker in {"1", "true", "yes", "browser"}:
+            return False
         if auth_state == "logged_out" and referer_host == "none":
             return True
     if source not in {"unknown", "direct_api", "monitor_probe"}:

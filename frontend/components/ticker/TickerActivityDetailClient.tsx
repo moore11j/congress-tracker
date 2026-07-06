@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
-import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { LockedSmartSignalPill, SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { getEvents, type EventItem } from "@/lib/api";
 import { chamberBadge, formatCongressAffiliationText, formatCurrencyRange, formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
@@ -213,12 +213,14 @@ export function TickerActivityDetailClient({
   lookbackDays,
   side,
   statusElementId,
+  canViewPremiumMetrics = false,
 }: {
   kind: ActivityKind;
   symbol: string;
   lookbackDays: number;
   side: SideFilter;
   statusElementId?: string;
+  canViewPremiumMetrics?: boolean;
 }) {
   const markerRef = useRef<HTMLDivElement | null>(null);
   const requestedRef = useRef(false);
@@ -343,7 +345,13 @@ export function TickerActivityDetailClient({
                   dateLabel={rowDateLabel(kind, event)}
                   price={formatPrice(price)}
                   tradeValue={tradeValue !== null ? formatPrice(tradeValue) : formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
-                  signal={<SmartSignalPill score={smartSignal.score} band={smartSignal.band} size="compact" />}
+                  signal={
+                    canViewPremiumMetrics ? (
+                      <SmartSignalPill score={smartSignal.score} band={smartSignal.band} size="compact" />
+                    ) : (
+                      <LockedSmartSignalPill band={smartSignal.band} size="compact" />
+                    )
+                  }
                 />
               );
             })()}

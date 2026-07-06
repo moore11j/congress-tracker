@@ -9,7 +9,7 @@ function read(path) {
   return readFileSync(join(root, path), "utf8");
 }
 
-test("anonymous unknown ticker SSR uses a lightweight shell before context bundle fanout", () => {
+test("anonymous ticker SSR keeps public context bundle complete and defers detail fanout", () => {
   const page = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(page, /import \{ headers \} from "next\/headers"/);
@@ -23,6 +23,7 @@ test("anonymous unknown ticker SSR uses a lightweight shell before context bundl
   assert.match(page, /function shouldDeferAnonymousTickerActivityDetails/);
   assert.match(page, /requestHeaders\.get\("next-router-prefetch"\) === "1"/);
   assert.match(page, /requestHeaders\.get\("x-middleware-prefetch"\) === "1"/);
+  assert.match(page, /return false;/);
   assert.match(page, /return !userAgentLooksInteractiveBrowser\(requestHeaders\.get\("user-agent"\)\)/);
   assert.match(page, /const activityDetailsRequested = one\(sp, "activity_details"\) === "1"/);
   assert.match(page, /if \(authToken \|\| hasAuthHint \|\| activityDetailsRequested\) return false/);
@@ -32,8 +33,8 @@ test("anonymous unknown ticker SSR uses a lightweight shell before context bundl
   const bundleBlock = page.slice(page.indexOf("const contextBundleResult ="), page.indexOf("const profile = contextBundleResult.profile"));
   const shellIndex = bundleBlock.indexOf("useAnonymousTickerSsrShell");
   const bundleIndex = bundleBlock.indexOf("getTickerContextBundle(normalizedSymbol");
-  assert.ok(shellIndex >= 0, "ticker page should compute a lightweight anonymous shell branch");
-  assert.ok(bundleIndex > shellIndex, "context bundle fanout should happen only after the lightweight shell branch");
+  assert.ok(shellIndex >= 0, "ticker page should keep an explicit prefetch shell branch");
+  assert.ok(bundleIndex > shellIndex, "context bundle fanout should remain available for non-prefetch guest SSR");
 
   const activityBlock = page.slice(page.indexOf("const activityPromise ="), page.indexOf("return (", page.indexOf("const activityPromise =")));
   const deferIndex = activityBlock.indexOf("if (deferTickerActivityDetails)");
@@ -51,8 +52,11 @@ test("ticker deferred SSR renders section placeholders and hydrates details on v
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(page, /<TickerDeferredActivityRefresh enabled=\{activityDetailsDeferred\} symbol=\{normalizedSymbol\} \/>/);
-  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" \/>/);
-  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
+  assert.match(page, /const canViewPremiumMetrics = hasAuthForEntitlementDisplay && entitlements/);
+  assert.match(page, /<LockedSmartSignalPill band=\{signal\.band\} size="compact" \/>/);
+  assert.match(page, /<LockedSmartSignalPill band=\{display\.signal\.band\} size="compact" \/>/);
   assert.match(page, /activityDetailsDeferred \? "Loading government contract activity\." : "No government contracts in selected window\."/);
   assert.match(refresher, /"use client"/);
   assert.match(refresher, /IntersectionObserver/);
@@ -62,6 +66,8 @@ test("ticker deferred SSR renders section placeholders and hydrates details on v
   assert.match(detailClient, /requestSource: "visibility"/);
   assert.match(detailClient, /routeFamily: "ticker"/);
   assert.match(detailClient, /source: kind === "congress" \? "congress-detail" : "insider-detail"/);
+  assert.match(detailClient, /canViewPremiumMetrics \? \(/);
+  assert.match(detailClient, /<LockedSmartSignalPill band=\{smartSignal\.band\} size="compact" \/>/);
   assert.match(detailClient, /No Congress trades in the selected window\./);
   assert.match(detailClient, /No insider trades in the selected window\./);
 });

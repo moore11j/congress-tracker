@@ -28,3 +28,33 @@ export function SmartSignalPill({
     </span>
   );
 }
+
+export function LockedSmartSignalPill({
+  band,
+  size = "compact",
+  className = "",
+}: {
+  band: string | null;
+  size?: "compact" | "full";
+  className?: string;
+}) {
+  const signal = buildSmartSignalPillModel({ score: 88, band });
+  if (!signal) return null;
+
+  const sizeClassName =
+    size === "full"
+      ? "gap-2 rounded-full px-3 py-1 text-xs font-medium"
+      : "gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold";
+  const labelClassName = size === "compact" ? "font-mono" : "";
+
+  return (
+    <span
+      className={`inline-flex items-center border ${sizeClassName} ${signal.className} ${className}`.trim()}
+      title="Signal score is for Premium or Pro only."
+    >
+      <span className={`h-2 w-2 rounded-full ${signal.dotClassName}`} />
+      <span className={`select-none blur-[4px] ${labelClassName}`} aria-hidden="true">88</span>
+      <span className="sr-only">Premium signal score locked</span>
+    </span>
+  );
+}

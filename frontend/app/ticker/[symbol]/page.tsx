@@ -40,7 +40,7 @@ import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
-import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
+import { LockedSmartSignalPill, SmartSignalPill } from "@/components/ui/SmartSignalPill";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
   resolveInsiderDisplayPrice,
@@ -287,7 +287,7 @@ function shouldUseAnonymousTickerSsrShell({
   if (requestHeaders.get("x-middleware-prefetch") === "1") return true;
   if (headerIncludes(requestHeaders, "purpose", "prefetch")) return true;
   if (headerIncludes(requestHeaders, "sec-purpose", "prefetch")) return true;
-  return !userAgentLooksInteractiveBrowser(requestHeaders.get("user-agent"));
+  return false;
 }
 
 function clampLookback(v: string): Lookback {
@@ -2581,6 +2581,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
   canViewProTickerContext,
+  canViewPremiumMetrics,
   tickerConfirmationGate,
 }: {
   activityPromise: Promise<TickerActivityData>;
@@ -2598,6 +2599,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
   canViewProTickerContext: boolean;
+  canViewPremiumMetrics: boolean;
   tickerConfirmationGate?: TickerConfirmationGate | null;
 }) {
   const {
@@ -3012,7 +3014,7 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {congressEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" />
+                  <TickerActivityDetailClient kind="congress" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="congress-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -3053,7 +3055,11 @@ async function DeferredTickerContent({
                               pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
                               showGainLoss={false}
                               signal={
-                                <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                                canViewPremiumMetrics ? (
+                                  <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
+                                ) : (
+                                  <LockedSmartSignalPill band={signal.band} size="compact" />
+                                )
                               }
                             />
                           </ActivityCard>
@@ -3090,7 +3096,7 @@ async function DeferredTickerContent({
               </div>
               <div className="space-y-3">
                 {insiderEvents.length === 0 ? (
-                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" />
+                  <TickerActivityDetailClient kind="insider" symbol={normalizedSymbol} lookbackDays={selectedLookbackDays} side={side} statusElementId="insider-activity-status" canViewPremiumMetrics={canViewPremiumMetrics} />
                 ) : (
                   <>
                     <ActivityScrollRegion>
@@ -3125,7 +3131,13 @@ async function DeferredTickerContent({
                             pnl={display.pnl !== null ? formatPnl(display.pnl) : "-"}
                             pnlClassName={display.pnl !== null ? pnlClass(display.pnl) : "text-slate-400"}
                             showGainLoss={false}
-                            signal={<SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />}
+                            signal={
+                              canViewPremiumMetrics ? (
+                                <SmartSignalPill score={display.signal.score} band={display.signal.band} size="compact" />
+                              ) : (
+                                <LockedSmartSignalPill band={display.signal.band} size="compact" />
+                              )
+                            }
                           />
                         </ActivityCard>
                         );
@@ -3258,7 +3270,13 @@ async function DeferredTickerContent({
                           pnl={pnl !== null ? formatPnl(pnl) : "-"}
                           pnlClassName={pnl !== null ? pnlClass(pnl) : "text-slate-400"}
                           showGainLoss={false}
-                          signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
+                          signal={
+                            canViewPremiumMetrics ? (
+                              <SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />
+                            ) : (
+                              <LockedSmartSignalPill band={signal.smart_band ?? null} size="compact" />
+                            )
+                          }
                         />
                       </ActivityCard>
                       );
@@ -3567,6 +3585,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const hasAuthForEntitlementDisplay = Boolean(authToken || authState.hasAuthHint);
   const canViewSignalActivity = hasAuthForEntitlementDisplay ? canUseSignalActivity(entitlements) : false;
   const canViewTickerConfirmation = hasAuthForEntitlementDisplay ? canUseTickerConfirmation(entitlements) : false;
+  const canViewPremiumMetrics = hasAuthForEntitlementDisplay && entitlements
+    ? hasEntitlement(entitlements, "premium_feed_metrics")
+    : false;
   const canViewProContext = hasAuthForEntitlementDisplay && canUseProTickerContext(entitlements);
   const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
   const signalGateState = !shouldLoadSignals || signalActivityAuthPending
@@ -3775,6 +3796,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}
           canViewProTickerContext={canViewProContext}
+          canViewPremiumMetrics={canViewPremiumMetrics}
           tickerConfirmationGate={tickerConfirmationGate}
         />
       </Suspense>

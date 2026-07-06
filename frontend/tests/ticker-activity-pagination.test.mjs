@@ -109,6 +109,7 @@ test("ticker trade activity grids disclose price without gain loss and preserve 
   assert.match(detailClient, /resolveCongressActivityPrice\(event as Record<string, unknown>\)/);
   assert.match(detailClient, /price=\{formatPrice\(price\)\}/);
   assert.match(detailClient, /SmartSignalPill score=\{smartSignal\.score\}/);
+  assert.match(detailClient, /LockedSmartSignalPill band=\{smartSignal\.band\}/);
   assert.match(detailClient, /memberHref\(\{ name: memberName, memberId: event\.member_bioguide_id \}\)/);
   assert.match(detailClient, /formatSignalStrengthText\(signal\.band\)/);
   assert.match(detailClient, /formatSignalStrengthText\(display\.signal\.band\)/);

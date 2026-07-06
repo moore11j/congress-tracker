@@ -63,8 +63,8 @@ test("ticker bottom activity detail fallback fetches on visibility with attribut
   const detailClient = read("components/ticker/TickerActivityDetailClient.tsx");
 
   assert.match(page, /import \{ TickerActivityDetailClient \}/);
-  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" \/>/);
-  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="congress" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="congress-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
+  assert.match(page, /<TickerActivityDetailClient kind="insider" symbol=\{normalizedSymbol\} lookbackDays=\{selectedLookbackDays\} side=\{side\} statusElementId="insider-activity-status" canViewPremiumMetrics=\{canViewPremiumMetrics\} \/>/);
   assert.match(detailClient, /IntersectionObserver/);
   assert.match(detailClient, /requestSource: "visibility"/);
   assert.match(detailClient, /routeFamily: "ticker"/);
