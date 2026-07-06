@@ -38,13 +38,13 @@ test("ticker chart helper forwards selected days to chart-bundle", () => {
   assert.match(api, /buildApiUrl\(`\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/chart-bundle`, \{ days \}\)/);
 });
 
-test("ticker activity requests base disclosure rows without price enrichment", () => {
+test("ticker activity requests visible trade prices while heavy tab disclosure rows stay base-only", () => {
   assert.match(tickerPage, /enrich_prices: 0/);
   assert.match(tickerContextCard, /enrich_prices: 0/);
   assert.doesNotMatch(tickerPage, /source: "TickerEvents"/);
   assert.doesNotMatch(tickerPage, /limit: 100/);
-  assert.match(tickerPage, /source: "TickerCongressActivity"/);
-  assert.match(tickerPage, /source: "TickerInsiderActivity"/);
+  assert.match(tickerPage, /enrich_prices: 1,[\s\S]*?source: "TickerCongressActivity"/);
+  assert.match(tickerPage, /enrich_prices: 1,[\s\S]*?source: "TickerInsiderActivity"/);
   assert.match(tickerPage, /ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE \+ 1/);
   assert.match(tickerPage, /const boundedEvents = \[/);
 });

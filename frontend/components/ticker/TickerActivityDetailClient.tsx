@@ -252,7 +252,7 @@ export function TickerActivityDetailClient({
         recent_days: lookbackDays,
         limit: ACTIVITY_LIMIT,
         offset: 0,
-        enrich_prices: 0,
+        enrich_prices: 1,
         tape: kind,
         ...(tradeType ? { trade_type: tradeType } : {}),
         requestSource: "visibility",
