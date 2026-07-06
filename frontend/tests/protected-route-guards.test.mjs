@@ -102,10 +102,11 @@ test("protected app shells bound initial server data fetches", () => {
   assert.match(serverTimeout, /export function withServerTimeout/);
   assert.match(screenerPage, /withServerTimeout\(getEntitlements\(authToken\), "screener:entitlements"\)/);
   assert.match(screenerPage, /withServerTimeout\(getPlanConfig\(\), "screener:plan-config"\)/);
-  assert.match(screenerPage, /withServerTimeout\([\s\S]*fetch\(requestUrl/);
-  assert.match(screenerPage, /"screener:results"/);
-  assert.match(watchlistsPage, /withServerTimeout\(listWatchlists\(authToken\), "watchlists:list"\)\.catch\(\(\) => \[\]\)/);
-  assert.match(monitoringPage, /withServerTimeout\(listWatchlists\(authToken\), "monitoring:watchlists"\)\.catch\(\(\) => \[\]\)/);
+  assert.doesNotMatch(screenerPage, /"screener:results"/);
+  assert.doesNotMatch(screenerPage, /fetch\(requestUrl/);
+  assert.match(screenerPage, /<ScreenerResultsClient/);
+  assert.match(watchlistsPage, /<WatchlistsDashboard initialWatchlists=\{\[\]\}/);
+  assert.match(monitoringPage, /<MonitoringDashboard initialWatchlists=\{\[\]\}/);
 });
 
 test("institution profile route fails soft on backend profile and section errors", () => {

@@ -7,7 +7,6 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { API_BASE, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, getEntitlements, getEvents, getTickerProfiles } from "@/lib/api";
 import type { EventsResponse } from "@/lib/api";
 import type { FeedItem } from "@/lib/types";
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { Suspense } from "react";
@@ -1046,10 +1045,7 @@ export default async function FeedPage({
 }) {
   const sp = (await searchParams) ?? {};
   const modeParam = getParam(sp, "mode");
-  if (!modeParam || !isValidFeedMode(modeParam)) {
-    redirect("/?mode=all");
-  }
-  const feedMode = modeParam;
+  const feedMode = isValidFeedMode(modeParam) ? modeParam : "all";
   const authState = await optionalPageAuthState();
   const entitlements = authState.token
     ? await getEntitlements(authState.token, { source: "FeedPage" }).catch(() => entitlementsFromTierHint(authState.entitlementHint))

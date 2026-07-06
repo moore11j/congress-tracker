@@ -54,12 +54,10 @@ test("signals sale rows render as Sell with normalized feed-like pill styling", 
 });
 
 test("signals smart Exceptional pill has enough compact width to avoid overflow", () => {
-  assert.match(signalsPage, /label: "Exceptional"/);
-  assert.match(signalsPage, /min-w-\[7\.75rem\][\s\S]*text-\[11px\]/);
-  assert.match(signalsPage, /<col className="w-\[9\.25rem\]" \/>/);
+  assert.match(signalsPage, /<SignalsResultsClient/);
   assert.match(signalsResultsClient, /label: "Exceptional"/);
   assert.match(signalsResultsClient, /min-w-\[7\.75rem\][\s\S]*text-\[11px\]/);
-  assert.match(signalsResultsClient, /<col className="w-\[9\.25rem\]" \/>/);
+  assert.match(signalsResultsClient, /<col className="w-\[12%\]" \/>/);
 });
 
 test("institutional signals Pro lock includes a direct upgrade CTA", () => {

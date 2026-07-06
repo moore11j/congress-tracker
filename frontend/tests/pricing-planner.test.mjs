@@ -128,13 +128,13 @@ test("pricing actions render current plan states from fresh account entitlements
   assert.match(actions, /disabled=\{disabled\}/);
 });
 
-test("pricing page fetches live admin plan config instead of static defaults", () => {
-  assert.match(pricingPage, /export const dynamic = "force-dynamic"/);
-  assert.match(pricingPage, /export const revalidate = 0/);
-  assert.match(pricingPage, /import \{ getPlanConfig \} from "@\/lib\/api"/);
-  assert.match(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)\.catch\(\(\) => defaultPlanConfig\)/);
-  assert.match(pricingPage, /<PricingPlanner config=\{planConfig\} \/>/);
-  assert.doesNotMatch(pricingPage, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
+test("pricing page renders a static public shell and refreshes live config client-side", () => {
+  assert.match(pricingPage, /export const dynamic = "force-static"/);
+  assert.match(pricingPage, /export const revalidate = 3600/);
+  assert.doesNotMatch(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)/);
+  assert.match(pricingPage, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
+  assert.match(source, /getPlanConfig\(\)/);
+  assert.match(source, /setActiveConfig\(configResult\.value\)/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "no-store"/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?headers: \{ "Cache-Control": "no-cache" \}/);
   assert.doesNotMatch(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "force-cache"/);

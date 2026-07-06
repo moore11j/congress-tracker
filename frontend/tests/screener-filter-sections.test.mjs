@@ -55,7 +55,7 @@ test("free screener gates premium filter groups without the top monitoring badge
 });
 
 test("screener explicit submit and apply actions scroll to results", () => {
-  assert.match(page, /<ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey=\{requestUrl\} \/>/);
+  assert.match(page, /<ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey=\{resultsTriggerKey\} \/>/);
   assert.match(page, /data-screener-scroll-link="true"/);
   assert.match(page, /id="screener-results"/);
   assert.match(clientResults, /id="screener-results"/);

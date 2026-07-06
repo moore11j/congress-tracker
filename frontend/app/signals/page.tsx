@@ -295,17 +295,6 @@ export default async function SignalsPage({
   const sort = clampSort(getParam(sp, "sort"));
   const institutionalLookbackDays = clampInstitutionalLookbackDays(getParam(sp, "institutional_lookback_days"), mode);
   const debug = isTrue(getParam(sp, "debug"));
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://congress-tracker-api.fly.dev";
-  const requestUrl = buildSignalsUrl(
-    API_BASE,
-    mode,
-    side,
-    limit,
-    debug,
-    sort,
-    institutionalLookbackDays,
-  );
-
   const card = "min-w-0 max-w-full rounded-2xl border border-slate-800 bg-slate-950/40 shadow-sm";
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
 
@@ -337,21 +326,18 @@ export default async function SignalsPage({
           <h2 className="text-xl font-semibold text-white">Signals table</h2>
           <p className="text-sm text-slate-400">{mode === "institutional" ? "Material 13F filing activity by filing date." : "Abnormal trades vs per-symbol historical median."}</p>
         </div>
-        <Suspense key={requestUrl} fallback={<SignalsResultsFallback card={card} />}>
-          <SignalsResultsSection
-            mode={mode}
-            side={side}
-            limit={limit}
-            debug={debug}
-            sort={sort}
-            institutionalLookbackDays={institutionalLookbackDays}
-            authToken={authToken}
-            card={card}
-            pill={pill}
-            canBacktest={hasEntitlement(entitlements, "backtesting")}
-            upgradeUrl={entitlements.upgrade_url || "/pricing"}
-          />
-        </Suspense>
+        <SignalsResultsClient
+          mode={mode}
+          side={side}
+          limit={limit}
+          debug={debug}
+          sort={sort}
+          institutionalLookbackDays={institutionalLookbackDays}
+          card={card}
+          pill={pill}
+          canBacktest={hasEntitlement(entitlements, "backtesting")}
+          upgradeUrl={entitlements.upgrade_url || "/pricing"}
+        />
       </div>
       </div>
     </VerifiedSessionGuard>

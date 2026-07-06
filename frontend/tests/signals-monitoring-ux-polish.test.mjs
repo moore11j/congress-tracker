@@ -31,28 +31,20 @@ test("signals saved view dirty state compares normalized defaults", () => {
 });
 
 test("signals mode and sort controls match the current product surface", () => {
-  const modeBlock = signalsFiltersClient.match(/<div className="text-xs text-slate-400">Mode<\/div>[\s\S]*?<div className="text-xs text-slate-400">Side<\/div>/)?.[0] ?? "";
-  const sortBlock = signalsFiltersClient.match(/<div className="text-xs text-slate-400 sm:ml-2">Sort<\/div>[\s\S]*?<div className=\{filterRow\}>[\s\S]*?<div className="text-xs text-slate-400">Limit<\/div>/)?.[0] ?? "";
+  const modeOptions = signalsFiltersClient.match(/const modeOptions = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
+  assert.match(modeOptions, /\["congress", "Congress"\][\s\S]*\["insider", "Insider"\][\s\S]*\["institutional", "Institutional"\]/);
+  assert.doesNotMatch(modeOptions, /\["all", "All"\]/);
 
-  assert.match(modeBlock, /\["congress", "CONGRESS"\]/);
-  assert.match(modeBlock, /\["insider", "INSIDER"\]/);
-  assert.match(modeBlock, /\["institutional", "INSTITUTIONAL"\]/);
-  assert.doesNotMatch(modeBlock, /\["all", "ALL"\]/);
-
-  assert.match(sortBlock, /\["recent", "RECENT"\][\s\S]*\["amount", "AMOUNT"\][\s\S]*\["multiple", "MULTIPLE"\][\s\S]*\["smart", "SCORE"\]/);
-  assert.doesNotMatch(sortBlock, /CONFIRM|FRESH|CONVICTION/);
+  const sortOptions = signalsFiltersClient.match(/const sortOptions = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
+  assert.match(sortOptions, /\["recent", "Recent"\][\s\S]*\["amount", "Amount"\][\s\S]*\["multiple", "Multiple"\][\s\S]*\["smart", "Score"\]/);
+  assert.doesNotMatch(sortOptions, /Confirm|Fresh|Conviction/);
   assert.doesNotMatch(signalsFiltersClient, /confirmationBand|confirmationDirection|minConfirmationSources|multiSourceOnly/);
   assert.doesNotMatch(signalsFiltersClient, />Confirm<|>Direction<|>Sources</);
 });
 
 test("signals side filter only renders useful choices", () => {
-  const sideBlock = signalsFiltersClient.match(/<div className="text-xs text-slate-400">Side<\/div>[\s\S]*?<div className="text-xs text-slate-400 sm:ml-2">Sort<\/div>/)?.[0] ?? "";
-
-  assert.match(sideBlock, /\["all", "All"\]/);
-  assert.match(sideBlock, /\["buy", "Buy"\]/);
-  assert.match(sideBlock, /\["sell", "Sell"\]/);
-  assert.match(sideBlock, /\["buy_or_sell", "Buy\/Sell"\]/);
-  assert.doesNotMatch(sideBlock, /Award|InKind|In Kind|Exempt|\["award"|\["inkind"|\["exempt"/);
+  assert.match(signalsFiltersClient, /const sideOptions = \[[\s\S]*\["all", "All"\][\s\S]*\["buy", "Buy"\][\s\S]*\["sell", "Sell"\]/);
+  assert.doesNotMatch(signalsFiltersClient, /Award|InKind|In Kind|Exempt|\["award"|\["inkind"|\["exempt"|\["buy_or_sell"/);
 });
 
 test("signals table removes screener-only source confirmation and freshness columns", () => {

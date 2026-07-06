@@ -12,7 +12,7 @@ import { ScreenerUpgradeOverlay } from "@/components/screener/ScreenerUpgradeOve
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SavedViewsBar } from "@/components/saved-views/SavedViewsBar";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
-import { API_BASE, getEntitlements, getPlanConfig, type PlanConfig } from "@/lib/api";
+import { getEntitlements, getPlanConfig, type PlanConfig } from "@/lib/api";
 import { formatCompanyName } from "@/lib/companyName";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement, limitFor } from "@/lib/entitlements";
@@ -593,19 +593,6 @@ function currentParams(sp: SearchParams) {
   return params;
 }
 
-function buildApiUrl(params: Record<string, string | number>): string {
-  const url = new URL("/api/screener", API_BASE);
-  Object.entries(params).forEach(([key, value]) => {
-    const trimmed = NUMERIC_PARAM_KEYS.has(key) ? stripNumberFormatting(value) : String(value).trim();
-    if (trimmed) url.searchParams.set(key, trimmed);
-  });
-  return url.toString();
-}
-
-function authHeaders(authToken?: string | null): HeadersInit | undefined {
-  return authToken ? { Cookie: `ct_session=${authToken}` } : undefined;
-}
-
 function pageHref(params: Record<string, string | number>, overrides: Record<string, string | number | null>): string {
   const url = new URL("https://local/screener");
   Object.entries(params).forEach(([key, value]) => {
@@ -843,41 +830,6 @@ function PairedNumberInputs({
   );
 }
 
-async function loadScreenerPayload(requestUrl: string, authToken?: string | null): Promise<{ data: ScreenerResponse | null; errorMessage: string | null }> {
-  try {
-    const response = await withServerTimeout(
-      fetch(requestUrl, {
-        cache: "no-store",
-        next: { revalidate: 0 },
-        headers: authHeaders(authToken ?? undefined),
-      }),
-      "screener:results",
-      6500,
-    );
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      return {
-        data: null,
-        errorMessage:
-          typeof body?.detail?.message === "string"
-            ? body.detail.message
-            : typeof body?.detail === "string"
-              ? body.detail
-              : `Screener request failed with ${response.status}.`,
-      };
-    }
-    return {
-      data: (await response.json()) as ScreenerResponse,
-      errorMessage: null,
-    };
-  } catch (error) {
-    return {
-      data: null,
-      errorMessage: error instanceof Error ? error.message : "Unable to load screener.",
-    };
-  }
-}
-
 export default async function ScreenerPage({
   searchParams,
 }: {
@@ -892,7 +844,7 @@ export default async function ScreenerPage({
     : entitlementsFromTierHint(authState.entitlementHint);
   const planConfig = await withServerTimeout(getPlanConfig(), "screener:plan-config").catch(() => defaultPlanConfig);
   const params = currentParams(sp);
-  const requestUrl = buildApiUrl(params);
+  const resultsTriggerKey = JSON.stringify(params);
   const sort = String(params.sort ?? "relevance");
   const sortDir = String(params.sort_dir ?? "desc");
   const page = Number(params.page ?? 1);
@@ -905,13 +857,9 @@ export default async function ScreenerPage({
   const canUseMonitoring = hasEntitlement(entitlements, "screener_monitoring");
   const canExportCsv = hasEntitlement(entitlements, "screener_csv_export");
   const resultCap = limitFor(entitlements, "screener_results");
-  const screenerPayload =
-    canUseScreener && authToken
-      ? await loadScreenerPayload(requestUrl, authToken)
-      : { data: null, errorMessage: canUseScreener ? "Sign in required." : null };
-  const csvExportPlanLabel = csvExportRequiredPlanLabel(planConfig, screenerPayload.data);
+  const csvExportPlanLabel = csvExportRequiredPlanLabel(planConfig);
   const csvExportLockedReason = `CSV export is a ${csvExportPlanLabel} feature.`;
-  const overlayAvailability = screenerPayload.data?.overlay_availability ?? overlayAvailabilityDefaults();
+  const overlayAvailability = overlayAvailabilityDefaults();
   const optionsFlowFilterable = canUseOptionsFlow && overlayAvailability?.options_flow?.filterable === true;
   const institutionalActivityFilterable = canUseInstitutionalActivity && overlayAvailability?.institutional_activity?.filterable === true;
   const sortOptions = SORTS.filter(([value]) => canUseIntelligence || !["confirmation_score", "freshness"].includes(value));
@@ -928,7 +876,7 @@ export default async function ScreenerPage({
       <div className="space-y-8">
       <EntitlementHintRefresh enabled={!authToken && authState.entitlementHint != null} renderedTier={entitlements.tier} />
       <ScreenerEntitlementRefresh enabled={!authToken && !canUseScreener} />
-      <ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey={requestUrl} />
+      <ScreenerResultsAutoScroll formId="screener-filters-form" resultsId="screener-results" triggerKey={resultsTriggerKey} />
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Idea Screener</p>
@@ -1252,18 +1200,7 @@ export default async function ScreenerPage({
         </form>
       </div>
 
-      {canUseScreener ? authToken ? (
-        <ScreenerResults
-          data={screenerPayload.data}
-          errorMessage={screenerPayload.errorMessage}
-          params={params}
-          page={page}
-          pageSize={pageSize}
-          intelligenceLocked={!canUseIntelligence}
-          resultCap={resultCap}
-          activeColumns={activeColumns}
-        />
-      ) : (
+      {canUseScreener ? (
         <ScreenerResultsClient
           params={params}
           page={page}

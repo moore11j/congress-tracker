@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { MonitoringDashboard } from "@/components/monitoring/MonitoringDashboard";
-import { listWatchlists } from "@/lib/api";
 import { requirePageAuth } from "@/lib/serverAuth";
-import { withServerTimeout } from "@/lib/serverTimeout";
 
 export const dynamic = "force-dynamic";
 
 export default async function MonitoringPage() {
   const authToken = await requirePageAuth("/monitoring");
-  const watchlists = authToken
-    ? await withServerTimeout(listWatchlists(authToken), "monitoring:watchlists").catch(() => [])
-    : [];
 
   return (
     <VerifiedSessionGuard returnTo="/monitoring" initiallyAuthorized={Boolean(authToken)}>
@@ -32,7 +27,7 @@ export default async function MonitoringPage() {
           </Link>
         </section>
 
-        <MonitoringDashboard initialWatchlists={watchlists} initialAuthPending={!authToken} />
+        <MonitoringDashboard initialWatchlists={[]} initialAuthPending={!authToken} />
       </div>
     </VerifiedSessionGuard>
   );

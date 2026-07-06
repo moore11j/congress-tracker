@@ -23,8 +23,8 @@ test("insights market snapshot renders only entitlement-ready widgets", () => {
   assert.doesNotMatch(activeSnapshot, /const commodities = instrumentsOrFallback\(snapshot\.commodities, FALLBACK_COMMODITIES\)/);
   assert.doesNotMatch(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
   assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
-  assert.match(insightsClient, /getInsightsOverview/);
-  assert.match(categoryClient, /getInsightsOverview/);
+  assert.doesNotMatch(withoutHiddenComments(insightsClient), /getInsightsOverview/);
+  assert.match(categoryClient, /getInsightsMacroSnapshot/);
   assert.match(categoryClient, /getInsightsCategoryNews\(category\.slug/);
   assert.match(categoryClient, /NewsArticleList/);
   assert.match(categoryClient, /\{category\.title\} Headlines/);
