@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Viewport } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -8,12 +8,18 @@ import { AppTopNav } from "@/components/AppTopNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { PageAnalyticsTracker } from "@/components/PageAnalyticsTracker";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
 import "./globals.css";
 
-export const metadata = {
+export const metadata: Metadata = {
+  metadataBase: new URL(WALNUT_MARKETING_URL),
   title: "Walnut Market Terminal",
   description:
     "Walnut Intelligence Inc. operates Walnut Market Terminal for disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

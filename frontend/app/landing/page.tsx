@@ -4,35 +4,13 @@ import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
+import { walnutMarketingMetadata } from "@/lib/marketingMetadata";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-const landingTitle = "Walnut Markets | Market Intelligence from Political Trades and Insider Activity";
-const landingDescription =
-  "Track congressional trades, insider transactions, ticker intelligence, signal scores, and cross-source market confirmation.";
-
-export const metadata: Metadata = {
-  metadataBase: new URL("https://walnutmarkets.com"),
-  title: landingTitle,
-  description: landingDescription,
-  alternates: {
-    canonical: "/",
-  },
-  openGraph: {
-    title: "Walnut Markets",
-    description: landingDescription,
-    url: "/",
-    siteName: "Walnut Markets",
-    type: "website",
-  },
-  twitter: {
-    card: "summary",
-    title: "Walnut Markets",
-    description: landingDescription,
-  },
-};
+export const metadata: Metadata = walnutMarketingMetadata;
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
