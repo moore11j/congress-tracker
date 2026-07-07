@@ -74,7 +74,7 @@ def _seed_state(Session, **kwargs):
             cursor_page=kwargs.pop("cursor_page", 9),
             pages_per_run=kwargs.pop("pages_per_run", 1),
             limit=kwargs.pop("limit", 25),
-            max_filings_per_run=kwargs.pop("max_filings_per_run", 10),
+            max_filings_per_run=kwargs.pop("max_filings_per_run", 5),
             last_status=kwargs.pop("last_status", "idle"),
             last_started_at=kwargs.pop("last_started_at", None),
         )
@@ -110,7 +110,7 @@ def test_job_state_initialization_defaults_disabled(job_env):
         assert state.cursor_page == 9
         assert state.pages_per_run == 1
         assert state.limit == 25
-        assert state.max_filings_per_run == 10
+        assert state.max_filings_per_run == 5
     finally:
         db.close()
 
@@ -146,11 +146,11 @@ def test_scheduled_latest_once_processes_fixed_window_and_advances_cursor(job_en
     result = job_module.run_scheduled_latest_once()
 
     assert result["status"] == "success"
-    assert calls == [{"start_page": 9, "pages": 1, "limit": 25, "max_filings": 10}]
+    assert calls == [{"start_page": 9, "pages": 1, "limit": 25, "max_filings": 5}]
     state = _state(job_env)
     assert state.cursor_page == 10
     assert state.pages_per_run == 1
-    assert state.max_filings_per_run == 10
+    assert state.max_filings_per_run == 5
     assert state.total_filings_processed == 3
     assert state.total_position_rows == 25
     run = _runs(job_env)[0]
