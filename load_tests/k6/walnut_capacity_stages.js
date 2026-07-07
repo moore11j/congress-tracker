@@ -135,6 +135,35 @@ const profiles = {
     coreP95Ms: 2000,
     overallP95Ms: 2500,
   },
+  apphost_pages_750: {
+    vus: 750,
+    exec: "appHostPagesDiagnostic",
+    botGuard: false,
+    stages: [
+      { duration: "3m", target: 250 },
+      { duration: "4m", target: 500 },
+      { duration: "5m", target: 750 },
+      { duration: "2m", target: 750 },
+      { duration: "4m", target: 0 },
+    ],
+    coreP95Ms: 2000,
+    overallP95Ms: 2500,
+  },
+  apphost_pages_1000: {
+    vus: 1000,
+    exec: "appHostPagesDiagnostic",
+    botGuard: false,
+    stages: [
+      { duration: "3m", target: 250 },
+      { duration: "4m", target: 500 },
+      { duration: "5m", target: 750 },
+      { duration: "5m", target: 1000 },
+      { duration: "2m", target: 1000 },
+      { duration: "5m", target: 0 },
+    ],
+    coreP95Ms: 2000,
+    overallP95Ms: 2500,
+  },
   medium: {
     vus: 100,
     stages: [
@@ -168,7 +197,7 @@ const profiles = {
 };
 
 if (!profiles[profile]) {
-  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, prod75, prod200, prod300, prod400, backend_api_400, apphost_api_400, apphost_pages_400, apphost_pages_500, medium, large, or target.`);
+  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, prod75, prod200, prod300, prod400, backend_api_400, apphost_api_400, apphost_pages_400, apphost_pages_500, apphost_pages_750, apphost_pages_1000, medium, large, or target.`);
 }
 
 const selected = profiles[profile];
