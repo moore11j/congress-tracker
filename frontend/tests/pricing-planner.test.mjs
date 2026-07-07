@@ -38,10 +38,35 @@ test("included feature cells render as green checks while limits stay numeric", 
 });
 
 test("free/core rows lead screener and monitoring pricing categories", () => {
+  const marketOrderStart = source.indexOf('"Market feeds": {');
+  const marketOrderEnd = source.indexOf("},", marketOrderStart);
+  const marketOrderSource = source.slice(marketOrderStart, marketOrderEnd);
+  const marketMarkers = [
+    "congress_feed:",
+    "insider_feed:",
+    "government_contracts_feed:",
+    "government_contracts_filters:",
+    "premium_feed_metrics:",
+  ];
+  const marketPositions = marketMarkers.map((marker) => marketOrderSource.indexOf(marker));
+  marketPositions.forEach((position, index) => assert.notEqual(position, -1, `missing market marker ${marketMarkers[index]}`));
+  for (let index = 1; index < marketPositions.length; index += 1) {
+    assert.ok(marketPositions[index] > marketPositions[index - 1], `${marketMarkers[index]} should follow ${marketMarkers[index - 1]}`);
+  }
+
   const screenerOrderStart = source.indexOf('"Screener & signals": {');
   const screenerOrderEnd = source.indexOf("},", screenerOrderStart);
   const screenerOrderSource = source.slice(screenerOrderStart, screenerOrderEnd);
-  const screenerMarkers = ["screener:", "screener_results:", "screener_intelligence:", "screener_presets:", "signals:", "leaderboards:"];
+  const screenerMarkers = [
+    "screener:",
+    "screener_results:",
+    "screener_intelligence:",
+    "screener_presets:",
+    "signals:",
+    "ticker_confirmation:",
+    "leaderboards:",
+    "options_flow_filters:",
+  ];
   const screenerPositions = screenerMarkers.map((marker) => screenerOrderSource.indexOf(marker));
   screenerPositions.forEach((position, index) => assert.notEqual(position, -1, `missing screener marker ${screenerMarkers[index]}`));
   for (let index = 1; index < screenerPositions.length; index += 1) {
@@ -68,21 +93,25 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
   }
 });
 
-test("advanced coming soon rows keep feed rows paired with their filters", () => {
+test("advanced coming soon rows only include unavailable future surfaces", () => {
   const advancedOrderStart = source.indexOf('"Advanced / Coming Soon": {');
   const advancedOrderEnd = source.indexOf("},", advancedOrderStart);
   const advancedOrderSource = source.slice(advancedOrderStart, advancedOrderEnd);
-  const advancedMarkers = ["options_flow_feed:", "options_flow_filters:", "institutional_feed:", "institutional_filters:", "api_webhooks:"];
+  const advancedMarkers = ["institutional_feed:", "institutional_filters:", "options_flow_feed:", "api_webhooks:"];
   const advancedPositions = advancedMarkers.map((marker) => advancedOrderSource.indexOf(marker));
   advancedPositions.forEach((position, index) => assert.notEqual(position, -1, `missing advanced marker ${advancedMarkers[index]}`));
   for (let index = 1; index < advancedPositions.length; index += 1) {
     assert.ok(advancedPositions[index] > advancedPositions[index - 1], `${advancedMarkers[index]} should follow ${advancedMarkers[index - 1]}`);
   }
+  assert.doesNotMatch(advancedOrderSource, /ticker_confirmation|premium_feed_metrics/);
 
   assert.match(
     source,
-    /if \(\["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"\]\.includes\(featureKey\)\) return "Screener & signals";/,
+    /"ticker_confirmation"[\s\S]*?return "Screener & signals";/,
   );
+  assert.match(source, /"premium_feed_metrics"[\s\S]*?return "Market feeds";/);
+  assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
+  assert.match(source, /if \(\["options_flow_feed", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
 });
 
 test("options flow and institutional activity are Pro-only in frontend fallback config", () => {
@@ -133,11 +162,13 @@ test("pricing page renders a static public shell and refreshes live config clien
   assert.match(pricingPage, /export const dynamic = "force-static"/);
   assert.match(pricingPage, /export const revalidate = false/);
   assert.doesNotMatch(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)/);
-  assert.match(pricingPage, /<PricingPlannerDeferred config=\{defaultPlanConfig\} \/>/);
+  assert.doesNotMatch(pricingPage, /defaultPlanConfig/);
+  assert.match(pricingPage, /<PricingPlannerDeferred \/>/);
   assert.match(pricingDeferred, /dynamic\(/);
   assert.match(pricingDeferred, /ssr: false/);
   assert.match(pricingDeferred, /loading: \(\) => <PricingFallback \/>/);
-  assert.match(pricingDeferred, /<PricingPlanner config=\{config\} \/>/);
+  assert.match(pricingDeferred, /defaultPlanConfig/);
+  assert.match(pricingDeferred, /<PricingPlanner config=\{defaultPlanConfig\} \/>/);
   assert.match(source, /getPlanConfig\(\)/);
   assert.match(source, /setActiveConfig\(configResult\.value\)/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "no-store"/);

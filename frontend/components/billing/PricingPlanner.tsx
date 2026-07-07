@@ -23,15 +23,22 @@ const headlineLimitKeys = [
 const categoryOrder = ["Market feeds", "Screener & signals", "Watchlists & monitoring", "Data export & workflow", "Advanced / Coming Soon"] as const;
 
 const featureOrderByCategory: Record<string, Record<string, number>> = {
+  "Market feeds": {
+    congress_feed: 10,
+    insider_feed: 20,
+    government_contracts_feed: 30,
+    government_contracts_filters: 40,
+    premium_feed_metrics: 50,
+  },
   "Screener & signals": {
     screener: 10,
     screener_results: 20,
     screener_intelligence: 30,
     screener_presets: 40,
     signals: 50,
-    leaderboards: 60,
-    options_flow_filters: 70,
-    institutional_filters: 80,
+    ticker_confirmation: 60,
+    leaderboards: 70,
+    options_flow_filters: 80,
   },
   "Watchlists & monitoring": {
     inbox_alerts: 10,
@@ -45,17 +52,16 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     notification_digests: 90,
   },
   "Advanced / Coming Soon": {
-    options_flow_feed: 10,
-    options_flow_filters: 20,
-    institutional_feed: 30,
-    institutional_filters: 40,
-    api_webhooks: 50,
+    institutional_feed: 10,
+    institutional_filters: 20,
+    options_flow_feed: 30,
+    api_webhooks: 40,
   },
 };
 
 function categoryFor(featureKey: string) {
-  if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters"].includes(featureKey)) return "Market feeds";
-  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "leaderboards"].includes(featureKey)) return "Screener & signals";
+  if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters", "premium_feed_metrics"].includes(featureKey)) return "Market feeds";
+  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "ticker_confirmation", "leaderboards", "options_flow_filters"].includes(featureKey)) return "Screener & signals";
   if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
   return "Advanced / Coming Soon";
@@ -121,7 +127,7 @@ function featureIncluded(feature: PlanConfigFeature, tier: PlanTier) {
 function featureCell(feature: PlanConfigFeature, tier: PlanTier) {
   if (feature.kind === "limit") return formatLimit(feature, feature.limits[tier] ?? 0);
   if (featureIncluded(feature, tier)) {
-    if (["options_flow_feed", "institutional_feed", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
+    if (["options_flow_feed", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
     return (
       <span aria-label="Included" title="Included" className="inline-flex text-lg font-semibold leading-none text-emerald-300">
         ✓

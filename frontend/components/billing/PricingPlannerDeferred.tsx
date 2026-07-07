@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { PlanConfig } from "@/lib/api";
+import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 
 const PricingPlanner = dynamic(
   () => import("@/components/billing/PricingPlanner").then((module) => module.PricingPlanner),
@@ -11,8 +11,8 @@ const PricingPlanner = dynamic(
   },
 );
 
-export function PricingPlannerDeferred({ config }: { config: PlanConfig }) {
-  return <PricingPlanner config={config} />;
+export function PricingPlannerDeferred() {
+  return <PricingPlanner config={defaultPlanConfig} />;
 }
 
 function PricingFallback() {
