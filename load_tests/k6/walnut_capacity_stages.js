@@ -122,6 +122,19 @@ const profiles = {
     coreP95Ms: 2000,
     overallP95Ms: 2500,
   },
+  apphost_pages_500: {
+    vus: 500,
+    exec: "appHostPagesDiagnostic",
+    botGuard: false,
+    stages: [
+      { duration: "3m", target: 250 },
+      { duration: "5m", target: 500 },
+      { duration: "2m", target: 500 },
+      { duration: "3m", target: 0 },
+    ],
+    coreP95Ms: 2000,
+    overallP95Ms: 2500,
+  },
   medium: {
     vus: 100,
     stages: [
@@ -155,7 +168,7 @@ const profiles = {
 };
 
 if (!profiles[profile]) {
-  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, prod75, prod200, prod300, prod400, backend_api_400, apphost_api_400, apphost_pages_400, medium, large, or target.`);
+  throw new Error(`Unknown TEST_PROFILE=${profile}. Use small, prod50, prod75, prod200, prod300, prod400, backend_api_400, apphost_api_400, apphost_pages_400, apphost_pages_500, medium, large, or target.`);
 }
 
 const selected = profiles[profile];
