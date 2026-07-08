@@ -1089,6 +1089,7 @@ export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "
 export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "member_list" | "all_insiders" | "insider";
 export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
 export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
+export type BacktestBenchmarkSymbol = "^GSPC" | "QQQ" | "IWM" | "VT" | "SPY_TLT_60_40" | "BOGLEHEADS_3_FUND";
 
 export type BacktestTickerInput = {
   symbol: string;
@@ -1114,7 +1115,7 @@ export type BacktestRunRequest = {
   rebalancing_frequency: BacktestRebalancingFrequency;
   max_position_weight?: number;
   weighting: "equal";
-  benchmark: "^GSPC";
+  benchmark: BacktestBenchmarkSymbol;
   include_exempt_acquisitions?: boolean;
   buy_and_hold?: boolean;
 };
@@ -1177,6 +1178,8 @@ export type BacktestPosition = {
 };
 
 export type BacktestRunResponse = {
+  benchmark_symbol?: BacktestBenchmarkSymbol | string;
+  benchmark_label?: string;
   summary: BacktestSummary;
   timeline: BacktestTimelinePoint[];
   positions: BacktestPosition[];
@@ -1187,7 +1190,7 @@ export type BacktestRunResponse = {
 export type BacktestPresetsResponse = {
   today: string;
   defaults: {
-    benchmark: "^GSPC";
+    benchmark: BacktestBenchmarkSymbol;
     weighting: "equal";
     hold_days: 90;
     lookback_days: number;
@@ -1205,7 +1208,7 @@ export type BacktestPresetsResponse = {
   strategy_types: { key: BacktestStrategyType; label: string }[];
   lookback_options: { days: number; label: string }[];
   hold_day_options: { days: 30 | 60 | 90 | 180 | 365; label: string }[];
-  benchmark_options: { symbol: "^GSPC"; label: string }[];
+  benchmark_options: { symbol: BacktestBenchmarkSymbol; label: string; components?: { symbol: string; weight: number }[] }[];
   contribution_frequency_options: { key: BacktestContributionFrequency; label: string }[];
   rebalancing_frequency_options: { key: BacktestRebalancingFrequency; label: string }[];
   source_scopes: {

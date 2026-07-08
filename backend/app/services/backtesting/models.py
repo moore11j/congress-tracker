@@ -19,6 +19,80 @@ MAX_CUSTOM_TICKERS = 25
 MAX_CUSTOM_ALLOCATED_TICKERS = 10
 
 
+@dataclass(frozen=True)
+class BenchmarkComponent:
+    symbol: str
+    weight: float
+
+
+@dataclass(frozen=True)
+class BenchmarkDefinition:
+    key: str
+    label: str
+    components: tuple[BenchmarkComponent, ...]
+
+
+BENCHMARK_DEFINITIONS: dict[str, BenchmarkDefinition] = {
+    "^GSPC": BenchmarkDefinition(
+        key="^GSPC",
+        label="S&P 500",
+        components=(BenchmarkComponent(symbol="^GSPC", weight=1.0),),
+    ),
+    "QQQ": BenchmarkDefinition(
+        key="QQQ",
+        label="QQQ - Invesco QQQ Trust",
+        components=(BenchmarkComponent(symbol="QQQ", weight=1.0),),
+    ),
+    "IWM": BenchmarkDefinition(
+        key="IWM",
+        label="IWM - iShares Russell 2000 ETF",
+        components=(BenchmarkComponent(symbol="IWM", weight=1.0),),
+    ),
+    "VT": BenchmarkDefinition(
+        key="VT",
+        label="VT - Vanguard Total World Stock ETF",
+        components=(BenchmarkComponent(symbol="VT", weight=1.0),),
+    ),
+    "SPY_TLT_60_40": BenchmarkDefinition(
+        key="SPY_TLT_60_40",
+        label="60/40 Portfolio (SPY/TLT)",
+        components=(BenchmarkComponent(symbol="SPY", weight=0.6), BenchmarkComponent(symbol="TLT", weight=0.4)),
+    ),
+    "BOGLEHEADS_3_FUND": BenchmarkDefinition(
+        key="BOGLEHEADS_3_FUND",
+        label="Bogleheads 3 Fund (60/20/20)",
+        components=(
+            BenchmarkComponent(symbol="VTI", weight=0.6),
+            BenchmarkComponent(symbol="VXUS", weight=0.2),
+            BenchmarkComponent(symbol="BND", weight=0.2),
+        ),
+    ),
+}
+
+
+def normalize_benchmark_key(value: str | None) -> str:
+    normalized = (value or DEFAULT_BENCHMARK).strip().upper()
+    return normalized or DEFAULT_BENCHMARK
+
+
+def benchmark_definition(value: str | None) -> BenchmarkDefinition:
+    return BENCHMARK_DEFINITIONS.get(normalize_benchmark_key(value), BENCHMARK_DEFINITIONS[DEFAULT_BENCHMARK])
+
+
+def benchmark_options_payload() -> list[dict[str, object]]:
+    return [
+        {
+            "symbol": definition.key,
+            "label": definition.label,
+            "components": [
+                {"symbol": component.symbol, "weight": component.weight}
+                for component in definition.components
+            ],
+        }
+        for definition in BENCHMARK_DEFINITIONS.values()
+    ]
+
+
 class BacktestTickerInput(BaseModel):
     symbol: str
     allocation_pct: float | None = None
@@ -102,8 +176,11 @@ class BacktestStrategyConfig(BaseModel):
             raise ValueError("end_date must be on or after start_date.")
         if self.hold_days not in HOLD_DAY_OPTIONS:
             raise ValueError(f"hold_days must be one of {', '.join(str(value) for value in HOLD_DAY_OPTIONS)}.")
-        if (self.benchmark or DEFAULT_BENCHMARK).strip().upper() != DEFAULT_BENCHMARK:
-            raise ValueError("benchmark must be ^GSPC in v1.")
+        self.benchmark = normalize_benchmark_key(self.benchmark)
+        if self.benchmark not in BENCHMARK_DEFINITIONS:
+            raise ValueError(
+                f"benchmark must be one of {', '.join(BENCHMARK_DEFINITIONS)}."
+            )
         if self.contribution_frequency == "none" and self.contribution_amount > 0:
             raise ValueError("contribution_frequency must be set when contribution_amount is greater than zero.")
         if self.contribution_frequency != "none" and self.contribution_amount < 0:
@@ -228,6 +305,8 @@ class BacktestPositionPoint(BaseModel):
 
 
 class BacktestRunResponse(BaseModel):
+    benchmark_symbol: str = DEFAULT_BENCHMARK
+    benchmark_label: str = BENCHMARK_DEFINITIONS[DEFAULT_BENCHMARK].label
     summary: BacktestSummary
     timeline: list[BacktestTimelinePoint]
     positions: list[BacktestPositionPoint]

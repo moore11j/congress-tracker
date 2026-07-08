@@ -68,6 +68,9 @@ test("institutional signals Pro lock includes a direct upgrade CTA", () => {
     assert.match(source, /isInstitutionalProRequiredMessage\(mode, errorMessage\)/);
     assert.match(source, /showInstitutionalUpgradeCta \?[\s\S]*<InstitutionalSignalsUpgradeCta upgradeUrl=\{upgradeUrl\} \/>/);
   }
+  assert.match(signalsResultsClient, /if \(error\.status === 402 \|\| error\.status === 403\) return error\.message \|\| "Premium access required\."/);
+  assert.match(signalsResultsClient, /setLoading\(true\);\s*setErrorMessage\(null\);\s*setItems\(\[\]\);/);
+  assert.match(signalsResultsClient, /\.catch\(\(error\) => \{[\s\S]*?if \(!alive\) return;[\s\S]*?setItems\(\[\]\);[\s\S]*?setErrorMessage\(cleanSignalsError\(error\)\);/);
 });
 
 test("monitoring shows skeletons instead of upgrade copy during likely-auth hydration", () => {

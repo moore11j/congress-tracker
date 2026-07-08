@@ -9,6 +9,7 @@ import { TickerMultiAutosuggest } from "@/components/backtesting/TickerMultiAuto
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import type {
   BacktestContributionFrequency,
+  BacktestBenchmarkSymbol,
   BacktestPresetsResponse,
   BacktestRebalancingFrequency,
   BacktestRunRequest,
@@ -84,6 +85,9 @@ const SIGNAL_PRESET_OPTIONS: { key: SignalPreset; label: string }[] = [
 const SIGNAL_LIMIT_OPTIONS = [10, 25] as const;
 const CONGRESS_COUNT_OPTIONS = [5, 10, 25] as const;
 const CUSTOM_TICKER_LIMIT = 10;
+const BUY_AND_HOLD_HELPER =
+  "Buy and hold keeps qualifying entries open through the end of the backtest period. For event-driven modes, this overrides the default planned hold period.";
+const FALLBACK_BENCHMARK_OPTIONS: BacktestPresetsResponse["benchmark_options"] = [{ symbol: "^GSPC", label: "S&P 500" }];
 
 const CONGRESS_STRATEGY_OPTIONS: {
   key: CongressStrategyKey;
@@ -177,7 +181,14 @@ function toneClass(value: number | null | undefined) {
   return "text-slate-200";
 }
 
-function summaryGroups(result: BacktestRunResponse | null) {
+function benchmarkReturnMetricLabel(label: string) {
+  const shortLabel = label.split(" - ")[0].replace(/\s*\(.+\)\s*$/, "").trim();
+  if (shortLabel === "S&P 500") return "S&P Return";
+  if (/^[A-Z]{1,5}$/.test(shortLabel)) return `${shortLabel} Return`;
+  return "Benchmark Return";
+}
+
+function summaryGroups(result: BacktestRunResponse | null, benchmarkLabel: string) {
   if (!result) return { primary: [] as SummaryItem[], secondary: [] as SummaryItem[] };
   return {
     primary: [
@@ -189,7 +200,7 @@ function summaryGroups(result: BacktestRunResponse | null) {
       { label: "Sharpe Ratio", value: ratio(result.summary.sharpe_ratio), tone: "text-white" },
     ],
     secondary: [
-      { label: "S&P Return", value: pct(result.summary.benchmark_return_pct), tone: toneClass(result.summary.benchmark_return_pct) },
+      { label: benchmarkReturnMetricLabel(benchmarkLabel), value: pct(result.summary.benchmark_return_pct), tone: toneClass(result.summary.benchmark_return_pct) },
       { label: "Max Drawdown", value: pct(result.summary.max_drawdown_pct), tone: "text-white" },
       { label: "Volatility", value: pct(result.summary.volatility_pct), tone: "text-white" },
       { label: "Position Win Rate", value: pct(result.summary.win_rate), tone: "text-white" },
@@ -398,6 +409,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [tickerProfiles, setTickerProfiles] = useState<TickerProfilesMap>({});
   const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(initialQuery?.lookback_days, initialPresets.defaults.lookback_days));
   const holdDays = parseHoldDays(initialQuery?.hold_days, initialPresets.defaults.hold_days);
+  const [benchmark, setBenchmark] = useState<BacktestBenchmarkSymbol>(initialPresets.defaults.benchmark);
   const [startBalanceInput, setStartBalanceInput] = useState<string>(String(initialPresets.defaults.start_balance));
   const [contributionAmountInput, setContributionAmountInput] = useState<string>(String(initialPresets.defaults.contribution_amount));
   const [contributionFrequency, setContributionFrequency] = useState<BacktestContributionFrequency>(initialPresets.defaults.contribution_frequency);
@@ -437,11 +449,23 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   }, [presets.saved_screens, presets.watchlists, savedScreenId, watchlistId]);
 
   const startDate = useMemo(() => shiftIsoDate(today, Math.max(lookbackDays - 1, 0)), [lookbackDays, today]);
-  const summary = summaryGroups(result);
   const strategyAssumptions = strategyAssumptionLine(result);
   const noPositionsMessage = emptyPositionsMessage(view);
   const customAllocationState = useMemo(() => customAllocationSummary(customRows), [customRows]);
   const selectedTickerSymbols = useMemo(() => customRows.map((row) => row.symbol), [customRows]);
+  const benchmarkOptions = useMemo(
+    () => (presets.benchmark_options.length > 0 ? presets.benchmark_options : FALLBACK_BENCHMARK_OPTIONS),
+    [presets.benchmark_options],
+  );
+  const selectedBenchmarkOption = benchmarkOptions.find((option) => option.symbol === benchmark) ?? benchmarkOptions[0];
+  const selectedBenchmark = selectedBenchmarkOption.symbol;
+  const resultBenchmarkLabel = result?.benchmark_label || selectedBenchmarkOption.label;
+  const summary = summaryGroups(result, resultBenchmarkLabel);
+
+  useEffect(() => {
+    if (benchmarkOptions.some((option) => option.symbol === benchmark)) return;
+    setBenchmark(presets.defaults.benchmark);
+  }, [benchmark, benchmarkOptions, presets.defaults.benchmark]);
 
   useEffect(() => {
     if (view !== "signals" || !canRun) return;
@@ -562,7 +586,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       rebalancing_frequency: rebalancingFrequency,
       max_position_weight: presets.defaults.max_position_weight,
       weighting: "equal",
-      benchmark: "^GSPC",
+      benchmark: selectedBenchmark,
       include_exempt_acquisitions: view === "insider" ? includeExemptAcquisitions : false,
       buy_and_hold: buyAndHold,
     };
@@ -594,7 +618,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       strategy_type: "custom_tickers",
       tickers: customRows.map((row) => ({ symbol: row.symbol, allocation_pct: parseAllocationInput(row.allocationInput) })),
     };
-  }, [buyAndHold, congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, includeExemptAcquisitions, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
+  }, [buyAndHold, congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, includeExemptAcquisitions, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, selectedBenchmark, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
 
   const helperText =
     entitlementsLoading ? null
@@ -709,11 +733,22 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               <span className="flex items-center gap-1">
                 Hold Period
-                <span
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] font-semibold text-slate-400"
-                  title="Buy and hold keeps qualifying entries open through the end of the backtest period. For event-driven modes, this overrides the default planned hold period."
-                >
-                  ?
+                <span className="group relative inline-flex">
+                  <button
+                    type="button"
+                    aria-describedby="buy-and-hold-helper"
+                    title={BUY_AND_HOLD_HELPER}
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] font-semibold text-slate-400 transition hover:border-emerald-300/40 hover:text-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
+                  >
+                    ?
+                  </button>
+                  <span
+                    id="buy-and-hold-helper"
+                    role="tooltip"
+                    className="pointer-events-none absolute left-1/2 top-6 z-30 hidden w-72 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-left text-xs font-medium normal-case leading-5 tracking-normal text-slate-200 shadow-2xl shadow-black/40 group-focus-within:block group-hover:block"
+                  >
+                    {BUY_AND_HOLD_HELPER}
+                  </span>
                 </span>
               </span>
               <label className="flex min-h-12 items-center gap-3 rounded-xl border border-white/10 bg-slate-950/35 px-3 py-3 text-sm normal-case tracking-normal text-slate-300">
@@ -721,7 +756,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
                 <span className="font-semibold text-white">Buy and hold</span>
               </label>
             </div>
-            <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Benchmark<select value="^GSPC" className={selectClassName} disabled={true}><option value="^GSPC">S&amp;P 500</option></select></label>
+            <label className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Benchmark<select value={selectedBenchmark} onChange={(event) => { setBenchmark(event.target.value as BacktestBenchmarkSymbol); setError(null); }} className={selectClassName} disabled={!canRun}>{benchmarkOptions.map((option) => <option key={option.symbol} value={option.symbol}>{option.label}</option>)}</select></label>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -748,7 +783,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Results</p>
-              <h2 className="mt-1 text-xl font-semibold text-white">Strategy vs S&amp;P 500</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">Strategy vs {resultBenchmarkLabel}</h2>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">This is a capital-constrained portfolio simulation. Individual trade returns may be large, but portfolio performance is based on actual allocated capital over time.</p>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">Total exposure is capped at 100%, with equal-weight allocations unless custom weights are provided.</p>
             </div>
@@ -783,7 +818,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center"><h3 className="text-lg font-semibold text-white">Run a backtest to populate the panel</h3><p className="mt-2 text-sm text-slate-400">Capital-constrained portfolio results will appear here with dollar balances, time-weighted returns, and the S&amp;P 500 benchmark.</p></div>
+              <div className="rounded-2xl border border-dashed border-white/10 px-5 py-10 text-center"><h3 className="text-lg font-semibold text-white">Run a backtest to populate the panel</h3><p className="mt-2 text-sm text-slate-400">Capital-constrained portfolio results will appear here with dollar balances, time-weighted returns, and the selected benchmark.</p></div>
               <AssumptionsPanel />
             </div>
           )}

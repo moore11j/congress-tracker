@@ -22,6 +22,7 @@ from app.services.backtesting.metrics import (
 )
 from app.services.backtesting.models import (
     DEFAULT_BENCHMARK,
+    BenchmarkDefinition,
     BacktestDiagnostics,
     BacktestPositionPoint,
     BacktestRunResponse,
@@ -31,6 +32,7 @@ from app.services.backtesting.models import (
     BacktestTimelinePoint,
     ContributionFrequency,
     ResolvedPosition,
+    benchmark_definition,
 )
 from app.services.backtesting.queries import (
     MAX_PRICE_FALLBACK_TRADING_DAYS,
@@ -161,6 +163,72 @@ def _position_points(positions: list[ResolvedPosition]) -> list[BacktestPosition
         )
         for position in sorted(positions, key=lambda item: (item.entry_date, item.symbol, item.source_event_id or 0))
     ]
+
+
+def _benchmark_component_symbols(definition: BenchmarkDefinition) -> list[str]:
+    return [component.symbol for component in definition.components]
+
+
+def _benchmark_weight_text(definition: BenchmarkDefinition) -> str:
+    return ", ".join(
+        f"{component.weight * 100:.0f}% {component.symbol}"
+        for component in definition.components
+    )
+
+
+def _build_benchmark_history(
+    *,
+    price_histories: dict[str, dict[str, float]],
+    definition: BenchmarkDefinition,
+    start_date: date,
+    end_date: date,
+) -> dict[str, float]:
+    if len(definition.components) == 1:
+        return price_histories.get(definition.components[0].symbol, {})
+
+    component_dates: dict[str, list[str]] = {}
+    base_prices: dict[str, float] = {}
+    for component in definition.components:
+        price_map = price_histories.get(component.symbol, {})
+        entry = first_price_on_or_after(
+            start_date,
+            price_map,
+            max_trading_days=MAX_PRICE_FALLBACK_TRADING_DAYS,
+        )
+        if entry is None or entry.close <= 0:
+            return {}
+        component_dates[component.symbol] = sorted_price_dates(price_map)
+        base_prices[component.symbol] = entry.close
+
+    candidate_dates = sorted(
+        {
+            day
+            for component in definition.components
+            for day in component_dates.get(component.symbol, [])
+            if start_date.isoformat() <= day <= end_date.isoformat()
+        }
+    )
+    synthetic_history: dict[str, float] = {}
+    total_weight = sum(component.weight for component in definition.components)
+    if total_weight <= 0:
+        return synthetic_history
+
+    for current_day in candidate_dates:
+        synthetic_value = 0.0
+        for component in definition.components:
+            valuation = price_on_or_before(
+                current_day,
+                price_histories.get(component.symbol, {}),
+                component_dates.get(component.symbol, []),
+            )
+            base_price = base_prices.get(component.symbol)
+            if valuation is None or valuation <= 0 or base_price is None or base_price <= 0:
+                synthetic_value = 0.0
+                break
+            synthetic_value += (component.weight / total_weight) * (valuation / base_price) * 100.0
+        if synthetic_value > 0:
+            synthetic_history[current_day] = _rounded(synthetic_value)
+    return synthetic_history
 
 
 def _build_trading_calendar(
@@ -537,6 +605,7 @@ def build_equity_timeline(
     contribution_frequency: ContributionFrequency,
     rebalancing_frequency: str,
     custom_allocations: dict[str, float] | None = None,
+    benchmark_symbol: str = DEFAULT_BENCHMARK,
 ) -> SimulationResult:
     master_dates = _build_trading_calendar(
         positions=positions,
@@ -662,7 +731,7 @@ def build_equity_timeline(
             if benchmark_trade_price is None or benchmark_trade_price.close <= 0:
                 _warn(
                     warnings,
-                    symbol=DEFAULT_BENCHMARK,
+                    symbol=benchmark_symbol,
                     reason="No valid close was found within the fallback window for the benchmark.",
                 )
             else:
@@ -764,8 +833,11 @@ def _base_assumptions(config: BacktestStrategyConfig) -> list[str]:
 
 
 def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | None = None) -> BacktestRunResponse:
-    benchmark_symbol = DEFAULT_BENCHMARK
+    benchmark = benchmark_definition(config.benchmark)
+    benchmark_symbols = _benchmark_component_symbols(benchmark)
     assumptions = _base_assumptions(config)
+    if len(benchmark.components) > 1:
+        assumptions.append(f"Benchmark uses a fixed-weight blend: {_benchmark_weight_text(benchmark)}.")
     strategy_assumptions: list[str] = []
     if config.include_exempt_acquisitions:
         strategy_assumptions.append("Exempt acquisitions included")
@@ -787,7 +859,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
             raise HTTPException(status_code=404, detail="Watchlist not found.")
         symbols = load_watchlist_symbols(db, watchlist_id=watchlist.id)
         trade_count = len(symbols)
-        price_histories = load_price_histories(db, symbols + [benchmark_symbol], config.start_date, config.end_date)
+        price_histories = load_price_histories(db, symbols + benchmark_symbols, config.start_date, config.end_date)
         position_result = build_static_positions(
             symbols=symbols,
             price_histories=price_histories,
@@ -801,7 +873,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
     elif config.strategy_type == "custom_tickers":
         symbols = config.tickers
         trade_count = len(symbols)
-        price_histories = load_price_histories(db, symbols + [benchmark_symbol], config.start_date, config.end_date)
+        price_histories = load_price_histories(db, symbols + benchmark_symbols, config.start_date, config.end_date)
         position_result = build_static_positions(
             symbols=symbols,
             price_histories=price_histories,
@@ -829,7 +901,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
             signal_symbols = sorted({signal.symbol for signal in historical_signals})
             history_start = min((signal.signal_date for signal in historical_signals), default=config.start_date)
             trade_count = len(historical_signals)
-            price_histories = load_price_histories(db, signal_symbols + [benchmark_symbol], history_start, config.end_date)
+            price_histories = load_price_histories(db, signal_symbols + benchmark_symbols, history_start, config.end_date)
             position_result = build_signal_positions(
                 signals=historical_signals,
                 price_histories=price_histories,
@@ -843,7 +915,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         else:
             symbols, source_mode = load_saved_screen_current_symbols(db, screen=screen)
             trade_count = len(symbols)
-            price_histories = load_price_histories(db, symbols + [benchmark_symbol], config.start_date, config.end_date)
+            price_histories = load_price_histories(db, symbols + benchmark_symbols, config.start_date, config.end_date)
             position_result = build_static_positions(
                 symbols=symbols,
                 price_histories=price_histories,
@@ -866,7 +938,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         signal_symbols = sorted({signal.symbol for signal in signals})
         history_start = min((signal.signal_date for signal in signals), default=config.start_date)
         trade_count = len(signals)
-        price_histories = load_price_histories(db, signal_symbols + [benchmark_symbol], history_start, config.end_date)
+        price_histories = load_price_histories(db, signal_symbols + benchmark_symbols, history_start, config.end_date)
         position_result = build_signal_positions(
             signals=signals,
             price_histories=price_histories,
@@ -877,9 +949,15 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         positions = position_result.positions
         skipped = position_result.skipped
 
-    benchmark_history = price_histories.get(benchmark_symbol, {})
+    benchmark_history = _build_benchmark_history(
+        price_histories=price_histories,
+        definition=benchmark,
+        start_date=config.start_date,
+        end_date=config.end_date,
+    )
+    position_symbols = {position.symbol for position in positions}
     position_price_histories = {
-        symbol: price_map for symbol, price_map in price_histories.items() if symbol != benchmark_symbol
+        symbol: price_map for symbol, price_map in price_histories.items() if symbol in position_symbols
     }
     simulation = build_equity_timeline(
         positions=positions,
@@ -892,6 +970,7 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
         contribution_frequency=config.contribution_frequency,
         rebalancing_frequency=config.rebalancing_frequency,
         custom_allocations=config.custom_allocations,
+        benchmark_symbol=benchmark.key,
     )
 
     all_skipped = skipped + simulation.warnings
@@ -914,6 +993,8 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
 
     if not simulation.timeline:
         return BacktestRunResponse(
+            benchmark_symbol=benchmark.key,
+            benchmark_label=benchmark.label,
             summary=BacktestSummary(
                 start_balance=_rounded(config.start_balance),
                 ending_balance=_rounded(config.start_balance),
@@ -955,8 +1036,10 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
     # Backtest headline metrics are portfolio-level, not averages of trade_outcomes:
     # strategy_return_pct and alpha_pct come from compounded daily portfolio returns,
     # CAGR annualizes that portfolio return over the simulated date span, and alpha_pct
-    # subtracts the compounded S&P 500 benchmark return over the same simulation.
+    # subtracts the compounded selected-benchmark return over the same simulation.
     return BacktestRunResponse(
+        benchmark_symbol=benchmark.key,
+        benchmark_label=benchmark.label,
         summary=BacktestSummary(
             start_balance=_rounded(config.start_balance),
             ending_balance=_rounded(strategy_values[-1]),

@@ -126,7 +126,7 @@ function backtestingHrefFromItems(items: SignalItem[]): string | null {
 function cleanSignalsError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Sign in required.";
-    if (error.status === 402 || error.status === 403) return "Premium access required.";
+    if (error.status === 402 || error.status === 403) return error.message || "Premium access required.";
     if (error.status === 503) return "Signals temporarily unavailable. Retry.";
     return "Unable to load signals.";
   }
@@ -202,6 +202,7 @@ export function SignalsResultsClient({
     let alive = true;
     setLoading(true);
     setErrorMessage(null);
+    setItems([]);
     getSignalsAll({
       mode,
       side,
@@ -217,7 +218,9 @@ export function SignalsResultsClient({
       })
       .catch((error) => {
         console.error("[signals] client fetch failed", error);
-        if (alive) setErrorMessage(cleanSignalsError(error));
+        if (!alive) return;
+        setItems([]);
+        setErrorMessage(cleanSignalsError(error));
       })
       .finally(() => {
         if (alive) setLoading(false);

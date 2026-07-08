@@ -54,7 +54,22 @@ function fallbackPresets() {
       { days: 180 as const, label: "180" },
       { days: 365 as const, label: "365" },
     ],
-    benchmark_options: [{ symbol: "^GSPC" as const, label: "S&P 500" }],
+    benchmark_options: [
+      { symbol: "^GSPC" as const, label: "S&P 500", components: [{ symbol: "^GSPC", weight: 1 }] },
+      { symbol: "QQQ" as const, label: "QQQ - Invesco QQQ Trust", components: [{ symbol: "QQQ", weight: 1 }] },
+      { symbol: "IWM" as const, label: "IWM - iShares Russell 2000 ETF", components: [{ symbol: "IWM", weight: 1 }] },
+      { symbol: "VT" as const, label: "VT - Vanguard Total World Stock ETF", components: [{ symbol: "VT", weight: 1 }] },
+      {
+        symbol: "SPY_TLT_60_40" as const,
+        label: "60/40 Portfolio (SPY/TLT)",
+        components: [{ symbol: "SPY", weight: 0.6 }, { symbol: "TLT", weight: 0.4 }],
+      },
+      {
+        symbol: "BOGLEHEADS_3_FUND" as const,
+        label: "Bogleheads 3 Fund (60/20/20)",
+        components: [{ symbol: "VTI", weight: 0.6 }, { symbol: "VXUS", weight: 0.2 }, { symbol: "BND", weight: 0.2 }],
+      },
+    ],
     contribution_frequency_options: [
       { key: "none" as const, label: "None" },
       { key: "monthly" as const, label: "Monthly" },

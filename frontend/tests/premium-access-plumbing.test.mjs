@@ -275,11 +275,16 @@ test("backtesting workbench preserves full workflow controls", () => {
   assert.match(backtestingWorkbench, /Buy and hold/);
   assert.match(congressMemberAutosuggest, /Search members by name/);
   assert.match(congressMemberAutosuggest, /Search by insider name or CIK/);
-  assert.match(backtestingWorkbench, /title="Buy and hold keeps qualifying entries open through the end of the backtest period\. For event-driven modes, this overrides the default planned hold period\."/);
+  assert.match(backtestingWorkbench, /BUY_AND_HOLD_HELPER/);
+  assert.match(backtestingWorkbench, /aria-describedby="buy-and-hold-helper"/);
+  assert.match(backtestingWorkbench, /group-focus-within:block group-hover:block/);
   assert.doesNotMatch(backtestingWorkbench, /setHoldDays/);
   assert.doesNotMatch(backtestingWorkbench, /value=\{holdDays\} onChange=/);
   assert.match(backtestingWorkbench, /include_exempt_acquisitions: view === "insider" \? includeExemptAcquisitions : false/);
   assert.match(backtestingWorkbench, /buy_and_hold: buyAndHold/);
+  assert.match(backtestingWorkbench, /benchmark: selectedBenchmark/);
+  assert.match(backtestingWorkbench, /benchmarkOptions\.map/);
+  assert.match(api, /BacktestBenchmarkSymbol = "\^GSPC" \| "QQQ" \| "IWM" \| "VT" \| "SPY_TLT_60_40" \| "BOGLEHEADS_3_FUND"/);
   assert.match(backtestingWorkbench, /Portfolio Settings/);
   assert.match(backtestingWorkbench, /Run Backtest/);
 });

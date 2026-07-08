@@ -12,7 +12,7 @@ from app.entitlements import current_entitlements, require_feature
 from app.rate_limit import rate_limit_backtest_run
 from app.models import SavedScreen, Watchlist, WatchlistItem
 from app.services.backtesting.engine import run_backtest
-from app.services.backtesting.models import DEFAULT_BENCHMARK, HOLD_DAY_OPTIONS, BacktestStrategyConfig
+from app.services.backtesting.models import DEFAULT_BENCHMARK, HOLD_DAY_OPTIONS, BacktestStrategyConfig, benchmark_options_payload
 
 router = APIRouter(tags=["backtests"])
 
@@ -94,7 +94,7 @@ def backtest_presets(request: Request, db: Session = Depends(get_db)):
             {"days": 1095, "label": "3Y"},
         ],
         "hold_day_options": [{"days": days, "label": str(days)} for days in HOLD_DAY_OPTIONS],
-        "benchmark_options": [{"symbol": DEFAULT_BENCHMARK, "label": "S&P 500"}],
+        "benchmark_options": benchmark_options_payload(),
         "contribution_frequency_options": [
             {"key": "none", "label": "None"},
             {"key": "monthly", "label": "Monthly"},

@@ -330,6 +330,69 @@ def test_custom_tickers_backtest_builds_static_positions():
         db.close()
 
 
+def test_custom_tickers_backtest_uses_weighted_benchmark_portfolio():
+    db = _session()
+    try:
+        user = _user(db, "premium@example.com")
+        _price(db, "AAPL", "2024-01-02", 100.0)
+        _price(db, "AAPL", "2024-01-03", 100.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-01-03", 110.0)
+        _price(db, "TLT", "2024-01-02", 100.0)
+        _price(db, "TLT", "2024-01-03", 90.0)
+        db.commit()
+
+        result = run_backtest(
+            db,
+            BacktestStrategyConfig(
+                strategy_type="custom_tickers",
+                tickers=["AAPL"],
+                start_date=date(2024, 1, 2),
+                end_date=date(2024, 1, 3),
+                hold_days=30,
+                benchmark="SPY_TLT_60_40",
+            ),
+            user_id=user.id,
+        )
+
+        assert result.benchmark_symbol == "SPY_TLT_60_40"
+        assert result.benchmark_label == "60/40 Portfolio (SPY/TLT)"
+        assert result.summary.benchmark_return_pct == 2.0
+        assert result.summary.alpha_pct == -2.0
+        assert any("60% SPY, 40% TLT" in assumption for assumption in result.assumptions)
+    finally:
+        db.close()
+
+
+def test_backtest_config_accepts_new_benchmark_options():
+    config = BacktestStrategyConfig(
+        strategy_type="custom_tickers",
+        tickers=["AAPL"],
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 2, 1),
+        hold_days=30,
+        benchmark="qqq",
+    )
+
+    assert config.benchmark == "QQQ"
+
+
+def test_backtest_config_rejects_unknown_benchmark():
+    try:
+        BacktestStrategyConfig(
+            strategy_type="custom_tickers",
+            tickers=["AAPL"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 2, 1),
+            hold_days=30,
+            benchmark="NOPE",
+        )
+    except ValueError as exc:
+        assert "benchmark must be one of" in str(exc)
+    else:
+        raise AssertionError("Expected benchmark validation error")
+
+
 def test_custom_ticker_allocations_are_respected():
     simulation = build_equity_timeline(
         positions=[
