@@ -282,6 +282,19 @@ def _finish_scheduled_run(
         },
         "max_filings_reached": max_filings_reached,
     }
+    feed_events_warning = run.feed_events > feed_events_warning_threshold
+    if feed_events_warning:
+        metadata["feed_events_warning"] = {
+            "feed_events": int(run.feed_events),
+            "threshold": int(feed_events_warning_threshold),
+        }
+        logger.warning(
+            "institutional_scheduled_latest_feed_events_warning run_id=%s start_page=%s feed_events=%s threshold=%s",
+            run.id,
+            run.start_page,
+            run.feed_events,
+            feed_events_warning_threshold,
+        )
 
     if _as_int(result.get("errors")) > 0:
         run.status = "failed"
@@ -296,13 +309,6 @@ def _finish_scheduled_run(
         run.next_cursor_page = int(state.cursor_page)
         state.enabled = False
         state.last_status = "failed"
-        state.last_error = run.error_message
-    elif run.feed_events > feed_events_warning_threshold:
-        run.status = "partial"
-        run.error_message = f"feed event threshold exceeded: {run.feed_events}>{feed_events_warning_threshold}"
-        run.next_cursor_page = int(state.cursor_page)
-        state.enabled = False
-        state.last_status = "paused"
         state.last_error = run.error_message
     else:
         run.status = "success"

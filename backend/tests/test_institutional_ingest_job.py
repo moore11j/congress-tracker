@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -217,6 +218,31 @@ def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):
     assert state.enabled is False
     assert state.cursor_page == 9
     assert "duplicate checks failed" in (state.last_error or "")
+
+
+def test_feed_event_threshold_warns_without_pausing_clean_run(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=20, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_FEED_EVENTS_WARNING_THRESHOLD", "100")
+    monkeypatch.setattr(
+        ingest_module,
+        "ingest_latest_institutional_filings",
+        lambda **_kwargs: _fake_result(processed_filings=5, activity_events=149, feed_events=109),
+    )
+
+    result = job_module.run_scheduled_latest_once()
+
+    state = _state(job_env)
+    run = _runs(job_env)[0]
+    metadata = json.loads(run.metadata_json or "{}")
+    assert result["status"] == "success"
+    assert state.enabled is True
+    assert state.cursor_page == 21
+    assert state.last_status == "success"
+    assert state.last_error is None
+    assert run.status == "success"
+    assert run.next_cursor_page == 21
+    assert metadata["feed_events_warning"] == {"feed_events": 109, "threshold": 100}
 
 
 def test_scheduled_latest_overlapping_run_returns_skipped_locked(job_env, monkeypatch):
