@@ -11,6 +11,7 @@ import {
   hasClientAuthHint,
   getMonitoringInbox,
   getSignalsAll,
+  listWatchlists,
   dismissMonitoringItems,
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
@@ -401,22 +402,19 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     try {
       const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
       setInbox(nextInbox);
-      setWatchlists(
-        (nextInbox.sources ?? [])
-          .filter((source) => source.type === "watchlist")
-          .map((source) => ({
-            id: Number(source.id),
-            name: source.name,
-            unread_count: source.unread_count,
-            unseen_count: source.new_count,
-            new_count: source.new_count,
-          }))
-          .filter((watchlist) => Number.isFinite(watchlist.id)),
-      );
-      setWatchlistsStatus(null);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
       setInboxStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitoring updates." : "Monitoring updates are temporarily unavailable.");
+    }
+  };
+
+  const refreshWatchlists = async () => {
+    setWatchlistsStatus(null);
+    try {
+      const nextWatchlists = await listWatchlists();
+      setWatchlists(nextWatchlists);
+    } catch (error) {
+      setWatchlistsStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load watchlists." : "Watchlists are temporarily unavailable.");
     }
   };
 
@@ -499,6 +497,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
   useEffect(() => {
     void refreshInbox();
+    void refreshWatchlists();
   }, []);
 
   useEffect(() => {

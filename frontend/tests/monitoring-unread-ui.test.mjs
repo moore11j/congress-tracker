@@ -46,8 +46,9 @@ test("monitoring inbox exposes selectable item read controls without ambiguous s
   assert.doesNotMatch(monitoringSource, /Unable to mark this source unread\./);
   assert.match(monitoringSource, /role="status"/);
   assert.match(monitoringSource, /window\.dispatchEvent\(new CustomEvent\("ct:monitoring-unread-updated"/);
-  assert.match(monitoringSource, /nextInbox\.sources/);
-  assert.doesNotMatch(monitoringSource, /listWatchlists/);
+  assert.match(monitoringSource, /listWatchlists/);
+  assert.match(monitoringSource, /void refreshInbox\(\);\s*void refreshWatchlists\(\);/);
+  assert.match(monitoringSource, /inboxSourceCounts/);
   assert.match(monitoringSource, /applyInboxMutation/);
   assert.match(monitoringSource, /mergeInboxCounts/);
 });
