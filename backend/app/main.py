@@ -10938,11 +10938,15 @@ def get_monitoring_unread_count(request: Request, db: Session = Depends(get_db))
 
 
 @app.get("/api/monitoring/inbox")
-def get_monitoring_inbox(request: Request, db: Session = Depends(get_db)):
+def get_monitoring_inbox(request: Request, db: Session = Depends(get_db), refresh: bool = False):
     user = _require_account(request, db)
-    watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
-    saved_screens = _refresh_monitored_saved_screen_alerts(request, db, user)
-    db.commit()
+    if refresh:
+        watchlists = _refresh_monitored_watchlist_alerts(request, db, user)
+        saved_screens = _refresh_monitored_saved_screen_alerts(request, db, user)
+        db.commit()
+    else:
+        watchlists = _monitored_watchlists_for_user(request, db, user)
+        saved_screens = _monitored_saved_screens_for_user(request, db, user)
 
     counts = _monitoring_counts_payload(request, db, user, watchlists=watchlists, saved_screens=saved_screens)
     entitlements = entitlements_for_user(db, user)
