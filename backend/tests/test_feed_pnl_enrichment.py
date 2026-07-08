@@ -615,7 +615,7 @@ def test_events_endpoint_batches_missing_outcome_enqueue(monkeypatch) -> None:
         db.close()
 
 
-def test_events_active_feed_quote_fallback_is_db_free_and_capped(monkeypatch) -> None:
+def test_events_active_feed_quote_fallback_is_db_free_and_covers_page_symbols(monkeypatch) -> None:
     db = _session_factory()()
     try:
         _stub_feed_dependencies(monkeypatch)
@@ -674,7 +674,7 @@ def test_events_active_feed_quote_fallback_is_db_free_and_capped(monkeypatch) ->
         assert len(page.items) == 12
         assert calls
         assert calls[0]["db"] is None
-        assert len(calls[0]["symbols"]) == 10
+        assert len(calls[0]["symbols"]) == 12
         assert calls[0]["kwargs"]["allow_live_user_fetch"] is True
         assert calls[0]["kwargs"]["cache_only"] is False
         assert calls[0]["kwargs"]["force_quote_endpoint"] is True

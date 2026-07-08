@@ -1042,6 +1042,27 @@ def test_events_response_cache_key_normalizes_default_page_size():
     assert key_without_page_size != key_with_full_payload
 
 
+def test_events_response_cache_disables_for_interactive_feed_client():
+    active_feed_request = _request(
+        {
+            "user-agent": "Mozilla/5.0 Chrome/137",
+            "x-walnut-route-family": "feed",
+            "x-walnut-request-source": "client",
+            "x-walnut-active-user": "true",
+        }
+    )
+    load_test_request = _request({"user-agent": "k6/0.49.0", "x-walnut-request-source": "load_test"})
+
+    assert events_module._events_response_cache_allowed_for_request(
+        active_feed_request,
+        can_view_institutional=False,
+    ) is False
+    assert events_module._events_response_cache_allowed_for_request(
+        load_test_request,
+        can_view_institutional=False,
+    ) is True
+
+
 def test_list_events_returns_preencoded_response_for_route_cache_hit(monkeypatch):
     _clear_events_response_cache()
     db = _db()

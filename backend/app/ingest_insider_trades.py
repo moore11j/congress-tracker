@@ -15,10 +15,105 @@ from app.clients.fmp import FMPClientError, fetch_insider_trades
 from app.db import SessionLocal
 from app.insider_market_trade import canonicalize_market_trade_type
 from app.models import Event, InsiderTransaction
-from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_event
+from app.services.feed_pnl_enrichment import (
+    FEED_PNL_PRIORITY_BASE,
+    enqueue_feed_pnl_enrichment_for_event,
+    refresh_feed_pnl_events_now,
+)
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
+
+
+def _is_truthy_env(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default)) or default))
+    except ValueError:
+        logger.info("Invalid integer env %s=%s; using default=%s", name, os.getenv(name), default)
+        return default
+
+
+def _refresh_inserted_feed_pnl(event_ids: list[int]) -> dict[str, Any]:
+    if not event_ids:
+        return {"status": "skipped", "events_requested": 0, "reason": "no_new_events"}
+    if not _is_truthy_env("INSIDER_INGEST_FEED_PNL_PROCESS_NOW_ENABLED", "true"):
+        return {
+            "status": "skipped",
+            "events_requested": len(event_ids),
+            "reason": "insider_ingest_feed_pnl_process_now_disabled",
+        }
+
+    max_events = _positive_int_env("INSIDER_INGEST_FEED_PNL_MAX_EVENTS", 500)
+    selected_ids = event_ids[:max_events]
+    db = SessionLocal()
+    try:
+        report = refresh_feed_pnl_events_now(db, event_ids=selected_ids)
+        report["status"] = "ok"
+        if len(selected_ids) < len(event_ids):
+            report["events_deferred"] = len(event_ids) - len(selected_ids)
+        logger.info("insider_ingest_feed_pnl_refresh report=%s", report)
+        return report
+    except Exception as exc:
+        db.rollback()
+        logger.exception("insider_ingest_feed_pnl_refresh_failed events=%s", len(selected_ids))
+        return {
+            "status": "failed",
+            "events_requested": len(selected_ids),
+            "events_deferred": max(0, len(event_ids) - len(selected_ids)),
+            "error": exc.__class__.__name__,
+        }
+    finally:
+        db.close()
+
+
+def _summarize_feed_pnl_refresh(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    if not reports:
+        return {"status": "skipped", "events_requested": 0, "reason": "no_new_events"}
+
+    numeric_keys = (
+        "events_requested",
+        "events_missing",
+        "events_scanned",
+        "symbols_requested",
+        "symbols_refreshed",
+        "pnl_refreshed",
+        "pnl_missing_inputs",
+        "pnl_failed",
+        "events_deferred",
+    )
+    summary: dict[str, Any] = {"runs": len(reports)}
+    for key in numeric_keys:
+        total = 0
+        for report in reports:
+            try:
+                total += int(report.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+        if total:
+            summary[key] = total
+
+    symbols: set[str] = set()
+    for report in reports:
+        for symbol in report.get("symbols_affected") or []:
+            if isinstance(symbol, str) and symbol.strip():
+                symbols.add(symbol.strip().upper())
+    if symbols:
+        summary["symbols_affected"] = sorted(symbols)
+
+    statuses = {str(report.get("status") or "") for report in reports}
+    if "failed" in statuses:
+        summary["status"] = "failed"
+    elif statuses == {"skipped"}:
+        summary["status"] = "skipped"
+    elif any(int(summary.get(key) or 0) for key in ("events_missing", "pnl_missing_inputs", "pnl_failed", "events_deferred")):
+        summary["status"] = "partial"
+    else:
+        summary["status"] = "ok"
+    return summary
 
 
 def _parse_date(value: Any) -> date | None:
@@ -77,9 +172,10 @@ def _event_ts(transaction_date: date | None, filing_date: date | None) -> dateti
     return datetime(selected.year, selected.month, selected.day, tzinfo=timezone.utc)
 
 
-def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int = 200) -> dict[str, int]:
+def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int = 200) -> dict[str, Any]:
     cutoff = date.today() - timedelta(days=days)
     scanned = inserted_raw = inserted_events = skipped = 0
+    feed_pnl_refresh_reports: list[dict[str, Any]] = []
 
     db = SessionLocal()
     try:
@@ -88,6 +184,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
             if not rows:
                 break
 
+            page_event_ids: list[int] = []
             for row in rows:
                 scanned += 1
                 filing_date = _parse_date(row.get("filingDate"))
@@ -190,9 +287,13 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
                     priority=FEED_PNL_PRIORITY_BASE,
                     use_current_session=True,
                 )
+                if event.id is not None:
+                    page_event_ids.append(int(event.id))
                 inserted_events += 1
 
             db.commit()
+            if page_event_ids:
+                feed_pnl_refresh_reports.append(_refresh_inserted_feed_pnl(page_event_ids))
 
         return {
             "status": "ok",
@@ -200,12 +301,13 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
             "inserted_raw": inserted_raw,
             "inserted_events": inserted_events,
             "skipped": skipped,
+            "feed_pnl_refresh": _summarize_feed_pnl_refresh(feed_pnl_refresh_reports),
         }
     finally:
         db.close()
 
 
-def insider_ingest_run(*, pages: int, limit: int, days: int = 30) -> dict[str, int | str]:
+def insider_ingest_run(*, pages: int, limit: int, days: int = 30) -> dict[str, Any]:
     return ingest_insider_trades(days=days, page_limit=pages, per_page=limit)
 
 

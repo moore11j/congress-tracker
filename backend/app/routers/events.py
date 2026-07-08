@@ -93,7 +93,7 @@ FEED_OUTCOME_RETRY_STATUSES = {
     "provider_unavailable",
     "retry_later",
 }
-DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 10
+DEFAULT_FEED_QUOTE_SYMBOL_LIMIT = 50
 ALLOWED_LOOKBACK_DAYS = {30, 90, 180, 365, 1095}
 ALLOWED_LOOKBACK_DAYS_LABEL = ", ".join(str(value) for value in sorted(ALLOWED_LOOKBACK_DAYS))
 EVENTS_RESPONSE_CACHE_TTL_SECONDS = int(os.getenv("EVENTS_RESPONSE_CACHE_TTL_SECONDS", "60") or 60)
@@ -612,9 +612,21 @@ def _can_view_institutional_events(db: Session, request: Request | None) -> bool
     return bool(user and entitlements_for_user(db, user).has_feature("institutional_feed"))
 
 
+def _is_interactive_feed_request(request: Request | None) -> bool:
+    if request is None or not hasattr(request, "headers"):
+        return False
+    headers = request.headers
+    route_family = (headers.get("x-walnut-route-family") or "").strip().lower()
+    request_source_value = (headers.get("x-walnut-request-source") or "").strip().lower()
+    active_user = (headers.get("x-walnut-active-user") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return route_family == "feed" and active_user and request_source_value in {"client", "ssr"}
+
+
 def _events_response_cache_allowed_for_request(request: Request | None, *, can_view_institutional: bool) -> bool:
     if request is None or not hasattr(request, "headers") or not hasattr(request, "cookies"):
         return True
+    if _is_interactive_feed_request(request):
+        return False
     if request.headers.get("authorization"):
         return False
     cookies = getattr(request, "cookies", {}) or {}

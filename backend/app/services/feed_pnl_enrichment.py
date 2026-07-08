@@ -1030,14 +1030,7 @@ def repair_recent_feed_pnl(
     return counts
 
 
-def refresh_recent_feed_pnl_now(
-    db: Session,
-    *,
-    days: int = 3,
-    limit: int = 200,
-    symbols: list[str] | None = None,
-) -> dict[str, Any]:
-    events = _recent_feed_pnl_events(db, days=days, limit=limit, symbols=symbols)
+def _refresh_feed_pnl_event_rows_now(db: Session, events: list[Event]) -> dict[str, Any]:
     normalized_symbols = sorted(
         {
             inputs.symbol
@@ -1096,3 +1089,45 @@ def refresh_recent_feed_pnl_now(
             counts["pnl_failed"] += 1
     counts["symbols_affected"] = sorted(affected)
     return counts
+
+
+def refresh_feed_pnl_events_now(
+    db: Session,
+    *,
+    event_ids: list[int],
+) -> dict[str, Any]:
+    seen: set[int] = set()
+    unique_event_ids: list[int] = []
+    for value in event_ids:
+        try:
+            event_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if event_id > 0 and event_id not in seen:
+            unique_event_ids.append(event_id)
+            seen.add(event_id)
+
+    if not unique_event_ids:
+        report = _refresh_feed_pnl_event_rows_now(db, [])
+        report["events_requested"] = 0
+        report["events_missing"] = 0
+        return report
+
+    rows = db.execute(select(Event).where(Event.id.in_(unique_event_ids))).scalars().all()
+    row_by_id = {int(row.id): row for row in rows if row.id is not None}
+    ordered_events = [row_by_id[event_id] for event_id in unique_event_ids if event_id in row_by_id]
+    report = _refresh_feed_pnl_event_rows_now(db, ordered_events)
+    report["events_requested"] = len(unique_event_ids)
+    report["events_missing"] = len(unique_event_ids) - len(ordered_events)
+    return report
+
+
+def refresh_recent_feed_pnl_now(
+    db: Session,
+    *,
+    days: int = 3,
+    limit: int = 200,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
+    events = _recent_feed_pnl_events(db, days=days, limit=limit, symbols=symbols)
+    return _refresh_feed_pnl_event_rows_now(db, events)
