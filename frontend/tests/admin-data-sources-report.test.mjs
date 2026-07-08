@@ -63,8 +63,12 @@ test("pipeline copy uses correct institutional language and includes expected fl
   assert.match(backendSnapshotSource, /Filing date normalization/);
   assert.match(backendSnapshotSource, /Quarter-end holdings/);
   assert.match(backendSnapshotSource, /not live trading/);
-  assert.match(backendSnapshotSource, /House\/Senate disclosures/);
-  assert.match(backendSnapshotSource, /SEC Form 4/);
+  assert.match(backendSnapshotSource, /FMP Congress Latest/);
+  assert.match(backendSnapshotSource, /FMP house-latest \/ senate-latest/);
+  assert.match(backendSnapshotSource, /FMP Insider Trading Latest/);
+  assert.match(backendSnapshotSource, /FMP insider-trading\/latest/);
+  assert.match(backendSnapshotSource, /Official House\/Senate disclosure links are retained/);
+  assert.match(backendSnapshotSource, /SEC Form 4 filing links are retained/);
   assert.match(backendSnapshotSource, /Government Contracts/);
   assert.match(backendSnapshotSource, /Options Flow/);
 });

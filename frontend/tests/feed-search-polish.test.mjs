@@ -83,7 +83,8 @@ test("visible feed results load client-side with bounded gain/loss enrichment", 
   assert.match(entitledClient, /if \(institutionalMode && !canViewInstitutionalFeed\)/);
   assert.match(entitledClient, /canViewPremiumMetrics=\{loaded \? canViewPremiumMetrics : false\}/);
   assert.doesNotMatch(page, /enrich_prices:\s*0/);
-  assert.match(api, /const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";/);
+  assert.match(api, /const bypassPublicFetchCache = !authToken && routeFamily === "feed" && \(requestSource === "ssr" \|\| requestSource === "client"\);/);
+  assert.match(api, /const canShortCache = !authToken && requestSource !== "ssr" && nextParams\.debug === undefined && !requestSignal\?\.aborted;/);
   assert.match(api, /cache: authToken \|\| bypassPublicFetchCache \? "no-store" : "force-cache"/);
   assert.match(api, /next: authToken \|\| bypassPublicFetchCache \? \{ revalidate: 0 \} : \{ revalidate: 30 \}/);
 });

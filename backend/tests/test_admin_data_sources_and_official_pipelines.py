@@ -508,6 +508,13 @@ def test_data_architecture_returns_secret_names_only(monkeypatch):
         assert "sk_live_do_not_render" not in serialized
         assert "postmark-secret-do-not-render" not in serialized
         providers = {provider["id"]: provider for provider in payload["providers"]}
+        assert providers["congress_sources"]["name"] == "FMP Congress Latest"
+        assert providers["congress_sources"]["secret_status"] == "configured"
+        assert "house-latest" in providers["congress_sources"]["safe_endpoint_url"]
+        assert "senate-latest" in providers["congress_sources"]["safe_endpoint_url"]
+        assert providers["sec_form4"]["name"] == "FMP Insider Trading Latest"
+        assert providers["sec_form4"]["secret_status"] == "configured"
+        assert "insider-trading/latest" in providers["sec_form4"]["safe_endpoint_url"]
         assert providers["market_data"]["secret_status"] == "configured"
         assert providers["email"]["secret_status"] == "configured"
         assert providers["options_flow"]["secret_status"] == "missing"

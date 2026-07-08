@@ -4211,8 +4211,9 @@ export async function getEvents(params: QueryParamsWithRequestOptions & { tape?:
   }
   const windowDays = isFiniteNumber(nextParams.recent_days) ? nextParams.recent_days : null;
   const cacheKey = `events:${url}`;
-  const bypassPublicFetchCache = !authToken && requestSource === "ssr" && routeFamily === "feed";
-  const canShortCache = !authToken && !bypassPublicFetchCache && nextParams.debug === undefined && !requestSignal?.aborted;
+  // The interactive feed must see newly ingested disclosures immediately; keep only short in-memory dedupe.
+  const bypassPublicFetchCache = !authToken && routeFamily === "feed" && (requestSource === "ssr" || requestSource === "client");
+  const canShortCache = !authToken && requestSource !== "ssr" && nextParams.debug === undefined && !requestSignal?.aborted;
   if (canShortCache) {
     const now = Date.now();
     const cached = eventsCache.get(cacheKey);

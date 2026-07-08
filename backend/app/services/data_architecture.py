@@ -27,6 +27,8 @@ Status = str
 
 FRESHNESS_WINDOW_SECONDS = 60 * 60 * 6
 SECRET_NAMES_BY_PROVIDER: dict[str, list[str]] = {
+    "congress_sources": ["FMP_API_KEY"],
+    "insider_trades": ["FMP_API_KEY"],
     "market_data": ["FMP_API_KEY"],
     "institutional_13f": ["FMP_API_KEY"],
     "options_flow": ["MASSIVE_API_KEY"],
@@ -206,24 +208,23 @@ def _configured_provider(
 
 def _build_providers(db: Session, db_settings: dict[str, ProviderSetting], *, since: datetime) -> list[dict[str, Any]]:
     fmp_health = _provider_health(db, "fmp", since=since)
-    sec_health = _provider_health(db, "sec_edgar", since=since)
     public_unknown = {"health": "unknown", "p95_latency_ms": None, "last_checked_at": None, "last_success_at": None, "latest_error": None}
     providers = [
         _configured_provider(
             id="congress_sources",
-            name="House/Senate Disclosures",
-            purpose="Official congressional disclosure discovery and parsing",
-            safe_endpoint_url="https://disclosures-clerk.house.gov/... / https://efdsearch.senate.gov/...",
-            secret_names=[],
-            health=public_unknown,
+            name="FMP Congress Latest",
+            purpose="Primary normalized House/Senate disclosure feed; events retain official disclosure links",
+            safe_endpoint_url=f"{FMP_STABLE_BASE_URL}/house-latest?page=0&limit=100 / {FMP_STABLE_BASE_URL}/senate-latest?page=0&limit=100",
+            secret_names=SECRET_NAMES_BY_PROVIDER["congress_sources"],
+            health=fmp_health,
         ),
         _configured_provider(
             id="sec_form4",
-            name="SEC Form 4",
-            purpose="Insider transaction filings and normalized insider activity",
-            safe_endpoint_url="https://www.sec.gov/Archives/edgar/data/{cik}/{accession}.xml",
-            secret_names=[],
-            health=sec_health,
+            name="FMP Insider Trading Latest",
+            purpose="Primary normalized insider transaction feed; event links retain SEC Form 4 filings",
+            safe_endpoint_url=f"{FMP_STABLE_BASE_URL}/insider-trading/latest?page=0&limit=100 / {FMP_STABLE_BASE_URL}/insider-trading/search?symbol={{symbol}}",
+            secret_names=SECRET_NAMES_BY_PROVIDER["insider_trades"],
+            health=fmp_health,
         ),
         _configured_provider(
             id="market_data",
@@ -425,24 +426,26 @@ def _build_pipelines(db: Session) -> list[dict[str, Any]]:
         _pipeline(
             id="congress",
             name="Congress Activity",
-            source="House/Senate disclosures",
-            flow=["Raw disclosures", "Parser/normalizer", "Normalized Congress trades", "Feed/Ticker/Member pages"],
+            source="FMP house-latest / senate-latest",
+            flow=["FMP latest disclosures", "Parser/normalizer", "Normalized Congress trades", "Feed/Ticker/Member pages"],
             health=_pipeline_health(congress_success, congress_job.error if congress_job and congress_job.status == "failed" else None),
             last_ingest_at=congress_job.updated_at if congress_job else congress_success,
             last_success_at=congress_success,
             record_count=None,
             latest_error=congress_job.error if congress_job and congress_job.status == "failed" else None,
+            notes="Official House/Senate disclosure links are retained on normalized events.",
         ),
         _pipeline(
             id="insider",
             name="Insider Activity",
-            source="SEC Form 4",
-            flow=["SEC filings", "Form 4 parser", "Normalized insider trades", "Feed/Ticker/Insider pages"],
+            source="FMP insider-trading/latest",
+            flow=["FMP latest insider trades", "Normalizer", "Normalized insider trades", "Feed/Ticker/Insider pages"],
             health=_pipeline_health(insider_success, insider_job.error if insider_job and insider_job.status == "failed" else None),
             last_ingest_at=insider_job.updated_at if insider_job else insider_success,
             last_success_at=insider_success,
             record_count=None,
             latest_error=insider_job.error if insider_job and insider_job.status == "failed" else None,
+            notes="SEC Form 4 filing links are retained on normalized events.",
         ),
         _pipeline(
             id="market_data",
