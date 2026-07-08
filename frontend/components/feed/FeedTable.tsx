@@ -311,13 +311,13 @@ function gainLossLabel(item: FeedItem, canViewPremiumMetrics: boolean): { label:
   return { label: "Pending", sublabel: null, tone: "text-slate-400" };
 }
 
-function signalLabel(item: FeedItem, canViewPremiumMetrics: boolean): { label: string; tone: string } {
+function signalLabel(item: FeedItem, canViewPremiumMetrics: boolean): { label: string; sublabel: string | null; tone: string } {
   const score = parseNumber(item.smart_score);
   const band = item.smart_band?.trim();
-  if (!canViewPremiumMetrics && (score !== null || band)) return { label: "Locked", tone: "text-slate-400" };
-  if (score !== null) return { label: String(Math.round(score)), tone: score >= 70 ? "text-emerald-300" : score >= 45 ? "text-sky-300" : "text-slate-300" };
-  if (band) return { label: band, tone: "text-slate-300" };
-  return { label: "-", tone: "text-slate-500" };
+  if (!canViewPremiumMetrics && (score !== null || band)) return { label: "Locked", sublabel: "Premium", tone: "text-slate-400" };
+  if (score !== null) return { label: String(Math.round(score)), sublabel: null, tone: score >= 70 ? "text-emerald-300" : score >= 45 ? "text-sky-300" : "text-slate-300" };
+  if (band) return { label: band, sublabel: null, tone: "text-slate-300" };
+  return { label: "-", sublabel: null, tone: "text-slate-500" };
 }
 
 function disclosureHref(item: FeedItem): string | null {
@@ -448,7 +448,10 @@ export function FeedTable({
                       {gainLoss.label}
                       {gainLoss.sublabel ? <div className="text-[11px] font-medium text-slate-500">{gainLoss.sublabel}</div> : null}
                     </td>
-                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${signal.tone}`}>{signal.label}</td>
+                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${signal.tone}`}>
+                      {signal.label}
+                      {signal.sublabel ? <div className="text-[11px] font-medium text-slate-500">{signal.sublabel}</div> : null}
+                    </td>
                     <td className="px-3 py-3 text-right">
                       {href ? (
                         <a href={href} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-200 hover:text-emerald-100" onClick={(event) => event.stopPropagation()}>
