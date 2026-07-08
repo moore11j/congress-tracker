@@ -57,9 +57,7 @@ GROWTH_CAMPAIGN_MODES = {
     "manual_url_review",
     "manual_research_input",
     "x_chart_drop",
-    "influencer_report_pack",
     "reddit_research_thread",
-    "reddit_paid_ad",
 }
 CAMPAIGN_MODES = LEGACY_CAMPAIGN_MODES | GROWTH_CAMPAIGN_MODES
 PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "x", "facebook_manual", "facebook", "linkedin", "manual", "other"}
@@ -76,16 +74,16 @@ OPPORTUNITY_STATUSES = {
     "archived",
     "rejected",
     "dismissed",
+    "regeneration_needed",
+    "quality_failed",
 }
 INTENTS = {"question", "complaint", "trade_idea", "tool_search", "news_reaction", "other"}
-RECOMMENDED_ACTIONS = {"reply", "skip", "monitor", "draft_post", "draft_ad", "influencer_pack"}
-CONTENT_TYPES = {"reddit_reply", "reddit_thread", "x_post", "paid_ad", "influencer_dm", "report_pack"}
+RECOMMENDED_ACTIONS = {"reply", "skip", "monitor", "draft_post", "draft_ad"}
+CONTENT_TYPES = {"reddit_reply", "reddit_thread", "x_post", "paid_ad"}
 CAMPAIGN_TYPES = {
     "manual_research_input",
     "x_chart_drop",
-    "influencer_report_pack",
     "reddit_research_thread",
-    "reddit_paid_ad",
     "legacy_outreach_campaign",
 }
 REPLY_ANGLES = {
@@ -170,6 +168,29 @@ DEFAULT_WEB_SEARCH_REDDIT_SUBREDDITS = [
     "options",
 ]
 SHORT_SEARCH_SNIPPET_THRESHOLD = 80
+REDDIT_RESEARCH_QUALITY_THRESHOLDS = {
+    "research_depth_score": 75,
+    "evidence_score": 70,
+    "balance_score": 70,
+    "promotional_risk_score": 35,
+    "compliance_risk_score": 30,
+}
+REDDIT_RESEARCH_SECTIONS = [
+    "TL;DR",
+    "Why this name came up",
+    "Company snapshot",
+    "Walnut disclosure stack",
+    "Technical picture",
+    "Fundamental picture",
+    "Recent news / filings / press releases",
+    "Catalysts",
+    "Bull case",
+    "Bear case / risks",
+    "What would confirm the setup",
+    "What would weaken the setup",
+    "Bottom line",
+    "Suggested Reddit disclosure",
+]
 
 
 class MissingMarketingCredential(RuntimeError):
@@ -423,7 +444,7 @@ def _campaign_type_for_mode(mode: str | None) -> str:
         "manual_research_input",
     }:
         return "manual_research_input"
-    if normalized in {"x_chart_drop", "influencer_report_pack", "reddit_research_thread", "reddit_paid_ad"}:
+    if normalized in {"x_chart_drop", "reddit_research_thread"}:
         return normalized
     return "legacy_outreach_campaign"
 
@@ -436,22 +457,14 @@ def _content_type_for_campaign_type(campaign_type: str | None, *, desired_output
         return "reddit_thread"
     if desired in {"paid_ad", "paid_ad_copy", "ad_copy", "draft_ad"}:
         return "paid_ad"
-    if desired in {"influencer_pitch", "influencer_dm", "dm", "email"}:
-        return "influencer_dm"
-    if desired in {"report_pack", "report_pack_outline", "outline"}:
-        return "report_pack"
     if desired in {"reply", "reddit_reply", "comment"}:
         return "reddit_reply"
 
     normalized = str(campaign_type or "").strip().lower()
     if normalized == "x_chart_drop":
         return "x_post"
-    if normalized == "influencer_report_pack":
-        return "influencer_dm"
     if normalized == "reddit_research_thread":
         return "reddit_thread"
-    if normalized == "reddit_paid_ad":
-        return "paid_ad"
     if str(platform or "").strip().lower() in {"x", "x_stub", "twitter"}:
         return "x_post"
     return "reddit_reply"
@@ -462,8 +475,6 @@ def _default_action_for_content_type(content_type: str | None) -> str:
         "x_post": "draft_post",
         "reddit_thread": "draft_post",
         "paid_ad": "draft_ad",
-        "influencer_dm": "influencer_pack",
-        "report_pack": "influencer_pack",
         "reddit_reply": "reply",
     }.get(str(content_type or "").strip().lower(), "reply")
 
@@ -507,10 +518,8 @@ def _platform_for_content_type(content_type: str) -> str:
 def _default_growth_title(campaign_type: str, ticker_theme: str | None = None) -> str:
     labels = {
         "manual_research_input": "Manual Research Input",
-        "x_chart_drop": "X Chart Drop",
-        "influencer_report_pack": "Influencer Report Pack",
+        "x_chart_drop": "X Campaign",
         "reddit_research_thread": "Reddit Research Thread",
-        "reddit_paid_ad": "Reddit Paid Ad Idea",
     }
     label = labels.get(campaign_type, "AI Growth Draft")
     theme = str(ticker_theme or "").strip()
@@ -569,12 +578,27 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
         recency = "week"
     campaign_type = _normalize_campaign_type(payload.get("campaign_type"), fallback_mode=mode)
     content_type = _normalize_content_type(payload.get("content_type"), campaign_type=campaign_type, platform=platforms[0] if platforms else None)
+    status = str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "paused")).strip().lower()
+    if status not in {"active", "paused"}:
+        status = "active" if bool(payload.get("enabled", True)) else "paused"
     return {
         "name": name,
         "enabled": bool(payload.get("enabled", True)),
+        "status": status,
         "mode": mode,
         "campaign_type": campaign_type,
         "content_type": content_type,
+        "schedule_config": _load_object(payload.get("schedule_config") or payload.get("schedule_config_json")),
+        "weekdays_only": bool(payload.get("weekdays_only", True)),
+        "run_time": _truncate(str(payload.get("run_time") or "").strip(), 20) or None,
+        "timezone": _truncate(str(payload.get("timezone") or "America/Los_Angeles").strip(), 80) or "America/Los_Angeles",
+        "recipient_email": _truncate(str(payload.get("recipient_email") or ai_growth_recipient()).strip(), 240) or ai_growth_recipient(),
+        "source_type": _truncate(str(payload.get("source_type") or "").strip(), 80) or None,
+        "source_reference_id": _truncate(str(payload.get("source_reference_id") or "").strip(), 200) or None,
+        "filters": _load_object(payload.get("filters") or payload.get("filters_json")),
+        "output_preferences": _load_object(payload.get("output_preferences") or payload.get("output_preferences_json")),
+        "created_by": _int_or_none(payload.get("created_by")),
+        "updated_by": _int_or_none(payload.get("updated_by")),
         "platforms": platforms,
         "keywords": _normalized_string_list(payload.get("keywords")),
         "tickers": _normalized_tickers(payload.get("tickers")),
@@ -594,9 +618,21 @@ def create_campaign(db: Session, payload: dict[str, Any]) -> AiMarketingCampaign
     campaign = AiMarketingCampaign(
         name=normalized["name"],
         enabled=normalized["enabled"],
+        status=normalized["status"],
         mode=normalized["mode"],
         campaign_type=normalized["campaign_type"],
         content_type=normalized["content_type"],
+        schedule_config_json=_dump_object(normalized["schedule_config"]),
+        weekdays_only=normalized["weekdays_only"],
+        run_time=normalized["run_time"],
+        timezone=normalized["timezone"],
+        recipient_email=normalized["recipient_email"],
+        source_type=normalized["source_type"],
+        source_reference_id=normalized["source_reference_id"],
+        filters_json=_dump_object(normalized["filters"]),
+        output_preferences_json=_dump_object(normalized["output_preferences"]),
+        created_by=normalized["created_by"],
+        updated_by=normalized["updated_by"],
         platforms_json=_dump_list(normalized["platforms"]),
         keywords_json=_dump_list(normalized["keywords"]),
         tickers_json=_dump_list(normalized["tickers"]),
@@ -621,9 +657,20 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
     normalized = normalize_campaign_input(current)
     campaign.name = normalized["name"]
     campaign.enabled = normalized["enabled"]
+    campaign.status = normalized["status"]
     campaign.mode = normalized["mode"]
     campaign.campaign_type = normalized["campaign_type"]
     campaign.content_type = normalized["content_type"]
+    campaign.schedule_config_json = _dump_object(normalized["schedule_config"])
+    campaign.weekdays_only = normalized["weekdays_only"]
+    campaign.run_time = normalized["run_time"]
+    campaign.timezone = normalized["timezone"]
+    campaign.recipient_email = normalized["recipient_email"]
+    campaign.source_type = normalized["source_type"]
+    campaign.source_reference_id = normalized["source_reference_id"]
+    campaign.filters_json = _dump_object(normalized["filters"])
+    campaign.output_preferences_json = _dump_object(normalized["output_preferences"])
+    campaign.updated_by = normalized["updated_by"]
     campaign.platforms_json = _dump_list(normalized["platforms"])
     campaign.keywords_json = _dump_list(normalized["keywords"])
     campaign.tickers_json = _dump_list(normalized["tickers"])
@@ -649,9 +696,23 @@ def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
         "name": "Legacy Outreach Campaign" if legacy and not campaign.name else campaign.name,
         "display_name": "Legacy Outreach Campaign" if legacy else campaign.name,
         "enabled": bool(campaign.enabled),
+        "status": campaign.status or ("active" if campaign.enabled else "paused"),
         "mode": campaign.mode,
         "campaign_type": campaign_type,
         "content_type": content_type,
+        "schedule_config": _load_object(campaign.schedule_config_json),
+        "weekdays_only": bool(campaign.weekdays_only),
+        "run_time": campaign.run_time,
+        "timezone": campaign.timezone or "America/Los_Angeles",
+        "recipient_email": campaign.recipient_email or ai_growth_recipient(),
+        "source_type": campaign.source_type,
+        "source_reference_id": campaign.source_reference_id,
+        "filters": _load_object(campaign.filters_json),
+        "output_preferences": _load_object(campaign.output_preferences_json),
+        "created_by": campaign.created_by,
+        "updated_by": campaign.updated_by,
+        "last_run_at": _iso(campaign.last_run_at),
+        "next_run_at": _iso(campaign.next_run_at),
         "legacy": legacy,
         "platforms": _load_list(campaign.platforms_json),
         "keywords": _load_list(campaign.keywords_json),
@@ -725,7 +786,11 @@ def opportunity_to_dict(
         "short_reason": opportunity.short_reason,
         "compliance_notes": opportunity.compliance_notes,
         "generated_content": generated_content,
+        "full_markdown": opportunity.full_markdown,
         "alternate_versions": _load_object(opportunity.alternate_versions_json),
+        "quality_scores": _load_object(opportunity.quality_scores_json),
+        "source_notes": _load_json_list(opportunity.source_notes_json),
+        "missing_data_notes": _load_json_list(opportunity.missing_data_notes_json),
         "assets": assets,
         "posting_links": _posting_links(opportunity, suggestion=suggestion),
         "metadata": _load_object(opportunity.raw_metadata_json),
@@ -765,8 +830,6 @@ def suggestion_to_dict(suggestion: AiMarketingSuggestion | None) -> dict[str, An
         "suggested_reply": suggestion.suggested_reply,
         "suggested_post": suggestion.suggested_post,
         "suggested_ad_variants": _load_json_list(suggestion.suggested_ad_variants_json),
-        "influencer_outreach_draft": suggestion.influencer_outreach_draft,
-        "report_pack_outline": suggestion.report_pack_outline,
         "alternate_hooks": _load_list(suggestion.alternate_hooks_json),
         "title_options": _load_list(suggestion.title_options_json),
         "disclosure_text": suggestion.disclosure_text,
@@ -798,8 +861,6 @@ def _generated_content_from_suggestion(suggestion: AiMarketingSuggestion | None)
         return None
     for value in (
         suggestion.suggested_post,
-        suggestion.influencer_outreach_draft,
-        suggestion.report_pack_outline,
         suggestion.suggested_reply,
     ):
         if value and value.strip():
@@ -836,7 +897,7 @@ def _posting_links(opportunity: AiMarketingOpportunity, *, suggestion: AiMarketi
 
 def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     warnings: list[str] = []
-    if not campaign.enabled:
+    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
         warnings.append("Campaign is disabled; no discovery run was performed.")
         return {"created": 0, "deduped": 0, "suggested": 0, "warnings": warnings, "opportunities": []}
 
@@ -868,7 +929,10 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     deduped = 0
     suggested = 0
     opportunities: list[AiMarketingOpportunity] = []
-    for item in items[: max(1, int(campaign.max_items_per_run or 10))]:
+    run_limit = max(1, int(campaign.max_items_per_run or 10))
+    if _normalize_content_type(campaign.content_type, campaign_type=campaign.campaign_type, platform=(_load_list(campaign.platforms_json) or [None])[0]) == "reddit_thread":
+        run_limit = min(run_limit, 1)
+    for item in items[:run_limit]:
         opportunity, was_created = upsert_source_item(db, campaign, item)
         opportunities.append(opportunity)
         if was_created:
@@ -890,6 +954,8 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
             break
 
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
+    campaign.last_run_at = datetime.now(timezone.utc)
+    db.commit()
     return {
         "created": created,
         "deduped": deduped,
@@ -1091,6 +1157,8 @@ def create_growth_draft(
     inputs: dict[str, Any] | None = None,
     generate: bool = True,
 ) -> dict[str, Any]:
+    if any("influencer" in str(value or "").strip().lower() for value in (campaign_type, content_type)):
+        raise ValueError("Influencer growth workflows have been removed. Use X campaigns or Reddit Research Threads.")
     resolved_campaign_type = _normalize_campaign_type(campaign_type, fallback_mode=campaign_type)
     resolved_content_type = _normalize_content_type(content_type, campaign_type=resolved_campaign_type, platform=source_platform)
     resolved_platform = _normalize_source_platform(source_platform, fallback=_platform_for_content_type(resolved_content_type))
@@ -1299,8 +1367,6 @@ def generate_suggestion(
         suggested_reply=structured["suggested_reply"],
         suggested_post=structured["suggested_post"],
         suggested_ad_variants_json=_dump_json_list(structured["suggested_ad_variants"]),
-        influencer_outreach_draft=structured["influencer_outreach_draft"],
-        report_pack_outline=structured["report_pack_outline"],
         alternate_hooks_json=_dump_list(structured["alternate_hooks"]),
         title_options_json=_dump_list(structured["title_options"]),
         disclosure_text=structured["disclosure_text"],
@@ -1324,8 +1390,14 @@ def generate_suggestion(
     opportunity.short_reason = suggestion.short_reason
     opportunity.compliance_notes = suggestion.compliance_notes
     opportunity.generated_content = structured["generated_content"]
+    opportunity.full_markdown = structured["full_markdown"]
     opportunity.alternate_versions_json = _dump_object(structured["alternate_versions"])
+    opportunity.quality_scores_json = _dump_object(structured["quality_scores"])
+    opportunity.source_notes_json = _dump_json_list(structured["source_notes"])
+    opportunity.missing_data_notes_json = _dump_json_list(structured["missing_data_notes"])
     opportunity.asset_refs_json = _dump_json_list(_normalize_assets(_load_json_list(opportunity.asset_refs_json) + structured["assets"]))
+    if structured["content_type"] == "reddit_thread":
+        opportunity.status = "new" if structured["quality_gate_passed"] else "regeneration_needed"
     _clear_suggestion_failure(opportunity)
     opportunity.matched_tickers_json = _dump_list(
         sorted(set(_load_list(opportunity.matched_tickers_json)) | set(structured["detected_tickers"]))
@@ -1930,12 +2002,10 @@ def _growth_email_subject(opportunities: list[AiMarketingOpportunity], latest: d
     if count == 1 and opportunities:
         content_type = _normalize_content_type(opportunities[0].content_type, campaign_type=opportunities[0].campaign_type, platform=opportunities[0].platform)
         labels = {
-            "x_post": "X chart-drop draft",
+            "x_post": "X campaign draft",
             "reddit_reply": "Reddit reply opportunity",
             "reddit_thread": "Reddit research thread draft",
             "paid_ad": "paid ad idea",
-            "influencer_dm": "influencer report-pack draft",
-            "report_pack": "report-pack outline",
         }
         return f"Walnut AI Growth: {labels.get(content_type, 'draft')} ready"
     content_counts: dict[str, int] = {}
@@ -1943,7 +2013,7 @@ def _growth_email_subject(opportunities: list[AiMarketingOpportunity], latest: d
         content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
         content_counts[content_type] = content_counts.get(content_type, 0) + 1
     if content_counts.get("x_post") == count:
-        return f"Walnut AI Growth: {count} X chart-drop drafts ready"
+        return f"Walnut AI Growth: {count} X campaign drafts ready"
     if content_counts.get("reddit_reply") == count:
         return f"Walnut AI Growth: {count} reply opportunities"
     return f"Walnut AI Growth: {count} drafts ready"
@@ -1955,8 +2025,6 @@ def _content_type_label(content_type: str) -> str:
         "reddit_reply": "Reddit reply",
         "reddit_thread": "Reddit research thread",
         "paid_ad": "Paid ad copy",
-        "influencer_dm": "Influencer DM/email",
-        "report_pack": "Report pack",
     }.get(content_type, content_type.replace("_", " ").title())
 
 
@@ -2002,6 +2070,40 @@ def _assets_html(assets: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
+def _quality_scores_text(scores: dict[str, Any]) -> str:
+    if not scores:
+        return "Quality scores: pending"
+    ordered = [
+        "research_depth_score",
+        "evidence_score",
+        "catalyst_score",
+        "balance_score",
+        "reddit_native_score",
+        "promotional_risk_score",
+        "compliance_risk_score",
+    ]
+    return "Quality scores: " + ", ".join(f"{key}={scores.get(key, 'pending')}" for key in ordered)
+
+
+def _quality_scores_html(scores: dict[str, Any]) -> str:
+    return f"<p style=\"margin:0 0 8px 0;color:#334155;\">{html.escape(_quality_scores_text(scores))}</p>"
+
+
+def _notes_text(label: str, notes: list[Any]) -> str:
+    clean = [str(note).strip() for note in notes if str(note or "").strip()]
+    if not clean:
+        return f"{label}: none"
+    return f"{label}:\n" + "\n".join(f"- {note}" for note in clean)
+
+
+def _notes_html(label: str, notes: list[Any]) -> str:
+    clean = [str(note).strip() for note in notes if str(note or "").strip()]
+    if not clean:
+        return f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>{html.escape(label)}:</strong> none</p>"
+    items = "".join(f"<li>{html.escape(note)}</li>" for note in clean)
+    return f"<div style=\"margin:0 0 8px 0;color:#334155;\"><strong>{html.escape(label)}</strong><ul>{items}</ul></div>"
+
+
 def _digest_context(
     opportunities: list[AiMarketingOpportunity],
     latest: dict[int, AiMarketingSuggestion],
@@ -2034,6 +2136,9 @@ def _digest_context(
         keywords = ", ".join(_load_list(opportunity.matched_keywords_json)) or "none"
         relevance = suggestion.relevance_score if suggestion else opportunity.relevance_score
         spam = suggestion.spam_risk_score if suggestion else opportunity.spam_risk_score
+        quality_scores = _load_object(opportunity.quality_scores_json)
+        source_notes = _load_json_list(opportunity.source_notes_json)
+        missing_data_notes = _load_json_list(opportunity.missing_data_notes_json)
         action = (suggestion.recommended_action if suggestion else opportunity.recommended_action) or "pending"
         angle = (suggestion.content_angle if suggestion else None) or (suggestion.reply_angle if suggestion else "pending")
         disclosure = suggestion.disclosure_text if suggestion else ""
@@ -2048,6 +2153,12 @@ def _digest_context(
         )
         assets_text = _assets_text(assets)
         assets_html = _assets_html(assets)
+        quality_text = _quality_scores_text(quality_scores)
+        notes_text = _notes_text("Source notes", source_notes)
+        missing_text = _notes_text("Missing data notes", missing_data_notes)
+        quality_html = _quality_scores_html(quality_scores)
+        notes_html = _notes_html("Source notes", source_notes)
+        missing_html = _notes_html("Missing data notes", missing_data_notes)
         checklist = [
             "Open source post",
             "Copy draft",
@@ -2065,6 +2176,7 @@ def _digest_context(
                     f"Recommended action: {action}",
                     f"Fit score: {relevance if relevance is not None else 'pending'}",
                     f"Spam/compliance risk score: {spam if spam is not None else 'pending'}",
+                    quality_text,
                     f"Source URL: {opportunity.source_url}",
                     f"Suggested destination URL: {destination or 'none'}",
                     f"Open in Walnut Admin: {admin_url}",
@@ -2075,8 +2187,12 @@ def _digest_context(
                     f"Content angle: {angle}",
                     "Draft content:",
                     draft_content,
+                    "Copy-ready markdown:",
+                    opportunity.full_markdown or draft_content,
                     f"Disclosure reminder: {disclosure or _default_disclosure_reminder(source_platform, draft_content)}",
                     f"Compliance notes: {compliance}",
+                    notes_text,
+                    missing_text,
                     assets_text,
                     "Posting checklist:",
                     *[f"{number}. {item}" for number, item in enumerate(checklist, start=1)],
@@ -2089,6 +2205,7 @@ def _digest_context(
             f"<h3 style=\"margin:0 0 8px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html.escape(opportunity.title)}</h3>"
             f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(_source_platform_label(source_platform))} / {html.escape(_content_type_label(content_type))}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Recommended action: {html.escape(action)} | Fit: {html.escape(str(relevance if relevance is not None else 'pending'))} | Spam/compliance risk: {html.escape(str(spam if spam is not None else 'pending'))}</p>"
+            f"{quality_html}"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source post</a></p>"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(admin_url, quote=True)}\">Open in Walnut Admin</a></p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Snippet: {html.escape(snippet)}</p>"
@@ -2098,8 +2215,11 @@ def _digest_context(
             f"{manual_review_html}"
             f"{destination_html}"
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(draft_content)}</pre>"
+            f"<p style=\"margin:0 0 6px 0;color:#334155;\"><strong>Copy-ready markdown</strong></p>"
+            f"<pre style=\"white-space:pre-wrap;margin:6px 0 10px 0;padding:12px;background:#0b1120;color:#d1fae5;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(opportunity.full_markdown or draft_content)}</pre>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Disclosure reminder:</strong> {html.escape(disclosure or _default_disclosure_reminder(source_platform, draft_content))}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Compliance:</strong> {html.escape(compliance)}</p>"
+            f"{notes_html}{missing_html}"
             f"{assets_html}"
             "<ol style=\"margin:12px 0 0 18px;color:#334155;\">"
             + "".join(f"<li>{html.escape(item)}</li>" for item in checklist)
@@ -2127,10 +2247,13 @@ def _suggestion_system_prompt() -> str:
         "For skip, suggested_reply should be exactly or very close to: 'Skip - not relevant enough.' "
         "For monitor, explain what would make the thread worth replying to later. "
         "For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. "
-        "For reddit_thread, write title_options, suggested_post, suggested_reply as a comment variant, and disclosure_text. "
+        "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
+        "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure stack, "
+        "Technical picture, Fundamental picture, Recent news / filings / press releases, Catalysts, Bull case, Bear case / risks, "
+        "What would confirm the setup, What would weaken the setup, Bottom line, and Suggested Reddit disclosure. "
+        "For reddit_thread, fill the dedicated structured fields and full_reddit_post_markdown; include source_notes, missing_data_notes, "
+        "quality_scores, suggested_image_asset, suggested_flair, and suggested_subreddits where appropriate. "
         "For paid_ad, write suggested_ad_variants as native paid ad headline/body/CTA variants. "
-        "For influencer_dm, write influencer_outreach_draft and report_pack_outline. "
-        "For report_pack, write report_pack_outline and data sections in value_added_insight. "
         "Walnut Market Terminal is a professional-grade market intelligence platform for sophisticated retail investors. "
         "It helps users find market tells by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
         "Congress trading disclosures, government contracts, signal conviction, screener workflows, and evidence trail or why-now context. "
@@ -2141,13 +2264,14 @@ def _suggestion_system_prompt() -> str:
         "If the source mentions a specific public company or ticker, prefer the ticker page /ticker/{SYMBOL}. "
         "If it discusses screeners or research tooling without a ticker, prefer /screener or the homepage. "
         "If it discusses Congress trades, insider buying, or government contracts, use that as the reply_angle when relevant. "
-        "Use reported/disclosed/filing-date language for Congress and insider disclosure data. "
+        "Use reported/disclosed/filed/filing-date language for Congress, insider, and institutional disclosure data. "
+        "For 13F or institutional activity, never imply live buying or exact trade dates; say reported holdings/activity, quarter-end holdings, and filing date context. "
         "Do not imply endorsement by Reddit, X, Facebook, Congress, SEC, or any data provider. "
         "If organic X or Reddit content mentions Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
         "Do not make investment advice claims, tell users to buy, sell, or short a security, guarantee returns, or use hype like 'about to explode'. "
         "Prefer educational language such as \"this may be useful\", \"you can cross-check\", and \"one way to look at it\". "
         "Include at most one Walnut link unless the thread clearly needs more. Never use spammy CTA language. "
-        "Make Reddit research threads valuable even if nobody clicks Walnut; include limitations for backtests/data. "
+        "Make Reddit research threads valuable even if nobody clicks Walnut; include technical context, fundamental context, catalysts, risks, and limitations. "
         "Do not fake personal experience or pretend to be unaffiliated. No automated posting is happening; a human will review and manually post if appropriate. "
         "Avoid replies when spam risk is high. "
         "Avoid replying to old or inactive threads unless relevance is very high. "
@@ -2178,8 +2302,61 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "suggested_reply": {"type": "string"},
             "suggested_post": {"type": "string"},
             "suggested_ad_variants": {"type": "array", "items": {"type": "string"}},
-            "influencer_outreach_draft": {"type": "string"},
-            "report_pack_outline": {"type": "string"},
+            "title": {"type": "string"},
+            "tldr_bullets": {"type": "array", "items": {"type": "string"}},
+            "why_selected": {"type": "string"},
+            "company_snapshot": {"type": "string"},
+            "walnut_disclosure_stack": {"type": "string"},
+            "technical_picture": {"type": "string"},
+            "fundamental_picture": {"type": "string"},
+            "recent_news_and_filings": {"type": "string"},
+            "catalysts": {"type": "string"},
+            "bull_case": {"type": "string"},
+            "bear_case_and_risks": {"type": "string"},
+            "what_would_confirm": {"type": "string"},
+            "what_would_weaken": {"type": "string"},
+            "bottom_line": {"type": "string"},
+            "reddit_disclosure": {"type": "string"},
+            "full_reddit_post_markdown": {"type": "string"},
+            "source_notes": {"type": "array", "items": {"type": "string"}},
+            "missing_data_notes": {"type": "array", "items": {"type": "string"}},
+            "quality_scores": {
+                "type": "object",
+                "properties": {
+                    "research_depth_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "evidence_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "catalyst_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "balance_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "reddit_native_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "promotional_risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "compliance_risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                },
+                "required": [
+                    "research_depth_score",
+                    "evidence_score",
+                    "catalyst_score",
+                    "balance_score",
+                    "reddit_native_score",
+                    "promotional_risk_score",
+                    "compliance_risk_score",
+                ],
+                "additionalProperties": False,
+            },
+            "suggested_image_asset": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "asset_type": {"type": "string", "enum": ["image", "chart", "csv", "pdf", "screenshot", "report"]},
+                    "url": {"type": "string"},
+                    "thumbnail_url": {"type": "string"},
+                    "suggested_caption": {"type": "string"},
+                    "source_data_notes": {"type": "string"},
+                },
+                "required": ["title", "asset_type", "url", "thumbnail_url", "suggested_caption", "source_data_notes"],
+                "additionalProperties": False,
+            },
+            "suggested_flair": {"type": "string"},
+            "suggested_subreddits": {"type": "array", "items": {"type": "string"}},
             "alternate_hooks": {"type": "array", "items": {"type": "string"}},
             "title_options": {"type": "array", "items": {"type": "string"}},
             "disclosure_text": {"type": "string"},
@@ -2221,8 +2398,28 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "suggested_reply",
             "suggested_post",
             "suggested_ad_variants",
-            "influencer_outreach_draft",
-            "report_pack_outline",
+            "title",
+            "tldr_bullets",
+            "why_selected",
+            "company_snapshot",
+            "walnut_disclosure_stack",
+            "technical_picture",
+            "fundamental_picture",
+            "recent_news_and_filings",
+            "catalysts",
+            "bull_case",
+            "bear_case_and_risks",
+            "what_would_confirm",
+            "what_would_weaken",
+            "bottom_line",
+            "reddit_disclosure",
+            "full_reddit_post_markdown",
+            "source_notes",
+            "missing_data_notes",
+            "quality_scores",
+            "suggested_image_asset",
+            "suggested_flair",
+            "suggested_subreddits",
             "alternate_hooks",
             "title_options",
             "disclosure_text",
@@ -2276,13 +2473,17 @@ def _normalize_suggestion_payload(
         )
     suggested_reply = _truncate(str(payload.get("suggested_reply") or "").strip(), 3000) or ""
     alternate_reply = _truncate(str(payload.get("alternate_reply_more_direct") or "").strip(), 3000) or ""
-    suggested_post = _truncate(str(payload.get("suggested_post") or "").strip(), 5000) or ""
+    suggested_post = _truncate(str(payload.get("suggested_post") or "").strip(), 16000) or ""
     ad_variants = [_truncate(str(item), 1000) or "" for item in _coerce_json_list(payload.get("suggested_ad_variants"))]
-    influencer_draft = _truncate(str(payload.get("influencer_outreach_draft") or "").strip(), 5000) or ""
-    report_outline = _truncate(str(payload.get("report_pack_outline") or "").strip(), 5000) or ""
     alternate_hooks = [_truncate(str(item), 400) or "" for item in _coerce_json_list(payload.get("alternate_hooks"))]
     title_options = [_truncate(str(item), 240) or "" for item in _coerce_json_list(payload.get("title_options"))]
     disclosure_text = _truncate(str(payload.get("disclosure_text") or "").strip(), 1000) or ""
+    reddit_structured = _reddit_research_structured_payload(payload) if content_type == "reddit_thread" and recommended_action != "skip" else {}
+    if reddit_structured:
+        suggested_post = reddit_structured["full_markdown"]
+        disclosure_text = reddit_structured["reddit_disclosure"] or disclosure_text
+        if reddit_structured["title"]:
+            title_options = _dedupe_strings([reddit_structured["title"], *title_options])
     if recommended_action == "skip":
         suggested_reply = suggested_reply or "Skip - not relevant enough."
         alternate_reply = alternate_reply or suggested_reply
@@ -2293,8 +2494,7 @@ def _normalize_suggestion_payload(
         suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
         alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
         suggested_post = _ensure_walnut_affiliation_disclosure(suggested_post) if content_type in {"x_post", "reddit_thread"} else suggested_post
-        influencer_draft = _ensure_walnut_affiliation_disclosure(influencer_draft) if "walnut" in influencer_draft.lower() else influencer_draft
-    content_values = [suggested_reply, alternate_reply, suggested_post, influencer_draft, report_outline, *ad_variants]
+    content_values = [suggested_reply, alternate_reply, suggested_post, *ad_variants]
     if any(_contains_direct_trade_advice(value) or _contains_hype_or_guarantee(value) for value in content_values):
         recommended_action = "monitor"
         destination = ""
@@ -2302,26 +2502,38 @@ def _normalize_suggestion_payload(
         alternate_reply = suggested_reply
         suggested_post = ""
         ad_variants = []
-        influencer_draft = ""
-        report_outline = ""
     value_added_insight = _truncate(str(payload.get("value_added_insight") or "").strip(), 1500) or ""
     walnut_feature = _truncate(str(payload.get("walnut_feature_to_mention") or "").strip(), 500) or ""
     content_angle = _truncate(str(payload.get("content_angle") or payload.get("reply_angle") or "").strip(), 500) or reply_angle
     assets = _normalize_assets(payload.get("assets"))
+    if reddit_structured and reddit_structured["suggested_image_asset"]:
+        assets = _normalize_assets([*assets, reddit_structured["suggested_image_asset"]])
     generated_content = _generated_content_from_structured(
         content_type=content_type,
         suggested_reply=suggested_reply,
         suggested_post=suggested_post,
         ad_variants=ad_variants,
-        influencer_draft=influencer_draft,
-        report_outline=report_outline,
     )
+    quality_scores = reddit_structured.get("quality_scores", {}) if reddit_structured else {}
+    source_notes = reddit_structured.get("source_notes", []) if reddit_structured else []
+    missing_data_notes = reddit_structured.get("missing_data_notes", []) if reddit_structured else []
+    quality_gate = _reddit_research_quality_gate(
+        generated_content,
+        quality_scores,
+        source_notes=source_notes,
+        missing_data_notes=missing_data_notes,
+    ) if content_type == "reddit_thread" and recommended_action != "skip" else {"passed": True, "notes": []}
+    if content_type == "reddit_thread" and not quality_gate["passed"]:
+        recommended_action = "monitor"
+        missing_data_notes = _dedupe_strings([*missing_data_notes, *quality_gate["notes"]])
     alternate_versions = {
         "alternate_reply_more_direct": alternate_reply,
         "alternate_hooks": [item for item in alternate_hooks if item],
         "title_options": [item for item in title_options if item],
         "suggested_ad_variants": [item for item in ad_variants if item],
         "disclosure_text": disclosure_text,
+        "suggested_flair": reddit_structured.get("suggested_flair", "") if reddit_structured else "",
+        "suggested_subreddits": reddit_structured.get("suggested_subreddits", []) if reddit_structured else [],
     }
     return {
         "relevance_score": _clamp_int(payload.get("relevance_score"), 0, 100),
@@ -2341,17 +2553,20 @@ def _normalize_suggestion_payload(
         "suggested_reply": suggested_reply,
         "suggested_post": suggested_post,
         "suggested_ad_variants": [item for item in ad_variants if item],
-        "influencer_outreach_draft": influencer_draft,
-        "report_pack_outline": report_outline,
         "alternate_hooks": [item for item in alternate_hooks if item],
         "title_options": [item for item in title_options if item],
         "disclosure_text": disclosure_text,
         "assets": assets,
         "alternate_reply_more_direct": alternate_reply,
         "generated_content": generated_content,
+        "full_markdown": generated_content if content_type == "reddit_thread" else "",
         "alternate_versions": alternate_versions,
+        "quality_scores": quality_scores,
+        "source_notes": source_notes,
+        "missing_data_notes": missing_data_notes,
+        "quality_gate_passed": bool(quality_gate["passed"]),
         "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or value_added_insight or "No reason provided.",
-        "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 1000) or "Review manually before posting.",
+        "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 2000) or "Review manually before posting.",
     }
 
 
@@ -2424,18 +2639,129 @@ def _generated_content_from_structured(
     suggested_reply: str,
     suggested_post: str,
     ad_variants: list[str],
-    influencer_draft: str,
-    report_outline: str,
 ) -> str:
     if content_type == "paid_ad" and ad_variants:
         return "\n\n".join(ad_variants)
-    if content_type == "influencer_dm" and influencer_draft:
-        return influencer_draft
-    if content_type == "report_pack" and report_outline:
-        return report_outline
     if content_type in {"x_post", "reddit_thread"} and suggested_post:
         return suggested_post
     return suggested_reply
+
+
+def _reddit_research_structured_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    tldr = [_truncate(str(item), 300) or "" for item in _coerce_json_list(payload.get("tldr_bullets"))]
+    fields = {
+        "title": _truncate(str(payload.get("title") or "").strip(), 240) or "",
+        "why_selected": _truncate(str(payload.get("why_selected") or "").strip(), 2000) or "",
+        "company_snapshot": _truncate(str(payload.get("company_snapshot") or "").strip(), 2000) or "",
+        "walnut_disclosure_stack": _truncate(str(payload.get("walnut_disclosure_stack") or "").strip(), 2500) or "",
+        "technical_picture": _truncate(str(payload.get("technical_picture") or "").strip(), 2200) or "",
+        "fundamental_picture": _truncate(str(payload.get("fundamental_picture") or "").strip(), 2200) or "",
+        "recent_news_and_filings": _truncate(str(payload.get("recent_news_and_filings") or "").strip(), 2500) or "",
+        "catalysts": _truncate(str(payload.get("catalysts") or "").strip(), 2200) or "",
+        "bull_case": _truncate(str(payload.get("bull_case") or "").strip(), 1800) or "",
+        "bear_case_and_risks": _truncate(str(payload.get("bear_case_and_risks") or "").strip(), 2200) or "",
+        "what_would_confirm": _truncate(str(payload.get("what_would_confirm") or "").strip(), 1800) or "",
+        "what_would_weaken": _truncate(str(payload.get("what_would_weaken") or "").strip(), 1800) or "",
+        "bottom_line": _truncate(str(payload.get("bottom_line") or "").strip(), 1800) or "",
+        "reddit_disclosure": _truncate(str(payload.get("reddit_disclosure") or payload.get("disclosure_text") or "").strip(), 1000) or "",
+    }
+    markdown = _truncate(str(payload.get("full_reddit_post_markdown") or "").strip(), 20000) or ""
+    if not markdown:
+        markdown = _build_reddit_research_markdown(tldr_bullets=tldr, **fields)
+    quality_scores = _normalize_quality_scores(payload.get("quality_scores"))
+    image_asset = _normalize_assets([payload.get("suggested_image_asset")])[0] if isinstance(payload.get("suggested_image_asset"), dict) else None
+    return {
+        **fields,
+        "tldr_bullets": [item for item in tldr if item],
+        "full_markdown": markdown,
+        "source_notes": [_truncate(str(item), 500) or "" for item in _coerce_json_list(payload.get("source_notes")) if str(item or "").strip()],
+        "missing_data_notes": [_truncate(str(item), 500) or "" for item in _coerce_json_list(payload.get("missing_data_notes")) if str(item or "").strip()],
+        "quality_scores": quality_scores,
+        "suggested_image_asset": image_asset,
+        "suggested_flair": _truncate(str(payload.get("suggested_flair") or "").strip(), 80) or "",
+        "suggested_subreddits": _dedupe_strings([str(item).strip().lstrip("r/") for item in _coerce_json_list(payload.get("suggested_subreddits")) if str(item or "").strip()]),
+    }
+
+
+def _build_reddit_research_markdown(*, tldr_bullets: list[str], **sections: str) -> str:
+    title = sections.get("title") or "Research thread"
+    lines = [f"# {title}", "", "## TL;DR"]
+    bullets = [item for item in tldr_bullets if item][:5]
+    lines.extend([f"- {item}" for item in bullets] or ["- No TL;DR supplied by the model."])
+    section_map = [
+        ("Why this name came up", "why_selected"),
+        ("Company snapshot", "company_snapshot"),
+        ("Walnut disclosure stack", "walnut_disclosure_stack"),
+        ("Technical picture", "technical_picture"),
+        ("Fundamental picture", "fundamental_picture"),
+        ("Recent news / filings / press releases", "recent_news_and_filings"),
+        ("Catalysts", "catalysts"),
+        ("Bull case", "bull_case"),
+        ("Bear case / risks", "bear_case_and_risks"),
+        ("What would confirm the setup", "what_would_confirm"),
+        ("What would weaken the setup", "what_would_weaken"),
+        ("Bottom line", "bottom_line"),
+        ("Suggested Reddit disclosure", "reddit_disclosure"),
+    ]
+    for heading, key in section_map:
+        lines.extend(["", f"## {heading}", sections.get(key) or "Not verified from available data."])
+    return "\n".join(lines).strip()
+
+
+def _normalize_quality_scores(value: Any) -> dict[str, int]:
+    raw = _load_object(value)
+    return {
+        "research_depth_score": _clamp_int(raw.get("research_depth_score"), 0, 100),
+        "evidence_score": _clamp_int(raw.get("evidence_score"), 0, 100),
+        "catalyst_score": _clamp_int(raw.get("catalyst_score"), 0, 100),
+        "balance_score": _clamp_int(raw.get("balance_score"), 0, 100),
+        "reddit_native_score": _clamp_int(raw.get("reddit_native_score"), 0, 100),
+        "promotional_risk_score": _clamp_int(raw.get("promotional_risk_score"), 0, 100),
+        "compliance_risk_score": _clamp_int(raw.get("compliance_risk_score"), 0, 100),
+    }
+
+
+def _reddit_research_quality_gate(
+    markdown: str,
+    quality_scores: dict[str, int],
+    *,
+    source_notes: list[str],
+    missing_data_notes: list[str],
+) -> dict[str, Any]:
+    notes: list[str] = []
+    lowered = markdown.lower()
+    if len(markdown.strip()) < 1800:
+        notes.append("Reddit DD draft is too short for a comprehensive research thread.")
+    for section in REDDIT_RESEARCH_SECTIONS:
+        if section.lower() not in lowered:
+            notes.append(f"Missing required section: {section}.")
+    for required in ("catalyst", "risk", "technical", "fundamental", "disclosed", "reported"):
+        if required not in lowered:
+            notes.append(f"Missing required research language/context: {required}.")
+    if _contains_direct_trade_advice(markdown) or _contains_hype_or_guarantee(markdown):
+        notes.append("Draft contains direct trading advice, hype, or guarantee language.")
+    if _implies_live_institutional_trading(markdown):
+        notes.append("Institutional/13F wording implies live trading instead of reported holdings or filing-date context.")
+    for key, threshold in REDDIT_RESEARCH_QUALITY_THRESHOLDS.items():
+        score = quality_scores.get(key, 0)
+        if key.endswith("_risk_score"):
+            if score > threshold:
+                notes.append(f"{key} is above threshold: {score} > {threshold}.")
+        elif score < threshold:
+            notes.append(f"{key} is below threshold: {score} < {threshold}.")
+    if "could not be verified" not in lowered and missing_data_notes and not source_notes:
+        notes.append("Missing-data limitations are not clearly reflected in the draft.")
+    return {"passed": not notes, "notes": _dedupe_strings(notes)}
+
+
+def _implies_live_institutional_trading(value: str) -> bool:
+    lowered = value.lower()
+    if "13f" not in lowered and "institutional" not in lowered:
+        return False
+    if "not live buying" in lowered or "never imply live buying" in lowered:
+        lowered = lowered.replace("not live buying", "").replace("never imply live buying", "")
+    risky = ("bought today", "buying today", "is buying", "are buying", "just bought", "live buying", "current buying")
+    return any(term in lowered for term in risky)
 
 
 def _classify_openai_suggestion_error(response: requests.Response) -> tuple[str, str, int]:
@@ -2795,7 +3121,9 @@ def _load_json_list(raw: str | None) -> list[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
-def _load_object(raw: str | None) -> dict[str, Any]:
+def _load_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
     try:
         parsed = json.loads(raw or "{}")
     except Exception:

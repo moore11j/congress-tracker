@@ -113,6 +113,108 @@ def _growth_openai_payload(**overrides):
     return payload
 
 
+def _reddit_dd_payload(**overrides):
+    markdown = """# $NVDA DD: reported disclosure stack plus technical and fundamental context
+
+## TL;DR
+- NVDA surfaced because Walnut reported/disclosed signal context showed cross-source activity worth reviewing.
+- The setup has constructive fundamentals, but valuation and execution risk matter.
+- 13F institutional context reflects quarter-end reported holdings and filing date context, not live buying.
+- This is research, not investment advice.
+
+## Why this name came up
+NVDA came up from a saved screen combining reported Congress activity, insider filings, institutional reported holdings/activity, and confirmation signals. It was selected today because the disclosure stack had fresh filing-date context and the technical picture was still constructive.
+
+## Company snapshot
+NVIDIA designs accelerated computing hardware and software for data centers, gaming, visualization, and automotive markets. The business model is tied to GPU/platform sales and ecosystem software, with market cap and exact valuation requiring live verification.
+
+## Walnut disclosure stack
+Congress activity is described as reported/disclosed activity with filing dates. Insider activity is based on filed Form 4 context. Institutional activity is reported holdings/activity from 13F filings, reflecting quarter-end holdings and filing date context rather than live trades. Government contracts and options flow should be verified where available.
+
+## Technical picture
+The technical context should review price trend, moving averages, support/resistance, RSI or momentum, relative volume, and breakout/breakdown context. Do not overstate technicals; this is a plain-English read of price behavior.
+
+## Fundamental picture
+The fundamental context should review revenue growth, earnings trend, margins, cash flow, balance sheet, debt/liquidity, valuation, earnings context, and forward expectations where verified.
+
+## Recent news / filings / press releases
+Recent company news, SEC filings, earnings releases, product announcements, and sector catalysts should be cited internally. Any item that could not be verified should be called out explicitly.
+
+## Catalysts
+Near-term catalysts include upcoming earnings, guidance updates, product/data-center demand signals, regulatory or export-control developments, and disclosure-related follow-through.
+
+## Bull case
+The strongest constructive argument is that reported/disclosed activity and fundamentals may align with durable AI infrastructure demand and technical strength.
+
+## Bear case / risks
+Risks include valuation risk, execution risk, earnings risk, technical breakdown risk, liquidity/debt surprises, macro/sector risk, and disclosure interpretation risk.
+
+## What would confirm the setup
+Confirmation would include continued revenue and margin execution, clean earnings commentary, resilient moving-average support, volume confirmation, and fresh reported/disclosed activity across the stack.
+
+## What would weaken the setup
+Weakening signals would include earnings misses, margin pressure, technical breakdown below key levels, stale disclosure data, or 13F/institutional activity being misread as live trading.
+
+## Bottom line
+NVDA is worth watching because multiple reported/disclosed data streams can be cross-checked against technical and fundamental context. This is not investment advice or a buy/sell recommendation.
+
+## Suggested Reddit disclosure
+I'm building Walnut Markets, a market intelligence terminal that tracks public disclosures, ticker context, and signal confirmation. Sharing this as research, not investment advice."""
+    payload = _growth_openai_payload(
+        campaign_type="reddit_research_thread",
+        content_type="reddit_thread",
+        platform="reddit",
+        recommended_action="draft_post",
+        title="$NVDA DD: reported disclosure stack plus technical and fundamental context",
+        tldr_bullets=[
+            "NVDA surfaced from reported/disclosed cross-source activity.",
+            "The thesis needs technical, fundamental, catalyst, and risk confirmation.",
+            "13F context is reported quarter-end holdings, not live buying.",
+        ],
+        why_selected="Selected from a saved screen with reported Congress, insider, institutional, and signal context.",
+        company_snapshot="NVIDIA designs accelerated computing hardware and software for data centers and other markets.",
+        walnut_disclosure_stack="Congress and insider items are reported/disclosed filings; institutional activity is 13F reported holdings/activity with filing date context.",
+        technical_picture="Review trend, moving averages, support/resistance, momentum, RSI, and volume confirmation.",
+        fundamental_picture="Review revenue growth, earnings trend, margins, cash flow, balance sheet, debt/liquidity, and valuation.",
+        recent_news_and_filings="Recent news, filings, press releases, and earnings context should be cited internally; unverified items are noted.",
+        catalysts="Upcoming earnings, guidance, product launches, sector demand, and disclosure follow-through.",
+        bull_case="Reported/disclosed activity may align with strong AI infrastructure demand and constructive technicals.",
+        bear_case_and_risks="Valuation, execution, earnings, technical breakdown, macro/sector, and disclosure interpretation risks.",
+        what_would_confirm="Revenue/margin execution, volume confirmation, resilient moving averages, and fresh reported/disclosed activity.",
+        what_would_weaken="Earnings miss, margin pressure, technical breakdown, stale data, or 13F data misread as live trades.",
+        bottom_line="Worth watching, not investment advice, because disclosure stack signals can be cross-checked against fundamentals and technicals.",
+        reddit_disclosure="I'm building Walnut Markets, a market intelligence terminal that tracks public disclosures, ticker context, and signal confirmation. Sharing this as research, not investment advice.",
+        full_reddit_post_markdown=markdown,
+        source_notes=["Internal Walnut disclosure stack and public market context."],
+        missing_data_notes=["Market cap, live technical levels, and latest filings should be verified before posting."],
+        quality_scores={
+            "research_depth_score": 88,
+            "evidence_score": 82,
+            "catalyst_score": 80,
+            "balance_score": 86,
+            "reddit_native_score": 78,
+            "promotional_risk_score": 18,
+            "compliance_risk_score": 14,
+        },
+        suggested_image_asset={
+            "title": "NVDA disclosure stack card",
+            "asset_type": "image",
+            "url": "https://walnutmarkets.com/admin/assets/nvda-dd.png",
+            "thumbnail_url": "https://walnutmarkets.com/admin/assets/nvda-dd-thumb.png",
+            "suggested_caption": "Reported disclosures plus technical/fundamental context.",
+            "source_data_notes": "Walnut disclosure stack snapshot.",
+        },
+        suggested_flair="DD",
+        suggested_subreddits=["stocks", "SecurityAnalysis"],
+        suggested_post=markdown,
+        title_options=["$NVDA DD: reported disclosure stack plus technical and fundamental context"],
+        disclosure_text="I'm building Walnut Markets. Sharing this as research, not investment advice.",
+        short_reason="Comprehensive Reddit DD draft with disclosure-stack, technical, fundamental, catalyst, and risk context.",
+    )
+    payload.update(overrides)
+    return payload
+
+
 def _mock_openai(monkeypatch, payload):
     class FakeResponse:
         status_code = 200
@@ -1111,41 +1213,24 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         db.close()
 
 
-def test_influencer_pack_creates_outreach_and_report_outline(monkeypatch):
+def test_influencer_growth_workflow_is_removed(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    _mock_openai(
-        monkeypatch,
-        _growth_openai_payload(
-            campaign_type="influencer_report_pack",
-            content_type="influencer_dm",
-            platform="x",
-            recommended_action="influencer_pack",
-            suggested_post="",
-            influencer_outreach_draft="I am building Walnut, so bias disclosed. I can send a free NVDA signal context pack for your audience.",
-            report_pack_outline="1. Reported Congress disclosures\n2. Insider filings\n3. Price/volume confirmation\n4. Filing context",
-            short_reason="Influencer audience fits data-driven market research.",
-        ),
-    )
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
-        result = admin_ai_growth_create_draft(
-            GrowthDraftPayload(
-                campaign_type="influencer_report_pack",
-                content_type="influencer_dm",
-                source_platform="X",
-                ticker_theme="NVDA",
-                audience="FinTwit swing traders",
-                inputs={"influencer": "@marketoperator", "report_type": "PDF outline"},
-            ),
-            _request_for_user(admin),
-            db,
-        )
-
-        suggestion = result["opportunity"]["suggestion"]
-        assert "free NVDA signal context pack" in suggestion["influencer_outreach_draft"]
-        assert "Reported Congress disclosures" in suggestion["report_pack_outline"]
-        assert result["opportunity"]["recommended_action"] == "influencer_pack"
+        with pytest.raises(HTTPException) as exc:
+            admin_ai_growth_create_draft(
+                GrowthDraftPayload(
+                    campaign_type="influencer_report_pack",
+                    content_type="influencer_dm",
+                    source_platform="X",
+                    ticker_theme="NVDA",
+                ),
+                _request_for_user(admin),
+                db,
+            )
+        assert exc.value.status_code == 422
+        assert "Influencer growth workflows have been removed" in exc.value.detail
     finally:
         db.close()
 
@@ -1154,16 +1239,7 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     _mock_openai(
         monkeypatch,
-        _growth_openai_payload(
-            campaign_type="reddit_research_thread",
-            content_type="reddit_thread",
-            platform="reddit",
-            recommended_action="draft_post",
-            suggested_post="Walnut pulls reported Congress disclosures, insider filings, and price context into one research workflow.",
-            title_options=["How I cross-check reported Congress disclosures against price context"],
-            disclosure_text="I am building Walnut, so bias disclosed.",
-            short_reason="The draft mentions Walnut and needs affiliation disclosure.",
-        ),
+            _reddit_dd_payload(),
     )
     db = _session()
     try:
@@ -1181,8 +1257,60 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
         )
 
         generated = result["opportunity"]["generated_content"]
-        assert generated.startswith("Bias disclosed: I'm building Walnut.")
-        assert "reported Congress disclosures" in generated
+        assert "## Walnut disclosure stack" in generated
+        assert "## Technical picture" in generated
+        assert "## Fundamental picture" in generated
+        assert "## Catalysts" in generated
+        assert "## Bear case / risks" in generated
+        assert "## What would confirm the setup" in generated
+        assert "## What would weaken the setup" in generated
+        assert "not investment advice" in generated.lower()
+        assert "reported/disclosed" in generated.lower()
+        assert "quarter-end holdings and filing date context" in generated.lower()
+        assert result["opportunity"]["quality_scores"]["research_depth_score"] >= 75
+        assert result["opportunity"]["status"] == "new"
+        assert result["opportunity"]["full_markdown"] == generated
+        assert result["opportunity"]["assets"][0]["title"] == "NVDA disclosure stack card"
+    finally:
+        db.close()
+
+
+def test_low_quality_reddit_research_thread_fails_quality_gate(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _mock_openai(
+        monkeypatch,
+        _reddit_dd_payload(
+            full_reddit_post_markdown="NVDA is interesting. Walnut can help. Not investment advice.",
+            quality_scores={
+                "research_depth_score": 40,
+                "evidence_score": 35,
+                "catalyst_score": 20,
+                "balance_score": 45,
+                "reddit_native_score": 50,
+                "promotional_risk_score": 70,
+                "compliance_risk_score": 55,
+            },
+            missing_data_notes=[],
+            source_notes=[],
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="Reddit",
+                ticker_theme="NVDA",
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["opportunity"]["status"] == "regeneration_needed"
+        assert result["opportunity"]["suggestion"]["recommended_action"] == "monitor"
+        assert any("too short" in note.lower() for note in result["opportunity"]["missing_data_notes"])
     finally:
         db.close()
 

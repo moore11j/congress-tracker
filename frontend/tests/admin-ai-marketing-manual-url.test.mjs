@@ -9,16 +9,16 @@ const apiSource = fs.readFileSync(path.join(process.cwd(), "lib", "api.ts"), "ut
 test("AI Growth Engine exposes the new top-level IA", () => {
   for (const label of [
     "Dashboard",
-    "Content Drafts",
-    "Manual Research Input",
-    "X Chart Drops",
-    "Influencer Packs",
+    "X Campaigns",
     "Reddit Research Threads",
-    "Reddit Paid Ads",
+    "Draft Queue",
+    "Assets",
+    "Email Delivery",
     "Settings",
   ]) {
     assert.match(viewSource, new RegExp(label));
   }
+  assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);
 });
 

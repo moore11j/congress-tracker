@@ -1860,9 +1860,7 @@ export type AdminAiMarketingMode =
   | "manual_url_review"
   | "manual_research_input"
   | "x_chart_drop"
-  | "influencer_report_pack"
-  | "reddit_research_thread"
-  | "reddit_paid_ad";
+  | "reddit_research_thread";
 
 export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "facebook_manual" | "facebook" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
@@ -1877,7 +1875,9 @@ export type AdminAiMarketingStatus =
   | "posted_manually"
   | "archived"
   | "rejected"
-  | "dismissed";
+  | "dismissed"
+  | "regeneration_needed"
+  | "quality_failed";
 
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
@@ -1932,9 +1932,23 @@ export type AdminAiMarketingCampaign = {
   name: string;
   display_name?: string;
   enabled: boolean;
+  status?: "active" | "paused" | string;
   mode: AdminAiMarketingMode;
   campaign_type?: string;
   content_type?: string;
+  schedule_config?: Record<string, unknown>;
+  weekdays_only?: boolean;
+  run_time?: string | null;
+  timezone?: string;
+  recipient_email?: string | null;
+  source_type?: string | null;
+  source_reference_id?: string | null;
+  filters?: Record<string, unknown>;
+  output_preferences?: Record<string, unknown>;
+  created_by?: number | null;
+  updated_by?: number | null;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
   legacy?: boolean;
   platforms: AdminAiMarketingPlatform[];
   keywords: string[];
@@ -1966,7 +1980,7 @@ export type AdminAiMarketingSuggestion = {
   content_type?: string;
   platform?: string;
   audience?: string;
-  recommended_action: "reply" | "skip" | "monitor" | "draft_post" | "draft_ad" | "influencer_pack";
+  recommended_action: "reply" | "skip" | "monitor" | "draft_post" | "draft_ad";
   reply_angle:
     | "margin_analysis"
     | "ticker_context"
@@ -1983,8 +1997,6 @@ export type AdminAiMarketingSuggestion = {
   suggested_reply: string;
   suggested_post?: string;
   suggested_ad_variants?: string[];
-  influencer_outreach_draft?: string;
-  report_pack_outline?: string;
   alternate_hooks?: string[];
   title_options?: string[];
   disclosure_text?: string;
@@ -2026,7 +2038,11 @@ export type AdminAiMarketingOpportunity = {
   short_reason?: string | null;
   compliance_notes?: string | null;
   generated_content?: string | null;
+  full_markdown?: string | null;
   alternate_versions?: Record<string, unknown>;
+  quality_scores?: Record<string, number>;
+  source_notes?: string[];
+  missing_data_notes?: string[];
   assets?: AdminAiGrowthAsset[];
   posting_links?: Record<string, string | null>;
   metadata?: Record<string, unknown>;

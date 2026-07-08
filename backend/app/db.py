@@ -2605,6 +2605,20 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         mode TEXT NOT NULL,
                         campaign_type TEXT,
                         content_type TEXT,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        schedule_config_json TEXT NOT NULL DEFAULT '{}',
+                        weekdays_only BOOLEAN NOT NULL DEFAULT 1,
+                        run_time TEXT,
+                        timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+                        recipient_email TEXT NOT NULL DEFAULT 'jarod@walnutmarkets.com',
+                        source_type TEXT,
+                        source_reference_id TEXT,
+                        filters_json TEXT NOT NULL DEFAULT '{}',
+                        output_preferences_json TEXT NOT NULL DEFAULT '{}',
+                        created_by INTEGER,
+                        updated_by INTEGER,
+                        last_run_at TIMESTAMP,
+                        next_run_at TIMESTAMP,
                         platforms_json TEXT NOT NULL DEFAULT '[]',
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
@@ -2656,7 +2670,11 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         short_reason TEXT,
                         compliance_notes TEXT,
                         generated_content TEXT,
+                        full_markdown TEXT,
                         alternate_versions_json TEXT NOT NULL DEFAULT '{}',
+                        quality_scores_json TEXT NOT NULL DEFAULT '{}',
+                        source_notes_json TEXT NOT NULL DEFAULT '[]',
+                        missing_data_notes_json TEXT NOT NULL DEFAULT '[]',
                         asset_refs_json TEXT NOT NULL DEFAULT '[]',
                         raw_metadata_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2754,6 +2772,20 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         mode TEXT NOT NULL,
                         campaign_type TEXT,
                         content_type TEXT,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        schedule_config_json TEXT NOT NULL DEFAULT '{}',
+                        weekdays_only BOOLEAN NOT NULL DEFAULT true,
+                        run_time TEXT,
+                        timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+                        recipient_email TEXT NOT NULL DEFAULT 'jarod@walnutmarkets.com',
+                        source_type TEXT,
+                        source_reference_id TEXT,
+                        filters_json TEXT NOT NULL DEFAULT '{}',
+                        output_preferences_json TEXT NOT NULL DEFAULT '{}',
+                        created_by INTEGER,
+                        updated_by INTEGER,
+                        last_run_at TIMESTAMPTZ,
+                        next_run_at TIMESTAMPTZ,
                         platforms_json TEXT NOT NULL DEFAULT '[]',
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
@@ -2805,7 +2837,11 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         short_reason TEXT,
                         compliance_notes TEXT,
                         generated_content TEXT,
+                        full_markdown TEXT,
                         alternate_versions_json TEXT NOT NULL DEFAULT '{}',
+                        quality_scores_json TEXT NOT NULL DEFAULT '{}',
+                        source_notes_json TEXT NOT NULL DEFAULT '[]',
+                        missing_data_notes_json TEXT NOT NULL DEFAULT '[]',
                         asset_refs_json TEXT NOT NULL DEFAULT '[]',
                         raw_metadata_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMPTZ DEFAULT now(),
@@ -2887,6 +2923,20 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             for name, column_type in {
                 "campaign_type": "TEXT",
                 "content_type": "TEXT",
+                "status": "TEXT NOT NULL DEFAULT 'active'",
+                "schedule_config_json": "TEXT NOT NULL DEFAULT '{}'",
+                "weekdays_only": "BOOLEAN NOT NULL DEFAULT 1",
+                "run_time": "TEXT",
+                "timezone": "TEXT NOT NULL DEFAULT 'America/Los_Angeles'",
+                "recipient_email": "TEXT NOT NULL DEFAULT 'jarod@walnutmarkets.com'",
+                "source_type": "TEXT",
+                "source_reference_id": "TEXT",
+                "filters_json": "TEXT NOT NULL DEFAULT '{}'",
+                "output_preferences_json": "TEXT NOT NULL DEFAULT '{}'",
+                "created_by": "INTEGER",
+                "updated_by": "INTEGER",
+                "last_run_at": "TIMESTAMP",
+                "next_run_at": "TIMESTAMP",
                 "query_templates_json": "TEXT NOT NULL DEFAULT '[]'",
                 "recency": "TEXT NOT NULL DEFAULT 'week'",
             }.items():
@@ -2907,7 +2957,11 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                 "recommended_action": "TEXT",
                 "fit_score": "INTEGER",
                 "generated_content": "TEXT",
+                "full_markdown": "TEXT",
                 "alternate_versions_json": "TEXT NOT NULL DEFAULT '{}'",
+                "quality_scores_json": "TEXT NOT NULL DEFAULT '{}'",
+                "source_notes_json": "TEXT NOT NULL DEFAULT '[]'",
+                "missing_data_notes_json": "TEXT NOT NULL DEFAULT '[]'",
                 "asset_refs_json": "TEXT NOT NULL DEFAULT '[]'",
                 "emailed_at": "TIMESTAMP",
                 "opened_at": "TIMESTAMP",
@@ -2946,6 +3000,20 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
         else:
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS campaign_type TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS content_type TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS schedule_config_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS weekdays_only BOOLEAN NOT NULL DEFAULT true"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS run_time TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recipient_email TEXT NOT NULL DEFAULT 'jarod@walnutmarkets.com'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS source_type TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS source_reference_id TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS filters_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS output_preferences_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS created_by INTEGER"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS updated_by INTEGER"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS query_templates_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recency TEXT NOT NULL DEFAULT 'week'"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_provider TEXT"))
@@ -2956,7 +3024,11 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS recommended_action TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS fit_score INTEGER"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS generated_content TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS full_markdown TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS alternate_versions_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS quality_scores_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_notes_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS missing_data_notes_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS asset_refs_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS emailed_at TIMESTAMPTZ"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ"))

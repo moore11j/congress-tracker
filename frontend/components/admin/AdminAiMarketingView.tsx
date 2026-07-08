@@ -34,21 +34,19 @@ type AdminAiMarketingViewProps = {
 type TabKey =
   | "dashboard"
   | "drafts"
-  | "manual"
-  | "x_chart_drops"
-  | "influencer_packs"
+  | "assets"
+  | "email_delivery"
+  | "x_campaigns"
   | "reddit_threads"
-  | "reddit_ads"
   | "settings";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
-  { key: "drafts", label: "Content Drafts" },
-  { key: "manual", label: "Manual Research Input" },
-  { key: "x_chart_drops", label: "X Chart Drops" },
-  { key: "influencer_packs", label: "Influencer Packs" },
+  { key: "x_campaigns", label: "X Campaigns" },
   { key: "reddit_threads", label: "Reddit Research Threads" },
-  { key: "reddit_ads", label: "Reddit Paid Ads" },
+  { key: "drafts", label: "Draft Queue" },
+  { key: "assets", label: "Assets" },
+  { key: "email_delivery", label: "Email Delivery" },
   { key: "settings", label: "Settings" },
 ];
 
@@ -62,6 +60,7 @@ const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: stri
   { value: "posted_manually", label: "Posted manually" },
   { value: "archived", label: "Archived" },
   { value: "rejected", label: "Rejected" },
+  { value: "regeneration_needed", label: "Regeneration needed" },
 ];
 
 const SETTING_KEYS = [
@@ -99,17 +98,6 @@ function emptyXForm() {
   };
 }
 
-function emptyInfluencerForm() {
-  return {
-    influencer: "",
-    platform: "X",
-    audience: "active traders",
-    tickers_themes: "",
-    report_type: "PDF outline",
-    offer_type: "free data report",
-  };
-}
-
 function emptyRedditThreadForm() {
   return {
     subreddit: "",
@@ -117,17 +105,7 @@ function emptyRedditThreadForm() {
     post_type: "case study",
     disclosure_style: "founder disclosure",
     rule_notes: "",
-  };
-}
-
-function emptyAdForm() {
-  return {
-    audience: "",
-    landing_page: "https://walnutmarkets.com",
-    offer: "Free plan",
-    plan_focus: "Free",
-    tone: "professional",
-    pain_point: "",
+    pasted_context: "",
   };
 }
 
@@ -147,9 +125,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   });
   const [manualForm, setManualForm] = useState(() => emptyManualForm());
   const [xForm, setXForm] = useState(() => emptyXForm());
-  const [influencerForm, setInfluencerForm] = useState(() => emptyInfluencerForm());
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
-  const [adForm, setAdForm] = useState(() => emptyAdForm());
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -323,13 +299,11 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const submitGrowthDraft = async (kind: TabKey) => {
     setBusy(kind);
     try {
-      const payload = buildGrowthPayload(kind, { xForm, influencerForm, redditThreadForm, adForm });
+      const payload = buildGrowthPayload(kind, { xForm, redditThreadForm });
       const result = await createAdminAiGrowthDraft(payload);
       prependDraft(result.opportunity);
-      if (kind === "x_chart_drops") setXForm(emptyXForm());
-      if (kind === "influencer_packs") setInfluencerForm(emptyInfluencerForm());
+      if (kind === "x_campaigns") setXForm(emptyXForm());
       if (kind === "reddit_threads") setRedditThreadForm(emptyRedditThreadForm());
-      if (kind === "reddit_ads") setAdForm(emptyAdForm());
       notify(result.warning || "AI Growth draft created.", result.warning ? "info" : "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to create draft.", "error");
@@ -376,7 +350,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         />
       ) : null}
 
-      {activeTab === "drafts" ? (
+      {activeTab === "drafts" || activeTab === "email_delivery" ? (
         <DraftsView
           drafts={drafts}
           busy={busy}
@@ -391,30 +365,16 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         />
       ) : null}
 
-      {activeTab === "manual" ? (
-        <ManualResearchForm
-          form={manualForm}
-          busy={busy}
-          setForm={setManualForm}
-          onSubmit={() => void submitManual()}
-        />
+      {activeTab === "assets" ? (
+        <AssetsView drafts={drafts} onCopy={copyText} />
       ) : null}
 
-      {activeTab === "x_chart_drops" ? (
+      {activeTab === "x_campaigns" ? (
         <XChartDropForm
           form={xForm}
           busy={busy}
           setForm={setXForm}
-          onSubmit={() => void submitGrowthDraft("x_chart_drops")}
-        />
-      ) : null}
-
-      {activeTab === "influencer_packs" ? (
-        <InfluencerPackForm
-          form={influencerForm}
-          busy={busy}
-          setForm={setInfluencerForm}
-          onSubmit={() => void submitGrowthDraft("influencer_packs")}
+          onSubmit={() => void submitGrowthDraft("x_campaigns")}
         />
       ) : null}
 
@@ -424,15 +384,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           busy={busy}
           setForm={setRedditThreadForm}
           onSubmit={() => void submitGrowthDraft("reddit_threads")}
-        />
-      ) : null}
-
-      {activeTab === "reddit_ads" ? (
-        <RedditAdForm
-          form={adForm}
-          busy={busy}
-          setForm={setAdForm}
-          onSubmit={() => void submitGrowthDraft("reddit_ads")}
         />
       ) : null}
 
@@ -619,7 +570,7 @@ function DraftCard({
   onAction: (draft: AdminAiMarketingOpportunity, action: "email" | "copied" | "posted" | "archive" | "reject") => void;
 }) {
   const suggestion = draft.suggestion;
-  const fullDraft = draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
+  const fullDraft = draft.full_markdown || draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
   const shortVariant = suggestion?.alternate_hooks?.[0] || suggestion?.alternate_reply_more_direct || "";
   const disclosure = suggestion?.disclosure_text || disclosureFromDraft(fullDraft);
   const walnutLink = suggestion?.suggested_destination_url || draft.suggested_destination_url || "";
@@ -637,6 +588,7 @@ function DraftCard({
             <Badge label={draft.status} tone={statusTone(draft.status)} />
             <ScoreBadge label="Fit" value={draft.fit_score ?? draft.relevance_score} />
             <ScoreBadge label="Spam" value={draft.spam_risk_score} invert />
+            {draft.content_type === "reddit_thread" ? <QualityBadges scores={draft.quality_scores} /> : null}
           </div>
           <h4 className="mt-3 text-base font-semibold text-white">{draft.title}</h4>
           <p className="mt-1 text-sm text-slate-400">{draft.ticker_theme || draft.community || draft.source_platform || "AI Growth draft"}</p>
@@ -672,6 +624,8 @@ function DraftCard({
           <p className="mt-2"><span className="font-semibold text-slate-100">Disclosure:</span> {disclosure || "Review manually."}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Compliance:</span> {suggestion?.compliance_notes ?? draft.compliance_notes ?? "Human review required."}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Data points:</span> {suggestion?.value_added_insight || "Pending"}</p>
+          {draft.source_notes?.length ? <p className="mt-2"><span className="font-semibold text-slate-100">Source notes:</span> {draft.source_notes.join("; ")}</p> : null}
+          {draft.missing_data_notes?.length ? <p className="mt-2"><span className="font-semibold text-slate-100">Missing data:</span> {draft.missing_data_notes.join("; ")}</p> : null}
         </div>
       </div>
 
@@ -701,6 +655,7 @@ function DraftCard({
           <>
             <Button onClick={() => onCopy(draft, "Copy Reddit post title", suggestion?.title_options?.[0] || draft.title)} disabled={Boolean(busy)}>Copy Reddit post title</Button>
             <Button onClick={() => onCopy(draft, "Copy Reddit post body", fullDraft)} disabled={Boolean(busy)}>Copy Reddit post body</Button>
+            <Button onClick={() => onCopy(draft, "Copy markdown", draft.full_markdown || fullDraft)} disabled={Boolean(busy)}>Copy markdown</Button>
             <Button onClick={() => onCopy(draft, "Copy Reddit comment reply", suggestion?.suggested_reply)} disabled={Boolean(busy)}>Copy Reddit comment reply</Button>
             <Button onClick={() => onCopy(draft, "Copy disclosure text", disclosure)} disabled={Boolean(busy)}>Copy disclosure text</Button>
           </>
@@ -737,7 +692,7 @@ function ManualResearchForm({
           <SelectField label="Source platform" value={form.source_platform} onChange={(value) => setForm({ ...form, source_platform: value })} options={[...SOURCE_PLATFORMS]} />
           <TextField label="URL optional" value={form.url} onChange={(value) => setForm({ ...form, url: value })} placeholder="https://..." />
           <TextField label="Ticker/theme optional" value={form.ticker_theme} onChange={(value) => setForm({ ...form, ticker_theme: value })} placeholder="NVDA, AI infrastructure, filings..." />
-          <SelectField label="Desired output type" value={form.desired_output_type} onChange={(value) => setForm({ ...form, desired_output_type: value })} options={["reply", "X post", "Reddit research thread", "influencer pitch", "paid ad copy", "report pack outline"]} />
+          <SelectField label="Desired output type" value={form.desired_output_type} onChange={(value) => setForm({ ...form, desired_output_type: value })} options={["reply", "X post", "Reddit research thread", "paid ad copy"]} />
           <TextField label="Destination URL optional" value={form.destination_url} onChange={(value) => setForm({ ...form, destination_url: value })} placeholder="https://walnutmarkets.com/ticker/NVDA" />
         </div>
         <TextareaField label="Pasted post/comment/thread text" value={form.text} onChange={(value) => setForm({ ...form, text: value })} rows={11} />
@@ -760,7 +715,7 @@ function XChartDropForm({
 }) {
   const sourceTypes = ["signals", "Congress", "insiders", "government contracts", "price/volume", "financials/filings"];
   return (
-    <FormShell title="X Chart Drops">
+    <FormShell title="X Campaigns">
       <div className="grid gap-4 md:grid-cols-2">
         <TextField label="Ticker or theme" value={form.ticker_theme} onChange={(value) => setForm({ ...form, ticker_theme: value })} />
         <TextField label="Timeframe" value={form.timeframe} onChange={(value) => setForm({ ...form, timeframe: value })} />
@@ -790,33 +745,7 @@ function XChartDropForm({
           Include link
         </label>
       </div>
-      <SubmitButton busy={busy === "x_chart_drops"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
-    </FormShell>
-  );
-}
-
-function InfluencerPackForm({
-  form,
-  setForm,
-  busy,
-  onSubmit,
-}: {
-  form: ReturnType<typeof emptyInfluencerForm>;
-  setForm: (value: ReturnType<typeof emptyInfluencerForm>) => void;
-  busy: string | null;
-  onSubmit: () => void;
-}) {
-  return (
-    <FormShell title="Influencer Report Packs">
-      <div className="grid gap-4 md:grid-cols-2">
-        <TextField label="Influencer name/handle" value={form.influencer} onChange={(value) => setForm({ ...form, influencer: value })} />
-        <SelectField label="Platform" value={form.platform} onChange={(value) => setForm({ ...form, platform: value })} options={["X", "Reddit", "Facebook", "LinkedIn", "Other"]} />
-        <TextField label="Audience type" value={form.audience} onChange={(value) => setForm({ ...form, audience: value })} />
-        <TextField label="Tickers/themes" value={form.tickers_themes} onChange={(value) => setForm({ ...form, tickers_themes: value })} />
-        <SelectField label="Report type" value={form.report_type} onChange={(value) => setForm({ ...form, report_type: value })} options={["PDF outline", "CSV export idea", "screenshot pack", "custom screener export", "weekly dashboard idea"]} />
-        <SelectField label="Offer type" value={form.offer_type} onChange={(value) => setForm({ ...form, offer_type: value })} options={["free data report", "custom research pack", "co-branded analysis", "trial access"]} />
-      </div>
-      <SubmitButton busy={busy === "influencer_packs"} onClick={onSubmit} label="Generate pack draft" busyLabel="Generating..." />
+      <SubmitButton busy={busy === "x_campaigns"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
     </FormShell>
   );
 }
@@ -841,34 +770,38 @@ function RedditThreadForm({
         <TextField label="Disclosure style" value={form.disclosure_style} onChange={(value) => setForm({ ...form, disclosure_style: value })} />
       </div>
       <TextareaField label="Pasted subreddit rule notes optional" value={form.rule_notes} onChange={(value) => setForm({ ...form, rule_notes: value })} rows={4} />
+      <TextareaField label="Manual pasted URL/text/context optional" value={form.pasted_context} onChange={(value) => setForm({ ...form, pasted_context: value })} rows={6} />
       <SubmitButton busy={busy === "reddit_threads"} onClick={onSubmit} label="Generate Reddit thread draft" busyLabel="Generating..." />
     </FormShell>
   );
 }
 
-function RedditAdForm({
-  form,
-  setForm,
-  busy,
-  onSubmit,
+function AssetsView({
+  drafts,
+  onCopy,
 }: {
-  form: ReturnType<typeof emptyAdForm>;
-  setForm: (value: ReturnType<typeof emptyAdForm>) => void;
-  busy: string | null;
-  onSubmit: () => void;
+  drafts: AdminAiMarketingOpportunity[];
+  onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
 }) {
+  const assetDrafts = drafts.filter((draft) => (draft.assets?.length ?? 0) > 0);
   return (
-    <FormShell title="Reddit Paid Ad Ideas">
-      <div className="grid gap-4 md:grid-cols-2">
-        <TextField label="Subreddit/audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value })} />
-        <TextField label="Landing page" value={form.landing_page} onChange={(value) => setForm({ ...form, landing_page: value })} />
-        <TextField label="Offer" value={form.offer} onChange={(value) => setForm({ ...form, offer: value })} />
-        <SelectField label="Plan focus" value={form.plan_focus} onChange={(value) => setForm({ ...form, plan_focus: value })} options={["Free", "Premium", "Pro"]} />
-        <TextField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} />
-        <TextField label="Pain point" value={form.pain_point} onChange={(value) => setForm({ ...form, pain_point: value })} />
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+      <h3 className="text-lg font-semibold text-white">Assets</h3>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {assetDrafts.length ? assetDrafts.map((draft) => (
+          <div key={draft.id} className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-100">{draft.title}</p>
+            <div className="space-y-3">
+              {(draft.assets ?? []).map((asset, index) => (
+                <AssetPreview key={`${draft.id}-${index}-${asset.url ?? asset.thumbnail_url ?? asset.title}`} asset={asset} onCopy={(label, value) => onCopy(draft, label, value)} />
+              ))}
+            </div>
+          </div>
+        )) : (
+          <p className="text-sm text-slate-400">No draft assets yet.</p>
+        )}
       </div>
-      <SubmitButton busy={busy === "reddit_ads"} onClick={onSubmit} label="Generate ad ideas" busyLabel="Generating..." />
-    </FormShell>
+    </section>
   );
 }
 
@@ -921,12 +854,10 @@ function buildGrowthPayload(
   kind: TabKey,
   forms: {
     xForm: ReturnType<typeof emptyXForm>;
-    influencerForm: ReturnType<typeof emptyInfluencerForm>;
     redditThreadForm: ReturnType<typeof emptyRedditThreadForm>;
-    adForm: ReturnType<typeof emptyAdForm>;
   },
 ) {
-  if (kind === "x_chart_drops") {
+  if (kind === "x_campaigns") {
     const assets = forms.xForm.asset_url.trim()
       ? [{
           title: "Suggested X chart",
@@ -941,7 +872,7 @@ function buildGrowthPayload(
       campaign_type: "x_chart_drop",
       content_type: "x_post",
       source_platform: "X",
-      title: `X Chart Drop: ${forms.xForm.ticker_theme || "Market tell"}`,
+      title: `X Campaign: ${forms.xForm.ticker_theme || "Market tell"}`,
       ticker_theme: forms.xForm.ticker_theme,
       destination_url: forms.xForm.include_link ? forms.xForm.destination_url : "",
       tone: forms.xForm.tone,
@@ -950,22 +881,6 @@ function buildGrowthPayload(
         source_types: forms.xForm.source_types,
         timeframe: forms.xForm.timeframe,
         include_link: forms.xForm.include_link,
-      },
-      generate: true,
-    };
-  }
-  if (kind === "influencer_packs") {
-    return {
-      campaign_type: "influencer_report_pack",
-      content_type: "influencer_dm",
-      source_platform: forms.influencerForm.platform,
-      title: `Influencer Pack: ${forms.influencerForm.influencer || "Prospect"}`,
-      ticker_theme: forms.influencerForm.tickers_themes,
-      audience: forms.influencerForm.audience,
-      inputs: {
-        influencer: forms.influencerForm.influencer,
-        report_type: forms.influencerForm.report_type,
-        offer_type: forms.influencerForm.offer_type,
       },
       generate: true,
     };
@@ -983,26 +898,13 @@ function buildGrowthPayload(
         post_type: forms.redditThreadForm.post_type,
         disclosure_style: forms.redditThreadForm.disclosure_style,
         subreddit_rule_notes: forms.redditThreadForm.rule_notes,
+        pasted_url_or_text: forms.redditThreadForm.pasted_context,
       },
+      text: forms.redditThreadForm.pasted_context,
       generate: true,
     };
   }
-  return {
-    campaign_type: "reddit_paid_ad",
-    content_type: "paid_ad",
-    source_platform: "Reddit",
-    title: `Reddit Paid Ad: ${forms.adForm.audience || "Audience"}`,
-    destination_url: forms.adForm.landing_page,
-    audience: forms.adForm.audience,
-    tone: forms.adForm.tone,
-    inputs: {
-      offer: forms.adForm.offer,
-      plan_focus: forms.adForm.plan_focus,
-      pain_point: forms.adForm.pain_point,
-      landing_page: forms.adForm.landing_page,
-    },
-    generate: true,
-  };
+  throw new Error("Unsupported AI Growth workflow.");
 }
 
 function FormShell({ title, children }: { title: string; children: ReactNode }) {
@@ -1151,6 +1053,18 @@ function ScoreBadge({ label, value, invert = false }: { label: string; value?: n
   return <Badge label={`${label}: ${value}`} tone={good ? "good" : bad ? "bad" : "warn"} />;
 }
 
+function QualityBadges({ scores }: { scores?: Record<string, number> }) {
+  if (!scores) return null;
+  return (
+    <>
+      <ScoreBadge label="Depth" value={scores.research_depth_score} />
+      <ScoreBadge label="Evidence" value={scores.evidence_score} />
+      <ScoreBadge label="Balance" value={scores.balance_score} />
+      <ScoreBadge label="Promo risk" value={scores.promotional_risk_score} invert />
+    </>
+  );
+}
+
 function toneClass(tone: "muted" | "good" | "warn" | "bad") {
   if (tone === "good") return "text-emerald-100";
   if (tone === "warn") return "text-amber-100";
@@ -1159,7 +1073,7 @@ function toneClass(tone: "muted" | "good" | "warn" | "bad") {
 }
 
 function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
-  if (["new", "draft", "needs_review"].includes(status)) return "warn";
+  if (["new", "draft", "needs_review", "regeneration_needed", "quality_failed"].includes(status)) return "warn";
   if (["approved", "copied", "emailed", "posted_manually"].includes(status)) return "good";
   if (["rejected", "dismissed"].includes(status)) return "bad";
   return "muted";
@@ -1178,8 +1092,6 @@ function contentTypeLabel(contentType?: string | null) {
     reddit_reply: "Reddit reply",
     reddit_thread: "Reddit thread",
     paid_ad: "Paid ad",
-    influencer_dm: "Influencer DM",
-    report_pack: "Report pack",
   };
   return labels[String(contentType || "")] ?? "Draft";
 }
