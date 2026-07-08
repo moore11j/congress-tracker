@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_admin_user
 from app.db import get_db
 from app.rate_limit import rate_limit_admin_mutation
+from app.services.data_architecture import build_data_architecture_snapshot
 from app.services.data_sources_status import build_data_sources_status, enqueue_admin_data_source_run, test_data_source_endpoint
 from app.services.provider_settings import cleanup_invalid_provider_settings, provider_setting_payload, update_provider_setting
 
@@ -56,6 +57,12 @@ def admin_data_sources_status(request: Request, db: Session = Depends(get_db)):
     cleanup_invalid_provider_settings(db)
     db.commit()
     return build_data_sources_status(db)
+
+
+@router.get("/admin/data-architecture")
+def admin_data_architecture(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return build_data_architecture_snapshot(db)
 
 
 @router.patch("/admin/data-sources/settings/{domain_key}", dependencies=[Depends(rate_limit_admin_mutation)])

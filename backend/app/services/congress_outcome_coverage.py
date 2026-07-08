@@ -41,7 +41,46 @@ def _payload_date(payload: dict, *keys: str) -> date | None:
     return None
 
 
-def _event_report_date(event: Event, payload: dict) -> date | None:
+@dataclass(frozen=True)
+class CongressOutcomeEventSnapshot:
+    id: int
+    event_type: str
+    ts: datetime | None
+    event_date: datetime | None
+    symbol: str | None
+    source: str | None
+    member_name: str | None
+    member_bioguide_id: str | None
+    chamber: str | None
+    party: str | None
+    trade_type: str | None
+    transaction_type: str | None
+    amount_min: int | None
+    amount_max: int | None
+    payload_json: object
+
+
+def _snapshot_event(event: Event) -> CongressOutcomeEventSnapshot:
+    return CongressOutcomeEventSnapshot(
+        id=event.id,
+        event_type=event.event_type,
+        ts=event.ts,
+        event_date=event.event_date,
+        symbol=event.symbol,
+        source=event.source,
+        member_name=event.member_name,
+        member_bioguide_id=event.member_bioguide_id,
+        chamber=event.chamber,
+        party=event.party,
+        trade_type=event.trade_type,
+        transaction_type=event.transaction_type,
+        amount_min=event.amount_min,
+        amount_max=event.amount_max,
+        payload_json=event.payload_json,
+    )
+
+
+def _event_report_date(event: CongressOutcomeEventSnapshot, payload: dict) -> date | None:
     return (
         _payload_date(payload, "report_date", "reportDate", "filing_date", "filingDate")
         or (event.event_date.date() if event.event_date else None)
@@ -117,7 +156,13 @@ def _event_query_since(since_report_date: date | None):
     return q
 
 
-def _new_trade_outcome(event: Event, outcome: dict, *, benchmark_symbol: str, computed_at: datetime) -> TradeOutcome:
+def _new_trade_outcome(
+    event: CongressOutcomeEventSnapshot,
+    outcome: dict,
+    *,
+    benchmark_symbol: str,
+    computed_at: datetime,
+) -> TradeOutcome:
     return TradeOutcome(
         event_id=event.id,
         member_id=outcome.get("member_id"),
@@ -157,7 +202,7 @@ def repair_recent_congress_outcomes(
     q = _event_query_since(since_report_date)
     if limit is not None and limit > 0:
         q = q.limit(limit)
-    events = db.execute(q).scalars().all()
+    events = [_snapshot_event(event) for event in db.execute(q).scalars().all()]
     event_ids = [event.id for event in events]
     outcomes = (
         db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(event_ids))).scalars().all()
@@ -166,7 +211,7 @@ def repair_recent_congress_outcomes(
     )
     outcome_by_event_id = {row.event_id: row for row in outcomes}
 
-    missing_eligible_events: list[Event] = []
+    missing_eligible_events: list[CongressOutcomeEventSnapshot] = []
     row_context: dict[int, dict[str, Any]] = {}
     rows: list[CongressOutcomeRepairRow] = []
     status_counts: Counter[str] = Counter()

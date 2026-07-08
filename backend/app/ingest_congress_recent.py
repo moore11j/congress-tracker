@@ -76,6 +76,18 @@ def _int_metric(payload: dict[str, Any], key: str) -> int:
     return value if isinstance(value, int) else 0
 
 
+def _persist_recent_status(result: dict[str, Any]) -> None:
+    db = SessionLocal()
+    try:
+        _set_setting(db, CONGRESS_RECENT_STATUS_KEY, json.dumps(result, sort_keys=True))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def run_recent_congress_ingest(
     *,
     days: int = 7,
@@ -118,51 +130,73 @@ def run_recent_congress_ingest(
             dry_run=dry_run,
             recent_days=days,
         )
-        if not dry_run:
-            db.flush()
-        since_report_date = datetime.now(timezone.utc).date() - timedelta(days=max(days, 0))
-        outcome_coverage = {"skipped": "dry_run"} if dry_run else repair_recent_congress_outcomes(
-            db,
-            since_report_date=since_report_date,
-            dry_run=False,
-            benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
-        )
-        snapshot = _current_freshness_snapshot(db)
-        finished_at = datetime.now(timezone.utc)
-        result = {
-            "status": "ok",
-            "started_at": started_at.isoformat(),
-            "finished_at": finished_at.isoformat(),
-            "duration_ms": int((finished_at - started_at).total_seconds() * 1000),
-            "days": days,
-            "pages": pages,
-            "limit": limit,
-            "dry_run": dry_run,
-            "house": house_result,
-            "senate": senate_result,
-            "events_inserted": events_inserted,
-            "outcome_coverage": outcome_coverage,
-            "filings_scanned": _int_metric(house_result, "filings_scanned")
-            + _int_metric(senate_result, "filings_scanned"),
-            "transactions_inserted": _int_metric(house_result, "inserted")
-            + _int_metric(senate_result, "inserted"),
-            "transactions_skipped": _int_metric(house_result, "skipped")
-            + _int_metric(senate_result, "skipped"),
-            "skipped_old": _int_metric(house_result, "skipped_old")
-            + _int_metric(senate_result, "skipped_old"),
-            "non_equity_symbol_skipped": _int_metric(house_result, "non_equity_symbol_skipped")
-            + _int_metric(senate_result, "non_equity_symbol_skipped"),
-            **snapshot,
-        }
         if dry_run:
             db.rollback()
         else:
-            _set_setting(db, CONGRESS_RECENT_STATUS_KEY, json.dumps(result, sort_keys=True))
             db.commit()
-        logger.info("recent congress ingest finished: %s", result)
-        return result
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
+
+    since_report_date = datetime.now(timezone.utc).date() - timedelta(days=max(days, 0))
+    if dry_run:
+        outcome_coverage = {"skipped": "dry_run"}
+        snapshot_db = SessionLocal()
+        try:
+            snapshot = _current_freshness_snapshot(snapshot_db)
+            snapshot_db.rollback()
+        finally:
+            snapshot_db.close()
+    else:
+        repair_db = SessionLocal()
+        try:
+            outcome_coverage = repair_recent_congress_outcomes(
+                repair_db,
+                since_report_date=since_report_date,
+                dry_run=False,
+                benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
+            )
+        finally:
+            repair_db.close()
+
+        snapshot_db = SessionLocal()
+        try:
+            snapshot = _current_freshness_snapshot(snapshot_db)
+        finally:
+            snapshot_db.close()
+
+    finished_at = datetime.now(timezone.utc)
+    result = {
+        "status": "ok",
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_ms": int((finished_at - started_at).total_seconds() * 1000),
+        "days": days,
+        "pages": pages,
+        "limit": limit,
+        "dry_run": dry_run,
+        "house": house_result,
+        "senate": senate_result,
+        "events_inserted": events_inserted,
+        "outcome_coverage": outcome_coverage,
+        "filings_scanned": _int_metric(house_result, "filings_scanned")
+        + _int_metric(senate_result, "filings_scanned"),
+        "transactions_inserted": _int_metric(house_result, "inserted")
+        + _int_metric(senate_result, "inserted"),
+        "transactions_skipped": _int_metric(house_result, "skipped")
+        + _int_metric(senate_result, "skipped"),
+        "skipped_old": _int_metric(house_result, "skipped_old")
+        + _int_metric(senate_result, "skipped_old"),
+        "non_equity_symbol_skipped": _int_metric(house_result, "non_equity_symbol_skipped")
+        + _int_metric(senate_result, "non_equity_symbol_skipped"),
+        **snapshot,
+    }
+    if not dry_run:
+        _persist_recent_status(result)
+    logger.info("recent congress ingest finished: %s", result)
+    return result
 
 
 def main() -> None:

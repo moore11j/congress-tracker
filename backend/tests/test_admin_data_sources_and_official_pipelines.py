@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -17,6 +18,7 @@ from app.routers.admin_data_sources import (
     DataSourceRunPayload,
     ProviderSettingPatchPayload,
     admin_data_sources_status,
+    admin_data_architecture,
     admin_run_data_source,
     admin_test_data_source_endpoint,
     admin_update_data_source_setting,
@@ -462,6 +464,107 @@ def test_data_sources_status_requires_admin():
         payload = admin_data_sources_status(_request_for_user(admin), db)
         assert "congress_trades" in payload["current_data_source_map"]
         assert "provider_settings" in payload["tables"]["official_shadow"]
+    finally:
+        db.close()
+
+
+def test_data_architecture_requires_admin_and_returns_read_only_snapshot():
+    db = _session()
+    try:
+        user = _user(db, "reader@example.com")
+        with pytest.raises(HTTPException) as exc:
+            admin_data_architecture(_request_for_user(user), db)
+        assert exc.value.status_code == 403
+
+        admin = _user(db, "admin-architecture@example.com", role="admin")
+        payload = admin_data_architecture(_request_for_user(admin), db)
+
+        assert payload["overall_status"] in {"healthy", "degraded", "down", "unknown"}
+        assert payload["snapshot_generated_at"]
+        assert payload["stale"] is True
+        assert payload["providers"]
+        assert payload["internal_routes"]
+        assert payload["pipelines"]
+        assert "/api/admin/data-architecture" in {row["route"] for row in payload["internal_routes"]}
+        assert "provider_settings" not in payload
+    finally:
+        db.close()
+
+
+def test_data_architecture_returns_secret_names_only(monkeypatch):
+    db = _session()
+    try:
+        admin = _user(db, "admin-secrets@example.com", role="admin")
+        monkeypatch.setenv("FMP_API_KEY", "sk_live_do_not_render")
+        monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "postmark-secret-do-not-render")
+        monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+
+        payload = admin_data_architecture(_request_for_user(admin), db)
+        serialized = json.dumps(payload)
+
+        assert "FMP_API_KEY" in serialized
+        assert "POSTMARK_SERVER_TOKEN" in serialized
+        assert "MASSIVE_API_KEY" in serialized
+        assert "sk_live_do_not_render" not in serialized
+        assert "postmark-secret-do-not-render" not in serialized
+        providers = {provider["id"]: provider for provider in payload["providers"]}
+        assert providers["market_data"]["secret_status"] == "configured"
+        assert providers["email"]["secret_status"] == "configured"
+        assert providers["options_flow"]["secret_status"] == "missing"
+    finally:
+        db.close()
+
+
+def test_data_architecture_uses_cached_provider_events_without_live_calls(monkeypatch):
+    db = _session()
+    try:
+        admin = _user(db, "admin-health@example.com", role="admin")
+        now = datetime.now(timezone.utc)
+        db.add(
+            ProviderUsageEvent(
+                provider="fmp",
+                category="quote",
+                endpoint="historical-chart/1min",
+                route="/api/market/quotes",
+                duration_ms=120.0,
+                success=True,
+                status_code="200",
+                created_at=now,
+            )
+        )
+        db.add(
+            ProviderUsageEvent(
+                provider="fmp",
+                category="quote",
+                endpoint="historical-chart/1min",
+                route="/api/market/quotes",
+                duration_ms=180.0,
+                success=False,
+                status_code="429",
+                throttled=True,
+                error="provider_rate_limited",
+                created_at=now,
+            )
+        )
+        db.commit()
+
+        def fail_live_provider_call(*args, **kwargs):
+            raise AssertionError("Data architecture endpoint must not call live providers")
+
+        monkeypatch.setattr("app.services.provider_endpoints.requests.get", fail_live_provider_call)
+
+        started = time.perf_counter()
+        payload = admin_data_architecture(_request_for_user(admin), db)
+        elapsed = time.perf_counter() - started
+
+        providers = {provider["id"]: provider for provider in payload["providers"]}
+        market_route = {route["route"]: route for route in payload["internal_routes"]}["/api/market/quotes"]
+        assert providers["market_data"]["health"] == "degraded"
+        assert providers["market_data"]["p95_latency_ms"] == 180
+        assert providers["market_data"]["latest_error"] == "provider_rate_limited"
+        assert market_route["health"] == "degraded"
+        assert market_route["p95_latency_ms"] == 180
+        assert elapsed < 0.5
     finally:
         db.close()
 

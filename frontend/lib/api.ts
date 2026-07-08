@@ -1704,6 +1704,113 @@ export type AdminDataSourcesStatusResponse = {
   risks: string[];
 };
 
+export type AdminArchitectureStatus = "healthy" | "degraded" | "down" | "unknown" | string;
+
+export type AdminArchitectureProvider = {
+  id: string;
+  name: string;
+  purpose: string;
+  safe_endpoint_url?: string | null;
+  secret_names: string[];
+  secret_status: "configured" | "missing" | "unknown" | string;
+  health: AdminArchitectureStatus;
+  p95_latency_ms?: number | null;
+  last_checked_at?: string | null;
+  last_success_at?: string | null;
+  latest_error?: string | null;
+};
+
+export type AdminArchitectureRoute = {
+  route: string;
+  method: string;
+  consumer: string;
+  health: AdminArchitectureStatus;
+  p95_latency_ms?: number | null;
+  error_rate?: number | null;
+  last_seen_at?: string | null;
+  notes?: string | null;
+};
+
+export type AdminArchitecturePipeline = {
+  id: string;
+  name: string;
+  source: string;
+  flow: string[];
+  health: AdminArchitectureStatus;
+  last_ingest_at?: string | null;
+  last_success_at?: string | null;
+  record_count?: number | null;
+  latest_error?: string | null;
+  notes?: string | null;
+};
+
+export type AdminDataArchitectureResponse = {
+  snapshot_generated_at: string;
+  stale: boolean;
+  freshness_window_seconds?: number;
+  overall_status: AdminArchitectureStatus;
+  frontend: {
+    name: string;
+    status: AdminArchitectureStatus;
+    notes?: string | null;
+  };
+  backend: {
+    name: string;
+    status: AdminArchitectureStatus;
+    p95_latency_ms?: number | null;
+    notes?: string | null;
+  };
+  database: {
+    name: string;
+    status: AdminArchitectureStatus;
+    p95_latency_ms?: number | null;
+    last_checked_at?: string | null;
+  };
+  cache: {
+    status: AdminArchitectureStatus;
+    hit_rate?: number | null;
+    last_checked_at?: string | null;
+  };
+  background_jobs?: {
+    status: AdminArchitectureStatus;
+    queued_or_running?: number;
+    failed?: number;
+    last_success_at?: string | null;
+  };
+  summary: {
+    backend_routes: {
+      healthy: number;
+      degraded: number;
+      down: number;
+      unknown: number;
+      p95_latency_ms?: number | null;
+    };
+    providers: {
+      healthy: number;
+      degraded: number;
+      unavailable: number;
+      unknown: number;
+      last_snapshot_at?: string | null;
+    };
+    cache_db: {
+      cache_status: AdminArchitectureStatus;
+      db_status: AdminArchitectureStatus;
+      background_jobs_status: AdminArchitectureStatus;
+      last_successful_refresh_at?: string | null;
+    };
+  };
+  providers: AdminArchitectureProvider[];
+  internal_routes: AdminArchitectureRoute[];
+  pipelines: AdminArchitecturePipeline[];
+  recent_events: Array<{
+    source: string;
+    health: AdminArchitectureStatus;
+    latest_error?: string | null;
+    last_checked_at?: string | null;
+  }>;
+  note?: string;
+};
+
 export type AdminDataSourceSettingPatch = Partial<{
   active_provider: string | null;
   fallback_provider: string | null;
@@ -2510,6 +2617,14 @@ export async function getAdminDataSourcesStatus(): Promise<AdminDataSourcesStatu
     cache: "no-store",
     next: { revalidate: 0 },
     source: "AdminDataSources",
+  });
+}
+
+export async function getAdminDataArchitecture(): Promise<AdminDataArchitectureResponse> {
+  return fetchJson<AdminDataArchitectureResponse>(buildApiUrl("/api/admin/data-architecture"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminDataArchitecture",
   });
 }
 
