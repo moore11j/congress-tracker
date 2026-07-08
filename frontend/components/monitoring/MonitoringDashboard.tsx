@@ -11,7 +11,6 @@ import {
   hasClientAuthHint,
   getMonitoringInbox,
   getSignalsAll,
-  listWatchlists,
   dismissMonitoringItems,
   markMonitoringItemsRead,
   markMonitoringItemsUnread,
@@ -402,18 +401,22 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     try {
       const nextInbox = await getMonitoringInbox(undefined, { source: "MonitoringInbox" });
       setInbox(nextInbox);
+      setWatchlists(
+        (nextInbox.sources ?? [])
+          .filter((source) => source.type === "watchlist")
+          .map((source) => ({
+            id: Number(source.id),
+            name: source.name,
+            unread_count: source.unread_count,
+            unseen_count: source.new_count,
+            new_count: source.new_count,
+          }))
+          .filter((watchlist) => Number.isFinite(watchlist.id)),
+      );
+      setWatchlistsStatus(null);
       dispatchUnreadUpdated(nextInbox.counts?.total_unread ?? nextInbox.unread_total ?? 0);
     } catch (error) {
       setInboxStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitoring updates." : "Monitoring updates are temporarily unavailable.");
-    }
-  };
-
-  const refreshWatchlists = async () => {
-    setWatchlistsStatus(null);
-    try {
-      setWatchlists(await listWatchlists());
-    } catch (error) {
-      setWatchlistsStatus(error instanceof ApiError && error.status === 401 ? "Sign in to load monitored sources." : "Monitored sources are temporarily unavailable.");
     }
   };
 
@@ -437,7 +440,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
     setInbox((current) => mergeInboxCounts(current, response.counts));
     dispatchUnreadUpdated(response.counts?.total_unread ?? response.unread_count);
     void refreshInbox();
-    void refreshWatchlists();
   };
 
   const mutateItems = async (itemIds: number[], read: boolean) => {
@@ -452,7 +454,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       applyMutationSuccess(response);
     } catch {
       void refreshInbox();
-      void refreshWatchlists();
       setReadActionMessage(read ? "Unable to mark the selected updates read." : "Unable to mark the selected updates unread.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
@@ -471,7 +472,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
       applyMutationSuccess(response);
     } catch {
       void refreshInbox();
-      void refreshWatchlists();
       setReadActionMessage("Unable to delete the selected updates.");
     } finally {
       setPendingReadAction((current) => (current === actionKey ? null : current));
@@ -499,10 +499,6 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
 
   useEffect(() => {
     void refreshInbox();
-  }, []);
-
-  useEffect(() => {
-    void refreshWatchlists();
   }, []);
 
   useEffect(() => {

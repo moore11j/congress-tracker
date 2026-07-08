@@ -10787,9 +10787,6 @@ def _watchlist_view_summary(db: Session, watchlist_id: int, user_id: int | None 
 def list_watchlists(request: Request, db: Session = Depends(get_db)):
     user = _require_account(request, db)
     rows = db.execute(_owned_watchlist_query(user).order_by(Watchlist.name.asc())).scalars().all()
-    for watchlist in rows:
-        refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
-    db.commit()
     watchlist_ids = [w.id for w in rows]
     symbols_by_watchlist: dict[int, list[str]] = {watchlist_id: [] for watchlist_id in watchlist_ids}
     if watchlist_ids:

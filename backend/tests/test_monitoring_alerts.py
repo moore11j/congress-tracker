@@ -262,6 +262,35 @@ def test_watchlist_monitoring_counts_share_checkpoint_without_existing_alerts():
         db.close()
 
 
+def test_list_watchlists_does_not_refresh_monitoring_alerts():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        summaries = list_watchlists(_request_for_user(user), db)
+
+        assert summaries[0]["name"] == "Jarod's watchlist"
+        assert summaries[0]["symbols"] == ["AAPL"]
+        assert summaries[0]["unseen_count"] == 1
+        assert db.query(MonitoringAlert).count() == 0
+    finally:
+        db.close()
+
+
 def test_institutional_watchlist_alerts_are_pro_gated():
     db = _session()
     try:
