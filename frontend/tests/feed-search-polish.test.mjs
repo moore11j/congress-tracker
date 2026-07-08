@@ -71,7 +71,11 @@ test("visible feed results load client-side with bounded gain/loss enrichment", 
   assert.doesNotMatch(page, /optionalPageAuthState/);
   assert.doesNotMatch(page, /force-dynamic/);
   assert.match(pageClient, /useSearchParams/);
+  assert.match(pageClient, /const DEFAULT_FEED_PAGE_SIZE = 25/);
+  assert.match(pageClient, /getParam\(sp, "page_size"\) \|\| getParam\(sp, "limit"\) \|\| String\(DEFAULT_FEED_PAGE_SIZE\)/);
   assert.match(pageClient, /<FeedEntitledResultsClient/);
+  assert.match(client, /limit:\s*pageSize/);
+  assert.match(client, /page_size:\s*pageSize/);
   assert.match(client, /getEvents\(/);
   assert.match(client, /enrich_prices:\s*1/);
   assert.match(client, /include_net_flows:\s*0/);

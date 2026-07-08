@@ -25,8 +25,9 @@ type SignalOverlay = { score: number; band: string } | null;
 type FeedViewMode = "table" | "cards";
 
 const feedViewStorageKey = "walnut:feed:view";
+const DEFAULT_FEED_PAGE_SIZE = 25;
 
-export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = 50, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, debugLifecycle = false }: FeedListProps) {
+export function FeedList({ items, page: initialPage = 1, pageSize: initialPageSize = DEFAULT_FEED_PAGE_SIZE, total: initialTotal = null, totalPages: initialTotalPages = 1, hasMore: initialHasMore = null, overlaySignals, canViewPremiumMetrics = false, debugLifecycle = false }: FeedListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

@@ -23,6 +23,8 @@ const feedParamKeys = [
   "sort_dir",
 ] as const;
 
+const DEFAULT_FEED_PAGE_SIZE = 25;
+
 type FeedParamKey = (typeof feedParamKeys)[number];
 
 function getParam(sp: URLSearchParams, key: string) {
@@ -97,8 +99,10 @@ export function FeedPageClient() {
   const debugTopMountLoggerEnabled = debugMountLoggersEnabled && !debugDisableTopMountLogger;
   const requestedPage = Number(getParam(sp, "page") || "1");
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
-  const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || "50");
-  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize) ? (requestedPageSize as 25 | 50 | 100) : 50;
+  const requestedPageSize = Number(getParam(sp, "page_size") || getParam(sp, "limit") || String(DEFAULT_FEED_PAGE_SIZE));
+  const pageSize: 25 | 50 | 100 = [25, 50, 100].includes(requestedPageSize)
+    ? (requestedPageSize as 25 | 50 | 100)
+    : DEFAULT_FEED_PAGE_SIZE;
   const activeParams = feedParamsForMode(feedMode, {
     symbol: getParam(sp, "symbol"),
     member: getParam(sp, "member"),
