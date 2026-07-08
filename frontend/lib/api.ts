@@ -1747,11 +1747,27 @@ export type AdminAiMarketingMode =
   | "insider_buying_angle"
   | "unusual_signal_angle"
   | "pain_point_tool_alternative"
-  | "manual_url_review";
+  | "manual_url_review"
+  | "manual_research_input"
+  | "x_chart_drop"
+  | "influencer_report_pack"
+  | "reddit_research_thread"
+  | "reddit_paid_ad";
 
-export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "facebook_manual";
+export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "facebook_manual" | "facebook" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
-export type AdminAiMarketingStatus = "new" | "emailed" | "dismissed" | "copied" | "archived";
+export type AdminAiMarketingStatus =
+  | "new"
+  | "draft"
+  | "needs_review"
+  | "emailed"
+  | "opened"
+  | "copied"
+  | "approved"
+  | "posted_manually"
+  | "archived"
+  | "rejected"
+  | "dismissed";
 
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
@@ -1800,8 +1816,12 @@ export type AdminAiMarketingSettingsTestResponse = {
 export type AdminAiMarketingCampaign = {
   id: number;
   name: string;
+  display_name?: string;
   enabled: boolean;
   mode: AdminAiMarketingMode;
+  campaign_type?: string;
+  content_type?: string;
+  legacy?: boolean;
   platforms: AdminAiMarketingPlatform[];
   keywords: string[];
   tickers: string[];
@@ -1828,7 +1848,11 @@ export type AdminAiMarketingSuggestion = {
   spam_risk_score: number;
   detected_tickers: string[];
   intent: "question" | "complaint" | "trade_idea" | "tool_search" | "news_reaction" | "other";
-  recommended_action: "reply" | "skip" | "monitor";
+  campaign_type?: string;
+  content_type?: string;
+  platform?: string;
+  audience?: string;
+  recommended_action: "reply" | "skip" | "monitor" | "draft_post" | "draft_ad" | "influencer_pack";
   reply_angle:
     | "margin_analysis"
     | "ticker_context"
@@ -1838,10 +1862,19 @@ export type AdminAiMarketingSuggestion = {
     | "screener_tool"
     | "general_market_context"
     | "other";
+  content_angle?: string;
   value_added_insight: string;
   walnut_feature_to_mention: string;
   suggested_destination_url: string;
   suggested_reply: string;
+  suggested_post?: string;
+  suggested_ad_variants?: string[];
+  influencer_outreach_draft?: string;
+  report_pack_outline?: string;
+  alternate_hooks?: string[];
+  title_options?: string[];
+  disclosure_text?: string;
+  assets?: AdminAiGrowthAsset[];
   alternate_reply_more_direct: string;
   short_reason: string;
   compliance_notes: string;
@@ -1852,7 +1885,10 @@ export type AdminAiMarketingSuggestion = {
 export type AdminAiMarketingOpportunity = {
   id: number;
   campaign_id?: number | null;
+  campaign_type?: string;
+  content_type?: string;
   platform: AdminAiMarketingPlatform | string;
+  source_platform?: string | null;
   source_provider?: string | null;
   source_id?: string | null;
   source_url: string;
@@ -1864,19 +1900,41 @@ export type AdminAiMarketingOpportunity = {
   comment_count?: number | null;
   source_created_at?: string | null;
   status: AdminAiMarketingStatus;
+  ticker_theme?: string | null;
+  recommended_action?: string | null;
   matched_keywords: string[];
   matched_tickers: string[];
+  fit_score?: number | null;
   relevance_score?: number | null;
   spam_risk_score?: number | null;
   intent?: string | null;
   suggested_destination_url?: string | null;
   short_reason?: string | null;
   compliance_notes?: string | null;
+  generated_content?: string | null;
+  alternate_versions?: Record<string, unknown>;
+  assets?: AdminAiGrowthAsset[];
+  posting_links?: Record<string, string | null>;
   metadata?: Record<string, unknown>;
   created_at?: string | null;
   updated_at?: string | null;
   last_seen_at?: string | null;
+  emailed_at?: string | null;
+  opened_at?: string | null;
+  copied_at?: string | null;
+  posted_manually_at?: string | null;
   suggestion?: AdminAiMarketingSuggestion | null;
+};
+
+export type AdminAiGrowthAsset = {
+  title?: string;
+  asset_type?: "image" | "chart" | "csv" | "pdf" | "screenshot" | "report" | string;
+  url?: string;
+  path?: string;
+  reference?: string;
+  thumbnail_url?: string;
+  suggested_caption?: string;
+  source_data_notes?: string;
 };
 
 export type AdminAiMarketingCampaignsResponse = {
@@ -1900,6 +1958,21 @@ export type AdminAiMarketingRunResponse = {
 export type AdminAiMarketingManualResponse = {
   opportunity: AdminAiMarketingOpportunity;
   warning?: string | null;
+};
+
+export type AdminAiGrowthDraftPayload = {
+  campaign_type: string;
+  content_type?: string | null;
+  source_platform?: string | null;
+  title?: string | null;
+  text?: string | null;
+  ticker_theme?: string | null;
+  destination_url?: string | null;
+  audience?: string | null;
+  tone?: string | null;
+  assets?: AdminAiGrowthAsset[];
+  inputs?: Record<string, unknown>;
+  generate?: boolean;
 };
 
 export type AdminAiMarketingEmailDigestResponse = {
@@ -2591,6 +2664,12 @@ export async function analyzeAdminAiMarketingManualUrl(payload: {
   url?: string | null;
   text?: string | null;
   title?: string | null;
+  source_platform?: string | null;
+  ticker_theme?: string | null;
+  desired_output_type?: string | null;
+  destination_url?: string | null;
+  campaign_type?: string | null;
+  content_type?: string | null;
   campaign_id?: number | null;
   generate?: boolean;
 }): Promise<AdminAiMarketingManualResponse> {
@@ -4804,6 +4883,85 @@ export async function getTickerGovernmentContracts(symbol: string, params?: { lo
       source: params?.source ?? "TickerGovernmentContracts",
     },
   );
+}
+
+export async function getAdminAiGrowthDrafts(params: {
+  status?: string;
+  campaign_id?: number;
+  limit?: number;
+} = {}): Promise<AdminAiMarketingOpportunitiesResponse> {
+  return fetchJson<AdminAiMarketingOpportunitiesResponse>(
+    buildApiUrl("/api/admin/ai-growth/drafts", params),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      source: "AdminAiGrowth",
+    },
+  );
+}
+
+export async function getAdminAiGrowthDraft(draftId: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}`), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function createAdminAiGrowthDraft(payload: AdminAiGrowthDraftPayload): Promise<AdminAiMarketingManualResponse> {
+  return fetchJson<AdminAiMarketingManualResponse>(buildApiUrl("/api/admin/ai-growth/drafts"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function updateAdminAiGrowthDraftStatus(
+  draftId: number,
+  payload: { status?: AdminAiMarketingStatus },
+): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function emailAdminAiGrowthDraft(draftId: number): Promise<AdminAiMarketingEmailDigestResponse> {
+  return fetchJson<AdminAiMarketingEmailDigestResponse>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/email`), {
+    method: "POST",
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function markAdminAiGrowthDraftCopied(draftId: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/mark-copied`), {
+    method: "POST",
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function markAdminAiGrowthDraftPosted(draftId: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/mark-posted`), {
+    method: "POST",
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function archiveAdminAiGrowthDraft(draftId: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/archive`), {
+    method: "POST",
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function rejectAdminAiGrowthDraft(draftId: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/reject`), {
+    method: "POST",
+    source: "AdminAiGrowth",
+  });
 }
 
 export async function getInstitutionProfile(cik: string, options?: { authToken?: string | null; signal?: AbortSignal; source?: string }): Promise<InstitutionProfileResponse> {

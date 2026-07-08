@@ -11,7 +11,7 @@ export default function AdminAiMarketingPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Operations</p>
-            <h1 className="text-3xl font-semibold text-white">AI Outreach</h1>
+            <h1 className="text-3xl font-semibold text-white">AI Growth Engine</h1>
           </div>
           <Link href="/admin/settings" prefetch={false} className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">
             Admin panel

@@ -51,8 +51,8 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
   },
   {
     key: "ai_marketing",
-    label: "AI Outreach",
-    description: "Find relevant investing conversations, draft reviewed replies, and send founder digests.",
+    label: "AI Growth",
+    description: "Draft reviewed growth assets, research threads, chart drops, ads, and founder digests.",
   },
   {
     key: "users",

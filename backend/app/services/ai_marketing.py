@@ -27,9 +27,10 @@ from app.services.email_delivery import send_email
 
 logger = logging.getLogger(__name__)
 
-AI_MARKETING_RECIPIENT = "jarod@walnutmarkets.com"
+DEFAULT_AI_GROWTH_RECIPIENT = "jarod@walnutmarkets.com"
+AI_GROWTH_DIGEST_RECIPIENT = "AI_GROWTH_DIGEST_RECIPIENT"
 AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
-AI_MARKETING_PROMPT_VERSION = "ai_marketing_v2"
+AI_MARKETING_PROMPT_VERSION = "ai_growth_v1"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
 OPENAI_API_KEY = "OPENAI_API_KEY"
@@ -41,19 +42,48 @@ BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
 WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
 WEB_SEARCH_PROVIDER_MISSING_MESSAGE = "Web search provider missing."
 
-CAMPAIGN_MODES = {
+LEGACY_CAMPAIGN_MODES = {
     "ticker_thread_assist",
     "congress_trade_angle",
     "insider_buying_angle",
     "unusual_signal_angle",
     "pain_point_tool_alternative",
-    "manual_url_review",
 }
-PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "facebook_manual"}
+GROWTH_CAMPAIGN_MODES = {
+    "manual_url_review",
+    "manual_research_input",
+    "x_chart_drop",
+    "influencer_report_pack",
+    "reddit_research_thread",
+    "reddit_paid_ad",
+}
+CAMPAIGN_MODES = LEGACY_CAMPAIGN_MODES | GROWTH_CAMPAIGN_MODES
+PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "x", "facebook_manual", "facebook", "linkedin", "manual", "other"}
 CAMPAIGN_RECENCIES = {"any", "day", "week", "month"}
-OPPORTUNITY_STATUSES = {"new", "emailed", "dismissed", "copied", "archived"}
+OPPORTUNITY_STATUSES = {
+    "new",
+    "draft",
+    "needs_review",
+    "emailed",
+    "opened",
+    "copied",
+    "approved",
+    "posted_manually",
+    "archived",
+    "rejected",
+    "dismissed",
+}
 INTENTS = {"question", "complaint", "trade_idea", "tool_search", "news_reaction", "other"}
-RECOMMENDED_ACTIONS = {"reply", "skip", "monitor"}
+RECOMMENDED_ACTIONS = {"reply", "skip", "monitor", "draft_post", "draft_ad", "influencer_pack"}
+CONTENT_TYPES = {"reddit_reply", "reddit_thread", "x_post", "paid_ad", "influencer_dm", "report_pack"}
+CAMPAIGN_TYPES = {
+    "manual_research_input",
+    "x_chart_drop",
+    "influencer_report_pack",
+    "reddit_research_thread",
+    "reddit_paid_ad",
+    "legacy_outreach_campaign",
+}
 REPLY_ANGLES = {
     "margin_analysis",
     "ticker_context",
@@ -65,8 +95,8 @@ REPLY_ANGLES = {
     "other",
 }
 AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
-    OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "OpenAI suggestions"},
-    AI_MARKETING_MODEL: {"label": "AI Marketing Model", "is_secret": False, "required_for": "OpenAI suggestions"},
+    OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "AI Growth suggestions"},
+    AI_MARKETING_MODEL: {"label": "AI Growth Model", "is_secret": False, "required_for": "AI Growth suggestions"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
@@ -91,7 +121,7 @@ MANUAL_SUBREDDIT_LISTING_MESSAGE = (
     "Manual URL mode works best with a specific post/comment URL or pasted text. "
     "Subreddit listing URLs require Reddit API discovery."
 )
-MANUAL_TEXT_REQUIRED_MESSAGE = "Paste the post/comment text or thread excerpt before generating a manual suggestion."
+MANUAL_TEXT_REQUIRED_MESSAGE = "Paste the post/comment text, thread excerpt, or research context before generating a manual suggestion."
 MANUAL_SOURCE_URL = "https://walnutmarkets.com/admin/ai-marketing"
 OPENAI_MISSING_KEY_MESSAGE = "OpenAI API key missing. Configure OPENAI_API_KEY, then regenerate."
 OPENAI_INVALID_KEY_MESSAGE = "OpenAI API key was rejected. Check the OPENAI_API_KEY server environment variable, then regenerate."
@@ -154,6 +184,15 @@ class SourceItem:
     source_url: str
     title: str
     source_provider: str | None = None
+    campaign_type: str | None = None
+    content_type: str | None = None
+    source_platform: str | None = None
+    ticker_theme: str | None = None
+    recommended_action: str | None = None
+    fit_score: int | None = None
+    generated_content: str | None = None
+    alternate_versions: dict[str, Any] | None = None
+    assets: list[dict[str, Any]] | None = None
     excerpt: str | None = None
     author: str | None = None
     community: str | None = None
@@ -169,6 +208,10 @@ class WebSearchResult:
     url: str
     snippet: str | None = None
     provider: str = "web_search"
+
+
+def ai_growth_recipient() -> str:
+    return os.getenv(AI_GROWTH_DIGEST_RECIPIENT, "").strip() or DEFAULT_AI_GROWTH_RECIPIENT
 
 
 def marketing_model(db: Session | None = None) -> str:
@@ -328,9 +371,139 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "x_status": "stub",
         "facebook_status": "manual_url_only",
         "warnings": warnings,
-        "recipient": AI_MARKETING_RECIPIENT,
+        "recipient": ai_growth_recipient(),
         "settings": statuses,
     }
+
+
+def _campaign_type_for_mode(mode: str | None) -> str:
+    normalized = str(mode or "").strip().lower()
+    if normalized in {
+        "manual_url_review",
+        "manual_research_input",
+    }:
+        return "manual_research_input"
+    if normalized in {"x_chart_drop", "influencer_report_pack", "reddit_research_thread", "reddit_paid_ad"}:
+        return normalized
+    return "legacy_outreach_campaign"
+
+
+def _content_type_for_campaign_type(campaign_type: str | None, *, desired_output_type: str | None = None, platform: str | None = None) -> str:
+    desired = str(desired_output_type or "").strip().lower().replace(" ", "_")
+    if desired in {"x_post", "x", "post"}:
+        return "x_post"
+    if desired in {"reddit_research_thread", "reddit_thread", "thread"}:
+        return "reddit_thread"
+    if desired in {"paid_ad", "paid_ad_copy", "ad_copy", "draft_ad"}:
+        return "paid_ad"
+    if desired in {"influencer_pitch", "influencer_dm", "dm", "email"}:
+        return "influencer_dm"
+    if desired in {"report_pack", "report_pack_outline", "outline"}:
+        return "report_pack"
+    if desired in {"reply", "reddit_reply", "comment"}:
+        return "reddit_reply"
+
+    normalized = str(campaign_type or "").strip().lower()
+    if normalized == "x_chart_drop":
+        return "x_post"
+    if normalized == "influencer_report_pack":
+        return "influencer_dm"
+    if normalized == "reddit_research_thread":
+        return "reddit_thread"
+    if normalized == "reddit_paid_ad":
+        return "paid_ad"
+    if str(platform or "").strip().lower() in {"x", "x_stub", "twitter"}:
+        return "x_post"
+    return "reddit_reply"
+
+
+def _default_action_for_content_type(content_type: str | None) -> str:
+    return {
+        "x_post": "draft_post",
+        "reddit_thread": "draft_post",
+        "paid_ad": "draft_ad",
+        "influencer_dm": "influencer_pack",
+        "report_pack": "influencer_pack",
+        "reddit_reply": "reply",
+    }.get(str(content_type or "").strip().lower(), "reply")
+
+
+def _normalize_campaign_type(value: str | None, *, fallback_mode: str | None = None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CAMPAIGN_TYPES:
+        return normalized
+    return _campaign_type_for_mode(fallback_mode)
+
+
+def _normalize_content_type(value: str | None, *, campaign_type: str | None = None, desired_output_type: str | None = None, platform: str | None = None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CONTENT_TYPES:
+        return normalized
+    return _content_type_for_campaign_type(campaign_type, desired_output_type=desired_output_type, platform=platform)
+
+
+def _normalize_source_platform(value: str | None, *, fallback: str | None = None) -> str:
+    normalized = str(value or fallback or "other").strip().lower()
+    aliases = {
+        "twitter": "x",
+        "x_stub": "x",
+        "facebook_manual": "facebook",
+        "manual": "other",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"x", "reddit", "facebook", "linkedin", "other"}:
+        return normalized
+    return "other"
+
+
+def _platform_for_content_type(content_type: str) -> str:
+    if content_type == "x_post":
+        return "x"
+    if content_type in {"reddit_reply", "reddit_thread"}:
+        return "reddit"
+    return "other"
+
+
+def _default_growth_title(campaign_type: str, ticker_theme: str | None = None) -> str:
+    labels = {
+        "manual_research_input": "Manual Research Input",
+        "x_chart_drop": "X Chart Drop",
+        "influencer_report_pack": "Influencer Report Pack",
+        "reddit_research_thread": "Reddit Research Thread",
+        "reddit_paid_ad": "Reddit Paid Ad Idea",
+    }
+    label = labels.get(campaign_type, "AI Growth Draft")
+    theme = str(ticker_theme or "").strip()
+    return f"{label}: {theme}" if theme else label
+
+
+def _growth_context_text(
+    *,
+    campaign_type: str,
+    content_type: str,
+    text: str | None,
+    ticker_theme: str | None,
+    audience: str | None,
+    tone: str | None,
+    inputs: dict[str, Any],
+) -> str:
+    parts = [
+        f"Campaign type: {campaign_type}",
+        f"Content type: {content_type}",
+    ]
+    if ticker_theme:
+        parts.append(f"Ticker/theme: {ticker_theme}")
+    if audience:
+        parts.append(f"Audience: {audience}")
+    if tone:
+        parts.append(f"Tone: {tone}")
+    for key, value in sorted((inputs or {}).items()):
+        if value in (None, "", [], {}):
+            continue
+        parts.append(f"{key}: {value}")
+    if text:
+        parts.append(f"Research/input text: {text}")
+    return "\n".join(parts)
 
 
 def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
@@ -354,10 +527,14 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
     recency = str(payload.get("recency") or "week").strip().lower()
     if recency not in CAMPAIGN_RECENCIES:
         recency = "week"
+    campaign_type = _normalize_campaign_type(payload.get("campaign_type"), fallback_mode=mode)
+    content_type = _normalize_content_type(payload.get("content_type"), campaign_type=campaign_type, platform=platforms[0] if platforms else None)
     return {
         "name": name,
         "enabled": bool(payload.get("enabled", True)),
         "mode": mode,
+        "campaign_type": campaign_type,
+        "content_type": content_type,
         "platforms": platforms,
         "keywords": _normalized_string_list(payload.get("keywords")),
         "tickers": _normalized_tickers(payload.get("tickers")),
@@ -378,6 +555,8 @@ def create_campaign(db: Session, payload: dict[str, Any]) -> AiMarketingCampaign
         name=normalized["name"],
         enabled=normalized["enabled"],
         mode=normalized["mode"],
+        campaign_type=normalized["campaign_type"],
+        content_type=normalized["content_type"],
         platforms_json=_dump_list(normalized["platforms"]),
         keywords_json=_dump_list(normalized["keywords"]),
         tickers_json=_dump_list(normalized["tickers"]),
@@ -403,6 +582,8 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
     campaign.name = normalized["name"]
     campaign.enabled = normalized["enabled"]
     campaign.mode = normalized["mode"]
+    campaign.campaign_type = normalized["campaign_type"]
+    campaign.content_type = normalized["content_type"]
     campaign.platforms_json = _dump_list(normalized["platforms"])
     campaign.keywords_json = _dump_list(normalized["keywords"])
     campaign.tickers_json = _dump_list(normalized["tickers"])
@@ -420,11 +601,18 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
 
 
 def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
+    campaign_type = _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode)
+    content_type = _normalize_content_type(campaign.content_type, campaign_type=campaign_type, platform=(_load_list(campaign.platforms_json) or [None])[0])
+    legacy = campaign.mode in LEGACY_CAMPAIGN_MODES or campaign_type == "legacy_outreach_campaign"
     return {
         "id": campaign.id,
-        "name": campaign.name,
+        "name": "Legacy Outreach Campaign" if legacy and not campaign.name else campaign.name,
+        "display_name": "Legacy Outreach Campaign" if legacy else campaign.name,
         "enabled": bool(campaign.enabled),
         "mode": campaign.mode,
+        "campaign_type": campaign_type,
+        "content_type": content_type,
+        "legacy": legacy,
         "platforms": _load_list(campaign.platforms_json),
         "keywords": _load_list(campaign.keywords_json),
         "tickers": _load_list(campaign.tickers_json),
@@ -460,10 +648,20 @@ def opportunity_to_dict(
     *,
     suggestion: AiMarketingSuggestion | None = None,
 ) -> dict[str, Any]:
+    campaign_type = _normalize_campaign_type(opportunity.campaign_type)
+    content_type = _normalize_content_type(opportunity.content_type, campaign_type=campaign_type, platform=opportunity.platform)
+    source_platform = _normalize_source_platform(opportunity.source_platform, fallback=opportunity.platform)
+    generated_content = opportunity.generated_content or _generated_content_from_suggestion(suggestion)
+    assets = _load_json_list(opportunity.asset_refs_json)
+    if suggestion:
+        assets = _normalize_assets(assets + _load_json_list(suggestion.assets_json))
     return {
         "id": opportunity.id,
         "campaign_id": opportunity.campaign_id,
+        "campaign_type": campaign_type,
+        "content_type": content_type,
         "platform": opportunity.platform,
+        "source_platform": source_platform,
         "source_provider": opportunity.source_provider,
         "source_id": opportunity.source_id,
         "source_url": opportunity.source_url,
@@ -475,18 +673,29 @@ def opportunity_to_dict(
         "comment_count": opportunity.comment_count,
         "source_created_at": _iso(opportunity.source_created_at),
         "status": opportunity.status,
+        "ticker_theme": opportunity.ticker_theme,
+        "recommended_action": opportunity.recommended_action or (suggestion.recommended_action if suggestion else _default_action_for_content_type(content_type)),
         "matched_keywords": _load_list(opportunity.matched_keywords_json),
         "matched_tickers": _load_list(opportunity.matched_tickers_json),
+        "fit_score": opportunity.fit_score if opportunity.fit_score is not None else opportunity.relevance_score,
         "relevance_score": opportunity.relevance_score,
         "spam_risk_score": opportunity.spam_risk_score,
         "intent": opportunity.intent,
         "suggested_destination_url": opportunity.suggested_destination_url,
         "short_reason": opportunity.short_reason,
         "compliance_notes": opportunity.compliance_notes,
+        "generated_content": generated_content,
+        "alternate_versions": _load_object(opportunity.alternate_versions_json),
+        "assets": assets,
+        "posting_links": _posting_links(opportunity, suggestion=suggestion),
         "metadata": _load_object(opportunity.raw_metadata_json),
         "created_at": _iso(opportunity.created_at),
         "updated_at": _iso(opportunity.updated_at),
         "last_seen_at": _iso(opportunity.last_seen_at),
+        "emailed_at": _iso(opportunity.emailed_at),
+        "opened_at": _iso(opportunity.opened_at),
+        "copied_at": _iso(opportunity.copied_at),
+        "posted_manually_at": _iso(opportunity.posted_manually_at),
         "suggestion": suggestion_to_dict(suggestion) if suggestion else None,
     }
 
@@ -503,12 +712,25 @@ def suggestion_to_dict(suggestion: AiMarketingSuggestion | None) -> dict[str, An
         "spam_risk_score": suggestion.spam_risk_score,
         "detected_tickers": _load_list(suggestion.detected_tickers_json),
         "intent": suggestion.intent,
+        "campaign_type": suggestion.campaign_type,
+        "content_type": suggestion.content_type,
+        "platform": suggestion.platform,
+        "audience": suggestion.audience,
         "recommended_action": suggestion.recommended_action,
         "reply_angle": suggestion.reply_angle,
+        "content_angle": suggestion.content_angle,
         "value_added_insight": suggestion.value_added_insight,
         "walnut_feature_to_mention": suggestion.walnut_feature_to_mention,
         "suggested_destination_url": suggestion.suggested_destination_url,
         "suggested_reply": suggestion.suggested_reply,
+        "suggested_post": suggestion.suggested_post,
+        "suggested_ad_variants": _load_json_list(suggestion.suggested_ad_variants_json),
+        "influencer_outreach_draft": suggestion.influencer_outreach_draft,
+        "report_pack_outline": suggestion.report_pack_outline,
+        "alternate_hooks": _load_list(suggestion.alternate_hooks_json),
+        "title_options": _load_list(suggestion.title_options_json),
+        "disclosure_text": suggestion.disclosure_text,
+        "assets": _load_json_list(suggestion.assets_json),
         "alternate_reply_more_direct": suggestion.alternate_reply_more_direct,
         "short_reason": suggestion.short_reason,
         "compliance_notes": suggestion.compliance_notes,
@@ -529,6 +751,47 @@ def email_log_to_dict(log: AiMarketingEmailLog) -> dict[str, Any]:
         "created_at": _iso(log.created_at),
         "sent_at": _iso(log.sent_at),
     }
+
+
+def _generated_content_from_suggestion(suggestion: AiMarketingSuggestion | None) -> str | None:
+    if suggestion is None:
+        return None
+    for value in (
+        suggestion.suggested_post,
+        suggestion.influencer_outreach_draft,
+        suggestion.report_pack_outline,
+        suggestion.suggested_reply,
+    ):
+        if value and value.strip():
+            return value
+    variants = _load_json_list(suggestion.suggested_ad_variants_json)
+    if variants:
+        return "\n\n".join(str(item) for item in variants if str(item or "").strip()) or None
+    return None
+
+
+def _posting_links(opportunity: AiMarketingOpportunity, *, suggestion: AiMarketingSuggestion | None = None) -> dict[str, str | None]:
+    metadata = _load_object(opportunity.raw_metadata_json)
+    source_platform = _normalize_source_platform(opportunity.source_platform, fallback=opportunity.platform)
+    content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
+    source_url = opportunity.source_url if opportunity.source_url and opportunity.source_url != MANUAL_SOURCE_URL else None
+    destination = (
+        suggestion.suggested_destination_url
+        if suggestion and suggestion.suggested_destination_url
+        else opportunity.suggested_destination_url
+    )
+    subreddit = str(metadata.get("subreddit") or opportunity.community or "").strip().lstrip("r/")
+    x_text = _generated_content_from_suggestion(suggestion) or opportunity.generated_content or ""
+    links: dict[str, str | None] = {
+        "open_source_post": source_url,
+        "open_walnut_link": destination or None,
+        "open_x": "https://x.com/home",
+        "open_x_compose": f"https://x.com/intent/post?{urlencode({'text': x_text[:260]})}" if content_type == "x_post" else None,
+        "open_reddit": "https://www.reddit.com/",
+        "open_reddit_thread": source_url if source_url and "reddit.com" in source_url.lower() else None,
+        "open_reddit_submit": f"https://www.reddit.com/r/{subreddit}/submit" if subreddit and content_type == "reddit_thread" else None,
+    }
+    return links
 
 
 def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
@@ -611,6 +874,11 @@ def upsert_source_item(
     matched_tickers = _matched_tickers(text_for_matching, campaign_tickers)
     source_dedupe_key = _dedupe_key(item.source_id or item.source_url)
     now = datetime.now(timezone.utc)
+    fallback_mode = campaign.mode if campaign else None
+    campaign_type = _normalize_campaign_type(item.campaign_type, fallback_mode=fallback_mode)
+    content_type = _normalize_content_type(item.content_type, campaign_type=campaign_type, platform=item.platform)
+    recommended_action = item.recommended_action or _default_action_for_content_type(content_type)
+    source_platform = _normalize_source_platform(item.source_platform, fallback=item.platform)
 
     opportunity = db.execute(
         select(AiMarketingOpportunity).where(
@@ -626,6 +894,15 @@ def upsert_source_item(
         opportunity.source_score = item.source_score
         opportunity.comment_count = item.comment_count
         opportunity.last_seen_at = now
+        opportunity.campaign_type = campaign_type
+        opportunity.content_type = content_type
+        opportunity.source_platform = source_platform
+        opportunity.ticker_theme = _truncate(item.ticker_theme, 240)
+        opportunity.recommended_action = recommended_action
+        opportunity.fit_score = item.fit_score
+        opportunity.generated_content = _truncate(item.generated_content, 5000)
+        opportunity.alternate_versions_json = _dump_object(item.alternate_versions or _load_object(opportunity.alternate_versions_json))
+        opportunity.asset_refs_json = _dump_json_list(_normalize_assets(item.assets) or _load_json_list(opportunity.asset_refs_json))
         opportunity.matched_keywords_json = _dump_list(matched_keywords)
         opportunity.matched_tickers_json = _dump_list(matched_tickers)
         opportunity.raw_metadata_json = _dump_object(item.metadata or {})
@@ -648,8 +925,17 @@ def upsert_source_item(
         comment_count=item.comment_count,
         source_created_at=item.source_created_at,
         status="new",
+        campaign_type=campaign_type,
+        content_type=content_type,
+        source_platform=source_platform,
+        ticker_theme=_truncate(item.ticker_theme, 240),
+        recommended_action=recommended_action,
+        fit_score=item.fit_score,
         matched_keywords_json=_dump_list(matched_keywords),
         matched_tickers_json=_dump_list(matched_tickers),
+        generated_content=_truncate(item.generated_content, 5000),
+        alternate_versions_json=_dump_object(item.alternate_versions or {}),
+        asset_refs_json=_dump_json_list(_normalize_assets(item.assets)),
         raw_metadata_json=_dump_object(item.metadata or {}),
         created_at=now,
         updated_at=now,
@@ -678,6 +964,13 @@ def create_manual_opportunity(
     text: str | None,
     title: str | None = None,
     campaign: AiMarketingCampaign | None = None,
+    source_platform: str | None = None,
+    ticker_theme: str | None = None,
+    desired_output_type: str | None = None,
+    destination_url: str | None = None,
+    campaign_type: str | None = None,
+    content_type: str | None = None,
+    assets: list[dict[str, Any]] | None = None,
     generate: bool = True,
 ) -> dict[str, Any]:
     manual_text = str(text or "").strip()
@@ -690,7 +983,16 @@ def create_manual_opportunity(
     if not manual_text:
         raise ValueError(MANUAL_TEXT_REQUIRED_MESSAGE)
 
-    platform = _platform_from_url(normalized_url) if normalized_url else "manual"
+    platform = _platform_from_url(normalized_url) if normalized_url else _normalize_source_platform(source_platform, fallback="other")
+    source_platform_normalized = _normalize_source_platform(source_platform, fallback=platform)
+    resolved_campaign_type = _normalize_campaign_type(campaign_type or (campaign.campaign_type if campaign else None), fallback_mode=campaign.mode if campaign else "manual_research_input")
+    resolved_content_type = _normalize_content_type(
+        content_type,
+        campaign_type=resolved_campaign_type,
+        desired_output_type=desired_output_type,
+        platform=source_platform_normalized,
+    )
+    destination = _walnut_url_or_default(str(destination_url or campaign.default_destination_page if campaign else destination_url or ""))
     source_url = normalized_url or MANUAL_SOURCE_URL
     source_key = normalized_url or f"manual:text:{_dedupe_key(manual_text)}"
     source_item = SourceItem(
@@ -698,12 +1000,21 @@ def create_manual_opportunity(
         source_id=f"manual:{_dedupe_key(source_key)}",
         source_url=source_url,
         source_provider="admin_manual_text",
-        title=title or "Manual URL review",
+        campaign_type=resolved_campaign_type,
+        content_type=resolved_content_type,
+        source_platform=source_platform_normalized,
+        ticker_theme=ticker_theme,
+        recommended_action=_default_action_for_content_type(resolved_content_type),
+        assets=assets,
+        title=title or "Manual Research Input",
         excerpt=manual_text,
         metadata={
             "manual": True,
-            "source": "admin_manual_url",
+            "source": "admin_manual_research_input",
             "source_url_provided": bool(normalized_url),
+            "desired_output_type": desired_output_type,
+            "ticker_theme": ticker_theme,
+            "suggested_destination_url": destination,
         },
     )
     opportunity, _was_created = upsert_source_item(db, campaign, source_item)
@@ -724,6 +1035,74 @@ def create_manual_opportunity(
     }
 
 
+def create_growth_draft(
+    db: Session,
+    *,
+    campaign_type: str,
+    content_type: str | None = None,
+    source_platform: str | None = None,
+    title: str | None = None,
+    text: str | None = None,
+    ticker_theme: str | None = None,
+    destination_url: str | None = None,
+    audience: str | None = None,
+    tone: str | None = None,
+    assets: list[dict[str, Any]] | None = None,
+    inputs: dict[str, Any] | None = None,
+    generate: bool = True,
+) -> dict[str, Any]:
+    resolved_campaign_type = _normalize_campaign_type(campaign_type, fallback_mode=campaign_type)
+    resolved_content_type = _normalize_content_type(content_type, campaign_type=resolved_campaign_type, platform=source_platform)
+    resolved_platform = _normalize_source_platform(source_platform, fallback=_platform_for_content_type(resolved_content_type))
+    destination = _walnut_url_or_default(str(destination_url or ""))
+    draft_context = _growth_context_text(
+        campaign_type=resolved_campaign_type,
+        content_type=resolved_content_type,
+        text=text,
+        ticker_theme=ticker_theme,
+        audience=audience,
+        tone=tone,
+        inputs=inputs or {},
+    )
+    source_key = f"growth:{resolved_campaign_type}:{resolved_content_type}:{_dedupe_key(draft_context)}"
+    source_item = SourceItem(
+        platform=resolved_platform,
+        source_id=source_key,
+        source_url=MANUAL_SOURCE_URL,
+        source_provider="admin_growth_form",
+        campaign_type=resolved_campaign_type,
+        content_type=resolved_content_type,
+        source_platform=resolved_platform,
+        ticker_theme=ticker_theme,
+        recommended_action=_default_action_for_content_type(resolved_content_type),
+        assets=assets,
+        title=title or _default_growth_title(resolved_campaign_type, ticker_theme),
+        excerpt=draft_context,
+        metadata={
+            "manual": True,
+            "source": "admin_growth_form",
+            "inputs": inputs or {},
+            "audience": audience,
+            "tone": tone,
+            "suggested_destination_url": destination,
+            "source_url_provided": False,
+        },
+    )
+    opportunity, _was_created = upsert_source_item(db, None, source_item)
+    warning: str | None = None
+    if generate:
+        if resolved_setting_value(db, OPENAI_API_KEY):
+            try:
+                generate_suggestion(db, opportunity)
+            except OpenAISuggestionError as exc:
+                warning = exc.admin_message
+        else:
+            warning = "OpenAI API key missing; growth draft was saved without an AI suggestion."
+            _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return {"opportunity": opportunity_to_dict(opportunity, suggestion=latest), "warning": warning}
+
+
 def update_opportunity_status(
     db: Session,
     opportunity: AiMarketingOpportunity,
@@ -735,7 +1114,16 @@ def update_opportunity_status(
         if normalized not in OPPORTUNITY_STATUSES:
             raise ValueError("Unsupported opportunity status.")
         opportunity.status = normalized
-    opportunity.updated_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    if opportunity.status == "emailed":
+        opportunity.emailed_at = now
+    elif opportunity.status == "opened":
+        opportunity.opened_at = now
+    elif opportunity.status == "copied":
+        opportunity.copied_at = now
+    elif opportunity.status == "posted_manually":
+        opportunity.posted_manually_at = now
+    opportunity.updated_at = now
     db.commit()
     db.refresh(opportunity)
     return opportunity
@@ -758,12 +1146,15 @@ def generate_suggestion(
     campaign_payload = campaign_to_dict(campaign) if campaign else None
     platform = opportunity.platform
     opportunity_metadata = _load_object(opportunity.raw_metadata_json)
+    campaign_type = _normalize_campaign_type(opportunity.campaign_type or (campaign.campaign_type if campaign else None), fallback_mode=campaign.mode if campaign else None)
+    content_type = _normalize_content_type(opportunity.content_type, campaign_type=campaign_type, platform=platform)
+    source_platform = _normalize_source_platform(opportunity.source_platform, fallback=platform)
     destination_hint = recommended_destination_url(
-        mode=campaign.mode if campaign else "manual_url_review",
+        mode=campaign_type if campaign_type != "legacy_outreach_campaign" else (campaign.mode if campaign else "manual_url_review"),
         platform=platform,
         campaign_id=campaign.id if campaign else opportunity.campaign_id or 0,
         tickers=_load_list(opportunity.matched_tickers_json),
-        fallback=(campaign.default_destination_page if campaign else DEFAULT_DESTINATION_URL),
+        fallback=str(opportunity_metadata.get("suggested_destination_url") or (campaign.default_destination_page if campaign else DEFAULT_DESTINATION_URL)),
     )
     request_payload = {
         "model": model,
@@ -775,11 +1166,16 @@ def generate_suggestion(
                     {
                         "campaign": campaign_payload,
                         "opportunity": {
+                            "campaign_type": campaign_type,
+                            "content_type": content_type,
                             "platform": opportunity.platform,
+                            "source_platform": source_platform,
                             "source_provider": opportunity.source_provider,
                             "source_url": opportunity.source_url,
                             "title": opportunity.title,
                             "excerpt": opportunity.excerpt,
+                            "ticker_theme": opportunity.ticker_theme,
+                            "recommended_action": opportunity.recommended_action,
                             "author": opportunity.author,
                             "community": opportunity.community,
                             "score": opportunity.source_score,
@@ -793,7 +1189,12 @@ def generate_suggestion(
                                 "snippet_only": opportunity_metadata.get("snippet_only"),
                                 "snippet_character_count": opportunity_metadata.get("snippet_character_count"),
                                 "needs_manual_review": opportunity_metadata.get("needs_manual_review"),
+                                "inputs": opportunity_metadata.get("inputs"),
+                                "audience": opportunity_metadata.get("audience"),
+                                "tone": opportunity_metadata.get("tone"),
+                                "desired_output_type": opportunity_metadata.get("desired_output_type"),
                             },
+                            "assets": _load_json_list(opportunity.asset_refs_json),
                         },
                         "routing_hint": destination_hint,
                     },
@@ -830,7 +1231,13 @@ def generate_suggestion(
         raise OpenAISuggestionError(message, status_code=status_code)
     data = response.json()
     content = _extract_chat_completion_content(data)
-    structured = _normalize_suggestion_payload(json.loads(content), destination_hint, platform, campaign.id if campaign else 0)
+    structured = _normalize_suggestion_payload(
+        json.loads(content),
+        destination_hint,
+        platform,
+        campaign.id if campaign else 0,
+        opportunity=opportunity,
+    )
     suggestion = AiMarketingSuggestion(
         opportunity_id=opportunity.id,
         campaign_id=campaign.id if campaign else opportunity.campaign_id,
@@ -839,12 +1246,25 @@ def generate_suggestion(
         spam_risk_score=structured["spam_risk_score"],
         detected_tickers_json=_dump_list(structured["detected_tickers"]),
         intent=structured["intent"],
+        campaign_type=structured["campaign_type"],
+        content_type=structured["content_type"],
+        platform=structured["platform"],
+        audience=structured["audience"],
         recommended_action=structured["recommended_action"],
         reply_angle=structured["reply_angle"],
+        content_angle=structured["content_angle"],
         value_added_insight=structured["value_added_insight"],
         walnut_feature_to_mention=structured["walnut_feature_to_mention"],
         suggested_destination_url=structured["suggested_destination_url"],
         suggested_reply=structured["suggested_reply"],
+        suggested_post=structured["suggested_post"],
+        suggested_ad_variants_json=_dump_json_list(structured["suggested_ad_variants"]),
+        influencer_outreach_draft=structured["influencer_outreach_draft"],
+        report_pack_outline=structured["report_pack_outline"],
+        alternate_hooks_json=_dump_list(structured["alternate_hooks"]),
+        title_options_json=_dump_list(structured["title_options"]),
+        disclosure_text=structured["disclosure_text"],
+        assets_json=_dump_json_list(structured["assets"]),
         alternate_reply_more_direct=structured["alternate_reply_more_direct"],
         short_reason=structured["short_reason"],
         compliance_notes=structured["compliance_notes"],
@@ -853,11 +1273,19 @@ def generate_suggestion(
     )
     db.add(suggestion)
     opportunity.relevance_score = suggestion.relevance_score
+    opportunity.fit_score = suggestion.relevance_score
     opportunity.spam_risk_score = suggestion.spam_risk_score
     opportunity.intent = suggestion.intent
+    opportunity.campaign_type = suggestion.campaign_type
+    opportunity.content_type = suggestion.content_type
+    opportunity.source_platform = _normalize_source_platform(suggestion.platform, fallback=opportunity.platform)
+    opportunity.recommended_action = suggestion.recommended_action
     opportunity.suggested_destination_url = suggestion.suggested_destination_url
     opportunity.short_reason = suggestion.short_reason
     opportunity.compliance_notes = suggestion.compliance_notes
+    opportunity.generated_content = structured["generated_content"]
+    opportunity.alternate_versions_json = _dump_object(structured["alternate_versions"])
+    opportunity.asset_refs_json = _dump_json_list(_normalize_assets(_load_json_list(opportunity.asset_refs_json) + structured["assets"]))
     _clear_suggestion_failure(opportunity)
     opportunity.matched_tickers_json = _dump_list(
         sorted(set(_load_list(opportunity.matched_tickers_json)) | set(structured["detected_tickers"]))
@@ -902,7 +1330,7 @@ def preview_digest(
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
     context = _digest_context(opportunities, latest)
     return {
-        "to_email": AI_MARKETING_RECIPIENT,
+        "to_email": ai_growth_recipient(),
         "subject": context["subject"],
         "items": [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in opportunities],
         "body_text": context["items_text"],
@@ -924,7 +1352,7 @@ def send_digest(
     context = _digest_context(opportunities, latest)
     result = send_email(
         db,
-        to_email=AI_MARKETING_RECIPIENT,
+        to_email=ai_growth_recipient(),
         template_key=AI_MARKETING_TEMPLATE_KEY,
         context=context,
         user_id=admin_user_id,
@@ -935,7 +1363,7 @@ def send_digest(
     sent_at = datetime.now(timezone.utc) if status == "sent" else None
     log = AiMarketingEmailLog(
         delivery_id=result.get("id") if isinstance(result.get("id"), int) else None,
-        to_email=AI_MARKETING_RECIPIENT,
+        to_email=ai_growth_recipient(),
         subject=context["subject"],
         opportunity_ids_json=_dump_list([str(row.id) for row in opportunities]),
         status=status,
@@ -943,10 +1371,12 @@ def send_digest(
         sent_at=sent_at,
     )
     db.add(log)
+    now = datetime.now(timezone.utc)
     for opportunity in opportunities:
-        if opportunity.status == "new":
+        if opportunity.status in {"new", "draft", "needs_review", "approved"}:
             opportunity.status = "emailed"
-            opportunity.updated_at = datetime.now(timezone.utc)
+            opportunity.emailed_at = now
+            opportunity.updated_at = now
     db.commit()
     db.refresh(log)
     return {
@@ -955,6 +1385,53 @@ def send_digest(
         "count": len(opportunities),
         "items": [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in opportunities],
     }
+
+
+def send_draft_email(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    *,
+    admin_user_id: int | None = None,
+) -> dict[str, Any]:
+    return send_digest(db, opportunity_ids=[opportunity.id], statuses=None, limit=1, admin_user_id=admin_user_id)
+
+
+def mark_opportunity_copied(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
+    now = datetime.now(timezone.utc)
+    opportunity.status = "copied"
+    opportunity.copied_at = now
+    opportunity.updated_at = now
+    db.commit()
+    db.refresh(opportunity)
+    return opportunity
+
+
+def mark_opportunity_posted(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
+    now = datetime.now(timezone.utc)
+    opportunity.status = "posted_manually"
+    opportunity.posted_manually_at = now
+    opportunity.updated_at = now
+    db.commit()
+    db.refresh(opportunity)
+    return opportunity
+
+
+def mark_opportunity_opened(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
+    now = datetime.now(timezone.utc)
+    opportunity.status = "opened" if opportunity.status in {"new", "draft", "needs_review", "emailed"} else opportunity.status
+    opportunity.opened_at = now
+    opportunity.updated_at = now
+    db.commit()
+    db.refresh(opportunity)
+    return opportunity
+
+
+def archive_opportunity(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
+    return update_opportunity_status(db, opportunity, status="archived")
+
+
+def reject_opportunity(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
+    return update_opportunity_status(db, opportunity, status="rejected")
 
 
 def test_openai_connection(db: Session) -> dict[str, Any]:
@@ -1283,18 +1760,97 @@ def _digest_opportunities(
     return list(db.execute(query).scalars().all())
 
 
+def _growth_email_subject(opportunities: list[AiMarketingOpportunity], latest: dict[int, AiMarketingSuggestion]) -> str:
+    count = len(opportunities)
+    if count == 1 and opportunities:
+        content_type = _normalize_content_type(opportunities[0].content_type, campaign_type=opportunities[0].campaign_type, platform=opportunities[0].platform)
+        labels = {
+            "x_post": "X chart-drop draft",
+            "reddit_reply": "Reddit reply opportunity",
+            "reddit_thread": "Reddit research thread draft",
+            "paid_ad": "paid ad idea",
+            "influencer_dm": "influencer report-pack draft",
+            "report_pack": "report-pack outline",
+        }
+        return f"Walnut AI Growth: {labels.get(content_type, 'draft')} ready"
+    content_counts: dict[str, int] = {}
+    for opportunity in opportunities:
+        content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
+        content_counts[content_type] = content_counts.get(content_type, 0) + 1
+    if content_counts.get("x_post") == count:
+        return f"Walnut AI Growth: {count} X chart-drop drafts ready"
+    if content_counts.get("reddit_reply") == count:
+        return f"Walnut AI Growth: {count} reply opportunities"
+    return f"Walnut AI Growth: {count} drafts ready"
+
+
+def _content_type_label(content_type: str) -> str:
+    return {
+        "x_post": "X post",
+        "reddit_reply": "Reddit reply",
+        "reddit_thread": "Reddit research thread",
+        "paid_ad": "Paid ad copy",
+        "influencer_dm": "Influencer DM/email",
+        "report_pack": "Report pack",
+    }.get(content_type, content_type.replace("_", " ").title())
+
+
+def _source_platform_label(platform: str) -> str:
+    return {"x": "X", "reddit": "Reddit", "facebook": "Facebook", "linkedin": "LinkedIn", "other": "Other"}.get(platform, platform.title())
+
+
+def _draft_admin_url(opportunity_id: int) -> str:
+    return f"https://walnutmarkets.com/admin/ai-marketing?draft={opportunity_id}"
+
+
+def _default_disclosure_reminder(source_platform: str, content: str) -> str:
+    if "walnut" in (content or "").lower() and source_platform in {"x", "reddit"}:
+        return "Disclose Walnut affiliation naturally before posting."
+    return "Human review required. No auto-posting."
+
+
+def _assets_text(assets: list[dict[str, Any]]) -> str:
+    if not assets:
+        return "Assets to attach: none"
+    lines = ["Assets to attach:"]
+    for index, asset in enumerate(assets, start=1):
+        lines.append(f"{index}. {asset.get('title') or 'Asset'} ({asset.get('asset_type') or 'asset'}): {asset.get('url') or asset.get('thumbnail_url') or 'no link'}")
+        caption = str(asset.get("suggested_caption") or "").strip()
+        if caption:
+            lines.append(f"   Caption: {caption}")
+    return "\n".join(lines)
+
+
+def _assets_html(assets: list[dict[str, Any]]) -> str:
+    if not assets:
+        return "<p style=\"margin:0 0 8px 0;color:#334155;\">Assets to attach: none</p>"
+    parts = ["<div style=\"margin:10px 0;color:#334155;\"><strong>Assets to attach</strong>"]
+    for asset in assets:
+        title = html.escape(str(asset.get("title") or "Asset"))
+        url = html.escape(str(asset.get("url") or asset.get("thumbnail_url") or ""), quote=True)
+        thumb = html.escape(str(asset.get("thumbnail_url") or ""), quote=True)
+        caption = html.escape(str(asset.get("suggested_caption") or ""))
+        link = f"<a href=\"{url}\">{title}</a>" if url else title
+        image = f"<br><img src=\"{thumb}\" alt=\"{title}\" style=\"max-width:180px;height:auto;border-radius:6px;margin-top:6px;\">" if thumb else ""
+        parts.append(f"<p style=\"margin:8px 0;\">{link}{image}<br><span>{caption}</span></p>")
+    parts.append("</div>")
+    return "".join(parts)
+
+
 def _digest_context(
     opportunities: list[AiMarketingOpportunity],
     latest: dict[int, AiMarketingSuggestion],
 ) -> dict[str, Any]:
     count = len(opportunities)
-    subject = f"Walnut AI Outreach: {count} reply opportunit{'y' if count == 1 else 'ies'}"
+    subject = _growth_email_subject(opportunities, latest)
     items_text: list[str] = []
     items_html: list[str] = []
     for index, opportunity in enumerate(opportunities, start=1):
         suggestion = latest.get(opportunity.id)
         metadata = _load_object(opportunity.raw_metadata_json)
-        reply = suggestion.suggested_reply if suggestion else "No AI suggestion generated yet."
+        content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
+        source_platform = _normalize_source_platform(opportunity.source_platform, fallback=opportunity.platform)
+        draft_content = opportunity.generated_content or _generated_content_from_suggestion(suggestion) or "No AI suggestion generated yet."
         destination = suggestion.suggested_destination_url if suggestion else (opportunity.suggested_destination_url or DEFAULT_DESTINATION_URL)
         reason = (suggestion.short_reason if suggestion else opportunity.short_reason) or "No reasoning summary available."
         snippet = opportunity.excerpt or "none"
@@ -1313,30 +1869,52 @@ def _digest_context(
         keywords = ", ".join(_load_list(opportunity.matched_keywords_json)) or "none"
         relevance = suggestion.relevance_score if suggestion else opportunity.relevance_score
         spam = suggestion.spam_risk_score if suggestion else opportunity.spam_risk_score
-        action = suggestion.recommended_action if suggestion else "pending"
-        angle = suggestion.reply_angle if suggestion else "pending"
+        action = (suggestion.recommended_action if suggestion else opportunity.recommended_action) or "pending"
+        angle = (suggestion.content_angle if suggestion else None) or (suggestion.reply_angle if suggestion else "pending")
+        disclosure = suggestion.disclosure_text if suggestion else ""
+        compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required. No auto-posting."
+        assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
+        posting_links = _posting_links(opportunity, suggestion=suggestion)
+        admin_url = _draft_admin_url(opportunity.id)
         destination_html = (
-            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut page</a></p>"
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut link</a></p>"
             if destination
             else "<p style=\"margin:0 0 8px 0;color:#334155;\">Suggested Walnut link: none</p>"
         )
+        assets_text = _assets_text(assets)
+        assets_html = _assets_html(assets)
+        checklist = [
+            "Open source post",
+            "Copy draft",
+            "Paste into platform",
+            "Attach image if relevant",
+            "Review disclosure",
+            "Post manually",
+        ]
         items_text.append(
             "\n".join(
                 [
                     f"{index}. {opportunity.title}",
-                    f"Platform/source: {opportunity.platform} / {opportunity.source_provider or opportunity.community or 'manual'}",
-                    f"Permalink: {opportunity.source_url}",
+                    f"Platform: {_source_platform_label(source_platform)}",
+                    f"Content type: {_content_type_label(content_type)}",
+                    f"Recommended action: {action}",
+                    f"Fit score: {relevance if relevance is not None else 'pending'}",
+                    f"Spam/compliance risk score: {spam if spam is not None else 'pending'}",
+                    f"Source URL: {opportunity.source_url}",
+                    f"Suggested destination URL: {destination or 'none'}",
+                    f"Open in Walnut Admin: {admin_url}",
                     f"Snippet: {snippet}",
                     f"Search query: {query}",
                     f"Matched ticker/keywords: {tickers} / {keywords}",
-                    f"Recommended action: {action}",
                     manual_review_note,
-                    f"Reply angle: {angle}",
-                    f"Relevance score: {relevance if relevance is not None else 'pending'}",
-                    f"Spam risk score: {spam if spam is not None else 'pending'}",
-                    f"Suggested Walnut link: {destination or 'none'}",
-                    "Suggested reply:",
-                    reply,
+                    f"Content angle: {angle}",
+                    "Draft content:",
+                    draft_content,
+                    f"Disclosure reminder: {disclosure or _default_disclosure_reminder(source_platform, draft_content)}",
+                    f"Compliance notes: {compliance}",
+                    assets_text,
+                    "Posting checklist:",
+                    *[f"{number}. {item}" for number, item in enumerate(checklist, start=1)],
                     f"Reasoning: {reason}",
                 ]
             )
@@ -1344,24 +1922,31 @@ def _digest_context(
         items_html.append(
             "<div style=\"margin:18px 0;padding:14px;border:1px solid #d8e6ea;border-radius:7px;background:#f8fafc;\">"
             f"<h3 style=\"margin:0 0 8px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html.escape(opportunity.title)}</h3>"
-            f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(opportunity.platform)} / {html.escape(opportunity.source_provider or opportunity.community or 'manual')}</p>"
-            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source thread</a></p>"
+            f"<p style=\"margin:0 0 8px 0;color:#475569;\">{html.escape(_source_platform_label(source_platform))} / {html.escape(_content_type_label(content_type))}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Recommended action: {html.escape(action)} | Fit: {html.escape(str(relevance if relevance is not None else 'pending'))} | Spam/compliance risk: {html.escape(str(spam if spam is not None else 'pending'))}</p>"
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source post</a></p>"
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(admin_url, quote=True)}\">Open in Walnut Admin</a></p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Snippet: {html.escape(snippet)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Search query: {html.escape(query)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Matched ticker/keywords: {html.escape(tickers)} / {html.escape(keywords)}</p>"
-            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Recommended action: {html.escape(action)} | Reply angle: {html.escape(angle)}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Content angle: {html.escape(str(angle))}</p>"
             f"{manual_review_html}"
-            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Relevance: {html.escape(str(relevance if relevance is not None else 'pending'))} | Spam risk: {html.escape(str(spam if spam is not None else 'pending'))}</p>"
             f"{destination_html}"
-            f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(reply)}</pre>"
-            f"<p style=\"margin:0;color:#475569;\">{html.escape(reason)}</p>"
+            f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(draft_content)}</pre>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Disclosure reminder:</strong> {html.escape(disclosure or _default_disclosure_reminder(source_platform, draft_content))}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Compliance:</strong> {html.escape(compliance)}</p>"
+            f"{assets_html}"
+            "<ol style=\"margin:12px 0 0 18px;color:#334155;\">"
+            + "".join(f"<li>{html.escape(item)}</li>" for item in checklist)
+            + "</ol>"
+            f"<p style=\"margin:10px 0 0 0;color:#475569;\">{html.escape(reason)}</p>"
             "</div>"
         )
     return {
         "first_name": "Jarod",
         "subject": subject,
         "digest_title": subject,
-        "summary": f"{count} human-reviewed outreach candidate{'s' if count != 1 else ''}. Review before posting. No auto-posting was performed.",
+        "summary": f"{count} AI Growth draft{'s' if count != 1 else ''} ready for human review. No auto-posting was performed.",
         "items_text": "\n\n".join(items_text) if items_text else "No matching opportunities are ready for digest.",
         "items_html": "".join(items_html) if items_html else "<p>No matching opportunities are ready for digest.</p>",
         "digest_url": "https://walnutmarkets.com/admin/ai-marketing",
@@ -1370,12 +1955,17 @@ def _digest_context(
 
 def _suggestion_system_prompt() -> str:
     return (
-        "You draft human-reviewed outreach recommendations for Walnut Market Terminal. "
+        "You draft human-reviewed AI Growth Engine assets for Walnut Market Terminal. "
         "Return only JSON matching the supplied schema. First decide whether the thread deserves a reply at all. "
         "Use recommended_action='skip' when the source is not clearly about investing, markets, public companies, trading, finance, or research tools. "
         "Use recommended_action='skip' or 'monitor' when Walnut cannot add a meaningful, specific angle. "
         "For skip, suggested_reply should be exactly or very close to: 'Skip - not relevant enough.' "
         "For monitor, explain what would make the thread worth replying to later. "
+        "For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. "
+        "For reddit_thread, write title_options, suggested_post, suggested_reply as a comment variant, and disclosure_text. "
+        "For paid_ad, write suggested_ad_variants as native paid ad headline/body/CTA variants. "
+        "For influencer_dm, write influencer_outreach_draft and report_pack_outline. "
+        "For report_pack, write report_pack_outline and data sections in value_added_insight. "
         "Walnut Market Terminal is a professional-grade market intelligence platform for sophisticated retail investors. "
         "It helps users find market tells by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
         "Congress trading disclosures, government contracts, signal conviction, screener workflows, and evidence trail or why-now context. "
@@ -1386,12 +1976,14 @@ def _suggestion_system_prompt() -> str:
         "If the source mentions a specific public company or ticker, prefer the ticker page /ticker/{SYMBOL}. "
         "If it discusses screeners or research tooling without a ticker, prefer /screener or the homepage. "
         "If it discusses Congress trades, insider buying, or government contracts, use that as the reply_angle when relevant. "
+        "Use reported/disclosed/filing-date language for Congress and insider disclosure data. "
         "Do not imply endorsement by Reddit, X, Facebook, Congress, SEC, or any data provider. "
-        "If promoting Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
-        "Do not make investment advice claims, tell users to buy or sell a security, or guarantee returns. "
+        "If organic X or Reddit content mentions Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
+        "Do not make investment advice claims, tell users to buy, sell, or short a security, guarantee returns, or use hype like 'about to explode'. "
         "Prefer educational language such as \"this may be useful\", \"you can cross-check\", and \"one way to look at it\". "
         "Include at most one Walnut link unless the thread clearly needs more. Never use spammy CTA language. "
-        "Do not fake personal experience or pretend to be unaffiliated. No automated posting is happening; a human will review this. "
+        "Make Reddit research threads valuable even if nobody clicks Walnut; include limitations for backtests/data. "
+        "Do not fake personal experience or pretend to be unaffiliated. No automated posting is happening; a human will review and manually post if appropriate. "
         "Avoid replies when spam risk is high. "
         "Avoid replying to old or inactive threads unless relevance is very high. "
         "For source_provider='web_search_reddit', you only have a search-provider title, URL, and snippet. "
@@ -1408,12 +2000,40 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "spam_risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
             "detected_tickers": {"type": "array", "items": {"type": "string"}},
             "intent": {"type": "string", "enum": sorted(INTENTS)},
+            "campaign_type": {"type": "string", "enum": sorted(CAMPAIGN_TYPES)},
+            "content_type": {"type": "string", "enum": sorted(CONTENT_TYPES)},
+            "platform": {"type": "string"},
+            "audience": {"type": "string"},
             "recommended_action": {"type": "string", "enum": sorted(RECOMMENDED_ACTIONS)},
             "reply_angle": {"type": "string", "enum": sorted(REPLY_ANGLES)},
+            "content_angle": {"type": "string"},
             "value_added_insight": {"type": "string"},
             "walnut_feature_to_mention": {"type": "string"},
             "suggested_destination_url": {"type": "string"},
             "suggested_reply": {"type": "string"},
+            "suggested_post": {"type": "string"},
+            "suggested_ad_variants": {"type": "array", "items": {"type": "string"}},
+            "influencer_outreach_draft": {"type": "string"},
+            "report_pack_outline": {"type": "string"},
+            "alternate_hooks": {"type": "array", "items": {"type": "string"}},
+            "title_options": {"type": "array", "items": {"type": "string"}},
+            "disclosure_text": {"type": "string"},
+            "assets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "asset_type": {"type": "string", "enum": ["image", "chart", "csv", "pdf", "screenshot", "report"]},
+                        "url": {"type": "string"},
+                        "thumbnail_url": {"type": "string"},
+                        "suggested_caption": {"type": "string"},
+                        "source_data_notes": {"type": "string"},
+                    },
+                    "required": ["title", "asset_type", "url", "thumbnail_url", "suggested_caption", "source_data_notes"],
+                    "additionalProperties": False,
+                },
+            },
             "alternate_reply_more_direct": {"type": "string"},
             "short_reason": {"type": "string"},
             "compliance_notes": {"type": "string"},
@@ -1423,12 +2043,25 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "spam_risk_score",
             "detected_tickers",
             "intent",
+            "campaign_type",
+            "content_type",
+            "platform",
+            "audience",
             "recommended_action",
             "reply_angle",
+            "content_angle",
             "value_added_insight",
             "walnut_feature_to_mention",
             "suggested_destination_url",
             "suggested_reply",
+            "suggested_post",
+            "suggested_ad_variants",
+            "influencer_outreach_draft",
+            "report_pack_outline",
+            "alternate_hooks",
+            "title_options",
+            "disclosure_text",
+            "assets",
             "alternate_reply_more_direct",
             "short_reason",
             "compliance_notes",
@@ -1442,14 +2075,23 @@ def _normalize_suggestion_payload(
     destination_hint: str,
     platform: str,
     campaign_id: int,
+    *,
+    opportunity: AiMarketingOpportunity | None = None,
 ) -> dict[str, Any]:
     detected_tickers = _normalized_tickers(payload.get("detected_tickers"))
     intent = str(payload.get("intent") or "other").strip().lower()
     if intent not in INTENTS:
         intent = "other"
+    fallback_campaign_type = opportunity.campaign_type if opportunity else None
+    fallback_content_type = opportunity.content_type if opportunity else None
+    campaign_type = _normalize_campaign_type(payload.get("campaign_type") or fallback_campaign_type)
+    content_type = _normalize_content_type(payload.get("content_type") or fallback_content_type, campaign_type=campaign_type, platform=platform)
+    output_platform = _normalize_source_platform(payload.get("platform"), fallback=opportunity.source_platform if opportunity else platform)
+    opportunity_metadata = _load_object(opportunity.raw_metadata_json) if opportunity else {}
+    audience = _truncate(str(payload.get("audience") or opportunity_metadata.get("audience") or "").strip(), 500) or ""
     recommended_action = str(payload.get("recommended_action") or "reply").strip().lower()
     if recommended_action not in RECOMMENDED_ACTIONS:
-        recommended_action = "reply"
+        recommended_action = _default_action_for_content_type(content_type)
     reply_angle = str(payload.get("reply_angle") or "other").strip().lower()
     if reply_angle not in REPLY_ANGLES:
         reply_angle = "other"
@@ -1469,6 +2111,13 @@ def _normalize_suggestion_payload(
         )
     suggested_reply = _truncate(str(payload.get("suggested_reply") or "").strip(), 3000) or ""
     alternate_reply = _truncate(str(payload.get("alternate_reply_more_direct") or "").strip(), 3000) or ""
+    suggested_post = _truncate(str(payload.get("suggested_post") or "").strip(), 5000) or ""
+    ad_variants = [_truncate(str(item), 1000) or "" for item in _coerce_json_list(payload.get("suggested_ad_variants"))]
+    influencer_draft = _truncate(str(payload.get("influencer_outreach_draft") or "").strip(), 5000) or ""
+    report_outline = _truncate(str(payload.get("report_pack_outline") or "").strip(), 5000) or ""
+    alternate_hooks = [_truncate(str(item), 400) or "" for item in _coerce_json_list(payload.get("alternate_hooks"))]
+    title_options = [_truncate(str(item), 240) or "" for item in _coerce_json_list(payload.get("title_options"))]
+    disclosure_text = _truncate(str(payload.get("disclosure_text") or "").strip(), 1000) or ""
     if recommended_action == "skip":
         suggested_reply = suggested_reply or "Skip - not relevant enough."
         alternate_reply = alternate_reply or suggested_reply
@@ -1478,25 +2127,64 @@ def _normalize_suggestion_payload(
     else:
         suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
         alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
-    if _contains_direct_trade_advice(suggested_reply) or _contains_direct_trade_advice(alternate_reply):
+        suggested_post = _ensure_walnut_affiliation_disclosure(suggested_post) if content_type in {"x_post", "reddit_thread"} else suggested_post
+        influencer_draft = _ensure_walnut_affiliation_disclosure(influencer_draft) if "walnut" in influencer_draft.lower() else influencer_draft
+    content_values = [suggested_reply, alternate_reply, suggested_post, influencer_draft, report_outline, *ad_variants]
+    if any(_contains_direct_trade_advice(value) or _contains_hype_or_guarantee(value) for value in content_values):
         recommended_action = "monitor"
         destination = ""
-        suggested_reply = "Monitor - generated draft contained direct trading advice; review manually before replying."
+        suggested_reply = "Monitor - generated draft contained direct trading advice, hype, or a guarantee; review manually before using."
         alternate_reply = suggested_reply
+        suggested_post = ""
+        ad_variants = []
+        influencer_draft = ""
+        report_outline = ""
     value_added_insight = _truncate(str(payload.get("value_added_insight") or "").strip(), 1500) or ""
     walnut_feature = _truncate(str(payload.get("walnut_feature_to_mention") or "").strip(), 500) or ""
+    content_angle = _truncate(str(payload.get("content_angle") or payload.get("reply_angle") or "").strip(), 500) or reply_angle
+    assets = _normalize_assets(payload.get("assets"))
+    generated_content = _generated_content_from_structured(
+        content_type=content_type,
+        suggested_reply=suggested_reply,
+        suggested_post=suggested_post,
+        ad_variants=ad_variants,
+        influencer_draft=influencer_draft,
+        report_outline=report_outline,
+    )
+    alternate_versions = {
+        "alternate_reply_more_direct": alternate_reply,
+        "alternate_hooks": [item for item in alternate_hooks if item],
+        "title_options": [item for item in title_options if item],
+        "suggested_ad_variants": [item for item in ad_variants if item],
+        "disclosure_text": disclosure_text,
+    }
     return {
         "relevance_score": _clamp_int(payload.get("relevance_score"), 0, 100),
         "spam_risk_score": _clamp_int(payload.get("spam_risk_score"), 0, 100),
         "detected_tickers": detected_tickers,
         "intent": intent,
+        "campaign_type": campaign_type,
+        "content_type": content_type,
+        "platform": output_platform,
+        "audience": audience,
         "recommended_action": recommended_action,
         "reply_angle": reply_angle,
+        "content_angle": content_angle,
         "value_added_insight": value_added_insight,
         "walnut_feature_to_mention": "" if recommended_action == "skip" else walnut_feature,
         "suggested_destination_url": destination,
         "suggested_reply": suggested_reply,
+        "suggested_post": suggested_post,
+        "suggested_ad_variants": [item for item in ad_variants if item],
+        "influencer_outreach_draft": influencer_draft,
+        "report_pack_outline": report_outline,
+        "alternate_hooks": [item for item in alternate_hooks if item],
+        "title_options": [item for item in title_options if item],
+        "disclosure_text": disclosure_text,
+        "assets": assets,
         "alternate_reply_more_direct": alternate_reply,
+        "generated_content": generated_content,
+        "alternate_versions": alternate_versions,
         "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or value_added_insight or "No reason provided.",
         "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 1000) or "Review manually before posting.",
     }
@@ -1529,6 +2217,60 @@ def _contains_direct_trade_advice(reply: str) -> bool:
         r"\b(buy|sell|short)\s+(this|the stock|the name|[a-z]{1,6})\b",
     )
     return any(re.search(pattern, lowered) for pattern in patterns)
+
+
+def _contains_hype_or_guarantee(value: str) -> bool:
+    lowered = value.lower()
+    blocked = (
+        "about to explode",
+        "guaranteed",
+        "guarantee returns",
+        "can't lose",
+        "risk-free",
+        "sure thing",
+        "will moon",
+        "breakout guaranteed",
+    )
+    return any(term in lowered for term in blocked)
+
+
+def _coerce_json_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [stripped]
+    return [value]
+
+
+def _generated_content_from_structured(
+    *,
+    content_type: str,
+    suggested_reply: str,
+    suggested_post: str,
+    ad_variants: list[str],
+    influencer_draft: str,
+    report_outline: str,
+) -> str:
+    if content_type == "paid_ad" and ad_variants:
+        return "\n\n".join(ad_variants)
+    if content_type == "influencer_dm" and influencer_draft:
+        return influencer_draft
+    if content_type == "report_pack" and report_outline:
+        return report_outline
+    if content_type in {"x_post", "reddit_thread"} and suggested_post:
+        return suggested_post
+    return suggested_reply
 
 
 def _classify_openai_suggestion_error(response: requests.Response) -> tuple[str, str, int]:
@@ -1693,10 +2435,7 @@ def _walnut_url_or_default(value: str) -> str:
 def _normalize_source_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("A valid Reddit, X, or Facebook URL is required.")
-    host = parsed.netloc.lower()
-    if not any(domain in host for domain in ("reddit.com", "x.com", "twitter.com", "facebook.com", "fb.com")):
-        raise ValueError("Manual URL must be from Reddit, X, or Facebook.")
+        raise ValueError("A valid source URL is required.")
     return value.strip()
 
 
@@ -1724,7 +2463,13 @@ def _platform_from_url(url: str) -> str:
         return "reddit"
     if "facebook.com" in host or "fb.com" in host:
         return "facebook_manual"
-    return "x_stub"
+    if "linkedin.com" in host:
+        return "linkedin"
+    if "x.com" in host or "twitter.com" in host:
+        return "x_stub"
+    if "walnutmarkets.com" in host:
+        return "manual"
+    return "other"
 
 
 def _matched_keywords(text: str, keywords: list[str]) -> list[str]:
@@ -1774,6 +2519,36 @@ def _normalized_query_templates(value: Any) -> list[str]:
             continue
         templates.append(_truncate(cleaned, 240) or "")
     return [template for template in _dedupe_strings(templates) if template]
+
+
+def _normalize_assets(value: Any) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    assets: list[dict[str, Any]] = []
+    allowed_types = {"image", "chart", "csv", "pdf", "screenshot", "report"}
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        asset_url = _truncate(str(raw.get("url") or raw.get("path") or raw.get("reference") or "").strip(), 1200) or ""
+        thumbnail_url = _truncate(str(raw.get("thumbnail_url") or "").strip(), 1200) or ""
+        if not asset_url and not thumbnail_url:
+            continue
+        asset_type = str(raw.get("asset_type") or "image").strip().lower()
+        if asset_type not in allowed_types:
+            asset_type = "image"
+        title = _truncate(str(raw.get("title") or asset_type.title()).strip(), 200) or asset_type.title()
+        assets.append(
+            {
+                "title": title,
+                "asset_type": asset_type,
+                "url": asset_url,
+                "thumbnail_url": thumbnail_url,
+                "suggested_caption": _truncate(str(raw.get("suggested_caption") or "").strip(), 1000) or "",
+                "source_data_notes": _truncate(str(raw.get("source_data_notes") or "").strip(), 1000) or "",
+            }
+        )
+    return assets[:10]
 
 
 def _render_search_query_template(template: str, *, subreddit: str, keyword: str, ticker: str, term: str) -> str:
@@ -1844,6 +2619,14 @@ def _load_list(raw: str | None) -> list[str]:
     return [str(item) for item in parsed if str(item or "").strip()]
 
 
+def _load_json_list(raw: str | None) -> list[Any]:
+    try:
+        parsed = json.loads(raw or "[]")
+    except Exception:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
 def _load_object(raw: str | None) -> dict[str, Any]:
     try:
         parsed = json.loads(raw or "{}")
@@ -1854,6 +2637,10 @@ def _load_object(raw: str | None) -> dict[str, Any]:
 
 def _dump_list(values: list[Any]) -> str:
     return json.dumps(_dedupe_strings([str(value).strip() for value in values if str(value).strip()]), sort_keys=True)
+
+
+def _dump_json_list(values: list[Any]) -> str:
+    return json.dumps(values if isinstance(values, list) else [], sort_keys=True, default=str)
 
 
 def _dump_object(value: dict[str, Any]) -> str:

@@ -15,12 +15,18 @@ from app.models import AiMarketingEmailLog, AiMarketingOpportunity, AiMarketingS
 from app.routers.ai_marketing import (
     CampaignPayload,
     EmailDigestPayload,
+    GrowthDraftPayload,
     ManualUrlPayload,
+    admin_ai_growth_create_draft,
+    admin_ai_growth_email_draft,
+    admin_ai_growth_mark_copied,
+    admin_ai_growth_mark_posted,
     admin_ai_marketing_campaigns,
     admin_ai_marketing_create_campaign,
     admin_ai_marketing_email_digest,
     admin_ai_marketing_manual_url,
     admin_ai_marketing_run_campaign,
+    router as ai_marketing_router,
 )
 from app.services.ai_marketing import SourceItem, recommended_destination_url
 from app.services.email_templates import seed_default_email_templates
@@ -67,6 +73,49 @@ def _campaign_payload(**overrides):
     }
     payload.update(overrides)
     return CampaignPayload(**payload)
+
+
+def _growth_openai_payload(**overrides):
+    payload = {
+        "relevance_score": 86,
+        "spam_risk_score": 18,
+        "detected_tickers": ["NVDA"],
+        "intent": "tool_search",
+        "campaign_type": "x_chart_drop",
+        "content_type": "x_post",
+        "platform": "x",
+        "audience": "sophisticated retail investors",
+        "recommended_action": "draft_post",
+        "reply_angle": "ticker_context",
+        "content_angle": "ticker context",
+        "value_added_insight": "Use disclosed activity with price/volume confirmation and filings context.",
+        "walnut_feature_to_mention": "ticker pages with evidence trail and signal context",
+        "suggested_destination_url": "https://walnutmarkets.com/ticker/NVDA",
+        "suggested_reply": "",
+        "suggested_post": "I am building Walnut, so bias disclosed: NVDA has a cleaner read when reported Congress activity is checked against price/volume and filings context.",
+        "suggested_ad_variants": [],
+        "influencer_outreach_draft": "",
+        "report_pack_outline": "",
+        "alternate_hooks": ["The market has tells. Walnut finds them."],
+        "title_options": [],
+        "disclosure_text": "I am building Walnut, so bias disclosed.",
+        "assets": [],
+        "alternate_reply_more_direct": "",
+        "short_reason": "Ticker-specific data story.",
+        "compliance_notes": "Human review required. No investment advice.",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _mock_openai(monkeypatch, payload):
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
 
 
 def test_ai_marketing_campaigns_require_admin():
@@ -927,3 +976,311 @@ def test_digest_send_uses_founder_recipient_and_marks_emailed(monkeypatch):
         assert opportunity.status == "emailed"
     finally:
         db.close()
+
+
+def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _mock_openai(monkeypatch, _growth_openai_payload())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="NVDA",
+                inputs={"source_types": ["signals", "Congress", "price/volume"], "timeframe": "30 days"},
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert result["opportunity"]["campaign_type"] == "x_chart_drop"
+        assert result["opportunity"]["content_type"] == "x_post"
+        assert suggestion["recommended_action"] == "draft_post"
+        draft_text = result["opportunity"]["generated_content"].lower()
+        assert "reported congress" in draft_text
+        assert "buy" not in draft_text
+        assert "sell" not in draft_text
+        assert "about to explode" not in draft_text
+    finally:
+        db.close()
+
+
+def test_influencer_pack_creates_outreach_and_report_outline(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="influencer_report_pack",
+            content_type="influencer_dm",
+            platform="x",
+            recommended_action="influencer_pack",
+            suggested_post="",
+            influencer_outreach_draft="I am building Walnut, so bias disclosed. I can send a free NVDA signal context pack for your audience.",
+            report_pack_outline="1. Reported Congress disclosures\n2. Insider filings\n3. Price/volume confirmation\n4. Filing context",
+            short_reason="Influencer audience fits data-driven market research.",
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="influencer_report_pack",
+                content_type="influencer_dm",
+                source_platform="X",
+                ticker_theme="NVDA",
+                audience="FinTwit swing traders",
+                inputs={"influencer": "@marketoperator", "report_type": "PDF outline"},
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert "free NVDA signal context pack" in suggestion["influencer_outreach_draft"]
+        assert "Reported Congress disclosures" in suggestion["report_pack_outline"]
+        assert result["opportunity"]["recommended_action"] == "influencer_pack"
+    finally:
+        db.close()
+
+
+def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="reddit_research_thread",
+            content_type="reddit_thread",
+            platform="reddit",
+            recommended_action="draft_post",
+            suggested_post="Walnut pulls reported Congress disclosures, insider filings, and price context into one research workflow.",
+            title_options=["How I cross-check reported Congress disclosures against price context"],
+            disclosure_text="I am building Walnut, so bias disclosed.",
+            short_reason="The draft mentions Walnut and needs affiliation disclosure.",
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="Reddit",
+                ticker_theme="Congress trade research workflow",
+                inputs={"subreddit": "stocks", "post_type": "data walkthrough"},
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        generated = result["opportunity"]["generated_content"]
+        assert generated.startswith("Bias disclosed: I'm building Walnut.")
+        assert "reported Congress disclosures" in generated
+    finally:
+        db.close()
+
+
+def test_reddit_research_thread_can_recommend_skip_when_too_promotional(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="reddit_research_thread",
+            content_type="reddit_thread",
+            platform="reddit",
+            relevance_score=25,
+            spam_risk_score=92,
+            recommended_action="skip",
+            suggested_post="",
+            suggested_reply="Skip - not relevant enough.",
+            suggested_destination_url="",
+            short_reason="The requested angle is too promotional for the subreddit.",
+            compliance_notes="Probably do not post.",
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="Reddit",
+                text="Write a post that mostly pushes users to Walnut.",
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["recommended_action"] == "skip"
+        assert result["opportunity"]["spam_risk_score"] == 92
+        assert result["opportunity"]["suggested_destination_url"] == ""
+    finally:
+        db.close()
+
+
+def test_reddit_paid_ad_ideas_return_variants(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    variants = [
+        "Headline: Find the market tells. Body: Cross-check filings, signals, and disclosures before your next research session. CTA: Start free.",
+        "Headline: Research beyond the chart. Body: Walnut combines filings, insider activity, and signal context. CTA: Try Walnut.",
+    ]
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="reddit_paid_ad",
+            content_type="paid_ad",
+            platform="reddit",
+            recommended_action="draft_ad",
+            suggested_post="",
+            suggested_ad_variants=variants,
+            short_reason="Paid native ad variants for a research audience.",
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_paid_ad",
+                content_type="paid_ad",
+                source_platform="Reddit",
+                audience="r/stocks",
+                inputs={"offer": "Free plan", "pain_point": "fragmented market research"},
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert suggestion["recommended_action"] == "draft_ad"
+        assert suggestion["suggested_ad_variants"] == variants
+        assert "Start free" in result["opportunity"]["generated_content"]
+    finally:
+        db.close()
+
+
+def test_growth_draft_email_includes_posting_assist_checklist_and_assets(monkeypatch):
+    sent = {}
+
+    def fake_send_email(db, **kwargs):
+        sent.update(kwargs)
+        return {"id": 77, "status": "sent", "to_email": kwargs["to_email"], "subject": kwargs["context"]["subject"]}
+
+    monkeypatch.setattr("app.services.ai_marketing.send_email", fake_send_email)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="NVDA",
+                destination_url="https://walnutmarkets.com/ticker/NVDA",
+                text="NVDA source context",
+                assets=[
+                    {
+                        "title": "NVDA chart",
+                        "asset_type": "chart",
+                        "url": "https://walnutmarkets.com/admin/assets/nvda-chart.png",
+                        "thumbnail_url": "https://walnutmarkets.com/admin/assets/nvda-thumb.png",
+                        "suggested_caption": "Reported disclosures plus price context.",
+                    }
+                ],
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        opportunity = db.get(AiMarketingOpportunity, result["opportunity"]["id"])
+        db.add(
+            AiMarketingSuggestion(
+                opportunity_id=opportunity.id,
+                campaign_id=None,
+                model="test-model",
+                relevance_score=91,
+                spam_risk_score=12,
+                detected_tickers_json=json.dumps(["NVDA"]),
+                intent="tool_search",
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                platform="x",
+                audience="traders",
+                recommended_action="draft_post",
+                reply_angle="ticker_context",
+                content_angle="x chart drop",
+                value_added_insight="Reported disclosures checked against price/volume context.",
+                walnut_feature_to_mention="ticker page",
+                suggested_destination_url="https://walnutmarkets.com/ticker/NVDA",
+                suggested_reply="",
+                suggested_post="I am building Walnut, so bias disclosed. NVDA context draft.",
+                alternate_reply_more_direct="",
+                short_reason="High-fit X draft.",
+                compliance_notes="Review disclosure. No investment advice.",
+                disclosure_text="I am building Walnut, so bias disclosed.",
+                assets_json=json.dumps([]),
+            )
+        )
+        db.commit()
+
+        email = admin_ai_growth_email_draft(opportunity.id, _request_for_user(admin), db)
+
+        context = sent["context"]
+        assert sent["to_email"] == "jarod@walnutmarkets.com"
+        assert sent["template_key"] == "ai_marketing.digest"
+        assert "Walnut AI Growth" in context["subject"]
+        assert "Platform: X" in context["items_text"]
+        assert "Content type: X post" in context["items_text"]
+        assert "Source URL:" in context["items_text"]
+        assert "Suggested destination URL: https://walnutmarkets.com/ticker/NVDA" in context["items_text"]
+        assert "Copy draft" in context["items_text"]
+        assert "Attach image if relevant" in context["items_text"]
+        assert "Review disclosure" in context["items_text"]
+        assert "https://walnutmarkets.com/admin/ai-marketing?draft=" in context["items_text"]
+        assert "NVDA chart" in context["items_text"]
+        assert email["email_log"]["status"] == "sent"
+        db.refresh(opportunity)
+        assert opportunity.status == "emailed"
+    finally:
+        db.close()
+
+
+def test_growth_draft_manual_lifecycle_buttons_update_status(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="manual_research_input",
+                content_type="reddit_reply",
+                source_platform="Reddit",
+                text="Manual source text",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+
+        copied = admin_ai_growth_mark_copied(draft_id, _request_for_user(admin), db)
+        assert copied["status"] == "copied"
+        assert copied["copied_at"] is not None
+
+        posted = admin_ai_growth_mark_posted(draft_id, _request_for_user(admin), db)
+        assert posted["status"] == "posted_manually"
+        assert posted["posted_manually_at"] is not None
+    finally:
+        db.close()
+
+
+def test_no_auto_post_endpoint_exists():
+    paths = [getattr(route, "path", "") for route in ai_marketing_router.routes]
+    assert not any("auto-post" in path or "autopost" in path or "auto_post" in path for path in paths)

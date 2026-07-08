@@ -15,16 +15,23 @@ from app.services.ai_marketing import (
     MissingMarketingCredential,
     OpenAISuggestionError,
     OPPORTUNITY_STATUSES,
+    archive_opportunity,
     campaign_to_dict,
     config_status,
     create_campaign,
+    create_growth_draft,
     create_manual_opportunity,
     generate_suggestion,
     latest_suggestions_by_opportunity,
+    mark_opportunity_copied,
+    mark_opportunity_opened,
+    mark_opportunity_posted,
     opportunity_to_dict,
     preview_digest,
     public_settings_payload,
+    reject_opportunity,
     run_campaign,
+    send_draft_email,
     send_digest,
     suggestion_to_dict,
     test_openai_connection,
@@ -41,6 +48,8 @@ class CampaignPayload(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     enabled: bool = True
     mode: str = Field(max_length=80)
+    campaign_type: str | None = Field(default=None, max_length=80)
+    content_type: str | None = Field(default=None, max_length=80)
     platforms: list[str] = Field(default_factory=lambda: ["reddit"])
     keywords: list[str] = Field(default_factory=list)
     tickers: list[str] = Field(default_factory=list)
@@ -58,6 +67,8 @@ class CampaignPatchPayload(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     enabled: bool | None = None
     mode: str | None = Field(default=None, max_length=80)
+    campaign_type: str | None = Field(default=None, max_length=80)
+    content_type: str | None = Field(default=None, max_length=80)
     platforms: list[str] | None = None
     keywords: list[str] | None = None
     tickers: list[str] | None = None
@@ -79,7 +90,39 @@ class ManualUrlPayload(BaseModel):
     url: str | None = Field(default=None, max_length=1200)
     text: str | None = Field(default=None, max_length=4000)
     title: str | None = Field(default=None, max_length=300)
+    source_platform: str | None = Field(default=None, max_length=40)
+    ticker_theme: str | None = Field(default=None, max_length=240)
+    desired_output_type: str | None = Field(default=None, max_length=80)
+    destination_url: str | None = Field(default=None, max_length=1200)
+    campaign_type: str | None = Field(default=None, max_length=80)
+    content_type: str | None = Field(default=None, max_length=80)
     campaign_id: int | None = None
+    generate: bool = True
+
+
+class GrowthAssetPayload(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    asset_type: str | None = Field(default=None, max_length=40)
+    url: str | None = Field(default=None, max_length=1200)
+    path: str | None = Field(default=None, max_length=1200)
+    reference: str | None = Field(default=None, max_length=1200)
+    thumbnail_url: str | None = Field(default=None, max_length=1200)
+    suggested_caption: str | None = Field(default=None, max_length=1000)
+    source_data_notes: str | None = Field(default=None, max_length=1000)
+
+
+class GrowthDraftPayload(BaseModel):
+    campaign_type: str = Field(max_length=80)
+    content_type: str | None = Field(default=None, max_length=80)
+    source_platform: str | None = Field(default=None, max_length=40)
+    title: str | None = Field(default=None, max_length=300)
+    text: str | None = Field(default=None, max_length=6000)
+    ticker_theme: str | None = Field(default=None, max_length=240)
+    destination_url: str | None = Field(default=None, max_length=1200)
+    audience: str | None = Field(default=None, max_length=500)
+    tone: str | None = Field(default=None, max_length=80)
+    assets: list[GrowthAssetPayload] = Field(default_factory=list)
+    inputs: dict[str, Any] = Field(default_factory=dict)
     generate: bool = True
 
 
@@ -225,6 +268,137 @@ def admin_ai_marketing_opportunities(
     }
 
 
+@router.get("/admin/ai-growth/drafts")
+def admin_ai_growth_drafts(
+    request: Request,
+    db: Session = Depends(get_db),
+    status: str | None = Query(default=None),
+    campaign_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    return admin_ai_marketing_opportunities(request, db, status=status, campaign_id=campaign_id, limit=limit)
+
+
+@router.post("/admin/ai-growth/drafts", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_create_draft(
+    payload: GrowthDraftPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    try:
+        return create_growth_draft(
+            db,
+            campaign_type=payload.campaign_type,
+            content_type=payload.content_type,
+            source_platform=payload.source_platform,
+            title=payload.title,
+            text=payload.text,
+            ticker_theme=payload.ticker_theme,
+            destination_url=payload.destination_url,
+            audience=payload.audience,
+            tone=payload.tone,
+            assets=[_payload_dict(asset) for asset in payload.assets],
+            inputs=payload.inputs,
+            generate=payload.generate,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/admin/ai-growth/drafts/{draft_id}")
+def admin_ai_growth_draft_detail(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = _opportunity_or_404(db, draft_id)
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
+@router.patch("/admin/ai-growth/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_update_draft(
+    draft_id: int,
+    payload: OpportunityPatchPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    return admin_ai_marketing_update_opportunity(draft_id, payload, request, db)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/email", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_email_draft(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    opportunity = _opportunity_or_404(db, draft_id)
+    return send_draft_email(db, opportunity, admin_user_id=admin.id)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/mark-copied", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_mark_copied(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = mark_opportunity_copied(db, _opportunity_or_404(db, draft_id))
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/mark-posted", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_mark_posted(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = mark_opportunity_posted(db, _opportunity_or_404(db, draft_id))
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/mark-opened", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_mark_opened(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = mark_opportunity_opened(db, _opportunity_or_404(db, draft_id))
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/archive", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_archive_draft(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = archive_opportunity(db, _opportunity_or_404(db, draft_id))
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/reject", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_reject_draft(
+    draft_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = reject_opportunity(db, _opportunity_or_404(db, draft_id))
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
 @router.patch("/admin/ai-marketing/opportunities/{opportunity_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_ai_marketing_update_opportunity(
     opportunity_id: int,
@@ -257,6 +431,12 @@ def admin_ai_marketing_manual_url(
             text=payload.text,
             title=payload.title,
             campaign=campaign,
+            source_platform=payload.source_platform,
+            ticker_theme=payload.ticker_theme,
+            desired_output_type=payload.desired_output_type,
+            destination_url=payload.destination_url,
+            campaign_type=payload.campaign_type,
+            content_type=payload.content_type,
             generate=payload.generate,
         )
     except ValueError as exc:

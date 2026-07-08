@@ -2603,6 +2603,8 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         name TEXT NOT NULL,
                         enabled BOOLEAN NOT NULL DEFAULT 1,
                         mode TEXT NOT NULL,
+                        campaign_type TEXT,
+                        content_type TEXT,
                         platforms_json TEXT NOT NULL DEFAULT '[]',
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
@@ -2639,18 +2641,31 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         comment_count INTEGER,
                         source_created_at TIMESTAMP,
                         status TEXT NOT NULL DEFAULT 'new',
+                        campaign_type TEXT,
+                        content_type TEXT,
+                        source_platform TEXT,
+                        ticker_theme TEXT,
+                        recommended_action TEXT,
                         matched_keywords_json TEXT NOT NULL DEFAULT '[]',
                         matched_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        fit_score INTEGER,
                         relevance_score INTEGER,
                         spam_risk_score INTEGER,
                         intent TEXT,
                         suggested_destination_url TEXT,
                         short_reason TEXT,
                         compliance_notes TEXT,
+                        generated_content TEXT,
+                        alternate_versions_json TEXT NOT NULL DEFAULT '{}',
+                        asset_refs_json TEXT NOT NULL DEFAULT '[]',
                         raw_metadata_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_seen_at TIMESTAMP
+                        last_seen_at TIMESTAMP,
+                        emailed_at TIMESTAMP,
+                        opened_at TIMESTAMP,
+                        copied_at TIMESTAMP,
+                        posted_manually_at TIMESTAMP
                     )
                     """
                 )
@@ -2667,12 +2682,25 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         spam_risk_score INTEGER NOT NULL DEFAULT 0,
                         detected_tickers_json TEXT NOT NULL DEFAULT '[]',
                         intent TEXT NOT NULL DEFAULT 'other',
+                        campaign_type TEXT NOT NULL DEFAULT 'legacy_outreach_campaign',
+                        content_type TEXT NOT NULL DEFAULT 'reddit_reply',
+                        platform TEXT NOT NULL DEFAULT 'reddit',
+                        audience TEXT NOT NULL DEFAULT '',
                         recommended_action TEXT NOT NULL DEFAULT 'reply',
                         reply_angle TEXT NOT NULL DEFAULT 'other',
+                        content_angle TEXT NOT NULL DEFAULT '',
                         value_added_insight TEXT NOT NULL DEFAULT '',
                         walnut_feature_to_mention TEXT NOT NULL DEFAULT '',
                         suggested_destination_url TEXT NOT NULL,
                         suggested_reply TEXT NOT NULL,
+                        suggested_post TEXT NOT NULL DEFAULT '',
+                        suggested_ad_variants_json TEXT NOT NULL DEFAULT '[]',
+                        influencer_outreach_draft TEXT NOT NULL DEFAULT '',
+                        report_pack_outline TEXT NOT NULL DEFAULT '',
+                        alternate_hooks_json TEXT NOT NULL DEFAULT '[]',
+                        title_options_json TEXT NOT NULL DEFAULT '[]',
+                        disclosure_text TEXT NOT NULL DEFAULT '',
+                        assets_json TEXT NOT NULL DEFAULT '[]',
                         alternate_reply_more_direct TEXT NOT NULL DEFAULT '',
                         short_reason TEXT NOT NULL,
                         compliance_notes TEXT NOT NULL,
@@ -2724,6 +2752,8 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         name TEXT NOT NULL,
                         enabled BOOLEAN NOT NULL DEFAULT true,
                         mode TEXT NOT NULL,
+                        campaign_type TEXT,
+                        content_type TEXT,
                         platforms_json TEXT NOT NULL DEFAULT '[]',
                         keywords_json TEXT NOT NULL DEFAULT '[]',
                         tickers_json TEXT NOT NULL DEFAULT '[]',
@@ -2760,18 +2790,31 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         comment_count INTEGER,
                         source_created_at TIMESTAMPTZ,
                         status TEXT NOT NULL DEFAULT 'new',
+                        campaign_type TEXT,
+                        content_type TEXT,
+                        source_platform TEXT,
+                        ticker_theme TEXT,
+                        recommended_action TEXT,
                         matched_keywords_json TEXT NOT NULL DEFAULT '[]',
                         matched_tickers_json TEXT NOT NULL DEFAULT '[]',
+                        fit_score INTEGER,
                         relevance_score INTEGER,
                         spam_risk_score INTEGER,
                         intent TEXT,
                         suggested_destination_url TEXT,
                         short_reason TEXT,
                         compliance_notes TEXT,
+                        generated_content TEXT,
+                        alternate_versions_json TEXT NOT NULL DEFAULT '{}',
+                        asset_refs_json TEXT NOT NULL DEFAULT '[]',
                         raw_metadata_json TEXT NOT NULL DEFAULT '{}',
                         created_at TIMESTAMPTZ DEFAULT now(),
                         updated_at TIMESTAMPTZ DEFAULT now(),
-                        last_seen_at TIMESTAMPTZ
+                        last_seen_at TIMESTAMPTZ,
+                        emailed_at TIMESTAMPTZ,
+                        opened_at TIMESTAMPTZ,
+                        copied_at TIMESTAMPTZ,
+                        posted_manually_at TIMESTAMPTZ
                     )
                     """
                 )
@@ -2788,12 +2831,25 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         spam_risk_score INTEGER NOT NULL DEFAULT 0,
                         detected_tickers_json TEXT NOT NULL DEFAULT '[]',
                         intent TEXT NOT NULL DEFAULT 'other',
+                        campaign_type TEXT NOT NULL DEFAULT 'legacy_outreach_campaign',
+                        content_type TEXT NOT NULL DEFAULT 'reddit_reply',
+                        platform TEXT NOT NULL DEFAULT 'reddit',
+                        audience TEXT NOT NULL DEFAULT '',
                         recommended_action TEXT NOT NULL DEFAULT 'reply',
                         reply_angle TEXT NOT NULL DEFAULT 'other',
+                        content_angle TEXT NOT NULL DEFAULT '',
                         value_added_insight TEXT NOT NULL DEFAULT '',
                         walnut_feature_to_mention TEXT NOT NULL DEFAULT '',
                         suggested_destination_url TEXT NOT NULL,
                         suggested_reply TEXT NOT NULL,
+                        suggested_post TEXT NOT NULL DEFAULT '',
+                        suggested_ad_variants_json TEXT NOT NULL DEFAULT '[]',
+                        influencer_outreach_draft TEXT NOT NULL DEFAULT '',
+                        report_pack_outline TEXT NOT NULL DEFAULT '',
+                        alternate_hooks_json TEXT NOT NULL DEFAULT '[]',
+                        title_options_json TEXT NOT NULL DEFAULT '[]',
+                        disclosure_text TEXT NOT NULL DEFAULT '',
+                        assets_json TEXT NOT NULL DEFAULT '[]',
                         alternate_reply_more_direct TEXT NOT NULL DEFAULT '',
                         short_reason TEXT NOT NULL,
                         compliance_notes TEXT NOT NULL,
@@ -2829,6 +2885,8 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                 if len(row) > 1
             }
             for name, column_type in {
+                "campaign_type": "TEXT",
+                "content_type": "TEXT",
                 "query_templates_json": "TEXT NOT NULL DEFAULT '[]'",
                 "recency": "TEXT NOT NULL DEFAULT 'week'",
             }.items():
@@ -2841,28 +2899,86 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             }
             if "source_provider" not in existing_opportunity_columns:
                 conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN source_provider TEXT"))
+            for name, column_type in {
+                "campaign_type": "TEXT",
+                "content_type": "TEXT",
+                "source_platform": "TEXT",
+                "ticker_theme": "TEXT",
+                "recommended_action": "TEXT",
+                "fit_score": "INTEGER",
+                "generated_content": "TEXT",
+                "alternate_versions_json": "TEXT NOT NULL DEFAULT '{}'",
+                "asset_refs_json": "TEXT NOT NULL DEFAULT '[]'",
+                "emailed_at": "TIMESTAMP",
+                "opened_at": "TIMESTAMP",
+                "copied_at": "TIMESTAMP",
+                "posted_manually_at": "TIMESTAMP",
+            }.items():
+                if name not in existing_opportunity_columns:
+                    conn.execute(text(f"ALTER TABLE ai_marketing_opportunities ADD COLUMN {name} {column_type}"))
             existing_suggestion_columns = {
                 row[1]
                 for row in conn.execute(text("PRAGMA table_info(ai_marketing_suggestions)")).fetchall()
                 if len(row) > 1
             }
             for name, column_type in {
+                "campaign_type": "TEXT NOT NULL DEFAULT 'legacy_outreach_campaign'",
+                "content_type": "TEXT NOT NULL DEFAULT 'reddit_reply'",
+                "platform": "TEXT NOT NULL DEFAULT 'reddit'",
+                "audience": "TEXT NOT NULL DEFAULT ''",
                 "recommended_action": "TEXT NOT NULL DEFAULT 'reply'",
                 "reply_angle": "TEXT NOT NULL DEFAULT 'other'",
+                "content_angle": "TEXT NOT NULL DEFAULT ''",
                 "value_added_insight": "TEXT NOT NULL DEFAULT ''",
                 "walnut_feature_to_mention": "TEXT NOT NULL DEFAULT ''",
+                "suggested_post": "TEXT NOT NULL DEFAULT ''",
+                "suggested_ad_variants_json": "TEXT NOT NULL DEFAULT '[]'",
+                "influencer_outreach_draft": "TEXT NOT NULL DEFAULT ''",
+                "report_pack_outline": "TEXT NOT NULL DEFAULT ''",
+                "alternate_hooks_json": "TEXT NOT NULL DEFAULT '[]'",
+                "title_options_json": "TEXT NOT NULL DEFAULT '[]'",
+                "disclosure_text": "TEXT NOT NULL DEFAULT ''",
+                "assets_json": "TEXT NOT NULL DEFAULT '[]'",
                 "alternate_reply_more_direct": "TEXT NOT NULL DEFAULT ''",
             }.items():
                 if name not in existing_suggestion_columns:
                     conn.execute(text(f"ALTER TABLE ai_marketing_suggestions ADD COLUMN {name} {column_type}"))
         else:
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS campaign_type TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS content_type TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS query_templates_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recency TEXT NOT NULL DEFAULT 'week'"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_provider TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS campaign_type TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS content_type TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_platform TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS ticker_theme TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS recommended_action TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS fit_score INTEGER"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS generated_content TEXT"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS alternate_versions_json TEXT NOT NULL DEFAULT '{}'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS asset_refs_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS emailed_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS copied_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS posted_manually_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS campaign_type TEXT NOT NULL DEFAULT 'legacy_outreach_campaign'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS content_type TEXT NOT NULL DEFAULT 'reddit_reply'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'reddit'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT ''"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS recommended_action TEXT NOT NULL DEFAULT 'reply'"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS reply_angle TEXT NOT NULL DEFAULT 'other'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS content_angle TEXT NOT NULL DEFAULT ''"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS value_added_insight TEXT NOT NULL DEFAULT ''"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS walnut_feature_to_mention TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS suggested_post TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS suggested_ad_variants_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS influencer_outreach_draft TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS report_pack_outline TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS alternate_hooks_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS title_options_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS disclosure_text TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS assets_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_suggestions ADD COLUMN IF NOT EXISTS alternate_reply_more_direct TEXT NOT NULL DEFAULT ''"))
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_settings_secret ON ai_marketing_settings (is_secret)"))
