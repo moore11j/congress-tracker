@@ -1889,6 +1889,10 @@ export type AdminAiMarketingConfig = {
   web_search_reddit_status?: "missing" | "configured" | string;
   web_search_reddit_provider?: string | null;
   web_search_reddit_missing?: string[];
+  openai_web_search_configured?: boolean;
+  openai_web_search_status?: "enabled" | "disabled" | string;
+  openai_web_search_provider?: string | null;
+  openai_web_search_missing?: string[];
   manual_text_status?: "available" | string;
   x_status: string;
   facebook_status: string;

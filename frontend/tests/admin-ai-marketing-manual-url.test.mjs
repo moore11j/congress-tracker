@@ -85,6 +85,10 @@ test("AI Growth API uses draft endpoints and asset metadata", () => {
 
 test("settings remain env-only for provider credentials", () => {
   assert.match(viewSource, /Provider credentials are read from server environment variables and Fly secrets only\./);
+  assert.match(viewSource, /OPENAI_WEB_SEARCH_ENABLED/);
+  assert.match(viewSource, /OpenAI Web Search/);
+  assert.doesNotMatch(viewSource, /BING_SEARCH_API_KEY/);
+  assert.doesNotMatch(viewSource, /Bing Search API Key/);
   assert.doesNotMatch(viewSource, /updateAdminAiMarketingSettings/);
   assert.doesNotMatch(viewSource, /type="password"/);
 });

@@ -35,12 +35,16 @@ DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
+OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
 REDDIT_CLIENT_ID = "REDDIT_CLIENT_ID"
 REDDIT_CLIENT_SECRET = "REDDIT_CLIENT_SECRET"
 REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
 BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
 WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
-WEB_SEARCH_PROVIDER_MISSING_MESSAGE = "Web search provider missing."
+OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
+    "OpenAI web search is not configured. Enable OPENAI_WEB_SEARCH_ENABLED=true and confirm OPENAI_API_KEY is set."
+)
+OPENAI_WEB_SEARCH_FAILED_MESSAGE = "OpenAI web search discovery failed. Check OpenAI configuration, quota, and API availability."
 
 LEGACY_CAMPAIGN_MODES = {
     "ticker_thread_assist",
@@ -97,22 +101,24 @@ REPLY_ANGLES = {
 AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "AI Growth suggestions"},
     AI_MARKETING_MODEL: {"label": "AI Growth Model", "is_secret": False, "required_for": "AI Growth suggestions"},
+    OPENAI_WEB_SEARCH_ENABLED: {"label": "OpenAI Web Search", "is_secret": False, "required_for": "AI Growth web discovery"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
-    BING_SEARCH_API_KEY: {"label": "Bing Search API Key", "is_secret": True, "required_for": "Web Search Reddit discovery"},
 }
 SECRET_SETTING_KEYS = {key for key, meta in AI_MARKETING_SETTINGS.items() if meta["is_secret"]}
 ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
     {
         OPENAI_API_KEY,
         AI_MARKETING_MODEL,
+        OPENAI_WEB_SEARCH_ENABLED,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
-        BING_SEARCH_API_KEY,
     }
 )
+BOOLEAN_ENV_ONLY_SETTING_KEYS = frozenset({OPENAI_WEB_SEARCH_ENABLED})
+LEGACY_PROVIDER_SETTING_KEYS = frozenset({BING_SEARCH_API_KEY})
 PROVIDER_ENV_ONLY_MESSAGE = "Provider credentials are managed through server environment variables."
 MANUAL_REDDIT_CREDENTIALS_MESSAGE = (
     "Reddit API credentials are not configured. Paste the post/comment text manually or configure Reddit API credentials."
@@ -223,6 +229,10 @@ def resolved_setting_value(db: Session | None, key: str) -> str | None:
     return resolved["value"] if isinstance(resolved["value"], str) and resolved["value"].strip() else None
 
 
+def _env_flag_enabled(key: str) -> bool:
+    return os.getenv(key, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def resolve_setting(db: Session | None, key: str) -> dict[str, Any]:
     if key not in AI_MARKETING_SETTINGS:
         raise KeyError(f"Unsupported AI marketing setting: {key}")
@@ -233,6 +243,22 @@ def resolve_setting(db: Session | None, key: str) -> dict[str, Any]:
     env_value = os.getenv(key, "").strip()
 
     if key in ENV_ONLY_PROVIDER_SETTING_KEYS:
+        if key in BOOLEAN_ENV_ONLY_SETTING_KEYS:
+            if _env_flag_enabled(key):
+                return {
+                    "key": key,
+                    "value": "true",
+                    "source": "server_env",
+                    "row": row,
+                    "deprecated_admin_setting": deprecated_admin_setting,
+                }
+            return {
+                "key": key,
+                "value": None,
+                "source": "missing",
+                "row": row,
+                "deprecated_admin_setting": deprecated_admin_setting,
+            }
         if env_value:
             return {
                 "key": key,
@@ -328,6 +354,16 @@ def update_settings(
     return public_settings_payload(db)
 
 
+def _has_legacy_db_provider_setting(db: Session | None) -> bool:
+    if db is None:
+        return False
+    for key in LEGACY_PROVIDER_SETTING_KEYS:
+        row = db.get(AiMarketingSetting, key)
+        if row and str(row.value or "").strip():
+            return True
+    return False
+
+
 def config_status(db: Session | None = None) -> dict[str, Any]:
     statuses = {
         key: public_setting_payload(db, key) if db is not None else _public_setting_payload_without_db(key)
@@ -337,7 +373,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
-    if any(status.get("deprecated_admin_setting") for status in statuses.values()):
+    if any(status.get("deprecated_admin_setting") for status in statuses.values()) or _has_legacy_db_provider_setting(db):
         warnings.append("Deprecated DB-stored provider credentials detected; ignored.")
     if not statuses[REDDIT_CLIENT_ID]["configured"]:
         warnings.append("Reddit client ID missing")
@@ -346,7 +382,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     if not statuses[REDDIT_USER_AGENT]["configured"]:
         warnings.append("Reddit user agent missing")
     if not web_search_status["configured"]:
-        warnings.append(WEB_SEARCH_PROVIDER_MISSING_MESSAGE)
+        warnings.append(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
     warnings.append("X is a stub only. No X API calls or posting are implemented.")
     warnings.append("Facebook is manual URL mode only. No Facebook scraping or posting is implemented.")
     reddit_configured = all(
@@ -367,6 +403,10 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "web_search_reddit_status": "configured" if web_search_status["configured"] else "missing",
         "web_search_reddit_provider": web_search_status["provider"],
         "web_search_reddit_missing": web_search_status["missing"],
+        "openai_web_search_configured": bool(web_search_status["configured"]),
+        "openai_web_search_status": "enabled" if web_search_status["configured"] else "disabled",
+        "openai_web_search_provider": web_search_status["provider"],
+        "openai_web_search_missing": web_search_status["missing"],
         "manual_text_status": "available",
         "x_status": "stub",
         "facebook_status": "manual_url_only",
@@ -817,7 +857,7 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
             warnings.append(str(exc))
         except Exception:
             logger.exception("ai_marketing_web_search_reddit_failed campaign_id=%s", campaign.id)
-            warnings.append("Web Search Reddit discovery failed. Check provider credentials, quota, and API availability.")
+            warnings.append(OPENAI_WEB_SEARCH_FAILED_MESSAGE)
 
     if "x_stub" in platforms:
         warnings.append("X is configured as a future official API stub only; no X discovery ran.")
@@ -1478,16 +1518,26 @@ def test_reddit_connection(db: Session) -> dict[str, Any]:
 
 
 def web_search_provider_status(db: Session | None = None) -> dict[str, Any]:
-    if resolved_setting_value(db, BING_SEARCH_API_KEY):
-        return {"configured": True, "provider": "bing", "missing": []}
-    return {"configured": False, "provider": None, "missing": [BING_SEARCH_API_KEY]}
+    missing: list[str] = []
+    if not _env_flag_enabled(OPENAI_WEB_SEARCH_ENABLED):
+        missing.append(OPENAI_WEB_SEARCH_ENABLED)
+    if not resolved_setting_value(db, OPENAI_API_KEY):
+        missing.append(OPENAI_API_KEY)
+    return {
+        "configured": not missing,
+        "provider": "openai_web_search",
+        "missing": missing,
+    }
 
 
 def resolve_web_search_provider(db: Session | None = None) -> "WebSearchProvider":
-    bing_key = resolved_setting_value(db, BING_SEARCH_API_KEY)
-    if bing_key:
-        return BingWebSearchProvider(bing_key)
-    raise MissingMarketingCredential(WEB_SEARCH_PROVIDER_MISSING_MESSAGE)
+    status = web_search_provider_status(db)
+    if not status["configured"]:
+        raise MissingMarketingCredential(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        raise MissingMarketingCredential(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
+    return OpenAIWebSearchProvider(api_key=api_key, model=marketing_model(db))
 
 
 class WebSearchProvider:
@@ -1497,53 +1547,168 @@ class WebSearchProvider:
         raise NotImplementedError
 
 
-class BingWebSearchProvider(WebSearchProvider):
-    provider_name = "bing"
-    endpoint = "https://api.bing.microsoft.com/v7.0/search"
+class OpenAIWebSearchProvider(WebSearchProvider):
+    provider_name = "openai_web_search"
+    endpoint = "https://api.openai.com/v1/responses"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, *, api_key: str, model: str) -> None:
         self.api_key = api_key
+        self.model = model
 
     def search(self, query: str, *, max_results: int, recency: str = "week") -> list[WebSearchResult]:
-        params: dict[str, Any] = {
-            "q": query,
-            "count": max(1, min(int(max_results or 10), 50)),
-            "responseFilter": "Webpages",
-            "safeSearch": "Moderate",
-            "textFormat": "Raw",
+        result_limit = max(1, min(int(max_results or 10), 10))
+        prompt = _openai_web_search_prompt(query, max_results=result_limit, recency=recency)
+        request_payload = {
+            "model": self.model,
+            "tools": [{"type": "web_search"}],
+            "input": prompt,
+            "store": False,
         }
-        freshness = {"day": "Day", "week": "Week", "month": "Month"}.get(recency)
-        if freshness:
-            params["freshness"] = freshness
-        response = requests.get(
+        response = requests.post(
             self.endpoint,
-            headers={"Ocp-Apim-Subscription-Key": self.api_key},
-            params=params,
-            timeout=20,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=request_payload,
+            timeout=45,
         )
         if response.status_code >= 400:
-            raise RuntimeError("Bing Web Search request failed.")
+            raise RuntimeError("OpenAI web search request failed.")
         data = response.json()
-        values = data.get("webPages", {}).get("value", [])
-        if not isinstance(values, list):
-            return []
-        results: list[WebSearchResult] = []
-        for value in values:
-            if not isinstance(value, dict):
-                continue
-            url = str(value.get("url") or "").strip()
-            title = str(value.get("name") or "").strip()
-            if not url or not title:
-                continue
-            results.append(
-                WebSearchResult(
-                    title=title,
-                    url=url,
-                    snippet=str(value.get("snippet") or "").strip() or None,
-                    provider=self.provider_name,
-                )
+        return _parse_openai_web_search_results(data, max_results=result_limit, provider=self.provider_name)
+
+
+def _openai_web_search_prompt(query: str, *, max_results: int, recency: str) -> str:
+    recency_hint = {
+        "day": "Prefer results from the past day when available.",
+        "week": "Prefer results from the past week when available.",
+        "month": "Prefer results from the past month when available.",
+        "any": "Use the most relevant recent public results available.",
+    }.get(str(recency or "week").lower(), "Prefer recent public results when available.")
+    return "\n".join(
+        [
+            "You are Walnut's AI Growth Engine web discovery researcher.",
+            "Use web search to find public market discussions, recent ticker/news context, and places where a human-reviewed Walnut reply or post could add useful context.",
+            "Do not scrape Reddit pages directly. Reddit URLs are allowed only when surfaced by web search as title, URL, and snippet/citation context.",
+            "Return only valid JSON with this shape:",
+            '{"results":[{"title":"Result title","url":"https://example.com","snippet":"One concise sentence of relevant context."}]}',
+            f"Return at most {max_results} results.",
+            recency_hint,
+            f"Search query: {query}",
+        ]
+    )
+
+
+def _parse_openai_web_search_results(data: dict[str, Any], *, max_results: int, provider: str) -> list[WebSearchResult]:
+    text = _extract_responses_text_content(data)
+    parsed = _extract_json_payload(text)
+    candidates: list[dict[str, Any]] = []
+    if isinstance(parsed, dict):
+        raw_results = parsed.get("results")
+        if isinstance(raw_results, list):
+            candidates.extend(item for item in raw_results if isinstance(item, dict))
+    elif isinstance(parsed, list):
+        candidates.extend(item for item in parsed if isinstance(item, dict))
+
+    results = _normalize_web_search_candidates(candidates, provider=provider)
+    if not results:
+        results = _extract_openai_web_search_citations(data, provider=provider)
+    return _dedupe_web_search_results(results)[: max(1, max_results)]
+
+
+def _extract_responses_text_content(data: dict[str, Any]) -> str:
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+    texts: list[str] = []
+    for item in _walk_dicts(data):
+        item_type = str(item.get("type") or "")
+        text = item.get("text")
+        if item_type in {"output_text", "text"} and isinstance(text, str) and text.strip():
+            texts.append(text.strip())
+    return "\n".join(_dedupe_strings(texts))
+
+
+def _extract_json_payload(text: str) -> Any:
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", stripped, flags=re.IGNORECASE | re.DOTALL)
+    candidates = [fenced.group(1).strip()] if fenced else []
+    candidates.append(stripped)
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(stripped[start : end + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _normalize_web_search_candidates(candidates: list[dict[str, Any]], *, provider: str) -> list[WebSearchResult]:
+    results: list[WebSearchResult] = []
+    for item in candidates:
+        url = str(item.get("url") or item.get("link") or "").strip()
+        title = str(item.get("title") or item.get("name") or "").strip()
+        snippet = str(item.get("snippet") or item.get("summary") or item.get("description") or "").strip()
+        parsed_url = urlparse(url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            continue
+        results.append(
+            WebSearchResult(
+                title=title or parsed_url.netloc,
+                url=url,
+                snippet=snippet or None,
+                provider=provider,
             )
-        return results
+        )
+    return results
+
+
+def _extract_openai_web_search_citations(data: dict[str, Any], *, provider: str) -> list[WebSearchResult]:
+    text = _truncate(_extract_responses_text_content(data), 500)
+    candidates: list[dict[str, Any]] = []
+    for item in _walk_dicts(data):
+        item_type = str(item.get("type") or "")
+        url = item.get("url")
+        if not isinstance(url, str) or not url.strip():
+            continue
+        if "citation" not in item_type and "title" not in item:
+            continue
+        candidates.append(
+            {
+                "url": url,
+                "title": item.get("title") or item.get("name") or url,
+                "snippet": item.get("snippet") or item.get("summary") or text,
+            }
+        )
+    return _normalize_web_search_candidates(candidates, provider=provider)
+
+
+def _dedupe_web_search_results(results: list[WebSearchResult]) -> list[WebSearchResult]:
+    deduped: list[WebSearchResult] = []
+    seen: set[str] = set()
+    for result in results:
+        key = result.url.rstrip("/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(result)
+    return deduped
+
+
+def _walk_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
 
 
 class WebSearchRedditSourceAdapter:
@@ -2366,7 +2531,10 @@ def _upsert_setting(db: Session, key: str, value: str | None) -> AiMarketingSett
 
 def _public_setting_payload_without_db(key: str) -> dict[str, Any]:
     meta = AI_MARKETING_SETTINGS[key]
-    value = os.getenv(key, "").strip()
+    if key in BOOLEAN_ENV_ONLY_SETTING_KEYS:
+        value = "true" if _env_flag_enabled(key) else ""
+    else:
+        value = os.getenv(key, "").strip()
     env_only = key in ENV_ONLY_PROVIDER_SETTING_KEYS
     source = "server_env" if value else "default" if key == AI_MARKETING_MODEL else "missing"
     configured = bool(value) or key == AI_MARKETING_MODEL

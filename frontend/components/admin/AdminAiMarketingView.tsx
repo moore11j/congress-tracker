@@ -67,10 +67,10 @@ const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: stri
 const SETTING_KEYS = [
   "OPENAI_API_KEY",
   "AI_MARKETING_MODEL",
+  "OPENAI_WEB_SEARCH_ENABLED",
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
-  "BING_SEARCH_API_KEY",
 ] as const;
 
 const SOURCE_PLATFORMS = ["X", "Reddit", "Facebook", "LinkedIn", "Other"] as const;
@@ -900,6 +900,7 @@ function SettingsView({
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="AI model" value={config?.openai_model ?? "Default"} />
+        <MetricCard label="OpenAI Web Search" value={config?.openai_web_search_status ?? "disabled"} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
         <MetricCard label="Manual input" value={config?.manual_text_status ?? "available"} tone="good" />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Recipient" value={config?.recipient ?? "jarod@walnutmarkets.com"} />
@@ -1090,6 +1091,20 @@ function SettingField({ item, settingKey }: { settingKey: string; item?: AdminAi
   const configured = Boolean(item?.configured);
   const source = item?.source ?? "missing";
   const badgeTone = source === "missing" ? "bad" : source === "server_env" || source === "default" ? "good" : "warn";
+  const statusText =
+    settingKey === "OPENAI_WEB_SEARCH_ENABLED"
+      ? configured
+        ? "Enabled"
+        : "Disabled"
+      : configured
+        ? item?.source_label
+        : "Missing";
+  const helperText =
+    settingKey === "AI_MARKETING_MODEL"
+      ? "Set AI_MARKETING_MODEL on the backend to override the default model."
+      : settingKey === "OPENAI_WEB_SEARCH_ENABLED"
+        ? "Managed outside the admin UI with OPENAI_WEB_SEARCH_ENABLED=true."
+        : "Managed outside the admin UI.";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1099,8 +1114,8 @@ function SettingField({ item, settingKey }: { settingKey: string; item?: AdminAi
         </div>
         <Badge label={item?.source_label ?? "Loading"} tone={badgeTone} />
       </div>
-      <div className="mt-3 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300">{configured ? item?.source_label : "Missing"}</div>
-      <p className="mt-2 text-xs text-slate-500">{settingKey === "AI_MARKETING_MODEL" ? "Set AI_MARKETING_MODEL on the backend to override the default model." : "Managed outside the admin UI."}</p>
+      <div className="mt-3 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-300">{statusText}</div>
+      <p className="mt-2 text-xs text-slate-500">{helperText}</p>
     </div>
   );
 }

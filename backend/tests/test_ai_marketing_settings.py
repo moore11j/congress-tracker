@@ -20,6 +20,8 @@ from app.services.ai_marketing import (
     AI_MARKETING_MODEL,
     BING_SEARCH_API_KEY,
     OPENAI_API_KEY,
+    OPENAI_WEB_SEARCH_ENABLED,
+    OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
     REDDIT_CLIENT_ID,
     REDDIT_CLIENT_SECRET,
     REDDIT_USER_AGENT,
@@ -59,6 +61,7 @@ def _clear_env(monkeypatch):
     for key in (
         OPENAI_API_KEY,
         AI_MARKETING_MODEL,
+        OPENAI_WEB_SEARCH_ENABLED,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -74,7 +77,7 @@ def _deprecated_provider_setting(db, key: str, value: str, *, is_secret: bool = 
 
 @pytest.mark.parametrize(
     "key",
-    [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT, BING_SEARCH_API_KEY],
+    [OPENAI_API_KEY, AI_MARKETING_MODEL, OPENAI_WEB_SEARCH_ENABLED, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT],
 )
 def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
     _clear_env(monkeypatch)
@@ -95,7 +98,7 @@ def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
 
 @pytest.mark.parametrize(
     "key",
-    [OPENAI_API_KEY, AI_MARKETING_MODEL, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT, BING_SEARCH_API_KEY],
+    [OPENAI_API_KEY, AI_MARKETING_MODEL, OPENAI_WEB_SEARCH_ENABLED, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT],
 )
 def test_admin_cannot_clear_provider_env_only_settings(monkeypatch, key):
     _clear_env(monkeypatch)
@@ -136,6 +139,7 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv(OPENAI_API_KEY, "sk-env-openai")
     monkeypatch.setenv(AI_MARKETING_MODEL, "gpt-env-model")
+    monkeypatch.setenv(OPENAI_WEB_SEARCH_ENABLED, "true")
     monkeypatch.setenv(REDDIT_CLIENT_ID, "reddit-env-client")
     monkeypatch.setenv(REDDIT_CLIENT_SECRET, "reddit-env-secret")
     monkeypatch.setenv(REDDIT_USER_AGENT, "walnut-market-terminal/1.0")
@@ -155,6 +159,10 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
         assert items[OPENAI_API_KEY]["source_label"] == "Configured via server env"
         assert items[OPENAI_API_KEY]["masked_value"] is None
         assert "value" not in items[OPENAI_API_KEY]
+        assert items[OPENAI_WEB_SEARCH_ENABLED]["label"] == "OpenAI Web Search"
+        assert items[OPENAI_WEB_SEARCH_ENABLED]["configured"] is True
+        assert items[OPENAI_WEB_SEARCH_ENABLED]["source"] == "server_env"
+        assert BING_SEARCH_API_KEY not in items
         assert "Deprecated DB-stored provider credentials detected; ignored." in payload["config"]["warnings"]
         assert "sk-env-openai" not in serialized
         assert "sk-db-openai" not in serialized
@@ -163,6 +171,65 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
         assert "reddit-db-secret" not in serialized
         assert "walnut-market-terminal/1.0" not in serialized
         assert "bing-env-key" not in serialized
+    finally:
+        db.close()
+
+
+def test_admin_settings_do_not_expose_bing_search_api_key(monkeypatch):
+    _clear_env(monkeypatch)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        _deprecated_provider_setting(db, BING_SEARCH_API_KEY, "legacy-bing-key")
+
+        payload = admin_ai_marketing_settings(_request_for_user(admin), db)
+        serialized = json.dumps(payload)
+
+        assert BING_SEARCH_API_KEY not in _items_by_key(payload)
+        assert "Bing Search API Key" not in serialized
+        assert "legacy-bing-key" not in serialized
+        assert "Deprecated DB-stored provider credentials detected; ignored." in payload["config"]["warnings"]
+    finally:
+        db.close()
+
+
+def test_openai_web_search_status_reflects_env_config(monkeypatch):
+    _clear_env(monkeypatch)
+    db = _session()
+    try:
+        disabled = config_status(db)
+        assert disabled["openai_web_search_status"] == "disabled"
+        assert disabled["openai_web_search_configured"] is False
+        assert OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE in disabled["warnings"]
+
+        monkeypatch.setenv(OPENAI_API_KEY, "sk-env-openai")
+        monkeypatch.setenv(OPENAI_WEB_SEARCH_ENABLED, "true")
+
+        enabled = config_status(db)
+        assert enabled["openai_web_search_status"] == "enabled"
+        assert enabled["openai_web_search_configured"] is True
+        assert enabled["openai_web_search_provider"] == "openai_web_search"
+        assert enabled["openai_web_search_missing"] == []
+    finally:
+        db.close()
+
+
+def test_search_provider_keys_are_not_persisted_in_db(monkeypatch):
+    _clear_env(monkeypatch)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+
+        for key in (OPENAI_WEB_SEARCH_ENABLED, BING_SEARCH_API_KEY):
+            with pytest.raises(HTTPException) as exc:
+                admin_ai_marketing_update_settings(
+                    SettingsPatchPayload(updates={key: "secret-search-value"}),
+                    _request_for_user(admin),
+                    db,
+                )
+            assert exc.value.status_code == 422
+
+        assert db.query(AiMarketingSetting).count() == 0
     finally:
         db.close()
 
@@ -230,7 +297,7 @@ def test_missing_credentials_produce_helpful_warnings(monkeypatch):
         assert "Reddit client ID missing" in warnings
         assert "Reddit client secret missing" in warnings
         assert "Reddit user agent missing" in warnings
-        assert "Web search provider missing." in warnings
+        assert OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE in warnings
     finally:
         db.close()
 
