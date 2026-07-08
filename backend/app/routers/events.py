@@ -62,6 +62,7 @@ from app.services.institutional_activity import (
 )
 from app.services.search_suggest import search_suggestions
 from app.services.feed_pnl_enrichment import FEED_PNL_PRIORITY_BASE, enqueue_feed_pnl_enrichment_for_events
+from app.services.feed_cache_epoch import current_feed_events_epoch
 from app.utils.symbols import normalize_symbol
 from app.request_priority import get_request_context
 from app.request_guards import (
@@ -598,6 +599,7 @@ def _events_response_cache_key(
         "offset": offset,
         "include_net_flows": bool(include_net_flows),
         "payload": payload_mode,
+        "feed_epoch": current_feed_events_epoch(),
     }
     return "events:" + json.dumps(key_parts, sort_keys=True, separators=(",", ":"), default=str)
 

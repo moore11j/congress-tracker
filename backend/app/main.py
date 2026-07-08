@@ -257,6 +257,7 @@ from app.services.provider_usage import (
 )
 from app.services.provider_settings import cleanup_invalid_provider_settings, seed_default_provider_settings
 from app.utils.symbols import normalize_symbol
+from app.services.feed_cache_epoch import current_feed_events_epoch
 
 logger = logging.getLogger(__name__)
 
@@ -2667,6 +2668,7 @@ def _normalized_events_public_query(request: Request) -> list[tuple[str, str]]:
         ("page_size", str(page_size)),
         ("party", _normalized_public_string(params.get("party"))),
         ("payload", payload),
+        ("feed_epoch", current_feed_events_epoch()),
         ("pnl_max", (params.get("pnl_max") or "").strip()),
         ("pnl_min", (params.get("pnl_min") or "").strip()),
         ("recent_days", (params.get("recent_days") or "").strip()),

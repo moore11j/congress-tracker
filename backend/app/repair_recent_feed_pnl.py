@@ -5,6 +5,7 @@ import json
 import logging
 
 from app.db import SessionLocal
+from app.services.feed_cache_epoch import try_bump_feed_events_epoch
 from app.services.feed_pnl_enrichment import refresh_recent_feed_pnl_now, repair_recent_feed_pnl
 
 
@@ -34,6 +35,10 @@ def main() -> None:
     try:
         if args.process_now:
             report = refresh_recent_feed_pnl_now(db, days=args.days, limit=args.limit, symbols=symbols or None)
+            if int(report.get("pnl_refreshed") or 0) > 0:
+                report["feed_cache_epoch"] = try_bump_feed_events_epoch(reason="recent_feed_pnl_repair")
+            else:
+                report["feed_cache_epoch"] = {"status": "skipped", "reason": "no_pnl_writes"}
         else:
             report = repair_recent_feed_pnl(db, days=args.days, limit=args.limit, symbols=symbols or None)
     finally:

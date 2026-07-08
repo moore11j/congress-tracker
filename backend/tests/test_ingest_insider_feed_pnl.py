@@ -43,6 +43,7 @@ def test_insider_ingest_refreshes_feed_pnl_after_event_commit(monkeypatch) -> No
     )
 
     refresh_calls: list[list[int]] = []
+    bump_calls: list[str] = []
 
     def fake_refresh(db, *, event_ids: list[int]) -> dict:
         refresh_calls.append(list(event_ids))
@@ -80,6 +81,11 @@ def test_insider_ingest_refreshes_feed_pnl_after_event_commit(monkeypatch) -> No
         }
 
     monkeypatch.setattr(ingest_module, "refresh_feed_pnl_events_now", fake_refresh)
+    monkeypatch.setattr(
+        ingest_module,
+        "try_bump_feed_events_epoch",
+        lambda *, reason: bump_calls.append(reason) or {"status": "ok", "epoch": "1", "reason": reason},
+    )
 
     result = ingest_module.ingest_insider_trades(days=30, page_limit=1, per_page=100)
 
@@ -87,7 +93,9 @@ def test_insider_ingest_refreshes_feed_pnl_after_event_commit(monkeypatch) -> No
     assert result["inserted_events"] == 1
     assert result["feed_pnl_refresh"]["status"] == "ok"
     assert result["feed_pnl_refresh"]["pnl_refreshed"] == 1
+    assert result["feed_cache_epoch"]["status"] == "ok"
     assert refresh_calls and len(refresh_calls[0]) == 1
+    assert bump_calls == ["insider_ingest"]
 
     db = SessionLocal()
     try:
@@ -112,6 +120,7 @@ def test_insider_ingest_dedupes_events_and_does_not_refresh_duplicate(monkeypatc
         lambda page, limit: [_fmp_row()] if page == 0 else [],
     )
     refresh_calls = 0
+    bump_calls: list[str] = []
 
     def fake_refresh(db, *, event_ids: list[int]) -> dict:
         nonlocal refresh_calls
@@ -119,6 +128,11 @@ def test_insider_ingest_dedupes_events_and_does_not_refresh_duplicate(monkeypatc
         return {"events_requested": len(event_ids), "events_scanned": len(event_ids), "pnl_refreshed": len(event_ids)}
 
     monkeypatch.setattr(ingest_module, "refresh_feed_pnl_events_now", fake_refresh)
+    monkeypatch.setattr(
+        ingest_module,
+        "try_bump_feed_events_epoch",
+        lambda *, reason: bump_calls.append(reason) or {"status": "ok", "epoch": str(len(bump_calls)), "reason": reason},
+    )
 
     first = ingest_module.ingest_insider_trades(days=30, page_limit=1, per_page=100)
     second = ingest_module.ingest_insider_trades(days=30, page_limit=1, per_page=100)
@@ -127,7 +141,9 @@ def test_insider_ingest_dedupes_events_and_does_not_refresh_duplicate(monkeypatc
     assert second["inserted_events"] == 0
     assert second["skipped"] == 1
     assert second["feed_pnl_refresh"]["status"] == "skipped"
+    assert second["feed_cache_epoch"]["status"] == "skipped"
     assert refresh_calls == 1
+    assert bump_calls == ["insider_ingest"]
 
     db = SessionLocal()
     try:

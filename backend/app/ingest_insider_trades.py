@@ -20,6 +20,7 @@ from app.services.feed_pnl_enrichment import (
     enqueue_feed_pnl_enrichment_for_event,
     refresh_feed_pnl_events_now,
 )
+from app.services.feed_cache_epoch import try_bump_feed_events_epoch
 from app.utils.symbols import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
     cutoff = date.today() - timedelta(days=days)
     scanned = inserted_raw = inserted_events = skipped = 0
     feed_pnl_refresh_reports: list[dict[str, Any]] = []
+    feed_cache_epoch_reports: list[dict[str, Any]] = []
 
     db = SessionLocal()
     try:
@@ -294,6 +296,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
             db.commit()
             if page_event_ids:
                 feed_pnl_refresh_reports.append(_refresh_inserted_feed_pnl(page_event_ids))
+                feed_cache_epoch_reports.append(try_bump_feed_events_epoch(reason="insider_ingest"))
 
         return {
             "status": "ok",
@@ -302,6 +305,7 @@ def ingest_insider_trades(*, days: int = 30, page_limit: int = 3, per_page: int 
             "inserted_events": inserted_events,
             "skipped": skipped,
             "feed_pnl_refresh": _summarize_feed_pnl_refresh(feed_pnl_refresh_reports),
+            "feed_cache_epoch": feed_cache_epoch_reports[-1] if feed_cache_epoch_reports else {"status": "skipped", "reason": "no_new_events"},
         }
     finally:
         db.close()

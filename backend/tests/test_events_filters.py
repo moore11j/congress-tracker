@@ -1042,6 +1042,47 @@ def test_events_response_cache_key_normalizes_default_page_size():
     assert key_without_page_size != key_with_full_payload
 
 
+def test_events_response_cache_key_changes_with_feed_epoch(monkeypatch):
+    def key_for_epoch(epoch: str) -> str | None:
+        monkeypatch.setattr(events_module, "current_feed_events_epoch", lambda: epoch)
+        return events_module._events_response_cache_key(
+            request=_request({"user-agent": "k6/0.49.0"}),
+            debug_enabled=False,
+            include_total=False,
+            enrich_prices=True,
+            combined_symbols=[],
+            type_list=[],
+            tape_value=None,
+            since=None,
+            member=None,
+            member_id=None,
+            chamber_value=None,
+            party_value=None,
+            asset_filter_value="",
+            trade_value=None,
+            transaction_type=None,
+            role=None,
+            ownership=None,
+            department=None,
+            min_amount=None,
+            max_amount=None,
+            filed_after_max=None,
+            pnl_min=None,
+            pnl_max=None,
+            signal_min=None,
+            whale=None,
+            recent_days=None,
+            cursor=None,
+            limit=25,
+            page_size=25,
+            offset=0,
+            include_net_flows=False,
+            payload_mode="compact",
+        )
+
+    assert key_for_epoch("1") != key_for_epoch("2")
+
+
 def test_events_response_cache_disables_for_interactive_feed_client():
     active_feed_request = _request(
         {

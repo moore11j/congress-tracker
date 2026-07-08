@@ -19,6 +19,7 @@ from app.ingest_senate import ingest_senate
 from app.models import AppSetting, Event, Filing, Member, Transaction
 from app.services.congress_assets import CONGRESS_DISCLOSURE_EVENT_TYPES
 from app.services.congress_outcome_coverage import repair_recent_congress_outcomes
+from app.services.feed_cache_epoch import try_bump_feed_events_epoch
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,13 @@ def run_recent_congress_ingest(
         finally:
             repair_db.close()
 
+        outcome_inserted = _int_metric(outcome_coverage, "inserted")
+        feed_cache_epoch = (
+            try_bump_feed_events_epoch(reason="recent_congress_ingest")
+            if events_inserted or outcome_inserted
+            else {"status": "skipped", "reason": "no_feed_changes"}
+        )
+
         snapshot_db = SessionLocal()
         try:
             snapshot = _current_freshness_snapshot(snapshot_db)
@@ -181,6 +189,7 @@ def run_recent_congress_ingest(
         "senate": senate_result,
         "events_inserted": events_inserted,
         "outcome_coverage": outcome_coverage,
+        "feed_cache_epoch": feed_cache_epoch if not dry_run else {"status": "skipped", "reason": "dry_run"},
         "filings_scanned": _int_metric(house_result, "filings_scanned")
         + _int_metric(senate_result, "filings_scanned"),
         "transactions_inserted": _int_metric(house_result, "inserted")
