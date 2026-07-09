@@ -453,13 +453,14 @@ def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
     try:
         user = _user(db, "monitoring-alert@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
 
         result = send_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
 
         assert result["status"] == "log_only"
         assert result["item_count"] == 1
-        assert result["rendered_preview"]["sample_items"][0]["title"] == "NVDA has fresh monitored activity"
+        assert result["template_key"] == "alerts.signal_alert"
+        assert result["rendered_preview"]["sample_items"][0]["why_notable"] == "NVDA has fresh monitored activity"
     finally:
         db.close()
 
@@ -480,8 +481,8 @@ def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
     try:
         user = _user(db, "monitoring-sender@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist)
-        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.monitoring_digest")).scalar_one()
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.signal_alert")).scalar_one()
         template.from_email = "alerts@walnutmarkets.com"
         db.commit()
 
@@ -746,7 +747,7 @@ def test_signal_digest_force_test_does_not_change_scheduled_skip_logic(monkeypat
         db.close()
 
 
-def test_admin_signal_digest_run_now_reports_quality_diagnostics():
+def test_admin_monitoring_digest_run_now_reports_quality_diagnostics():
     db = _session()
     try:
         admin = _user(db, "signal-admin@example.com", role="admin")
@@ -755,7 +756,7 @@ def test_admin_signal_digest_run_now_reports_quality_diagnostics():
         _monitoring_alert(db, admin, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=2, symbol="NBIS")
 
         result = admin_run_email_digest_now(
-            AdminDigestRunNowPayload(kind="signals", lookback_days=1, limit=10, dry_run=True),
+            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
             _request_for_user(admin),
             db,
         )
@@ -783,7 +784,7 @@ def test_single_signal_alert_subject_targets_one_ticker(monkeypatch):
         result = send_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
         row = db.execute(select(EmailDelivery).where(EmailDelivery.id == result["id"])).scalar_one()
 
-        assert row.subject == "Walnut signal digest"
+        assert row.subject == "Walnut monitoring digest"
         assert result["rendered_preview"]["sample_items"] == [result["rendered_preview"]["sample_items"][0]]
         assert result["rendered_preview"]["sample_items"][0]["ticker"] == "XOM"
     finally:
@@ -805,7 +806,7 @@ def test_multi_signal_digest_subject_matches_digest_content(monkeypatch):
         row = db.execute(select(EmailDelivery).where(EmailDelivery.id == result["id"])).scalar_one()
         tickers = {item["ticker"] for item in result["rendered_preview"]["sample_items"]}
 
-        assert row.subject == "Walnut signal digest"
+        assert row.subject == "Walnut monitoring digest"
         assert result["item_count"] == 2
         assert {"XOM", "MSFT"}.issubset(tickers)
     finally:
@@ -935,38 +936,36 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         db.close()
 
 
-def test_admin_monitoring_digest_endpoint_targets_one_send(monkeypatch):
+def test_admin_monitoring_digest_endpoint_targets_ranked_digest(monkeypatch):
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
         user = _user(db, "reader@example.com")
-        watchlist = _watchlist(db, user)
         calls = []
 
-        def fake_send(db_arg, user_arg, watchlist_arg, since_arg, force=False):
-            calls.append((user_arg.id, watchlist_arg.id, since_arg, force))
+        def fake_send(db_arg, user_arg, since_arg, force=False):
+            calls.append((user_arg.id, since_arg, force))
             return {
                 "id": 123,
                 "status": "log_only",
                 "provider": "postmark",
                 "provider_message_id": None,
-                "template_key": "alerts.monitoring_digest",
+                "template_key": "alerts.signal_alert",
                 "category": "alerts",
                 "to_email": user_arg.email,
                 "error": None,
             }
 
-        monkeypatch.setattr("app.routers.accounts.send_monitoring_digest", fake_send)
+        monkeypatch.setattr("app.routers.accounts.send_signal_alert_digest", fake_send)
         result = admin_send_monitoring_digest_test(
-            AdminDigestSendTestPayload(user_id=user.id, watchlist_id=watchlist.id, lookback_days=7, force=True),
+            AdminDigestSendTestPayload(user_id=user.id, lookback_days=7, force=True),
             _request_for_user(admin),
             db,
         )
 
-        assert result["template_key"] == "alerts.monitoring_digest"
+        assert result["template_key"] == "alerts.signal_alert"
         assert len(calls) == 1
         assert calls[0][0] == user.id
-        assert calls[0][1] == watchlist.id
-        assert calls[0][3] is True
+        assert calls[0][2] is True
     finally:
         db.close()

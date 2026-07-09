@@ -220,8 +220,7 @@ def test_named_default_templates_use_walnut_product_hierarchy():
         "account.verify_email": ("Walnut Support", "Verify your Walnut email"),
         "account.welcome": ("Walnut Support", "Welcome to Walnut"),
         "account.account_deleted_reactivation": ("Walnut Support", "Sorry to see you go - reactivate your Walnut account"),
-        "alerts.monitoring_digest": ("Walnut Alerts", "Walnut monitoring digest"),
-        "alerts.signal_alert": ("Walnut Alerts", "Walnut signal digest"),
+        "alerts.signal_alert": ("Walnut Alerts", "Walnut monitoring digest"),
         "alerts.signal_intraday": ("Walnut Alerts", "Walnut high-conviction signal: {{ticker}}"),
         "alerts.watchlist_intraday": ("Walnut Alerts", "Walnut high-priority watchlist alert: {{ticker}}"),
         "alerts.watchlist_activity": ("Walnut Alerts", "Watchlist activity from Walnut"),
@@ -314,16 +313,22 @@ def test_admin_preview_renders_new_header_and_role_specific_footers():
         assert "Walnut Markets" not in billing_html
 
         alerts = admin_preview_email_template(
-            "alerts.monitoring_digest",
+            "alerts.signal_alert",
             EmailTemplatePreviewPayload(
                 context={
                     "first_name": "Ada",
-                    "watchlist_name": "AI Infrastructure",
-                    "digest_date": "June 15, 2026",
-                    "summary": "One new item",
-                    "items_text": "- NVDA",
-                    "items_html": "<table><tr><td>NVDA</td></tr></table>",
-                    "digest_url": "https://app.walnutmarkets.com/watchlists/1",
+                    "signal_title": "Monitoring digest",
+                    "signal_intro": "Your ranked monitoring candidates for June 15, 2026.",
+                    "signal_cta_label": "Review monitoring",
+                    "ticker": "NVDA",
+                    "signal_score": "88",
+                    "direction": "bullish",
+                    "why_notable": "NVDA has fresh monitored activity",
+                    "source_stack": "AI Infrastructure",
+                    "cautions": "Review source context before acting.",
+                    "signals_text": "- NVDA",
+                    "signals_html": "<table><tr><td>NVDA</td></tr></table>",
+                    "signal_url": "https://app.walnutmarkets.com/ticker/NVDA",
                 }
             ),
             request,

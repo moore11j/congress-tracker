@@ -5,13 +5,13 @@ Walnut email notifications are delivered only by explicit admin actions or backg
 There are two user-facing notification modes:
 
 - Intraday Alerts: high-priority watchlist activity and high-conviction signal matches during market hours only.
-- Daily Digests: daily summaries of watchlist activity, monitoring changes, and signal activity, including lower and medium-priority items that did not qualify for intraday alerts.
+- Daily Digests: daily summaries of watchlist activity and ranked monitoring candidates, including lower and medium-priority items that did not qualify for intraday alerts.
 
 ## Current Automatic Scheduling State
 
 The repository schedules daily digest delivery with a separate Fly `cron` process group in `backend/fly.toml`. The web `app` process serves requests only; it does not run email jobs in request threads.
 
-Fly Machines scheduled jobs were considered, but Fly's built-in scheduled Machine interval is coarse (`hourly`, `daily`, `weekly`, or `monthly`) rather than a precise Pacific wall-clock time. The checked-in schedule uses Supercronic in a single `cron` Machine so the 7:00/7:05/7:10 AM Pacific times are explicit and deployable with the app image.
+Fly Machines scheduled jobs were considered, but Fly's built-in scheduled Machine interval is coarse (`hourly`, `daily`, `weekly`, or `monthly`) rather than a precise Pacific wall-clock time. The checked-in schedule uses Supercronic in a single `cron` Machine so the 7:00/7:05 AM Pacific times are explicit and deployable with the app image.
 
 Scheduled digest sends are gated by `EMAIL_DIGEST_SCHEDULE_ENABLED=1`. Without that Fly secret, the cron Machine logs a disabled message and exits without calling the digest CLI. Use the admin run-now endpoint or CLI dry-runs before enabling scheduled sends.
 
@@ -28,7 +28,6 @@ Dry-run first:
 ```powershell
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind monitoring --lookback-days 1 --limit 100 --dry-run"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind watchlist_activity --lookback-days 1 --limit 100 --dry-run"
-flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind signals --lookback-days 1 --limit 100 --dry-run"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_intraday_email_alerts --lookback-minutes 60 --limit 100 --dry-run"
 ```
 
@@ -37,15 +36,13 @@ Send:
 ```powershell
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind monitoring --lookback-days 1 --limit 100"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind watchlist_activity --lookback-days 1 --limit 100"
-flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_email_digests --kind signals --lookback-days 1 --limit 100"
 flyctl ssh console -a congress-tracker-api --command "python -m app.jobs.send_intraday_email_alerts --lookback-minutes 60 --limit 100"
 ```
 
 Suggested external schedule:
 
-- `monitoring`: daily around 7:00 AM Pacific.
+- `monitoring`: ranked monitoring candidates daily around 7:00 AM Pacific.
 - `watchlist_activity`: daily around 7:05 AM Pacific.
-- `signals`: daily around 7:10 AM Pacific.
 - intraday sweep: every 30 minutes during market hours on weekdays.
 
 ## Admin Endpoint
@@ -87,7 +84,6 @@ The production schedule lives in `backend/crontab`:
 
 - `monitoring`: `0 7 * * *` Pacific.
 - `watchlist_activity`: `5 7 * * *` Pacific.
-- `signals`: `10 7 * * *` Pacific.
 - intraday sweep: every 30 minutes during market hours on weekdays.
 
 Each scheduled command calls `scripts/run_email_digest_schedule.sh`, which validates the digest kind and then calls `python -m app.jobs.send_email_digests` with `--lookback-days 1 --limit 100` by default. The digest engine remains idempotent for the midnight-to-midnight Pacific window, and the per-run limit bounds sends if a large backlog appears.
@@ -114,7 +110,7 @@ fly scale count app=1 cron=1 -a congress-tracker-api
 
 Keep exactly one `cron` Machine running. More than one `cron` Machine can cause duplicate attempts; idempotency should skip already-delivered digests, but the intended operational shape is a single scheduler.
 
-Before enabling or after schedule changes, run the three dry-run CLI commands above or call the admin run-now endpoint with `"dry_run": true`. Review totals, skipped rows, and failures before sending manually or enabling the active schedule.
+Before enabling or after schedule changes, run the dry-run CLI commands above or call the admin run-now endpoint with `"dry_run": true`. Review totals, skipped rows, and failures before sending manually or enabling the active schedule.
 
 To observe scheduled dry-runs without sending email:
 

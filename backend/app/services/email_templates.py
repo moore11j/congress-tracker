@@ -461,44 +461,14 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
-        "template_key": "alerts.monitoring_digest",
+        "template_key": "alerts.signal_alert",
         "name": "Monitoring digest",
         "category": "alerts",
         "from_name": ALERTS_FROM_NAME,
         "from_email": ALERTS_FROM_EMAIL,
         "reply_to": SUPPORT_EMAIL,
         "subject": "Walnut monitoring digest",
-        "preheader": "Your monitored watchlists, saved screens, and confirmation changes.",
-        "variables": ["first_name", "watchlist_name", "digest_date", "summary", "items_text", "items_html", "digest_url"],
-        "body_text": walnut_email_text(
-            greeting="Hello {{first_name}},",
-            intro="Your monitored watchlists, saved screens, and confirmation changes for {{digest_date}}.",
-            sections=["Watchlist: {{watchlist_name}}", "{{summary}}", "{{items_text}}"],
-            cta_label="Review digest",
-            cta_url="digest_url",
-            sender=ALERTS_FROM_NAME,
-            include_investment_disclaimer=True,
-        ),
-        "body_html": walnut_email_html(
-            sender=ALERTS_FROM_NAME,
-            eyebrow="Monitoring digest",
-            title="Monitoring digest",
-            intro="Hello {{first_name}}, your monitored watchlists, saved screens, and confirmation changes for {{digest_date}}.",
-            content_html=walnut_info_card("Summary", "{{summary}}") + "{{{items_html}}}",
-            cta_label="Review digest",
-            cta_url="digest_url",
-            include_investment_disclaimer=True,
-        ),
-    },
-    {
-        "template_key": "alerts.signal_alert",
-        "name": "Signal digest",
-        "category": "alerts",
-        "from_name": ALERTS_FROM_NAME,
-        "from_email": ALERTS_FROM_EMAIL,
-        "reply_to": SUPPORT_EMAIL,
-        "subject": "Walnut signal digest",
-        "preheader": "Your ranked signal candidates.",
+        "preheader": "Your ranked monitoring candidates.",
         "variables": [
             "first_name",
             "signal_title",
@@ -519,7 +489,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="{{signal_intro}}",
             sections=[
                 "Ticker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}",
-                "Signals are research inputs, not recommendations. {{cautions}}",
+                "Monitoring candidates are research inputs, not recommendations. {{cautions}}",
                 "{{signals_text}}",
             ],
             cta_label="{{signal_cta_label}}",
@@ -541,7 +511,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                     ("Source stack", "{{source_stack}}"),
                 ]
             )
-            + walnut_info_card("Research caution", "Signals are research inputs, not recommendations. {{cautions}}")
+            + walnut_info_card("Research caution", "Monitoring candidates are research inputs, not recommendations. {{cautions}}")
             + "{{{signals_html}}}",
             cta_label="{{signal_cta_label}}",
             cta_url="signal_url",
@@ -638,7 +608,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="{{alert_intro}}",
             sections=[
                 "Intraday Alerts\nTicker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nTrigger: {{trigger}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}\nObserved: {{event_date}}",
-                "Daily Digests\nNormal signal activity that does not clear intraday conviction thresholds is summarized in the daily signal digest.",
+                "Daily Digests\nNormal signal activity that does not clear intraday conviction thresholds is summarized in the daily monitoring digest.",
             ],
             cta_label="Review signal",
             cta_url="alert_url",
@@ -660,7 +630,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                     ("Source stack", "{{source_stack}}"),
                 ]
             )
-            + walnut_info_card("Daily Digests", "Normal signal activity that does not clear intraday conviction thresholds is summarized in the daily signal digest."),
+            + walnut_info_card("Daily Digests", "Normal signal activity that does not clear intraday conviction thresholds is summarized in the daily monitoring digest."),
             cta_label="Review signal",
             cta_url="alert_url",
             include_investment_disclaimer=True,

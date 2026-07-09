@@ -77,7 +77,6 @@ from app.services.email_digests import (
     DEFAULT_DIGEST_TIMEZONE,
     run_digest_job,
     send_monthly_billing_statement,
-    send_monitoring_digest,
     send_signal_alert_digest,
     send_watchlist_activity_digest,
     summarize_digest_results,
@@ -6570,7 +6569,15 @@ def _default_billing_period() -> tuple[date, date]:
 @router.get("/admin/email/templates")
 def admin_email_templates(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    templates = db.execute(select(EmailTemplate).order_by(EmailTemplate.category.asc(), EmailTemplate.template_key.asc())).scalars().all()
+    templates = (
+        db.execute(
+            select(EmailTemplate)
+            .where(EmailTemplate.template_key != "alerts.monitoring_digest")
+            .order_by(EmailTemplate.category.asc(), EmailTemplate.template_key.asc())
+        )
+        .scalars()
+        .all()
+    )
     return {"items": [_email_template_payload(template) for template in templates]}
 
 
@@ -6711,8 +6718,7 @@ def admin_send_monitoring_digest_test(
 ):
     admin = require_admin_user(db, request)
     user = _admin_digest_user(db, payload, admin)
-    watchlist = _admin_digest_watchlist(db, user, payload.watchlist_id)
-    return send_monitoring_digest(db, user, watchlist, _admin_digest_since(payload), force=payload.force)
+    return send_signal_alert_digest(db, user, _admin_digest_since(payload), force=payload.force)
 
 
 @router.post("/admin/email/digests/signals/send-test", dependencies=[Depends(rate_limit_admin_mutation)])

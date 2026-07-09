@@ -213,41 +213,7 @@ def send_monitoring_digest(
     window_end: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    template_key = "alerts.monitoring_digest"
-    window_end = _coerce_aware(window_end or datetime.now(timezone.utc))
-    since = _coerce_aware(since)
-    subscription = _watchlist_subscription(db, user, watchlist)
-    skip = _alert_skip_reason(user, "watchlist_activity")
-    only_if_new = True if subscription is None else bool(subscription.only_if_new)
-    if skip is None and subscription is None and not force:
-        skip = "watchlist_digest_inactive"
-    if skip is None and subscription is not None and not subscription.active and not force:
-        skip = "watchlist_digest_inactive"
-
-    digest = build_monitoring_digest(db, user, watchlist, since, window_end=window_end)
-    idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
-    duplicate = _duplicate_digest_result(db, idempotency_key)
-    if duplicate:
-        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
-    if skip:
-        return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
-            digest,
-            since,
-            window_end,
-            idempotency_key,
-        )
-    if only_if_new and digest.items_count == 0 and not force:
-        return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
-            digest,
-            since,
-            window_end,
-            idempotency_key,
-        )
-    result = _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key)
-    _mark_subscription_delivered(db, subscription, result)
-    return _with_digest_meta(result, digest, since, window_end, idempotency_key)
+    return send_signal_alert_digest(db, user, since, window_end=window_end, force=force)
 
 
 def build_signal_alert_digest(
@@ -259,8 +225,8 @@ def build_signal_alert_digest(
 ) -> DigestBuild:
     alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_DISPLAY_LIMIT)
     confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_DISPLAY_LIMIT)
-    # Monitoring Digest is the change log; Signal Digest is a qualified ranked board.
-    # Signal candidates may originate from MonitoringAlert rows, but broken or internal
+    # The public Monitoring digest is a qualified ranked board. Candidates may
+    # originate from MonitoringAlert rows, but broken or internal
     # monitoring changes are gated out before they reach public email content.
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
     items, diagnostics = _qualify_signal_items(raw_items)
@@ -268,11 +234,11 @@ def build_signal_alert_digest(
     items = sorted(items, key=_signal_rank_key, reverse=True)[:SIGNAL_DISPLAY_LIMIT]
     lead = items[0] if items else {}
     is_single = len(items) == 1
-    ticker = str(lead.get("ticker") or "Signal digest")
-    signal_title = "Signal digest"
-    signal_subject = "Walnut signal digest"
-    signal_intro = f"Your ranked signal candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
-    summary = _count_summary(len(items), "notable signal", "notable signals")
+    ticker = str(lead.get("ticker") or "Monitoring digest")
+    signal_title = "Monitoring digest"
+    signal_subject = "Walnut monitoring digest"
+    signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
+    summary = _count_summary(len(items), "monitoring candidate", "monitoring candidates")
     return DigestBuild(
         template_key="alerts.signal_alert",
         items_count=len(items),
@@ -283,12 +249,12 @@ def build_signal_alert_digest(
             "signal_subject": signal_subject,
             "signal_title": signal_title,
             "signal_intro": signal_intro,
-            "signal_cta_label": f"View {ticker} signal" if is_single else "Review signals",
+            "signal_cta_label": f"View {ticker} monitoring" if is_single else "Review monitoring",
             "ticker": ticker,
             "signal_score": _score_display(lead.get("signal_score")),
-            "direction": str(lead.get("direction") or "No qualified signals"),
+            "direction": str(lead.get("direction") or "No qualified monitoring candidates"),
             "why_notable": str(lead.get("why_notable") or summary),
-            "source_stack": str(lead.get("source_stack") or "Qualified Walnut signal candidates"),
+            "source_stack": str(lead.get("source_stack") or "Qualified Walnut monitoring candidates"),
             "cautions": "Review source context before acting.",
             "signals_text": _signal_items_text(items),
             "signals_html": _signal_items_html(items),
@@ -371,7 +337,7 @@ def run_digest_job(
 ) -> list[dict[str, Any]]:
     since, window_end = daily_digest_window(lookback_days=lookback_days, now=now)
     results: list[dict[str, Any]] = []
-    if kind == "signals":
+    if kind in {"monitoring", "signals"}:
         users = _eligible_users(db, limit=limit)
         if dry_run:
             return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
@@ -395,13 +361,7 @@ def run_digest_job(
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
         if not user or not watchlist:
             continue
-        if kind == "monitoring":
-            results.append(
-                _preview_monitoring_digest(db, user, watchlist, since, window_end, force=force)
-                if dry_run
-                else send_monitoring_digest(db, user, watchlist, since, window_end=window_end, force=force)
-            )
-        elif kind == "watchlist_activity":
+        if kind == "watchlist_activity":
             results.append(
                 _preview_watchlist_activity_digest(db, user, watchlist, since, window_end, force=force)
                 if dry_run
@@ -581,9 +541,13 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.subject == "Walnut signal alert: {{ticker}}":
             template = reset_email_template_to_default(db, template_key) or template
-        if template_key == "alerts.signal_alert" and template.name == "Signal alert":
+        if template_key == "alerts.signal_alert" and template.subject == "Walnut signal digest":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and template.name in {"Signal alert", "Signal digest"}:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.preheader == "Daily summary of Walnut Market Terminal signal activity.":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and template.preheader == "Your ranked signal candidates.":
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template
@@ -1260,7 +1224,7 @@ def _monitoring_items_html(items: list[dict[str, Any]]) -> str:
 
 def _signal_items_text(items: list[dict[str, Any]]) -> str:
     if not items:
-        return "No qualified signals in this window."
+        return "No qualified monitoring candidates in this window."
     return "\n".join(
         f"- {item['ticker']}: score {_score_display(item.get('signal_score'))} | {item['direction']} | {item['why_notable']} | {item['source_stack']} | {item['date']} | {item['href']}"
         for item in items
@@ -1270,7 +1234,7 @@ def _signal_items_text(items: list[dict[str, Any]]) -> str:
 
 def _signal_items_html(items: list[dict[str, Any]]) -> str:
     if not items:
-        return _empty_state_card("No qualified signals in this window.")
+        return _empty_state_card("No qualified monitoring candidates in this window.")
     rows = "".join(
         "<tr>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"

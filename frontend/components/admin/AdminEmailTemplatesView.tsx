@@ -42,8 +42,7 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "account.password_changed": "Sends after a successful password reset or account-settings password change.",
   "account.welcome": "Sends once when a new Google OAuth account is created.",
   "account.verify_email": "Sends on registration and explicit verification resend.",
-  "alerts.monitoring_digest": "Admin/cron-triggered digest of recent confirmation monitoring changes for a watchlist.",
-  "alerts.signal_alert": "Admin/cron-triggered daily digest of notable signal activity for a user's watchlist universe.",
+  "alerts.signal_alert": "Admin/cron-triggered daily Monitoring digest of ranked candidates for a user's watchlist universe.",
   "alerts.signal_intraday": "Intraday high-conviction signal alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
   "alerts.watchlist_intraday": "Intraday high-priority watchlist activity alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
   "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
@@ -68,7 +67,7 @@ const SKIP_REASON_MESSAGES: Record<string, string> = {
   user_alerts_disabled: "User alert notifications are off.",
   watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist.",
   no_new_items: "No new items in this window. Use force test to send a sample anyway.",
-  no_qualified_signals: "No qualified signal candidates in this window. Scheduled Signal Digest will skip.",
+  no_qualified_signals: "No qualified monitoring candidates in this window. Scheduled Monitoring digest will skip.",
   duplicate_window_already_sent: "Digest already sent for this window. Use force test to resend.",
   missing_watchlist: "Watchlist was not found.",
   missing_user: "User was not found.",
@@ -255,36 +254,36 @@ function digestStatusMessage(delivery: AdminDigestSendResult, fallbackEmail: str
   const qualifiedCount = Number(delivery.qualified_count ?? delivery.rendered_preview?.diagnostics?.qualified_count ?? itemCount);
   const excludedCount = Number(delivery.excluded_count ?? delivery.rendered_preview?.diagnostics?.excluded_count ?? 0);
   const skipReason = delivery.skip_reason || delivery.error || "";
-  const signalDiagnostic = delivery.template_key === "alerts.signal_alert" ? ` (${candidateCount} candidate${candidateCount === 1 ? "" : "s"}, ${qualifiedCount} qualified, ${excludedCount} excluded)` : "";
+  const monitoringDiagnostic = delivery.template_key === "alerts.signal_alert" ? ` (${candidateCount} candidate${candidateCount === 1 ? "" : "s"}, ${qualifiedCount} qualified, ${excludedCount} excluded)` : "";
   if (delivery.status === "sent" || delivery.status === "log_only" || delivery.status === "queued") {
     const verb = delivery.status === "sent" ? "Sent" : delivery.status === "log_only" ? "Rendered" : "Queued";
-    return `Status: ${verb} ${itemCount} ${itemCount === 1 ? "item" : "items"} to ${recipient}${signalDiagnostic}.`;
+    return `Status: ${verb} ${itemCount} ${itemCount === 1 ? "item" : "items"} to ${recipient}${monitoringDiagnostic}.`;
   }
   if (delivery.status === "skipped" && skipReason === "no_new_items") {
     return "Status: No new items in this window.";
   }
   if (delivery.status === "skipped" && skipReason === "no_qualified_signals") {
-    return `Status: No qualified signal candidates in this window${signalDiagnostic}.`;
+    return `Status: No qualified monitoring candidates in this window${monitoringDiagnostic}.`;
   }
   if (delivery.status === "skipped") {
     return `Status: Digest skipped. ${SKIP_REASON_MESSAGES[skipReason] || skipReason || "The delivery service skipped this email."}`;
   }
   if (delivery.status === "would_send") {
-    return `Status: Dry run found ${itemCount} ${itemCount === 1 ? "item" : "items"} for ${recipient}${signalDiagnostic}.`;
+    return `Status: Dry run found ${itemCount} ${itemCount === 1 ? "item" : "items"} for ${recipient}${monitoringDiagnostic}.`;
   }
   return testDeliveryStatusMessage(delivery, fallbackEmail);
 }
 
 function runNowStatusMessage(response: AdminDigestRunNowResponse) {
   const { summary } = response;
-  const signalDiagnostic =
-    response.kind === "signals"
+  const monitoringDiagnostic =
+    response.kind === "monitoring" || response.kind === "signals"
       ? `; ${Number(summary.candidate_count ?? 0)} candidates, ${Number(summary.qualified_count ?? 0)} qualified, ${Number(summary.excluded_count ?? 0)} excluded`
       : "";
   if (response.dry_run) {
-    return `Status: Dry run checked ${summary.total} target${summary.total === 1 ? "" : "s"}; ${summary.would_send} would send, ${summary.skipped} skipped, ${summary.item_count} item${summary.item_count === 1 ? "" : "s"}${signalDiagnostic}.`;
+    return `Status: Dry run checked ${summary.total} target${summary.total === 1 ? "" : "s"}; ${summary.would_send} would send, ${summary.skipped} skipped, ${summary.item_count} item${summary.item_count === 1 ? "" : "s"}${monitoringDiagnostic}.`;
   }
-  return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}${signalDiagnostic}.`;
+  return `Status: Ran ${response.kind}; sent ${summary.sent}, rendered ${summary.log_only}, queued ${summary.queued}, skipped ${summary.skipped}, failed ${summary.failed}, items ${summary.item_count}${monitoringDiagnostic}.`;
 }
 
 function intradayRunNowStatusMessage(response: AdminIntradayRunNowResponse) {
@@ -327,7 +326,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [digestWatchlistId, setDigestWatchlistId] = useState("");
   const [digestLookbackDays, setDigestLookbackDays] = useState("1");
   const [digestForce, setDigestForce] = useState(false);
-  const [digestRunKind, setDigestRunKind] = useState<"watchlist_activity" | "monitoring" | "signals">("watchlist_activity");
+  const [digestRunKind, setDigestRunKind] = useState<"watchlist_activity" | "monitoring">("watchlist_activity");
   const [digestRunLimit, setDigestRunLimit] = useState("100");
   const [digestRunDryRun, setDigestRunDryRun] = useState(true);
   const [intradayLookbackMinutes, setIntradayLookbackMinutes] = useState("60");
@@ -363,9 +362,12 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
         getAdminEmailTemplates(),
         getMe().catch(() => null),
       ]);
-      setTemplates(templateResponse.items);
+      const activeTemplates = templateResponse.items.filter((template) => template.template_key !== "alerts.monitoring_digest");
+      setTemplates(activeTemplates);
       setCurrentAdminEmail(meResponse?.user?.email ?? "");
-      setSelectedKey((current) => current || templateResponse.items[0]?.template_key || "");
+      setSelectedKey((current) =>
+        activeTemplates.some((template) => template.template_key === current) ? current : activeTemplates[0]?.template_key || "",
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load email templates.";
       setStatus(message);
@@ -613,7 +615,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     force: digestForce,
   });
 
-  const sendDigestTest = async (kind: "watchlist_activity" | "monitoring" | "signals" | "billing") => {
+  const sendDigestTest = async (kind: "watchlist_activity" | "monitoring" | "billing") => {
     setBusy(true);
     setStatus(null);
     try {
@@ -992,14 +994,6 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           </button>
           <button
             type="button"
-            onClick={() => sendDigestTest("signals")}
-            disabled={busy}
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
-          >
-            Send signals
-          </button>
-          <button
-            type="button"
             onClick={() => sendDigestTest("billing")}
             disabled={busy}
             className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
@@ -1014,12 +1008,11 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               <span className="block font-medium text-slate-200">Run digest job</span>
               <select
                 value={digestRunKind}
-                onChange={(event) => setDigestRunKind(event.target.value as "watchlist_activity" | "monitoring" | "signals")}
+                onChange={(event) => setDigestRunKind(event.target.value as "watchlist_activity" | "monitoring")}
                 className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
               >
                 <option value="watchlist_activity">Watchlist activity</option>
                 <option value="monitoring">Monitoring</option>
-                <option value="signals">Signals</option>
               </select>
             </label>
             <TextInput label="Run limit" value={digestRunLimit} onChange={setDigestRunLimit} />
