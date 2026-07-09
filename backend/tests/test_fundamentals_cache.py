@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base, ensure_fundamentals_cache_schema
 from app.models import FundamentalsCache, PriceCache
-from app.services.fundamentals_cache import FundamentalsFetchResult, fundamentals_source_diagnostics, fundamentals_summary_from_cache_row, normalize_fundamentals_payload, upsert_fundamentals_cache
+from app.services.fundamentals_cache import (
+    FundamentalsFetchResult,
+    fetch_fundamentals_for_symbol,
+    fundamentals_source_diagnostics,
+    fundamentals_summary_from_cache_row,
+    normalize_fundamentals_payload,
+    upsert_fundamentals_cache,
+)
 from app.services.screener import ScreenerParams, build_screener_response
 import app.populate_fundamentals_cache as populate_module
 
@@ -132,6 +139,40 @@ def test_fundamentals_cli_missing_provider_fields_stay_null(monkeypatch):
         row = db.execute(select(FundamentalsCache).where(FundamentalsCache.symbol == "AAPL")).scalar_one()
     assert row.trailing_pe is None
     assert row.gross_margin is None
+
+
+def test_fetch_fundamentals_continues_when_screener_snapshot_is_blocked(monkeypatch):
+    def blocked_screener(**_kwargs):
+        raise RuntimeError("FMP live calls blocked for user route")
+
+    def rows(endpoint: str, *, params=None, timeout_s=30):
+        if endpoint == "ratios-ttm":
+            return [
+                {
+                    "returnOnEquityTTM": 1.46,
+                    "operatingProfitMarginTTM": 0.33,
+                }
+            ]
+        if endpoint == "key-metrics-ttm":
+            return [{"marketCap": 4_600_000_000_000, "evToEBITDATTM": 29.0, "netDebtToEBITDATTM": 0.3}]
+        if endpoint == "income-statement-growth":
+            return [{"growthRevenue": 0.064}]
+        if endpoint == "ratios":
+            return [{"date": "2025-09-27", "operatingProfitMargin": 0.319}]
+        return []
+
+    monkeypatch.setattr("app.services.fundamentals_cache.fetch_company_screener", blocked_screener)
+    monkeypatch.setattr("app.services.fundamentals_cache._request_rows", rows)
+
+    result = fetch_fundamentals_for_symbol("AAPL")
+
+    assert result.status == "ok"
+    assert result.values["symbol"] == "AAPL"
+    assert result.values["revenue_growth"] == 6.4
+    assert result.values["roe"] == 146.0
+    assert result.values["ev_to_ebitda"] == 29.0
+    assert result.values["operating_margin_expansion"] == pytest.approx(1.1)
+    assert result.values["net_debt_to_ebitda"] == 0.3
 
 
 def test_fundamentals_summary_normalizes_payload_and_composite_status():

@@ -527,10 +527,13 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
 
     try:
         screener_row = None
-        for row in fetch_company_screener(filters={"symbol": normalized_symbol}, limit=10):
-            if normalize_symbol(row.get("symbol")) == normalized_symbol:
-                screener_row = row
-                break
+        try:
+            for row in fetch_company_screener(filters={"symbol": normalized_symbol}, limit=10):
+                if normalize_symbol(row.get("symbol")) == normalized_symbol:
+                    screener_row = row
+                    break
+        except Exception as exc:
+            logger.info("fundamentals screener snapshot unavailable symbol=%s error=%s", normalized_symbol, exc)
         quote_row = next(iter(_request_rows("historical-price-eod/light", params={"symbol": normalized_symbol})), {})
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})

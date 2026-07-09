@@ -244,7 +244,13 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
-from app.services.fundamentals_cache import fundamentals_source_diagnostics, fundamentals_summary_from_cache_row, unavailable_fundamentals_summary
+from app.services.fundamentals_cache import (
+    fetch_fundamentals_for_symbol,
+    fundamentals_source_diagnostics,
+    fundamentals_summary_from_cache_row,
+    unavailable_fundamentals_summary,
+    upsert_fundamentals_cache,
+)
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
@@ -9512,6 +9518,13 @@ def _ticker_fundamentals_cache_ttl_seconds() -> int:
         return 24 * 60 * 60
 
 
+def _ticker_fundamentals_incomplete_refresh_cooldown_seconds() -> int:
+    try:
+        return max(0, int(os.getenv("TICKER_FUNDAMENTALS_INCOMPLETE_REFRESH_COOLDOWN_SECONDS", "900") or 900))
+    except ValueError:
+        return 900
+
+
 def _ticker_fundamentals_row_complete_for_upper_card(row: FundamentalsCache) -> bool:
     values = (
         row.revenue_growth,
@@ -9521,6 +9534,55 @@ def _ticker_fundamentals_row_complete_for_upper_card(row: FundamentalsCache) -> 
         row.net_debt_to_ebitda,
     )
     return sum(1 for value in values if _parse_numeric(value) is not None) >= 3
+
+
+def _ticker_fundamentals_row_should_refresh_incomplete(row: FundamentalsCache) -> bool:
+    if _ticker_fundamentals_row_complete_for_upper_card(row):
+        return False
+    age_seconds = _ticker_fundamentals_cache_age_seconds(row)
+    if age_seconds is None:
+        return True
+    return age_seconds >= _ticker_fundamentals_incomplete_refresh_cooldown_seconds()
+
+
+def _fetch_and_cache_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
+    try:
+        result = fetch_fundamentals_for_symbol(symbol)
+        if result.status != "ok" or not result.values:
+            logger.info(
+                "ticker_chart fundamentals sync fetch returned no usable values symbol=%s status=%s error=%s",
+                symbol,
+                result.status,
+                result.error,
+            )
+            return None
+        if not upsert_fundamentals_cache(db, result.values):
+            return None
+        db.commit()
+        return (
+            db.execute(
+                select(FundamentalsCache)
+                .where(FundamentalsCache.symbol == symbol)
+                .where(FundamentalsCache.provider == "fmp")
+                .where(FundamentalsCache.status == "ok")
+                .order_by(FundamentalsCache.fetched_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        )
+    except Exception:
+        db.rollback()
+        logger.info("ticker_chart fundamentals sync fetch failed symbol=%s", symbol, exc_info=True)
+        return None
+
+
+def _refresh_incomplete_ticker_fundamentals_row(
+    db: Session,
+    symbol: str,
+    row: FundamentalsCache,
+) -> FundamentalsCache:
+    if not _ticker_fundamentals_row_should_refresh_incomplete(row):
+        return row
+    return _fetch_and_cache_ticker_fundamentals_row(db, symbol) or row
 
 
 def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
@@ -9554,21 +9616,22 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
     age_seconds = _ticker_fundamentals_cache_age_seconds(row)
     if age_seconds is not None:
         record_cache_hit(category="ticker:fundamentals", symbol=normalized, cache_age_seconds=age_seconds)
-        if age_seconds > _ticker_fundamentals_cache_ttl_seconds():
-            enqueue_data_enrichment_job(
-                job_type="fundamentals",
-                symbol=normalized,
-                source="page_load",
-                reason="stale_cache",
-                priority=45,
-            )
-        elif not _ticker_fundamentals_row_complete_for_upper_card(row):
+        if not _ticker_fundamentals_row_complete_for_upper_card(row):
             enqueue_data_enrichment_job(
                 job_type="fundamentals",
                 symbol=normalized,
                 source="page_load",
                 reason="incomplete_upper_card_metrics",
                 priority=60,
+            )
+            row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
+        elif age_seconds > _ticker_fundamentals_cache_ttl_seconds():
+            enqueue_data_enrichment_job(
+                job_type="fundamentals",
+                symbol=normalized,
+                source="page_load",
+                reason="stale_cache",
+                priority=45,
             )
     else:
         record_cache_hit(category="ticker:fundamentals", symbol=normalized)
@@ -9580,6 +9643,7 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
                 reason="incomplete_upper_card_metrics",
                 priority=60,
             )
+            row = _refresh_incomplete_ticker_fundamentals_row(db, normalized, row)
     return row
 
 

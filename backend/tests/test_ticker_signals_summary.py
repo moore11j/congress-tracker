@@ -16,7 +16,7 @@ import app.services.confirmation_score as confirmation_score_module
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
 from app.main import _ticker_profiles_response, ticker_signals_summary
-from app.models import DataEnrichmentJob, Event, GovernmentContract, PriceCache, TickerContextBundleCache, TickerMeta
+from app.models import DataEnrichmentJob, Event, FundamentalsCache, GovernmentContract, PriceCache, TickerContextBundleCache, TickerMeta
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.confirmation_score import confirmation_score_bundle_from_source_contexts, slim_confirmation_score_bundle
 
@@ -99,6 +99,52 @@ def test_ticker_government_contracts_fails_soft_when_widget_lane_saturated(monke
     assert payload["status"] == "unavailable"
     assert payload["source_status"] == "busy"
     assert payload["items"] == []
+
+
+def test_incomplete_fresh_fundamentals_row_refreshes_before_return(monkeypatch):
+    engine = _engine()
+    old_fetched_at = datetime.now(timezone.utc) - timedelta(days=2)
+    refreshed_at = datetime.now(timezone.utc)
+
+    def fake_fetch(symbol: str):
+        assert symbol == "AAPL"
+        return SimpleNamespace(
+            status="ok",
+            error=None,
+            values={
+                "symbol": "AAPL",
+                "provider": "fmp",
+                "fetched_at": refreshed_at,
+                "status": "ok",
+                "revenue_growth": 6.5,
+                "roe": 146.7,
+                "ev_to_ebitda": 29.0,
+                "operating_margin_expansion": 3.6,
+                "net_debt_to_ebitda": 0.3,
+            },
+        )
+
+    monkeypatch.setattr(main_module, "fetch_fundamentals_for_symbol", fake_fetch)
+
+    with Session(engine) as db:
+        db.add(
+            FundamentalsCache(
+                symbol="AAPL",
+                provider="fmp",
+                fetched_at=old_fetched_at,
+                status="ok",
+            )
+        )
+        db.commit()
+
+        row = main_module._cached_ticker_fundamentals_row(db, "AAPL")
+
+    assert row is not None
+    assert row.revenue_growth == 6.5
+    assert row.roe == 146.7
+    assert row.ev_to_ebitda == 29.0
+    assert row.operating_margin_expansion == 3.6
+    assert row.net_debt_to_ebitda == 0.3
 
 
 def test_ticker_api_prefetch_requests_bypass_expensive_builders(monkeypatch):
