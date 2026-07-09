@@ -6,11 +6,13 @@ import { Badge, type BadgeTone } from "@/components/Badge";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import {
   ApiError,
+  getEntitlements,
   getSignalsAll,
   type SignalItem,
   type SignalMode,
   type SignalSort,
 } from "@/lib/api";
+import { hasEntitlement } from "@/lib/entitlements";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, normalizeInsiderRoleBadge, resolveInsiderDisplayName } from "@/lib/insiderRole";
 import { memberHref } from "@/lib/memberSlug";
@@ -175,6 +177,8 @@ export function SignalsResultsClient({
   const [items, setItems] = useState<SignalItem[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedCanBacktest, setResolvedCanBacktest] = useState(canBacktest);
+  const [resolvedUpgradeUrl, setResolvedUpgradeUrl] = useState(upgradeUrl);
   const backtestingHref = useMemo(() => backtestingHrefFromItems(items), [items]);
   const isInstitutionalMode = mode === "institutional";
   const showInstitutionalUpgradeCta = !loading && isInstitutionalProRequiredMessage(mode, errorMessage);
@@ -197,6 +201,26 @@ export function SignalsResultsClient({
         multiple: "Mult",
         score: "Score",
       };
+
+  useEffect(() => {
+    let alive = true;
+    setResolvedCanBacktest(canBacktest);
+    setResolvedUpgradeUrl(upgradeUrl);
+    getEntitlements()
+      .then((entitlements) => {
+        if (!alive) return;
+        setResolvedCanBacktest(hasEntitlement(entitlements, "backtesting"));
+        setResolvedUpgradeUrl(entitlements.upgrade_url || "/pricing");
+      })
+      .catch(() => {
+        if (!alive) return;
+        setResolvedCanBacktest(canBacktest);
+        setResolvedUpgradeUrl(upgradeUrl);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [canBacktest, upgradeUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -238,7 +262,7 @@ export function SignalsResultsClient({
         </p>
         {isInstitutionalMode ? (
           <span className="inline-flex w-full items-center justify-center rounded-full border border-white/10 px-3 py-1 text-center text-xs font-semibold text-slate-500 md:w-auto">Institutional backtests coming soon</span>
-        ) : canBacktest ? (
+        ) : resolvedCanBacktest ? (
           backtestingHref ? (
             <Link
               href={backtestingHref}
@@ -252,7 +276,7 @@ export function SignalsResultsClient({
           )
         ) : (
           <Link
-            href={upgradeUrl}
+            href={resolvedUpgradeUrl}
             prefetch={false}
             className="inline-flex w-full items-center justify-center rounded-full border border-white/10 px-3 py-1 text-center text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white md:w-auto"
           >
@@ -264,7 +288,7 @@ export function SignalsResultsClient({
         {loading || items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-400">
             <div>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</div>
-            {showInstitutionalUpgradeCta ? <div className="mt-4"><InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /></div> : null}
+            {showInstitutionalUpgradeCta ? <div className="mt-4"><InstitutionalSignalsUpgradeCta upgradeUrl={resolvedUpgradeUrl} /></div> : null}
           </div>
         ) : (
           <div className="divide-y divide-slate-800">
@@ -394,7 +418,7 @@ export function SignalsResultsClient({
                 <td className="px-4 py-10 text-center text-slate-400" colSpan={8}>
                   <div className="flex flex-col items-center gap-3">
                     <span>{loading ? "Loading signals..." : errorMessage || "No unusual signals returned."}</span>
-                    {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={upgradeUrl} /> : null}
+                    {showInstitutionalUpgradeCta ? <InstitutionalSignalsUpgradeCta upgradeUrl={resolvedUpgradeUrl} /> : null}
                   </div>
                 </td>
               </tr>

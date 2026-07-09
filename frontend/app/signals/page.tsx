@@ -4,8 +4,7 @@ import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { SignalsResultsClient } from "@/components/signals/SignalsResultsClient";
 import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { chamberBadge } from "@/lib/format";
-import { getEntitlements, getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
-import { defaultEntitlements, entitlementsFromTierHint, hasEntitlement } from "@/lib/entitlements";
+import { getSignalsAll, type SignalMode, type SignalSort } from "@/lib/api";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { institutionHref } from "@/lib/institution";
 import { memberHref } from "@/lib/memberSlug";
@@ -21,7 +20,7 @@ import {
   signalsResultsScrollFrameClassName,
   stickyResultsTableHeaderClassName,
 } from "@/components/ui/resultsTableFrame";
-import { buildReturnTo, requirePageAuthState } from "@/lib/serverAuth";
+import { buildReturnTo } from "@/lib/serverAuth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -284,11 +283,6 @@ export default async function SignalsPage({
 }) {
   const sp = (await searchParams) ?? {};
   const returnTo = buildReturnTo("/signals", sp);
-  const authState = await requirePageAuthState(returnTo);
-  const authToken = authState.token;
-  const entitlements = authToken
-    ? await getEntitlements(authToken).catch(() => defaultEntitlements)
-    : entitlementsFromTierHint(authState.entitlementHint);
   const mode = clampMode(getParam(sp, "mode"));
   const side = clampSide(getParam(sp, "side"));
   const limit = clampLimit(getParam(sp, "limit"));
@@ -299,7 +293,7 @@ export default async function SignalsPage({
   const pill = "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium";
 
   return (
-    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
+    <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={false}>
       <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
       <div>
         <div className="text-xs tracking-[0.25em] text-emerald-300/70">SIGNALS</div>
@@ -335,8 +329,8 @@ export default async function SignalsPage({
           institutionalLookbackDays={institutionalLookbackDays}
           card={card}
           pill={pill}
-          canBacktest={hasEntitlement(entitlements, "backtesting")}
-          upgradeUrl={entitlements.upgrade_url || "/pricing"}
+          canBacktest={false}
+          upgradeUrl="/pricing"
         />
       </div>
       </div>

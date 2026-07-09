@@ -1,14 +1,12 @@
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
-import { requirePageAuth } from "@/lib/serverAuth";
 import { WatchlistsDashboard } from "@/components/watchlists/WatchlistsDashboard";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
+export const revalidate = false;
 
 export default async function WatchlistsPage() {
-  const authToken = await requirePageAuth("/watchlists");
-
   return (
-    <VerifiedSessionGuard returnTo="/watchlists" initiallyAuthorized={Boolean(authToken)}>
+    <VerifiedSessionGuard returnTo="/watchlists" initiallyAuthorized={false}>
       <div className="space-y-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Watchlists</p>
@@ -18,7 +16,7 @@ export default async function WatchlistsPage() {
           </p>
         </div>
 
-        <WatchlistsDashboard initialWatchlists={[]} initialAuthPending={!authToken} />
+        <WatchlistsDashboard initialWatchlists={[]} initialAuthPending />
       </div>
     </VerifiedSessionGuard>
   );
