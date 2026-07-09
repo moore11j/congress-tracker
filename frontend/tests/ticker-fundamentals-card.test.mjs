@@ -56,4 +56,8 @@ test("ticker overview refreshes signal summary and mentions price volume when ac
   assert.match(tickerPage, /Price \/ Volume: bearish tape/);
   assert.match(tickerPage, /Price \/ Volume: bullish tape/);
   assert.match(tickerPage, /Price \/ Volume: mixed tape/);
+  assert.match(tickerPage, /Institutional Activity: active \/ reduction/);
+  assert.match(tickerPage, /Institutional Activity: active \/ accumulation/);
+  assert.match(tickerPage, /Institutional Activity: active \/ mixed/);
+  assert.match(tickerPage, /return Array\.from\(bullets\)\.slice\(0, 5\)/);
 });

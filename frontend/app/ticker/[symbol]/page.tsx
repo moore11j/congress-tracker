@@ -1589,6 +1589,11 @@ function overviewBullets({
     else if (confirmationBundle.sources.price_volume.direction === "bullish") bullets.add("Price / Volume: bullish tape");
     else bullets.add("Price / Volume: mixed tape");
   }
+  if (confirmationBundle.sources.institutional_activity.present) {
+    if (confirmationBundle.sources.institutional_activity.direction === "bearish") bullets.add("Institutional Activity: active / reduction");
+    else if (confirmationBundle.sources.institutional_activity.direction === "bullish") bullets.add("Institutional Activity: active / accumulation");
+    else bullets.add("Institutional Activity: active / mixed");
+  }
   if (confirmationBundle.sources.fundamentals.present) {
     if (confirmationBundle.sources.fundamentals.direction === "bearish") bullets.add("Fundamentals: pressure");
     else if (confirmationBundle.sources.fundamentals.direction === "bullish") bullets.add("Fundamentals: strength");
@@ -1599,7 +1604,7 @@ function overviewBullets({
     else if (confirmationBundle.sources.congress.direction === "bullish") bullets.add("Congress activity: active / buy-skewed");
     else bullets.add("Congress activity: active / mixed");
   }
-  return Array.from(bullets).slice(0, 3);
+  return Array.from(bullets).slice(0, 5);
 }
 
 function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {

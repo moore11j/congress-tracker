@@ -200,6 +200,7 @@ from app.services.confirmation_metrics import get_confirmation_metrics_for_symbo
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.confirmation_score import (
     confirmation_score_bundle_from_source_contexts,
+    confirmation_score_bundle_from_source_payloads,
     inactive_confirmation_score_bundle,
     redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
@@ -8550,6 +8551,43 @@ def _merge_authorized_signal_context_into_confirmation_bundle(
     return merged
 
 
+def _merge_fresh_public_contexts_into_confirmation_bundle(
+    bundle: dict[str, Any],
+    source_contexts: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(bundle, dict) or not isinstance(source_contexts, dict):
+        return bundle
+    fresh_bundle = confirmation_score_bundle_from_source_contexts(
+        str(bundle.get("ticker") or ""),
+        lookback_days=max(1, min(int(bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        source_contexts=source_contexts,
+    )
+    fresh_sources = fresh_bundle.get("sources") if isinstance(fresh_bundle.get("sources"), dict) else {}
+    existing_sources = bundle.get("sources") if isinstance(bundle.get("sources"), dict) else {}
+    if not isinstance(existing_sources, dict):
+        return bundle
+
+    merged_sources = copy.deepcopy(existing_sources)
+    for key in ("congress", "insiders", "price_volume", "fundamentals", "government_contracts"):
+        source = fresh_sources.get(key) if isinstance(fresh_sources, dict) else None
+        if isinstance(source, dict):
+            merged_sources[key] = source
+    for key in ("signals",):
+        source = fresh_sources.get(key) if isinstance(fresh_sources, dict) else None
+        if isinstance(source, dict) and source.get("present") is True:
+            merged_sources[key] = source
+
+    recomputed = confirmation_score_bundle_from_source_payloads(
+        str(bundle.get("ticker") or ""),
+        lookback_days=max(1, min(int(bundle.get("lookback_days") or CONFIRMATION_SIGNAL_WINDOW_DAYS), 365)),
+        sources_payload=merged_sources,
+    )
+    existing_redacted = bundle.get("redacted_sources")
+    if isinstance(existing_redacted, list):
+        recomputed["redacted_sources"] = existing_redacted
+    return recomputed
+
+
 def _institutional_summary_is_unavailable(summary: Any) -> bool:
     if not isinstance(summary, dict):
         return True
@@ -8770,6 +8808,10 @@ def ticker_signals_summary(
             # Keep ticker confirmation aligned with the screener's lower-level score context.
             confirmation_context = _ticker_confirmation_context(db, normalized_symbol)
             confirmation_score_bundle = confirmation_context["confirmation_score_bundle"]
+            confirmation_score_bundle = _merge_fresh_public_contexts_into_confirmation_bundle(
+                confirmation_score_bundle,
+                source_contexts,
+            )
             confirmation_score_bundle = _merge_authorized_signal_context_into_confirmation_bundle(
                 confirmation_score_bundle,
                 source_contexts.get("signals"),

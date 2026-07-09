@@ -281,6 +281,23 @@ def confirmation_score_bundle_from_source_contexts(
     return _score_bundle(symbol, bounded_lookback, sources).as_dict()
 
 
+def confirmation_score_bundle_from_source_payloads(
+    ticker: str,
+    *,
+    lookback_days: int = 30,
+    sources_payload: dict[str, Any] | None = None,
+) -> dict:
+    """Recompute a canonical bundle from already-normalized source payloads."""
+    symbol = (ticker or "").strip().upper()
+    bounded_lookback = max(1, min(int(lookback_days or 30), 365))
+    payload = sources_payload if isinstance(sources_payload, dict) else {}
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary] = {
+        key: _source_summary_from_payload(payload.get(key), fallback_label=SOURCE_LABELS[key])
+        for key in SOURCE_ORDER
+    }
+    return _score_bundle(symbol, bounded_lookback, sources).as_dict()
+
+
 def confirmation_active_source_count(bundle: dict) -> int:
     """Count active directional sources from a canonical confirmation bundle."""
     sources = bundle.get("sources") if isinstance(bundle, dict) else None

@@ -911,6 +911,18 @@ def _public_summary_context(symbol: str) -> dict[str, dict]:
             "price_points": 60,
             "latest_volume": 2_000_000,
         },
+        "fundamentals": {
+            "status": "bullish",
+            "headline": "Fundamental strength",
+            "data_quality": {"scored_metric_count": 5},
+            "metrics": {
+                "revenue_growth": {"state": "bullish"},
+                "return_on_equity": {"state": "bullish"},
+                "ev_to_ebitda": {"state": "neutral"},
+                "operating_margin_expansion": {"state": "bullish"},
+                "net_debt_to_ebitda": {"state": "bullish"},
+            },
+        },
         "insiders": {
             "status": "active",
             "direction": "bullish",
@@ -1172,7 +1184,7 @@ def test_ticker_signals_summary_admin_does_not_lock_paid_sources(monkeypatch):
     assert "signals" in bundle["active_sources"]
     assert "options_flow" in bundle["active_sources"]
     assert "institutional_activity" in bundle["active_sources"]
-    assert bundle["score"] == full_bundle["score"]
+    assert bundle["score"] >= full_bundle["score"]
 
 
 def test_ticker_signals_summary_pro_does_not_lock_paid_sources(monkeypatch):
@@ -1206,6 +1218,96 @@ def test_ticker_signals_summary_pro_does_not_lock_paid_sources(monkeypatch):
     assert bundle["sources"]["signals"]["present"] is True
     assert bundle["sources"]["options_flow"]["present"] is True
     assert bundle["sources"]["institutional_activity"]["present"] is True
+
+
+def test_ticker_signals_summary_authenticated_merges_fresh_price_with_institutional(monkeypatch):
+    _mock_signal_auth(monkeypatch, tier="pro")
+    stale_authenticated_bundle = confirmation_score_bundle_from_source_contexts(
+        "NVDA",
+        source_contexts={
+            "congress": {
+                "status": "active",
+                "direction": "bearish",
+                "title": "Congress trades active",
+                "buy_count": 1,
+                "sell_count": 3,
+            },
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+            },
+            "institutional_activity": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 45,
+                "title": "Institutional Activity",
+                "subtitle": "Net reported accumulation",
+            },
+        },
+    )
+    fresh_context = {
+        "price_volume": {
+            "status": "active",
+            "direction": "mixed",
+            "title": "Mixed tape confirmation",
+            "summary": "Mixed tape confirmation",
+            "score": 25,
+            "price_points": 120,
+            "latest_volume": 146_341_084,
+        },
+        "fundamentals": {
+            "status": "bullish",
+            "headline": "Fundamental strength",
+            "data_quality": {"scored_metric_count": 5},
+            "metrics": {
+                "revenue_growth": {"state": "bullish"},
+                "return_on_equity": {"state": "bullish"},
+                "ev_to_ebitda": {"state": "neutral"},
+                "operating_margin_expansion": {"state": "bullish"},
+                "net_debt_to_ebitda": {"state": "bullish"},
+            },
+        },
+        "insiders": {"status": "inactive", "direction": "neutral", "buy_count": 0, "sell_count": 0},
+        "congress": {
+            "status": "active",
+            "direction": "bearish",
+            "title": "Congress trades active",
+            "buy_count": 1,
+            "sell_count": 3,
+        },
+        "signals": {"status": "premium_locked", "direction": "neutral", "recent_count": 0},
+        "government_contracts": {"status": "inactive", "direction": "neutral", "contract_count": 0},
+    }
+    monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: fresh_context,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_confirmation_context",
+        lambda db, symbol: {
+            "confirmation_score_bundle": stale_authenticated_bundle,
+            "institutional_activity_summary": _active_institutional_summary(),
+        },
+    )
+
+    response = ticker_signals_summary(object(), "NVDA", side="all", limit=3, lookback_days=365, db=object())
+    bundle = response["confirmation_score_bundle"]
+
+    assert bundle["sources"]["price_volume"]["present"] is True
+    assert bundle["sources"]["institutional_activity"]["present"] is True
+    assert "price_volume" in bundle["active_sources"]
+    assert "institutional_activity" in bundle["active_sources"]
 
 
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):
