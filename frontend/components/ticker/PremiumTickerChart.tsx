@@ -102,6 +102,23 @@ function formatPct(value: number | null | undefined): string {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+export function assertDailyPriceTerminalConsistency(bundle: TickerChartBundle | null): void {
+  const latestPoint = bundle?.prices?.[bundle.prices.length - 1];
+  const latestClose = typeof latestPoint?.close === "number" && Number.isFinite(latestPoint.close) ? latestPoint.close : null;
+  const currentPrice =
+    typeof bundle?.quote?.current_price === "number" && Number.isFinite(bundle.quote.current_price)
+      ? bundle.quote.current_price
+      : null;
+  if (latestClose === null || currentPrice === null || Math.abs(currentPrice - latestClose) <= 0.01) return;
+  const message = `Daily Price Terminal current_price ${currentPrice} differs from chart latest close ${latestClose}`;
+  if (process.env.NODE_ENV === "test") {
+    throw new Error(message);
+  }
+  if (process.env.NODE_ENV === "development") {
+    console.error(message);
+  }
+}
+
 function formatDate(value: string): string {
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return value;
@@ -490,6 +507,7 @@ export function PremiumTickerChart({
 
   const symbol = bundle?.symbol ?? "Ticker";
   const quote = bundle?.quote;
+  assertDailyPriceTerminalConsistency(bundle);
   const dayTone =
     typeof quote?.day_change === "number" && quote.day_change > 0
       ? "text-emerald-300"

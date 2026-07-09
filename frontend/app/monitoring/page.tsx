@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { MonitoringDashboard } from "@/components/monitoring/MonitoringDashboard";
+import { requirePageAuth } from "@/lib/serverAuth";
+
+export const dynamic = "force-dynamic";
 
 export default async function MonitoringPage() {
+  const authToken = await requirePageAuth("/monitoring");
+
   return (
-    <VerifiedSessionGuard returnTo="/monitoring">
+    <VerifiedSessionGuard returnTo="/monitoring" initiallyAuthorized={Boolean(authToken)}>
       <div className="space-y-8">
         <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -22,7 +27,7 @@ export default async function MonitoringPage() {
           </Link>
         </section>
 
-        <MonitoringDashboard initialWatchlists={[]} initialAuthPending />
+        <MonitoringDashboard initialWatchlists={[]} initialAuthPending={!authToken} />
       </div>
     </VerifiedSessionGuard>
   );

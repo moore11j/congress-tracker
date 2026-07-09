@@ -3328,6 +3328,8 @@ export type TickerChartMarker = {
 
 export type TickerChartQuote = {
   current_price: number | null;
+  latest_close?: number | null;
+  previous_close?: number | null;
   day_change: number | null;
   day_change_pct: number | null;
   market_cap: number | null;
@@ -3336,6 +3338,10 @@ export type TickerChartQuote = {
   trailing_pe: number | null;
   beta: number | null;
   asof?: string | null;
+  source_freshness?: {
+    price_source?: string | null;
+    latest_date?: string | null;
+  } | null;
 };
 
 export type TickerChartFreshness = {

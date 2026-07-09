@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.main import _build_insider_stock_chart_bundle, _build_ticker_chart_bundle
+from app.main import _build_insider_stock_chart_bundle, _build_ticker_chart_bundle, _build_ticker_chart_quote
 from app.models import Event, PriceCache
 from app.request_priority import reset_request_context, set_request_context
 from app.services.price_lookup import get_daily_close_series_with_fallback
@@ -114,8 +114,10 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     assert bundle["benchmark"]["points"][-1]["close"] == 5150.0
     assert bundle["markers"][0]["kind"] == "congress"
     assert bundle["markers"][0]["date"] == today.isoformat()
-    assert bundle["quote"]["current_price"] == 196.0
-    assert bundle["quote"]["day_change"] == 1.0
+    assert bundle["quote"]["current_price"] == 195.0
+    assert bundle["quote"]["latest_close"] == 195.0
+    assert bundle["quote"]["previous_close"] == 190.0
+    assert bundle["quote"]["day_change"] == 5.0
     assert bundle["quote"]["market_cap"] == 3_000_000_000
     assert bundle["quote"]["day_volume"] == 18_400_000
     assert bundle["quote"]["average_volume"] == 51_000_000
@@ -290,7 +292,7 @@ def test_ticker_chart_bundle_hydrates_missing_adr_history(monkeypatch):
 
     assert bundle["prices"][0] == {"date": provider_rows[0]["date"], "close": provider_rows[0]["close"]}
     assert bundle["prices"][-1] == {"date": provider_rows[-1]["date"], "close": provider_rows[-1]["close"]}
-    assert bundle["quote"]["current_price"] == 2.59
+    assert bundle["quote"]["current_price"] == provider_rows[-1]["close"]
 
 
 def test_ticker_chart_bundle_keeps_ticker_when_benchmark_history_missing(monkeypatch):
@@ -357,6 +359,37 @@ def test_ticker_chart_bundle_computes_average_volume_from_daily_history(monkeypa
     expected = sum(row["volume"] for row in rows[-30:]) / 30
     assert bundle["quote"]["average_volume"] == expected
     assert full_calls == 1
+
+
+def test_ticker_chart_quote_uses_chart_series_as_canonical_daily_price(monkeypatch):
+    db = _session()
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr(
+        "app.main._quote_snapshot_from_fmp",
+        lambda symbol: {"price": 195.55, "change": -1.38, "changesPercentage": -0.7, "volume": 123},
+    )
+    monkeypatch.setattr("app.main.get_current_prices_meta_db", lambda *args, **kwargs: {args[1][0]: {"price": 195.55}})
+    monkeypatch.setattr("app.main._cached_average_volume", lambda db, symbol: 55_000_000)
+    db.add(PriceCache(symbol="NVDA", date="2026-07-08", close=204.12, volume=60_000_000))
+    db.commit()
+
+    quote = _build_ticker_chart_quote(
+        db,
+        "NVDA",
+        [
+            {"date": "2026-07-07", "close": 196.94},
+            {"date": "2026-07-08", "close": 204.12},
+        ],
+    )
+
+    assert quote["current_price"] == 204.12
+    assert quote["latest_close"] == 204.12
+    assert quote["previous_close"] == 196.94
+    assert quote["day_change"] == 204.12 - 196.94
+    assert quote["day_change_pct"] == ((204.12 - 196.94) / 196.94) * 100
+    assert quote["day_volume"] == 60_000_000
+    assert quote["average_volume"] == 55_000_000
+    assert quote["source_freshness"]["price_source"] == "daily_series"
 
 
 def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):

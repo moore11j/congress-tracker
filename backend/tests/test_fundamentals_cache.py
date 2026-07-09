@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base, ensure_fundamentals_cache_schema
 from app.models import FundamentalsCache, PriceCache
-from app.services.fundamentals_cache import FundamentalsFetchResult, fundamentals_summary_from_cache_row, normalize_fundamentals_payload, upsert_fundamentals_cache
+from app.services.fundamentals_cache import FundamentalsFetchResult, fundamentals_source_diagnostics, fundamentals_summary_from_cache_row, normalize_fundamentals_payload, upsert_fundamentals_cache
 from app.services.screener import ScreenerParams, build_screener_response
 import app.populate_fundamentals_cache as populate_module
 
@@ -142,7 +142,6 @@ def test_fundamentals_summary_normalizes_payload_and_composite_status():
             "NVDA",
             revenue_growth=12.4,
             roe=34.1,
-            fcf_yield=1.8,
             ev_to_ebitda=38.2,
             operating_margin_expansion=-1.6,
             net_debt_to_ebitda=0.7,
@@ -158,7 +157,8 @@ def test_fundamentals_summary_normalizes_payload_and_composite_status():
     assert summary["metrics"]["ev_to_ebitda"]["display"] == "38.2x"
     assert summary["metrics"]["operating_margin_expansion"]["display"] == "-1.6 pts"
     assert summary["metrics"]["net_debt_to_ebitda"]["display"] == "0.7x"
-    assert summary["data_quality"]["scored_metric_count"] == 6
+    assert "fcf_yield" not in summary["metrics"]
+    assert summary["data_quality"]["scored_metric_count"] == 5
 
 
 def test_fundamentals_summary_missing_metrics_render_dash_and_do_not_score():
@@ -175,6 +175,42 @@ def test_fundamentals_summary_missing_metrics_render_dash_and_do_not_score():
     assert summary["status"] == "unavailable"
 
 
+def test_fundamentals_summary_requires_three_available_metrics():
+    engine = _engine()
+    with Session(engine) as db:
+        row = _seed_cache(db, "THIN", revenue_growth=12, roe=18, ev_to_ebitda=None, operating_margin_expansion=None, net_debt_to_ebitda=None)
+        db.commit()
+
+        summary = fundamentals_summary_from_cache_row(row)
+
+    assert summary["data_quality"]["scored_metric_count"] == 2
+    assert summary["data_quality"]["available"] is False
+    assert summary["status"] == "unavailable"
+
+
+def test_fundamentals_normalization_accepts_defensive_aliases_and_margin_fallback():
+    values = normalize_fundamentals_payload(
+        symbol="NVDA",
+        metrics_row={
+            "symbol": "NVDA",
+            "returnOnEquity": 0.34,
+            "evToEBITDA": 38.2,
+            "netDebtToEBITDA": 0.7,
+        },
+        growth_row={"growth_revenue": 0.124},
+        income_statement_rows=[
+            {"date": "2026-01-31", "revenue": 100, "operatingIncome": 34.2},
+            {"date": "2025-01-31", "revenue": 100, "operatingIncome": 31.8},
+        ],
+    )
+
+    assert values["revenue_growth"] == 12.4
+    assert values["roe"] == 34.0
+    assert values["ev_to_ebitda"] == 38.2
+    assert values["net_debt_to_ebitda"] == 0.7
+    assert values["operating_margin_expansion"] == pytest.approx(2.4)
+
+
 def test_fundamentals_normalization_ignores_net_debt_ratio_when_ebitda_non_positive():
     values = normalize_fundamentals_payload(
         symbol="DEBT",
@@ -182,6 +218,17 @@ def test_fundamentals_normalization_ignores_net_debt_ratio_when_ebitda_non_posit
     )
 
     assert values["net_debt_to_ebitda"] is None
+
+
+def test_fundamentals_diagnostics_report_missing_api_key_without_secret(monkeypatch):
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    diagnostics = fundamentals_source_diagnostics("NVDA")
+
+    assert diagnostics["symbol"] == "NVDA"
+    assert diagnostics["status"] == "missing_api_key"
+    assert diagnostics["api_key_present"] is False
+    assert "api_key" not in diagnostics
 
 
 def test_fundamentals_update_does_not_clear_existing_identity_fields():

@@ -19,12 +19,30 @@ test("ticker fundamentals card is wired into the upper context row", () => {
 
 test("fundamentals card uses source-specific copy and missing metric dash", () => {
   const fundamentalsSection = tickerPage.slice(tickerPage.indexOf("function FundamentalsCard"));
+  const metricSection = tickerPage.slice(tickerPage.indexOf("const FUNDAMENTALS_METRICS"), tickerPage.indexOf("function fundamentalsToneClass"));
   assert.match(tickerPage, /Fundamental strength/);
   assert.match(tickerPage, /Mixed fundamental profile/);
   assert.match(tickerPage, /Fundamental pressure/);
   assert.match(tickerPage, /Fundamentals unavailable/);
   assert.match(tickerPage, /Revenue Growth/);
+  assert.match(tickerPage, /ROE/);
+  assert.match(tickerPage, /EV\/EBITDA/);
+  assert.match(tickerPage, /Op Margin \\u0394/);
   assert.match(tickerPage, /Net Debt \/ EBITDA/);
+  assert.doesNotMatch(metricSection, /fcf_yield|FCF Yield/);
+  assert.match(metricSection, /key: "revenue_growth"[\s\S]*key: "return_on_equity"[\s\S]*key: "ev_to_ebitda"[\s\S]*key: "operating_margin_expansion"[\s\S]*key: "net_debt_to_ebitda"/);
   assert.match(fundamentalsSection, /"\\u2014"/);
   assert.doesNotMatch(fundamentalsSection, /Bearish tape confirmation/);
+});
+
+test("upper price volume card renders five compact rows including MACD", () => {
+  assert.match(tickerPage, /function compactPriceVolumeRows/);
+  assert.match(tickerPage, /Latest close \$\{formatUpperCardPrice/);
+  assert.match(tickerPage, /1D change \$\{formatUpperCardSignedPercent/);
+  assert.match(tickerPage, /Vol vs 20D \$\{formatUpperCardMultiple/);
+  assert.match(tickerPage, /RSI \$\{formatUpperCardRsi/);
+  assert.match(tickerPage, /MACD bullish/);
+  assert.match(tickerPage, /MACD bearish/);
+  assert.match(tickerPage, /MACD neutral/);
+  assert.match(tickerPage, /MACD \\u2014/);
 });

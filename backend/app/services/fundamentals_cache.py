@@ -119,6 +119,112 @@ def _request_rows(endpoint: str, *, params: dict[str, Any] | None = None, timeou
     return []
 
 
+def _request_fundamentals_diagnostic(endpoint: str, *, params: dict[str, Any] | None = None, timeout_s: int = 30) -> dict[str, Any]:
+    api_key_present = bool(os.getenv("FMP_API_KEY", "").strip())
+    if not api_key_present:
+        return {
+            "endpoint": endpoint,
+            "api_key_present": False,
+            "status_code": None,
+            "payload_shape": "unavailable",
+            "row_count": 0,
+            "first_row_keys": [],
+            "error": "missing_api_key",
+        }
+    request_params = {"apikey": _api_key(), **(params or {})}
+    try:
+        response = requests.get(f"{FMP_BASE_URL}/{endpoint}", params=request_params, timeout=timeout_s)
+    except requests.RequestException as exc:
+        return {
+            "endpoint": endpoint,
+            "api_key_present": True,
+            "status_code": None,
+            "payload_shape": "unavailable",
+            "row_count": 0,
+            "first_row_keys": [],
+            "error": str(exc)[:240],
+        }
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, list):
+        rows = [row for row in payload if isinstance(row, dict)]
+        payload_shape = "array"
+    elif isinstance(payload, dict):
+        data = payload.get("data")
+        rows = [row for row in data if isinstance(row, dict)] if isinstance(data, list) else ([payload] if payload else [])
+        payload_shape = "object"
+    else:
+        rows = []
+        payload_shape = type(payload).__name__
+    first_row = rows[0] if rows else {}
+    return {
+        "endpoint": endpoint,
+        "api_key_present": True,
+        "status_code": response.status_code,
+        "payload_shape": payload_shape,
+        "row_count": len(rows),
+        "first_row_keys": sorted(str(key) for key in first_row.keys())[:80],
+        "error": None if response.ok else f"http_{response.status_code}",
+    }
+
+
+def fundamentals_source_diagnostics(symbol: str) -> dict[str, Any]:
+    normalized_symbol = normalize_symbol(symbol)
+    api_key_present = bool(os.getenv("FMP_API_KEY", "").strip())
+    if not normalized_symbol:
+        return {"symbol": symbol, "status": "invalid_symbol", "api_key_present": api_key_present}
+    endpoints = {
+        "key_metrics_ttm": ("key-metrics-ttm", {"symbol": normalized_symbol}),
+        "income_statement_growth": ("income-statement-growth", {"symbol": normalized_symbol, "limit": 1}),
+        "ratios_ttm": ("ratios-ttm", {"symbol": normalized_symbol}),
+    }
+    diagnostics = {
+        key: _request_fundamentals_diagnostic(endpoint, params=params)
+        for key, (endpoint, params) in endpoints.items()
+    }
+    if not api_key_present:
+        return {
+            "symbol": normalized_symbol,
+            "status": "missing_api_key",
+            "api_key_present": False,
+            "endpoints": diagnostics,
+            "missing_fields": list(FUNDAMENTALS_SUMMARY_METRIC_KEYS),
+        }
+    metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
+    growth_row = next(iter(_request_rows("income-statement-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
+    ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
+    values = normalize_fundamentals_payload(
+        symbol=normalized_symbol,
+        ratios_row=ratios_row,
+        metrics_row=metrics_row,
+        growth_row=growth_row,
+    )
+    diagnostic_fields = {
+        "revenue_growth": "revenue_growth",
+        "return_on_equity": "roe",
+        "ev_to_ebitda": "ev_to_ebitda",
+        "operating_margin_expansion": "operating_margin_expansion",
+        "net_debt_to_ebitda": "net_debt_to_ebitda",
+    }
+    missing = [name for name, cache_key in diagnostic_fields.items() if values.get(cache_key) is None]
+    logger.info(
+        "fundamentals diagnostics symbol=%s api_key_present=%s missing_fields=%s endpoint_statuses=%s",
+        normalized_symbol,
+        bool(os.getenv("FMP_API_KEY", "").strip()),
+        missing,
+        {key: item.get("status_code") for key, item in diagnostics.items()},
+    )
+    return {
+        "symbol": normalized_symbol,
+        "status": "ok",
+        "api_key_present": bool(os.getenv("FMP_API_KEY", "").strip()),
+        "endpoints": diagnostics,
+        "missing_fields": missing,
+    }
+
+
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -189,6 +295,8 @@ def _margin_expansion_points(row: dict[str, Any]) -> float | None:
         row.get("operatingMarginChange"),
         row.get("operatingMarginChangeTTM"),
         row.get("growthOperatingMargin"),
+        row.get("growthOperatingIncomeRatio"),
+        row.get("operatingMarginGrowth"),
         row.get("operatingProfitMarginGrowth"),
         row.get("operatingIncomeRatioGrowth"),
     )
@@ -211,6 +319,19 @@ def _margin_expansion_points(row: dict[str, Any]) -> float | None:
     return None
 
 
+def _computed_operating_margin_expansion_points(rows: list[dict[str, Any]] | None) -> float | None:
+    if not rows or len(rows) < 2:
+        return None
+    margins: list[float] = []
+    for row in rows[:2]:
+        revenue = _first_number(row.get("revenue"), row.get("totalRevenue"))
+        operating_income = _first_number(row.get("operatingIncome"), row.get("operating_income"))
+        if revenue is None or revenue == 0 or operating_income is None:
+            return None
+        margins.append(operating_income / revenue)
+    return (margins[0] - margins[1]) * 100 if len(margins) == 2 else None
+
+
 def _date_value(*values: Any):
     for value in values:
         if isinstance(value, str) and len(value) >= 10:
@@ -229,12 +350,14 @@ def normalize_fundamentals_payload(
     ratios_row: dict[str, Any] | None = None,
     metrics_row: dict[str, Any] | None = None,
     growth_row: dict[str, Any] | None = None,
+    income_statement_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     screener_row = screener_row or {}
     quote_row = quote_row or {}
     ratios_row = ratios_row or {}
     metrics_row = metrics_row or {}
     growth_row = growth_row or {}
+    income_statement_rows = income_statement_rows or []
     normalized_symbol = normalize_symbol(
         symbol
         or screener_row.get("symbol")
@@ -253,6 +376,7 @@ def normalize_fundamentals_payload(
         screener_row.get("netDebtToEBITDA"),
         metrics_row.get("netDebtToEBITDATTM"),
         metrics_row.get("netDebtToEbitdaTTM"),
+        metrics_row.get("netDebtToEBITDA"),
     )
     if ebitda_ttm is not None and ebitda_ttm <= 0:
         net_debt_to_ebitda = None
@@ -302,6 +426,7 @@ def normalize_fundamentals_payload(
             metrics_row.get("enterpriseValueOverEBITDATTM"),
             metrics_row.get("evToEBITDATTM"),
             metrics_row.get("evToEbitdaTTM"),
+            metrics_row.get("evToEBITDA"),
         ),
         "gross_margin": _first_percent(screener_row.get("grossMargin"), ratios_row.get("grossProfitMarginTTM"), ratios_row.get("grossProfitMargin")),
         "operating_margin": _first_percent(
@@ -309,21 +434,30 @@ def normalize_fundamentals_payload(
             ratios_row.get("operatingProfitMarginTTM"),
             ratios_row.get("operatingMarginTTM"),
         ),
-        "operating_margin_expansion": _margin_expansion_points(growth_row),
+        "operating_margin_expansion": _margin_expansion_points(growth_row)
+        or _computed_operating_margin_expansion_points(income_statement_rows),
         "net_margin": _first_percent(screener_row.get("netMargin"), ratios_row.get("netProfitMarginTTM"), ratios_row.get("netProfitMargin")),
         "roe": _first_percent(
             screener_row.get("returnOnEquity"),
             ratios_row.get("returnOnEquityTTM"),
+            ratios_row.get("returnOnEquity"),
             ratios_row.get("roeTTM"),
             metrics_row.get("returnOnEquityTTM"),
             metrics_row.get("returnonequityTTM"),
+            metrics_row.get("returnOnEquity"),
+            metrics_row.get("roeTTM"),
         ),
         "roic": _first_percent(
             screener_row.get("returnOnInvestedCapital"),
             ratios_row.get("returnOnInvestedCapitalTTM"),
             metrics_row.get("roicTTM"),
         ),
-        "revenue_growth": _first_percent(screener_row.get("revenueGrowth"), growth_row.get("revenueGrowth"), growth_row.get("growthRevenue")),
+        "revenue_growth": _first_percent(
+            screener_row.get("revenueGrowth"),
+            growth_row.get("revenueGrowth"),
+            growth_row.get("growthRevenue"),
+            growth_row.get("growth_revenue"),
+        ),
         "eps_growth": _first_percent(screener_row.get("epsGrowth"), growth_row.get("epsgrowth"), growth_row.get("epsGrowth")),
         "ebitda_growth": _first_percent(screener_row.get("ebitdaGrowth"), growth_row.get("ebitdaGrowth"), growth_row.get("growthEBITDA")),
         "free_cash_flow": _first_number(screener_row.get("freeCashFlow"), metrics_row.get("freeCashFlowTTM"), metrics_row.get("freeCashFlow")),
@@ -360,6 +494,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
         growth_row = next(iter(_request_rows("income-statement-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
+        income_statement_rows = _request_rows("income-statement", params={"symbol": normalized_symbol, "limit": 2})
         values = normalize_fundamentals_payload(
             symbol=normalized_symbol,
             screener_row=screener_row,
@@ -367,6 +502,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
             ratios_row=ratios_row,
             metrics_row=metrics_row,
             growth_row=growth_row,
+            income_statement_rows=income_statement_rows,
         )
         return FundamentalsFetchResult(symbol=normalized_symbol, values=values)
     except Exception as exc:
@@ -475,6 +611,15 @@ def _metric_state(value: float | None, *, kind: str) -> str:
     return "neutral"
 
 
+FUNDAMENTALS_SUMMARY_METRIC_KEYS: tuple[str, ...] = (
+    "revenue_growth",
+    "return_on_equity",
+    "ev_to_ebitda",
+    "operating_margin_expansion",
+    "net_debt_to_ebitda",
+)
+
+
 def _format_percent(value: float | None) -> str:
     return "\u2014" if value is None else f"{value:.1f}%"
 
@@ -535,7 +680,6 @@ def fundamentals_summary_from_cache_row(
 
     revenue_growth = _row_number(row, "revenue_growth")
     roe = _row_number(row, "roe")
-    fcf_yield = _row_number(row, "fcf_yield")
     ev_to_ebitda = _row_number(row, "ev_to_ebitda")
     operating_margin_expansion = _row_number(row, "operating_margin_expansion")
     net_debt_to_ebitda = _row_number(row, "net_debt_to_ebitda")
@@ -543,7 +687,6 @@ def fundamentals_summary_from_cache_row(
     metric_values = {
         "revenue_growth": revenue_growth,
         "return_on_equity": roe,
-        "fcf_yield": fcf_yield,
         "ev_to_ebitda": ev_to_ebitda,
         "operating_margin_expansion": operating_margin_expansion,
         "net_debt_to_ebitda": net_debt_to_ebitda,
@@ -559,11 +702,6 @@ def fundamentals_summary_from_cache_row(
             value=roe / 100 if roe is not None else None,
             display=_format_percent(roe),
             state=_metric_state(roe, kind="roe"),
-        ),
-        "fcf_yield": _metric_payload(
-            value=fcf_yield / 100 if fcf_yield is not None else None,
-            display=_format_percent(fcf_yield),
-            state=_metric_state(fcf_yield, kind="fcf_yield"),
         ),
         "ev_to_ebitda": _metric_payload(
             value=ev_to_ebitda,
@@ -589,7 +727,7 @@ def fundamentals_summary_from_cache_row(
     ]
     score = sum(1 if state == "bullish" else -1 if state == "bearish" else 0 for state in scored_states)
     scored_count = len(scored_states)
-    if scored_count <= 0:
+    if scored_count < 3:
         status = "unavailable"
     elif score >= 2:
         status = "bullish"
@@ -618,7 +756,7 @@ def fundamentals_summary_from_cache_row(
         "data_state": "stale" if stale else "fresh",
         "metrics": metrics,
         "data_quality": {
-            "available": scored_count > 0,
+            "available": scored_count >= 3,
             "missing_fields": missing_fields,
             "scored_metric_count": scored_count,
         },
@@ -629,14 +767,7 @@ def unavailable_fundamentals_summary(symbol: str | None = None) -> dict[str, Any
     normalized = normalize_symbol(symbol) if symbol else None
     metrics = {
         key: _metric_payload(value=None, display="\u2014", state="unavailable")
-        for key in (
-            "revenue_growth",
-            "return_on_equity",
-            "fcf_yield",
-            "ev_to_ebitda",
-            "operating_margin_expansion",
-            "net_debt_to_ebitda",
-        )
+        for key in FUNDAMENTALS_SUMMARY_METRIC_KEYS
     }
     metrics["revenue_growth"]["direction"] = "unknown"
     return {

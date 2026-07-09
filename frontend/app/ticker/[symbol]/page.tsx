@@ -176,7 +176,6 @@ type TickerActivityData = {
   congressSells: number;
   insiderBuys: number;
   insiderSells: number;
-  netFlow: number;
   topSignal: SignalItem | undefined;
   congressParticipantCount: number;
   insiderParticipantCount: number;
@@ -1632,15 +1631,9 @@ function priceVolumeSummary(
   ];
   const contextStatus = typeof context?.status === "string" ? context.status.toLowerCase() : null;
   const contextDirection = typeof context?.direction === "string" ? context.direction.toLowerCase() : null;
-  const contextDiagnostics = Array.isArray(context?.lines)
-    ? context.lines.map((line) => line.trim()).filter(Boolean).slice(0, 4)
-    : [];
-  const normalizedContextDiagnostics = contextDiagnostics
-    .map((line) => normalizeUpperCardWindowCopy(line, lookbackDays))
-    .filter((line): line is string => Boolean(line));
   const contextSummary = normalizeUpperCardWindowCopy(context?.summary ?? context?.title, lookbackDays) ?? "";
+  const priceVolumeRows = compactPriceVolumeRows(context, technicalIndicators);
   const inactiveSummary = `No strong price/volume signal in the ${lastContextWindowLabel(lookbackDays)}.`;
-  const inactiveHelper = `Price and volume context is based on the fixed ${contextWindowNoun(lookbackDays)}.`;
   if (contextStatus === "active") {
     const direction = contextDirection === "bullish" || contextDirection === "bearish" || contextDirection === "mixed"
       ? contextDirection
@@ -1648,7 +1641,7 @@ function priceVolumeSummary(
     return {
       state: direction === "bullish" || direction === "bearish" ? direction.toUpperCase() : direction === "mixed" ? "MIXED" : "ACTIVE",
       summary: contextSummary || "Tape confirmation is active",
-      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : diagnostics,
+      diagnostics: priceVolumeRows,
       tone: direction ?? "mixed",
     };
   }
@@ -1656,10 +1649,7 @@ function priceVolumeSummary(
     return {
       state: "INACTIVE",
       summary: inactiveSummary,
-      diagnostics: [
-        inactiveHelper,
-        ...normalizedContextDiagnostics.filter((line) => line !== inactiveSummary && line !== inactiveHelper).slice(0, 3),
-      ],
+      diagnostics: priceVolumeRows,
       tone: "inactive",
     };
   }
@@ -1668,7 +1658,7 @@ function priceVolumeSummary(
     return {
       state: "LIMITED",
       summary,
-      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+      diagnostics: priceVolumeRows,
       tone: "unavailable",
     };
   }
@@ -1677,7 +1667,7 @@ function priceVolumeSummary(
     return {
       state: "LOADING",
       summary,
-      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+      diagnostics: priceVolumeRows,
       tone: "unavailable",
     };
   }
@@ -1686,7 +1676,7 @@ function priceVolumeSummary(
     return {
       state: "UNAVAILABLE",
       summary,
-      diagnostics: normalizedContextDiagnostics.length > 0 ? normalizedContextDiagnostics : [summary],
+      diagnostics: priceVolumeRows,
       tone: "unavailable",
     };
   }
@@ -1701,7 +1691,7 @@ function priceVolumeSummary(
       return {
         state: insufficientHistory || technicalIndicators.price_points < 35 ? "LIMITED" : "INACTIVE",
         summary,
-        diagnostics: summary === inactiveSummary ? [inactiveHelper, ...diagnostics] : [summary],
+        diagnostics: priceVolumeRows,
         tone: insufficientHistory || technicalIndicators.price_points < 35 ? "unavailable" : "inactive",
       };
     }
@@ -1709,7 +1699,7 @@ function priceVolumeSummary(
     return {
       state: "UNAVAILABLE",
       summary,
-      diagnostics: [summary],
+      diagnostics: priceVolumeRows,
       tone: "unavailable",
     };
   }
@@ -1717,7 +1707,7 @@ function priceVolumeSummary(
     return {
       state: "INACTIVE",
       summary: inactiveSummary,
-      diagnostics: [inactiveHelper, ...diagnostics],
+      diagnostics: priceVolumeRows,
       tone: "inactive",
     };
   }
@@ -1725,7 +1715,7 @@ function priceVolumeSummary(
     return {
       state: "BEARISH",
       summary: "Bearish days with elevated volume",
-      diagnostics,
+      diagnostics: priceVolumeRows,
       tone: "bearish",
     };
   }
@@ -1733,16 +1723,55 @@ function priceVolumeSummary(
     return {
       state: "BULLISH",
       summary: "Bullish days with elevated volume",
-      diagnostics,
+      diagnostics: priceVolumeRows,
       tone: "bullish",
     };
   }
   return {
     state: "MIXED",
     summary: "Tape confirmation is mixed",
-    diagnostics,
+    diagnostics: priceVolumeRows,
     tone: "mixed",
   };
+}
+
+function formatUpperCardPrice(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "\u2014";
+}
+
+function formatUpperCardSignedPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "\u2014";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatUpperCardMultiple(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}x` : "\u2014";
+}
+
+function formatUpperCardRsi(reading: TechnicalIndicators["rsi"]): string {
+  return typeof reading.value === "number" && Number.isFinite(reading.value) ? reading.value.toFixed(1) : "\u2014";
+}
+
+function formatUpperCardMacd(reading: TechnicalIndicators["macd"]): string {
+  const signal = typeof reading.signal === "string" ? reading.signal.toLowerCase() : "";
+  if (signal === "bullish") return "MACD bullish";
+  if (signal === "bearish") return "MACD bearish";
+  if (signal === "neutral" || signal === "flat" || signal === "mixed") return "MACD neutral";
+  return "MACD \u2014";
+}
+
+function compactPriceVolumeRows(
+  context: TickerSignalsSummaryResponse["price_volume"] | null | undefined,
+  technicalIndicators: TechnicalIndicators,
+): string[] {
+  return [
+    `Latest close ${formatUpperCardPrice(context?.latest_close)}`,
+    `1D change ${formatUpperCardSignedPercent(context?.change_pct_1d)}`,
+    `Vol vs 20D ${formatUpperCardMultiple(context?.volume_vs_avg)}`,
+    `RSI ${formatUpperCardRsi(technicalIndicators.rsi)}`,
+    formatUpperCardMacd(technicalIndicators.macd),
+  ];
 }
 
 const FUNDAMENTALS_METRICS = [
@@ -1757,18 +1786,13 @@ const FUNDAMENTALS_METRICS = [
     tooltip: "Measures net income as a percentage of shareholders' equity. Higher and rising ROE can indicate efficient capital deployment.",
   },
   {
-    key: "fcf_yield",
-    label: "FCF Yield",
-    tooltip: "Measures free cash flow relative to market value. Higher positive values can indicate stronger cash generation.",
-  },
-  {
     key: "ev_to_ebitda",
     label: "EV/EBITDA",
     tooltip: "Compares enterprise value to EBITDA. Lower values relative to peers can suggest cheaper valuation; higher values can suggest expensive expectations.",
   },
   {
     key: "operating_margin_expansion",
-    label: "Operating Margin Expansion",
+    label: "Op Margin \u0394",
     tooltip: "Measures whether operating margins are improving or contracting over time.",
   },
   {
@@ -1806,7 +1830,7 @@ function FundamentalsCard({ summary }: { summary: TickerFundamentalsSummary }) {
   const status = typeof summary?.status === "string" ? summary.status.toLowerCase() : "unavailable";
   const metrics = summary?.metrics ?? {};
   return (
-    <div className={`${cardClassName} p-4`}>
+    <div className={`${cardClassName} h-full p-4`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className={fundamentalsToneClass(status)}>
@@ -2563,14 +2587,6 @@ async function resolveTickerActivityData({
   const congressSells = metricCongressEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
   const insiderBuys = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "buy").length;
   const insiderSells = metricInsiderEvents.filter((event) => normalizeTradeSide(event.trade_type) === "sell").length;
-  const netFlow = filteredEvents.reduce((acc, event) => {
-    const sideValue = normalizeTradeSide(event.trade_type);
-    const amount = Number(event.amount_max ?? event.amount_min ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0 || !sideValue) return acc;
-    if (sideValue === "buy") return acc + amount;
-    return acc - amount;
-  }, 0);
-
   const topSignal = [...confirmationSignals].sort((a, b) => (b.smart_score ?? 0) - (a.smart_score ?? 0))[0];
   const congressParticipantEvents = side === "all"
     ? congressEvents
@@ -2670,7 +2686,6 @@ async function resolveTickerActivityData({
     congressSells,
     insiderBuys,
     insiderSells,
-    netFlow,
     topSignal,
     congressParticipantCount: congressParticipantMap.size,
     insiderParticipantCount: insiderParticipantMap.size,
@@ -2747,7 +2762,6 @@ async function DeferredTickerContent({
     congressSells,
     insiderBuys,
     insiderSells,
-    netFlow,
     topSignal,
     priceVolumeContext,
     fundamentalsContext,
@@ -2850,8 +2864,8 @@ async function DeferredTickerContent({
 
         <div className="xl:col-span-5 xl:flex xl:min-h-0 xl:h-full">
           <div className="grid gap-3 xl:h-full xl:w-full xl:grid-rows-[auto_1fr]">
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className={`${cardClassName} p-4`}>
+            <div className="grid items-stretch gap-3 lg:grid-cols-2">
+              <div className={`${cardClassName} h-full p-4`}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className={technicalToneClass(priceVolume.tone)}>
@@ -3070,11 +3084,14 @@ async function DeferredTickerContent({
             side: "sell",
           },
           {
-            key: "net-disclosed-flow",
-            label: "Net disclosed flow",
-            value: `${netFlow >= 0 ? "+" : "-"}$${formatCompactUsd(Math.abs(netFlow))}`,
-            toneClass: netFlow >= 0 ? "text-emerald-300" : "text-rose-300",
-            icon: "flow",
+            key: "institutional-activity-count",
+            label: "Institutional activity",
+            value: institutionalEventsTotal ?? institutionalEvents.length,
+            toneClass: institutionalEvents.length ? "text-indigo-200" : "text-slate-400",
+            icon: "people",
+            targetId: "institutional-activity",
+            title: "View institutional activity",
+            source: "institutional",
           },
           {
             key: "unique-congress-traders",
@@ -3103,16 +3120,6 @@ async function DeferredTickerContent({
             targetId: "signals-activity",
             title: "View signal activity",
             source: "signals",
-          },
-          {
-            key: "institutional-activity-count",
-            label: "Institutional activity",
-            value: institutionalEventsTotal ?? institutionalEvents.length,
-            toneClass: institutionalEvents.length ? "text-indigo-200" : "text-slate-400",
-            icon: "people",
-            targetId: "institutional-activity",
-            title: "View institutional activity",
-            source: "institutional",
           },
         ]}
       />

@@ -243,7 +243,7 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
-from app.services.fundamentals_cache import fundamentals_summary_from_cache_row, unavailable_fundamentals_summary
+from app.services.fundamentals_cache import fundamentals_source_diagnostics, fundamentals_summary_from_cache_row, unavailable_fundamentals_summary
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
@@ -7256,6 +7256,15 @@ def admin_ticker_debug(symbol: str, request: Request, db: Session = Depends(get_
     }
 
 
+@app.get("/api/admin/ticker-debug/{symbol}/fundamentals-source")
+def admin_ticker_fundamentals_source_debug(symbol: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    return fundamentals_source_diagnostics(normalized_symbol)
+
+
 def _ticker_content_debug_payload(
     db: Session,
     content_type: str,
@@ -9546,37 +9555,57 @@ def _build_ticker_chart_quote(
     )
     latest_close = price_points[-1]["close"] if price_points else None
     prior_close = price_points[-2]["close"] if len(price_points) >= 2 else None
+    latest_date = price_points[-1].get("date") if price_points else None
+    latest_series_volume = _parse_numeric(price_points[-1].get("volume")) if price_points else None
+    if latest_series_volume is None and latest_date:
+        try:
+            cached_latest_point = db.execute(
+                select(PriceCache)
+                .where(PriceCache.symbol == symbol)
+                .where(PriceCache.date == latest_date)
+                .limit(1)
+            ).scalar_one_or_none()
+            if cached_latest_point is not None:
+                latest_series_volume = _parse_numeric(cached_latest_point.volume) or _parse_numeric(cached_latest_point.day_volume)
+        except Exception:
+            logger.info("ticker_chart latest volume cache read failed symbol=%s date=%s", symbol, latest_date, exc_info=True)
 
-    current_price = row_price
+    current_price = latest_close
+    if current_price is None:
+        current_price = row_price
     if current_price is None and fundamentals_price is not None:
         current_price = fundamentals_price
     if current_price is None and cached_price is not None:
         current_price = float(cached_price)
-    if current_price is None:
-        current_price = latest_close
-    previous_close = _quote_float(row, "previousClose", "previous_close", "prevClose")
+    previous_close = prior_close
     if previous_close is None:
-        previous_close = prior_close
+        previous_close = _quote_float(row, "previousClose", "previous_close", "prevClose")
     quote_change = cached_quote.get("change") if isinstance(cached_quote, dict) else None
     quote_change_pct = cached_quote.get("change_percent") if isinstance(cached_quote, dict) else None
     quote_volume = cached_quote.get("volume") if isinstance(cached_quote, dict) else None
     quote_market_cap = cached_quote.get("market_cap") if isinstance(cached_quote, dict) else None
 
-    day_change = _quote_float(row, "change", "dayChange", "changes") or quote_change
+    day_change = None
+    if latest_close is None or prior_close in (None, 0):
+        day_change = _quote_float(row, "change", "dayChange", "changes") or quote_change
     if day_change is None and current_price is not None and previous_close not in (None, 0):
         day_change = current_price - previous_close
-    day_change_pct = _quote_float(row, "changesPercentage", "changePercentage", "changePercent") or quote_change_pct
+    day_change_pct = None
+    if latest_close is None or prior_close in (None, 0):
+        day_change_pct = _quote_float(row, "changesPercentage", "changePercentage", "changePercent") or quote_change_pct
     if day_change_pct is None and day_change is not None and previous_close not in (None, 0):
         day_change_pct = (day_change / previous_close) * 100
 
     return {
         "current_price": current_price,
+        "latest_close": latest_close,
+        "previous_close": previous_close,
         "day_change": day_change,
         "day_change_pct": day_change_pct,
         "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap")
         or quote_market_cap
         or (fundamentals_row.market_cap if fundamentals_row is not None else None),
-        "day_volume": _quote_float(row, "volume") or quote_volume or (fundamentals_row.volume if fundamentals_row is not None else None),
+        "day_volume": latest_series_volume or _quote_float(row, "volume") or quote_volume or (fundamentals_row.volume if fundamentals_row is not None else None),
         "average_volume": _explicit_average_volume_30d(row, profile_row)
         or (fundamentals_row.avg_volume if fundamentals_row is not None else None)
         or _cached_average_volume(db, symbol),
@@ -9592,13 +9621,17 @@ def _build_ticker_chart_quote(
         )
         or (fundamentals_row.trailing_pe if fundamentals_row is not None else None),
         "beta": _quote_float(profile_row, "beta") or (fundamentals_row.beta if fundamentals_row is not None else None),
-        "asof": _ticker_chart_date_key(
+        "asof": latest_date or _ticker_chart_date_key(
             row.get("timestamp")
             or row.get("date")
             or row.get("earningsAnnouncement")
             or (cached_quote.get("asof_ts") if isinstance(cached_quote, dict) else None)
             or (fundamentals_row.fetched_at if fundamentals_row is not None else None)
         ),
+        "source_freshness": {
+            "price_source": "daily_series" if latest_close is not None else "quote_fallback",
+            "latest_date": latest_date,
+        },
     }
 
 
