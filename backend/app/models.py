@@ -513,6 +513,7 @@ class ConfirmationMonitoringSnapshot(Base):
     direction: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral")
     source_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     status: Mapped[str] = mapped_column(Text, default="Inactive", server_default="Inactive")
+    source_states_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -1421,6 +1422,7 @@ class FundamentalsCache(Base):
     ev_to_ebitda: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     gross_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     operating_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    operating_margin_expansion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     net_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     roe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     roic: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -1428,6 +1430,7 @@ class FundamentalsCache(Base):
     eps_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     ebitda_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     free_cash_flow: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fcf_yield: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     fcf_margin: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     fcf_growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     debt_to_equity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

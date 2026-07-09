@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
@@ -141,6 +141,7 @@ type TickerActivityData = {
   signals: SignalItem[];
   signalsTotal: number | null;
   priceVolumeContext: TickerSignalsSummaryResponse["price_volume"] | null;
+  fundamentalsContext: TickerFundamentalsSummary;
   sourceEntitlements: TickerSourceEntitlements | null;
   confirmationScoreBundle: TickerSignalsSummaryResponse["confirmation_score_bundle"] | null;
   signalFreshness: TickerSignalsSummaryResponse["signal_freshness"] | null;
@@ -1011,6 +1012,7 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
   if (!authenticated) {
     return {
       price_volume: meta("price_volume", null, false),
+      fundamentals: meta("fundamentals", null, false),
       insiders: meta("insiders", null, false),
       congress: meta("congress", null, false),
       government_contracts: meta("government_contracts", null, false),
@@ -1022,6 +1024,7 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
 
   return {
     price_volume: meta("price_volume", null, false),
+    fundamentals: meta("fundamentals", null, false),
     insiders: meta("insiders", null, false),
     congress: meta("congress", null, false),
     government_contracts: meta("government_contracts", null, false),
@@ -1052,6 +1055,7 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
       insiders: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Inactive" },
       signals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No current signal conviction" },
       price_volume: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No price confirmation" },
+      fundamentals: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Fundamentals unavailable", status: "unavailable" },
       options_flow: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "Options flow not confirming" },
       government_contracts: {
         present: false,
@@ -1251,6 +1255,7 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       insiders: { ...fallback.sources.insiders, ...(bundle.sources?.insiders ?? {}) },
       signals: { ...fallback.sources.signals, ...(bundle.sources?.signals ?? {}) },
       price_volume: { ...fallback.sources.price_volume, ...(bundle.sources?.price_volume ?? {}) },
+      fundamentals: { ...fallback.sources.fundamentals, ...(bundle.sources?.fundamentals ?? {}) },
       options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
       government_contracts: { ...fallback.sources.government_contracts, ...(bundle.sources?.government_contracts ?? {}) },
       institutional_activity: { ...fallback.sources.institutional_activity, ...(bundle.sources?.institutional_activity ?? {}) },
@@ -1309,6 +1314,7 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   insiders: "Insiders",
   signals: "Signals",
   price_volume: "Price / Volume",
+  fundamentals: "Fundamentals",
   options_flow: "Options Flow",
   government_contracts: "Government Contracts",
   institutional_activity: "Institutional Activity",
@@ -1319,6 +1325,7 @@ const confirmationSourceOrder: ConfirmationSourceKey[] = [
   "insiders",
   "signals",
   "price_volume",
+  "fundamentals",
   "options_flow",
   "government_contracts",
   "institutional_activity",
@@ -1578,6 +1585,11 @@ function overviewBullets({
     else if (confirmationBundle.sources.signals.direction === "bullish") bullets.add("Signals: confirmed bullish");
     else bullets.add("Signals: mixed");
   }
+  if (confirmationBundle.sources.fundamentals.present) {
+    if (confirmationBundle.sources.fundamentals.direction === "bearish") bullets.add("Fundamentals: pressure");
+    else if (confirmationBundle.sources.fundamentals.direction === "bullish") bullets.add("Fundamentals: strength");
+    else bullets.add("Fundamentals: mixed");
+  }
   if (confirmationBundle.sources.congress.present) {
     if (confirmationBundle.sources.congress.direction === "bearish") bullets.add("Congress activity: active / sell-skewed");
     else if (confirmationBundle.sources.congress.direction === "bullish") bullets.add("Congress activity: active / buy-skewed");
@@ -1590,8 +1602,8 @@ function overviewMutedLine(bundle: ConfirmationScoreBundle): string | null {
   if (bundle.sources.government_contracts.present && bundle.direction === "neutral") {
     return "Government contracts are active, but broader directional confirmation is still limited.";
   }
-  if (!bundle.sources.price_volume.present && !bundle.sources.options_flow.present) {
-    return "Price / volume and options flow are inactive.";
+  if (!bundle.sources.price_volume.present && !bundle.sources.fundamentals.present && !bundle.sources.options_flow.present) {
+    return "Price / volume, fundamentals, and options flow are inactive.";
   }
   return null;
 }
@@ -1733,6 +1745,97 @@ function priceVolumeSummary(
   };
 }
 
+const FUNDAMENTALS_METRICS = [
+  {
+    key: "revenue_growth",
+    label: "Revenue Growth",
+    tooltip: "Measures reported revenue growth. This is not acquisition-adjusted organic growth unless specifically stated.",
+  },
+  {
+    key: "return_on_equity",
+    label: "ROE",
+    tooltip: "Measures net income as a percentage of shareholders' equity. Higher and rising ROE can indicate efficient capital deployment.",
+  },
+  {
+    key: "fcf_yield",
+    label: "FCF Yield",
+    tooltip: "Measures free cash flow relative to market value. Higher positive values can indicate stronger cash generation.",
+  },
+  {
+    key: "ev_to_ebitda",
+    label: "EV/EBITDA",
+    tooltip: "Compares enterprise value to EBITDA. Lower values relative to peers can suggest cheaper valuation; higher values can suggest expensive expectations.",
+  },
+  {
+    key: "operating_margin_expansion",
+    label: "Operating Margin Expansion",
+    tooltip: "Measures whether operating margins are improving or contracting over time.",
+  },
+  {
+    key: "net_debt_to_ebitda",
+    label: "Net Debt / EBITDA",
+    tooltip: "Measures leverage against operating earnings. Lower values usually indicate a stronger balance sheet.",
+  },
+] as const;
+
+function fundamentalsToneClass(status: string | null | undefined): string {
+  if (status === "bullish") return "text-emerald-300";
+  if (status === "bearish") return "text-rose-300";
+  if (status === "mixed") return "text-amber-300";
+  return "text-slate-500";
+}
+
+function fundamentalsStateLabel(status: string | null | undefined): string {
+  if (status === "bullish") return "BULLISH";
+  if (status === "bearish") return "BEARISH";
+  if (status === "mixed") return "MIXED";
+  return "UNAVAILABLE";
+}
+
+function fundamentalsHeadline(summary: TickerFundamentalsSummary): string {
+  const headline = typeof summary?.headline === "string" && summary.headline.trim() ? summary.headline.trim() : null;
+  if (headline) return headline;
+  const status = summary?.status;
+  if (status === "bullish") return "Fundamental strength";
+  if (status === "bearish") return "Fundamental pressure";
+  if (status === "mixed") return "Mixed fundamental profile";
+  return "Fundamentals unavailable";
+}
+
+function FundamentalsCard({ summary }: { summary: TickerFundamentalsSummary }) {
+  const status = typeof summary?.status === "string" ? summary.status.toLowerCase() : "unavailable";
+  const metrics = summary?.metrics ?? {};
+  return (
+    <div className={`${cardClassName} p-4`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className={fundamentalsToneClass(status)}>
+            <IntelligenceIcon kind="fundamentals" />
+          </span>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Fundamentals</p>
+        </div>
+        <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${fundamentalsToneClass(status)}`}>
+          {fundamentalsStateLabel(status)}
+        </p>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-slate-100">{fundamentalsHeadline(summary)}</p>
+      <div className="mt-3 grid gap-1.5">
+        {FUNDAMENTALS_METRICS.map((metric) => {
+          const value = metrics[metric.key];
+          const display = typeof value?.display === "string" && value.display.trim() ? value.display : "\u2014";
+          const state = typeof value?.state === "string" ? value.state : "unavailable";
+          return (
+            <div key={metric.key} title={metric.tooltip} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-xs">
+              <span className="min-w-0 truncate text-slate-400">{metric.label}</span>
+              <span className={`font-semibold tabular-nums ${fundamentalsToneClass(state === "neutral" ? "mixed" : state)}`}>{display}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function sourceCardToneClass(source: ConfirmationScoreBundle["sources"][ConfirmationSourceKey]): string {
   return source.present ? sourceStateClass(source.direction) : "text-slate-500";
 }
@@ -1823,6 +1926,7 @@ type IntelligenceIconKind =
   | "insider-sell"
   | "signals"
   | "price-volume"
+  | "fundamentals"
   | "flow"
   | "people";
 
@@ -1867,6 +1971,15 @@ function IntelligenceIcon({ kind, className = "h-4 w-4" }: { kind: IntelligenceI
         <path d="M5 21V9" opacity="0.45" />
         <path d="M11 21v-5" opacity="0.45" />
         <path d="M17 21V7" opacity="0.45" />
+      </svg>
+    );
+  }
+  if (kind === "fundamentals") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 12h3l2-5 4 10 2.5-5H20" />
+        <path d="M18 4v5" opacity="0.55" />
+        <path d="M15.5 6.5h5" opacity="0.55" />
       </svg>
     );
   }
@@ -2541,6 +2654,7 @@ async function resolveTickerActivityData({
     governmentContractsHasNext,
     governmentContractsStatus,
     priceVolumeContext: signalsRes.price_volume ?? null,
+    fundamentalsContext: signalsRes.fundamentals ?? null,
     sourceEntitlements: signalsRes.source_entitlements ?? null,
     confirmationScoreBundle: signalsRes.confirmation_score_bundle ?? null,
     signalFreshness: signalsRes.signal_freshness ?? null,
@@ -2636,6 +2750,7 @@ async function DeferredTickerContent({
     netFlow,
     topSignal,
     priceVolumeContext,
+    fundamentalsContext,
     sourceEntitlements: activitySourceEntitlements,
     confirmationScoreBundle: activityConfirmationScoreBundle,
     signalFreshness: activitySignalFreshness,
@@ -2735,24 +2850,27 @@ async function DeferredTickerContent({
 
         <div className="xl:col-span-5 xl:flex xl:min-h-0 xl:h-full">
           <div className="grid gap-3 xl:h-full xl:w-full xl:grid-rows-[auto_1fr]">
-            <div className={`${cardClassName} p-4`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className={technicalToneClass(priceVolume.tone)}>
-                    <IntelligenceIcon kind="price-volume" />
-                  </span>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className={`${cardClassName} p-4`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className={technicalToneClass(priceVolume.tone)}>
+                      <IntelligenceIcon kind="price-volume" />
+                    </span>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Price / Volume</p>
+                  </div>
+                  <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
+                    {priceVolume.state}
+                  </p>
                 </div>
-                <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${technicalToneClass(priceVolume.tone)}`}>
-                  {priceVolume.state}
-                </p>
+                <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
+                <div className="mt-3 grid gap-1.5">
+                  {priceVolume.diagnostics.map((diagnostic) => (
+                    <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
+                  ))}
+                </div>
               </div>
-              <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
-              <div className="mt-3 grid gap-1.5">
-                {priceVolume.diagnostics.map((diagnostic) => (
-                  <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
-                ))}
-              </div>
+              <FundamentalsCard summary={fundamentalsContext} />
             </div>
 
             <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">

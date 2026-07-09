@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from time import perf_counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -37,6 +37,16 @@ EVENT_LABELS = {
     "multi_source_lost": "Lost multi-source",
     "confirmation_quality_upgraded": "Quality improved",
     "confirmation_quality_downgraded": "Quality downgraded",
+    "price_volume_flip": "Price / Volume flipped",
+    "fundamentals_flip": "Fundamentals flipped",
+}
+SOURCE_FLIP_EVENT_TYPES = {
+    "price_volume": "price_volume_flip",
+    "fundamentals": "fundamentals_flip",
+}
+SOURCE_FLIP_LABELS = {
+    "price_volume": "price/volume",
+    "fundamentals": "fundamentals",
 }
 
 logger = logging.getLogger(__name__)
@@ -55,6 +65,7 @@ class ConfirmationMonitoringState:
     source_count: int
     status: str
     observed_at: datetime
+    source_states: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,7 @@ def monitoring_state_from_bundle(
         direction=direction,
         source_count=confirmation_active_source_count(bundle),
         status=status.strip(),
+        source_states=_source_states_from_bundle(bundle),
         observed_at=observed_at or datetime.now(timezone.utc),
     )
 
@@ -188,6 +200,37 @@ def decide_confirmation_monitoring_event(
     return None
 
 
+def decide_source_flip_events(
+    before: ConfirmationMonitoringState,
+    after: ConfirmationMonitoringState,
+) -> list[ConfirmationMonitoringDecision]:
+    decisions: list[ConfirmationMonitoringDecision] = []
+    for source_key, event_type in SOURCE_FLIP_EVENT_TYPES.items():
+        before_state = _interpreted_source_state(before.source_states.get(source_key))
+        after_state = _interpreted_source_state(after.source_states.get(source_key))
+        if not _is_meaningful_source_flip(before_state, after_state):
+            continue
+        label = SOURCE_FLIP_LABELS[source_key]
+        before_label = before_state["direction"].title()
+        after_label = after_state["direction"].title()
+        title = f"{after.ticker} {label} flipped from {before_label} to {after_label}"
+        body = _source_flip_body(after.ticker, source_key, before_state, after_state)
+        payload = {
+            "ticker": after.ticker,
+            "source": source_key,
+            "source_hash": _source_state_hash(source_key, after_state),
+            "direction_before": before_state["direction"],
+            "direction_after": after_state["direction"],
+            "status_before": before_state["status"],
+            "status_after": after_state["status"],
+            "score_before": before.score,
+            "score_after": after.score,
+            "observed_at": after.observed_at.isoformat(),
+        }
+        decisions.append(_decision(event_type, title, body, payload))
+    return decisions
+
+
 def refresh_watchlist_confirmation_monitoring(
     db: Session,
     *,
@@ -229,6 +272,17 @@ def refresh_watchlist_confirmation_monitoring(
                 db.flush()
                 generated += 1
                 items.append(event_to_dict(event))
+
+        source_decisions = decide_source_flip_events(before, after)
+        for source_decision in source_decisions:
+            if _recent_duplicate_exists(db, user_id=user_id, watchlist_id=watchlist_id, ticker=symbol, decision=source_decision, now=observed_at):
+                deduped += 1
+                continue
+            event = _event_from_decision(user_id=user_id, watchlist_id=watchlist_id, before=before, after=after, decision=source_decision)
+            db.add(event)
+            db.flush()
+            generated += 1
+            items.append(event_to_dict(event))
 
         _apply_state_to_snapshot(snapshot, after)
 
@@ -357,6 +411,69 @@ def event_to_dict(event: ConfirmationMonitoringEvent) -> dict:
     }
 
 
+def _source_states_from_bundle(bundle: dict) -> dict[str, dict[str, Any]]:
+    raw_sources = bundle.get("sources") if isinstance(bundle, dict) and isinstance(bundle.get("sources"), dict) else {}
+    result: dict[str, dict[str, Any]] = {}
+    for key in SOURCE_FLIP_EVENT_TYPES:
+        raw = raw_sources.get(key)
+        if not isinstance(raw, dict):
+            result[key] = {"status": "unavailable", "direction": "unavailable", "present": False}
+            continue
+        direction = raw.get("direction") if raw.get("direction") in {"bullish", "bearish", "neutral", "mixed"} else "neutral"
+        present = raw.get("present") is True
+        status = "active" if present else str(raw.get("status") or "inactive").strip().lower()
+        if not present and status in {"", "none"}:
+            status = "inactive"
+        result[key] = {
+            "status": status,
+            "direction": direction if present else "unavailable" if status in {"unavailable", "not_configured", "disabled", "provider_error", "error"} else "mixed",
+            "present": present,
+            "label": raw.get("label") if isinstance(raw.get("label"), str) else None,
+        }
+    return result
+
+
+def _interpreted_source_state(state: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(state, dict):
+        return {"status": "unavailable", "direction": "unavailable", "present": False}
+    direction = state.get("direction")
+    if direction not in {"bullish", "bearish", "mixed", "neutral", "unavailable"}:
+        direction = "unavailable"
+    if direction == "neutral":
+        direction = "mixed"
+    return {
+        "status": str(state.get("status") or "unavailable").strip().lower(),
+        "direction": direction,
+        "present": state.get("present") is True,
+    }
+
+
+def _is_meaningful_source_flip(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    before_direction = before.get("direction")
+    after_direction = after.get("direction")
+    if after_direction not in {"bullish", "bearish"}:
+        return False
+    if before_direction == after_direction:
+        return False
+    if before_direction in {"bullish", "bearish", "mixed"}:
+        return True
+    if before_direction == "unavailable":
+        return after.get("present") is True
+    return False
+
+
+def _source_flip_body(ticker: str, source_key: str, before: dict[str, Any], after: dict[str, Any]) -> str:
+    before_label = str(before.get("direction") or "mixed").title()
+    after_label = str(after.get("direction") or "mixed").title()
+    if source_key == "fundamentals":
+        return f"{ticker} fundamentals flipped from {before_label} to {after_label}."
+    return f"{ticker} price/volume flipped from {before_label} to {after_label}."
+
+
+def _source_state_hash(source_key: str, state: dict[str, Any]) -> str:
+    return f"{source_key}:{state.get('status')}:{state.get('direction')}:{bool(state.get('present'))}"
+
+
 def _snapshot_map(
     db: Session,
     *,
@@ -392,11 +509,23 @@ def _snapshot_from_state(
         direction=state.direction,
         source_count=state.source_count,
         status=state.status,
+        source_states_json=json.dumps(state.source_states, sort_keys=True),
         observed_at=state.observed_at,
     )
 
 
 def _state_from_snapshot(snapshot: ConfirmationMonitoringSnapshot) -> ConfirmationMonitoringState:
+    source_states: dict[str, dict[str, Any]] = {}
+    try:
+        parsed = json.loads(snapshot.source_states_json or "{}")
+        if isinstance(parsed, dict):
+            source_states = {
+                str(key): value
+                for key, value in parsed.items()
+                if isinstance(value, dict)
+            }
+    except Exception:
+        source_states = {}
     return ConfirmationMonitoringState(
         ticker=snapshot.ticker.upper(),
         score=int(snapshot.score or 0),
@@ -404,6 +533,7 @@ def _state_from_snapshot(snapshot: ConfirmationMonitoringSnapshot) -> Confirmati
         direction=snapshot.direction or "neutral",
         source_count=int(snapshot.source_count or 0),
         status=snapshot.status or "Inactive",
+        source_states=source_states,
         observed_at=snapshot.observed_at,
     )
 
@@ -414,6 +544,7 @@ def _apply_state_to_snapshot(snapshot: ConfirmationMonitoringSnapshot, state: Co
     snapshot.direction = state.direction
     snapshot.source_count = state.source_count
     snapshot.status = state.status
+    snapshot.source_states_json = json.dumps(state.source_states, sort_keys=True)
     snapshot.observed_at = state.observed_at
     snapshot.updated_at = state.observed_at
 
@@ -485,6 +616,8 @@ def _recent_duplicate_exists(
         return False
 
     expected = decision.payload
+    if expected.get("source_hash"):
+        return payload.get("source_hash") == expected.get("source_hash")
     return (
         payload.get("score_after") == expected.get("score_after")
         and payload.get("band_after") == expected.get("band_after")

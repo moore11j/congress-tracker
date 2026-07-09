@@ -37,7 +37,18 @@ from app.services.email_templates import reset_email_template_to_default, seed_d
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import resolve_insider_name
 
-ALERT_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", *INSTITUTIONAL_EVENT_TYPES, "government_contract", "signal")
+ALERT_EVENT_TYPES = (
+    "congress_trade",
+    "congress_trade_new",
+    "insider_trade",
+    "insider_trade_new",
+    "institutional_buy",
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_activity_change",
+    "government_contract",
+    "government_contract_new",
+    "signal",
+)
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"

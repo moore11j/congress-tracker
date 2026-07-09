@@ -243,6 +243,7 @@ from app.services.ticker_meta import get_cik_meta, get_ticker_meta
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
+from app.services.fundamentals_cache import fundamentals_summary_from_cache_row, unavailable_fundamentals_summary
 from app.services.ticker_financials import get_ticker_financials
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
@@ -5581,7 +5582,7 @@ def ticker_profile(symbol: str, db: Session = Depends(get_db)):
     return _ticker_profile_response(symbol, db)
 
 
-_TICKER_CONTEXT_BUNDLE_VERSION = 1
+_TICKER_CONTEXT_BUNDLE_VERSION = 2
 _TICKER_CONTEXT_BUNDLE_INFLIGHT_LOCK = threading.Lock()
 _TICKER_CONTEXT_BUNDLE_INFLIGHT: dict[str, dict[str, Any]] = {}
 _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE_LOCK = threading.Lock()
@@ -6031,6 +6032,7 @@ def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
         "effective_window_days": CONFIRMATION_SIGNAL_WINDOW_DAYS,
         "updated_at": now,
         "price_volume": None,
+        "fundamentals": unavailable_fundamentals_summary(normalized_symbol),
         "insiders": None,
         "congress": None,
         "signals": {
@@ -6318,6 +6320,7 @@ def _build_ticker_context_bundle(
             "effective_window_days": effective_window_days,
             "updated_at": _dt_iso(datetime.now(timezone.utc)),
             "price_volume": source_contexts["price_volume"],
+            "fundamentals": source_contexts["fundamentals"],
             "insiders": source_contexts["insiders"],
             "congress": source_contexts["congress"],
             "signals": source_contexts["signals"],
@@ -6357,6 +6360,7 @@ def _build_ticker_context_bundle(
             "source_entitlements": source_entitlements,
             "source_cards": {
                 "price_volume": source_contexts["price_volume"],
+                "fundamentals": source_contexts["fundamentals"],
                 "insiders": source_contexts["insiders"],
                 "congress": source_contexts["congress"],
                 "government_contracts": source_contexts["government_contracts"],
@@ -7887,8 +7891,10 @@ def build_ticker_signals_summary_contexts_from_cache(
         )
 
     rows = signal_rows if signal_rows is not None else []
+    fundamentals_row = _cached_ticker_fundamentals_row(db, normalized_symbol)
     return {
         "price_volume": _normalize_price_volume_context(_ticker_price_volume_summary(db, normalized_symbol)),
+        "fundamentals": fundamentals_summary_from_cache_row(fundamentals_row),
         "insiders": _ticker_trade_activity_summary(
             db,
             normalized_symbol,
@@ -8425,6 +8431,7 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
 
     return {
         "price_volume": source_meta("price_volume", None, False),
+        "fundamentals": source_meta("fundamentals", None, False),
         "insiders": source_meta("insiders", None, False),
         "congress": source_meta("congress", None, False),
         "government_contracts": source_meta("government_contracts", None, False),
@@ -8471,6 +8478,7 @@ _TICKER_CONFIRMATION_SOURCE_ORDER = (
     "insiders",
     "signals",
     "price_volume",
+    "fundamentals",
     "options_flow",
     "government_contracts",
     "institutional_activity",
@@ -8776,6 +8784,7 @@ def ticker_signals_summary(
             "effective_window_days": effective_window_days,
             "updated_at": _dt_iso(datetime.now(timezone.utc)),
             "price_volume": source_contexts["price_volume"],
+            "fundamentals": source_contexts["fundamentals"],
             "insiders": source_contexts["insiders"],
             "congress": source_contexts["congress"],
             "signals": source_contexts["signals"],

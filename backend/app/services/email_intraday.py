@@ -40,7 +40,18 @@ from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 
 INTRADAY_WATCHLIST_TEMPLATE = "alerts.watchlist_intraday"
 INTRADAY_SIGNAL_TEMPLATE = "alerts.signal_intraday"
-INTRADAY_EVENT_TYPES = ("congress_trade", "insider_trade", "institutional_buy", *INSTITUTIONAL_EVENT_TYPES, "government_contract", "signal")
+INTRADAY_EVENT_TYPES = (
+    "congress_trade",
+    "congress_trade_new",
+    "insider_trade",
+    "insider_trade_new",
+    "institutional_buy",
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_activity_change",
+    "government_contract",
+    "government_contract_new",
+    "signal",
+)
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SIGNAL_ALERT_TYPES = (
     "signal",

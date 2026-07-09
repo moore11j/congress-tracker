@@ -16,7 +16,17 @@ from app.services.monitoring_titles import build_monitoring_event_title
 
 logger = logging.getLogger(__name__)
 
-ALERTABLE_EVENT_TYPES = ("congress_trade", "insider_trade", "signal", "government_contract", *INSTITUTIONAL_EVENT_TYPES)
+ALERTABLE_EVENT_TYPES = (
+    "congress_trade",
+    "congress_trade_new",
+    "insider_trade",
+    "insider_trade_new",
+    "signal",
+    "government_contract",
+    "government_contract_new",
+    "institutional_activity_change",
+    *INSTITUTIONAL_EVENT_TYPES,
+)
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
 SIGNAL_ALERT_TYPES = ("signal",)
 PREMIUM_SIGNAL_PAYLOAD_KEYS = {

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
+from app.services.fundamentals_cache import cached_fundamentals_by_symbol, fundamentals_summary_from_cache_row
 from app.services.intelligence_overlays import (
     DEFAULT_GOVERNMENT_CONTRACTS_MIN_AMOUNT,
     get_government_contracts_summaries_for_symbols,
@@ -32,6 +33,7 @@ ConfirmationSourceKey = Literal[
     "insiders",
     "signals",
     "price_volume",
+    "fundamentals",
     "government_contracts",
     "options_flow",
     "institutional_activity",
@@ -41,6 +43,7 @@ SOURCE_ORDER: tuple[ConfirmationSourceKey, ...] = (
     "insiders",
     "signals",
     "price_volume",
+    "fundamentals",
     "options_flow",
     "government_contracts",
     "institutional_activity",
@@ -50,6 +53,7 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "insiders": "Insiders",
     "signals": "Signals",
     "price_volume": "Price / Volume",
+    "fundamentals": "Fundamentals",
     "options_flow": "Options Flow",
     "government_contracts": "Government Contracts",
     "institutional_activity": "Institutional Activity",
@@ -269,6 +273,7 @@ def confirmation_score_bundle_from_source_contexts(
         "insiders": _activity_context_source(contexts.get("insiders"), label="Insiders"),
         "signals": _signals_context_source(contexts.get("signals")),
         "price_volume": _price_volume_context_source(contexts.get("price_volume")),
+        "fundamentals": _fundamentals_context_source(contexts.get("fundamentals")),
         "options_flow": _options_flow_context_source(contexts.get("options_flow")),
         "government_contracts": _government_contracts_context_source(contexts.get("government_contracts")),
         "institutional_activity": _institutional_context_source(contexts.get("institutional_activity")),
@@ -436,6 +441,7 @@ def get_confirmation_score_bundles_for_tickers(
     government_contracts_summaries: dict[str, dict] | None = None,
     options_flow_summaries: dict[str, dict] | None = None,
     institutional_activity_summaries: dict[str, dict] | None = None,
+    fundamentals_summaries: dict[str, dict] | None = None,
 ) -> dict[str, dict]:
     symbols = sorted({(ticker or "").strip().upper() for ticker in tickers if (ticker or "").strip()})
     if not symbols:
@@ -478,6 +484,13 @@ def get_confirmation_score_bundles_for_tickers(
     except Exception:
         institutional_activity_summaries = institutional_activity_summaries or {}
     options_flow_summaries = options_flow_summaries or {}
+    try:
+        fundamentals_summaries = fundamentals_summaries or {
+            symbol: fundamentals_summary_from_cache_row(row)
+            for symbol, row in cached_fundamentals_by_symbol(db, symbols).items()
+        }
+    except Exception:
+        fundamentals_summaries = fundamentals_summaries or {}
 
     results: dict[str, dict] = {}
     for symbol in symbols:
@@ -486,6 +499,7 @@ def get_confirmation_score_bundles_for_tickers(
             "insiders": insider_sources.get(symbol, _empty_source("Inactive")),
             "signals": signal_sources.get(symbol, _empty_source("No current smart signal")),
             "price_volume": price_sources.get(symbol, _empty_source("No price confirmation")),
+            "fundamentals": _safe_source(lambda: _fundamentals_context_source(fundamentals_summaries.get(symbol))),
             "government_contracts": _safe_source(
                 lambda: _government_contracts_support_source(government_contracts_summaries.get(symbol))
             ),
@@ -516,6 +530,7 @@ def get_confirmation_score_bundle_for_ticker(
     government_contracts_summary: dict | None = None,
     options_flow_summary: dict | None = None,
     institutional_activity_summary: dict | None = None,
+    fundamentals_summary: dict | None = None,
 ) -> dict:
     symbol = (ticker or "").strip().upper()
     if not symbol:
@@ -529,6 +544,13 @@ def get_confirmation_score_bundle_for_ticker(
         "insiders": _safe_source(lambda: _trade_activity_source(db, symbol, "insider_trade", bounded_lookback, now)),
         "signals": _safe_source(lambda: _signals_source(db, symbol, bounded_lookback, now)),
         "price_volume": _safe_source(lambda: _price_volume_source(db, symbol, benchmark_symbol, bounded_lookback, now)),
+        "fundamentals": _safe_source(
+            lambda: _fundamentals_context_source(
+                fundamentals_summary
+                if isinstance(fundamentals_summary, dict)
+                else fundamentals_summary_from_cache_row(cached_fundamentals_by_symbol(db, [symbol]).get(symbol))
+            )
+        ),
         "government_contracts": _safe_source(
             lambda: _government_contracts_support_source(
                 government_contracts_summary
@@ -571,6 +593,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         "insiders": _empty_source("Inactive"),
         "signals": _empty_source("No current smart signal"),
         "price_volume": _empty_source("No price confirmation"),
+        "fundamentals": _empty_source("Fundamentals unavailable"),
         "government_contracts": _empty_source("No recent government contracts"),
         "options_flow": _empty_source("Options flow not confirming"),
         "institutional_activity": _empty_source("No recent institutional activity"),
@@ -582,7 +605,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         band="inactive",
         direction="neutral",
         status="Inactive",
-    explanation="Congress, insider, contract, price, options, and institutional sources are inactive for this lookback.",
+        explanation="Congress, insider, fundamentals, contract, price, options, and institutional sources are inactive for this lookback.",
         sources=sources,
         drivers=["Congress inactive", "Insiders inactive", "No recent government contracts"],
         active_sources=[],
@@ -973,6 +996,48 @@ def _price_volume_context_source(context: dict[str, Any] | None) -> Confirmation
         freshness_days=_context_freshness_days(context),
         label=_context_text(context, "title", "summary") or f"{direction.title()} price confirmation",
         summary=_context_text(context, "summary"),
+    )
+
+
+def _fundamentals_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if not isinstance(context, dict):
+        return _empty_source("Fundamentals unavailable")
+    data_quality = context.get("data_quality") if isinstance(context.get("data_quality"), dict) else {}
+    try:
+        scored_count = int(data_quality.get("scored_metric_count") or 0)
+    except (TypeError, ValueError):
+        scored_count = 0
+    if scored_count < 3:
+        return _empty_source("Fundamentals unavailable")
+    direction = _context_direction(context)
+    if direction == "neutral":
+        direction = "mixed"
+    status = str(context.get("status") or "").strip().lower()
+    if status in {"bullish", "bearish", "mixed"}:
+        direction = status  # type: ignore[assignment]
+    metrics = context.get("metrics") if isinstance(context.get("metrics"), dict) else {}
+    states = [
+        str(metric.get("state") or "").strip().lower()
+        for metric in metrics.values()
+        if isinstance(metric, dict) and str(metric.get("state") or "").strip().lower() in {"bullish", "neutral", "bearish"}
+    ]
+    raw_points = sum(1 if state == "bullish" else -1 if state == "bearish" else 0 for state in states)
+    freshness_days = _context_freshness_days(context)
+    if freshness_days is None:
+        raw_freshness = context.get("freshness_days")
+        freshness_days = raw_freshness if isinstance(raw_freshness, int) else None
+    freshness_penalty = 12 if freshness_days is not None and freshness_days > 180 else 6 if freshness_days is not None and freshness_days > 90 else 0
+    strength = _clamp_int(24 + min(abs(raw_points), 4) * 5 - freshness_penalty, maximum=48)
+    quality = _clamp_int(32 + min(scored_count, 6) * 5 - freshness_penalty, maximum=60)
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=direction,
+        strength=strength,
+        quality=quality,
+        freshness_days=freshness_days,
+        label=_context_text(context, "headline") or "Mixed fundamental profile",
+        detail=_context_text(context, "headline"),
+        summary=_context_text(context, "headline"),
     )
 
 
@@ -1637,6 +1702,12 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
         if source.direction in ("bullish", "bearish"):
             return f"{strength} {source.direction} price confirmation"
         return "Price confirmation active"
+    if key == "fundamentals":
+        if source.direction == "bullish":
+            return "Fundamental strength"
+        if source.direction == "bearish":
+            return "Fundamental pressure"
+        return "Fundamentals mixed"
     if key == "government_contracts":
         return "Government contracts bullish support"
     if key == "options_flow":
@@ -1684,6 +1755,7 @@ def _driver_bullets(
         ("insiders", "Insiders inactive"),
         ("signals", "No current smart signal"),
         ("price_volume", "No price confirmation"),
+        ("fundamentals", "Fundamentals unavailable"),
         ("government_contracts", "No recent government contracts"),
         ("options_flow", "Options flow not confirming"),
         ("institutional_activity", "No recent institutional activity"),
@@ -1705,6 +1777,7 @@ def _inactive_source_names(sources: dict[ConfirmationSourceKey, ConfirmationSour
         "insiders": "insider activity",
         "signals": "smart signals",
         "price_volume": "price confirmation",
+        "fundamentals": "fundamentals",
         "government_contracts": "government contracts",
         "options_flow": "options flow",
         "institutional_activity": "institutional activity",

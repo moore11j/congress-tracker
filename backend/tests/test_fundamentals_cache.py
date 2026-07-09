@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base, ensure_fundamentals_cache_schema
 from app.models import FundamentalsCache, PriceCache
-from app.services.fundamentals_cache import FundamentalsFetchResult, normalize_fundamentals_payload, upsert_fundamentals_cache
+from app.services.fundamentals_cache import FundamentalsFetchResult, fundamentals_summary_from_cache_row, normalize_fundamentals_payload, upsert_fundamentals_cache
 from app.services.screener import ScreenerParams, build_screener_response
 import app.populate_fundamentals_cache as populate_module
 
@@ -132,6 +132,56 @@ def test_fundamentals_cli_missing_provider_fields_stay_null(monkeypatch):
         row = db.execute(select(FundamentalsCache).where(FundamentalsCache.symbol == "AAPL")).scalar_one()
     assert row.trailing_pe is None
     assert row.gross_margin is None
+
+
+def test_fundamentals_summary_normalizes_payload_and_composite_status():
+    engine = _engine()
+    with Session(engine) as db:
+        row = _seed_cache(
+            db,
+            "NVDA",
+            revenue_growth=12.4,
+            roe=34.1,
+            fcf_yield=1.8,
+            ev_to_ebitda=38.2,
+            operating_margin_expansion=-1.6,
+            net_debt_to_ebitda=0.7,
+        )
+        db.commit()
+
+        summary = fundamentals_summary_from_cache_row(row)
+
+    assert summary["status"] == "bullish"
+    assert summary["headline"] == "Fundamental strength"
+    assert summary["metrics"]["revenue_growth"]["display"] == "12.4%"
+    assert summary["metrics"]["revenue_growth"]["value"] == 0.124
+    assert summary["metrics"]["ev_to_ebitda"]["display"] == "38.2x"
+    assert summary["metrics"]["operating_margin_expansion"]["display"] == "-1.6 pts"
+    assert summary["metrics"]["net_debt_to_ebitda"]["display"] == "0.7x"
+    assert summary["data_quality"]["scored_metric_count"] == 6
+
+
+def test_fundamentals_summary_missing_metrics_render_dash_and_do_not_score():
+    engine = _engine()
+    with Session(engine) as db:
+        row = _seed_cache(db, "MISS", revenue_growth=None, roe=None, fcf_yield=None, ev_to_ebitda=None)
+        db.commit()
+
+        summary = fundamentals_summary_from_cache_row(row)
+
+    assert summary["metrics"]["revenue_growth"]["display"] == "\u2014"
+    assert summary["metrics"]["return_on_equity"]["state"] == "unavailable"
+    assert summary["data_quality"]["scored_metric_count"] == 0
+    assert summary["status"] == "unavailable"
+
+
+def test_fundamentals_normalization_ignores_net_debt_ratio_when_ebitda_non_positive():
+    values = normalize_fundamentals_payload(
+        symbol="DEBT",
+        metrics_row={"symbol": "DEBT", "netDebtToEBITDATTM": 3.2, "ebitdaTTM": 0},
+    )
+
+    assert values["net_debt_to_ebitda"] is None
 
 
 def test_fundamentals_update_does_not_clear_existing_identity_fields():

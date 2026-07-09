@@ -12,6 +12,7 @@ from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapsh
 from app.services.confirmation_monitoring import (
     ConfirmationMonitoringState,
     decide_confirmation_monitoring_event,
+    decide_source_flip_events,
     refresh_all_monitored_watchlist_confirmation_monitoring,
     refresh_watchlist_confirmation_monitoring,
 )
@@ -66,6 +67,27 @@ def test_confirmation_monitoring_detects_direction_flip():
     assert decision is not None
     assert decision.event_type == "direction_flipped"
     assert decision.title == "AAPL flipped from bullish to bearish confirmation"
+
+
+def test_fundamentals_flippage_creates_source_monitoring_event():
+    before = _state(score=41, band="moderate", direction="mixed", source_count=1, status="Mixed")
+    after = _state(score=45, band="moderate", direction="bearish", source_count=1, status="Single-source bearish")
+    before.source_states["fundamentals"] = {"status": "active", "direction": "mixed", "present": True}
+    after.source_states["fundamentals"] = {"status": "active", "direction": "bearish", "present": True}
+
+    decisions = decide_source_flip_events(before, after)
+
+    assert [decision.event_type for decision in decisions] == ["fundamentals_flip"]
+    assert decisions[0].payload["source_hash"] == "fundamentals:active:bearish:True"
+
+
+def test_price_volume_flippage_ignores_same_interpreted_state():
+    before = _state(score=41, band="moderate", direction="bullish", source_count=1, status="Single-source bullish")
+    after = _state(score=43, band="moderate", direction="bullish", source_count=1, status="Single-source bullish")
+    before.source_states["price_volume"] = {"status": "active", "direction": "bullish", "present": True}
+    after.source_states["price_volume"] = {"status": "active", "direction": "bullish", "present": True}
+
+    assert decide_source_flip_events(before, after) == []
 
 
 def test_refresh_initializes_snapshot_without_emitting(monkeypatch):

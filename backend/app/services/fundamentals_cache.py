@@ -31,6 +31,7 @@ FUNDAMENTAL_FIELD_NAMES = (
     "ev_to_ebitda",
     "gross_margin",
     "operating_margin",
+    "operating_margin_expansion",
     "net_margin",
     "roe",
     "roic",
@@ -38,6 +39,7 @@ FUNDAMENTAL_FIELD_NAMES = (
     "eps_growth",
     "ebitda_growth",
     "free_cash_flow",
+    "fcf_yield",
     "fcf_margin",
     "fcf_growth",
     "debt_to_equity",
@@ -157,11 +159,55 @@ def _percent(value: Any) -> float | None:
     return parsed * 100 if abs(parsed) <= 1 else parsed
 
 
+def _ratio_from_percentish(value: Any) -> float | None:
+    parsed = _number(value)
+    if parsed is None:
+        return None
+    return parsed if abs(parsed) <= 1 else parsed / 100
+
+
 def _first_percent(*values: Any) -> float | None:
     for value in values:
         parsed = _percent(value)
         if parsed is not None:
             return parsed
+    return None
+
+
+def _first_ratio_from_percentish(*values: Any) -> float | None:
+    for value in values:
+        parsed = _ratio_from_percentish(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _margin_expansion_points(row: dict[str, Any]) -> float | None:
+    direct = _first_ratio_from_percentish(
+        row.get("operatingMarginExpansion"),
+        row.get("operatingMarginExpansionTTM"),
+        row.get("operatingMarginChange"),
+        row.get("operatingMarginChangeTTM"),
+        row.get("growthOperatingMargin"),
+        row.get("operatingProfitMarginGrowth"),
+        row.get("operatingIncomeRatioGrowth"),
+    )
+    if direct is not None:
+        return direct * 100
+    current = _first_percent(
+        row.get("operatingMargin"),
+        row.get("operatingProfitMargin"),
+        row.get("operatingIncomeRatio"),
+        row.get("currentOperatingMargin"),
+    )
+    prior = _first_percent(
+        row.get("priorOperatingMargin"),
+        row.get("previousOperatingMargin"),
+        row.get("previousOperatingProfitMargin"),
+        row.get("priorOperatingIncomeRatio"),
+    )
+    if current is not None and prior is not None:
+        return current - prior
     return None
 
 
@@ -198,6 +244,18 @@ def normalize_fundamentals_payload(
     )
     if not normalized_symbol:
         raise ValueError("symbol is required")
+    ebitda_ttm = _first_number(
+        metrics_row.get("ebitdaTTM"),
+        metrics_row.get("EBITDATTM"),
+        metrics_row.get("ebitda"),
+    )
+    net_debt_to_ebitda = _first_number(
+        screener_row.get("netDebtToEBITDA"),
+        metrics_row.get("netDebtToEBITDATTM"),
+        metrics_row.get("netDebtToEbitdaTTM"),
+    )
+    if ebitda_ttm is not None and ebitda_ttm <= 0:
+        net_debt_to_ebitda = None
 
     return {
         "symbol": normalized_symbol,
@@ -242,6 +300,7 @@ def normalize_fundamentals_payload(
             screener_row.get("evToEbitda"),
             ratios_row.get("enterpriseValueMultipleTTM"),
             metrics_row.get("enterpriseValueOverEBITDATTM"),
+            metrics_row.get("evToEBITDATTM"),
             metrics_row.get("evToEbitdaTTM"),
         ),
         "gross_margin": _first_percent(screener_row.get("grossMargin"), ratios_row.get("grossProfitMarginTTM"), ratios_row.get("grossProfitMargin")),
@@ -250,8 +309,15 @@ def normalize_fundamentals_payload(
             ratios_row.get("operatingProfitMarginTTM"),
             ratios_row.get("operatingMarginTTM"),
         ),
+        "operating_margin_expansion": _margin_expansion_points(growth_row),
         "net_margin": _first_percent(screener_row.get("netMargin"), ratios_row.get("netProfitMarginTTM"), ratios_row.get("netProfitMargin")),
-        "roe": _first_percent(screener_row.get("returnOnEquity"), ratios_row.get("returnOnEquityTTM"), ratios_row.get("roeTTM")),
+        "roe": _first_percent(
+            screener_row.get("returnOnEquity"),
+            ratios_row.get("returnOnEquityTTM"),
+            ratios_row.get("roeTTM"),
+            metrics_row.get("returnOnEquityTTM"),
+            metrics_row.get("returnonequityTTM"),
+        ),
         "roic": _first_percent(
             screener_row.get("returnOnInvestedCapital"),
             ratios_row.get("returnOnInvestedCapitalTTM"),
@@ -261,11 +327,19 @@ def normalize_fundamentals_payload(
         "eps_growth": _first_percent(screener_row.get("epsGrowth"), growth_row.get("epsgrowth"), growth_row.get("epsGrowth")),
         "ebitda_growth": _first_percent(screener_row.get("ebitdaGrowth"), growth_row.get("ebitdaGrowth"), growth_row.get("growthEBITDA")),
         "free_cash_flow": _first_number(screener_row.get("freeCashFlow"), metrics_row.get("freeCashFlowTTM"), metrics_row.get("freeCashFlow")),
+        "fcf_yield": _first_percent(
+            screener_row.get("freeCashFlowYield"),
+            screener_row.get("fcfYield"),
+            metrics_row.get("freeCashFlowYieldTTM"),
+            metrics_row.get("freeCashFlowYield"),
+            metrics_row.get("fcfYieldTTM"),
+            metrics_row.get("fcfYield"),
+        ),
         "fcf_margin": _first_percent(screener_row.get("freeCashFlowMargin"), metrics_row.get("freeCashFlowMarginTTM")),
         "fcf_growth": _first_percent(screener_row.get("freeCashFlowGrowth"), growth_row.get("freeCashFlowGrowth")),
         "debt_to_equity": _first_number(screener_row.get("debtToEquity"), ratios_row.get("debtEquityRatioTTM"), ratios_row.get("debtToEquityTTM")),
         "current_ratio": _first_number(screener_row.get("currentRatio"), ratios_row.get("currentRatioTTM"), ratios_row.get("currentRatio")),
-        "net_debt_to_ebitda": _first_number(screener_row.get("netDebtToEBITDA"), metrics_row.get("netDebtToEBITDATTM")),
+        "net_debt_to_ebitda": net_debt_to_ebitda,
         "eps_ttm": _first_number(screener_row.get("epsTTM"), screener_row.get("eps"), quote_row.get("eps"), metrics_row.get("netIncomePerShareTTM")),
         "earnings_yield": _first_percent(screener_row.get("earningsYield"), metrics_row.get("earningsYieldTTM")),
     }
@@ -285,7 +359,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
         quote_row = next(iter(_request_rows("historical-price-eod/light", params={"symbol": normalized_symbol})), {})
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
-        growth_row = next(iter(_request_rows("financial-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
+        growth_row = next(iter(_request_rows("income-statement-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
         values = normalize_fundamentals_payload(
             symbol=normalized_symbol,
             screener_row=screener_row,
@@ -358,6 +432,228 @@ def cache_row_to_screener_row(row: FundamentalsCache) -> dict[str, Any]:
     for cache_field in FUNDAMENTAL_FIELD_NAMES:
         payload[SCREENER_ROW_FIELD_MAP.get(cache_field, cache_field)] = getattr(row, cache_field)
     return payload
+
+
+def _row_number(row: FundamentalsCache, field: str) -> float | None:
+    value = getattr(row, field, None)
+    return _number(value)
+
+
+def _metric_state(value: float | None, *, kind: str) -> str:
+    if value is None:
+        return "unavailable"
+    if kind == "roe":
+        if value > 15:
+            return "bullish"
+        if value < 10:
+            return "bearish"
+        return "neutral"
+    if kind == "revenue_growth":
+        if value > 0:
+            return "bullish"
+        if value < 0:
+            return "bearish"
+        return "neutral"
+    if kind == "fcf_yield":
+        if value > 0:
+            return "bullish"
+        if value < 0:
+            return "bearish"
+        return "neutral"
+    if kind == "net_debt_to_ebitda":
+        if value < 2:
+            return "bullish"
+        if value > 4:
+            return "bearish"
+        return "neutral"
+    if kind == "operating_margin_expansion":
+        if value > 0:
+            return "bullish"
+        if value < 0:
+            return "bearish"
+        return "neutral"
+    return "neutral"
+
+
+def _format_percent(value: float | None) -> str:
+    return "\u2014" if value is None else f"{value:.1f}%"
+
+
+def _format_multiple(value: float | None) -> str:
+    return "\u2014" if value is None else f"{value:.1f}x"
+
+
+def _format_points(value: float | None) -> str:
+    return "\u2014" if value is None else f"{value:+.1f} pts"
+
+
+def _metric_payload(
+    *,
+    value: float | None,
+    display: str,
+    state: str,
+    direction: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "value": value,
+        "display": display,
+        "state": state,
+    }
+    if direction is not None:
+        payload["direction"] = direction
+    return payload
+
+
+def _direction_from_value(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    if value > 0:
+        return "rising"
+    if value < 0:
+        return "falling"
+    return "flat"
+
+
+def _headline_for_status(status: str) -> str:
+    if status == "bullish":
+        return "Fundamental strength"
+    if status == "bearish":
+        return "Fundamental pressure"
+    if status == "mixed":
+        return "Mixed fundamental profile"
+    return "Fundamentals unavailable"
+
+
+def fundamentals_summary_from_cache_row(
+    row: FundamentalsCache | None,
+    *,
+    now: datetime | None = None,
+    stale_days: int = 45,
+) -> dict[str, Any]:
+    if row is None:
+        return unavailable_fundamentals_summary()
+
+    revenue_growth = _row_number(row, "revenue_growth")
+    roe = _row_number(row, "roe")
+    fcf_yield = _row_number(row, "fcf_yield")
+    ev_to_ebitda = _row_number(row, "ev_to_ebitda")
+    operating_margin_expansion = _row_number(row, "operating_margin_expansion")
+    net_debt_to_ebitda = _row_number(row, "net_debt_to_ebitda")
+
+    metric_values = {
+        "revenue_growth": revenue_growth,
+        "return_on_equity": roe,
+        "fcf_yield": fcf_yield,
+        "ev_to_ebitda": ev_to_ebitda,
+        "operating_margin_expansion": operating_margin_expansion,
+        "net_debt_to_ebitda": net_debt_to_ebitda,
+    }
+    metrics = {
+        "revenue_growth": _metric_payload(
+            value=revenue_growth / 100 if revenue_growth is not None else None,
+            display=_format_percent(revenue_growth),
+            state=_metric_state(revenue_growth, kind="revenue_growth"),
+            direction=_direction_from_value(revenue_growth),
+        ),
+        "return_on_equity": _metric_payload(
+            value=roe / 100 if roe is not None else None,
+            display=_format_percent(roe),
+            state=_metric_state(roe, kind="roe"),
+        ),
+        "fcf_yield": _metric_payload(
+            value=fcf_yield / 100 if fcf_yield is not None else None,
+            display=_format_percent(fcf_yield),
+            state=_metric_state(fcf_yield, kind="fcf_yield"),
+        ),
+        "ev_to_ebitda": _metric_payload(
+            value=ev_to_ebitda,
+            display=_format_multiple(ev_to_ebitda),
+            state="neutral" if ev_to_ebitda is not None else "unavailable",
+        ),
+        "operating_margin_expansion": _metric_payload(
+            value=operating_margin_expansion / 100 if operating_margin_expansion is not None else None,
+            display=_format_points(operating_margin_expansion),
+            state=_metric_state(operating_margin_expansion, kind="operating_margin_expansion"),
+        ),
+        "net_debt_to_ebitda": _metric_payload(
+            value=net_debt_to_ebitda,
+            display=_format_multiple(net_debt_to_ebitda),
+            state=_metric_state(net_debt_to_ebitda, kind="net_debt_to_ebitda"),
+        ),
+    }
+    missing_fields = [key for key, value in metric_values.items() if value is None]
+    scored_states = [
+        metric.get("state")
+        for metric in metrics.values()
+        if metric.get("state") in {"bullish", "neutral", "bearish"}
+    ]
+    score = sum(1 if state == "bullish" else -1 if state == "bearish" else 0 for state in scored_states)
+    scored_count = len(scored_states)
+    if scored_count <= 0:
+        status = "unavailable"
+    elif score >= 2:
+        status = "bullish"
+    elif score <= -2:
+        status = "bearish"
+    else:
+        status = "mixed"
+
+    observed_now = now or datetime.now(timezone.utc)
+    fetched_at = row.fetched_at
+    if fetched_at is not None and fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    freshness_days = (
+        max((observed_now - fetched_at).days, 0)
+        if isinstance(fetched_at, datetime)
+        else None
+    )
+    stale = freshness_days is not None and freshness_days > max(1, int(stale_days))
+    return {
+        "symbol": row.symbol,
+        "status": status,
+        "headline": _headline_for_status(status),
+        "as_of": row.period_date.isoformat() if row.period_date is not None else None,
+        "updated_at": row.fetched_at.isoformat() if isinstance(row.fetched_at, datetime) else None,
+        "freshness_days": freshness_days,
+        "data_state": "stale" if stale else "fresh",
+        "metrics": metrics,
+        "data_quality": {
+            "available": scored_count > 0,
+            "missing_fields": missing_fields,
+            "scored_metric_count": scored_count,
+        },
+    }
+
+
+def unavailable_fundamentals_summary(symbol: str | None = None) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol) if symbol else None
+    metrics = {
+        key: _metric_payload(value=None, display="\u2014", state="unavailable")
+        for key in (
+            "revenue_growth",
+            "return_on_equity",
+            "fcf_yield",
+            "ev_to_ebitda",
+            "operating_margin_expansion",
+            "net_debt_to_ebitda",
+        )
+    }
+    metrics["revenue_growth"]["direction"] = "unknown"
+    return {
+        "symbol": normalized,
+        "status": "unavailable",
+        "headline": "Fundamentals unavailable",
+        "as_of": None,
+        "updated_at": None,
+        "freshness_days": None,
+        "data_state": "unavailable",
+        "metrics": metrics,
+        "data_quality": {
+            "available": False,
+            "missing_fields": list(metrics.keys()),
+            "scored_metric_count": 0,
+        },
+    }
 
 
 def cached_screener_rows(

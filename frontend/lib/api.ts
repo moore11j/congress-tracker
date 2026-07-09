@@ -3834,6 +3834,28 @@ export type TickerSourceEntitlement = {
 
 export type TickerSourceEntitlements = Record<string, TickerSourceEntitlement>;
 
+export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
+export type TickerFundamentalsSummary = {
+  symbol?: string | null;
+  status?: "bullish" | "mixed" | "bearish" | "unavailable" | string;
+  headline?: string | null;
+  as_of?: string | null;
+  updated_at?: string | null;
+  freshness_days?: number | null;
+  data_state?: string | null;
+  metrics?: Record<string, {
+    value?: number | null;
+    display?: string | null;
+    state?: FundamentalsMetricState | null;
+    direction?: string | null;
+  }>;
+  data_quality?: {
+    available?: boolean;
+    missing_fields?: string[];
+    scored_metric_count?: number;
+  } | null;
+} | null;
+
 export type TickerSignalsSummaryResponse = {
   symbol: string;
   status: "ok" | "empty" | "loading" | "unavailable" | string;
@@ -3866,6 +3888,7 @@ export type TickerSignalsSummaryResponse = {
       point_count?: number | null;
     } | null;
   } | null;
+  fundamentals?: TickerFundamentalsSummary;
   insiders?: {
     status?: string | null;
     direction?: string | null;

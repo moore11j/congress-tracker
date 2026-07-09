@@ -12,6 +12,7 @@ _SOURCE_ORDER = (
     "insiders",
     "signals",
     "price_volume",
+    "fundamentals",
     "government_contracts",
     "options_flow",
     "institutional_activity",
@@ -163,6 +164,7 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "insiders": _source(raw_sources.get("insiders"), "Inactive"),
         "signals": _source(raw_sources.get("signals"), "No current smart signal"),
         "price_volume": _source(raw_sources.get("price_volume"), "No price confirmation"),
+        "fundamentals": _source(raw_sources.get("fundamentals"), "Fundamentals unavailable"),
         "government_contracts": _source(raw_sources.get("government_contracts"), "No recent government contracts"),
         "options_flow": _source(raw_sources.get("options_flow"), "Options flow not confirming"),
         "institutional_activity": _source(raw_sources.get("institutional_activity"), "No recent institutional activity"),
@@ -246,6 +248,12 @@ def _source_driver(key: str, source: dict[str, Any]) -> str | None:
         if direction in {"bullish", "bearish"}:
             return f"{strength} {direction} price confirmation"
         return "Price confirmation active"
+    if key == "fundamentals":
+        if direction == "bullish":
+            return "Fundamental strength"
+        if direction == "bearish":
+            return "Fundamental pressure"
+        return "Fundamentals mixed"
     if key == "government_contracts":
         return "Government contracts bullish support"
     if key == "options_flow":
@@ -311,6 +319,7 @@ def _evidence(
         "insiders": "Insider activity remains inactive",
         "signals": "No current smart signal",
         "price_volume": "No price confirmation",
+        "fundamentals": "Fundamentals unavailable",
         "government_contracts": "No recent government contracts",
         "options_flow": "Options flow not confirming",
         "institutional_activity": "No recent institutional activity",

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, GovernmentContract, PriceCache
+from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
     confirmation_band_for_score,
     get_slim_confirmation_score_bundles_for_tickers,
@@ -111,6 +111,56 @@ def test_confirmation_score_bundle_degrades_to_inactive_without_sources():
         assert bundle["sources"]["insiders"]["present"] is False
         assert bundle["sources"]["signals"]["present"] is False
         assert bundle["sources"]["price_volume"]["present"] is False
+        assert bundle["sources"]["fundamentals"]["present"] is False
+
+
+def test_confirmation_score_bundle_receives_fundamentals_without_unavailable_penalty():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        db.add(
+            FundamentalsCache(
+                symbol="QUAL",
+                provider="fmp",
+                fetched_at=now,
+                status="ok",
+                revenue_growth=12,
+                roe=24,
+                fcf_yield=4,
+                operating_margin_expansion=2,
+                net_debt_to_ebitda=0.8,
+            )
+        )
+        db.commit()
+
+        bundle = get_confirmation_score_bundle_for_ticker(db, "QUAL", lookback_days=30)
+
+    assert bundle["sources"]["fundamentals"]["present"] is True
+    assert bundle["sources"]["fundamentals"]["direction"] == "bullish"
+    assert bundle["direction"] == "bullish"
+
+
+def test_unavailable_fundamentals_do_not_count_as_bearish():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    with Session(engine) as db:
+        db.add(
+            FundamentalsCache(
+                symbol="EMPTY",
+                provider="fmp",
+                fetched_at=datetime.now(timezone.utc),
+                status="ok",
+            )
+        )
+        db.commit()
+
+        bundle = get_confirmation_score_bundle_for_ticker(db, "EMPTY", lookback_days=30)
+
+    assert bundle["sources"]["fundamentals"]["present"] is False
+    assert bundle["direction"] == "neutral"
 
 
 def test_slim_confirmation_score_bundle_derives_active_source_count():

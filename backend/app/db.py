@@ -484,6 +484,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                         ev_to_ebitda FLOAT,
                         gross_margin FLOAT,
                         operating_margin FLOAT,
+                        operating_margin_expansion FLOAT,
                         net_margin FLOAT,
                         roe FLOAT,
                         roic FLOAT,
@@ -491,6 +492,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                         eps_growth FLOAT,
                         ebitda_growth FLOAT,
                         free_cash_flow FLOAT,
+                        fcf_yield FLOAT,
                         fcf_margin FLOAT,
                         fcf_growth FLOAT,
                         debt_to_equity FLOAT,
@@ -529,6 +531,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                 "ev_to_ebitda": "FLOAT",
                 "gross_margin": "FLOAT",
                 "operating_margin": "FLOAT",
+                "operating_margin_expansion": "FLOAT",
                 "net_margin": "FLOAT",
                 "roe": "FLOAT",
                 "roic": "FLOAT",
@@ -536,6 +539,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                 "eps_growth": "FLOAT",
                 "ebitda_growth": "FLOAT",
                 "free_cash_flow": "FLOAT",
+                "fcf_yield": "FLOAT",
                 "fcf_margin": "FLOAT",
                 "fcf_growth": "FLOAT",
                 "debt_to_equity": "FLOAT",
@@ -577,6 +581,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                         ev_to_ebitda DOUBLE PRECISION,
                         gross_margin DOUBLE PRECISION,
                         operating_margin DOUBLE PRECISION,
+                        operating_margin_expansion DOUBLE PRECISION,
                         net_margin DOUBLE PRECISION,
                         roe DOUBLE PRECISION,
                         roic DOUBLE PRECISION,
@@ -584,6 +589,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                         eps_growth DOUBLE PRECISION,
                         ebitda_growth DOUBLE PRECISION,
                         free_cash_flow DOUBLE PRECISION,
+                        fcf_yield DOUBLE PRECISION,
                         fcf_margin DOUBLE PRECISION,
                         fcf_growth DOUBLE PRECISION,
                         debt_to_equity DOUBLE PRECISION,
@@ -614,6 +620,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                 "ev_to_ebitda",
                 "gross_margin",
                 "operating_margin",
+                "operating_margin_expansion",
                 "net_margin",
                 "roe",
                 "roic",
@@ -621,6 +628,7 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
                 "eps_growth",
                 "ebitda_growth",
                 "free_cash_flow",
+                "fcf_yield",
                 "fcf_margin",
                 "fcf_growth",
                 "debt_to_equity",
@@ -1474,6 +1482,7 @@ def ensure_event_columns() -> None:
                     direction TEXT NOT NULL DEFAULT 'neutral',
                     source_count INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'Inactive',
+                    source_states_json TEXT NOT NULL DEFAULT '{}',
                     observed_at TIMESTAMP NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1481,6 +1490,13 @@ def ensure_event_columns() -> None:
                 """
             )
         )
+        existing_confirmation_snapshot_columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(confirmation_monitoring_snapshots)")).fetchall()
+            if len(row) > 1
+        }
+        if "source_states_json" not in existing_confirmation_snapshot_columns:
+            conn.execute(text("ALTER TABLE confirmation_monitoring_snapshots ADD COLUMN source_states_json TEXT NOT NULL DEFAULT '{}'"))
         conn.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_confirmation_monitoring_snapshot_scope "
