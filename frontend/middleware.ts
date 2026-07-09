@@ -5,7 +5,7 @@ const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/watchlists", "/monitoring", "/signals", "/leaderboards"];
-const publicStaticPaths = new Set(["/landing", "/pricing", "/terms", "/privacy", "/faq"]);
+const publicStaticPaths = new Set(["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq"]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -74,7 +74,7 @@ function withNoindex(response: NextResponse): NextResponse {
 function robotsTxtResponse(host: string): NextResponse {
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const marketingAllow = publicLandingHosts.has(host)
-    ? "\nAllow: /\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\n"
+    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\n"
     : "\n";
   const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
   return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {
@@ -253,5 +253,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/robots.txt", "/landing", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/billing/:path*", "/feed", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/", "/robots.txt", "/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/billing/:path*", "/feed", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
 };

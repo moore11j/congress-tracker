@@ -115,7 +115,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-semibold text-white">{result.label}</span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">{result.subtitle || typeLabel(result.kind)}</span>
+                    <span className="mt-1 block truncate text-xs text-slate-400">{result.subtitle || typeLabel(result.kind)}</span>
                   </span>
                   <span className="shrink-0 rounded border border-white/10 bg-white/[0.035] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
                     {typeLabel(result.kind)}

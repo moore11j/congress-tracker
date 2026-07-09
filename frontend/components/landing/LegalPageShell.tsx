@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { WALNUT_REDDIT_URL, WALNUT_X_HANDLE, WALNUT_X_URL } from "@/lib/marketingMetadata";
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
@@ -19,7 +20,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{eyebrow}</p>
         <h1 className="mt-4 text-4xl font-semibold text-white">{title}</h1>
         <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">{description}</p>
-        <p className="mt-4 text-sm text-slate-500">Last updated: {lastUpdated}</p>
+        <p className="mt-4 text-sm text-slate-400">Last updated: {lastUpdated}</p>
       </div>
 
       <div className="legal-content mt-10 space-y-8 text-sm leading-7 text-slate-300">{children}</div>
@@ -46,6 +47,9 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
           </a>
           <div className="flex items-center gap-3 text-sm font-medium">
             <nav className="hidden items-center gap-3 text-slate-300 sm:flex" aria-label="Public pages">
+              <a href="/about" className="hover:text-white">
+                About
+              </a>
               <a href="/faq" className="hover:text-white">
                 FAQ
               </a>
@@ -69,14 +73,17 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
         <div className="mx-auto flex max-w-5xl flex-col gap-4 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-semibold text-slate-300">Walnut Market Terminal</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
+            <p className="mt-1 text-xs leading-5 text-slate-400">
               Walnut Market Terminal is operated by Walnut Intelligence Inc.
             </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
+            <p className="mt-1 text-xs leading-5 text-slate-400">
               Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4" aria-label="Legal footer">
+            <a href="/about" className="hover:text-white">
+              About
+            </a>
             <a href="/faq" className="hover:text-white">
               FAQ
             </a>
@@ -88,6 +95,12 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
             </a>
             <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
               Contact / support@walnutmarkets.com
+            </a>
+            <a href={WALNUT_X_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+              X / {WALNUT_X_HANDLE}
+            </a>
+            <a href={WALNUT_REDDIT_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+              Reddit / r/walnutmarkets
             </a>
           </nav>
         </div>

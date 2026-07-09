@@ -174,6 +174,21 @@ const faqCategories = [
   },
 ] as const;
 
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqCategories.flatMap((category) =>
+    category.items.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.answer,
+      },
+    })),
+  ),
+};
+
 export const metadata: Metadata = {
   title: "Frequently Asked Questions | Walnut Markets",
   description:
@@ -191,6 +206,8 @@ export default async function FaqPage() {
       lastUpdated={lastUpdated}
       chrome={chrome}
     >
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd).replace(/</g, "\\u003c") }} />
+
       {faqCategories.map((category) => (
         <LegalSection key={category.title} title={category.title}>
           <div className="divide-y divide-white/10">

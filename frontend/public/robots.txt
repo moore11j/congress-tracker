@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
+Allow: /about
 Allow: /pricing
 Allow: /faq
 Allow: /terms

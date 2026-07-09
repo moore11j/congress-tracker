@@ -4,7 +4,16 @@ import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
-import { walnutMarketingMetadata } from "@/lib/marketingMetadata";
+import {
+  WALNUT_MARKETING_DESCRIPTION,
+  WALNUT_MARKETING_URL,
+  WALNUT_REDDIT_URL,
+  WALNUT_SOCIAL_IMAGE_URL,
+  WALNUT_SOCIAL_URLS,
+  WALNUT_X_HANDLE,
+  WALNUT_X_URL,
+  walnutMarketingMetadata,
+} from "@/lib/marketingMetadata";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +24,7 @@ export const metadata: Metadata = walnutMarketingMetadata;
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
+const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
 const timCookInsiderUrl = `${appUrl}/insider/tim-cook-0001214156`;
 
 type TrendingTicker = {
@@ -57,6 +67,7 @@ const navLinks = [
   ["Congress", "#congress"],
   ["Insiders", "#insiders"],
   ["Stock Screener", "#screener"],
+  ["About", "/about"],
   ["Pricing", "#pricing"],
 ] as const;
 
@@ -348,7 +359,7 @@ function formatMacroChange(item: MacroSnapshotPoint): string {
 }
 
 function deltaClassName(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "text-slate-500";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "text-slate-400";
   if (value > 0) return "text-emerald-300";
   if (value < 0) return "text-rose-300";
   return "text-slate-400";
@@ -430,6 +441,88 @@ function landingPlanPriceDisplay(config: PlanConfig | null, tier: PlanTier): Lan
   };
 }
 
+function planOffer(price: PlanPrice, name: string) {
+  return {
+    "@type": "Offer",
+    name,
+    url: publicPricingUrl,
+    price: Number((price.amount_cents / 100).toFixed(2)),
+    priceCurrency: price.currency || "USD",
+    availability: "https://schema.org/InStock",
+  };
+}
+
+function landingPlanOffers(config: PlanConfig | null) {
+  const offers: Array<Record<string, unknown>> = [
+    {
+      "@type": "Offer",
+      name: "Free plan",
+      url: publicPricingUrl,
+      price: 0,
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
+    },
+  ];
+
+  for (const tier of ["premium", "pro"] as const) {
+    const label = tier === "premium" ? "Premium" : "Pro";
+    const monthly = planPriceFor(config, tier, "monthly");
+    const annual = planPriceFor(config, tier, "annual");
+    if (monthly) offers.push(planOffer(monthly, `${label} monthly plan`));
+    if (annual) offers.push(planOffer(annual, `${label} annual plan`));
+  }
+
+  return offers;
+}
+
+function landingJsonLd(config: PlanConfig | null) {
+  const organization = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Walnut Intelligence Inc.",
+    alternateName: "Walnut Markets",
+    url: WALNUT_MARKETING_URL,
+    logo: `${WALNUT_MARKETING_URL}/walnut-intel-logo-mark.png`,
+    description: WALNUT_MARKETING_DESCRIPTION,
+    sameAs: WALNUT_SOCIAL_URLS,
+  };
+
+  const website = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Walnut Markets",
+    url: WALNUT_MARKETING_URL,
+    description: WALNUT_MARKETING_DESCRIPTION,
+    publisher: {
+      "@type": "Organization",
+      name: "Walnut Intelligence Inc.",
+    },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${appUrl}/search?q={search_term_string}`,
+      "query-input": "required name=search_term_string",
+    },
+  };
+
+  const application = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Walnut Market Terminal",
+    applicationCategory: "FinanceApplication",
+    operatingSystem: "Web",
+    url: WALNUT_MARKETING_URL,
+    image: WALNUT_SOCIAL_IMAGE_URL,
+    description: WALNUT_MARKETING_DESCRIPTION,
+    publisher: {
+      "@type": "Organization",
+      name: "Walnut Intelligence Inc.",
+    },
+    offers: landingPlanOffers(config),
+  };
+
+  return [organization, website, application];
+}
+
 function MarketDataCard({
   title,
   subtitle,
@@ -441,7 +534,7 @@ function MarketDataCard({
 }) {
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{subtitle}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{subtitle}</p>
       <h3 className="mt-2 text-lg font-semibold text-white">{title}</h3>
       <div className="mt-4 space-y-3">{children}</div>
     </div>
@@ -455,7 +548,7 @@ function InstrumentRows({ items }: { items: MarketInstrument[] }) {
         <div key={`${item.label}-${item.symbol ?? "na"}`} className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
-            <p className="mt-1 truncate font-mono text-xs text-slate-500">{publicSnapshotMetaLabel(item.timeframeLabel)}</p>
+            <p className="mt-1 truncate font-mono text-xs text-slate-400">{publicSnapshotMetaLabel(item.timeframeLabel)}</p>
           </div>
           <div className="shrink-0 text-right">
             <p className="font-mono text-sm font-semibold text-white">{formatMarketValue(item.value)}</p>
@@ -476,7 +569,7 @@ function MacroRows({ items }: { items: MacroSnapshotPoint[] }) {
           <div key={`${item.label}-${item.date ?? "na"}`} className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-slate-100">{item.label}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">{publicSnapshotMetaLabel(item.change_label, item.timeframe_label, item.context_label)}</p>
+              <p className="mt-1 truncate text-xs text-slate-400">{publicSnapshotMetaLabel(item.change_label, item.timeframe_label, item.context_label)}</p>
             </div>
             <div className="shrink-0 text-right">
               <p className="font-mono text-sm font-semibold text-white">{formatMacroValue(item)}</p>
@@ -502,7 +595,7 @@ function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }
       <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Market snapshot examples</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Market snapshot examples</p>
             <p className="mt-2 text-sm leading-6 text-slate-400">A preview of the market context Walnut surfaces inside the terminal.</p>
           </div>
           <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Preparing</span>
@@ -532,7 +625,7 @@ function LandingMarketSnapshot({ snapshot }: { snapshot: MacroSnapshotResponse }
     <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{statusLabel}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{statusLabel}</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">US macro, rates, and index context surfaced inside the terminal.</p>
         </div>
         <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">Terminal data</span>
@@ -572,9 +665,11 @@ export default async function LandingPage() {
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
   const proPrice = landingPlanPriceDisplay(planConfig, "pro");
+  const structuredData = landingJsonLd(planConfig);
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#030712] text-slate-100">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
       <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(148,163,184,0.05)_1px,transparent_1px),linear-gradient(180deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:56px_56px]" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/88 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -644,21 +739,21 @@ export default async function LandingPage() {
                 Explore Insights
               </a>
             </div>
-            <p className="mt-5 text-xs leading-5 text-slate-500">Built for research. Not investment advice.</p>
+            <p className="mt-5 text-xs leading-5 text-slate-400">Built for research. Not investment advice.</p>
           </div>
 
           <div className="relative">
             <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Market brief</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Market brief</p>
                   <p className="mt-1 text-sm font-semibold text-white">A snapshot of what Walnut is watching now.</p>
                 </div>
                 <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
               </div>
               <div className="border-b border-white/10 p-5">
                 <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-                  <LatestInsightImage src={heroInsightImage} alt="" />
+                  <LatestInsightImage src={heroInsightImage} alt={heroInsight.title} />
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
                   <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
                   {heroInsight.summary ? (
@@ -672,7 +767,7 @@ export default async function LandingPage() {
                 {trendingTickers.slice(0, 4).map((ticker) => {
                   const changeTone =
                     ticker.dayChangePct === null
-                      ? "text-slate-500"
+                      ? "text-slate-400"
                       : ticker.dayChangePct >= 0
                         ? "text-emerald-300"
                         : "text-rose-300";
@@ -681,7 +776,7 @@ export default async function LandingPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-mono text-lg font-semibold text-emerald-200">{ticker.symbol}</p>
-                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">{ticker.companyName}</p>
+                          <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-400">{ticker.companyName}</p>
                         </div>
                         <div className="shrink-0 text-right">
                           <p className="font-mono text-sm font-semibold text-white">{formatTickerPrice(ticker.price)}</p>
@@ -733,7 +828,7 @@ export default async function LandingPage() {
                 {latestInsights.slice(0, 5).map((item) => (
                   <a key={`${item.title}-${item.url}`} href={insightHref(item)} target={item.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className="block py-4 first:pt-0 last:pb-0">
                     <p className="text-sm font-semibold leading-6 text-white hover:text-emerald-100">{item.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.site || item.source || "Market news"}</p>
+                    <p className="mt-1 text-xs text-slate-400">{item.site || item.source || "Market news"}</p>
                   </a>
                 ))}
               </div>
@@ -748,7 +843,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Congress and Insider Trade Profiles</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Go straight into the real research pages.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-500">Portfolio simulations, insider profiles, ticker charts, and transaction tables live inside the app.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and transaction tables live inside the app.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
@@ -835,7 +930,7 @@ export default async function LandingPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Filter market data by</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Filter market data by</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {[
                   "Congressional activity",
@@ -915,7 +1010,7 @@ export default async function LandingPage() {
           <div>
             <p className="font-semibold text-white">Walnut Market Terminal</p>
             <p className="mt-1">Walnut Market Terminal is operated by Walnut Intelligence Inc.</p>
-            <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-500">
+            <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-400">
               Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
             </p>
           </div>
@@ -929,6 +1024,9 @@ export default async function LandingPage() {
             <a href={loginUrl} className="hover:text-white">
               Login / Register
             </a>
+            <a href="/about" className="hover:text-white">
+              About
+            </a>
             <a href="/faq" className="hover:text-white">
               FAQ
             </a>
@@ -940,6 +1038,12 @@ export default async function LandingPage() {
             </a>
             <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
               Contact / support@walnutmarkets.com
+            </a>
+            <a href={WALNUT_X_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+              X / {WALNUT_X_HANDLE}
+            </a>
+            <a href={WALNUT_REDDIT_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+              Reddit / r/walnutmarkets
             </a>
           </nav>
         </div>
