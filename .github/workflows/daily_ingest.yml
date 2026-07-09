@@ -25,7 +25,7 @@ on:
     - cron: "30 14 * * 1" # Weekly government contracts backfill on Mondays
 
 concurrency:
-  group: scheduled-ingest-${{ github.event.schedule || github.event.inputs.job || 'manual' }}
+  group: scheduled-ingest-writes
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +37,16 @@ jobs:
 
       - name: Install flyctl
         run: |
-          curl -L https://fly.io/install.sh | sh
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if curl --fail --location --retry 5 --retry-all-errors https://fly.io/install.sh | sh; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
           echo "$HOME/.fly/bin" >> $GITHUB_PATH
 
       - name: Run ingest on Fly

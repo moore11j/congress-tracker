@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.db import Base, SessionLocal, engine, ensure_event_columns, ensure_trade_outcomes_amount_bigint
 from app.models import Event, TradeOutcome
@@ -66,6 +67,148 @@ def _load_trade_outcomes_by_event_id(
     for chunk in _chunked(unique_event_ids, chunk_size):
         rows.extend(db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_(chunk))).scalars().all())
     return {row.event_id: row for row in rows}
+
+
+def _is_trade_outcome_event_id_race(exc: IntegrityError) -> bool:
+    details = f"{exc.orig!r} {exc!s}".lower()
+    return (
+        "trade_outcomes" in details
+        and "event_id" in details
+        and (
+            "duplicate key" in details
+            or "unique constraint" in details
+            or "unique violation" in details
+            or "unique constraint failed" in details
+        )
+    )
+
+
+def _assign_trade_outcome_fields(
+    target: TradeOutcome,
+    *,
+    event: Event,
+    outcome: dict,
+    benchmark_symbol: str,
+    computed_at: datetime,
+) -> None:
+    target.member_id = outcome.get("member_id")
+    target.member_name = outcome.get("member_name")
+    target.symbol = outcome.get("symbol")
+    target.trade_type = outcome.get("trade_type")
+    target.source = outcome.get("source")
+    target.trade_date = _parse_date(outcome.get("trade_date"))
+    target.entry_price = outcome.get("entry_price")
+    target.entry_price_date = _parse_date(outcome.get("entry_price_date"))
+    target.current_price = outcome.get("current_price")
+    target.current_price_date = _parse_date(outcome.get("current_price_date"))
+    target.benchmark_symbol = outcome.get("benchmark_symbol") or benchmark_symbol
+    target.benchmark_entry_price = outcome.get("benchmark_entry_price")
+    target.benchmark_current_price = outcome.get("benchmark_current_price")
+    target.return_pct = outcome.get("return_pct")
+    target.benchmark_return_pct = outcome.get("benchmark_return_pct")
+    target.alpha_pct = outcome.get("alpha_pct")
+    target.holding_days = outcome.get("holding_days")
+    target.amount_min = outcome.get("amount_min")
+    target.amount_max = outcome.get("amount_max")
+    target.scoring_status = outcome.get("scoring_status") or "unknown"
+    target.scoring_error = outcome.get("scoring_error")
+    target.methodology_version = outcome.get("methodology_version") or METHODOLOGY_BY_EVENT_TYPE.get(
+        event.event_type,
+        METHODOLOGY_VERSION,
+    )
+    target.computed_at = computed_at
+
+
+def _persist_trade_outcomes(
+    db,
+    *,
+    eligible_events: list[Event],
+    outcome_by_event_id: dict[int, dict],
+    existing_by_event_id: dict[int, TradeOutcome],
+    replace: bool,
+    retry_status_set: set[str],
+    benchmark_symbol: str,
+) -> dict[str, object]:
+    event_ids = [event.id for event in eligible_events]
+    commit_retry_count = 0
+
+    for attempt in range(2):
+        inserted = 0
+        updated = 0
+        skipped = 0
+        status_counts: Counter[str] = Counter()
+        insider_inserted = 0
+        insider_skip_reasons: Counter[str] = Counter()
+        insider_methodology_versions: Counter[str] = Counter()
+
+        now = datetime.now(timezone.utc)
+        for event in eligible_events:
+            outcome = outcome_by_event_id.get(event.id)
+            if outcome is None:
+                skipped += 1
+                status_counts["missing_outcome"] += 1
+                if event.event_type == "insider_trade":
+                    insider_skip_reasons["missing_outcome"] += 1
+                continue
+
+            status = outcome.get("scoring_status") or "unknown"
+            status_counts[status] += 1
+            existing = existing_by_event_id.get(event.id)
+            if existing is not None and not replace:
+                if not retry_status_set:
+                    skipped += 1
+                    if event.event_type == "insider_trade":
+                        insider_skip_reasons["existing_row_no_replace"] += 1
+                    continue
+                if existing.scoring_status not in retry_status_set:
+                    skipped += 1
+                    if event.event_type == "insider_trade":
+                        insider_skip_reasons["existing_row_retry_status_mismatch"] += 1
+                    continue
+
+            target = existing or TradeOutcome(event_id=event.id)
+            _assign_trade_outcome_fields(
+                target,
+                event=event,
+                outcome=outcome,
+                benchmark_symbol=benchmark_symbol,
+                computed_at=now,
+            )
+
+            if existing is None:
+                db.add(target)
+                inserted += 1
+                if event.event_type == "insider_trade":
+                    insider_inserted += 1
+                    insider_methodology_versions[target.methodology_version or "<empty>"] += 1
+            else:
+                updated += 1
+
+        try:
+            db.commit()
+            return {
+                "inserted": inserted,
+                "updated": updated,
+                "skipped": skipped,
+                "status_counts": status_counts,
+                "insider_inserted": insider_inserted,
+                "insider_skip_reasons": insider_skip_reasons,
+                "insider_methodology_versions": insider_methodology_versions,
+                "commit_reached": True,
+                "commit_retry_count": commit_retry_count,
+            }
+        except IntegrityError as exc:
+            db.rollback()
+            if attempt > 0 or not _is_trade_outcome_event_id_race(exc):
+                raise
+            commit_retry_count += 1
+            logger.info(
+                "trade_outcome_commit_retry reason=duplicate_event_id_race event_count=%s",
+                len(event_ids),
+            )
+            existing_by_event_id = _load_trade_outcomes_by_event_id(db, event_ids)
+
+    raise RuntimeError("trade_outcome_commit_retry_exhausted")
 
 
 
@@ -254,69 +397,24 @@ def run_compute(
 
         outcome_by_event_id = {outcome["event_id"]: outcome for outcome in outcomes}
 
-        inserted = 0
-        updated = 0
-        skipped = 0
-        status_counts: Counter[str] = Counter()
-        insider_inserted = 0
-        insider_methodology_versions: Counter[str] = Counter()
-
-        now = datetime.now(timezone.utc)
-        for event in eligible_events:
-            outcome = outcome_by_event_id.get(event.id)
-            if outcome is None:
-                skipped += 1
-                status_counts["missing_outcome"] += 1
-                if event.event_type == "insider_trade":
-                    insider_skip_reasons["missing_outcome"] += 1
-                continue
-
-            status = outcome.get("scoring_status") or "unknown"
-            status_counts[status] += 1
-            existing = existing_by_event_id.get(event.id)
-            if existing is not None and not replace and not retry_status_set:
-                skipped += 1
-                if event.event_type == "insider_trade":
-                    insider_skip_reasons["existing_row_no_replace"] += 1
-                continue
-
-            target = existing or TradeOutcome(event_id=event.id)
-            target.member_id = outcome.get("member_id")
-            target.member_name = outcome.get("member_name")
-            target.symbol = outcome.get("symbol")
-            target.trade_type = outcome.get("trade_type")
-            target.source = outcome.get("source")
-            target.trade_date = _parse_date(outcome.get("trade_date"))
-            target.entry_price = outcome.get("entry_price")
-            target.entry_price_date = _parse_date(outcome.get("entry_price_date"))
-            target.current_price = outcome.get("current_price")
-            target.current_price_date = _parse_date(outcome.get("current_price_date"))
-            target.benchmark_symbol = outcome.get("benchmark_symbol") or benchmark_symbol
-            target.benchmark_entry_price = outcome.get("benchmark_entry_price")
-            target.benchmark_current_price = outcome.get("benchmark_current_price")
-            target.return_pct = outcome.get("return_pct")
-            target.benchmark_return_pct = outcome.get("benchmark_return_pct")
-            target.alpha_pct = outcome.get("alpha_pct")
-            target.holding_days = outcome.get("holding_days")
-            target.amount_min = outcome.get("amount_min")
-            target.amount_max = outcome.get("amount_max")
-            target.scoring_status = status
-            target.scoring_error = outcome.get("scoring_error")
-            target.methodology_version = outcome.get("methodology_version") or METHODOLOGY_BY_EVENT_TYPE.get(event.event_type, METHODOLOGY_VERSION)
-            target.computed_at = now
-
-            if existing is None:
-                db.add(target)
-                inserted += 1
-                if event.event_type == "insider_trade":
-                    insider_inserted += 1
-                    insider_methodology_versions[target.methodology_version or "<empty>"] += 1
-            else:
-                updated += 1
-
-        commit_reached = False
-        db.commit()
-        commit_reached = True
+        persist_report = _persist_trade_outcomes(
+            db,
+            eligible_events=eligible_events,
+            outcome_by_event_id=outcome_by_event_id,
+            existing_by_event_id=existing_by_event_id,
+            replace=replace,
+            retry_status_set=retry_status_set,
+            benchmark_symbol=benchmark_symbol,
+        )
+        inserted = int(persist_report["inserted"])
+        updated = int(persist_report["updated"])
+        skipped = int(persist_report["skipped"])
+        status_counts = persist_report["status_counts"]
+        insider_inserted = int(persist_report["insider_inserted"])
+        insider_skip_reasons.update(persist_report["insider_skip_reasons"])
+        insider_methodology_versions = persist_report["insider_methodology_versions"]
+        commit_reached = bool(persist_report["commit_reached"])
+        commit_retry_count = int(persist_report["commit_retry_count"])
 
         insider_debug_report = {
             "selected_insider_trade_events": len(insider_selected_events),
@@ -326,6 +424,7 @@ def run_compute(
             "inserted_insider_outcomes": insider_inserted,
             "insider_insert_methodology_versions": dict(insider_methodology_versions),
             "commit_reached": commit_reached,
+            "commit_retry_count": commit_retry_count,
         }
         logger.info("insider scoring debug=%s", insider_debug_report)
 
@@ -373,6 +472,7 @@ def run_compute(
             "price_lookup_attempts": budget_state.price_lookup_attempts if budget_state is not None else None,
             "max_price_lookups": max_price_lookups,
             "max_seconds": max_seconds,
+            "commit_retry_count": commit_retry_count,
         }
         logger.info("compute_trade_outcomes report=%s", report)
         return report

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app import compute_trade_outcomes as compute_module
@@ -147,6 +148,77 @@ def test_run_compute_marks_remaining_work_retry_later_when_max_seconds_reached(m
             for row in db.execute(select(TradeOutcome)).scalars().all()
         }
     assert statuses == {9301: member_performance.RETRY_LATER_STATUS, 9302: member_performance.RETRY_LATER_STATUS}
+
+
+def test_trade_outcome_persist_retries_duplicate_event_id_race(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'race.db'}", future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine, tables=[TradeOutcome.__table__])
+
+    event = SimpleNamespace(id=9401, event_type="congress_trade")
+    outcome = {
+        "event_id": 9401,
+        "member_id": "M000001",
+        "member_name": "Race Test",
+        "symbol": "AAPL",
+        "trade_type": "purchase",
+        "source": "test",
+        "trade_date": "2026-05-01",
+        "entry_price": 100.0,
+        "entry_price_date": "2026-05-01",
+        "current_price": 110.0,
+        "current_price_date": "2026-05-02",
+        "benchmark_symbol": "^GSPC",
+        "benchmark_entry_price": 5000.0,
+        "benchmark_current_price": 5050.0,
+        "return_pct": 10.0,
+        "benchmark_return_pct": 1.0,
+        "alpha_pct": 9.0,
+        "holding_days": 1,
+        "amount_min": 1000,
+        "amount_max": 1500,
+        "scoring_status": "ok",
+        "scoring_error": None,
+        "methodology_version": "congress_v1",
+    }
+
+    with SessionLocal() as db:
+        original_commit = db.commit
+        commit_calls = 0
+
+        def commit_with_race():
+            nonlocal commit_calls
+            commit_calls += 1
+            if commit_calls == 1:
+                with SessionLocal() as race_db:
+                    race_db.add(TradeOutcome(event_id=event.id, scoring_status="ok"))
+                    race_db.commit()
+                raise IntegrityError(
+                    "duplicate key value violates unique constraint ix_trade_outcomes_event_id",
+                    {},
+                    Exception('duplicate key value violates unique constraint "ix_trade_outcomes_event_id"'),
+                )
+            original_commit()
+
+        monkeypatch.setattr(db, "commit", commit_with_race)
+
+        report = compute_module._persist_trade_outcomes(
+            db,
+            eligible_events=[event],
+            outcome_by_event_id={event.id: outcome},
+            existing_by_event_id={},
+            replace=True,
+            retry_status_set=set(),
+            benchmark_symbol="^GSPC",
+        )
+
+    assert report["commit_retry_count"] == 1
+    assert report["inserted"] == 0
+    assert report["updated"] == 1
+    with SessionLocal() as db:
+        row = db.execute(select(TradeOutcome).where(TradeOutcome.event_id == event.id)).scalar_one()
+    assert row.symbol == "AAPL"
+    assert row.return_pct == 10.0
 
 
 def test_daily_repair_stops_cleanly_when_price_lookup_budget_is_exhausted(monkeypatch):
