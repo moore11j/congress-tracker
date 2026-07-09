@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.clients.fmp import FMPClientError, FMPSubscriptionRestrictedError
 from app.db import SessionLocal, engine, ensure_institutional_activity_schema
 from app.models import InstitutionalIngestJobRun, InstitutionalIngestJobState
 
@@ -49,6 +50,16 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value if value is not None else default)
     except (TypeError, ValueError):
         return default
+
+
+def _is_retryable_latest_provider_error(exc: Exception) -> bool:
+    if isinstance(exc, FMPSubscriptionRestrictedError) or not isinstance(exc, FMPClientError):
+        return False
+    message = str(exc)
+    if "institutional-ownership/latest" not in message:
+        return False
+    hard_fail_fragments = ("Missing FMP_API_KEY", "auth failed")
+    return not any(fragment in message for fragment in hard_fail_fragments)
 
 
 def latest_job_defaults() -> dict[str, int | bool]:
@@ -437,17 +448,21 @@ def run_scheduled_latest_once() -> dict[str, Any]:
         try:
             state = db.get(InstitutionalIngestJobState, LATEST_FILINGS_JOB_NAME)
             run = db.get(InstitutionalIngestJobRun, run_id)
+            retryable_provider_error = _is_retryable_latest_provider_error(exc)
+            status = "retryable" if retryable_provider_error else "failed"
             if state is not None:
-                state.last_status = "failed"
+                state.last_status = status
                 state.last_error = str(exc)
                 state.last_finished_at = _now()
-                state.enabled = False
+                state.enabled = True if retryable_provider_error else False
             if run is not None:
-                run.status = "failed"
+                run.status = status
                 run.finished_at = _now()
                 run.error_message = str(exc)
+                if retryable_provider_error and state is not None:
+                    run.next_cursor_page = int(state.cursor_page)
             db.commit()
-            return {"status": "failed", "error": str(exc), "run": job_run_payload(run) if run else None}
+            return {"status": status, "error": str(exc), "run": job_run_payload(run) if run else None}
         finally:
             db.close()
 

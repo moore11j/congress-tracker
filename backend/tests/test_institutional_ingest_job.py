@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from app import ingest_institutional_activity as ingest_module
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
+from app.clients.fmp import FMPClientError
 from app.db import Base
 from app.models import Event, InstitutionalIngestJobRun, InstitutionalIngestJobState, UserAccount
 from app.routers import institutional_ingest_admin as admin_router
@@ -243,6 +244,54 @@ def test_feed_event_threshold_warns_without_pausing_clean_run(job_env, monkeypat
     assert run.status == "success"
     assert run.next_cursor_page == 21
     assert metadata["feed_events_warning"] == {"feed_events": 109, "threshold": 100}
+
+
+def test_latest_provider_timeout_is_retryable_and_keeps_scheduler_enabled(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=24, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+
+    def raise_timeout(**_kwargs):
+        raise FMPClientError(
+            "FMP API request failed for institutional-ownership/latest: "
+            "HTTPSConnectionPool(host='financialmodelingprep.com', port=443): "
+            "Read timed out. (read timeout=30)"
+        )
+
+    monkeypatch.setattr(ingest_module, "ingest_latest_institutional_filings", raise_timeout)
+
+    result = job_module.run_scheduled_latest_once()
+
+    state = _state(job_env)
+    run = _runs(job_env)[0]
+    assert result["status"] == "retryable"
+    assert state.enabled is True
+    assert state.cursor_page == 24
+    assert state.last_status == "retryable"
+    assert "Read timed out" in (state.last_error or "")
+    assert run.status == "retryable"
+    assert run.next_cursor_page == 24
+
+
+def test_latest_provider_auth_failure_still_disables_scheduler(job_env, monkeypatch):
+    _seed_state(job_env, cursor_page=24, enabled=True)
+    monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
+    monkeypatch.setattr(
+        ingest_module,
+        "ingest_latest_institutional_filings",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            FMPClientError("FMP API auth failed (401) for institutional-ownership/latest: unauthorized")
+        ),
+    )
+
+    result = job_module.run_scheduled_latest_once()
+
+    state = _state(job_env)
+    run = _runs(job_env)[0]
+    assert result["status"] == "failed"
+    assert state.enabled is False
+    assert state.cursor_page == 24
+    assert state.last_status == "failed"
+    assert run.status == "failed"
 
 
 def test_scheduled_latest_overlapping_run_returns_skipped_locked(job_env, monkeypatch):
