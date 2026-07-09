@@ -45,4 +45,15 @@ test("upper price volume card renders five compact rows including MACD", () => {
   assert.match(tickerPage, /MACD bearish/);
   assert.match(tickerPage, /MACD neutral/);
   assert.match(tickerPage, /MACD \\u2014/);
+  assert.match(tickerPage, /const rsi = context\?\.rsi \?\? technicalIndicators\.rsi/);
+  assert.match(tickerPage, /const macd = context\?\.macd \?\? technicalIndicators\.macd/);
+});
+
+test("ticker overview refreshes signal summary and mentions price volume when active", () => {
+  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary/);
+  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
+  assert.match(tickerPage, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
+  assert.match(tickerPage, /Price \/ Volume: bearish tape/);
+  assert.match(tickerPage, /Price \/ Volume: bullish tape/);
+  assert.match(tickerPage, /Price \/ Volume: mixed tape/);
 });

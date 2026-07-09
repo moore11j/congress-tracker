@@ -179,6 +179,7 @@ def fundamentals_source_diagnostics(symbol: str) -> dict[str, Any]:
         "key_metrics_ttm": ("key-metrics-ttm", {"symbol": normalized_symbol}),
         "income_statement_growth": ("income-statement-growth", {"symbol": normalized_symbol, "limit": 1}),
         "ratios_ttm": ("ratios-ttm", {"symbol": normalized_symbol}),
+        "ratios": ("ratios", {"symbol": normalized_symbol, "limit": 2}),
     }
     diagnostics = {
         key: _request_fundamentals_diagnostic(endpoint, params=params)
@@ -195,11 +196,13 @@ def fundamentals_source_diagnostics(symbol: str) -> dict[str, Any]:
     metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
     growth_row = next(iter(_request_rows("income-statement-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
     ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
+    ratios_history_rows = _request_rows("ratios", params={"symbol": normalized_symbol, "limit": 2})
     values = normalize_fundamentals_payload(
         symbol=normalized_symbol,
         ratios_row=ratios_row,
         metrics_row=metrics_row,
         growth_row=growth_row,
+        ratios_history_rows=ratios_history_rows,
     )
     diagnostic_fields = {
         "revenue_growth": "revenue_growth",
@@ -280,6 +283,21 @@ def _first_percent(*values: Any) -> float | None:
     return None
 
 
+def _profitability_percent(value: Any) -> float | None:
+    parsed = _number(value)
+    if parsed is None:
+        return None
+    return parsed * 100 if abs(parsed) <= 5 else parsed
+
+
+def _first_profitability_percent(*values: Any) -> float | None:
+    for value in values:
+        parsed = _profitability_percent(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _first_ratio_from_percentish(*values: Any) -> float | None:
     for value in values:
         parsed = _ratio_from_percentish(value)
@@ -332,6 +350,26 @@ def _computed_operating_margin_expansion_points(rows: list[dict[str, Any]] | Non
     return (margins[0] - margins[1]) * 100 if len(margins) == 2 else None
 
 
+def _operating_margin_expansion_from_ratios(
+    ratios_row: dict[str, Any],
+    ratios_history_rows: list[dict[str, Any]] | None,
+) -> float | None:
+    current = _first_ratio_from_percentish(
+        ratios_row.get("operatingProfitMarginTTM"),
+        ratios_row.get("operatingMarginTTM"),
+    )
+    if current is None:
+        return None
+    for row in ratios_history_rows or []:
+        prior = _first_ratio_from_percentish(
+            row.get("operatingProfitMargin"),
+            row.get("operatingMargin"),
+        )
+        if prior is not None:
+            return (current - prior) * 100
+    return None
+
+
 def _date_value(*values: Any):
     for value in values:
         if isinstance(value, str) and len(value) >= 10:
@@ -350,6 +388,7 @@ def normalize_fundamentals_payload(
     ratios_row: dict[str, Any] | None = None,
     metrics_row: dict[str, Any] | None = None,
     growth_row: dict[str, Any] | None = None,
+    ratios_history_rows: list[dict[str, Any]] | None = None,
     income_statement_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     screener_row = screener_row or {}
@@ -357,6 +396,7 @@ def normalize_fundamentals_payload(
     ratios_row = ratios_row or {}
     metrics_row = metrics_row or {}
     growth_row = growth_row or {}
+    ratios_history_rows = ratios_history_rows or []
     income_statement_rows = income_statement_rows or []
     normalized_symbol = normalize_symbol(
         symbol
@@ -435,9 +475,10 @@ def normalize_fundamentals_payload(
             ratios_row.get("operatingMarginTTM"),
         ),
         "operating_margin_expansion": _margin_expansion_points(growth_row)
+        or _operating_margin_expansion_from_ratios(ratios_row, ratios_history_rows)
         or _computed_operating_margin_expansion_points(income_statement_rows),
         "net_margin": _first_percent(screener_row.get("netMargin"), ratios_row.get("netProfitMarginTTM"), ratios_row.get("netProfitMargin")),
-        "roe": _first_percent(
+        "roe": _first_profitability_percent(
             screener_row.get("returnOnEquity"),
             ratios_row.get("returnOnEquityTTM"),
             ratios_row.get("returnOnEquity"),
@@ -494,6 +535,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
         ratios_row = next(iter(_request_rows("ratios-ttm", params={"symbol": normalized_symbol})), {})
         metrics_row = next(iter(_request_rows("key-metrics-ttm", params={"symbol": normalized_symbol})), {})
         growth_row = next(iter(_request_rows("income-statement-growth", params={"symbol": normalized_symbol, "limit": 1})), {})
+        ratios_history_rows = _request_rows("ratios", params={"symbol": normalized_symbol, "limit": 2})
         income_statement_rows = _request_rows("income-statement", params={"symbol": normalized_symbol, "limit": 2})
         values = normalize_fundamentals_payload(
             symbol=normalized_symbol,
@@ -502,6 +544,7 @@ def fetch_fundamentals_for_symbol(symbol: str) -> FundamentalsFetchResult:
             ratios_row=ratios_row,
             metrics_row=metrics_row,
             growth_row=growth_row,
+            ratios_history_rows=ratios_history_rows,
             income_statement_rows=income_statement_rows,
         )
         return FundamentalsFetchResult(symbol=normalized_symbol, values=values)

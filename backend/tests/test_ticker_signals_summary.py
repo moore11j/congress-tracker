@@ -949,6 +949,57 @@ def _public_summary_context(symbol: str) -> dict[str, dict]:
     }
 
 
+def test_confirmation_score_fundamentals_have_direct_score_impact():
+    base_context = {
+        "congress": {
+            "status": "active",
+            "direction": "bearish",
+            "title": "Congress trades active",
+            "subtitle": "1 buys / 3 sells",
+            "buy_count": 1,
+            "sell_count": 3,
+            "freshness_days": 6,
+        },
+        "price_volume": {
+            "status": "active",
+            "direction": "mixed",
+            "title": "Mixed tape confirmation",
+            "summary": "Mixed tape confirmation",
+            "score": 25,
+            "price_points": 120,
+            "latest_volume": 146_341_084,
+            "freshness_days": 1,
+        },
+    }
+    with_fundamentals = confirmation_score_bundle_from_source_contexts(
+        "NVDA",
+        source_contexts={
+            **base_context,
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "freshness_days": 0,
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+                "data_quality": {"scored_metric_count": 5},
+            },
+        },
+    )
+    without_fundamentals = confirmation_score_bundle_from_source_contexts(
+        "NVDA",
+        source_contexts=base_context,
+    )
+
+    assert with_fundamentals["sources"]["fundamentals"]["present"] is True
+    assert with_fundamentals["score"] >= without_fundamentals["score"] + 4
+    assert "fundamentals" in with_fundamentals["active_sources"]
+
+
 def _active_institutional_summary() -> dict:
     return {
         "status": "ok",
@@ -2109,6 +2160,10 @@ def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(mon
             assert summary["latest_volume"] is not None
             assert summary["avg_volume_20d"] is not None
             assert summary["volume_vs_avg"] is not None
+            assert summary["rsi"]["status"] == "ok"
+            assert summary["rsi"]["value"] is not None
+            assert summary["macd"]["status"] == "ok"
+            assert summary["macd"]["signal"] in {"bullish", "bearish", "neutral"}
 
 
 def test_ticker_price_volume_summary_loading_only_when_hydration_pending(monkeypatch):

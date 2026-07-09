@@ -19,6 +19,7 @@ test("ticker page uses context bundle for above-the-fold ticker context with old
   assert.match(tickerPage, /source: "TickerContextBundle"/);
   assert.match(tickerPage, /requestSource: "ssr"/);
   assert.match(tickerPage, /getTickerProfile\(normalizedSymbol, \{ source: "TickerProfileFallback" \}\)/);
-  assert.match(tickerPage, /contextBundle\?\.signals_summary\s*\?\s*Promise\.resolve\(contextBundle\.signals_summary\)/);
-  assert.match(tickerPage, /:\s*getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary\(normalizedSymbol/);
+  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
+  assert.match(tickerPage, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
 });

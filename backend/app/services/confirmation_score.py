@@ -1601,6 +1601,7 @@ def _score_bundle(
     quality_component = sum(source.quality for source in present_sources) / active_count
     freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
     price_component = sources["price_volume"].strength if sources["price_volume"].present else 0
+    fundamentals_component = sources["fundamentals"].strength if sources["fundamentals"].present else 0
     support_bonus = sum(
         sources[key].score_contribution
         for key in SOURCE_ORDER
@@ -1613,6 +1614,7 @@ def _score_bundle(
         + quality_component * 0.20
         + freshness_component * 0.15
         + price_component * 0.15
+        + fundamentals_component * 0.10
         + support_bonus
     )
     if active_count == 1 and not _has_only_support_sources(sources):

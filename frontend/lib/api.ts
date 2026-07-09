@@ -3887,6 +3887,23 @@ export type TickerSignalsSummaryResponse = {
     avg_volume_20d?: number | null;
     volume_vs_avg?: number | null;
     latest_date?: string | null;
+    rsi?: {
+      status?: string | null;
+      signal?: string | null;
+      message?: string | null;
+      reason?: string | null;
+      value?: number | null;
+    } | null;
+    macd?: {
+      status?: string | null;
+      signal?: string | null;
+      message?: string | null;
+      reason?: string | null;
+      value?: number | null;
+      macd?: number | null;
+      signal_line?: number | null;
+      histogram?: number | null;
+    } | null;
     inputs?: {
       has_price_series?: boolean;
       has_volume?: boolean;

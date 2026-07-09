@@ -8303,6 +8303,8 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         "avg_volume_20d": avg_volume_20d,
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
+        "rsi": technicals.get("rsi") or {},
+        "macd": technicals.get("macd") or {},
     }
     market_lines: list[str] = []
     if latest_close is not None:
@@ -9468,6 +9470,17 @@ def _ticker_fundamentals_cache_ttl_seconds() -> int:
         return 24 * 60 * 60
 
 
+def _ticker_fundamentals_row_complete_for_upper_card(row: FundamentalsCache) -> bool:
+    values = (
+        row.revenue_growth,
+        row.roe,
+        row.ev_to_ebitda,
+        row.operating_margin_expansion,
+        row.net_debt_to_ebitda,
+    )
+    return sum(1 for value in values if _parse_numeric(value) is not None) >= 3
+
+
 def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
     normalized = normalize_symbol(symbol)
     if not normalized:
@@ -9507,8 +9520,24 @@ def _cached_ticker_fundamentals_row(db: Session, symbol: str) -> FundamentalsCac
                 reason="stale_cache",
                 priority=45,
             )
+        elif not _ticker_fundamentals_row_complete_for_upper_card(row):
+            enqueue_data_enrichment_job(
+                job_type="fundamentals",
+                symbol=normalized,
+                source="page_load",
+                reason="incomplete_upper_card_metrics",
+                priority=60,
+            )
     else:
         record_cache_hit(category="ticker:fundamentals", symbol=normalized)
+        if not _ticker_fundamentals_row_complete_for_upper_card(row):
+            enqueue_data_enrichment_job(
+                job_type="fundamentals",
+                symbol=normalized,
+                source="page_load",
+                reason="incomplete_upper_card_metrics",
+                priority=60,
+            )
     return row
 
 

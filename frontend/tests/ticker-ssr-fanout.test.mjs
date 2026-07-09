@@ -43,7 +43,9 @@ test("anonymous ticker SSR keeps public context bundle complete and defers detai
   assert.ok(deferIndex >= 0, "ticker activity promise should have a deferred branch");
   assert.ok(eventsIndex > deferIndex, "events fanout should happen only after the deferred branch");
   assert.ok(contractsIndex > deferIndex, "government contract fanout should happen only after the deferred branch");
-  assert.match(activityBlock, /signalSummaryRequest: contextBundle\?\.signals_summary \? Promise\.resolve\(contextBundle\.signals_summary\) : undefined/);
+  assert.match(activityBlock, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
+  assert.match(page, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary/);
+  assert.match(page, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
 });
 
 test("ticker deferred SSR renders section placeholders and hydrates details on visibility", () => {

@@ -1584,6 +1584,11 @@ function overviewBullets({
     else if (confirmationBundle.sources.signals.direction === "bullish") bullets.add("Signals: confirmed bullish");
     else bullets.add("Signals: mixed");
   }
+  if (confirmationBundle.sources.price_volume.present) {
+    if (confirmationBundle.sources.price_volume.direction === "bearish") bullets.add("Price / Volume: bearish tape");
+    else if (confirmationBundle.sources.price_volume.direction === "bullish") bullets.add("Price / Volume: bullish tape");
+    else bullets.add("Price / Volume: mixed tape");
+  }
   if (confirmationBundle.sources.fundamentals.present) {
     if (confirmationBundle.sources.fundamentals.direction === "bearish") bullets.add("Fundamentals: pressure");
     else if (confirmationBundle.sources.fundamentals.direction === "bullish") bullets.add("Fundamentals: strength");
@@ -1749,12 +1754,14 @@ function formatUpperCardMultiple(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}x` : "\u2014";
 }
 
-function formatUpperCardRsi(reading: TechnicalIndicators["rsi"]): string {
-  return typeof reading.value === "number" && Number.isFinite(reading.value) ? reading.value.toFixed(1) : "\u2014";
+type UpperCardTechnicalReading = TechnicalIndicators["rsi"] | NonNullable<NonNullable<TickerSignalsSummaryResponse["price_volume"]>["rsi"]>;
+
+function formatUpperCardRsi(reading: UpperCardTechnicalReading | null | undefined): string {
+  return typeof reading?.value === "number" && Number.isFinite(reading.value) ? reading.value.toFixed(1) : "\u2014";
 }
 
-function formatUpperCardMacd(reading: TechnicalIndicators["macd"]): string {
-  const signal = typeof reading.signal === "string" ? reading.signal.toLowerCase() : "";
+function formatUpperCardMacd(reading: UpperCardTechnicalReading | null | undefined): string {
+  const signal = typeof reading?.signal === "string" ? reading.signal.toLowerCase() : "";
   if (signal === "bullish") return "MACD bullish";
   if (signal === "bearish") return "MACD bearish";
   if (signal === "neutral" || signal === "flat" || signal === "mixed") return "MACD neutral";
@@ -1765,12 +1772,14 @@ function compactPriceVolumeRows(
   context: TickerSignalsSummaryResponse["price_volume"] | null | undefined,
   technicalIndicators: TechnicalIndicators,
 ): string[] {
+  const rsi = context?.rsi ?? technicalIndicators.rsi;
+  const macd = context?.macd ?? technicalIndicators.macd;
   return [
     `Latest close ${formatUpperCardPrice(context?.latest_close)}`,
     `1D change ${formatUpperCardSignedPercent(context?.change_pct_1d)}`,
     `Vol vs 20D ${formatUpperCardMultiple(context?.volume_vs_avg)}`,
-    `RSI ${formatUpperCardRsi(technicalIndicators.rsi)}`,
-    formatUpperCardMacd(technicalIndicators.macd),
+    `RSI ${formatUpperCardRsi(rsi)}`,
+    formatUpperCardMacd(macd),
   ];
 }
 
@@ -3730,6 +3739,17 @@ export default async function TickerPage({ params, searchParams }: Props) {
         label: "Upgrade to Premium",
         message: "Confirmation score, active-source alignment, and freshness setup are available with Premium or Pro.",
       };
+  const loadFreshSignalSummary = () => getTickerSignalsSummary(normalizedSymbol, {
+    side,
+    limit: 3,
+    lookback_days: lookbackDays,
+    authToken: authToken ?? undefined,
+    activeUser: activeTickerSsrRequest,
+    source: "TickerSignalsSummary",
+  }).catch((error) => {
+    if (contextBundle?.signals_summary) return contextBundle.signals_summary;
+    throw error;
+  });
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
@@ -3743,7 +3763,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const activityPromise = (async () => {
     if (deferTickerActivityDetails) {
       return resolveTickerActivityData({
-        signalSummaryRequest: contextBundle?.signals_summary ? Promise.resolve(contextBundle.signals_summary) : undefined,
+        signalSummaryRequest: loadFreshSignalSummary(),
         signalsUnavailable: signalGateState,
         lookbackStartKey: lookbackStartDateKey(lookbackDays),
         side,
@@ -3844,16 +3864,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
       ...((congressActivity?.items ?? []) as EventsResponse["items"]),
       ...((insiderActivity?.items ?? []) as EventsResponse["items"]),
     ];
-    const signalSummaryRequest = contextBundle?.signals_summary
-      ? Promise.resolve(contextBundle.signals_summary)
-      : getTickerSignalsSummary(normalizedSymbol, {
-          side,
-          limit: 3,
-          lookback_days: lookbackDays,
-          authToken: authToken ?? undefined,
-          activeUser: activeTickerSsrRequest,
-          source: "TickerSignalsSummary",
-        });
     return resolveTickerActivityData({
       eventsPromise: Promise.resolve({
         ...emptyEventsResponse(),
@@ -3865,7 +3875,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
       insiderEventsPromise: insiderActivity ? Promise.resolve(insiderActivity) : undefined,
       institutionalEventsPromise: institutionalActivity ? Promise.resolve(institutionalActivity) : undefined,
       governmentContractsPromise: governmentContracts ? Promise.resolve(governmentContracts) : undefined,
-      signalSummaryRequest,
+      signalSummaryRequest: loadFreshSignalSummary(),
       signalsUnavailable: signalGateState,
       lookbackStartKey: lookbackStartDateKey(lookbackDays),
       side,

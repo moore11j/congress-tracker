@@ -191,6 +191,7 @@ def test_fundamentals_summary_requires_three_available_metrics():
 def test_fundamentals_normalization_accepts_defensive_aliases_and_margin_fallback():
     values = normalize_fundamentals_payload(
         symbol="NVDA",
+        ratios_row={"operatingProfitMarginTTM": 0.342},
         metrics_row={
             "symbol": "NVDA",
             "returnOnEquity": 0.34,
@@ -198,9 +199,12 @@ def test_fundamentals_normalization_accepts_defensive_aliases_and_margin_fallbac
             "netDebtToEBITDA": 0.7,
         },
         growth_row={"growth_revenue": 0.124},
+        ratios_history_rows=[
+            {"date": "2025-01-31", "operatingProfitMargin": 0.318},
+        ],
         income_statement_rows=[
-            {"date": "2026-01-31", "revenue": 100, "operatingIncome": 34.2},
-            {"date": "2025-01-31", "revenue": 100, "operatingIncome": 31.8},
+            {"date": "2026-01-31", "revenue": 100, "operatingIncome": 20},
+            {"date": "2025-01-31", "revenue": 100, "operatingIncome": 19},
         ],
     )
 
@@ -209,6 +213,15 @@ def test_fundamentals_normalization_accepts_defensive_aliases_and_margin_fallbac
     assert values["ev_to_ebitda"] == 38.2
     assert values["net_debt_to_ebitda"] == 0.7
     assert values["operating_margin_expansion"] == pytest.approx(2.4)
+
+
+def test_fundamentals_normalization_treats_large_roe_ratio_as_percent():
+    values = normalize_fundamentals_payload(
+        symbol="AAPL",
+        metrics_row={"symbol": "AAPL", "returnOnEquityTTM": 1.4668924498270723},
+    )
+
+    assert values["roe"] == pytest.approx(146.68924498270723)
 
 
 def test_fundamentals_normalization_ignores_net_debt_ratio_when_ebitda_non_positive():
