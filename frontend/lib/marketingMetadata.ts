@@ -6,8 +6,8 @@ export const WALNUT_MARKETING_DESCRIPTION =
   "Walnut Markets tracks Congress trades, insider activity, government contracts, signal scores, and ticker context in one market intelligence terminal.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v2.png`;
 export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - The market has tells. Walnut finds them.";
-export const WALNUT_X_HANDLE = "@WalnutMarketd";
-export const WALNUT_X_URL = "https://x.com/WalnutMarketd";
+export const WALNUT_X_HANDLE = "@Walnutmarkets";
+export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
 export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL] as const;
 
