@@ -1331,6 +1331,13 @@ def generate_suggestion(
                             "assets": _load_json_list(opportunity.asset_refs_json),
                         },
                         "routing_hint": destination_hint,
+                        "content_constraints": {
+                            "x_post": {
+                                "max_characters": X_POST_CHARACTER_LIMIT,
+                                "applies_to": ["suggested_post", "alternate_hooks"],
+                                "hard_requirement": True,
+                            },
+                        },
                     },
                     sort_keys=True,
                 ),
@@ -2327,7 +2334,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "walnut_feature_to_mention": {"type": "string"},
             "suggested_destination_url": {"type": "string"},
             "suggested_reply": {"type": "string"},
-            "suggested_post": {"type": "string"},
+            "suggested_post": {"type": "string", "maxLength": X_POST_CHARACTER_LIMIT},
             "suggested_ad_variants": {"type": "array", "items": {"type": "string"}},
             "title": {"type": "string"},
             "tldr_bullets": {"type": "array", "items": {"type": "string"}},
@@ -2384,7 +2391,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
             },
             "suggested_flair": {"type": "string"},
             "suggested_subreddits": {"type": "array", "items": {"type": "string"}},
-            "alternate_hooks": {"type": "array", "items": {"type": "string"}},
+            "alternate_hooks": {"type": "array", "items": {"type": "string", "maxLength": X_POST_CHARACTER_LIMIT}},
             "title_options": {"type": "array", "items": {"type": "string"}},
             "disclosure_text": {"type": "string"},
             "assets": {

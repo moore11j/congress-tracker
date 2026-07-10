@@ -1341,8 +1341,13 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         )
 
         prompt = json.loads(captured["payload"]["messages"][1]["content"])
+        schema = captured["payload"]["response_format"]["json_schema"]["schema"]
         assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+        assert prompt["content_constraints"]["x_post"]["max_characters"] == X_POST_CHARACTER_LIMIT
+        assert prompt["content_constraints"]["x_post"]["hard_requirement"] is True
         assert prompt["opportunity"]["metadata"]["change_request"] == "Make it shorter and focus on the TSM margin angle."
+        assert schema["properties"]["suggested_post"]["maxLength"] == X_POST_CHARACTER_LIMIT
+        assert schema["properties"]["alternate_hooks"]["items"]["maxLength"] == X_POST_CHARACTER_LIMIT
         assert updated["status"] == "needs_review"
         assert "TSM margin context" in updated["generated_content"]
     finally:
