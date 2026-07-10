@@ -19,10 +19,12 @@ type EventCalendarPanelProps = {
 };
 
 type AlertScope = EventCalendarScope | "none";
+type EconomicCategoryId = "inflation" | "jobs" | "rates" | "growth" | "consumer" | "housing" | "energy" | "trade" | "other";
 
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fullMonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const calendarKinds: EventCalendarKind[] = ["economic", "earnings", "dividend", "ipo", "split"];
 
 const kindClassNames: Record<EventCalendarKind, string> = {
   economic: "border-cyan-300/30 bg-cyan-300/10 text-cyan-100",
@@ -39,6 +41,31 @@ const kindLabels: Record<EventCalendarKind, string> = {
   ipo: "IPO",
   split: "Split",
 };
+
+const defaultKindFilters: Record<EventCalendarKind, boolean> = {
+  economic: true,
+  earnings: true,
+  dividend: true,
+  ipo: true,
+  split: true,
+};
+
+const economicCategories: { id: EconomicCategoryId; label: string; patterns: string[]; defaultOn: boolean }[] = [
+  { id: "inflation", label: "Inflation", patterns: ["cpi", "pce", "ppi", "inflation", "price index", "prices"], defaultOn: true },
+  { id: "jobs", label: "Jobs", patterns: ["payroll", "employment", "unemployment", "jobless", "jobs", "jolts", "wage", "claims"], defaultOn: true },
+  { id: "rates", label: "Rates", patterns: ["fomc", "fed", "interest rate", "rate decision", "central bank", "ecb", "boe", "boj"], defaultOn: true },
+  { id: "growth", label: "Growth", patterns: ["gdp", "pmi", "industrial production", "durable goods", "factory orders", "productivity"], defaultOn: true },
+  { id: "consumer", label: "Consumer", patterns: ["retail", "consumer", "sentiment", "confidence", "spending", "sales"], defaultOn: true },
+  { id: "housing", label: "Housing", patterns: ["housing", "home", "mortgage", "building permits", "starts", "construction"], defaultOn: true },
+  { id: "energy", label: "Energy", patterns: ["crude", "oil", "gasoline", "natural gas", "eia", "rig"], defaultOn: false },
+  { id: "trade", label: "Trade", patterns: ["trade balance", "exports", "imports", "current account"], defaultOn: false },
+  { id: "other", label: "Other", patterns: [], defaultOn: false },
+];
+
+const defaultEconomicCategoryFilters = economicCategories.reduce((filters, category) => {
+  filters[category.id] = category.defaultOn;
+  return filters;
+}, {} as Record<EconomicCategoryId, boolean>);
 
 function monthStart(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), 1);
@@ -83,6 +110,16 @@ function itemSortLabel(item: EventCalendarItem) {
 
 function eventDetail(item: EventCalendarItem) {
   return [item.symbol, item.company, item.country, item.subtitle].filter(Boolean).join(" | ");
+}
+
+function economicCategoryForItem(item: EventCalendarItem): EconomicCategoryId {
+  const payloadEvent = typeof item.payload?.event === "string" ? item.payload.event : "";
+  const text = [item.title, item.subtitle, payloadEvent].filter(Boolean).join(" ").toLowerCase();
+  for (const category of economicCategories) {
+    if (category.id === "other") continue;
+    if (category.patterns.some((pattern) => text.includes(pattern))) return category.id;
+  }
+  return "other";
 }
 
 function calendarErrorMessage(errors?: { kind: string; reason: string }[]) {
@@ -162,6 +199,8 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const [anchorMonth, setAnchorMonth] = useState(() => monthStart(new Date()));
   const [scope, setScope] = useState<EventCalendarScope>("watchlist");
   const [items, setItems] = useState<EventCalendarItem[]>([]);
+  const [activeKinds, setActiveKinds] = useState<Record<EventCalendarKind, boolean>>(defaultKindFilters);
+  const [activeEconomicCategories, setActiveEconomicCategories] = useState<Record<EconomicCategoryId, boolean>>(defaultEconomicCategoryFilters);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [alertScope, setAlertScope] = useState<AlertScope>("watchlist");
@@ -173,17 +212,35 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const start = dateKey(months[0]);
   const end = dateKey(monthEnd(months[2]));
   const years = selectedYearRange(anchorMonth);
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item) => {
+        if (!activeKinds[item.kind]) return false;
+        if (item.kind === "economic") return activeEconomicCategories[economicCategoryForItem(item)];
+        return true;
+      }),
+    [activeEconomicCategories, activeKinds, items],
+  );
+  const hiddenByFilters = Math.max(items.length - filteredItems.length, 0);
   const itemsByDate = useMemo(() => {
     const map = new Map<string, EventCalendarItem[]>();
-    for (const item of items) {
+    for (const item of filteredItems) {
       map.set(item.date, [...(map.get(item.date) ?? []), item].sort((a, b) => itemSortLabel(a).localeCompare(itemSortLabel(b))));
     }
     return map;
-  }, [items]);
+  }, [filteredItems]);
   const upcomingItems = useMemo(() => {
     const today = dateKey(new Date());
-    return items.filter((item) => item.date >= today).slice(0, 6);
-  }, [items]);
+    return filteredItems.filter((item) => item.date >= today).slice(0, 6);
+  }, [filteredItems]);
+
+  const toggleKind = (kind: EventCalendarKind) => {
+    setActiveKinds((current) => ({ ...current, [kind]: !current[kind] }));
+  };
+
+  const toggleEconomicCategory = (category: EconomicCategoryId) => {
+    setActiveEconomicCategories((current) => ({ ...current, [category]: !current[category] }));
+  };
 
   useEffect(() => {
     if (!canUseEventCalendar) return;
@@ -333,15 +390,48 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
           </button>
         ))}
         <div className="flex flex-wrap gap-1 pl-1">
-          {(Object.keys(kindLabels) as EventCalendarKind[]).map((kind) => (
-            <span key={kind} className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${kindClassNames[kind]}`}>
+          {calendarKinds.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => toggleKind(kind)}
+              aria-pressed={activeKinds[kind]}
+              className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+                activeKinds[kind] ? kindClassNames[kind] : "border-white/10 bg-slate-800/50 text-slate-500 hover:border-white/20 hover:text-slate-300"
+              }`}
+              title={`${activeKinds[kind] ? "Hide" : "Show"} ${kindLabels[kind]} events`}
+            >
               {kindLabels[kind]}
-            </span>
+            </button>
           ))}
         </div>
         {loading ? <span className="text-xs text-slate-500">Loading calendar...</span> : null}
         {status ? <span className="text-xs text-amber-200">{status}</span> : null}
+        {hiddenByFilters > 0 ? <span className="text-xs text-slate-500">{hiddenByFilters.toLocaleString()} hidden by filters</span> : null}
       </div>
+
+      {activeKinds.economic ? (
+        <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/35 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Economic filters</span>
+            {economicCategories.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => toggleEconomicCategory(category.id)}
+                aria-pressed={activeEconomicCategories[category.id]}
+                className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                  activeEconomicCategories[category.id]
+                    ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100"
+                    : "border-white/10 bg-slate-800/50 text-slate-500 hover:border-white/20 hover:text-slate-300"
+                }`}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         {months.map((month, index) => (
