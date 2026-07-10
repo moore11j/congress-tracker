@@ -57,6 +57,7 @@ def fetch_event_calendar(
     scope: CalendarScope = "watchlist",
     source: str = "page_load",
     allow_live_fetch: bool = True,
+    allow_user_request: bool = False,
 ) -> CalendarFetchResult:
     symbols = set(watchlist_symbols_for_user(db, user.id))
     raw_items: list[dict[str, Any]] = []
@@ -72,6 +73,7 @@ def fetch_event_calendar(
                 source=source,
                 timeout_s=12,
                 allow_live_fetch=allow_live_fetch,
+                allow_user_request=allow_user_request,
             )
         except FMPControlledError as exc:
             errors.append({"kind": kind, "reason": exc.reason})

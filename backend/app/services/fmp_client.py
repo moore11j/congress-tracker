@@ -50,6 +50,7 @@ def request_fmp_json(
     source: str = "page_load",
     timeout_s: float = 10,
     allow_live_fetch: bool = False,
+    allow_user_request: bool = False,
 ) -> Any:
     if not fmp_provider_enabled():
         record_fallback(category=category, symbol=symbol, reason="provider_disabled")
@@ -63,7 +64,7 @@ def request_fmp_json(
         raise FMPControlledError("provider_disabled")
 
     try:
-        ensure_fmp_live_allowed(category=category, symbol=symbol)
+        ensure_fmp_live_allowed(category=category, symbol=symbol, allow_user_request=allow_user_request)
     except ProviderUnavailable as exc:
         raise FMPControlledError(getattr(exc, "reason", "provider_unavailable")) from exc
 

@@ -85,6 +85,16 @@ function eventDetail(item: EventCalendarItem) {
   return [item.symbol, item.company, item.country, item.subtitle].filter(Boolean).join(" | ");
 }
 
+function calendarErrorMessage(errors?: { kind: string; reason: string }[]) {
+  const reasons = Array.from(new Set((errors ?? []).map((error) => error.reason).filter(Boolean)));
+  if (reasons.length === 0) return "Calendar providers are temporarily unavailable.";
+  if (reasons.includes("provider_disabled") || reasons.includes("background_provider_disabled")) return "FMP calendar provider is disabled.";
+  if (reasons.includes("page_fetch_blocked")) return "FMP calendar live fetches are blocked by provider settings.";
+  if (reasons.includes("provider_entitlement")) return "FMP calendar endpoints are blocked by API auth or plan entitlement.";
+  if (reasons.includes("provider_rate_limited")) return "FMP calendar provider is rate-limited.";
+  return `Calendar provider issue: ${reasons.slice(0, 2).join(", ")}.`;
+}
+
 function selectedYearRange(anchor: Date) {
   const currentYear = new Date().getFullYear();
   const anchorYear = anchor.getFullYear();
@@ -183,8 +193,8 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
     getEventCalendar({ start, end, scope, signal: controller.signal, source: "MonitoringEventCalendar" })
       .then((response) => {
         setItems(response.items);
-        if (response.status === "partial") setStatus("Some calendar providers are temporarily unavailable.");
-        else if (response.status === "unavailable") setStatus("Calendar providers are temporarily unavailable.");
+        if (response.status === "partial") setStatus(calendarErrorMessage(response.errors));
+        else if (response.status === "unavailable") setStatus(calendarErrorMessage(response.errors));
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
