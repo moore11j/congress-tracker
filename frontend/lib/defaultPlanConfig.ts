@@ -418,10 +418,10 @@ const featureDefinitions: FeatureDefinition[] = [
 const defaultPlanPrices: PlanPrice[] = [
   { tier: "free", billing_interval: "monthly", amount_cents: 0, currency: "USD" },
   { tier: "free", billing_interval: "annual", amount_cents: 0, currency: "USD" },
-  { tier: "premium", billing_interval: "monthly", amount_cents: 1995, currency: "USD" },
-  { tier: "premium", billing_interval: "annual", amount_cents: 19995, currency: "USD" },
-  { tier: "pro", billing_interval: "monthly", amount_cents: 4995, currency: "USD" },
-  { tier: "pro", billing_interval: "annual", amount_cents: 49995, currency: "USD" },
+  { tier: "premium", billing_interval: "monthly", amount_cents: 2495, currency: "USD" },
+  { tier: "premium", billing_interval: "annual", amount_cents: 24950, currency: "USD" },
+  { tier: "pro", billing_interval: "monthly", amount_cents: 3995, currency: "USD" },
+  { tier: "pro", billing_interval: "annual", amount_cents: 39995, currency: "USD" },
 ];
 
 function priceFor(tier: PlanTier, billingInterval: BillingInterval) {

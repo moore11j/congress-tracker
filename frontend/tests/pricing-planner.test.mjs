@@ -24,8 +24,8 @@ test("annual pricing badge derives rounded-up months free from configured prices
     return `${formattedMonths} ${monthsFree === 1 ? "month" : "months"} free`;
   };
 
-  assert.equal(annualSavingsLabel(1995, 19995), "2 months free");
-  assert.equal(annualSavingsLabel(4995, 49995), "2 months free");
+  assert.equal(annualSavingsLabel(2495, 24950), "2 months free");
+  assert.equal(annualSavingsLabel(3995, 39995), "2 months free");
   assert.equal(annualSavingsLabel(2000, 22000), "1 month free");
   assert.equal(annualSavingsLabel(2000, 21000), "1.5 months free");
   assert.equal(annualSavingsLabel(2000, 24000), null);
@@ -174,6 +174,14 @@ test("pricing page renders a static public shell and refreshes live config clien
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "no-store"/);
   assert.match(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?headers: \{ "Cache-Control": "no-cache" \}/);
   assert.doesNotMatch(apiSource, /export async function getPlanConfig\(\): Promise<PlanConfig> \{[\s\S]*?cache: "force-cache"/);
+});
+
+test("fallback plan config starts with current public prices", () => {
+  assert.match(defaultPlanConfig, /tier: "premium", billing_interval: "monthly", amount_cents: 2495/);
+  assert.match(defaultPlanConfig, /tier: "premium", billing_interval: "annual", amount_cents: 24950/);
+  assert.match(defaultPlanConfig, /tier: "pro", billing_interval: "monthly", amount_cents: 3995/);
+  assert.match(defaultPlanConfig, /tier: "pro", billing_interval: "annual", amount_cents: 39995/);
+  assert.doesNotMatch(defaultPlanConfig, /amount_cents: 1995|amount_cents: 19995|amount_cents: 4995|amount_cents: 49995/);
 });
 
 test("pricing CTA labels distinguish current, upgrade, and downgrade plans", () => {

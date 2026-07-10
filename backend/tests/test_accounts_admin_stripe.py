@@ -2399,20 +2399,20 @@ def test_admin_users_include_display_safe_price_and_billing_fields(monkeypatch):
 
         assert rows["free@example.com"]["billing_price_amount"] is None
         assert rows["free@example.com"]["billing_frequency"] is None
-        assert rows["premium-monthly@example.com"]["subscription_price_amount"] == 1995
+        assert rows["premium-monthly@example.com"]["subscription_price_amount"] == 2495
         assert rows["premium-monthly@example.com"]["subscription_currency"] == "USD"
-        assert rows["premium-monthly@example.com"]["current_plan_amount_cents"] == 1995
-        assert rows["premium-monthly@example.com"]["current_plan_display"] == "USD $19.95 / month"
+        assert rows["premium-monthly@example.com"]["current_plan_amount_cents"] == 2495
+        assert rows["premium-monthly@example.com"]["current_plan_display"] == "USD $24.95 / month"
         assert rows["premium-monthly@example.com"]["total_paid_cents"] == 2170
         assert rows["premium-monthly@example.com"]["last_payment_amount_cents"] == 2170
-        assert rows["premium-monthly@example.com"]["billing_price_display"] == "USD $19.95"
+        assert rows["premium-monthly@example.com"]["billing_price_display"] == "USD $24.95"
         assert rows["premium-monthly@example.com"]["billing_frequency_display"] == "Monthly"
         assert rows["premium-monthly@example.com"]["billing_price_source"] == "plan_default"
-        assert rows["premium-annual@example.com"]["billing_price_amount"] == 19995
+        assert rows["premium-annual@example.com"]["billing_price_amount"] == 24950
         assert rows["premium-annual@example.com"]["billing_frequency_display"] == "Annual"
-        assert rows["pro-monthly@example.com"]["billing_price_amount"] == 4995
+        assert rows["pro-monthly@example.com"]["billing_price_amount"] == 3995
         assert rows["pro-monthly@example.com"]["billing_price_source"] == "plan_default"
-        assert rows["pro-annual@example.com"]["billing_price_amount"] == 49995
+        assert rows["pro-annual@example.com"]["billing_price_amount"] == 39995
         assert rows["pro-annual@example.com"]["last_payment_amount_cents"] == 49995
         assert rows["pro-annual@example.com"]["billing_frequency_display"] == "Annual"
         assert rows["override@example.com"]["billing_price_amount"] == 1495
@@ -2470,8 +2470,8 @@ def test_admin_users_current_plan_price_does_not_use_prorated_last_invoice(monke
         row = response["items"][0]
 
         assert row["plan"] == "pro"
-        assert row["current_plan_amount_cents"] == 4995
-        assert row["current_plan_display"] == "USD $49.95 / month"
+        assert row["current_plan_amount_cents"] == 3995
+        assert row["current_plan_display"] == "USD $39.95 / month"
         assert row["total_paid_cents"] == 4995
         assert row["total_paid_display"] == "USD $49.95"
         assert row["last_payment_amount_cents"] == 3000

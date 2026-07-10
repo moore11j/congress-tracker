@@ -622,12 +622,12 @@ DEFAULT_PLAN_PRICES: dict[TierName, dict[BillingInterval, dict[str, Any]]] = {
         "annual": {"amount_cents": 0, "currency": "USD"},
     },
     "premium": {
-        "monthly": {"amount_cents": 1995, "currency": "USD"},
-        "annual": {"amount_cents": 19995, "currency": "USD"},
+        "monthly": {"amount_cents": 2495, "currency": "USD"},
+        "annual": {"amount_cents": 24950, "currency": "USD"},
     },
     "pro": {
-        "monthly": {"amount_cents": 4995, "currency": "USD"},
-        "annual": {"amount_cents": 49995, "currency": "USD"},
+        "monthly": {"amount_cents": 3995, "currency": "USD"},
+        "annual": {"amount_cents": 39995, "currency": "USD"},
     },
 }
 
