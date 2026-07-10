@@ -115,8 +115,6 @@ test("advanced coming soon rows only include unavailable future surfaces", () =>
 });
 
 test("options flow and institutional activity are Pro-only in frontend fallback config", () => {
-  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?options_flow_feed:\s*0,[\s\S]*?options_flow_filters:\s*0,[\s\S]*?institutional_feed:\s*0,[\s\S]*?institutional_filters:\s*0,/);
-  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?options_flow_feed:\s*1,[\s\S]*?options_flow_filters:\s*1,[\s\S]*?institutional_feed:\s*1,[\s\S]*?institutional_filters:\s*1,/);
   assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_feed"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_filters"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_feed"[\s\S]*?required_tier:\s*"pro"/);
@@ -182,6 +180,14 @@ test("fallback plan config starts with current public prices", () => {
   assert.match(defaultPlanConfig, /tier: "pro", billing_interval: "monthly", amount_cents: 3995/);
   assert.match(defaultPlanConfig, /tier: "pro", billing_interval: "annual", amount_cents: 39995/);
   assert.doesNotMatch(defaultPlanConfig, /amount_cents: 1995|amount_cents: 19995|amount_cents: 4995|amount_cents: 49995/);
+});
+
+test("fallback plan config starts with current public headline limits", () => {
+  assert.match(defaultPlanConfig, /free:\s*\{[\s\S]*?screener_saved_screens:\s*1,[\s\S]*?screener_results:\s*5,[\s\S]*?watchlists:\s*1,[\s\S]*?watchlist_tickers:\s*5,[\s\S]*?saved_views:\s*1,[\s\S]*?monitoring_sources:\s*3,/);
+  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?screener_saved_screens:\s*5,[\s\S]*?screener_results:\s*25,[\s\S]*?watchlists:\s*5,[\s\S]*?watchlist_tickers:\s*25,[\s\S]*?saved_views:\s*10,[\s\S]*?monitoring_sources:\s*10,/);
+  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?screener_saved_screens:\s*25,[\s\S]*?screener_results:\s*100,[\s\S]*?watchlists:\s*25,[\s\S]*?watchlist_tickers:\s*100,[\s\S]*?saved_views:\s*25,[\s\S]*?monitoring_sources:\s*25,/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"signals"[\s\S]*?required_tier:\s*"premium"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"screener_csv_export"[\s\S]*?required_tier:\s*"pro"/);
 });
 
 test("pricing CTA labels distinguish current, upgrade, and downgrade plans", () => {

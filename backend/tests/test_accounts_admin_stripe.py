@@ -5538,11 +5538,11 @@ def test_plan_config_free_defaults_fall_back_for_saved_views_and_monitoring_sour
         config = public_plan_config(db)
         free_tier = next(tier for tier in config["tiers"] if tier["tier"] == "free")
         premium_tier = next(tier for tier in config["tiers"] if tier["tier"] == "premium")
-        assert free_tier["limits"]["saved_views"] == 3
-        assert free_tier["limits"]["screener_saved_screens"] == 3
-        assert free_tier["limits"]["monitoring_sources"] == 2
-        assert premium_tier["limits"]["screener_saved_screens"] == 10
-        assert premium_tier["limits"]["saved_views"] == 50
+        assert free_tier["limits"]["saved_views"] == 1
+        assert free_tier["limits"]["screener_saved_screens"] == 1
+        assert free_tier["limits"]["monitoring_sources"] == 3
+        assert premium_tier["limits"]["screener_saved_screens"] == 5
+        assert premium_tier["limits"]["saved_views"] == 10
     finally:
         db.close()
 

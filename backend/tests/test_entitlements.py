@@ -251,7 +251,7 @@ def test_free_user_hitting_watchlist_ticker_limit_gets_upgrade_response(monkeypa
     db = _session()
     try:
         user = _user(db, "ticker-limit@example.com")
-        watchlist_id = _seed_watchlist_with_tickers(db, 10, user.id)
+        watchlist_id = _seed_watchlist_with_tickers(db, 5, user.id)
 
         try:
             add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)
@@ -357,10 +357,11 @@ def test_free_monitoring_sources_limit_is_enforced_for_watchlist_monitoring(monk
                 Watchlist(name="List 1", owner_user_id=user.id),
                 Watchlist(name="List 2", owner_user_id=user.id),
                 Watchlist(name="List 3", owner_user_id=user.id),
+                Watchlist(name="List 4", owner_user_id=user.id),
             ]
         )
         db.commit()
-        blocked_watchlist = db.query(Watchlist).filter(Watchlist.name == "List 3").one()
+        blocked_watchlist = db.query(Watchlist).filter(Watchlist.name == "List 4").one()
 
         try:
             refresh_watchlist_confirmation_monitoring_endpoint(blocked_watchlist.id, _request_for_user(user), db)
