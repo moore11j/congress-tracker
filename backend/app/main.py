@@ -131,6 +131,7 @@ from app.ingest_congress_recent import CONGRESS_RECENT_STATUS_KEY
 from app.routers.accounts import router as accounts_router
 from app.routers.backtests import router as backtests_router
 from app.routers.debug import router as debug_router
+from app.routers.event_calendar import router as event_calendar_router
 from app.routers.institutional import router as institutional_router
 from app.routers.institutional_ingest_admin import router as institutional_ingest_admin_router
 from app.routers.notifications import router as notifications_router
@@ -11815,6 +11816,7 @@ app.include_router(institutional_ingest_admin_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
+app.include_router(event_calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(admin_data_sources_router, prefix="/api")

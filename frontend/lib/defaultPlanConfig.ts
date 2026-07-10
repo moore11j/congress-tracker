@@ -20,6 +20,7 @@ type FeatureKey =
   | "saved_views"
   | "notification_digests"
   | "monitoring_sources"
+  | "event_calendar"
   | "inbox_alerts"
   | "inbox_alert_retention"
   | "government_contracts_feed"
@@ -58,6 +59,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     saved_views: 1,
     notification_digests: 0,
     monitoring_sources: 3,
+    event_calendar: 0,
     inbox_alerts: 1,
     inbox_alert_retention: 14,
     government_contracts_feed: 1,
@@ -88,6 +90,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     saved_views: 10,
     notification_digests: 25,
     monitoring_sources: 10,
+    event_calendar: 1,
     inbox_alerts: 1,
     inbox_alert_retention: 90,
     government_contracts_feed: 1,
@@ -118,6 +121,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     saved_views: 25,
     notification_digests: 100,
     monitoring_sources: 25,
+    event_calendar: 1,
     inbox_alerts: 1,
     inbox_alert_retention: 365,
     government_contracts_feed: 1,
@@ -182,6 +186,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 22,
+  },
+  {
+    feature_key: "event_calendar",
+    label: "Event calendar",
+    kind: "feature",
+    description: "Calendar overlays for earnings, dividends, IPOs, stock splits, and economic releases.",
+    required_tier: "premium",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 81,
   },
   {
     feature_key: "screener",

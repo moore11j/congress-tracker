@@ -34,6 +34,7 @@ from app.services.email_delivery import (
 )
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
+from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import resolve_insider_name
 
@@ -239,6 +240,7 @@ def build_signal_alert_digest(
     signal_subject = "Walnut monitoring digest"
     signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
     summary = _count_summary(len(items), "monitoring candidate", "monitoring candidates")
+    upcoming_events = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
     return DigestBuild(
         template_key="alerts.signal_alert",
         items_count=len(items),
@@ -258,6 +260,8 @@ def build_signal_alert_digest(
             "cautions": "Review source context before acting.",
             "signals_text": _signal_items_text(items),
             "signals_html": _signal_items_html(items),
+            "upcoming_events_text": _calendar_items_text(upcoming_events),
+            "upcoming_events_html": _calendar_items_html(upcoming_events),
             "signal_url": str(lead.get("href") or _signal_url(ticker)) if is_single else f"{_frontend_base_url()}/signals",
         },
         diagnostics=diagnostics,
@@ -787,6 +791,47 @@ def _watchlist_subscription(db: Session, user: UserAccount, watchlist: Watchlist
     )
 
 
+def _event_calendar_subscription(db: Session, user: UserAccount) -> NotificationSubscription | None:
+    return (
+        db.execute(
+            select(NotificationSubscription)
+            .where(NotificationSubscription.source_type == "event_calendar")
+            .where(func.lower(NotificationSubscription.email) == normalize_email(user.email))
+            .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _upcoming_calendar_events_for_digest(
+    db: Session,
+    user: UserAccount,
+    *,
+    window_end: datetime | None,
+) -> list[dict[str, Any]]:
+    if not entitlements_for_user(db, user).has_feature("event_calendar"):
+        return []
+    subscription = _event_calendar_subscription(db, user)
+    if subscription is not None and (not subscription.active or subscription.source_id == "none"):
+        return []
+    scope = "all" if subscription is not None and subscription.source_id == "all" else "watchlist"
+    anchor = _coerce_aware(window_end or datetime.now(timezone.utc)).date()
+    try:
+        result = upcoming_event_calendar_items(
+            db,
+            user,
+            start=anchor,
+            end=anchor + timedelta(days=7),
+            scope=scope,
+            limit=12,
+        )
+    except Exception:
+        return []
+    return result.items
+
+
 def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int, user: UserAccount) -> list[Event]:
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
@@ -1254,6 +1299,34 @@ def _signal_items_html(items: list[dict[str, Any]]) -> str:
         if item
     )
     return _table(["Ticker", "Score", "Direction", "Why", "Source", "Link"], rows)
+
+
+def _calendar_items_text(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "No upcoming watchlist calendar dates in the next week."
+    lines = ["Upcoming calendar dates"]
+    for item in items[:12]:
+        symbol = str(item.get("symbol") or item.get("country") or "Market")
+        title = str(item.get("title") or item.get("kind") or "Calendar event")
+        subtitle = str(item.get("subtitle") or "").strip()
+        suffix = f" | {subtitle}" if subtitle else ""
+        lines.append(f"- {item.get('date')}: {symbol} | {title}{suffix}")
+    return "\n".join(lines)
+
+
+def _calendar_items_html(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return _empty_state_card("No upcoming watchlist calendar dates in the next week.")
+    rows = "".join(
+        "<tr>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item.get('date') or ''))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item.get('symbol') or item.get('country') or 'Market'))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('title') or item.get('kind') or 'Calendar event'))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('subtitle') or ''))}</td>"
+        "</tr>"
+        for item in items[:12]
+    )
+    return _table(["Date", "Ticker", "Event", "Detail"], rows)
 
 
 def _table(headers: list[str], rows: str) -> str:

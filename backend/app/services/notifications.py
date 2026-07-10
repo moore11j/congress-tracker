@@ -28,6 +28,7 @@ SUPPORTED_ALERT_TRIGGERS = {
     "institutional_activity",
     "price_volume",
     "fundamentals",
+    "event_calendar",
     "saved_screen_entry",
 }
 

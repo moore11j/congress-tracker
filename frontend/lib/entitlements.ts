@@ -18,6 +18,7 @@ export type EntitlementFeature =
   | "saved_views"
   | "notification_digests"
   | "monitoring_sources"
+  | "event_calendar"
   | "inbox_alerts"
   | "inbox_alert_retention"
   | "government_contracts_feed"
@@ -73,6 +74,7 @@ export const defaultEntitlements: Entitlements = {
     saved_views: 1,
     notification_digests: 0,
     monitoring_sources: 3,
+    event_calendar: 0,
     inbox_alerts: 1,
     inbox_alert_retention: 14,
     government_contracts_feed: 1,
@@ -109,6 +111,7 @@ export const premiumEntitlements: Entitlements = {
     saved_views: 10,
     notification_digests: 25,
     monitoring_sources: 10,
+    event_calendar: 1,
     inbox_alerts: 1,
     inbox_alert_retention: 90,
     government_contracts_feed: 1,
@@ -138,6 +141,7 @@ export const premiumEntitlements: Entitlements = {
     "saved_views",
     "notification_digests",
     "monitoring_sources",
+    "event_calendar",
     "inbox_alerts",
     "government_contracts_feed",
     "government_contracts_filters",
@@ -167,6 +171,7 @@ export const proEntitlements: Entitlements = {
     saved_views: 25,
     notification_digests: 100,
     monitoring_sources: 25,
+    event_calendar: 1,
     inbox_alerts: 1,
     inbox_alert_retention: 365,
     government_contracts_feed: 1,
@@ -197,6 +202,7 @@ export const proEntitlements: Entitlements = {
     "saved_views",
     "notification_digests",
     "monitoring_sources",
+    "event_calendar",
     "inbox_alerts",
     "government_contracts_feed",
     "government_contracts_filters",

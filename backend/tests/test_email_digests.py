@@ -25,6 +25,7 @@ from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPa
 from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
+from app.services.event_calendar import CalendarFetchResult
 
 
 class FakePostmarkResponse:
@@ -617,6 +618,69 @@ def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
         assert result["status"] == "skipped"
         assert result["error"] == "no_qualified_signals"
         assert result["item_count"] == 0
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monkeypatch):
+    captured = {}
+
+    def fake_upcoming(db, user, *, start, end, scope, limit):
+        captured.update({"start": start, "end": end, "scope": scope, "limit": limit})
+        return CalendarFetchResult(
+            items=[
+                {
+                    "id": "earnings:test",
+                    "kind": "earnings",
+                    "date": "2026-07-13",
+                    "symbol": "NVDA",
+                    "title": "NVDA earnings",
+                    "subtitle": "EPS est. 1.02",
+                }
+            ],
+            errors=[],
+        )
+
+    monkeypatch.setattr("app.services.email_digests.upcoming_event_calendar_items", fake_upcoming)
+    db = _session()
+    try:
+        user = _user(db, "calendar-digest@example.com", tier="premium")
+        _watchlist(db, user)
+
+        digest = build_signal_alert_digest(
+            db,
+            user,
+            datetime(2026, 7, 9, 7, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 7, 10, 7, 0, tzinfo=timezone.utc),
+        )
+
+        assert captured["start"].isoformat() == "2026-07-10"
+        assert captured["end"].isoformat() == "2026-07-17"
+        assert captured["scope"] == "watchlist"
+        assert "NVDA earnings" in digest.context["upcoming_events_text"]
+        assert "NVDA earnings" in digest.context["upcoming_events_html"]
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_hides_calendar_dates_for_free_users(monkeypatch):
+    called = False
+
+    def fake_upcoming(*args, **kwargs):
+        nonlocal called
+        called = True
+        return CalendarFetchResult(items=[], errors=[])
+
+    monkeypatch.setattr("app.services.email_digests.upcoming_event_calendar_items", fake_upcoming)
+    db = _session()
+    try:
+        user = _user(db, "calendar-free-digest@example.com", tier="free")
+        _watchlist(db, user)
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert called is False
+        assert digest.context["upcoming_events_text"] == "No upcoming watchlist calendar dates in the next week."
     finally:
         db.close()
 

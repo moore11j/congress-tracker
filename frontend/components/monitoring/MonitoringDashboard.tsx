@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+import { EventCalendarPanel } from "@/components/monitoring/EventCalendarPanel";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import {
   ApiError,
@@ -352,6 +353,7 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
   const savedViews = useMemo(() => (store?.views ?? []).filter((view) => view.surface === "screener"), [store]);
   const canUseMonitoringSources = hasEntitlement(entitlements, "monitoring_sources");
   const canUseScreenMonitoring = hasEntitlement(entitlements, "screener_monitoring");
+  const canUseEventCalendar = hasEntitlement(entitlements, "event_calendar");
   const monitoringLimit = canUseMonitoringSources ? limitFor(entitlements, "monitoring_sources") : 0;
   const visibleWatchlists = useMemo(() => watchlists.slice(0, monitoringLimit), [watchlists, monitoringLimit]);
   const remainingSourceSlots = Math.max(monitoringLimit - visibleWatchlists.length, 0);
@@ -636,6 +638,8 @@ export function MonitoringDashboard({ initialWatchlists, initialAuthPending = fa
           body={`Free monitors ${monitoringLimit} sources in the inbox. ${hiddenSourceCount} saved source${hiddenSourceCount === 1 ? " is" : "s are"} waiting behind the Premium limit.`}
         />
       ) : null}
+
+      <EventCalendarPanel canUseEventCalendar={canUseEventCalendar} loadingEntitlements={entitlementsLoading} />
 
       <section className="grid gap-6 xl:grid-cols-[minmax(280px,0.8fr)_minmax(520px,1.4fr)]">
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">

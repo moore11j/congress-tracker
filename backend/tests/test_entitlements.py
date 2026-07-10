@@ -162,6 +162,7 @@ def test_admin_entitlements_include_all_paid_feature_sources():
             "institutional_feed",
             "institutional_filters",
             "screener_monitoring",
+            "event_calendar",
         ):
             assert entitlements.has_feature(feature) is True
             assert feature in payload["features"]
@@ -206,6 +207,26 @@ def test_ticker_confirmation_gate_defaults_to_premium_and_unlocks_paid_users():
         assert gates["ticker_confirmation"]["required_tier"] == "premium"
         assert "confirmation score" in gates["ticker_confirmation"]["description"].lower()
         assert config["ticker_confirmation"]["required_tier"] == "premium"
+    finally:
+        db.close()
+
+
+def test_event_calendar_gate_defaults_to_premium_and_unlocks_paid_users():
+    db = _session()
+    try:
+        free_user = _user(db, "calendar-free@example.com", tier="free")
+        premium_user = _user(db, "calendar-premium@example.com", tier="premium")
+        pro_user = _user(db, "calendar-pro@example.com", tier="pro")
+
+        assert DEFAULT_FEATURE_GATES["event_calendar"]["required_tier"] == "premium"
+        assert entitlements_for_user(db, free_user).has_feature("event_calendar") is False
+        assert entitlements_for_user(db, premium_user).has_feature("event_calendar") is True
+        assert entitlements_for_user(db, pro_user).has_feature("event_calendar") is True
+
+        gates = {row["feature_key"]: row for row in feature_gate_payloads(db)}
+        config = {row["feature_key"]: row for row in plan_config_payload(db)["features"]}
+        assert gates["event_calendar"]["required_tier"] == "premium"
+        assert config["event_calendar"]["required_tier"] == "premium"
     finally:
         db.close()
 

@@ -763,12 +763,41 @@ export type AlertTriggerType =
   | "government_contract"
   | "institutional_activity"
   | "price_volume"
-  | "fundamentals";
+  | "fundamentals"
+  | "event_calendar";
+
+export type EventCalendarScope = "watchlist" | "all";
+export type EventCalendarKind = "economic" | "earnings" | "dividend" | "ipo" | "split";
+
+export type EventCalendarItem = {
+  id: string;
+  kind: EventCalendarKind;
+  date: string;
+  datetime?: string | null;
+  symbol?: string | null;
+  company?: string | null;
+  title: string;
+  subtitle?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+  importance?: string | null;
+  payload?: Record<string, unknown>;
+};
+
+export type EventCalendarResponse = {
+  items: EventCalendarItem[];
+  errors?: { kind: string; reason: string }[];
+  status: "ok" | "partial" | "unavailable" | string;
+  scope: EventCalendarScope;
+  start: string;
+  end: string;
+  watchlist_symbols: string[];
+};
 
 export type NotificationSubscription = {
   id: number;
   email: string;
-  source_type: "watchlist" | "saved_view";
+  source_type: "watchlist" | "saved_view" | "event_calendar";
   source_id: string;
   source_name: string;
   source_payload?: Record<string, unknown> | null;
@@ -785,7 +814,7 @@ export type NotificationSubscription = {
 
 export type NotificationSubscriptionPayload = {
   email?: string;
-  source_type: "watchlist" | "saved_view";
+  source_type: "watchlist" | "saved_view" | "event_calendar";
   source_id: string;
   source_name: string;
   source_payload?: Record<string, unknown>;
@@ -5658,6 +5687,28 @@ export async function getMonitoringInbox(authToken?: string, options?: { source?
   });
 }
 
+export async function getEventCalendar(params: {
+  start: string;
+  end: string;
+  scope?: EventCalendarScope;
+  signal?: AbortSignal;
+  source?: string;
+}): Promise<EventCalendarResponse> {
+  return fetchJson<EventCalendarResponse>(
+    buildApiUrl("/api/monitoring/event-calendar", {
+      start: params.start,
+      end: params.end,
+      scope: params.scope ?? "watchlist",
+    }),
+    {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params.signal,
+      source: params.source ?? "EventCalendar",
+    },
+  );
+}
+
 export type MonitoringUnreadCountResponse = {
   unread_count: number;
   status?: string;
@@ -5769,7 +5820,7 @@ export async function getWatchlistFeed(id: number, params: QueryParams): Promise
 }
 
 export async function listNotificationSubscriptions(params: {
-  source_type?: "watchlist" | "saved_view";
+  source_type?: "watchlist" | "saved_view" | "event_calendar";
   source_id?: string;
   email?: string;
 }): Promise<{ items: NotificationSubscription[] }> {

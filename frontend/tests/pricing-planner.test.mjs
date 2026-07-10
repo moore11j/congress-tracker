@@ -80,6 +80,7 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     "inbox_alerts:",
     "inbox_alert_retention:",
     "monitoring_sources:",
+    "event_calendar:",
     "watchlists:",
     "watchlist_tickers:",
     "saved_views:",

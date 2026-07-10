@@ -24,7 +24,7 @@ router = APIRouter(tags=["notifications"])
 
 class NotificationSubscriptionPayload(BaseModel):
     email: str | None = Field(default=None, min_length=3, max_length=320)
-    source_type: Literal["watchlist", "saved_view"]
+    source_type: Literal["watchlist", "saved_view", "event_calendar"]
     source_id: str = Field(min_length=1, max_length=160)
     source_name: str = Field(min_length=1, max_length=160)
     source_payload: dict[str, Any] | None = None
@@ -42,6 +42,7 @@ class NotificationSubscriptionPayload(BaseModel):
             "institutional_activity",
             "price_volume",
             "fundamentals",
+            "event_calendar",
         ]
     ] = []
     min_smart_score: int | None = Field(default=None, ge=0, le=100)
@@ -69,6 +70,8 @@ def _subscription_owned_by_user(db: Session, subscription: NotificationSubscript
             _require_watchlist_owner(db, user, subscription.source_id)
         except HTTPException:
             return False
+    if subscription.source_type == "event_calendar" and subscription.source_id not in {"all", "watchlist", "none"}:
+        return False
     return True
 
 
@@ -83,7 +86,7 @@ def list_notification_subscriptions(
     user = current_user(db, request, required=True)
     q = select(NotificationSubscription).order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
     normalized_source_type = source_type.strip().lower() if source_type else None
-    if normalized_source_type and normalized_source_type not in {"watchlist", "saved_view"}:
+    if normalized_source_type and normalized_source_type not in {"watchlist", "saved_view", "event_calendar"}:
         raise HTTPException(status_code=422, detail="Unsupported source_type.")
     if normalized_source_type:
         q = q.where(NotificationSubscription.source_type == normalized_source_type)
@@ -119,6 +122,14 @@ def put_notification_subscription(
         raise HTTPException(status_code=422, detail="A valid account email is required.")
     if payload.source_type == "watchlist":
         _require_watchlist_owner(db, user, payload.source_id)
+    if payload.source_type == "event_calendar":
+        require_feature(
+            current_entitlements(request, db),
+            "event_calendar",
+            message="Earnings and event calendar overlays are included with Premium.",
+        )
+        if payload.source_id not in {"all", "watchlist", "none"}:
+            raise HTTPException(status_code=422, detail="Unsupported event calendar alert scope.")
 
     subscription = upsert_subscription(
         db,
