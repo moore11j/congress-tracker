@@ -48,6 +48,7 @@ gitleaks-report.*
 npm-audit-report.*
 pip-audit-report.*
 checkpoint*.attach-scratch.txt
+load_tests
 
 # Local screenshots/debug images; keep product assets under frontend/public tracked.
 /screenshots/
@@ -70,3 +71,6 @@ frontend/playwright-report/
 frontend/test-results/
 
 .vercel
+
+#remote-attachments
+.codex-remote-attachments

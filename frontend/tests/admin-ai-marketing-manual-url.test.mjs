@@ -13,11 +13,11 @@ test("AI Growth Engine exposes the new top-level IA", () => {
     "Reddit Research Threads",
     "Draft Queue",
     "Assets",
-    "Email Delivery",
     "Settings",
   ]) {
     assert.match(viewSource, new RegExp(label));
   }
+  assert.doesNotMatch(viewSource, /Email Delivery/);
   assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);
 });
@@ -34,41 +34,30 @@ test("manual research input supports platform, pasted text, output type, and des
 
 test("content draft cards include copy and manual lifecycle actions", () => {
   for (const label of [
-    "Copy full draft",
-    "Copy short variant",
-    "Copy disclosure line",
-    "Copy Walnut link",
+    "Copy draft",
     "Copy source URL",
-    "Copy posting checklist",
-    "Copy X post text",
-    "Copy alternate hooks",
-    "Copy image/chart caption",
-    "Copy Reddit post title",
-    "Copy Reddit post body",
-    "Copy Reddit comment reply",
-    "Copy disclosure text",
-    "Mark copied",
-    "Mark posted manually",
-    "Send/re-send email to Jarod",
+    "Approve",
+    "Deny",
     "Archive",
-    "Reject",
+    "Delete",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
+  assert.doesNotMatch(viewSource, /Copy full draft|Copy short variant|Copy disclosure line|Copy Walnut link|Copy posting checklist/);
+  assert.doesNotMatch(viewSource, /Copy X post text|Copy alternate hooks|Copy image\/chart caption/);
+  assert.doesNotMatch(viewSource, /Copy Reddit post title|Copy Reddit post body|Copy Reddit comment reply|Copy disclosure text|Copy markdown/);
+  assert.doesNotMatch(viewSource, /Mark copied|Mark posted manually|Send\/re-send email to Jarod|Reject/);
 });
 
-test("posting assist links open platforms without auto-posting", () => {
+test("draft queue keeps source links visible without platform login clutter", () => {
   for (const label of [
-    "Login/Open X",
-    "Open X compose",
-    "Login/Open Reddit",
     "Open Reddit thread",
-    "Open Reddit submit",
-    "Open source post",
-    "Open Walnut link",
+    "Open Reddit comment",
+    "Open source",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
+  assert.doesNotMatch(viewSource, /Login\/Open X|Open X compose|Login\/Open Reddit|Open Reddit submit|Open Walnut link/);
   assert.match(apiSource, /markAdminAiGrowthDraftPosted/);
   assert.doesNotMatch(apiSource, /auto-post|autopost|auto_post/);
 });
@@ -79,6 +68,8 @@ test("AI Growth API uses draft endpoints and asset metadata", () => {
   assert.match(apiSource, /markAdminAiGrowthDraftCopied/);
   assert.match(apiSource, /archiveAdminAiGrowthDraft/);
   assert.match(apiSource, /rejectAdminAiGrowthDraft/);
+  assert.match(apiSource, /updateAdminAiGrowthDraftStatus/);
+  assert.match(viewSource, /status: "dismissed"/);
   assert.match(apiSource, /type AdminAiGrowthAsset/);
   assert.match(viewSource, /Open\/download asset/);
 });

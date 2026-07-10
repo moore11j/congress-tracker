@@ -6,21 +6,16 @@ import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
   createAdminAiGrowthDraft,
-  emailAdminAiGrowthDraft,
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
-  markAdminAiGrowthDraftCopied,
-  markAdminAiGrowthDraftPosted,
   rejectAdminAiGrowthDraft,
-  sendAdminAiMarketingEmailDigest,
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
   updateAdminAiGrowthDraftStatus,
   type AdminAiGrowthAsset,
   type AdminAiMarketingCampaign,
   type AdminAiMarketingConfig,
-  type AdminAiMarketingEmailDigestResponse,
   type AdminAiMarketingOpportunity,
   type AdminAiMarketingSetting,
   type AdminAiMarketingSettingsTestResponse,
@@ -35,10 +30,11 @@ type TabKey =
   | "dashboard"
   | "drafts"
   | "assets"
-  | "email_delivery"
   | "x_campaigns"
   | "reddit_threads"
   | "settings";
+
+type DraftAction = "archive" | "reject" | "delete";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
@@ -46,7 +42,6 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "reddit_threads", label: "Reddit Research Threads" },
   { key: "drafts", label: "Draft Queue" },
   { key: "assets", label: "Assets" },
-  { key: "email_delivery", label: "Email Delivery" },
   { key: "settings", label: "Settings" },
 ];
 
@@ -54,12 +49,9 @@ const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: stri
   { value: "all", label: "All" },
   { value: "new", label: "New" },
   { value: "needs_review", label: "Needs review" },
-  { value: "emailed", label: "Emailed" },
-  { value: "copied", label: "Copied" },
   { value: "approved", label: "Approved" },
-  { value: "posted_manually", label: "Posted manually" },
   { value: "archived", label: "Archived" },
-  { value: "rejected", label: "Rejected" },
+  { value: "rejected", label: "Denied" },
   { value: "regeneration_needed", label: "Regeneration needed" },
 ];
 
@@ -118,7 +110,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [statusFilter, setStatusFilter] = useState<"all" | AdminAiMarketingStatus>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<string | null>(null);
-  const [digestPreview, setDigestPreview] = useState<AdminAiMarketingEmailDigestResponse | null>(null);
   const [settingsTest, setSettingsTest] = useState<Record<"openai" | "reddit", AdminAiMarketingSettingsTestResponse | null>>({
     openai: null,
     reddit: null,
@@ -163,21 +154,19 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     void load();
   }, [statusFilter]);
 
-  const refreshDrafts = async () => {
-    const data = await getAdminAiGrowthDrafts({ status: statusFilter === "all" ? "all" : statusFilter, limit: 100 });
-    setDrafts(data.items);
-    setConfig(data.config);
-  };
-
   const replaceDraft = (next: AdminAiMarketingOpportunity) => {
     setDrafts((current) => current.map((draft) => (draft.id === next.id ? next : draft)));
+  };
+
+  const removeDraft = (draftId: number) => {
+    setDrafts((current) => current.filter((draft) => draft.id !== draftId));
   };
 
   const prependDraft = (next: AdminAiMarketingOpportunity) => {
     setDrafts((current) => [next, ...current.filter((draft) => draft.id !== next.id)]);
   };
 
-  const copyText = async (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => {
+  const copyText = async (_draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => {
     const text = value?.trim();
     if (!text) {
       notify(`${label} is empty.`, "error");
@@ -185,8 +174,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
     try {
       await navigator.clipboard.writeText(text);
-      const updated = await markAdminAiGrowthDraftCopied(draft.id);
-      replaceDraft(updated);
       notify(`${label} copied.`, "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : `Unable to copy ${label.toLowerCase()}.`, "error");
@@ -208,46 +195,21 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
 
   const runDraftAction = async (
     draft: AdminAiMarketingOpportunity,
-    action: "email" | "copied" | "posted" | "archive" | "reject",
+    action: DraftAction,
   ) => {
     setBusy(`${action}:${draft.id}`);
     try {
-      if (action === "email") {
-        await emailAdminAiGrowthDraft(draft.id);
-        notify(`Draft emailed to ${config?.recipient ?? "Jarod"}.`, "success");
-        await refreshDrafts();
+      if (action === "delete") {
+        await updateAdminAiGrowthDraftStatus(draft.id, { status: "dismissed" });
+        removeDraft(draft.id);
+        notify("Draft deleted.", "success");
         return;
       }
-      const updated =
-        action === "copied"
-          ? await markAdminAiGrowthDraftCopied(draft.id)
-          : action === "posted"
-            ? await markAdminAiGrowthDraftPosted(draft.id)
-            : action === "archive"
-              ? await archiveAdminAiGrowthDraft(draft.id)
-              : await rejectAdminAiGrowthDraft(draft.id);
+      const updated = action === "archive" ? await archiveAdminAiGrowthDraft(draft.id) : await rejectAdminAiGrowthDraft(draft.id);
       replaceDraft(updated);
-      notify(`Draft marked ${action === "posted" ? "posted manually" : action}.`, "success");
+      notify(action === "archive" ? "Draft archived." : "Draft denied.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to update draft.", "error");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const previewDigest = async (send: boolean) => {
-    setBusy(send ? "digest-send" : "digest-preview");
-    try {
-      const result = await sendAdminAiMarketingEmailDigest({
-        send,
-        statuses: statusFilter === "all" ? ["new", "needs_review", "approved"] : [statusFilter],
-        limit: 25,
-      });
-      setDigestPreview(result);
-      notify(send ? `Digest sent to ${result.to_email ?? config?.recipient ?? "Jarod"}.` : "Digest preview refreshed.", send ? "success" : "info");
-      if (send) await refreshDrafts();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Unable to prepare digest.", "error");
     } finally {
       setBusy(null);
     }
@@ -350,24 +312,19 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         />
       ) : null}
 
-      {activeTab === "drafts" || activeTab === "email_delivery" ? (
+      {activeTab === "drafts" ? (
         <DraftsView
           drafts={drafts}
           busy={busy}
           statusFilter={statusFilter}
-          digestPreview={digestPreview}
           onStatusFilter={setStatusFilter}
-          onPreviewDigest={() => void previewDigest(false)}
-          onSendDigest={() => void previewDigest(true)}
           onCopy={copyText}
           onStatus={updateDraftStatus}
           onAction={runDraftAction}
         />
       ) : null}
 
-      {activeTab === "assets" ? (
-        <AssetsView drafts={drafts} onCopy={copyText} />
-      ) : null}
+      {activeTab === "assets" ? <AssetsView drafts={drafts} /> : null}
 
       {activeTab === "x_campaigns" ? (
         <XChartDropForm
@@ -473,10 +430,7 @@ function DraftsView({
   drafts,
   busy,
   statusFilter,
-  digestPreview,
   onStatusFilter,
-  onPreviewDigest,
-  onSendDigest,
   onCopy,
   onStatus,
   onAction,
@@ -484,13 +438,10 @@ function DraftsView({
   drafts: AdminAiMarketingOpportunity[];
   busy: string | null;
   statusFilter: "all" | AdminAiMarketingStatus;
-  digestPreview: AdminAiMarketingEmailDigestResponse | null;
   onStatusFilter: (status: "all" | AdminAiMarketingStatus) => void;
-  onPreviewDigest: () => void;
-  onSendDigest: () => void;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
-  onAction: (draft: AdminAiMarketingOpportunity, action: "email" | "copied" | "posted" | "archive" | "reject") => void;
+  onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
 }) {
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -516,23 +467,6 @@ function DraftsView({
           ))}
         </div>
       </div>
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        <button type="button" disabled={Boolean(busy)} onClick={onPreviewDigest} className="rounded-md border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50">
-          {busy === "digest-preview" ? "Previewing..." : "Preview email"}
-        </button>
-        <button type="button" disabled={Boolean(busy)} onClick={onSendDigest} className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50">
-          {busy === "digest-send" ? "Sending..." : "Email selected drafts"}
-        </button>
-      </div>
-
-      {digestPreview ? (
-        <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/40 p-4">
-          <p className="font-semibold text-white">{digestPreview.subject ?? "Walnut AI Growth digest"}</p>
-          <p className="text-sm text-slate-400">{digestPreview.count} drafts - {digestPreview.to_email ?? "jarod@walnutmarkets.com"}</p>
-          {digestPreview.body_text ? <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-300">{digestPreview.body_text}</pre> : null}
-        </div>
-      ) : null}
 
       <div className="mt-5 space-y-4">
         {busy === "load" ? (
@@ -567,16 +501,16 @@ function DraftCard({
   busy: string | null;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
-  onAction: (draft: AdminAiMarketingOpportunity, action: "email" | "copied" | "posted" | "archive" | "reject") => void;
+  onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
 }) {
   const suggestion = draft.suggestion;
   const fullDraft = draft.full_markdown || draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
-  const shortVariant = suggestion?.alternate_hooks?.[0] || suggestion?.alternate_reply_more_direct || "";
   const disclosure = suggestion?.disclosure_text || disclosureFromDraft(fullDraft);
   const walnutLink = suggestion?.suggested_destination_url || draft.suggested_destination_url || "";
   const sourceUrl = draft.source_url || "";
-  const checklist = postingChecklist(draft, fullDraft, disclosure, walnutLink);
   const links = draft.posting_links ?? {};
+  const sourceLink = links.open_source_post || sourceUrl || links.open_reddit_thread;
+  const sourceLabel = sourceLinkLabel(draft);
 
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -595,13 +529,7 @@ function DraftCard({
           {draft.excerpt ? <p className="mt-3 line-clamp-3 text-sm text-slate-300">{draft.excerpt}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <AssistLink href={links.open_source_post ?? sourceUrl} label="Open source post" />
-          <AssistLink href={links.open_walnut_link ?? walnutLink} label="Open Walnut link" />
-          <AssistLink href={links.open_x ?? null} label="Login/Open X" />
-          <AssistLink href={links.open_x_compose ?? null} label="Open X compose" />
-          <AssistLink href={links.open_reddit ?? null} label="Login/Open Reddit" />
-          <AssistLink href={links.open_reddit_thread ?? null} label="Open Reddit thread" />
-          <AssistLink href={links.open_reddit_submit ?? null} label="Open Reddit submit" />
+          <AssistLink href={sourceLink} label={sourceLabel} />
         </div>
       </div>
 
@@ -610,12 +538,6 @@ function DraftCard({
           <p className="text-sm font-semibold text-white">Draft content</p>
           {suggestion?.recommended_action === "skip" ? <p className="mt-2 rounded-md border border-rose-300/30 bg-rose-300/10 p-2 text-sm font-semibold text-rose-100">Probably do not post.</p> : null}
           <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-200">{fullDraft || "No generated content yet."}</pre>
-          {shortVariant ? (
-            <div className="mt-3 border-t border-white/10 pt-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Short variant</p>
-              <p className="mt-2 text-sm text-slate-300">{shortVariant}</p>
-            </div>
-          ) : null}
         </div>
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3 text-sm text-slate-300">
           <p><span className="font-semibold text-slate-100">Action:</span> {draft.recommended_action ?? suggestion?.recommended_action ?? "pending"}</p>
@@ -632,43 +554,21 @@ function DraftCard({
       {draft.assets?.length ? (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {draft.assets.map((asset, index) => (
-            <AssetPreview key={`${asset.url ?? asset.thumbnail_url ?? index}`} asset={asset} onCopy={(label, value) => onCopy(draft, label, value)} />
+            <AssetPreview key={`${asset.url ?? asset.thumbnail_url ?? index}`} asset={asset} />
           ))}
         </div>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={() => onCopy(draft, "Copy full draft", fullDraft)} disabled={Boolean(busy)}>Copy full draft</Button>
-        <Button onClick={() => onCopy(draft, "Copy short variant", shortVariant)} disabled={Boolean(busy)}>Copy short variant</Button>
-        <Button onClick={() => onCopy(draft, "Copy disclosure line", disclosure)} disabled={Boolean(busy)}>Copy disclosure line</Button>
-        <Button onClick={() => onCopy(draft, "Copy Walnut link", walnutLink)} disabled={Boolean(busy)}>Copy Walnut link</Button>
+        <Button onClick={() => onCopy(draft, "Copy draft", fullDraft)} disabled={Boolean(busy)}>Copy draft</Button>
         <Button onClick={() => onCopy(draft, "Copy source URL", sourceUrl)} disabled={Boolean(busy)}>Copy source URL</Button>
-        <Button onClick={() => onCopy(draft, "Copy all assets/links as a posting checklist", checklist)} disabled={Boolean(busy)}>Copy posting checklist</Button>
-        {draft.content_type === "x_post" ? (
-          <>
-            <Button onClick={() => onCopy(draft, "Copy X post text", fullDraft)} disabled={Boolean(busy)}>Copy X post text</Button>
-            <Button onClick={() => onCopy(draft, "Copy alternate hooks", (suggestion?.alternate_hooks ?? []).join("\n"))} disabled={Boolean(busy)}>Copy alternate hooks</Button>
-            <Button onClick={() => onCopy(draft, "Copy image/chart caption", draft.assets?.[0]?.suggested_caption)} disabled={Boolean(busy)}>Copy image/chart caption</Button>
-          </>
-        ) : null}
-        {draft.content_type === "reddit_thread" || draft.content_type === "reddit_reply" ? (
-          <>
-            <Button onClick={() => onCopy(draft, "Copy Reddit post title", suggestion?.title_options?.[0] || draft.title)} disabled={Boolean(busy)}>Copy Reddit post title</Button>
-            <Button onClick={() => onCopy(draft, "Copy Reddit post body", fullDraft)} disabled={Boolean(busy)}>Copy Reddit post body</Button>
-            <Button onClick={() => onCopy(draft, "Copy markdown", draft.full_markdown || fullDraft)} disabled={Boolean(busy)}>Copy markdown</Button>
-            <Button onClick={() => onCopy(draft, "Copy Reddit comment reply", suggestion?.suggested_reply)} disabled={Boolean(busy)}>Copy Reddit comment reply</Button>
-            <Button onClick={() => onCopy(draft, "Copy disclosure text", disclosure)} disabled={Boolean(busy)}>Copy disclosure text</Button>
-          </>
-        ) : null}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button onClick={() => onAction(draft, "email")} disabled={Boolean(busy)}>{busy === `email:${draft.id}` ? "Sending..." : "Send/re-send email to Jarod"}</Button>
-        <Button onClick={() => onAction(draft, "copied")} disabled={Boolean(busy)}>Mark copied</Button>
         <Button onClick={() => onStatus(draft, "approved")} disabled={Boolean(busy)}>Approve</Button>
-        <Button onClick={() => onAction(draft, "posted")} disabled={Boolean(busy)}>Mark posted manually</Button>
+        <Button onClick={() => onAction(draft, "reject")} disabled={Boolean(busy)}>Deny</Button>
         <Button onClick={() => onAction(draft, "archive")} disabled={Boolean(busy)}>Archive</Button>
-        <Button onClick={() => onAction(draft, "reject")} disabled={Boolean(busy)}>Reject</Button>
+        <Button onClick={() => onAction(draft, "delete")} disabled={Boolean(busy)}>Delete</Button>
       </div>
     </article>
   );
@@ -778,10 +678,8 @@ function RedditThreadForm({
 
 function AssetsView({
   drafts,
-  onCopy,
 }: {
   drafts: AdminAiMarketingOpportunity[];
-  onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
 }) {
   const assetDrafts = drafts.filter((draft) => (draft.assets?.length ?? 0) > 0);
   return (
@@ -793,7 +691,7 @@ function AssetsView({
             <p className="mb-3 text-sm font-semibold text-slate-100">{draft.title}</p>
             <div className="space-y-3">
               {(draft.assets ?? []).map((asset, index) => (
-                <AssetPreview key={`${draft.id}-${index}-${asset.url ?? asset.thumbnail_url ?? asset.title}`} asset={asset} onCopy={(label, value) => onCopy(draft, label, value)} />
+                <AssetPreview key={`${draft.id}-${index}-${asset.url ?? asset.thumbnail_url ?? asset.title}`} asset={asset} />
               ))}
             </div>
           </div>
@@ -968,7 +866,7 @@ function AssistLink({ href, label }: { href?: string | null; label: string }) {
   return <a href={href} target="_blank" rel="noreferrer" className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200">{label}</a>;
 }
 
-function AssetPreview({ asset, onCopy }: { asset: AdminAiGrowthAsset; onCopy: (label: string, value?: string | null) => void }) {
+function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
   const url = asset.url || asset.thumbnail_url || "";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3">
@@ -981,10 +879,6 @@ function AssetPreview({ asset, onCopy }: { asset: AdminAiGrowthAsset; onCopy: (l
       </div>
       {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt={asset.title || "Asset thumbnail"} className="mt-3 max-h-44 w-full rounded-md object-cover" /> : null}
       {asset.suggested_caption ? <p className="mt-3 text-sm text-slate-300">{asset.suggested_caption}</p> : null}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button onClick={() => onCopy("Copy image caption", asset.suggested_caption)}>Copy image caption</Button>
-        <Button onClick={() => onCopy("Copy asset link", url)}>Copy asset link</Button>
-      </div>
     </div>
   );
 }
@@ -1086,6 +980,15 @@ function platformLabel(platform?: string | null) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function sourceLinkLabel(draft: AdminAiMarketingOpportunity) {
+  const platform = String(draft.source_platform ?? draft.platform ?? "").toLowerCase();
+  const contentType = String(draft.content_type ?? "").toLowerCase();
+  const sourceUrl = String(draft.source_url ?? "").toLowerCase();
+  const isReddit = platform.includes("reddit") || contentType.startsWith("reddit") || sourceUrl.includes("reddit.com");
+  if (!isReddit) return "Open source";
+  return contentType === "reddit_reply" ? "Open Reddit comment" : "Open Reddit thread";
+}
+
 function contentTypeLabel(contentType?: string | null) {
   const labels: Record<string, string> = {
     x_post: "X post",
@@ -1098,22 +1001,4 @@ function contentTypeLabel(contentType?: string | null) {
 
 function disclosureFromDraft(value: string) {
   return value.toLowerCase().includes("walnut") ? "Disclosure: I am building Walnut." : "";
-}
-
-function postingChecklist(draft: AdminAiMarketingOpportunity, fullDraft: string, disclosure: string, walnutLink: string) {
-  const assetLines = (draft.assets ?? []).map((asset, index) => `${index + 1}. ${asset.title || "Asset"}: ${asset.url || asset.thumbnail_url || "no link"}`);
-  return [
-    "Open source post",
-    draft.source_url,
-    "Copy draft",
-    fullDraft,
-    "Paste into platform",
-    "Attach image if relevant",
-    ...assetLines,
-    "Review disclosure",
-    disclosure || "No Walnut mention detected.",
-    "Walnut link",
-    walnutLink || "none",
-    "Post manually",
-  ].filter(Boolean).join("\n");
 }
