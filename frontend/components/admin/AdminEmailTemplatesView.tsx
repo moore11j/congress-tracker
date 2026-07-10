@@ -49,6 +49,19 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
 };
 
+const TEMPLATE_KEY_DISPLAY_LABELS: Record<string, string> = {
+  "alerts.signal_alert": "alerts.monitoring_digest",
+};
+
+function displayTemplateKey(templateKey?: string | null) {
+  if (!templateKey) return "-";
+  return TEMPLATE_KEY_DISPLAY_LABELS[templateKey] ?? templateKey;
+}
+
+function visibleEmailTemplates(items: AdminEmailTemplate[]) {
+  return items.filter((template) => template.template_key !== "alerts.monitoring_digest");
+}
+
 const DELIVERY_STATUS_OPTIONS = ["sent", "failed", "skipped", "log_only", "queued"];
 const DELIVERY_DATE_WINDOW_OPTIONS = [
   { value: "today", label: "Today" },
@@ -362,7 +375,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
         getAdminEmailTemplates(),
         getMe().catch(() => null),
       ]);
-      const activeTemplates = templateResponse.items.filter((template) => template.template_key !== "alerts.monitoring_digest");
+      const activeTemplates = visibleEmailTemplates(templateResponse.items);
       setTemplates(activeTemplates);
       setCurrentAdminEmail(meResponse?.user?.email ?? "");
       setSelectedKey((current) =>
@@ -541,8 +554,9 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     setStatus(null);
     try {
       const response = await adminResetEmailTemplateDefaults();
-      setTemplates(response.items);
-      const nextSelected = response.items.find((template) => template.template_key === selectedTemplateKey) ?? response.items[0] ?? null;
+      const activeTemplates = visibleEmailTemplates(response.items);
+      setTemplates(activeTemplates);
+      const nextSelected = activeTemplates.find((template) => template.template_key === selectedTemplateKey) ?? activeTemplates[0] ?? null;
       if (nextSelected) {
         setSelectedTemplate(nextSelected);
         setSelectedKey(nextSelected.template_key);
@@ -753,7 +767,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                         }`}
                       >
                         <span className="block text-sm font-semibold text-white">{template.name}</span>
-                        <span className="mt-1 block break-all text-xs text-slate-500">{template.template_key}</span>
+                        <span className="mt-1 block break-all text-xs text-slate-500">{displayTemplateKey(template.template_key)}</span>
                         <span className="mt-2 block text-xs leading-5 text-slate-400">
                           {TEMPLATE_DESCRIPTIONS[template.template_key] ?? "Editable Walnut email template."}
                         </span>
@@ -780,7 +794,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="break-all text-xs font-semibold uppercase tracking-wide text-emerald-300">
-                    {selectedTemplate.template_key}
+                    {displayTemplateKey(selectedTemplate.template_key)}
                   </p>
                   <h3 className="mt-1 text-xl font-semibold text-white">{selectedTemplate.name}</h3>
                   <p className="mt-2 text-sm text-slate-400">
@@ -1141,7 +1155,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
               <option value="">All templates</option>
               {deliveryTemplateOptions.map((templateKey) => (
                 <option key={templateKey} value={templateKey}>
-                  {templateKey}
+                  {displayTemplateKey(templateKey)}
                 </option>
               ))}
             </select>
@@ -1221,7 +1235,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
                         {delivery.status}
                       </span>
                     </td>
-                    <td className="break-all px-3 py-3">{delivery.template_key ?? "-"}</td>
+                    <td className="break-all px-3 py-3">{displayTemplateKey(delivery.template_key)}</td>
                     <td className="break-all px-3 py-3">{delivery.to_email}</td>
                     <td className="min-w-64 px-3 py-3">{delivery.subject ?? "-"}</td>
                     <td className="whitespace-nowrap px-3 py-3">{delivery.provider ?? "-"}</td>
