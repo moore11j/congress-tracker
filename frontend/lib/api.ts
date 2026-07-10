@@ -4129,8 +4129,10 @@ export async function getTickerSignalsSummary(
     signal,
     source: params?.source ?? "TickerSignalsSummary",
   });
+  const entitlementScope = typeof window !== "undefined" ? storedEntitlementTier() ?? "none" : "server";
+  const authScope = params?.authToken ? "token" : params?.activeUser ? "active" : "anonymous";
   const data = await clientCachedJson<TickerSignalsSummaryResponse>(
-    `ticker-signals-summary:${url}`,
+    `ticker-signals-summary:${url}:${authScope}:${entitlementScope}`,
     params?.signal,
     request,
   );

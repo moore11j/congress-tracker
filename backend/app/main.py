@@ -2946,7 +2946,7 @@ def _public_get_cache_key(request: Request) -> str | None:
         return None
     if not _is_public_get_cacheable_path(request.url.path):
         return None
-    if request.headers.get("authorization") or request.cookies:
+    if request.headers.get("authorization") or request.headers.get("x-ct-entitlement-tier") or request.cookies:
         return None
     user_agent_class = _classify_user_agent(request)
     if user_agent_class in {"bot", "crawler", "prefetch"} or _is_explicit_prefetch_request(request):

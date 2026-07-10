@@ -64,7 +64,9 @@ test("ticker signal activity uses the Signals page endpoint scoped to the ticker
   assert.match(api, /\/api\/tickers\/\$\{symbol\}\/signals-summary/);
   assert.match(api, /lookback_days: params\?\.lookback_days/);
   assert.match(api, /clientCachedJson<TickerSignalsSummaryResponse>/);
-  assert.match(api, /`ticker-signals-summary:\$\{url\}`/);
+  assert.match(api, /const entitlementScope = typeof window !== "undefined" \? storedEntitlementTier\(\) \?\? "none" : "server"/);
+  assert.match(api, /const authScope = params\?\.authToken \? "token" : params\?\.activeUser \? "active" : "anonymous"/);
+  assert.match(api, /`ticker-signals-summary:\$\{url\}:\$\{authScope\}:\$\{entitlementScope\}`/);
   assert.match(client, /getSignalsAll\(\{/);
   assert.match(client, /symbol,/);
   assert.match(client, /congress_recent_days: lookbackDays/);
