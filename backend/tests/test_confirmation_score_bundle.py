@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import Base
 from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
+    confirmation_score_bundle_from_source_contexts,
     confirmation_band_for_score,
     get_slim_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
@@ -330,3 +331,71 @@ def test_conflicting_government_contract_support_caps_bearish_bundle_below_excep
     assert bundle["sources"]["government_contracts"]["present"] is True
     assert bundle["score"] <= 79
     assert bundle["band"] != "exceptional"
+
+
+def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack():
+    bundle = confirmation_score_bundle_from_source_contexts(
+        "TSM",
+        source_contexts={
+            "insiders": {"status": "active", "direction": "bullish", "buy_count": 36, "sell_count": 0},
+            "congress": {"status": "active", "direction": "bullish", "buy_count": 1, "sell_count": 0},
+            "price_volume": {
+                "status": "active",
+                "direction": "mixed",
+                "title": "Mixed tape confirmation",
+                "summary": "Mixed tape confirmation",
+                "score": 25,
+                "price_points": 120,
+            },
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+            },
+            "institutional_activity": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 45,
+                "title": "Institutional Activity",
+                "subtitle": "Net reported accumulation",
+            },
+        },
+    )
+
+    assert bundle["sources"]["price_volume"]["direction"] == "mixed"
+    assert bundle["direction"] == "bullish"
+    assert bundle["score"] > 59
+    assert bundle["band"] in {"strong", "exceptional"}
+
+
+def test_bearish_source_conflict_still_caps_mixed_confirmation_score():
+    bundle = confirmation_score_bundle_from_source_contexts(
+        "CLSH",
+        source_contexts={
+            "insiders": {"status": "active", "direction": "bullish", "buy_count": 3, "sell_count": 0},
+            "congress": {"status": "active", "direction": "bearish", "buy_count": 0, "sell_count": 2},
+            "price_volume": {"status": "active", "direction": "mixed", "score": 25, "price_points": 120},
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+            },
+        },
+    )
+
+    assert bundle["direction"] == "mixed"
+    assert bundle["score"] <= 59

@@ -54,6 +54,29 @@ def test_why_now_labels_conflicting_sources_as_mixed():
     assert why_now["caveat"] == "Evidence is conflicting across active sources."
 
 
+def test_why_now_treats_mixed_price_volume_as_caution_not_conflict_for_bullish_stack():
+    bundle = {
+        "ticker": "TSM",
+        "score": 75,
+        "band": "strong",
+        "direction": "bullish",
+        "status": "5-source bullish confirmation",
+        "sources": {
+            "congress": {"present": True, "direction": "bullish", "strength": 61, "quality": 55, "freshness_days": 1},
+            "insiders": {"present": True, "direction": "bullish", "strength": 74, "quality": 80, "freshness_days": 2},
+            "price_volume": {"present": True, "direction": "mixed", "strength": 25, "quality": 80, "freshness_days": 0},
+            "fundamentals": {"present": True, "direction": "bullish", "strength": 55, "quality": 60, "freshness_days": 1},
+            "institutional_activity": {"present": True, "direction": "bullish", "strength": 45, "quality": 55, "freshness_days": 23},
+        },
+    }
+
+    why_now = build_why_now_bundle("TSM", bundle)
+
+    assert why_now["state"] == "strengthening"
+    assert "mixed confirmation" not in why_now["headline"]
+    assert why_now["caveat"] != "Evidence is conflicting across active sources."
+
+
 def test_why_now_degrades_to_inactive_without_sources():
     why_now = inactive_why_now_bundle("ZZZ", lookback_days=30)
 

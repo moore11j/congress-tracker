@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -1662,11 +1662,17 @@ def _score_bundle(
 
 
 def _agreement_component(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> float:
-    directions = [
-        source.direction
+    directional_items = [
+        (key, source.direction)
         for key, source in sources.items()
         if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
     ]
+    directions = [
+        direction
+        for _key, direction in directional_items
+    ]
+    if _has_only_mixed_price_volume_against_bullish_stack(directional_items):
+        return 85.0
     if not directions:
         return 20.0
     if len(directions) == 1:
@@ -1852,12 +1858,27 @@ def _explanation(
 
 
 def _bundle_direction(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> ConfirmationDirection:
-    directional_sources = [
-        source.direction
+    directional_items = [
+        (key, source.direction)
         for key, source in sources.items()
         if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
     ]
-    return _combined_direction(directional_sources)
+    if _has_only_mixed_price_volume_against_bullish_stack(directional_items):
+        return "bullish"
+    return _combined_direction([direction for _key, direction in directional_items])
+
+
+def _has_only_mixed_price_volume_against_bullish_stack(
+    directional_items: Sequence[tuple[ConfirmationSourceKey, ConfirmationDirection]],
+) -> bool:
+    mixed_keys = {
+        key
+        for key, direction in directional_items
+        if direction == "mixed"
+    }
+    bullish_count = sum(1 for _key, direction in directional_items if direction == "bullish")
+    bearish_count = sum(1 for _key, direction in directional_items if direction == "bearish")
+    return bearish_count == 0 and bullish_count >= 2 and mixed_keys == {"price_volume"}
 
 
 def _has_only_support_sources(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> bool:

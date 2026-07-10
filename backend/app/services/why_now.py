@@ -172,12 +172,26 @@ def _sources(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _has_conflict(active_sources: list[tuple[str, dict[str, Any]]], direction: str) -> bool:
-    directions = {
-        source["direction"]
+    directional_items = [
+        (key, source["direction"])
         for key, source in active_sources
         if source["direction"] != "neutral" and key not in _SUPPORT_ONLY_SOURCES
-    }
+    ]
+    if direction == "bullish" and _has_only_mixed_price_volume_against_bullish_stack(directional_items):
+        return False
+    directions = {source_direction for _key, source_direction in directional_items}
     return "mixed" in directions or ("bullish" in directions and "bearish" in directions) or direction == "mixed"
+
+
+def _has_only_mixed_price_volume_against_bullish_stack(directional_items: list[tuple[str, str]]) -> bool:
+    mixed_keys = {
+        key
+        for key, source_direction in directional_items
+        if source_direction == "mixed"
+    }
+    bullish_count = sum(1 for _key, source_direction in directional_items if source_direction == "bullish")
+    bearish_count = sum(1 for _key, source_direction in directional_items if source_direction == "bearish")
+    return bearish_count == 0 and bullish_count >= 2 and mixed_keys == {"price_volume"}
 
 
 def _classify_state(

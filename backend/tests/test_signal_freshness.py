@@ -89,6 +89,24 @@ def test_signal_freshness_treats_mixed_direction_as_active_not_fresh():
     assert "mixed direction" in freshness["explanation"]
 
 
+def test_signal_freshness_treats_mixed_price_volume_as_caution_for_bullish_stack():
+    freshness = build_signal_freshness_bundle(
+        "TSM",
+        _bundle(
+            sources={
+                "congress": {"present": True, "direction": "bullish", "strength": 61, "quality": 55, "freshness_days": 1, "label": "Active / buy-skewed"},
+                "insiders": {"present": True, "direction": "bullish", "strength": 74, "quality": 80, "freshness_days": 2, "label": "Active / buy-skewed"},
+                "price_volume": {"present": True, "direction": "mixed", "strength": 25, "quality": 70, "freshness_days": 0, "label": "Mixed tape confirmation"},
+                "fundamentals": {"present": True, "direction": "bullish", "strength": 55, "quality": 60, "freshness_days": 1, "label": "Fundamental strength"},
+                "institutional_activity": {"present": True, "direction": "bullish", "strength": 45, "quality": 55, "freshness_days": 23, "label": "Net reported accumulation"},
+            },
+        ),
+    )
+
+    assert freshness["freshness_state"] == "maturing"
+    assert "mixed direction" not in freshness["explanation"]
+
+
 def test_signal_freshness_degrades_missing_timing_without_breaking():
     freshness = build_signal_freshness_bundle(
         "CRM",
