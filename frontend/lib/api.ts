@@ -5147,6 +5147,18 @@ export async function updateAdminAiGrowthDraftStatus(
   });
 }
 
+export async function regenerateAdminAiGrowthDraft(
+  draftId: number,
+  payload: { change_request?: string | null },
+): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/regenerate`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminAiGrowth",
+  });
+}
+
 export async function emailAdminAiGrowthDraft(draftId: number): Promise<AdminAiMarketingEmailDigestResponse> {
   return fetchJson<AdminAiMarketingEmailDigestResponse>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/email`), {
     method: "POST",

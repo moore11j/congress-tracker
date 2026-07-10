@@ -30,6 +30,7 @@ from app.services.ai_marketing import (
     preview_digest,
     public_settings_payload,
     reject_opportunity,
+    regenerate_growth_draft,
     run_campaign,
     send_draft_email,
     send_digest,
@@ -144,6 +145,10 @@ class GrowthDraftPayload(BaseModel):
     assets: list[GrowthAssetPayload] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(default_factory=dict)
     generate: bool = True
+
+
+class GrowthDraftRegeneratePayload(BaseModel):
+    change_request: str | None = Field(default=None, max_length=1000)
 
 
 class EmailDigestPayload(BaseModel):
@@ -296,6 +301,11 @@ def admin_ai_growth_drafts(
     campaign_id: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ):
+    requested_status = str(status or "").strip().lower()
+    if not requested_status or requested_status == "all":
+        status = ",".join(sorted(OPPORTUNITY_STATUSES - {"dismissed"}))
+    if not isinstance(campaign_id, int):
+        campaign_id = None
     return admin_ai_marketing_opportunities(request, db, status=status, campaign_id=campaign_id, limit=limit)
 
 
@@ -346,6 +356,25 @@ def admin_ai_growth_update_draft(
     db: Session = Depends(get_db),
 ):
     return admin_ai_marketing_update_opportunity(draft_id, payload, request, db)
+
+
+@router.post("/admin/ai-growth/drafts/{draft_id}/regenerate", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_regenerate_draft(
+    draft_id: int,
+    payload: GrowthDraftRegeneratePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = _opportunity_or_404(db, draft_id)
+    try:
+        return regenerate_growth_draft(db, opportunity, change_request=payload.change_request)
+    except MissingMarketingCredential as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OpenAISuggestionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.admin_message) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/admin/ai-growth/drafts/{draft_id}/email", dependencies=[Depends(rate_limit_admin_mutation)])

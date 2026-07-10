@@ -9,6 +9,7 @@ import {
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
+  regenerateAdminAiGrowthDraft,
   rejectAdminAiGrowthDraft,
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
@@ -36,6 +37,21 @@ type TabKey =
 
 type DraftAction = "archive" | "reject" | "delete";
 
+const DRAFT_QUEUE_STATUSES: AdminAiMarketingStatus[] = [
+  "new",
+  "draft",
+  "needs_review",
+  "emailed",
+  "opened",
+  "copied",
+  "approved",
+  "posted_manually",
+  "archived",
+  "rejected",
+  "regeneration_needed",
+  "quality_failed",
+];
+
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
   { key: "x_campaigns", label: "X Campaigns" },
@@ -52,7 +68,6 @@ const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: stri
   { value: "approved", label: "Approved" },
   { value: "archived", label: "Archived" },
   { value: "rejected", label: "Denied" },
-  { value: "regeneration_needed", label: "Regeneration needed" },
 ];
 
 const SETTING_KEYS = [
@@ -117,6 +132,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [manualForm, setManualForm] = useState(() => emptyManualForm());
   const [xForm, setXForm] = useState(() => emptyXForm());
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
+  const [changeRequests, setChangeRequests] = useState<Record<number, string>>({});
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -134,8 +150,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const load = async () => {
     setBusy("load");
     try {
+      const draftStatus = statusFilter === "all" ? DRAFT_QUEUE_STATUSES.join(",") : statusFilter;
       const [draftData, settingsData, campaignData] = await Promise.all([
-        getAdminAiGrowthDrafts({ status: statusFilter === "all" ? "all" : statusFilter, limit: 100 }),
+        getAdminAiGrowthDrafts({ status: draftStatus, limit: 100 }),
         getAdminAiMarketingSettings(),
         getAdminAiMarketingCampaigns(),
       ]);
@@ -210,6 +227,33 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       notify(action === "archive" ? "Draft archived." : "Draft denied.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to update draft.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateChangeRequest = (draftId: number, value: string) => {
+    setChangeRequests((current) => ({ ...current, [draftId]: value }));
+  };
+
+  const regenerateDraft = async (draft: AdminAiMarketingOpportunity) => {
+    const changeRequest = changeRequests[draft.id]?.trim() ?? "";
+    if (!changeRequest) {
+      notify("Describe the changes to make before regenerating.", "error");
+      return;
+    }
+    setBusy(`regenerate:${draft.id}`);
+    try {
+      const updated = await regenerateAdminAiGrowthDraft(draft.id, { change_request: changeRequest });
+      replaceDraft(updated);
+      setChangeRequests((current) => {
+        const next = { ...current };
+        delete next[draft.id];
+        return next;
+      });
+      notify("Draft regenerated with requested changes.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to regenerate draft.", "error");
     } finally {
       setBusy(null);
     }
@@ -317,10 +361,13 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           drafts={drafts}
           busy={busy}
           statusFilter={statusFilter}
+          changeRequests={changeRequests}
           onStatusFilter={setStatusFilter}
           onCopy={copyText}
           onStatus={updateDraftStatus}
           onAction={runDraftAction}
+          onChangeRequest={updateChangeRequest}
+          onRegenerate={regenerateDraft}
         />
       ) : null}
 
@@ -430,18 +477,24 @@ function DraftsView({
   drafts,
   busy,
   statusFilter,
+  changeRequests,
   onStatusFilter,
   onCopy,
   onStatus,
   onAction,
+  onChangeRequest,
+  onRegenerate,
 }: {
   drafts: AdminAiMarketingOpportunity[];
   busy: string | null;
   statusFilter: "all" | AdminAiMarketingStatus;
+  changeRequests: Record<number, string>;
   onStatusFilter: (status: "all" | AdminAiMarketingStatus) => void;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
+  onChangeRequest: (draftId: number, value: string) => void;
+  onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -477,9 +530,12 @@ function DraftsView({
               key={draft.id}
               draft={draft}
               busy={busy}
+              changeRequest={changeRequests[draft.id] ?? ""}
               onCopy={onCopy}
               onStatus={onStatus}
               onAction={onAction}
+              onChangeRequest={onChangeRequest}
+              onRegenerate={onRegenerate}
             />
           ))
         ) : (
@@ -493,15 +549,21 @@ function DraftsView({
 function DraftCard({
   draft,
   busy,
+  changeRequest,
   onCopy,
   onStatus,
   onAction,
+  onChangeRequest,
+  onRegenerate,
 }: {
   draft: AdminAiMarketingOpportunity;
   busy: string | null;
+  changeRequest: string;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
+  onChangeRequest: (draftId: number, value: string) => void;
+  onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
   const suggestion = draft.suggestion;
   const fullDraft = draft.full_markdown || draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
@@ -511,6 +573,7 @@ function DraftCard({
   const links = draft.posting_links ?? {};
   const sourceLink = links.open_source_post || sourceUrl || links.open_reddit_thread;
   const sourceLabel = sourceLinkLabel(draft);
+  const xCharacterCount = draft.content_type === "x_post" ? fullDraft.length : null;
 
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -535,7 +598,12 @@ function DraftCard({
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3">
-          <p className="text-sm font-semibold text-white">Draft content</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-white">Draft content</p>
+            {xCharacterCount !== null ? (
+              <span className={`text-xs font-semibold ${xCharacterCount <= 280 ? "text-emerald-100" : "text-rose-100"}`}>{xCharacterCount}/280</span>
+            ) : null}
+          </div>
           {suggestion?.recommended_action === "skip" ? <p className="mt-2 rounded-md border border-rose-300/30 bg-rose-300/10 p-2 text-sm font-semibold text-rose-100">Probably do not post.</p> : null}
           <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-200">{fullDraft || "No generated content yet."}</pre>
         </div>
@@ -562,6 +630,19 @@ function DraftCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => onCopy(draft, "Copy draft", fullDraft)} disabled={Boolean(busy)}>Copy draft</Button>
         <Button onClick={() => onCopy(draft, "Copy source URL", sourceUrl)} disabled={Boolean(busy)}>Copy source URL</Button>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-2 md:flex-row">
+        <input
+          value={changeRequest}
+          onChange={(event) => onChangeRequest(draft.id, event.target.value)}
+          placeholder="Shorter, sharper, add the TSM margin angle..."
+          aria-label="Requested draft changes"
+          className="min-w-0 flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+        />
+        <Button onClick={() => onRegenerate(draft)} disabled={Boolean(busy)}>
+          {busy === `regenerate:${draft.id}` ? "Making changes..." : "Make Changes"}
+        </Button>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">

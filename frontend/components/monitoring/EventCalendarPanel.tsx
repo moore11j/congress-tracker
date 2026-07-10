@@ -221,6 +221,23 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
       }),
     [activeEconomicCategories, activeKinds, items],
   );
+  const countsByKind = useMemo(() => {
+    const counts = Object.fromEntries(calendarKinds.map((kind) => [kind, 0])) as Record<EventCalendarKind, number>;
+    for (const item of items) {
+      counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    }
+    return counts;
+  }, [items]);
+  const visibleCountsByKind = useMemo(() => {
+    const counts = Object.fromEntries(calendarKinds.map((kind) => [kind, 0])) as Record<EventCalendarKind, number>;
+    for (const item of filteredItems) {
+      counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    }
+    return counts;
+  }, [filteredItems]);
+  const corporateCount = calendarKinds
+    .filter((kind) => kind !== "economic")
+    .reduce((sum, kind) => sum + (countsByKind[kind] ?? 0), 0);
   const hiddenByFilters = Math.max(items.length - filteredItems.length, 0);
   const itemsByDate = useMemo(() => {
     const map = new Map<string, EventCalendarItem[]>();
@@ -401,7 +418,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
               }`}
               title={`${activeKinds[kind] ? "Hide" : "Show"} ${kindLabels[kind]} events`}
             >
-              {kindLabels[kind]}
+              {kindLabels[kind]} {visibleCountsByKind[kind] > 0 || countsByKind[kind] > 0 ? `(${visibleCountsByKind[kind]}/${countsByKind[kind]})` : "(0)"}
             </button>
           ))}
         </div>
@@ -430,6 +447,14 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
               </button>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {!loading && corporateCount === 0 ? (
+        <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+          {scope === "watchlist"
+            ? "No earnings, dividends, IPOs, or split dates matched your watchlist tickers in this visible window. Switch to All tickers to browse the broader FMP corporate calendars."
+            : "FMP returned no earnings, dividends, IPOs, or split dates for this visible window."}
         </div>
       ) : null}
 

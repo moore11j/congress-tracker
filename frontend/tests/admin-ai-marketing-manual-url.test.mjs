@@ -40,9 +40,12 @@ test("content draft cards include copy and manual lifecycle actions", () => {
     "Deny",
     "Archive",
     "Delete",
+    "Make Changes",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
+  assert.match(viewSource, /Requested draft changes/);
+  assert.match(viewSource, /regenerateAdminAiGrowthDraft/);
   assert.doesNotMatch(viewSource, /Copy full draft|Copy short variant|Copy disclosure line|Copy Walnut link|Copy posting checklist/);
   assert.doesNotMatch(viewSource, /Copy X post text|Copy alternate hooks|Copy image\/chart caption/);
   assert.doesNotMatch(viewSource, /Copy Reddit post title|Copy Reddit post body|Copy Reddit comment reply|Copy disclosure text|Copy markdown/);
@@ -69,9 +72,17 @@ test("AI Growth API uses draft endpoints and asset metadata", () => {
   assert.match(apiSource, /archiveAdminAiGrowthDraft/);
   assert.match(apiSource, /rejectAdminAiGrowthDraft/);
   assert.match(apiSource, /updateAdminAiGrowthDraftStatus/);
+  assert.match(apiSource, /regenerateAdminAiGrowthDraft/);
   assert.match(viewSource, /status: "dismissed"/);
+  assert.match(viewSource, /DRAFT_QUEUE_STATUSES\.join\(","\)/);
+  assert.doesNotMatch(viewSource, /label: "Regeneration needed"/);
   assert.match(apiSource, /type AdminAiGrowthAsset/);
   assert.match(viewSource, /Open\/download asset/);
+});
+
+test("X drafts expose the 280 character guardrail", () => {
+  assert.match(viewSource, /xCharacterCount <= 280/);
+  assert.match(viewSource, /\/280/);
 });
 
 test("settings remain env-only for provider credentials", () => {

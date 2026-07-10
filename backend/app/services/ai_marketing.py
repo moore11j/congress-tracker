@@ -33,6 +33,7 @@ AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
 AI_MARKETING_PROMPT_VERSION = "ai_growth_v1"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
+X_POST_CHARACTER_LIMIT = 280
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
@@ -1211,6 +1212,29 @@ def create_growth_draft(
     return {"opportunity": opportunity_to_dict(opportunity, suggestion=latest), "warning": warning}
 
 
+def regenerate_growth_draft(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    *,
+    change_request: str | None = None,
+) -> dict[str, Any]:
+    change_text = _truncate(str(change_request or "").strip(), 1000) or ""
+    if change_text:
+        metadata = _load_object(opportunity.raw_metadata_json)
+        history = _coerce_json_list(metadata.get("change_requests"))
+        history.append({"requested_at": datetime.now(timezone.utc).isoformat(), "request": change_text})
+        metadata["change_request"] = change_text
+        metadata["change_requests"] = history[-10:]
+        opportunity.raw_metadata_json = _dump_object(metadata)
+    opportunity.status = "needs_review"
+    opportunity.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(opportunity)
+    generate_suggestion(db, opportunity)
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    return opportunity_to_dict(opportunity, suggestion=latest)
+
+
 def update_opportunity_status(
     db: Session,
     opportunity: AiMarketingOpportunity,
@@ -1301,6 +1325,8 @@ def generate_suggestion(
                                 "audience": opportunity_metadata.get("audience"),
                                 "tone": opportunity_metadata.get("tone"),
                                 "desired_output_type": opportunity_metadata.get("desired_output_type"),
+                                "change_request": opportunity_metadata.get("change_request"),
+                                "change_requests": opportunity_metadata.get("change_requests"),
                             },
                             "assets": _load_json_list(opportunity.asset_refs_json),
                         },
@@ -2246,7 +2272,8 @@ def _suggestion_system_prompt() -> str:
         "Use recommended_action='skip' or 'monitor' when Walnut cannot add a meaningful, specific angle. "
         "For skip, suggested_reply should be exactly or very close to: 'Skip - not relevant enough.' "
         "For monitor, explain what would make the thread worth replying to later. "
-        "For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. "
+        "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
+        f"For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and disclosure. "
         "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
         "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure stack, "
         "Technical picture, Fundamental picture, Recent news / filings / press releases, Catalysts, Bull case, Bear case / risks, "
@@ -2494,6 +2521,9 @@ def _normalize_suggestion_payload(
         suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
         alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
         suggested_post = _ensure_walnut_affiliation_disclosure(suggested_post) if content_type in {"x_post", "reddit_thread"} else suggested_post
+    if content_type == "x_post":
+        suggested_post = _fit_x_post_text(suggested_post)
+        alternate_hooks = [_fit_x_post_text(item) for item in alternate_hooks]
     content_values = [suggested_reply, alternate_reply, suggested_post, *ad_variants]
     if any(_contains_direct_trade_advice(value) or _contains_hype_or_guarantee(value) for value in content_values):
         recommended_action = "monitor"
@@ -3187,6 +3217,19 @@ def _truncate(value: str | None, limit: int) -> str | None:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 1].rstrip() + "..."
+
+
+def _fit_x_post_text(value: str | None) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if len(cleaned) <= X_POST_CHARACTER_LIMIT:
+        return cleaned
+    suffix = "..."
+    max_body = X_POST_CHARACTER_LIMIT - len(suffix)
+    trimmed = cleaned[:max_body].rstrip()
+    word_boundary = trimmed.rsplit(" ", 1)[0].rstrip(" ,;:-") if " " in trimmed else trimmed
+    if len(word_boundary) >= 160:
+        trimmed = word_boundary
+    return f"{trimmed.rstrip(' ,;:-')}{suffix}"[:X_POST_CHARACTER_LIMIT]
 
 
 def _iso(value: datetime | None) -> str | None:

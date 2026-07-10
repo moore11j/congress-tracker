@@ -16,11 +16,14 @@ from app.routers.ai_marketing import (
     CampaignPayload,
     EmailDigestPayload,
     GrowthDraftPayload,
+    GrowthDraftRegeneratePayload,
     ManualUrlPayload,
+    admin_ai_growth_drafts,
     admin_ai_growth_create_draft,
     admin_ai_growth_email_draft,
     admin_ai_growth_mark_copied,
     admin_ai_growth_mark_posted,
+    admin_ai_growth_regenerate_draft,
     admin_ai_marketing_campaigns,
     admin_ai_marketing_create_campaign,
     admin_ai_marketing_email_digest,
@@ -32,6 +35,7 @@ from app.services.ai_marketing import (
     OPENAI_WEB_SEARCH_ENABLED,
     OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
     SourceItem,
+    X_POST_CHARACTER_LIMIT,
     recommended_destination_url,
 )
 from app.services.email_templates import seed_default_email_templates
@@ -1209,6 +1213,138 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert "buy" not in draft_text
         assert "sell" not in draft_text
         assert "about to explode" not in draft_text
+    finally:
+        db.close()
+
+
+def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    long_post = (
+        "I am building Walnut, so bias disclosed. "
+        + "TSM margin context gets cleaner when reported disclosures, filings, and price confirmation are checked together. " * 8
+    )
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            detected_tickers=["TSM"],
+            suggested_post=long_post,
+            alternate_hooks=[long_post],
+        ),
+    )
+    db = _session()
+    try:
+        admin = _user(db, "admin-x-long@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                inputs={"source_types": ["signals", "financials/filings"], "timeframe": "30 days"},
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        suggestion = result["opportunity"]["suggestion"]
+        assert len(result["opportunity"]["generated_content"]) <= X_POST_CHARACTER_LIMIT
+        assert len(suggestion["suggested_post"]) <= X_POST_CHARACTER_LIMIT
+        assert len(suggestion["alternate_hooks"][0]) <= X_POST_CHARACTER_LIMIT
+    finally:
+        db.close()
+
+
+def test_ai_growth_all_drafts_excludes_dismissed(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin-delete@example.com", role="admin")
+        keep = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="manual_research_input",
+                content_type="reddit_reply",
+                source_platform="Reddit",
+                text="Keep this draft",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        delete = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="manual_research_input",
+                content_type="reddit_reply",
+                source_platform="Reddit",
+                text="Delete this draft",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        dismissed = db.get(AiMarketingOpportunity, delete["opportunity"]["id"])
+        assert dismissed is not None
+        dismissed.status = "dismissed"
+        db.commit()
+
+        all_payload = admin_ai_growth_drafts(_request_for_user(admin), db, status="all", limit=100)
+        all_ids = {item["id"] for item in all_payload["items"]}
+        assert keep["opportunity"]["id"] in all_ids
+        assert delete["opportunity"]["id"] not in all_ids
+
+        dismissed_payload = admin_ai_growth_drafts(_request_for_user(admin), db, status="dismissed", limit=100)
+        assert {item["id"] for item in dismissed_payload["items"]} == {delete["opportunity"]["id"]}
+    finally:
+        db.close()
+
+
+def test_ai_growth_regenerate_uses_change_request(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(_growth_openai_payload(
+                detected_tickers=["TSM"],
+                suggested_post="I am building Walnut, so bias disclosed. TSM margin context is cleaner when filings and price action confirm the same tell.",
+                short_reason="Shorter TSM margin-focused X draft.",
+            ))}}]}
+
+    def fake_post(url, *args, **kwargs):
+        captured["url"] = url
+        captured["payload"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin-regenerate@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                text="Original TSM draft context",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        updated = admin_ai_growth_regenerate_draft(
+            result["opportunity"]["id"],
+            GrowthDraftRegeneratePayload(change_request="Make it shorter and focus on the TSM margin angle."),
+            _request_for_user(admin),
+            db,
+        )
+
+        prompt = json.loads(captured["payload"]["messages"][1]["content"])
+        assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+        assert prompt["opportunity"]["metadata"]["change_request"] == "Make it shorter and focus on the TSM margin angle."
+        assert updated["status"] == "needs_review"
+        assert "TSM margin context" in updated["generated_content"]
     finally:
         db.close()
 
