@@ -130,12 +130,14 @@ const availableNow = [
   "Watchlists",
   "Screener",
   "Member/insider performance",
+  "Institutional Activity",
+  "Portfolio backtesting",
+  "Congress leaderboards",
 ] as const;
 
 const comingSoon = [
   "AI analyst briefs",
   "Options Flow",
-  "Institutional Activity",
   "Earnings and event calendar overlays",
   "Social Sentiment",
   "Advanced alerts/exports",
