@@ -7978,6 +7978,13 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             institutional_activity_summary,
             {"institutional_activity": {"locked": False}},
         )
+        try:
+            bundle = _merge_fresh_public_contexts_into_confirmation_bundle(
+                bundle,
+                build_ticker_signals_summary_contexts_from_cache(normalized_symbol, db=db),
+            )
+        except Exception:
+            logger.info("ticker_confirmation_fresh_context_merge_failed symbol=%s", normalized_symbol, exc_info=True)
         return {
             "confirmation_score_bundle": bundle,
             "options_flow_summary": (

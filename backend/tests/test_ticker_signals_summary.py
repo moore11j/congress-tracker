@@ -1356,6 +1356,85 @@ def test_ticker_signals_summary_authenticated_merges_fresh_price_with_institutio
     assert "institutional_activity" in bundle["active_sources"]
 
 
+def test_ticker_confirmation_context_merges_fresh_public_context(monkeypatch):
+    stale_bundle = confirmation_score_bundle_from_source_contexts(
+        "TSM",
+        source_contexts={
+            "insiders": {"status": "active", "direction": "bullish", "buy_count": 36, "sell_count": 0},
+            "congress": {"status": "active", "direction": "bullish", "buy_count": 1, "sell_count": 0},
+            "price_volume": {"status": "active", "direction": "bullish", "score": 35, "price_points": 120},
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+            },
+            "institutional_activity": {
+                "status": "active",
+                "direction": "bullish",
+                "score": 45,
+                "title": "Institutional Activity",
+                "subtitle": "Net reported accumulation",
+            },
+        },
+    )
+    fresh_context = {
+        "price_volume": {
+            "status": "active",
+            "direction": "mixed",
+            "title": "Mixed tape confirmation",
+            "summary": "Mixed tape confirmation",
+            "score": 25,
+            "price_points": 120,
+        },
+        "fundamentals": {
+            "status": "bullish",
+            "headline": "Fundamental strength",
+            "data_quality": {"scored_metric_count": 5},
+            "metrics": {
+                "revenue_growth": {"state": "bullish"},
+                "return_on_equity": {"state": "bullish"},
+                "ev_to_ebitda": {"state": "neutral"},
+                "operating_margin_expansion": {"state": "bullish"},
+                "net_debt_to_ebitda": {"state": "bullish"},
+            },
+        },
+        "insiders": {"status": "active", "direction": "bullish", "buy_count": 36, "sell_count": 0},
+        "congress": {"status": "active", "direction": "bullish", "buy_count": 1, "sell_count": 0},
+        "signals": {"status": "inactive", "direction": "neutral", "recent_count": 0},
+        "government_contracts": {"status": "inactive", "direction": "neutral", "contract_count": 0},
+    }
+    monkeypatch.setattr(
+        main_module,
+        "build_confirmation_score_context",
+        lambda *_args, **_kwargs: {
+            "bundles": {"TSM": stale_bundle},
+            "options_flow_summaries": {},
+            "government_contracts_summaries": {},
+            "institutional_activity_summaries": {"TSM": _active_institutional_summary()},
+        },
+    )
+    monkeypatch.setattr(
+        main_module,
+        "build_ticker_signals_summary_contexts_from_cache",
+        lambda symbol, **kwargs: fresh_context,
+    )
+
+    context = main_module._ticker_confirmation_context(object(), "TSM")
+    bundle = context["confirmation_score_bundle"]
+
+    assert bundle["sources"]["price_volume"]["direction"] == "mixed"
+    assert bundle["sources"]["institutional_activity"]["present"] is True
+    assert bundle["direction"] == "mixed"
+    assert bundle["score"] <= 59
+
+
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):
     _mock_signal_auth(monkeypatch, tier="premium")
     full_bundle = _full_source_confirmation_bundle("AAPL")
@@ -2087,6 +2166,11 @@ def test_ticker_context_bundle_locked_segments_share_canonical_side_and_lookback
 def test_ticker_signals_summary_matches_screener_score_context_for_30d(monkeypatch):
     _mock_signal_auth(monkeypatch)
     monkeypatch.setattr(main_module, "_query_unified_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "_merge_fresh_public_contexts_into_confirmation_bundle",
+        lambda bundle, _source_contexts: bundle,
+    )
 
     engine = _engine()
     symbols = ["AAPL", "MSTR", "NBIS"]
