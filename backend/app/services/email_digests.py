@@ -549,6 +549,10 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.preheader == "Your ranked signal candidates.":
             template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_intraday" and template.name == "Intraday signal alert":
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_intraday" and template.subject == "Walnut high-conviction signal: {{ticker}}":
+            template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template
         return template
@@ -756,7 +760,9 @@ def _alert_skip_reason(user: UserAccount, kind: str) -> str | None:
         return "user_email_notifications_disabled"
     if kind == "watchlist_activity" and not user.watchlist_activity_notifications:
         return "user_alerts_disabled"
-    if kind == "signals" and not user.signals_notifications:
+    if kind == "signals" and not user.watchlist_activity_notifications:
+        return "user_alerts_disabled"
+    if kind == "intraday_alerts" and not user.signals_notifications:
         return "user_alerts_disabled"
     return None
 

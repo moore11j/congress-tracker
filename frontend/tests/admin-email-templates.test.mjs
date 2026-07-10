@@ -53,7 +53,8 @@ test("digest skipped test sends map precise reasons", () => {
   assert.match(viewSource, /duplicate_window_already_sent: "Digest already sent for this window\. Use force test to resend\."/);
   assert.match(viewSource, /watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist\."/);
   assert.match(viewSource, /user_email_notifications_disabled: "User email notifications are off\."/);
-  assert.match(viewSource, /user_alerts_disabled: "User alert notifications are off\."/);
+  assert.match(viewSource, /user_alerts_disabled: "This monitoring email type is off for the user\."/);
+  assert.match(viewSource, /trigger_disabled: "The watchlist's intraday trigger preferences do not include this candidate type\."/);
   assert.match(viewSource, /skipReasonFromApiError/);
   assert.match(viewSource, /Status: Test email skipped\. \$\{SKIP_REASON_MESSAGES\[skipReason\]\}/);
   assert.doesNotMatch(viewSource, /Test email skipped because delivery is disabled/);

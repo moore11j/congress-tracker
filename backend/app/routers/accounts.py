@@ -270,7 +270,7 @@ class AdminBillingStatementSendTestPayload(BaseModel):
 
 
 class AdminDigestRunNowPayload(BaseModel):
-    kind: Literal["watchlist_activity", "monitoring", "signals"]
+    kind: Literal["monitoring"]
     lookback_days: int = Field(default=1, ge=1, le=30)
     limit: int = Field(default=100, ge=1, le=500)
     force: bool = False
@@ -6573,6 +6573,7 @@ def admin_email_templates(request: Request, db: Session = Depends(get_db)):
         db.execute(
             select(EmailTemplate)
             .where(EmailTemplate.template_key != "alerts.monitoring_digest")
+            .where(EmailTemplate.template_key.notin_(("alerts.watchlist_activity", "alerts.watchlist_intraday")))
             .order_by(EmailTemplate.category.asc(), EmailTemplate.template_key.asc())
         )
         .scalars()

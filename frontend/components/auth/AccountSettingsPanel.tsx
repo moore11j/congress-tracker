@@ -226,6 +226,17 @@ export function AccountSettingsPanel() {
     setNotifications((current) => ({ ...current, [key]: !current[key] }));
   };
 
+  const toggleMonitoringEmails = () => {
+    setNotifications((current) => {
+      const next = !(current.email_notifications_enabled && current.alerts_enabled);
+      return {
+        ...current,
+        alerts_enabled: next,
+        email_notifications_enabled: next,
+      };
+    });
+  };
+
   if (loadStatus && !user) {
     return (
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -403,15 +414,26 @@ export function AccountSettingsPanel() {
       </form>
 
       <form onSubmit={saveNotifications} noValidate className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
-        <h2 className="text-xl font-semibold text-white">Email notifications</h2>
+        <h2 className="text-xl font-semibold text-white">Monitoring emails</h2>
         <p className="mt-2 text-sm text-slate-400">
-          Intraday Alerts send only for high-priority watchlist or signal events. Daily Digests summarize normal watchlist, monitoring, and signal activity.
+          Transactional account and billing emails stay separate. These settings control the Daily Monitoring Digest and Intraday Monitoring Alerts.
         </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <ToggleRow label="Alerts enabled" checked={notifications.alerts_enabled} onClick={() => toggleNotification("alerts_enabled")} />
-          <ToggleRow label="Email notifications" checked={notifications.email_notifications_enabled} onClick={() => toggleNotification("email_notifications_enabled")} />
-          <ToggleRow label="Watchlist activity and digests" checked={notifications.watchlist_activity_notifications} onClick={() => toggleNotification("watchlist_activity_notifications")} />
-          <ToggleRow label="Signal alerts and digests" checked={notifications.signals_notifications} onClick={() => toggleNotification("signals_notifications")} />
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <ToggleRow
+            label="Monitoring emails"
+            checked={notifications.email_notifications_enabled && notifications.alerts_enabled}
+            onClick={toggleMonitoringEmails}
+          />
+          <ToggleRow
+            label="Daily monitoring digest"
+            checked={notifications.watchlist_activity_notifications}
+            onClick={() => toggleNotification("watchlist_activity_notifications")}
+          />
+          <ToggleRow
+            label="Intraday monitoring alerts"
+            checked={notifications.signals_notifications}
+            onClick={() => toggleNotification("signals_notifications")}
+          />
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="submit" disabled={busy} className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-60">

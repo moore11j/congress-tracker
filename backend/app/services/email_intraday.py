@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
@@ -37,9 +38,32 @@ from app.services.email_digests import (
     _score_display,
 )
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
+from app.services.notifications import normalize_alert_triggers
 
-INTRADAY_WATCHLIST_TEMPLATE = "alerts.watchlist_intraday"
-INTRADAY_SIGNAL_TEMPLATE = "alerts.signal_intraday"
+INTRADAY_MONITORING_TEMPLATE = "alerts.signal_intraday"
+INTRADAY_WATCHLIST_TEMPLATE = INTRADAY_MONITORING_TEMPLATE
+INTRADAY_SIGNAL_TEMPLATE = INTRADAY_MONITORING_TEMPLATE
+GOVERNMENT_CONTRACT_EVENT_TYPES = (
+    "government_contract",
+    "government_contract_new",
+    "government_contract_award",
+    "contract_award",
+    "government_exposure",
+)
+PRICE_VOLUME_EVENT_TYPES = (
+    "price_volume_change",
+    "price_volume_signal",
+    "unusual_price_volume",
+    "volume_surge",
+    "technical_breakout",
+    "technical_breakdown",
+    "price_volume_flip",
+)
+FUNDAMENTAL_EVENT_TYPES = (
+    "fundamental_change",
+    "fundamentals_change",
+    "fundamentals_flip",
+)
 INTRADAY_EVENT_TYPES = (
     "congress_trade",
     "congress_trade_new",
@@ -48,8 +72,9 @@ INTRADAY_EVENT_TYPES = (
     "institutional_buy",
     *INSTITUTIONAL_EVENT_TYPES,
     "institutional_activity_change",
-    "government_contract",
-    "government_contract_new",
+    *GOVERNMENT_CONTRACT_EVENT_TYPES,
+    *PRICE_VOLUME_EVENT_TYPES,
+    *FUNDAMENTAL_EVENT_TYPES,
     "signal",
 )
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
@@ -59,10 +84,13 @@ SIGNAL_ALERT_TYPES = (
     "new_multi_source_confirmation",
     "confirmation_upgraded",
     "direction_flipped",
+    "price_volume_flip",
+    "fundamentals_flip",
     "smart_score_threshold",
     "cross_source_confirmation",
 )
 SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
+SAVED_SCREEN_ENTRY_TRIGGER = "saved_screen_entry"
 
 
 @dataclass(frozen=True)
@@ -119,7 +147,7 @@ def run_intraday_alert_sweep(
     candidates = _collect_intraday_candidates(db, since=window_start, limit=requested_limit)
     results: list[dict[str, Any]] = []
     for candidate in candidates[:requested_limit]:
-        skip_reason = candidate.skip_reason or _alert_skip_reason(candidate.user, "signals" if candidate.source == "signal" else "watchlist_activity")
+        skip_reason = candidate.skip_reason or _alert_skip_reason(candidate.user, "intraday_alerts")
         if skip_reason is None and outside_market_hours:
             skip_reason = "outside_market_hours"
         if skip_reason is None and not enabled and not should_dry_run:
@@ -204,7 +232,7 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
             .all()
         )
         for event in rows:
-            candidates.append(_watchlist_candidate(user, watchlist, event))
+            candidates.append(_with_subscription_trigger_skip(_watchlist_candidate(user, watchlist, event), subscription))
     return candidates[:limit]
 
 
@@ -236,10 +264,14 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
             .all()
         )
         watchlist_symbols = set(_user_watchlist_symbols(db, user.id))
+        subscriptions = _active_subscriptions_for_user(db, user)
+        subscription_by_source = {(row.source_type, row.source_id): row for row in subscriptions}
+        watchlist_subscription_by_id = {row.source_id: row for row in subscriptions if row.source_type == "watchlist"}
         for alert in alert_rows:
             if _is_institutional_alert_type(alert.alert_type) and not can_view_institutional:
                 continue
-            candidates.append(_signal_alert_candidate(user, alert, watchlist_symbols))
+            candidate = _signal_alert_candidate(user, alert, watchlist_symbols)
+            candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription_by_source.get((alert.source_type, alert.source_id))))
         confirmation_rows = (
             db.execute(
                 select(ConfirmationMonitoringEvent)
@@ -254,7 +286,9 @@ def _signal_intraday_candidates(db: Session, *, since: datetime, limit: int) -> 
         for event in confirmation_rows:
             if _is_institutional_alert_type(event.event_type) and not can_view_institutional:
                 continue
-            candidates.append(_confirmation_candidate(user, event, watchlist_symbols))
+            candidate = _confirmation_candidate(user, event, watchlist_symbols)
+            subscription = watchlist_subscription_by_id.get(str(event.watchlist_id)) if event.watchlist_id is not None else None
+            candidates.append(_with_optional_subscription_trigger_skip(candidate, subscription))
     return candidates[:limit]
 
 
@@ -319,7 +353,7 @@ def _signal_alert_candidate(user: UserAccount, alert: MonitoringAlert, watchlist
     after = saved_screen_event.get("after") if isinstance(saved_screen_event.get("after"), dict) else {}
     score = _numeric_score(payload.get("score") or after.get("confirmation_score") or after.get("smart_score"))
     ticker = (alert.symbol or saved_screen_event.get("ticker") or "UNKNOWN").upper()
-    trigger = _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols)
+    trigger = _signal_trigger(alert.alert_type, payload, score, ticker in watchlist_symbols, source_type=alert.source_type)
     context = {
         "first_name": _first_name(user),
         "ticker": ticker,
@@ -494,6 +528,19 @@ def _intraday_key(candidate: IntradayAlertCandidate) -> str:
 
 
 def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None, amount: int | float | None) -> str | None:
+    event_type = (event.event_type or "").strip().lower()
+    if event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
+        if amount is None:
+            return "government_contract"
+        if float(amount) >= email_alert_min_flow_usd():
+            return "large_trade_threshold"
+        return None
+    if event_type in INSTITUTIONAL_ALERT_TYPES or event_type == "institutional_activity_change":
+        return "institutional_activity"
+    if event_type in PRICE_VOLUME_EVENT_TYPES:
+        return "price_volume"
+    if event_type in FUNDAMENTAL_EVENT_TYPES:
+        return "fundamentals"
     if score is not None and score >= email_alert_min_score():
         return "smart_score_threshold"
     if amount is not None and float(amount) >= email_alert_min_flow_usd():
@@ -502,12 +549,20 @@ def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None,
         return "cross_source_confirmation"
     if _major_direction_change(payload):
         return "major_direction_change"
-    if event.event_type == "government_contract" and amount is not None and float(amount) >= email_alert_min_flow_usd():
-        return "government_contract"
+    if event_type.startswith("congress_trade"):
+        return "congress_activity"
+    if event_type.startswith("insider_trade"):
+        return "insider_activity"
     return None
 
 
-def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None, on_watchlist: bool) -> str | None:
+def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None, on_watchlist: bool, *, source_type: str | None = None) -> str | None:
+    if source_type == "saved_screen" and alert_type == "entered_screen":
+        return SAVED_SCREEN_ENTRY_TRIGGER
+    if alert_type in PRICE_VOLUME_EVENT_TYPES:
+        return "price_volume"
+    if alert_type in FUNDAMENTAL_EVENT_TYPES:
+        return "fundamentals"
     if score is not None and score >= email_alert_min_score():
         return "smart_score_threshold"
     if _strong_conviction(payload):
@@ -520,6 +575,10 @@ def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None,
 
 
 def _confirmation_trigger(event: ConfirmationMonitoringEvent, on_watchlist: bool) -> str | None:
+    if event.event_type in PRICE_VOLUME_EVENT_TYPES:
+        return "price_volume"
+    if event.event_type in FUNDAMENTAL_EVENT_TYPES:
+        return "fundamentals"
     if event.score_after >= email_alert_min_score():
         return "smart_score_threshold"
     if event.source_count_after >= 2 and (event.source_count_before or 0) < event.source_count_after:
@@ -533,11 +592,86 @@ def _confirmation_trigger(event: ConfirmationMonitoringEvent, on_watchlist: bool
     return None
 
 
+def _with_subscription_trigger_skip(
+    candidate: IntradayAlertCandidate,
+    subscription: NotificationSubscription,
+) -> IntradayAlertCandidate:
+    if candidate.skip_reason is None and not _subscription_allows_trigger(subscription, candidate.trigger, candidate.event_type):
+        return _replace_skip_reason(candidate, "trigger_disabled")
+    return candidate
+
+
+def _with_optional_subscription_trigger_skip(
+    candidate: IntradayAlertCandidate,
+    subscription: NotificationSubscription | None,
+) -> IntradayAlertCandidate:
+    if subscription is None:
+        return candidate
+    return _with_subscription_trigger_skip(candidate, subscription)
+
+
+def _subscription_allows_trigger(subscription: NotificationSubscription, trigger: str | None, event_type: str | None) -> bool:
+    if not trigger:
+        return False
+    triggers = set(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
+    if trigger in triggers:
+        return True
+    event_key = (event_type or "").strip().lower()
+    if trigger == "large_trade_threshold" and event_key in GOVERNMENT_CONTRACT_EVENT_TYPES and "government_contract" in triggers:
+        return True
+    if trigger == "government_contract" and "large_trade_threshold" in triggers:
+        return True
+    return False
+
+
+def _active_subscriptions_for_user(db: Session, user: UserAccount) -> list[NotificationSubscription]:
+    return (
+        db.execute(
+            select(NotificationSubscription)
+            .where(func.lower(NotificationSubscription.email) == normalize_email(user.email))
+            .where(NotificationSubscription.active == True)  # noqa: E712
+            .where(NotificationSubscription.frequency == "daily")
+            .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _replace_skip_reason(candidate: IntradayAlertCandidate, reason: str) -> IntradayAlertCandidate:
+    return IntradayAlertCandidate(
+        source=candidate.source,
+        user=candidate.user,
+        template_key=candidate.template_key,
+        event_key=candidate.event_key,
+        ticker=candidate.ticker,
+        event_type=candidate.event_type,
+        score=candidate.score,
+        amount=candidate.amount,
+        trigger=candidate.trigger,
+        skip_reason=reason,
+        context=candidate.context,
+        watchlist_id=candidate.watchlist_id,
+    )
+
+
 def _watchlist_reason(event: Event, trigger: str | None) -> str:
     if trigger == "smart_score_threshold":
         return "Signal score cleared the intraday alert threshold."
     if trigger == "large_trade_threshold":
         return "Dollar flow cleared the intraday materiality threshold."
+    if trigger == "government_contract":
+        return "A watched ticker has a new government contract with no reported amount."
+    if trigger == "institutional_activity":
+        return "Material institutional activity changed for a watched ticker."
+    if trigger == "price_volume":
+        return "Price or volume monitoring changed materially for a watched ticker."
+    if trigger == "fundamentals":
+        return "Fundamental monitoring changed materially for a watched ticker."
+    if trigger == "congress_activity":
+        return "New congressional activity was detected for a watched ticker."
+    if trigger == "insider_activity":
+        return "New insider activity was detected for a watched ticker."
     if trigger == "cross_source_confirmation":
         return "Multiple source types confirmed the activity."
     if trigger == "major_direction_change":
@@ -645,6 +779,16 @@ def _int_value(value: Any) -> int | None:
         return int(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _loads_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:

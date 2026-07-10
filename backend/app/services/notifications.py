@@ -24,7 +24,11 @@ SUPPORTED_ALERT_TRIGGERS = {
     "large_trade_threshold",
     "congress_activity",
     "insider_activity",
+    "government_contract",
     "institutional_activity",
+    "price_volume",
+    "fundamentals",
+    "saved_screen_entry",
 }
 
 
@@ -401,7 +405,13 @@ def _matching_alerts(
                 matches.append((trigger, item))
             elif trigger == "insider_activity" and item.event_type == "insider_trade":
                 matches.append((trigger, item))
+            elif trigger == "government_contract" and item.event_type.startswith("government_contract"):
+                matches.append((trigger, item))
             elif trigger == "institutional_activity" and (item.event_type in INSTITUTIONAL_EVENT_TYPES or item.event_type == "institutional_activity"):
+                matches.append((trigger, item))
+            elif trigger == "price_volume" and item.event_type in {"price_volume_change", "price_volume_signal", "unusual_price_volume", "volume_surge", "technical_breakout", "technical_breakdown", "price_volume_flip"}:
+                matches.append((trigger, item))
+            elif trigger == "fundamentals" and item.event_type in {"fundamental_change", "fundamentals_change", "fundamentals_flip"}:
                 matches.append((trigger, item))
     return matches
 

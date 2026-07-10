@@ -42,15 +42,18 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "account.password_changed": "Sends after a successful password reset or account-settings password change.",
   "account.welcome": "Sends once when a new Google OAuth account is created.",
   "account.verify_email": "Sends on registration and explicit verification resend.",
-  "alerts.signal_alert": "Admin/cron-triggered daily Monitoring digest of ranked candidates for a user's watchlist universe.",
-  "alerts.signal_intraday": "Intraday high-conviction signal alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
-  "alerts.watchlist_intraday": "Intraday high-priority watchlist activity alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
-  "alerts.watchlist_activity": "Admin/cron-triggered digest of new filings and events for an active watchlist digest subscription.",
+  "alerts.signal_alert": "Scheduled daily Monitoring Digest of ranked candidates for a user's monitoring universe.",
+  "alerts.signal_intraday": "Unified Intraday Monitoring Alert. Production sends require EMAIL_ALERT_INTRADAY_ENABLED.",
+  "alerts.watchlist_intraday": "Legacy/internal watchlist intraday template retained for compatibility.",
+  "alerts.watchlist_activity": "Legacy/internal raw watchlist activity digest retained for compatibility.",
   "billing.monthly_statement": "Admin-triggered monthly billing statement email for a selected account.",
 };
 
 const TEMPLATE_KEY_DISPLAY_LABELS: Record<string, string> = {
-  "alerts.signal_alert": "alerts.monitoring_digest",
+  "alerts.signal_alert": "Monitoring digest",
+  "alerts.signal_intraday": "Intraday monitoring alert",
+  "alerts.watchlist_activity": "Legacy/internal watchlist activity digest",
+  "alerts.watchlist_intraday": "Legacy/internal watchlist intraday alert",
 };
 
 function displayTemplateKey(templateKey?: string | null) {
@@ -59,7 +62,14 @@ function displayTemplateKey(templateKey?: string | null) {
 }
 
 function visibleEmailTemplates(items: AdminEmailTemplate[]) {
-  return items.filter((template) => template.template_key !== "alerts.monitoring_digest");
+  return items.filter(
+    (template) =>
+      ![
+        "alerts.monitoring_digest",
+        "alerts.watchlist_activity",
+        "alerts.watchlist_intraday",
+      ].includes(template.template_key),
+  );
 }
 
 const DELIVERY_STATUS_OPTIONS = ["sent", "failed", "skipped", "log_only", "queued"];
@@ -77,7 +87,7 @@ const SKIP_REASON_MESSAGES: Record<string, string> = {
   delivery_disabled: "Email delivery is disabled.",
   template_disabled: "This email template is disabled.",
   user_email_notifications_disabled: "User email notifications are off.",
-  user_alerts_disabled: "User alert notifications are off.",
+  user_alerts_disabled: "This monitoring email type is off for the user.",
   watchlist_digest_inactive: "Watchlist digest is inactive for this watchlist.",
   no_new_items: "No new items in this window. Use force test to send a sample anyway.",
   no_qualified_signals: "No qualified monitoring candidates in this window. Scheduled Monitoring digest will skip.",
@@ -92,6 +102,7 @@ const SKIP_REASON_MESSAGES: Record<string, string> = {
   outside_market_hours: "Intraday alerts only send during market hours.",
   intraday_disabled: "Intraday email alerts are disabled by environment.",
   duplicate_alert_already_sent: "Intraday alert already sent for this event.",
+  trigger_disabled: "The watchlist's intraday trigger preferences do not include this candidate type.",
 };
 
 type TemplateDraft = {
@@ -339,7 +350,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
   const [digestWatchlistId, setDigestWatchlistId] = useState("");
   const [digestLookbackDays, setDigestLookbackDays] = useState("1");
   const [digestForce, setDigestForce] = useState(false);
-  const [digestRunKind, setDigestRunKind] = useState<"watchlist_activity" | "monitoring">("watchlist_activity");
+  const [digestRunKind, setDigestRunKind] = useState<"monitoring">("monitoring");
   const [digestRunLimit, setDigestRunLimit] = useState("100");
   const [digestRunDryRun, setDigestRunDryRun] = useState(true);
   const [intradayLookbackMinutes, setIntradayLookbackMinutes] = useState("60");
@@ -970,7 +981,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           <div>
             <h3 className="text-xl font-semibold text-white">Digest test sends</h3>
             <p className="mt-2 text-sm text-slate-400">
-              Sends one explicit admin test through the delivery service. Watchlist digests require a user and watchlist. Scheduled runs use the bounded job controls below.
+              Sends one explicit admin test through the delivery service. Scheduled runs use the bounded Monitoring digest controls below.
             </p>
           </div>
         </div>
@@ -1000,14 +1011,6 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
           </button>
           <button
             type="button"
-            onClick={() => sendDigestTest("watchlist_activity")}
-            disabled={busy}
-            className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
-          >
-            Send watchlist activity
-          </button>
-          <button
-            type="button"
             onClick={() => sendDigestTest("billing")}
             disabled={busy}
             className="rounded-lg border border-emerald-300/30 px-4 py-2 text-sm font-semibold text-emerald-100"
@@ -1018,17 +1021,12 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
 
         <div className="mt-5 rounded-lg border border-white/10 bg-slate-950/45 p-4">
           <div className="flex flex-wrap items-end gap-4">
-            <label className="block min-w-56 text-sm">
+            <div className="min-w-56 text-sm">
               <span className="block font-medium text-slate-200">Run digest job</span>
-              <select
-                value={digestRunKind}
-                onChange={(event) => setDigestRunKind(event.target.value as "watchlist_activity" | "monitoring")}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
-              >
-                <option value="watchlist_activity">Watchlist activity</option>
-                <option value="monitoring">Monitoring</option>
-              </select>
-            </label>
+              <div className="mt-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white">
+                Monitoring
+              </div>
+            </div>
             <TextInput label="Run limit" value={digestRunLimit} onChange={setDigestRunLimit} />
             <label className="flex items-center gap-2 pb-2 text-sm font-medium text-slate-200">
               <input
@@ -1049,16 +1047,16 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
             </button>
           </div>
           <p className="mt-3 text-sm text-slate-400">
-            Uses the scheduled digest engine with the selected lookback window, account toggles, watchlist digest settings, and idempotency checks.
+            Uses the scheduled Monitoring digest engine with the selected lookback window, account toggles, and idempotency checks.
           </p>
         </div>
 
         <div className="mt-5 rounded-lg border border-amber-300/20 bg-slate-950/45 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h4 className="font-semibold text-white">Intraday Alerts</h4>
+              <h4 className="font-semibold text-white">Intraday Monitoring Alerts</h4>
               <p className="mt-2 text-sm text-slate-400">
-                Runs the high-priority intraday sweep for watchlist activity and high-conviction signal matches. Keep dry run on until candidate counts and skip reasons look right.
+                Runs the unified intraday sweep for qualified watchlist, saved-screen, price/volume, fundamentals, contracts, institutional, and signal monitoring candidates. Keep dry run on until candidate counts and skip reasons look right.
               </p>
             </div>
           </div>

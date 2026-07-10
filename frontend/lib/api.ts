@@ -759,7 +759,11 @@ export type AlertTriggerType =
   | "smart_score_threshold"
   | "large_trade_threshold"
   | "congress_activity"
-  | "insider_activity";
+  | "insider_activity"
+  | "government_contract"
+  | "institutional_activity"
+  | "price_volume"
+  | "fundamentals";
 
 export type NotificationSubscription = {
   id: number;
@@ -2228,7 +2232,7 @@ export type AdminDigestSendResult = AdminEmailDelivery & {
 };
 
 export type AdminDigestRunNowPayload = {
-  kind: "watchlist_activity" | "monitoring" | "signals";
+  kind: "monitoring";
   lookback_days?: number;
   limit?: number;
   force?: boolean;
@@ -2236,7 +2240,7 @@ export type AdminDigestRunNowPayload = {
 };
 
 export type AdminDigestRunNowResponse = {
-  kind: "watchlist_activity" | "monitoring" | "signals";
+  kind: "monitoring";
   dry_run: boolean;
   force: boolean;
   lookback_days: number;

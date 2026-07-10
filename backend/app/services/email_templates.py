@@ -582,13 +582,13 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
     },
     {
         "template_key": "alerts.signal_intraday",
-        "name": "Intraday signal alert",
+        "name": "Intraday monitoring alert",
         "category": "alerts",
         "from_name": ALERTS_FROM_NAME,
         "from_email": ALERTS_FROM_EMAIL,
         "reply_to": SUPPORT_EMAIL,
-        "subject": "Walnut high-conviction signal: {{ticker}}",
-        "preheader": "A saved signal cleared Walnut intraday conviction thresholds.",
+        "subject": "Walnut intraday monitoring alert: {{ticker}}",
+        "preheader": "A watched monitoring event cleared Walnut intraday alert criteria.",
         "variables": [
             "first_name",
             "ticker",
@@ -607,17 +607,17 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             greeting="Hello {{first_name}},",
             intro="{{alert_intro}}",
             sections=[
-                "Intraday Alerts\nTicker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nTrigger: {{trigger}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}\nObserved: {{event_date}}",
-                "Daily Digests\nNormal signal activity that does not clear intraday conviction thresholds is summarized in the daily monitoring digest.",
+                "Intraday Monitoring Alert\nTicker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nTrigger: {{trigger}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}\nObserved: {{event_date}}",
+                "Daily Monitoring Digest\nNormal monitoring activity that does not clear intraday criteria is summarized in the daily monitoring digest.",
             ],
-            cta_label="Review signal",
+            cta_label="Review monitoring",
             cta_url="alert_url",
             sender=ALERTS_FROM_NAME,
             include_investment_disclaimer=True,
         ),
         "body_html": walnut_email_html(
             sender=ALERTS_FROM_NAME,
-            eyebrow="Intraday Alerts",
+            eyebrow="Intraday Monitoring Alert",
             title="{{alert_title}}",
             intro="Hello {{first_name}}, {{alert_intro}}",
             content_html=walnut_metric_card(
@@ -630,8 +630,8 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                     ("Source stack", "{{source_stack}}"),
                 ]
             )
-            + walnut_info_card("Daily Digests", "Normal signal activity that does not clear intraday conviction thresholds is summarized in the daily monitoring digest."),
-            cta_label="Review signal",
+            + walnut_info_card("Daily Monitoring Digest", "Normal monitoring activity that does not clear intraday criteria is summarized in the daily monitoring digest."),
+            cta_label="Review monitoring",
             cta_url="alert_url",
             include_investment_disclaimer=True,
         ),

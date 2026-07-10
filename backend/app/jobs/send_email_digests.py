@@ -9,7 +9,7 @@ from app.services.email_digests import run_digest_job, summarize_digest_results
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send Walnut email digests through the configured email provider.")
-    parser.add_argument("--kind", choices=["monitoring", "watchlist_activity", "signals"], required=True)
+    parser.add_argument("--kind", choices=["monitoring"], required=True)
     parser.add_argument("--lookback-days", type=int, default=1)
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--force", action="store_true")

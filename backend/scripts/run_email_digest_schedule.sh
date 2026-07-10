@@ -4,7 +4,7 @@ set -eu
 kind="${1:-}"
 
 case "$kind" in
-  monitoring|watchlist_activity|signals) ;;
+  monitoring) ;;
   *)
     echo "email_digest_schedule_invalid_kind kind=$kind"
     exit 64

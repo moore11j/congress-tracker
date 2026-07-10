@@ -63,7 +63,14 @@ def _user(db, email: str, *, role: str = "user", watchlist_notifications: bool =
     return user
 
 
-def _watchlist(db, user: UserAccount, *, active_subscription: bool = True, only_if_new: bool = True) -> Watchlist:
+def _watchlist(
+    db,
+    user: UserAccount,
+    *,
+    active_subscription: bool = True,
+    only_if_new: bool = True,
+    alert_triggers: list[str] | None = None,
+) -> Watchlist:
     watchlist = Watchlist(name=f"{user.id} AI", owner_user_id=user.id)
     security = db.execute(select(Security).where(Security.symbol == "NVDA")).scalar_one_or_none()
     if security is None:
@@ -81,7 +88,7 @@ def _watchlist(db, user: UserAccount, *, active_subscription: bool = True, only_
             frequency="daily",
             only_if_new=only_if_new,
             active=active_subscription,
-            alert_triggers_json="[]",
+            alert_triggers_json=json.dumps(alert_triggers if alert_triggers is not None else ["cross_source_confirmation", "smart_score_threshold"]),
         )
     )
     db.commit()
@@ -119,6 +126,7 @@ def _bare_event(
     payload: dict | None = None,
     member_name: str | None = None,
     impact_score: float | None = None,
+    amount_max: float | None = None,
 ) -> Event:
     now = ts or datetime.now(timezone.utc)
     event = Event(
@@ -132,7 +140,7 @@ def _bare_event(
         member_name=member_name,
         trade_type="purchase",
         amount_min=None,
-        amount_max=None,
+        amount_max=amount_max,
     )
     db.add(event)
     db.commit()
@@ -174,17 +182,26 @@ def _monitoring_alert(
     return alert
 
 
-def _confirmation_event(db, user: UserAccount, watchlist: Watchlist, *, ticker: str = "XOM", ts: datetime | None = None) -> ConfirmationMonitoringEvent:
+def _confirmation_event(
+    db,
+    user: UserAccount,
+    watchlist: Watchlist,
+    *,
+    ticker: str = "XOM",
+    ts: datetime | None = None,
+    event_type: str = "confirmation_upgraded",
+    score_after: int = 84,
+) -> ConfirmationMonitoringEvent:
     now = ts or datetime.now(timezone.utc)
     event = ConfirmationMonitoringEvent(
         user_id=user.id,
         watchlist_id=watchlist.id,
         ticker=ticker,
-        event_type="confirmation_upgraded",
+        event_type=event_type,
         title=f"{ticker} confirmation score rose",
         body="Confirmation strengthened.",
         score_before=50,
-        score_after=84,
+        score_after=score_after,
         band_before="moderate",
         band_after="strong",
         direction_before="mixed",
@@ -819,7 +836,7 @@ def test_intraday_dry_run_keeps_low_priority_watchlist_item_in_digest():
         user = _user(db, "intraday-low@example.com")
         _watchlist(db, user)
         now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
-        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=25, payload={"smart_score": 25})
+        _bare_event(db, event_type="signal", ts=now - timedelta(minutes=5), impact_score=25, payload={"smart_score": 25})
 
         results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
         summary = summarize_intraday_alert_results(results)
@@ -850,7 +867,7 @@ def test_intraday_high_priority_watchlist_item_sends(monkeypatch):
         assert summary["candidate_count"] == 1
         assert summary["sent_count"] == 1
         assert results[0]["status"] == "log_only"
-        assert results[0]["template_key"] == "alerts.watchlist_intraday"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
         assert results[0]["trigger"] == "smart_score_threshold"
     finally:
         db.close()
@@ -888,6 +905,129 @@ def test_intraday_high_conviction_signal_sends(monkeypatch):
         db.close()
 
 
+def test_intraday_watchlist_trigger_preferences_are_enforced():
+    db = _session()
+    try:
+        user = _user(db, "intraday-trigger-disabled@example.com")
+        _watchlist(db, user, alert_triggers=["government_contract"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+        summary = summarize_intraday_alert_results(results)
+
+        assert summary["candidate_count"] == 1
+        assert summary["skipped_count"] == 1
+        assert results[0]["trigger"] == "smart_score_threshold"
+        assert results[0]["skip_reason"] == "trigger_disabled"
+    finally:
+        db.close()
+
+
+def test_intraday_saved_screen_entry_is_eligible_below_score_threshold():
+    db = _session()
+    try:
+        user = _user(db, "intraday-saved-screen@example.com")
+        watchlist = _watchlist(db, user)
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="saved_screen",
+            alert_type="entered_screen",
+            symbol="NVDA",
+            ts=now - timedelta(minutes=5),
+            payload={
+                "saved_screen_event": {
+                    "ticker": "NVDA",
+                    "event_type": "entered_screen",
+                    "after": {"confirmation_score": 42, "direction": "bullish"},
+                }
+            },
+        )
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["trigger"] == "saved_screen_entry"
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_government_contract_candidate():
+    db = _session()
+    try:
+        user = _user(db, "intraday-contract@example.com")
+        _watchlist(db, user, alert_triggers=["government_contract"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, event_type="government_contract", ts=now - timedelta(minutes=5), payload={"direction": "bullish"})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["event_type"] == "government_contract"
+        assert results[0]["trigger"] == "government_contract"
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_institutional_activity_candidate():
+    db = _session()
+    try:
+        user = _user(db, "intraday-institutional@example.com", tier="pro")
+        _watchlist(db, user, alert_triggers=["institutional_activity"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, event_type="institutional_accumulation", ts=now - timedelta(minutes=5), payload={"direction": "bullish"})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["event_type"] == "institutional_accumulation"
+        assert results[0]["trigger"] == "institutional_activity"
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_price_volume_monitoring_candidate():
+    db = _session()
+    try:
+        user = _user(db, "intraday-price-volume@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["price_volume"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _confirmation_event(db, user, watchlist, ticker="NVDA", event_type="price_volume_flip", score_after=55, ts=now - timedelta(minutes=5))
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["event_type"] == "price_volume_flip"
+        assert results[0]["trigger"] == "price_volume"
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_fundamental_monitoring_candidate():
+    db = _session()
+    try:
+        user = _user(db, "intraday-fundamentals@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["fundamentals"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _confirmation_event(db, user, watchlist, ticker="NVDA", event_type="fundamentals_flip", score_after=52, ts=now - timedelta(minutes=5))
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["template_key"] == "alerts.signal_intraday"
+        assert results[0]["event_type"] == "fundamentals_flip"
+        assert results[0]["trigger"] == "fundamentals"
+    finally:
+        db.close()
+
+
 def test_intraday_duplicate_run_does_not_resend(monkeypatch):
     monkeypatch.setenv("EMAIL_ALERT_INTRADAY_ENABLED", "true")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
@@ -918,19 +1058,19 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
     try:
         admin = _user(db, "run-admin@example.com", role="admin")
         user = _user(db, "run-reader@example.com")
-        _watchlist(db, user)
-        _event(db, ts=datetime.now(timezone.utc) - timedelta(hours=12))
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=1, symbol="NVDA")
 
         result = admin_run_email_digest_now(
-            AdminDigestRunNowPayload(kind="watchlist_activity", lookback_days=1, limit=10, dry_run=True),
+            AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
             _request_for_user(admin),
             db,
         )
 
         assert result["dry_run"] is True
-        assert result["summary"]["total"] == 1
+        assert result["summary"]["total"] == 2
         assert result["summary"]["would_send"] == 1
-        assert result["items"][0]["item_count"] == 1
+        assert any(item["item_count"] == 1 for item in result["items"])
         assert db.query(EmailDelivery).count() == 0
     finally:
         db.close()

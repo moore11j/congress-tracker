@@ -38,6 +38,10 @@ class NotificationSubscriptionPayload(BaseModel):
             "large_trade_threshold",
             "congress_activity",
             "insider_activity",
+            "government_contract",
+            "institutional_activity",
+            "price_volume",
+            "fundamentals",
         ]
     ] = []
     min_smart_score: int | None = Field(default=None, ge=0, le=100)

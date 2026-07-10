@@ -25,11 +25,15 @@ type NotificationPreferencesProps = {
 const emailStorageKey = "ct:notificationEmail";
 
 const triggerOptions: { value: AlertTriggerType; label: string }[] = [
-  { value: "cross_source_confirmation", label: "Cross-Source" },
-  { value: "smart_score_threshold", label: "Conviction >= 80" },
-  { value: "large_trade_threshold", label: "$250k+" },
+  { value: "cross_source_confirmation", label: "Cross-source" },
+  { value: "smart_score_threshold", label: "Conviction threshold" },
+  { value: "large_trade_threshold", label: "Large trade / contract" },
   { value: "congress_activity", label: "Congress" },
   { value: "insider_activity", label: "Insiders" },
+  { value: "government_contract", label: "Government contracts" },
+  { value: "institutional_activity", label: "Institutional activity" },
+  { value: "price_volume", label: "Price/volume" },
+  { value: "fundamentals", label: "Fundamentals" },
 ];
 
 function DigestSwitch({
@@ -86,7 +90,15 @@ export function NotificationPreferences({
   const [email, setEmail] = useState("");
   const [onlyIfNew, setOnlyIfNew] = useState(true);
   const [active, setActive] = useState(true);
-  const [triggers, setTriggers] = useState<AlertTriggerType[]>(["cross_source_confirmation", "smart_score_threshold"]);
+  const [triggers, setTriggers] = useState<AlertTriggerType[]>([
+    "cross_source_confirmation",
+    "smart_score_threshold",
+    "large_trade_threshold",
+    "government_contract",
+    "institutional_activity",
+    "price_volume",
+    "fundamentals",
+  ]);
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,7 +118,7 @@ export function NotificationPreferences({
       ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
       : "border-amber-300/30 bg-amber-300/10 text-amber-100"
     : "border-white/10 bg-white/[0.03] text-slate-300";
-  const eyebrow = sourceType === "watchlist" ? "Watchlist notifications" : "Saved view notifications";
+  const eyebrow = sourceType === "watchlist" ? "Watchlist monitoring emails" : "Saved view monitoring emails";
 
   useEffect(() => {
     if (!accountEmailDestination) {
@@ -208,11 +220,11 @@ export function NotificationPreferences({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80">{eyebrow}</p>
-          <h2 className="mt-1 text-lg font-semibold text-white">Email Notifications</h2>
+          <h2 className="mt-1 text-lg font-semibold text-white">Monitoring emails</h2>
           <p className="mt-1 text-sm leading-6 text-slate-400">
             {accountEmailDestination
-              ? "Intraday alerts and daily digests go to your account email on file."
-              : "Intraday alerts are thresholded. Daily digests summarize normal activity."}
+              ? "This watchlist can send Daily Monitoring Digests and Intraday Monitoring Alerts to your account email."
+              : "This source can send Daily Monitoring Digests and Intraday Monitoring Alerts."}
           </p>
         </div>
         <div className={`rounded-lg border px-3 py-2 text-right ${alertStateClassName}`}>
@@ -252,24 +264,24 @@ export function NotificationPreferences({
           <DigestSwitch
             checked={active}
             disabled={!canUseDigests}
-            label="Active"
-            description="Allow eligible intraday alerts and daily digest delivery."
+            label="Monitoring emails"
+            description="Allow this source to send its monitoring digest and eligible intraday alerts."
             onCheckedChange={setActive}
           />
 
           <DigestSwitch
             checked={onlyIfNew}
             disabled={!canUseDigests}
-            label="Only send new items"
+            label="Daily monitoring digest only when new"
             description="Skip the daily digest unless this source has fresh activity."
             onCheckedChange={setOnlyIfNew}
           />
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Intraday Alerts</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Intraday Monitoring Alerts</div>
           <p className="text-xs leading-5 text-slate-500">
-            Sent only when activity clears materiality or conviction thresholds.
+            Choose which qualified monitoring changes can send during the day.
           </p>
           <div className="flex flex-wrap gap-2">
             {triggerOptions.map((option) => (
@@ -292,7 +304,7 @@ export function NotificationPreferences({
       </div>
 
       <p className="text-xs leading-5 text-slate-500">
-        Daily Digests include watchlist activity, monitoring changes, and signal activity that did not qualify for an intraday alert.
+        Watchlist-level settings control this watchlist's monitoring emails. Trigger chips are enforced by the intraday sweep.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
