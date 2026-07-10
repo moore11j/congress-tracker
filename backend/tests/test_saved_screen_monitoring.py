@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
+from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot, UserAccount
 from app.services.saved_screen_monitoring import MAX_FETCH_ROWS, refresh_saved_screen_monitoring, saved_screen_payload
 
 
@@ -58,6 +58,32 @@ def test_saved_screen_refresh_initializes_without_emitting(monkeypatch):
         assert result["generated"] == 0
         assert db.query(SavedScreenSnapshot).count() == 1
         assert db.query(SavedScreenEvent).count() == 0
+
+
+def test_saved_screen_refresh_passes_owner_entitlements_to_screener(monkeypatch):
+    engine = _engine()
+    captured = {}
+
+    def fake_rows(_db, _params, **kwargs):
+        captured["entitlements"] = kwargs.get("entitlements")
+        return [_row("TSM", score=59, band="moderate", direction="mixed", source_count=4, why_now_state="maturing")]
+
+    monkeypatch.setattr("app.services.saved_screen_monitoring.build_screener_rows", fake_rows)
+
+    with Session(engine) as db:
+        user = UserAccount(email="premium-screen@example.com", entitlement_tier="premium")
+        db.add(user)
+        db.flush()
+        screen = SavedScreen(user_id=user.id, name="Large Cap Activity", params_json="{}")
+        db.add(screen)
+        db.commit()
+
+        result = refresh_saved_screen_monitoring(db, screen)
+
+        assert result["initialized"] == 1
+        assert captured["entitlements"].tier == "premium"
+        snapshot = db.query(SavedScreenSnapshot).filter(SavedScreenSnapshot.ticker == "TSM").one()
+        assert snapshot.confirmation_score == 59
 
 
 def test_saved_screen_refresh_emits_entry_and_exit_events(monkeypatch):

@@ -520,8 +520,9 @@ def build_screener_rows(
     params: ScreenerParams,
     *,
     requested_rows: int | None = None,
+    entitlements: TierEntitlements | None = None,
 ) -> list[dict[str, Any]]:
-    dataset = _build_screener_dataset(db, params, requested_rows=requested_rows)
+    dataset = _build_screener_dataset(db, params, requested_rows=requested_rows, entitlements=entitlements)
     return dataset["rows"]
 
 

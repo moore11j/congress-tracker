@@ -10,7 +10,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import entitlements_for_user, monitored_source_ids
-from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot
+from app.models import AppSetting, SavedScreen, SavedScreenEvent, SavedScreenSnapshot, UserAccount
 from app.services.confirmation_score import normalize_confirmation_state
 from app.services.saved_screen_params import load_saved_screen_params
 from app.services.screener import MAX_FETCH_ROWS, ScreenerParams, build_screener_rows, screener_params_from_mapping
@@ -100,7 +100,9 @@ def refresh_saved_screen_monitoring(
 ) -> dict[str, Any]:
     observed_at = now or datetime.now(timezone.utc)
     params = _params_from_saved_screen(screen)
-    rows = build_screener_rows(db, params, requested_rows=MAX_FETCH_ROWS)
+    user = db.get(UserAccount, screen.user_id) if screen.user_id is not None else None
+    entitlements = entitlements_for_user(db, user) if user is not None else None
+    rows = build_screener_rows(db, params, requested_rows=MAX_FETCH_ROWS, entitlements=entitlements)
     membership_changes_allowed = len(rows) < MAX_FETCH_ROWS
     raw_states = {
         state.ticker: state
@@ -331,8 +333,6 @@ def refresh_due_saved_screen_monitoring(
 ) -> dict[str, Any]:
     observed_at = now or datetime.now(timezone.utc)
     cutoff = observed_at - SCREEN_REFRESH_INTERVAL
-
-    from app.models import UserAccount
 
     q = select(SavedScreen).where(
         or_(
