@@ -3758,7 +3758,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
-  const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited data for newly listed ticker" : null;
+  const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
   const deferTickerActivityDetails = useAnonymousTickerSsrShell || shouldDeferAnonymousTickerActivityDetails({
     requestHeaders,
     authToken,

@@ -265,6 +265,19 @@ def test_fundamentals_normalization_treats_large_roe_ratio_as_percent():
     assert values["roe"] == pytest.approx(146.68924498270723)
 
 
+def test_fundamentals_normalization_uses_ratio_history_aliases_for_sparse_symbols():
+    values = normalize_fundamentals_payload(
+        symbol="GFI",
+        ratios_history_rows=[
+            {"date": "2025-12-31", "operatingIncomeRatio": 0.224, "returnOnEquityRatio": 0.168},
+            {"date": "2024-12-31", "operatingIncomeRatio": 0.201, "returnOnEquityRatio": 0.151},
+        ],
+    )
+
+    assert values["roe"] == pytest.approx(16.8)
+    assert values["operating_margin_expansion"] == pytest.approx(2.3)
+
+
 def test_fundamentals_normalization_ignores_net_debt_ratio_when_ebitda_non_positive():
     values = normalize_fundamentals_payload(
         symbol="DEBT",

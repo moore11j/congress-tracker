@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base
 from app.main import _build_ticker_chart_bundle, _build_ticker_profile, _build_ticker_shell_profile, _event_security_fields_for_symbol
-from app.models import Event, FundamentalsCache, GovernmentContractAction, Security, TickerContentCache, TickerMeta
+from app.models import Event, FundamentalsCache, GovernmentContractAction, PriceCache, Security, TickerContentCache, TickerMeta
 from app.routers.events import _event_source_url, list_ticker_events
 from app.services.ticker_identity import resolve_ticker_identity
 
@@ -357,6 +357,23 @@ def test_ticker_shell_identity_keeps_aapl_sector_industry_from_ticker_meta():
     assert profile["ticker"]["exchange_short_name"] == "NASDAQ"
     assert profile["ticker"]["display_market_chain"] == "Technology / Consumer Electronics / US / NASDAQ"
     assert profile["ticker"]["identity_status"] == "ok"
+
+
+def test_ticker_shell_sparse_price_cache_is_not_labeled_newly_listed():
+    engine = _engine()
+
+    with Session(engine) as db:
+        db.add(TickerMeta(symbol="GFI", company_name="Gold Fields Limited", exchange="NYSE"))
+        db.add(PriceCache(symbol="GFI", date="2024-01-02", close=10.0))
+        db.add(PriceCache(symbol="GFI", date="2026-07-09", close=34.52))
+        db.commit()
+
+        profile = _build_ticker_shell_profile("gfi", db)
+
+    assert profile["ticker"]["price_history_points"] == 2
+    assert profile["ticker"]["limited_data_state"] == "limited_history"
+    assert profile["ticker"]["limited_data_message"] == "Limited price history available"
+    assert "newly listed" not in profile["ticker"]["limited_data_message"].lower()
 
 
 def test_ticker_shell_identity_uses_fundamentals_for_mstr_sector_industry():

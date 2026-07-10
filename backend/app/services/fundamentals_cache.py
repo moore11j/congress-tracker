@@ -357,6 +357,7 @@ def _operating_margin_expansion_from_ratios(
     current = _first_ratio_from_percentish(
         ratios_row.get("operatingProfitMarginTTM"),
         ratios_row.get("operatingMarginTTM"),
+        ratios_row.get("operatingIncomeRatioTTM"),
     )
     if current is None:
         return None
@@ -364,9 +365,25 @@ def _operating_margin_expansion_from_ratios(
         prior = _first_ratio_from_percentish(
             row.get("operatingProfitMargin"),
             row.get("operatingMargin"),
+            row.get("operatingIncomeRatio"),
         )
         if prior is not None:
             return (current - prior) * 100
+    return None
+
+
+def _operating_margin_expansion_from_ratio_history(rows: list[dict[str, Any]] | None) -> float | None:
+    margins: list[float] = []
+    for row in rows or []:
+        margin = _first_ratio_from_percentish(
+            row.get("operatingProfitMargin"),
+            row.get("operatingMargin"),
+            row.get("operatingIncomeRatio"),
+        )
+        if margin is not None:
+            margins.append(margin)
+        if len(margins) == 2:
+            return (margins[0] - margins[1]) * 100
     return None
 
 
@@ -473,20 +490,33 @@ def normalize_fundamentals_payload(
             screener_row.get("operatingMargin"),
             ratios_row.get("operatingProfitMarginTTM"),
             ratios_row.get("operatingMarginTTM"),
+            ratios_row.get("operatingIncomeRatioTTM"),
         ),
         "operating_margin_expansion": _margin_expansion_points(growth_row)
         or _operating_margin_expansion_from_ratios(ratios_row, ratios_history_rows)
+        or _operating_margin_expansion_from_ratio_history(ratios_history_rows)
         or _computed_operating_margin_expansion_points(income_statement_rows),
         "net_margin": _first_percent(screener_row.get("netMargin"), ratios_row.get("netProfitMarginTTM"), ratios_row.get("netProfitMargin")),
         "roe": _first_profitability_percent(
             screener_row.get("returnOnEquity"),
+            screener_row.get("roe"),
+            screener_row.get("roeTTM"),
             ratios_row.get("returnOnEquityTTM"),
             ratios_row.get("returnOnEquity"),
+            ratios_row.get("returnOnEquityRatioTTM"),
+            ratios_row.get("returnOnEquityRatio"),
             ratios_row.get("roeTTM"),
+            ratios_row.get("roe"),
             metrics_row.get("returnOnEquityTTM"),
             metrics_row.get("returnonequityTTM"),
             metrics_row.get("returnOnEquity"),
+            metrics_row.get("returnOnEquityRatioTTM"),
+            metrics_row.get("returnOnEquityRatio"),
             metrics_row.get("roeTTM"),
+            metrics_row.get("roe"),
+            *((row.get("returnOnEquity") for row in ratios_history_rows[:1])),
+            *((row.get("returnOnEquityRatio") for row in ratios_history_rows[:1])),
+            *((row.get("roe") for row in ratios_history_rows[:1])),
         ),
         "roic": _first_percent(
             screener_row.get("returnOnInvestedCapital"),

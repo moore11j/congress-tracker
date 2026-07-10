@@ -11,6 +11,8 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
 import "./globals.css";
 
+const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
+
 export const metadata: Metadata = {
   metadataBase: new URL(WALNUT_MARKETING_URL),
   title: "Walnut Market Terminal",
@@ -28,6 +30,25 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+function GoogleTag() {
+  return (
+    <>
+      <script async src={`https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ANALYTICS_ID}`} />
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', '${GOOGLE_ANALYTICS_ID}');
+`,
+        }}
+      />
+    </>
+  );
+}
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const requestHeaders = await headers();
   const isPublicLanding = requestHeaders.get("x-walnut-public-landing") === "1";
@@ -35,6 +56,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   if (isPublicLanding) {
     return (
       <html lang="en" className="h-full">
+        <head>
+          <GoogleTag />
+        </head>
         <body className="min-h-full">
           {children}
           <SpeedInsights />
@@ -45,6 +69,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   return (
     <html lang="en" className="h-full">
+      <head>
+        <GoogleTag />
+      </head>
       <body className="min-h-full">
         <div className="relative min-h-screen min-w-0 max-w-full">
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.18),_transparent_45%),radial-gradient(circle_at_20%_20%,_rgba(56,189,248,0.16),_transparent_38%),linear-gradient(180deg,_rgba(15,23,42,0.2),_rgba(2,6,23,1))]" />

@@ -10613,8 +10613,8 @@ def _ticker_limited_history_metadata(db: Session, sym: str) -> dict[str, Any]:
     if row[2]:
         payload["price_history_end"] = row[2]
     if point_count < 30:
-        payload["limited_data_state"] = "newly_listed" if point_count == 0 else "limited_history"
-        payload["limited_data_message"] = "Limited data for newly listed ticker"
+        payload["limited_data_state"] = "limited_history"
+        payload["limited_data_message"] = "Limited price history available"
     else:
         payload["limited_data_state"] = None
         payload["limited_data_message"] = None
