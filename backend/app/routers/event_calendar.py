@@ -13,7 +13,7 @@ from app.services.event_calendar import fetch_event_calendar, watchlist_symbols_
 
 router = APIRouter(tags=["event-calendar"])
 
-CalendarScope = Literal["watchlist", "all"]
+CalendarScope = Literal["watchlist"]
 MAX_CALENDAR_WINDOW_DAYS = 120
 
 

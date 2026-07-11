@@ -70,7 +70,7 @@ def _subscription_owned_by_user(db: Session, subscription: NotificationSubscript
             _require_watchlist_owner(db, user, subscription.source_id)
         except HTTPException:
             return False
-    if subscription.source_type == "event_calendar" and subscription.source_id not in {"all", "watchlist", "none"}:
+    if subscription.source_type == "event_calendar" and subscription.source_id not in {"watchlist", "none"}:
         return False
     return True
 
@@ -128,7 +128,7 @@ def put_notification_subscription(
             "event_calendar",
             message="Earnings and event calendar overlays are included with Premium.",
         )
-        if payload.source_id not in {"all", "watchlist", "none"}:
+        if payload.source_id not in {"watchlist", "none"}:
             raise HTTPException(status_code=422, detail="Unsupported event calendar alert scope.")
 
     subscription = upsert_subscription(

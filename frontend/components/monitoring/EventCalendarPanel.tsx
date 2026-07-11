@@ -9,7 +9,6 @@ import {
   saveNotificationSubscription,
   type EventCalendarItem,
   type EventCalendarKind,
-  type EventCalendarScope,
   type NotificationSubscription,
 } from "@/lib/api";
 
@@ -18,7 +17,7 @@ type EventCalendarPanelProps = {
   loadingEntitlements: boolean;
 };
 
-type AlertScope = EventCalendarScope | "none";
+type AlertScope = "watchlist" | "none";
 type EconomicCategoryId = "inflation" | "jobs" | "rates" | "growth" | "consumer" | "housing" | "energy" | "trade" | "other";
 
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -197,7 +196,6 @@ function CalendarMonth({
 
 export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }: EventCalendarPanelProps) {
   const [anchorMonth, setAnchorMonth] = useState(() => monthStart(new Date()));
-  const [scope, setScope] = useState<EventCalendarScope>("watchlist");
   const [items, setItems] = useState<EventCalendarItem[]>([]);
   const [activeKinds, setActiveKinds] = useState<Record<EventCalendarKind, boolean>>(defaultKindFilters);
   const [activeEconomicCategories, setActiveEconomicCategories] = useState<Record<EconomicCategoryId, boolean>>(defaultEconomicCategoryFilters);
@@ -264,7 +262,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
     const controller = new AbortController();
     setLoading(true);
     setStatus(null);
-    getEventCalendar({ start, end, scope, signal: controller.signal, source: "MonitoringEventCalendar" })
+    getEventCalendar({ start, end, scope: "watchlist", signal: controller.signal, source: "MonitoringEventCalendar" })
       .then((response) => {
         setItems(response.items);
         if (response.status === "partial") setStatus(calendarErrorMessage(response.errors));
@@ -277,7 +275,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [canUseEventCalendar, end, scope, start]);
+  }, [canUseEventCalendar, end, start]);
 
   useEffect(() => {
     if (!canUseEventCalendar) return;
@@ -287,7 +285,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
         if (cancelled) return;
         const next = response.items[0] ?? null;
         setSubscription(next);
-        if (next?.source_id === "all" || next?.source_id === "watchlist" || next?.source_id === "none") {
+        if (next?.source_id === "watchlist" || next?.source_id === "none") {
           setAlertScope(next.active ? next.source_id : "none");
         }
       })
@@ -394,18 +392,9 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {(["watchlist", "all"] as EventCalendarScope[]).map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => setScope(option)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold capitalize transition ${
-              scope === option ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-100" : "border-white/10 text-slate-300 hover:border-white/20"
-            }`}
-          >
-            {option === "watchlist" ? "Watchlists" : "All tickers"}
-          </button>
-        ))}
+        <span className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+          Watchlists
+        </span>
         <div className="flex flex-wrap gap-1 pl-1">
           {calendarKinds.map((kind) => (
             <button
@@ -452,9 +441,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
 
       {!loading && corporateCount === 0 ? (
         <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-          {scope === "watchlist"
-            ? "No earnings, dividends, IPOs, or split dates matched your watchlist tickers in this visible window. Switch to All tickers to browse the broader FMP corporate calendars."
-            : "FMP returned no earnings, dividends, IPOs, or split dates for this visible window."}
+          No watchlist earnings, dividends, or split dates, and no IPOs in this visible window.
         </div>
       ) : null}
 
@@ -493,7 +480,6 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
           <div className="mt-3 grid gap-2">
             {[
               ["watchlist", "Watchlist tickers"],
-              ["all", "Any ticker"],
               ["none", "None"],
             ].map(([value, label]) => (
               <label key={value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm font-semibold text-slate-200">

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Security, UserAccount, Watchlist, WatchlistItem
 from app.services.fmp_client import FMPControlledError, request_fmp_json
+from app.utils.symbols import normalize_symbol, symbol_variants
 
 CalendarEventKind = Literal["economic", "earnings", "dividend", "ipo", "split"]
 CalendarScope = Literal["watchlist", "all"]
@@ -30,10 +31,31 @@ _ENDPOINTS: tuple[tuple[CalendarEventKind, str], ...] = (
     ("split", "splits-calendar"),
 )
 
-_CORPORATE_KINDS: set[CalendarEventKind] = {"earnings", "dividend", "ipo", "split"}
+_WATCHLIST_FILTERED_KINDS: set[CalendarEventKind] = {"earnings", "dividend", "split"}
+_WATCHLIST_SYMBOL_ENDPOINTS: tuple[tuple[CalendarEventKind, str], ...] = (
+    ("earnings", "earnings"),
+    ("dividend", "dividends"),
+    ("split", "splits"),
+)
 
 
 def watchlist_symbols_for_user(db: Session, user_id: int) -> list[str]:
+    symbols: set[str] = set()
+    for symbol in _watchlist_symbol_rows(db, user_id):
+        symbols.update(_symbol_match_values(symbol))
+    return sorted(symbols)
+
+
+def watchlist_provider_symbols_for_user(db: Session, user_id: int) -> list[str]:
+    symbols: set[str] = set()
+    for symbol in _watchlist_symbol_rows(db, user_id):
+        normalized = normalize_symbol(symbol)
+        if normalized:
+            symbols.add(normalized)
+    return sorted(symbols)
+
+
+def _watchlist_symbol_rows(db: Session, user_id: int) -> list[str]:
     rows = (
         db.execute(
             select(Security.symbol)
@@ -45,7 +67,7 @@ def watchlist_symbols_for_user(db: Session, user_id: int) -> list[str]:
         .scalars()
         .all()
     )
-    return sorted({symbol.strip().upper() for symbol in rows if symbol and symbol.strip()})
+    return [symbol for symbol in rows if symbol and symbol.strip()]
 
 
 def fetch_event_calendar(
@@ -60,11 +82,14 @@ def fetch_event_calendar(
     allow_user_request: bool = False,
 ) -> CalendarFetchResult:
     symbols = set(watchlist_symbols_for_user(db, user.id))
+    provider_symbols = watchlist_provider_symbols_for_user(db, user.id)
     raw_items: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     params = {"from": start.isoformat(), "to": end.isoformat()}
 
     for kind, endpoint in _ENDPOINTS:
+        if scope == "watchlist" and any(kind == symbol_kind for symbol_kind, _ in _WATCHLIST_SYMBOL_ENDPOINTS):
+            continue
         try:
             payload = request_fmp_json(
                 endpoint,
@@ -83,10 +108,40 @@ def fetch_event_calendar(
             item = _calendar_item(kind, row)
             if item is None:
                 continue
-            symbol = str(item.get("symbol") or "").upper()
-            if scope == "watchlist" and kind in _CORPORATE_KINDS and (not symbol or symbol not in symbols):
+            if not _in_range(item, start=start, end=end):
+                continue
+            symbol_matches = _symbol_match_values(item.get("symbol"))
+            if scope == "watchlist" and kind in _WATCHLIST_FILTERED_KINDS and (not symbol_matches or symbols.isdisjoint(symbol_matches)):
                 continue
             raw_items.append(item)
+
+    if scope == "watchlist":
+        for kind, endpoint in _WATCHLIST_SYMBOL_ENDPOINTS:
+            for provider_symbol in provider_symbols:
+                try:
+                    payload = request_fmp_json(
+                        endpoint,
+                        params={"symbol": provider_symbol},
+                        category=f"calendar:{kind}:symbol",
+                        symbol=provider_symbol,
+                        source=source,
+                        timeout_s=12,
+                        allow_live_fetch=allow_live_fetch,
+                        allow_user_request=allow_user_request,
+                    )
+                except FMPControlledError as exc:
+                    errors.append({"kind": kind, "reason": exc.reason})
+                    continue
+
+                for row in _rows_from_payload(payload):
+                    enriched_row = {**row, "symbol": row.get("symbol") or provider_symbol}
+                    item = _calendar_item(kind, enriched_row)
+                    if item is None or not _in_range(item, start=start, end=end):
+                        continue
+                    symbol_matches = _symbol_match_values(item.get("symbol"))
+                    if symbol_matches and symbol_matches.isdisjoint(_symbol_match_values(provider_symbol)):
+                        continue
+                    raw_items.append(item)
 
     raw_items.sort(key=lambda item: (str(item.get("date") or ""), _kind_order(str(item.get("kind") or "")), str(item.get("symbol") or ""), str(item.get("title") or "")))
     return CalendarFetchResult(items=raw_items, errors=errors)
@@ -119,6 +174,19 @@ def _rows_from_payload(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _symbol_match_values(raw: Any) -> set[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return set()
+
+    values = {text.upper()}
+    normalized = normalize_symbol(text)
+    if normalized:
+        values.add(normalized)
+        values.update(symbol_variants(normalized))
+    return values
+
+
 def _calendar_item(kind: CalendarEventKind, row: dict[str, Any]) -> dict[str, Any] | None:
     event_date = _event_date(kind, row)
     if event_date is None:
@@ -142,6 +210,11 @@ def _calendar_item(kind: CalendarEventKind, row: dict[str, Any]) -> dict[str, An
         "payload": payload,
     }
     return item
+
+
+def _in_range(item: dict[str, Any], *, start: date, end: date) -> bool:
+    event_date = _parse_date(item.get("date"))
+    return event_date is not None and start <= event_date <= end
 
 
 def _event_date(kind: CalendarEventKind, row: dict[str, Any]) -> date | None:

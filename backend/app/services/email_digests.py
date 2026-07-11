@@ -816,7 +816,6 @@ def _upcoming_calendar_events_for_digest(
     subscription = _event_calendar_subscription(db, user)
     if subscription is not None and (not subscription.active or subscription.source_id == "none"):
         return []
-    scope = "all" if subscription is not None and subscription.source_id == "all" else "watchlist"
     anchor = _coerce_aware(window_end or datetime.now(timezone.utc)).date()
     try:
         result = upcoming_event_calendar_items(
@@ -824,7 +823,7 @@ def _upcoming_calendar_events_for_digest(
             user,
             start=anchor,
             end=anchor + timedelta(days=7),
-            scope=scope,
+            scope="watchlist",
             limit=12,
         )
     except Exception:

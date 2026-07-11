@@ -61,18 +61,26 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
     db = _session()
     try:
         user = _user(db, "calendar@example.com")
-        _watchlist(db, user, "NVDA")
+        _watchlist(db, user, "NASDAQ:NVDA")
 
         def fake_request(endpoint, **kwargs):
             if endpoint == "economic-calendar":
                 return [{"date": "2026-08-12 08:30:00", "event": "CPI", "country": "US", "estimate": "2.8%"}]
-            if endpoint == "earnings-calendar":
+            if endpoint == "ipos-calendar":
+                return [{"date": "2026-08-20", "symbol": "AAPL", "company": "Apple Inc."}]
+            if endpoint == "earnings":
+                assert kwargs["params"]["symbol"] == "NVDA"
                 return [
                     {"date": "2026-08-14", "symbol": "NVDA", "epsEstimated": "1.02"},
+                    {"date": "2026-09-14", "symbol": "NVDA", "epsEstimated": "1.04"},
                     {"date": "2026-08-14", "symbol": "AAPL", "epsEstimated": "1.12"},
                 ]
-            if endpoint == "dividends-calendar":
-                return [{"date": "2026-08-15", "symbol": "NVDA", "dividend": 0.01}]
+            if endpoint == "dividends":
+                assert kwargs["params"]["symbol"] == "NVDA"
+                return [{"date": "2026-08-15", "dividend": 0.01}]
+            if endpoint == "splits":
+                assert kwargs["params"]["symbol"] == "NVDA"
+                return []
             return []
 
         monkeypatch.setattr("app.services.event_calendar.request_fmp_json", fake_request)
@@ -83,6 +91,7 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
         assert "CPI" in titles
         assert "NVDA earnings" in titles
         assert "NVDA dividend" in titles
+        assert "AAPL IPO" in titles
         assert "AAPL earnings" not in titles
         assert result.errors == []
     finally:

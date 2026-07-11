@@ -766,7 +766,7 @@ export type AlertTriggerType =
   | "fundamentals"
   | "event_calendar";
 
-export type EventCalendarScope = "watchlist" | "all";
+export type EventCalendarScope = "watchlist";
 export type EventCalendarKind = "economic" | "earnings" | "dividend" | "ipo" | "split";
 
 export type EventCalendarItem = {
