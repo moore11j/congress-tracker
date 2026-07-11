@@ -47,7 +47,8 @@ function biasClass(value?: string | null) {
 function formatBias(value?: string | null) {
   if (value === "bullish") return "Bullish";
   if (value === "bearish") return "Bearish";
-  return "Neutral";
+  if (value === "neutral") return "Neutral";
+  return "Unavailable";
 }
 
 function formatUpdated(value?: string | null) {
@@ -58,8 +59,26 @@ function formatUpdated(value?: string | null) {
 }
 
 function ratingStars(value?: number | null) {
-  const rating = Math.max(1, Math.min(5, Math.round(value ?? 3)));
+  if (typeof value !== "number" || Number.isNaN(value)) return "";
+  const rating = Math.max(1, Math.min(5, Math.round(value)));
   return `${"*".repeat(rating)}${"*".repeat(5 - rating)}`;
+}
+
+function macroUnavailable(data?: MacroPositioningResponse | null) {
+  if (!data || data.locked) return false;
+  return data.active !== true || !["bullish", "bearish", "neutral"].includes(String(data.overall ?? ""));
+}
+
+function macroUnavailableCopy(data?: MacroPositioningResponse | null) {
+  if (data?.status === "disabled") return "Macro Positioning is currently disabled.";
+  if (data?.status === "invalid_symbol") return "Macro Positioning is not available for this symbol.";
+  return "Macro Positioning is not available for this ticker yet.";
+}
+
+function ratingText(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "No rating";
+  const rating = Math.max(1, Math.min(5, Math.round(value)));
+  return `${rating}/5`;
 }
 
 export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sourceEntitlements }: Props) {
@@ -71,11 +90,11 @@ export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sou
   const macroSource = sources.macro_positioning;
   const chipSources = useMemo(() => {
     const active = alignedSources.filter((source) => sources[source]?.present);
-    if ((macroSource?.present || macroLocked) && !active.includes("macro_positioning")) {
+    if ((macroSource?.present || macroSource?.locked) && !active.includes("macro_positioning")) {
       active.push("macro_positioning");
     }
     return active;
-  }, [alignedSources, macroLocked, macroSource?.present, sources]);
+  }, [alignedSources, macroSource?.locked, macroSource?.present, sources]);
 
   useEffect(() => {
     if (!open || macroLocked || macro || loading) return;
@@ -148,6 +167,10 @@ export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sou
               <p className="mt-8 text-sm text-slate-400">Loading Macro Positioning...</p>
             ) : error ? (
               <p className="mt-8 text-sm text-rose-200">{error}</p>
+            ) : macroUnavailable(macro) ? (
+              <div className="mt-8 rounded-lg border border-white/10 bg-slate-950/45 p-4 text-sm leading-6 text-slate-300">
+                {macroUnavailableCopy(macro)}
+              </div>
             ) : (
               <div className="mt-8 space-y-7">
                 <section>
@@ -156,6 +179,7 @@ export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sou
                     <span className="mr-3 font-mono tracking-[0.2em]">{ratingStars(macro?.rating)}</span>
                     {formatBias(macro?.overall)}
                   </p>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">{ratingText(macro?.rating)} conviction</p>
                 </section>
                 <div className="h-px bg-white/10" />
                 <section>
@@ -172,7 +196,7 @@ export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sou
                 <div className="h-px bg-white/10" />
                 <section>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Summary</p>
-                  <p className="mt-3 text-sm leading-6 text-slate-200">{macro?.summary ?? macroSource.summary ?? "Macro positioning is currently neutral for this investment thesis."}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-200">{macro?.summary ?? macroSource.summary ?? "Macro Positioning is available for this ticker."}</p>
                   <p className="mt-5 text-xs font-semibold text-slate-500">{formatUpdated(macro?.updated)}</p>
                 </section>
               </div>

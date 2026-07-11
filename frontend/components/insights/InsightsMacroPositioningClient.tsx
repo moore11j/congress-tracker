@@ -30,7 +30,8 @@ function biasPillClassName(value?: string | null): string {
 function trendLabel(value?: string | null): string {
   if (value === "increasing") return "Increasing";
   if (value === "decreasing") return "Decreasing";
-  return "Stable";
+  if (value === "stable") return "Stable";
+  return "Unavailable";
 }
 
 function percentileText(value?: number | null): string | null {
@@ -124,7 +125,7 @@ function MacroCard({ market, onOpen }: { market: InsightsMacroPositioningMarket;
           {biasLabel(market.bias)}
         </span>
       </div>
-      <p className="mt-4 text-sm leading-5 text-slate-300">{market.headline ?? "Institutional positioning is stable."}</p>
+      <p className="mt-4 text-sm leading-5 text-slate-300">{market.headline ?? "Institutional positioning is available for the latest weekly report."}</p>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
         <span>{percentile ?? trendLabel(market.trend)}</span>
         <span>{updatedText(market.updated_at)}</span>
@@ -175,7 +176,7 @@ function MacroFlyout({ market, onClose }: { market: InsightsMacroPositioningMark
           <div className="h-px bg-white/10" />
           <section>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Interpretation</p>
-            <p className="mt-3 text-sm leading-6 text-slate-200">{market.interpretation ?? "Positioning is balanced across the latest weekly data."}</p>
+            <p className="mt-3 text-sm leading-6 text-slate-200">{market.interpretation ?? "Latest interpretation is unavailable."}</p>
           </section>
           <div className="h-px bg-white/10" />
           <section>

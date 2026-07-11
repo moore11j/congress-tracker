@@ -8504,6 +8504,10 @@ def _redact_locked_ticker_confirmation_sources(
         for source in ("options_flow", "institutional_activity", "macro_positioning")
         if bool((source_entitlements.get(source) or {}).get("locked"))
     }
+    raw_sources = bundle.get("sources") if isinstance(bundle.get("sources"), dict) else {}
+    raw_macro = raw_sources.get("macro_positioning") if isinstance(raw_sources.get("macro_positioning"), dict) else {}
+    if raw_macro.get("present") is not True:
+        pro_locked.discard("macro_positioning")
     redacted = bundle
     if premium_locked:
         redacted = redact_confirmation_bundle_sources(
@@ -8941,7 +8945,10 @@ def ticker_macro_positioning(
     entitlements = current_entitlements(request, db) if user is not None else None
     source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=user is not None)
     if bool((source_entitlements.get("macro_positioning") or {}).get("locked")):
-        return locked_macro_positioning_summary(normalized_symbol)
+        summary = get_macro_positioning_summary(db, normalized_symbol)
+        if summary.get("active") is True:
+            return locked_macro_positioning_summary(normalized_symbol)
+        return unavailable_macro_positioning_summary(normalized_symbol, status=str(summary.get("status") or "unavailable"))
     summary = get_macro_positioning_summary(db, normalized_symbol)
     if summary.get("status") == "unavailable":
         return unavailable_macro_positioning_summary(normalized_symbol, status="unavailable")

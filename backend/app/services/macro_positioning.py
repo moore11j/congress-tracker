@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import os
 from pathlib import Path
 from typing import Any
 
+import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +19,9 @@ from app.utils.symbols import normalize_symbol
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "macro_positioning_mappings.json"
 _BIAS_SCORES = {"bearish": -1.0, "neutral": 0.0, "bullish": 1.0}
 _INSIGHTS_STALE_AFTER_DAYS = 10
+_CFTC_TIMEOUT_SECONDS = float(os.getenv("MACRO_POSITIONING_CFTC_TIMEOUT_SECONDS", "20"))
+_CFTC_FINANCIAL_FUTURES_URL = os.getenv("MACRO_POSITIONING_CFTC_FINANCIAL_URL", "https://www.cftc.gov/dea/newcot/FinFutWk.txt")
+_CFTC_DISAGG_FUTURES_URL = os.getenv("MACRO_POSITIONING_CFTC_DISAGG_URL", "https://www.cftc.gov/dea/newcot/f_disagg.txt")
 INSIGHTS_MACRO_POSITIONING_MARKETS: tuple[dict[str, str], ...] = (
     {"id": "sp-500", "asset_key": "sp_futures", "name": "S&P 500"},
     {"id": "nasdaq-100", "asset_key": "nasdaq_futures", "name": "Nasdaq 100"},
@@ -40,6 +47,33 @@ class MacroMapping:
     mapping_type: str
 
 
+@dataclass(frozen=True)
+class CftcMarketSpec:
+    asset_key: str
+    display_name: str
+    source: str
+    match_terms: tuple[str, ...]
+    long_index: int
+    short_index: int
+    long_change_index: int | None = None
+    short_change_index: int | None = None
+
+
+_CFTC_MARKET_SPECS: tuple[CftcMarketSpec, ...] = (
+    CftcMarketSpec("sp_futures", "S&P 500", "financial", ("S&P 500 Consolidated", "E-MINI S&P 500"), 11, 12, 28, 29),
+    CftcMarketSpec("nasdaq_futures", "Nasdaq 100", "financial", ("NASDAQ-100 Consolidated", "NASDAQ-100 STOCK INDEX"), 11, 12, 28, 29),
+    CftcMarketSpec("russell_2000_futures", "Russell 2000", "financial", ("RUSSELL E-MINI", "RUSSELL 2000"), 11, 12, 28, 29),
+    CftcMarketSpec("us_dollar", "US Dollar", "financial", ("USD INDEX",), 11, 12, 28, 29),
+    CftcMarketSpec("bitcoin_futures", "Bitcoin", "financial", ("BITCOIN - CHICAGO MERCANTILE EXCHANGE",), 11, 12, 28, 29),
+    CftcMarketSpec("ten_year_treasury", "US Treasuries", "financial", ("UST 10Y NOTE",), 11, 12, 28, 29),
+    CftcMarketSpec("gold_futures", "Gold", "disaggregated", ("GOLD - COMMODITY EXCHANGE INC.",), 14, 15),
+    CftcMarketSpec("silver", "Silver", "disaggregated", ("SILVER - COMMODITY EXCHANGE INC.",), 14, 15),
+    CftcMarketSpec("crude_oil", "Crude Oil", "disaggregated", ("CRUDE OIL, LIGHT SWEET-WTI", "CRUDE OIL, LIGHT SWEET"), 14, 15),
+    CftcMarketSpec("natural_gas", "Natural Gas", "disaggregated", ("NAT GAS NYME", "HENRY HUB PENULTIMATE NAT GAS"), 14, 15),
+    CftcMarketSpec("copper", "Copper", "disaggregated", ("COPPER- #1", "COPPER-GRADE #1"), 14, 15),
+)
+
+
 def load_macro_positioning_mappings() -> dict[str, Any]:
     try:
         with _CONFIG_PATH.open("r", encoding="utf-8") as handle:
@@ -57,14 +91,218 @@ def macro_positioning_feature_enabled(db: Session) -> bool:
     return True
 
 
+def ingest_macro_positioning_assets(db: Session) -> dict[str, Any]:
+    fetched_at = datetime.now(timezone.utc)
+    source_rows = _fetch_cftc_positioning_rows()
+    if not any(source_rows.values()):
+        return {"status": "unavailable", "refreshed": 0, "missing": [spec.asset_key for spec in _CFTC_MARKET_SPECS]}
+
+    refreshed = 0
+    missing: list[str] = []
+    for spec in _CFTC_MARKET_SPECS:
+        parsed = _positioning_payload_from_rows(spec, source_rows.get(spec.source, []), fetched_at=fetched_at)
+        if parsed is None:
+            missing.append(spec.asset_key)
+            continue
+        row = db.get(MacroPositioningAsset, spec.asset_key)
+        if row is None:
+            row = MacroPositioningAsset(
+                asset_key=spec.asset_key,
+                display_name=spec.display_name,
+                bias=parsed["bias"],
+                rating=parsed["rating"],
+                positioning_date=parsed["positioning_date"],
+                payload_json=parsed["payload_json"],
+                fetched_at=fetched_at,
+            )
+            db.add(row)
+        else:
+            row.display_name = spec.display_name
+            row.bias = parsed["bias"]
+            row.rating = parsed["rating"]
+            row.positioning_date = parsed["positioning_date"]
+            row.payload_json = parsed["payload_json"]
+            row.fetched_at = fetched_at
+        refreshed += 1
+    if refreshed:
+        db.commit()
+    return {
+        "status": "ok" if not missing else "partial",
+        "refreshed": refreshed,
+        "missing": missing,
+        "fetched_at": fetched_at.isoformat(),
+    }
+
+
+def _fetch_cftc_positioning_rows() -> dict[str, list[list[str]]]:
+    return {
+        "financial": _download_cftc_rows(_CFTC_FINANCIAL_FUTURES_URL),
+        "disaggregated": _download_cftc_rows(_CFTC_DISAGG_FUTURES_URL),
+    }
+
+
+def _download_cftc_rows(url: str) -> list[list[str]]:
+    try:
+        response = requests.get(url, timeout=_CFTC_TIMEOUT_SECONDS)
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
+    return _parse_cftc_rows(response.text)
+
+
+def _parse_cftc_rows(text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for row in csv.reader(io.StringIO(text or "")):
+        if len(row) >= 16 and str(row[0] or "").strip():
+            rows.append(row)
+    return rows
+
+
+def _positioning_payload_from_rows(
+    spec: CftcMarketSpec,
+    rows: list[list[str]],
+    *,
+    fetched_at: datetime,
+) -> dict[str, Any] | None:
+    row = _find_cftc_row(rows, spec.match_terms)
+    if row is None:
+        return None
+    positioning_date = _parse_cftc_date(_value_at(row, 2))
+    long_contracts = _cftc_number(_value_at(row, spec.long_index))
+    short_contracts = _cftc_number(_value_at(row, spec.short_index))
+    if positioning_date is None or long_contracts is None or short_contracts is None:
+        return None
+    gross = abs(long_contracts) + abs(short_contracts)
+    if gross <= 0:
+        return None
+    net_contracts = long_contracts - short_contracts
+    net_score = max(-1.0, min(1.0, net_contracts / gross))
+    bias = _bias_from_score(net_score)
+    rating = _rating_from_score(net_score)
+    trend = _trend_from_change(row, spec.long_change_index, spec.short_change_index)
+    payload = {
+        "headline": _headline_for_ingested_positioning(bias=bias, trend=trend),
+        "interpretation": _interpretation_for_ingested_positioning(bias=bias, trend=trend),
+        "net_position": round(net_contracts),
+        "net_score": round(net_score, 4),
+        "long_contracts": round(long_contracts),
+        "short_contracts": round(short_contracts),
+        "source_report_date": positioning_date.isoformat(),
+        "source_market": str(row[0] or "").strip(),
+        "source_family": spec.source,
+        "fetched_at": fetched_at.isoformat(),
+    }
+    if trend is not None:
+        payload["trend"] = trend
+    return {
+        "bias": bias,
+        "rating": rating,
+        "positioning_date": positioning_date,
+        "payload_json": json.dumps(payload, separators=(",", ":")),
+    }
+
+
+def _find_cftc_row(rows: list[list[str]], match_terms: tuple[str, ...]) -> list[str] | None:
+    normalized_terms = tuple(term.upper() for term in match_terms)
+    for term in normalized_terms:
+        for row in rows:
+            market = str(row[0] or "").upper()
+            if term in market:
+                return row
+    return None
+
+
+def _value_at(row: list[str], index: int | None) -> str | None:
+    if index is None or index < 0 or index >= len(row):
+        return None
+    return row[index]
+
+
+def _cftc_number(value: Any) -> float | None:
+    text = str(value or "").strip().replace(",", "")
+    if not text or text == ".":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _parse_cftc_date(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _bias_from_score(score: float) -> str:
+    if score >= 0.15:
+        return "bullish"
+    if score <= -0.15:
+        return "bearish"
+    return "neutral"
+
+
+def _rating_from_score(score: float) -> int:
+    absolute = abs(score)
+    if absolute >= 0.65:
+        return 5
+    if absolute >= 0.35:
+        return 4
+    if absolute >= 0.15:
+        return 3
+    return 2
+
+
+def _trend_from_change(row: list[str], long_change_index: int | None, short_change_index: int | None) -> str | None:
+    long_change = _cftc_number(_value_at(row, long_change_index))
+    short_change = _cftc_number(_value_at(row, short_change_index))
+    if long_change is None or short_change is None:
+        return None
+    net_change = long_change - short_change
+    if net_change > 0:
+        return "increasing"
+    if net_change < 0:
+        return "decreasing"
+    return "stable"
+
+
+def _headline_for_ingested_positioning(*, bias: str, trend: str | None) -> str:
+    if trend == "increasing":
+        return "Institutional positioning is increasing."
+    if trend == "decreasing":
+        return "Institutional positioning is decreasing."
+    if trend == "stable":
+        return "Institutional positioning is stable."
+    if bias == "bullish":
+        return "Institutional positioning is net long."
+    if bias == "bearish":
+        return "Institutional positioning is net short."
+    return "Institutional positioning is balanced."
+
+
+def _interpretation_for_ingested_positioning(*, bias: str, trend: str | None) -> str:
+    base = {
+        "bullish": "Positioning remains supportive.",
+        "bearish": "Positioning remains cautious.",
+        "neutral": "Positioning is balanced.",
+    }[bias]
+    if trend == "increasing":
+        return f"{base} Net positioning improved in the latest weekly report."
+    if trend == "decreasing":
+        return f"{base} Net positioning softened in the latest weekly report."
+    return base
+
+
 def unavailable_macro_positioning_summary(symbol: str, *, status: str = "unavailable") -> dict[str, Any]:
     normalized = normalize_symbol(symbol) or str(symbol or "").strip().upper()
     return {
         "symbol": normalized,
         "status": status,
         "active": False,
-        "overall": "neutral",
-        "rating": 3,
         "summary": None,
         "drivers": [],
         "updated": None,
@@ -213,13 +451,15 @@ def _first_int(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     return None
 
 
-def _trend_value(value: Any) -> str:
+def _trend_value(value: Any) -> str | None:
     text = str(value or "").strip().lower()
     if text in {"increasing", "rising", "improving", "strengthening"}:
         return "increasing"
     if text in {"decreasing", "falling", "weakening"}:
         return "decreasing"
-    return "stable"
+    if text in {"stable", "flat", "unchanged", "balanced"}:
+        return "stable"
+    return None
 
 
 def _crowding_label(percentile: float | None) -> str | None:
@@ -232,17 +472,19 @@ def _crowding_label(percentile: float | None) -> str | None:
     return None
 
 
-def _headline_for_market(*, trend: str, crowded: bool) -> str:
+def _headline_for_market(*, trend: str | None, crowded: bool) -> str:
     if crowded:
         return "Institutional positioning is becoming crowded."
     if trend == "increasing":
         return "Institutional positioning is increasing."
     if trend == "decreasing":
         return "Institutional positioning is decreasing."
-    return "Institutional positioning is stable."
+    if trend == "stable":
+        return "Institutional positioning is stable."
+    return "Institutional positioning is available for the latest weekly report."
 
 
-def _interpretation_for_market(*, bias: str, trend: str, crowded: bool) -> str:
+def _interpretation_for_market(*, bias: str, trend: str | None, crowded: bool) -> str:
     bias_text = {
         "bullish": "Positioning remains supportive.",
         "bearish": "Positioning remains cautious.",
@@ -347,12 +589,11 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
         drivers = []
     if not isinstance(drivers, list):
         drivers = []
-    return {
+    active = row.status == "ok" and row.overall in {"bullish", "bearish", "neutral"} and bool(drivers)
+    payload = {
         "symbol": row.symbol,
         "status": row.status,
-        "active": row.status == "ok" and row.overall in {"bullish", "bearish", "neutral"} and bool(drivers),
-        "overall": row.overall if row.overall in {"bullish", "bearish", "neutral"} else "neutral",
-        "rating": max(1, min(int(row.rating or 3), 5)),
+        "active": active,
         "summary": row.summary,
         "drivers": [
             {
@@ -367,6 +608,10 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
         "mapped_asset_class": row.mapped_asset_class,
         "generated_at": row.generated_at.isoformat() if row.generated_at else None,
     }
+    if active:
+        payload["overall"] = row.overall
+        payload["rating"] = max(1, min(int(row.rating or 3), 5))
+    return payload
 
 
 def refresh_macro_positioning_cache(

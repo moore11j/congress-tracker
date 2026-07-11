@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import date, datetime, timedelta, timezone
 
@@ -9,8 +11,9 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.main import insights_macro_positioning
-from app.models import MacroPositioningAsset
+from app.main import insights_macro_positioning, ticker_macro_positioning
+from app.models import MacroPositioningAsset, MacroPositioningCache
+from app.services.macro_positioning import _CFTC_MARKET_SPECS, get_insights_macro_positioning, ingest_macro_positioning_assets
 
 
 def _db():
@@ -20,8 +23,8 @@ def _db():
     return Session()
 
 
-def _request() -> Request:
-    return Request({"type": "http", "method": "GET", "path": "/api/insights/macro-positioning", "headers": []})
+def _request(path: str = "/api/insights/macro-positioning") -> Request:
+    return Request({"type": "http", "method": "GET", "path": path, "headers": []})
 
 
 def _asset(
@@ -49,6 +52,58 @@ def _set_tier(monkeypatch, tier: str) -> None:
     import app.main as main_module
 
     monkeypatch.setattr(main_module, "current_entitlements", lambda *_args, **_kwargs: ENTITLEMENTS[tier])
+
+
+class _FakeResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+def _cftc_csv_row(market: str, *, source: str, long_contracts: int, short_contracts: int) -> str:
+    size = 191 if source == "disaggregated" else 87
+    row = [""] * size
+    row[0] = market
+    row[2] = "2026-07-07"
+    if source == "disaggregated":
+        row[14] = str(long_contracts)
+        row[15] = str(short_contracts)
+    else:
+        row[11] = str(long_contracts)
+        row[12] = str(short_contracts)
+        row[28] = "7"
+        row[29] = "2"
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="")
+    writer.writerow(row)
+    return buffer.getvalue()
+
+
+def _fake_cftc_texts() -> dict[str, str]:
+    rows = {"financial": [], "disaggregated": []}
+    for index, spec in enumerate(_CFTC_MARKET_SPECS):
+        long_contracts = 240 + index
+        short_contracts = 100 if index % 2 == 0 else 260
+        rows[spec.source].append(
+            _cftc_csv_row(
+                spec.match_terms[0],
+                source=spec.source,
+                long_contracts=long_contracts,
+                short_contracts=short_contracts,
+            )
+        )
+    return {source: "\n".join(source_rows) for source, source_rows in rows.items()}
+
+
+def _install_fake_cftc(monkeypatch) -> None:
+    texts = _fake_cftc_texts()
+
+    def fake_get(url: str, **_kwargs):
+        return _FakeResponse(texts["financial"] if "FinFutWk" in url else texts["disaggregated"])
+
+    monkeypatch.setattr("app.services.macro_positioning.requests.get", fake_get)
 
 
 def test_insights_macro_positioning_pro_receives_full_payload(monkeypatch):
@@ -189,5 +244,100 @@ def test_insights_macro_positioning_endpoint_does_not_refresh_cache(monkeypatch)
         payload = insights_macro_positioning(_request(), db)
 
         assert payload["status"] == "available"
+    finally:
+        db.close()
+
+
+def test_macro_positioning_ingest_populates_supported_assets(monkeypatch):
+    db = _db()
+    try:
+        _install_fake_cftc(monkeypatch)
+        result = ingest_macro_positioning_assets(db)
+
+        assert result["status"] == "ok"
+        assert result["refreshed"] == len(_CFTC_MARKET_SPECS)
+        assert result["missing"] == []
+
+        assets = db.query(MacroPositioningAsset).all()
+        assert len(assets) == len(_CFTC_MARKET_SPECS)
+        by_key = {asset.asset_key: asset for asset in assets}
+        assert by_key["sp_futures"].bias == "bullish"
+        assert by_key["gold_futures"].positioning_date == date(2026, 7, 7)
+
+        payload = get_insights_macro_positioning(db)
+        assert payload["status"] == "available"
+        assert len(payload["markets"]) == len(_CFTC_MARKET_SPECS)
+        gold = next(market for market in payload["markets"] if market["id"] == "gold")
+        assert gold["percentile"] is None
+        assert gold["trend"] is None
+        assert "neutral" not in json.dumps(gold).lower()
+    finally:
+        db.close()
+
+
+def test_macro_positioning_ingest_keeps_last_good_rows_when_source_fails(monkeypatch):
+    db = _db()
+    try:
+        db.add(_asset("sp_futures", "S&P 500", "bullish", positioning_date=date(2026, 7, 1)))
+        db.commit()
+
+        def fail_get(*_args, **_kwargs):
+            import app.services.macro_positioning as macro_module
+
+            raise macro_module.requests.RequestException("network unavailable")
+
+        monkeypatch.setattr("app.services.macro_positioning.requests.get", fail_get)
+
+        result = ingest_macro_positioning_assets(db)
+        row = db.get(MacroPositioningAsset, "sp_futures")
+
+        assert result["status"] == "unavailable"
+        assert result["refreshed"] == 0
+        assert row is not None
+        assert row.positioning_date == date(2026, 7, 1)
+        assert row.bias == "bullish"
+    finally:
+        db.close()
+
+
+def test_ticker_macro_positioning_guest_locked_payload_redacts_values():
+    db = _db()
+    try:
+        db.add(
+            MacroPositioningCache(
+                symbol="NVDA",
+                status="ok",
+                overall="bullish",
+                rating=5,
+                summary="Institutional positioning currently supports growth equities and semiconductor stocks.",
+                drivers_json=json.dumps([{"name": "Nasdaq Futures", "bias": "bullish"}]),
+                mapped_sector="Technology",
+                updated=date(2026, 7, 10),
+                generated_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        payload = ticker_macro_positioning(_request("/api/ticker/NVDA/macro-positioning"), "NVDA", db)
+
+        assert payload["status"] == "pro_locked"
+        assert payload["locked"] is True
+        assert payload["required_plan"] == "pro"
+        assert "overall" not in payload
+        assert "rating" not in payload
+        assert payload["drivers"] == []
+    finally:
+        db.close()
+
+
+def test_ticker_macro_positioning_guest_irrelevant_ticker_does_not_show_locked_filler():
+    db = _db()
+    try:
+        payload = ticker_macro_positioning(_request("/api/ticker/CASH/macro-positioning"), "CASH", db)
+
+        assert payload["status"] == "unavailable"
+        assert payload.get("locked") is None
+        assert "overall" not in payload
+        assert "rating" not in payload
     finally:
         db.close()
