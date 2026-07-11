@@ -111,6 +111,38 @@ WORLD_INDEX_TARGETS = (
         "names": ("Hang Seng",),
     },
 )
+SECTOR_SNAPSHOT_ORDER = (
+    "Basic Materials",
+    "Communication Services",
+    "Consumer Cyclical",
+    "Consumer Defensive",
+    "Energy",
+    "Financial Services",
+    "Healthcare",
+    "Industrials",
+    "Real Estate",
+    "Technology",
+    "Utilities",
+)
+SECTOR_NAME_ALIASES = {
+    "basic materials": "Basic Materials",
+    "materials": "Basic Materials",
+    "communication services": "Communication Services",
+    "communications": "Communication Services",
+    "consumer cyclical": "Consumer Cyclical",
+    "consumer discretionary": "Consumer Cyclical",
+    "consumer defensive": "Consumer Defensive",
+    "consumer staples": "Consumer Defensive",
+    "energy": "Energy",
+    "financial services": "Financial Services",
+    "financials": "Financial Services",
+    "health care": "Healthcare",
+    "healthcare": "Healthcare",
+    "industrials": "Industrials",
+    "real estate": "Real Estate",
+    "technology": "Technology",
+    "utilities": "Utilities",
+}
 TREASURY_FIELD_ALIASES = {
     "3M Treasury": ("month3", "3M", "3m", "3Month", "3month", "month_3"),
     "2Y Treasury": ("year2", "2Y", "2y", "2Year", "2year", "year_2"),
@@ -431,7 +463,7 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [row for row in payload if isinstance(row, dict)]
     if isinstance(payload, dict):
-        if any(key in payload for key in ("symbol", "price", "name")):
+        if any(key in payload for key in ("symbol", "price", "name", "sector")):
             return [payload]
         data = payload.get("data")
         if isinstance(data, list):
@@ -1485,6 +1517,16 @@ def _build_treasury() -> list[dict[str, Any]]:
     return items
 
 
+def get_treasury_rates_snapshot() -> list[dict[str, Any]]:
+    if not _api_key():
+        return []
+    try:
+        return _build_treasury()
+    except Exception:
+        logger.exception("treasury_rates_snapshot_failed")
+        return []
+
+
 def _build_economics() -> list[dict[str, Any]]:
     items = [
         _build_fed_overnight_rate_point(),
@@ -1506,7 +1548,8 @@ def _build_economics() -> list[dict[str, Any]]:
 
 
 def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
-    sector = _trimmed(row.get("sector")) or _trimmed(row.get("name"))
+    raw_sector = _trimmed(row.get("sector")) or _trimmed(row.get("name"))
+    sector = _canonical_sector_name(raw_sector)
     change_pct = _pick_first_numeric(
         row,
         (
@@ -1516,11 +1559,27 @@ def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
             "changePercentage",
             "change_percent",
             "changePct",
+            "changePercent",
+            "changesPercent",
         ),
     )
     if not sector or change_pct is None:
         return None
-    return {"sector": sector, "change_pct": change_pct}
+    item = {"sector": sector, "change_pct": change_pct}
+    row_date = _trimmed(row.get("date")) or _trimmed(row.get("calendarDate")) or _trimmed(row.get("asOfDate"))
+    if row_date:
+        item["date"] = row_date
+    return item
+
+
+def _canonical_sector_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if cleaned.endswith(")") and "(" in cleaned:
+        cleaned = cleaned.rsplit("(", 1)[0].strip()
+    key = " ".join(cleaned.replace("&", "and").lower().split())
+    return SECTOR_NAME_ALIASES.get(key) or cleaned
 
 
 def _build_sector_performance() -> list[dict[str, Any]]:
@@ -1532,8 +1591,24 @@ def _build_sector_performance() -> list[dict[str, Any]]:
             continue
         items = list(filter(None, (_normalize_sector_row(row) for row in rows)))
         if items:
-            return items
+            by_sector: dict[str, dict[str, Any]] = {}
+            for item in items:
+                sector = str(item.get("sector") or "")
+                if sector and sector not in by_sector:
+                    by_sector[sector] = item
+            ordered = [by_sector.pop(sector) for sector in SECTOR_SNAPSHOT_ORDER if sector in by_sector]
+            return [*ordered, *by_sector.values()]
     return []
+
+
+def get_sector_performance_snapshot() -> list[dict[str, Any]]:
+    if not _api_key():
+        return []
+    try:
+        return _build_sector_performance()
+    except Exception:
+        logger.exception("sector_performance_snapshot_failed")
+        return []
 
 
 def get_macro_snapshot() -> dict[str, Any]:

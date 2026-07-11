@@ -55,6 +55,7 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
   "Advanced / Coming Soon": {
     institutional_feed: 10,
     institutional_filters: 20,
+    macro_positioning: 25,
     options_flow_feed: 30,
     api_webhooks: 40,
   },

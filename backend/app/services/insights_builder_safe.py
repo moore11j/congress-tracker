@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import PriceCache
 from app.services.fred_macro_cache import build_fred_macro_sections
+from app.services.fmp_market_snapshot import get_sector_performance_snapshot, get_treasury_rates_snapshot
 
 US_INDEX_ETF_PROXIES = (
     ("S&P 500 ETF Proxy", "SPY"),
@@ -171,9 +172,15 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
     commodities = _proxy_instruments(db, COMMODITY_ETF_PROXIES)
     currencies = _disabled_instruments(CURRENCY_DISABLED, source="disabled_for_launch")
     crypto = _disabled_instruments(CRYPTO_DISABLED, source="disabled_for_launch")
-    sector_performance = _sector_performance(db)
+    sector_performance = get_sector_performance_snapshot()
+    sector_source = "sector_performance_snapshot" if sector_performance else "eod_etf_proxy"
+    if not sector_performance:
+        sector_performance = _sector_performance(db)
     economics = fred_sections["economics"]
-    treasury = fred_sections["treasury"]
+    treasury = get_treasury_rates_snapshot()
+    treasury_source = "treasury_rates" if treasury else "fred_cache"
+    if not treasury:
+        treasury = fred_sections["treasury"]
 
     available_sections = sum(
         [
@@ -207,8 +214,8 @@ def build_builder_safe_insights_snapshot(db: Session) -> dict[str, Any]:
             "commodities": _block_status(items=commodities, source="eod_etf_proxy"),
             "crypto": _block_status(disabled=True, source="disabled_for_launch"),
             "us_macro": _block_status(items=economics, source="fred_cache"),
-            "us_treasury": _block_status(items=treasury, source="fred_cache"),
+            "us_treasury": _block_status(items=treasury, source=treasury_source),
             "us_indexes": _block_status(items=indexes, source="eod_etf_proxy"),
-            "us_sectors": _block_status(items=sector_performance, source="eod_etf_proxy"),
+            "us_sectors": _block_status(items=sector_performance, source=sector_source),
         },
     }

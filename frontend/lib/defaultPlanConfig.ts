@@ -31,6 +31,7 @@ type FeatureKey =
   | "options_flow_filters"
   | "institutional_feed"
   | "institutional_filters"
+  | "macro_positioning"
   | "api_webhooks";
 
 type FeatureDefinition = Omit<PlanConfigFeature, "limits"> & {
@@ -70,6 +71,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     options_flow_filters: 0,
     institutional_feed: 0,
     institutional_filters: 0,
+    macro_positioning: 0,
     api_webhooks: 0,
   },
   premium: {
@@ -101,6 +103,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     options_flow_filters: 1,
     institutional_feed: 0,
     institutional_filters: 0,
+    macro_positioning: 0,
     api_webhooks: 0,
   },
   pro: {
@@ -132,6 +135,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     options_flow_filters: 1,
     institutional_feed: 1,
     institutional_filters: 1,
+    macro_positioning: 1,
     api_webhooks: 1,
   },
 };
@@ -416,6 +420,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 112,
+  },
+  {
+    feature_key: "macro_positioning",
+    label: "Macro Positioning Intelligence",
+    kind: "feature",
+    description: "Institutional Macro Positioning for ticker confirmation.",
+    required_tier: "pro",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 114,
   },
   {
     feature_key: "api_webhooks",

@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
+import { ConfirmationSourcesFlyout } from "@/components/ticker/ConfirmationSourcesFlyout";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
@@ -1018,6 +1019,7 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
       signals: meta("signals", "premium", true, "premium_locked"),
       institutional_activity: meta("institutional_activity", "pro", true, "pro_locked"),
       options_flow: meta("options_flow", "pro", true, "pro_locked"),
+      macro_positioning: meta("macro_positioning", "pro", true, "pro_locked"),
     };
   }
 
@@ -1030,6 +1032,7 @@ function tickerContextSourceEntitlements(entitlements: Entitlements | null, auth
     signals: meta("signals", "premium", signalsLocked, "premium_locked"),
     institutional_activity: meta("institutional_activity", "pro", proLocked, "pro_locked"),
     options_flow: meta("options_flow", "pro", proLocked, "pro_locked"),
+    macro_positioning: meta("macro_positioning", "pro", proLocked, "pro_locked"),
   };
 }
 
@@ -1068,6 +1071,7 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
         summary: `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`,
       },
       institutional_activity: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No recent institutional activity" },
+      macro_positioning: { present: false, direction: "neutral", strength: 0, quality: 0, freshness_days: null, label: "No macro positioning signal" },
     },
     drivers: ["Congress inactive", "Insiders inactive", "No current signal conviction"],
     active_sources: [],
@@ -1082,6 +1086,7 @@ function TickerOverviewPanel({
   alignedSources,
   intelligenceBullets,
   confirmationGate,
+  sourceEntitlements,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
@@ -1089,6 +1094,7 @@ function TickerOverviewPanel({
   alignedSources: ConfirmationSourceKey[];
   intelligenceBullets: string[];
   confirmationGate?: TickerConfirmationGate | null;
+  sourceEntitlements?: TickerSourceEntitlements | null;
 }) {
   const displayBundle = sourceDisplayBundle;
   const lookbackDays = displayBundle.lookback_days;
@@ -1114,12 +1120,21 @@ function TickerOverviewPanel({
               {overviewHeadline(displayBundle)}
             </p>
             <p className="mt-3 text-sm text-slate-300">
-              {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : overviewSubheadline(alignedSources)}
+              {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : "Sources currently supporting the ticker intelligence view."}
             </p>
             {lockedOnly ? null : (
               <p className={`mt-4 text-base font-semibold ${sourceStateClass(displayBundle.direction)}`}>{overviewScoreLine(displayBundle)}</p>
             )}
           </div>
+
+          {lockedOnly ? null : (
+            <ConfirmationSourcesFlyout
+              symbol={confirmationBundle.ticker}
+              alignedSources={alignedSources}
+              sources={confirmationBundle.sources}
+              sourceEntitlements={sourceEntitlements}
+            />
+          )}
 
           {lockedOnly ? (
             <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
@@ -1258,6 +1273,7 @@ function normalizeConfirmationBundle(bundle: ConfirmationScoreBundle | null | un
       options_flow: { ...fallback.sources.options_flow, ...(bundle.sources?.options_flow ?? {}) },
       government_contracts: { ...fallback.sources.government_contracts, ...(bundle.sources?.government_contracts ?? {}) },
       institutional_activity: { ...fallback.sources.institutional_activity, ...(bundle.sources?.institutional_activity ?? {}) },
+      macro_positioning: { ...fallback.sources.macro_positioning, ...(bundle.sources?.macro_positioning ?? {}) },
     },
     drivers: Array.isArray(bundle.drivers) && bundle.drivers.length > 0 ? bundle.drivers.slice(0, 4) : fallback.drivers,
   };
@@ -1317,6 +1333,7 @@ const confirmationSourceLabels: Record<ConfirmationSourceKey, string> = {
   options_flow: "Options Flow",
   government_contracts: "Government Contracts",
   institutional_activity: "Institutional Activity",
+  macro_positioning: "Macro Positioning",
 };
 
 const confirmationSourceOrder: ConfirmationSourceKey[] = [
@@ -1328,6 +1345,7 @@ const confirmationSourceOrder: ConfirmationSourceKey[] = [
   "options_flow",
   "government_contracts",
   "institutional_activity",
+  "macro_positioning",
 ];
 
 function sourceStateClass(direction: ConfirmationScoreBundle["direction"] | "inactive"): string {
@@ -1593,6 +1611,13 @@ function overviewBullets({
     if (confirmationBundle.sources.institutional_activity.direction === "bearish") bullets.add("Institutional Activity: active / reduction");
     else if (confirmationBundle.sources.institutional_activity.direction === "bullish") bullets.add("Institutional Activity: active / accumulation");
     else bullets.add("Institutional Activity: active / mixed");
+  }
+  if (confirmationBundle.sources.macro_positioning.present) {
+    const summary = confirmationBundle.sources.macro_positioning.summary ?? confirmationBundle.sources.macro_positioning.detail;
+    if (summary) bullets.add(`Macro Positioning: ${summary}`);
+    else if (confirmationBundle.sources.macro_positioning.direction === "bearish") bullets.add("Macro Positioning: Macro headwinds.");
+    else if (confirmationBundle.sources.macro_positioning.direction === "bullish") bullets.add("Macro Positioning: Bullish backdrop.");
+    else bullets.add("Macro Positioning: Neutral macro backdrop.");
   }
   if (confirmationBundle.sources.fundamentals.present) {
     if (confirmationBundle.sources.fundamentals.direction === "bearish") bullets.add("Fundamentals: pressure");
@@ -2871,6 +2896,7 @@ async function DeferredTickerContent({
                 alignedSources={alignedSources}
                 intelligenceBullets={intelligenceBullets}
                 confirmationGate={tickerConfirmationGate}
+                sourceEntitlements={sourceEntitlements}
               />
             }
           />

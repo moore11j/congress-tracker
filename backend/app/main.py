@@ -43,6 +43,7 @@ from app.db import (
     ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
     ensure_institutional_activity_schema,
+    ensure_macro_positioning_schema,
     ensure_monitoring_alert_columns,
     ensure_page_analytics_schema,
     ensure_provider_control_schema,
@@ -208,6 +209,11 @@ from app.services.confirmation_score import (
 )
 from app.services.options_flow import unavailable_options_flow_summary
 from app.services.confirmation_context import build_confirmation_score_context
+from app.services.macro_positioning import (
+    get_macro_positioning_summary,
+    locked_macro_positioning_summary,
+    unavailable_macro_positioning_summary,
+)
 from app.services.signal_freshness import build_signal_freshness_bundle
 from app.services.technical_indicators import _ema as _technical_ema
 from app.services.technical_indicators import _rsi as _technical_rsi
@@ -242,7 +248,7 @@ from app.services.monitoring_alerts import (
 )
 from app.services.why_now import build_why_now_bundle
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta
-from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot
+from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot, refresh_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
 from app.services.fundamentals_cache import (
@@ -3688,6 +3694,7 @@ def _startup_create_tables():
         ("schema_fundamentals_cache", lambda: ensure_fundamentals_cache_schema(engine)),
         ("schema_ticker_meta_identity", lambda: ensure_ticker_meta_identity_schema(engine)),
         ("schema_search_and_insights", lambda: ensure_search_and_insights_schema(engine)),
+        ("schema_macro_positioning", lambda: ensure_macro_positioning_schema(engine)),
         ("schema_ticker_content_cache", lambda: ensure_ticker_content_cache_schema(engine)),
         ("schema_ticker_financials_cache", lambda: ensure_ticker_financials_cache_schema(engine)),
         ("schema_user_account_billing", lambda: ensure_user_account_billing_schema(engine)),
@@ -6052,6 +6059,7 @@ def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
             "latest_score": None,
         },
         "government_contracts": None,
+        "macro_positioning": locked_macro_positioning_summary(normalized_symbol),
         "source_entitlements": source_entitlements,
         "confirmation_score_bundle": None,
         "signal_freshness": None,
@@ -6333,6 +6341,7 @@ def _build_ticker_context_bundle(
             "congress": source_contexts["congress"],
             "signals": source_contexts["signals"],
             "government_contracts": source_contexts["government_contracts"],
+            "macro_positioning": source_contexts["macro_positioning"],
             "source_entitlements": source_entitlements,
             "confirmation_score_bundle": confirmation_score_bundle,
             "signal_freshness": signal_freshness,
@@ -6372,6 +6381,7 @@ def _build_ticker_context_bundle(
                 "insiders": source_contexts["insiders"],
                 "congress": source_contexts["congress"],
                 "government_contracts": source_contexts["government_contracts"],
+                "macro_positioning": source_contexts["macro_positioning"],
                 "signals": source_contexts["signals"],
                 "institutional_activity": (confirmation_score_bundle.get("sources") or {}).get("institutional_activity")
                 if isinstance(confirmation_score_bundle.get("sources"), dict)
@@ -7935,6 +7945,7 @@ def build_ticker_signals_summary_contexts_from_cache(
                 min_amount=1_000_000,
             )
         ),
+        "macro_positioning": get_macro_positioning_summary(db, normalized_symbol),
     }
 
 
@@ -7962,6 +7973,11 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
         institutional_activity_summaries = (
             context.get("institutional_activity_summaries")
             if isinstance(context.get("institutional_activity_summaries"), dict)
+            else {}
+        )
+        macro_positioning_summaries = (
+            context.get("macro_positioning_summaries")
+            if isinstance(context.get("macro_positioning_summaries"), dict)
             else {}
         )
         bundle = bundles.get(normalized_symbol)
@@ -8001,6 +8017,9 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             if isinstance(government_contracts_summaries.get(normalized_symbol), dict)
             else None,
             "institutional_activity_summary": institutional_activity_summary,
+            "macro_positioning_summary": macro_positioning_summaries.get(normalized_symbol)
+            if isinstance(macro_positioning_summaries.get(normalized_symbol), dict)
+            else None,
         }
     except Exception:
         logger.exception("ticker_confirmation_context_failed symbol=%s", normalized_symbol)
@@ -8023,6 +8042,7 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             ),
             "government_contracts_summary": None,
             "institutional_activity_summary": None,
+            "macro_positioning_summary": None,
         }
 
 
@@ -8464,6 +8484,7 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
         "signals": source_meta("signals", "premium", not can_view_signals, "premium_locked"),
         "institutional_activity": source_meta("institutional_activity", "pro", not can_view_pro_context, "pro_locked"),
         "options_flow": source_meta("options_flow", "pro", not can_view_pro_context, "pro_locked"),
+        "macro_positioning": source_meta("macro_positioning", "pro", not can_view_pro_context, "pro_locked"),
     }
 
 
@@ -8478,7 +8499,7 @@ def _redact_locked_ticker_confirmation_sources(
     }
     pro_locked = {
         source
-        for source in ("options_flow", "institutional_activity")
+        for source in ("options_flow", "institutional_activity", "macro_positioning")
         if bool((source_entitlements.get(source) or {}).get("locked"))
     }
     redacted = bundle
@@ -8508,6 +8529,7 @@ _TICKER_CONFIRMATION_SOURCE_ORDER = (
     "options_flow",
     "government_contracts",
     "institutional_activity",
+    "macro_positioning",
 )
 
 
@@ -8856,6 +8878,7 @@ def ticker_signals_summary(
             "congress": source_contexts["congress"],
             "signals": source_contexts["signals"],
             "government_contracts": source_contexts["government_contracts"],
+            "macro_positioning": source_contexts["macro_positioning"],
             "source_entitlements": source_entitlements,
             "confirmation_score_bundle": confirmation_score_bundle,
             "signal_freshness": signal_freshness,
@@ -8898,6 +8921,29 @@ def ticker_signals_summary(
             inflight_state["event"].set()
             with _TICKER_SIGNALS_SUMMARY_INFLIGHT_LOCK:
                 _TICKER_SIGNALS_SUMMARY_INFLIGHT.pop(cache_key, None)
+
+
+@app.get("/api/ticker/{symbol}/macro-positioning")
+def ticker_macro_positioning(
+    request: Request,
+    symbol: str,
+    db: Session = Depends(get_db),
+):
+    prefetch_response = _api_prefetch_response(request, endpoint="ticker_macro_positioning")
+    if prefetch_response is not None:
+        return prefetch_response
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required")
+    user = current_user(db, request, required=False)
+    entitlements = current_entitlements(request, db) if user is not None else None
+    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=user is not None)
+    if bool((source_entitlements.get("macro_positioning") or {}).get("locked")):
+        return locked_macro_positioning_summary(normalized_symbol)
+    summary = get_macro_positioning_summary(db, normalized_symbol)
+    if summary.get("status") == "unavailable":
+        return unavailable_macro_positioning_summary(normalized_symbol, status="unavailable")
+    return summary
 
 
 @app.get("/api/tickers/{symbol}/government-contracts")
@@ -10867,12 +10913,16 @@ def list_insights_category_news(
 
 
 @app.get("/api/insights/macro-snapshot", dependencies=[Depends(rate_limit_provider_backed)])
-def insights_macro_snapshot(db: Session = Depends(get_db)):
+def insights_macro_snapshot(refresh: bool = Query(False), db: Session = Depends(get_db)):
+    if refresh:
+        return refresh_insights_snapshot(db)
     return get_insights_snapshot(db)
 
 
 @app.get("/api/insights/snapshot")
-def insights_snapshot(db: Session = Depends(get_db)):
+def insights_snapshot(refresh: bool = Query(False), db: Session = Depends(get_db)):
+    if refresh:
+        return refresh_insights_snapshot(db)
     return get_insights_snapshot(db)
 
 

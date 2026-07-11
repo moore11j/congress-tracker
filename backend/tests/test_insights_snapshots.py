@@ -194,6 +194,7 @@ def test_insights_refresh_builder_safe_uses_fred_cache_and_eod_proxies(monkeypat
 
         monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
         monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
+        monkeypatch.setattr("app.services.insights_builder_safe.get_treasury_rates_snapshot", lambda: [])
 
         payload = refresh_insights_snapshot(db)
 
@@ -207,5 +208,88 @@ def test_insights_refresh_builder_safe_uses_fred_cache_and_eod_proxies(monkeypat
         assert payload["fred_macro_cache"]["last_refresh_at"]
         assert payload["currencies"][0]["status"] == "disabled"
         assert payload["crypto"][0]["status"] == "disabled"
+    finally:
+        db.close()
+
+
+def test_insights_refresh_builder_safe_uses_treasury_rates_snapshot(monkeypatch):
+    db = _db()
+    try:
+        _seed_fred(db, "DGS10", [("2026-07-08", 4.56)])
+        db.commit()
+
+        def fail_provider():
+            raise AssertionError("FMP macro snapshot should not be called in builder_safe mode")
+
+        monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
+        monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
+        monkeypatch.setattr(
+            "app.services.insights_builder_safe.get_treasury_rates_snapshot",
+            lambda: [
+                {
+                    "label": "10Y Treasury",
+                    "value": 4.54,
+                    "date": "2026-07-09",
+                    "change": -2.0,
+                    "change_unit": "bps",
+                    "timeframe_label": "1D change",
+                    "unit_label": "yield",
+                }
+            ],
+        )
+
+        payload = refresh_insights_snapshot(db)
+
+        assert payload["source"] == "builder_safe_cache"
+        assert payload["treasury"] == [
+            {
+                "label": "10Y Treasury",
+                "value": 4.54,
+                "date": "2026-07-09",
+                "change": -2.0,
+                "change_unit": "bps",
+                "timeframe_label": "1D change",
+                "unit_label": "yield",
+            }
+        ]
+        assert payload["block_status"]["us_treasury"]["source"] == "treasury_rates"
+    finally:
+        db.close()
+
+
+def test_insights_refresh_builder_safe_uses_sector_performance_snapshot(monkeypatch):
+    db = _db()
+    try:
+        def fail_provider():
+            raise AssertionError("FMP macro snapshot should not be called in builder_safe mode")
+
+        monkeypatch.delenv("INSIGHTS_DATA_MODE", raising=False)
+        monkeypatch.setattr("app.services.insights_snapshots.get_macro_snapshot", fail_provider)
+        monkeypatch.setattr(
+            "app.services.insights_builder_safe.get_sector_performance_snapshot",
+            lambda: [
+                {
+                    "sector": "Basic Materials",
+                    "change_pct": 0.73,
+                    "date": "2026-07-10",
+                    "unit_label": "%",
+                    "source": "sector_performance_snapshot",
+                }
+            ],
+        )
+
+        payload = refresh_insights_snapshot(db)
+
+        assert payload["source"] == "builder_safe_cache"
+        assert payload["sector_performance"] == [
+            {
+                "sector": "Basic Materials",
+                "change_pct": 0.73,
+                "date": "2026-07-10",
+                "unit_label": "%",
+                "source": "sector_performance_snapshot",
+            }
+        ]
+        assert payload["block_status"]["us_sectors"]["source"] == "sector_performance_snapshot"
     finally:
         db.close()

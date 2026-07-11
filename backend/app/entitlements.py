@@ -47,6 +47,7 @@ FeatureKey = Literal[
     "options_flow_filters",
     "institutional_feed",
     "institutional_filters",
+    "macro_positioning",
     "api_webhooks",
 ]
 
@@ -57,6 +58,7 @@ HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
     "options_flow_filters": "pro",
     "institutional_feed": "pro",
     "institutional_filters": "pro",
+    "macro_positioning": "pro",
 }
 
 
@@ -107,6 +109,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "options_flow_filters": 0,
             "institutional_feed": 0,
             "institutional_filters": 0,
+            "macro_positioning": 0,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -157,6 +160,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "options_flow_filters": 0,
             "institutional_feed": 0,
             "institutional_filters": 0,
+            "macro_positioning": 0,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -218,6 +222,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "options_flow_filters": 1,
             "institutional_feed": 1,
             "institutional_filters": 1,
+            "macro_positioning": 1,
             "api_webhooks": 1,
         },
         features=frozenset(
@@ -249,6 +254,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "options_flow_filters",
                 "institutional_feed",
                 "institutional_filters",
+                "macro_positioning",
                 "api_webhooks",
             }
         ),
@@ -367,6 +373,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "institutional_filters": {
         "required_tier": "pro",
         "description": "Institutional activity filters in discovery workflows.",
+    },
+    "macro_positioning": {
+        "required_tier": "pro",
+        "description": "Institutional macro positioning intelligence for ticker confirmation.",
     },
     "api_webhooks": {
         "required_tier": "pro",
@@ -605,6 +615,14 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 112,
         "pricing_description": "Institutional activity filters for screeners and intelligence workflows.",
+    },
+    "macro_positioning": {
+        "label": "Macro Positioning Intelligence",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 114,
+        "pricing_description": "Institutional Macro Positioning for ticker confirmation.",
     },
     "api_webhooks": {
         "label": "API and webhooks",

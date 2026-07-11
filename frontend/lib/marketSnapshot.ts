@@ -169,6 +169,26 @@ const FALLBACK_SECTOR_NAMES = [
   "Utilities",
 ];
 
+const SECTOR_NAME_ALIASES: Record<string, string> = {
+  "basic materials": "Basic Materials",
+  materials: "Basic Materials",
+  "communication services": "Communication Services",
+  communications: "Communication Services",
+  "consumer cyclical": "Consumer Cyclical",
+  "consumer discretionary": "Consumer Cyclical",
+  "consumer defensive": "Consumer Defensive",
+  "consumer staples": "Consumer Defensive",
+  energy: "Energy",
+  "financial services": "Financial Services",
+  financials: "Financial Services",
+  "health care": "Healthcare",
+  healthcare: "Healthcare",
+  industrials: "Industrials",
+  "real estate": "Real Estate",
+  technology: "Technology",
+  utilities: "Utilities",
+};
+
 export function marketSnapshotCategory(slug: string): MarketSnapshotCategory | undefined {
   return MARKET_SNAPSHOT_CATEGORIES.find((category) => category.slug === slug);
 }
@@ -422,6 +442,36 @@ export function snapshotAsOf(snapshot: MacroSnapshotResponse): string | null {
   return snapshot.as_of ?? (snapshot.status === "unavailable" ? null : snapshot.generated_at);
 }
 
+function canonicalSectorName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const withoutTicker = trimmed.endsWith(")") && trimmed.includes("(") ? trimmed.slice(0, trimmed.lastIndexOf("(")).trim() : trimmed;
+  const key = withoutTicker.replace("&", "and").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+  return SECTOR_NAME_ALIASES[key] ?? withoutTicker;
+}
+
+function sectorKey(value: string | null | undefined): string {
+  return (canonicalSectorName(value) ?? "").toLowerCase();
+}
+
+function orderedSectorRows(sectors: SectorPerformancePoint[]): SectorPerformancePoint[] {
+  const consumed = new Set<string>();
+  const ordered = FALLBACK_SECTOR_NAMES.map((sector) => {
+    const key = sectorKey(sector);
+    const match = sectors.find((item) => sectorKey(item.sector) === key);
+    consumed.add(key);
+    if (!match) return { sector, change_pct: Number.NaN };
+    return { ...match, sector };
+  });
+  const additional = sectors.filter((item) => {
+    const key = sectorKey(item.sector);
+    if (!key || consumed.has(key)) return false;
+    consumed.add(key);
+    return true;
+  });
+  return [...ordered, ...additional];
+}
+
 export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: MarketSnapshotCategorySlug): MarketSnapshotDetailRow[] {
   const asOf = snapshotAsOf(snapshot);
   if (slug === "us-sectors") {
@@ -438,10 +488,7 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
       }));
     }
 
-    const ordered = appendAdditional(
-      FALLBACK_SECTOR_NAMES.map((sector) => sectors.find((item) => item.sector === sector) ?? { sector, change_pct: Number.NaN }),
-      sectors,
-    );
+    const ordered = orderedSectorRows(sectors);
 
     return ordered.map((item) => ({
       id: item.sector,
@@ -449,7 +496,8 @@ export function marketSnapshotDetailRows(snapshot: MacroSnapshotResponse, slug: 
       valueText: "-",
       changeText: formatPercent(item.change_pct) ?? "Unavailable",
       changeValue: item.change_pct,
-      dateText: formatDateShort(asOf) ?? "-",
+      dateText: formatDateShort(item.date ?? asOf) ?? "-",
+      unitText: item.unit_label ?? "%",
       unavailable: !Number.isFinite(item.change_pct),
     }));
   }

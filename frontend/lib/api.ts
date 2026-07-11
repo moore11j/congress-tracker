@@ -3879,6 +3879,26 @@ export type TickerSourceEntitlement = {
 
 export type TickerSourceEntitlements = Record<string, TickerSourceEntitlement>;
 
+export type MacroPositioningDriver = {
+  name: string;
+  bias: "bullish" | "bearish" | "neutral" | string;
+};
+
+export type MacroPositioningResponse = {
+  symbol?: string;
+  status?: string;
+  active?: boolean;
+  overall?: "bullish" | "bearish" | "neutral" | string;
+  rating?: number;
+  summary?: string | null;
+  drivers?: MacroPositioningDriver[];
+  updated?: string | null;
+  locked?: boolean;
+  required_plan?: "pro" | string | null;
+  title?: string | null;
+  subtitle?: string | null;
+};
+
 export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
 export type TickerFundamentalsSummary = {
   symbol?: string | null;
@@ -3987,6 +4007,7 @@ export type TickerSignalsSummaryResponse = {
     latest_date?: string | null;
     freshness_days?: number | null;
   } | null;
+  macro_positioning?: MacroPositioningResponse | null;
   source_entitlements?: TickerSourceEntitlements | null;
   confirmation_score_bundle?: ConfirmationScoreBundle | null;
   signal_freshness?: SignalFreshnessBundle | null;
@@ -4148,6 +4169,26 @@ export async function getTickerSignalsSummary(
     recent_signal_count: Number.isFinite(data.recent_signal_count) ? data.recent_signal_count : 0,
     latest_signal_score: typeof data.latest_signal_score === "number" ? data.latest_signal_score : null,
   };
+}
+
+export async function getTickerMacroPositioning(
+  symbol: string,
+  params?: {
+    signal?: AbortSignal;
+    source?: string;
+  },
+): Promise<MacroPositioningResponse> {
+  const url = buildApiUrl(`/api/ticker/${tickerPathSymbol(symbol)}/macro-positioning`);
+  return clientCachedJson<MacroPositioningResponse>(
+    `ticker-macro-positioning:${url}`,
+    params?.signal,
+    (signal) => fetchJson<MacroPositioningResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerMacroPositioning",
+    }),
+  );
 }
 
 function suggestKindToGlobalType(kind: SearchSuggestKind): GlobalSearchResult["type"] {
@@ -5348,9 +5389,19 @@ export async function getInsightsCategoryNews(category: string, params?: {
 
 export async function getInsightsMacroSnapshot(params?: {
   authToken?: string | null;
+  forceRefresh?: boolean;
   signal?: AbortSignal;
 }): Promise<MacroSnapshotResponse> {
-  const url = buildApiUrl("/api/insights/snapshot");
+  const url = buildApiUrl("/api/insights/snapshot", { refresh: params?.forceRefresh ? 1 : undefined });
+  if (params?.forceRefresh) {
+    return fetchJson<MacroSnapshotResponse>(url, {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "InsightsSnapshotRefresh",
+    });
+  }
   return clientCachedJson<MacroSnapshotResponse>(
     `insights-snapshot:${url}:${params?.authToken ? "auth" : "anon"}`,
     params?.signal,

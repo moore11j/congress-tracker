@@ -19,6 +19,7 @@ from app.models import (
     FundamentalsCache,
     InsiderTransaction,
     InsiderTransactionNormalized,
+    MacroPositioningCache,
     PriceCache,
     ProviderUsageEvent,
     SecForm4Filing,
@@ -292,6 +293,8 @@ def _cache_metrics(db: Session, domain_key: str) -> tuple[str | None, int | None
         return "trade_outcomes", _safe_count(db, TradeOutcome), _safe_scalar(db, select(func.max(TradeOutcome.computed_at))), _queue_depth(db, ("pnl_refresh",))
     if domain_key == "signal_inputs":
         return "events", _safe_count(db, Event), _latest_event_update(db, ("congress_trade", "insider_trade", "government_contract")), 0
+    if domain_key == "macro_positioning":
+        return "macro_positioning_cache", _safe_count(db, MacroPositioningCache), _safe_scalar(db, select(func.max(MacroPositioningCache.generated_at))), _queue_depth(db, ("macro_positioning_weekly_refresh",))
     if domain_key in {"insights_macro", "insights_treasury"}:
         return "fred_observations", _safe_count(db, FredObservation), _safe_scalar(db, select(func.max(FredSeriesRefresh.last_refreshed_at))), _queue_depth(db, ("fred_macro_refresh", "insights_refresh"))
     if domain_key == "watchlist_alerts":
@@ -409,8 +412,8 @@ def _domain_rows(db: Session) -> list[dict[str, Any]]:
                 "validation_warnings": validation_warnings,
                 "can_save": not validation_warnings,
                 "admin_actions": {
-                    "can_run_dry_run": domain_key in {"congress_trades", "house_disclosures", "senate_disclosures", "insider_trades", "insights_macro", "insights_treasury"},
-                    "can_refresh_cache": domain_key in {"prices_eod", "fundamentals", "profiles", "insights_macro", "insights_treasury"},
+                    "can_run_dry_run": domain_key in {"congress_trades", "house_disclosures", "senate_disclosures", "insider_trades", "insights_macro", "insights_treasury", "macro_positioning"},
+                    "can_refresh_cache": domain_key in {"prices_eod", "fundamentals", "profiles", "insights_macro", "insights_treasury", "macro_positioning"},
                     "can_view_diagnostics": True,
                     "can_test_endpoint": provider_uses_endpoint_url(setting.active_provider) or provider_uses_endpoint_url(setting.fallback_provider),
                 },
@@ -686,6 +689,7 @@ def enqueue_admin_data_source_run(db: Session, *, domain_key: str, mode: str, re
         "prices_eod": "price_eod",
         "fundamentals": "fundamentals",
         "profiles": "ticker_meta",
+        "macro_positioning": "macro_positioning_weekly_refresh",
     }.get(domain_key, f"data_source_{domain_key}")
     now = datetime.now(timezone.utc)
     dedupe_key = f"admin-data-source|{domain_key}|{normalized_mode}|{now.date().isoformat()}"

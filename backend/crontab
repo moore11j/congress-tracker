@@ -11,6 +11,7 @@ CRON_TZ=America/Los_Angeles
 17 * * * * cd /app && sh /app/scripts/run_institutional_latest_job.sh
 30 15 * * 1-5 cd /app && python -m app.ingest_run --job market-data-refresh-daily
 20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache
+45 5 * * 5 cd /app && python -m app.jobs.refresh_macro_positioning
 */15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all
 30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh
 0,30 7-12 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh

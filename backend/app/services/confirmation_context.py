@@ -20,6 +20,7 @@ from app.services.intelligence_overlays import (
     get_options_flow_summaries_for_symbols,
     load_intelligence_feature_flags,
 )
+from app.services.macro_positioning import get_macro_positioning_summaries_for_symbols
 from app.utils.symbols import normalize_symbol
 
 
@@ -61,6 +62,7 @@ def build_confirmation_score_context(
                 "government_contracts": government_availability,
                 "options_flow": {"status": "unavailable", "enabled": flags["feature_options_flow_enabled"]},
                 "institutional_activity": {"status": "unavailable", "enabled": flags["feature_institutional_activity_enabled"]},
+                "macro_positioning": {"status": "unavailable", "enabled": flags["feature_macro_positioning_enabled"]},
             },
         }
 
@@ -101,6 +103,11 @@ def build_confirmation_score_context(
         lookback_days=institutional_lookback,
         feature_enabled=flags["feature_institutional_activity_enabled"],
     )
+    macro_positioning_summaries, macro_positioning_availability = get_macro_positioning_summaries_for_symbols(
+        db,
+        normalized_symbols,
+        feature_enabled=flags["feature_macro_positioning_enabled"],
+    )
     bundles = get_confirmation_score_bundles_for_tickers(
         db,
         normalized_symbols,
@@ -108,15 +115,18 @@ def build_confirmation_score_context(
         government_contracts_summaries=government_contracts_summaries,
         options_flow_summaries=options_flow_summaries,
         institutional_activity_summaries=institutional_activity_summaries,
+        macro_positioning_summaries=macro_positioning_summaries,
     )
     return {
         "bundles": bundles,
         "government_contracts_summaries": government_contracts_summaries,
         "options_flow_summaries": options_flow_summaries,
         "institutional_activity_summaries": institutional_activity_summaries,
+        "macro_positioning_summaries": macro_positioning_summaries,
         "overlay_availability": {
             "government_contracts": government_availability,
             "options_flow": options_flow_availability,
             "institutional_activity": institutional_availability,
+            "macro_positioning": macro_positioning_availability,
         },
     }

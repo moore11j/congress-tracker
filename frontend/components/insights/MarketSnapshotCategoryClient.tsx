@@ -11,7 +11,7 @@ import {
   type MarketSnapshotCategory,
   type MarketSnapshotCategorySlug,
 } from "@/lib/marketSnapshot";
-import type { InsightsNewsResponse, MacroSnapshotResponse } from "@/lib/types";
+import type { InsightsNewsResponse, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { cardClassName, ghostButtonClassName } from "@/lib/styles";
 
@@ -73,6 +73,63 @@ function NewsSkeleton() {
       ))}
     </div>
   );
+}
+
+function meaningfulRows(rows: ReturnType<typeof marketSnapshotDetailRows>) {
+  return rows.filter((row) => !row.unavailable && row.changeText !== "Unavailable");
+}
+
+function rowHeadlineTitle(row: ReturnType<typeof marketSnapshotDetailRows>[number], category: MarketSnapshotCategory): string {
+  const valueText = row.valueText !== "-" ? ` at ${row.valueText}` : "";
+  const changeText = row.changeText !== "-" && row.changeText !== "Unavailable" ? `, ${row.changeText}` : "";
+  const unitText = row.unitText && row.unitText !== "%" ? ` ${row.unitText}` : "";
+  return `${category.title}: ${row.name}${valueText}${changeText}${unitText}`;
+}
+
+function rowHeadlineSummary(row: ReturnType<typeof marketSnapshotDetailRows>[number], category: MarketSnapshotCategory): string {
+  const dateText = row.dateText && row.dateText !== "-" ? ` as of ${row.dateText}` : "";
+  const symbolText = row.symbol ? ` (${row.symbol})` : "";
+  return `${row.name}${symbolText} is included in the ${category.title.toLowerCase()} expanded snapshot${dateText}.`;
+}
+
+function fallbackSnapshotHeadlines(
+  rows: ReturnType<typeof marketSnapshotDetailRows>,
+  category: MarketSnapshotCategory,
+  asOf: string | null,
+): NewsItem[] {
+  const sourceRows = meaningfulRows(rows).slice(0, 6);
+  if (sourceRows.length === 0) return [];
+  const publishedAt = asOf ?? new Date().toISOString();
+  return sourceRows.map((row) => ({
+    title: rowHeadlineTitle(row, category),
+    site: "Snapshot",
+    published_at: publishedAt,
+    url: "",
+    summary: rowHeadlineSummary(row, category),
+    market_read: typeof row.changeValue === "number" && row.changeValue > 0 ? "bullish" : typeof row.changeValue === "number" && row.changeValue < 0 ? "bearish" : "neutral",
+    source: "snapshot_headline",
+  }));
+}
+
+function completeNewsPayload(
+  news: InsightsNewsResponse | null,
+  rows: ReturnType<typeof marketSnapshotDetailRows>,
+  category: MarketSnapshotCategory,
+  asOf: string | null,
+): InsightsNewsResponse | null {
+  if (news?.items?.length) return news;
+  const fallbackItems = fallbackSnapshotHeadlines(rows, category, asOf);
+  if (fallbackItems.length === 0) return news;
+  return {
+    items: fallbackItems,
+    status: "ok",
+    page: news?.page ?? 0,
+    limit: news?.limit ?? fallbackItems.length,
+    has_next: false,
+    item_count: fallbackItems.length,
+    updated_at: news?.updated_at ?? asOf,
+    message: null,
+  };
 }
 
 function DesktopRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows> }) {
@@ -142,7 +199,7 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
     const controller = new AbortController();
     // Global markets, commodities, currencies, and crypto detail data are paused
     // until provider entitlements are re-enabled, so skip /api/insights/overview.
-    Promise.allSettled([getInsightsMacroSnapshot({ signal: controller.signal })])
+    Promise.allSettled([getInsightsMacroSnapshot({ forceRefresh: true, signal: controller.signal })])
       .then(([snapshotResult]) => {
         if (controller.signal.aborted) return;
         const base = snapshotResult.status === "fulfilled" ? snapshotResult.value : { ...EMPTY_SNAPSHOT, status: "unavailable" };
@@ -188,6 +245,7 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
   if (!snapshot) return <CategorySkeleton category={category} />;
 
   const updatedLabel = formatSnapshotUpdatedAt(snapshotAsOf(snapshot));
+  const completedNews = completeNewsPayload(news, rows, category, snapshotAsOf(snapshot));
 
   return (
     <div className="space-y-6">
@@ -231,11 +289,11 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
           <h2 className="text-lg font-semibold text-white">{category.title} Headlines</h2>
           <p className="mt-1 text-sm text-slate-400">Recent headlines connected to this market view.</p>
         </div>
-        {news ? (
+        {completedNews ? (
           <NewsArticleList
-            items={news.items}
-            status={news.status}
-            message={news.message}
+            items={completedNews.items}
+            status={completedNews.status}
+            message={completedNews.message}
             emptyMessage={`No recent ${category.title.toLowerCase()} headlines found.`}
             showImage={false}
             compact

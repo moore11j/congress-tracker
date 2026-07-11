@@ -1575,6 +1575,52 @@ class FredObservation(Base):
     )
 
 
+class MacroPositioningAsset(Base):
+    __tablename__ = "macro_positioning_assets"
+    __table_args__ = (
+        Index("ix_macro_positioning_assets_asset_key", "asset_key"),
+        Index("ix_macro_positioning_assets_positioning_date", "positioning_date"),
+    )
+
+    asset_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    bias: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    rating: Mapped[int] = mapped_column(default=3, server_default=text("3"), nullable=False)
+    positioning_date: Mapped[date] = mapped_column(nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class MacroPositioningCache(Base):
+    __tablename__ = "macro_positioning_cache"
+    __table_args__ = (
+        Index("ix_macro_positioning_cache_symbol", "symbol", unique=True),
+        Index("ix_macro_positioning_cache_updated", "updated"),
+    )
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok", nullable=False)
+    overall: Mapped[str] = mapped_column(Text, default="neutral", server_default="neutral", nullable=False)
+    rating: Mapped[int] = mapped_column(default=3, server_default=text("3"), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    drivers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    mapped_sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mapped_asset_class: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated: Mapped[date] = mapped_column(nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_refresh_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class FredSeriesRefresh(Base):
     __tablename__ = "fred_series_refreshes"
     __table_args__ = (

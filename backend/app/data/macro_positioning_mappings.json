@@ -1,0 +1,93 @@
+{
+  "sector_mappings": {
+    "technology": {
+      "label": "Technology",
+      "thesis_label": "growth equities and semiconductor stocks",
+      "headline": "Bullish backdrop for semiconductor equities.",
+      "drivers": [
+        { "asset_key": "nasdaq_futures", "name": "Nasdaq Futures", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" },
+        { "asset_key": "ten_year_treasury", "name": "10-Year Treasury", "effect": "inverse_yield" }
+      ]
+    },
+    "communication services": {
+      "label": "Communication Services",
+      "thesis_label": "growth equities",
+      "headline": "Bullish backdrop for growth equities.",
+      "drivers": [
+        { "asset_key": "nasdaq_futures", "name": "Nasdaq Futures", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" },
+        { "asset_key": "ten_year_treasury", "name": "10-Year Treasury", "effect": "inverse_yield" }
+      ]
+    },
+    "energy": {
+      "label": "Energy",
+      "thesis_label": "energy stocks",
+      "headline": "Macro headwinds for energy.",
+      "drivers": [
+        { "asset_key": "crude_oil", "name": "Crude Oil", "effect": "direct" },
+        { "asset_key": "natural_gas", "name": "Natural Gas", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" }
+      ]
+    },
+    "financial services": {
+      "label": "Banks",
+      "thesis_label": "banks",
+      "headline": "Neutral macro backdrop.",
+      "drivers": [
+        { "asset_key": "ten_year_treasury", "name": "10-Year Treasury", "effect": "direct_yield" },
+        { "asset_key": "yield_curve", "name": "Yield Curve", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "neutral" }
+      ]
+    },
+    "financials": {
+      "extends": "financial services"
+    },
+    "basic materials": {
+      "label": "Gold Miners",
+      "thesis_label": "gold miners and materials equities",
+      "headline": "Bullish backdrop for materials.",
+      "drivers": [
+        { "asset_key": "gold_futures", "name": "Gold Futures", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" },
+        { "asset_key": "ten_year_treasury", "name": "10-Year Treasury", "effect": "inverse_yield" }
+      ]
+    },
+    "materials": {
+      "extends": "basic materials"
+    },
+    "industrials": {
+      "label": "Industrials",
+      "thesis_label": "industrials",
+      "headline": "Neutral macro backdrop.",
+      "drivers": [
+        { "asset_key": "copper", "name": "Copper", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" }
+      ]
+    },
+    "consumer cyclical": {
+      "label": "Consumer Discretionary",
+      "thesis_label": "consumer discretionary equities",
+      "headline": "Neutral macro backdrop.",
+      "drivers": [
+        { "asset_key": "sp_futures", "name": "S&P Futures", "effect": "direct" },
+        { "asset_key": "consumer_sentiment_proxy", "name": "Consumer Sentiment", "effect": "direct" }
+      ]
+    },
+    "consumer discretionary": {
+      "extends": "consumer cyclical"
+    }
+  },
+  "asset_class_mappings": {
+    "crypto": {
+      "label": "Crypto",
+      "thesis_label": "crypto-linked assets",
+      "headline": "Neutral macro backdrop.",
+      "drivers": [
+        { "asset_key": "bitcoin_futures", "name": "Bitcoin Futures", "effect": "direct" },
+        { "asset_key": "nasdaq_futures", "name": "Nasdaq Futures", "effect": "direct" },
+        { "asset_key": "us_dollar", "name": "US Dollar", "effect": "inverse" }
+      ]
+    }
+  }
+}

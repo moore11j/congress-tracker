@@ -25,9 +25,12 @@ test("insights market snapshot renders only entitlement-ready widgets", () => {
   assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
   assert.doesNotMatch(withoutHiddenComments(insightsClient), /getInsightsOverview/);
   assert.match(categoryClient, /getInsightsMacroSnapshot/);
+  assert.match(categoryClient, /forceRefresh: true/);
   assert.match(categoryClient, /getInsightsCategoryNews\(category\.slug/);
   assert.match(categoryClient, /NewsArticleList/);
   assert.match(categoryClient, /\{category\.title\} Headlines/);
+  assert.match(categoryClient, /fallbackSnapshotHeadlines/);
+  assert.match(categoryClient, /completeNewsPayload/);
   assert.match(api, /\/api\/insights\/overview/);
   assert.match(api, /\/api\/insights\/news\/\$\{encodeURIComponent\(category\)\}/);
 

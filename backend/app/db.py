@@ -774,6 +774,77 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
 
 
+def ensure_macro_positioning_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+        float_int_pk = "TEXT PRIMARY KEY"
+        now_default = "CURRENT_TIMESTAMP" if dialect_name == "sqlite" else "now()"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS macro_positioning_assets (
+                    asset_key {float_int_pk},
+                    display_name TEXT NOT NULL,
+                    bias TEXT NOT NULL DEFAULT 'neutral',
+                    rating INTEGER NOT NULL DEFAULT 3,
+                    positioning_date DATE NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{{}}',
+                    fetched_at {timestamp_type} NOT NULL,
+                    updated_at {timestamp_type} DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS macro_positioning_cache (
+                    symbol TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'ok',
+                    overall TEXT NOT NULL DEFAULT 'neutral',
+                    rating INTEGER NOT NULL DEFAULT 3,
+                    summary TEXT NOT NULL,
+                    drivers_json TEXT NOT NULL DEFAULT '[]',
+                    mapped_sector TEXT,
+                    mapped_asset_class TEXT,
+                    updated DATE NOT NULL,
+                    generated_at {timestamp_type} NOT NULL,
+                    source_refresh_at {timestamp_type},
+                    updated_at {timestamp_type} DEFAULT {now_default}
+                )
+                """
+            )
+        )
+        for statement in (
+            "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS bias TEXT NOT NULL DEFAULT 'neutral'",
+            "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS rating INTEGER NOT NULL DEFAULT 3",
+            "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS positioning_date DATE",
+            "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS payload_json TEXT NOT NULL DEFAULT '{}'",
+            f"ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS fetched_at {timestamp_type}",
+            f"ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS updated_at {timestamp_type} DEFAULT {now_default}",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS overall TEXT NOT NULL DEFAULT 'neutral'",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS rating INTEGER NOT NULL DEFAULT 3",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS drivers_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS mapped_sector TEXT",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS mapped_asset_class TEXT",
+            "ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS updated DATE",
+            f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS generated_at {timestamp_type}",
+            f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS source_refresh_at {timestamp_type}",
+            f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS updated_at {timestamp_type} DEFAULT {now_default}",
+        ):
+            if dialect_name != "sqlite":
+                conn.execute(text(statement))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_assets_asset_key ON macro_positioning_assets (asset_key)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_assets_positioning_date ON macro_positioning_assets (positioning_date)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_macro_positioning_cache_symbol ON macro_positioning_cache (symbol)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_cache_updated ON macro_positioning_cache (updated)"))
+
+
 def ensure_ticker_financials_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

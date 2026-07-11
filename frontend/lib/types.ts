@@ -207,6 +207,7 @@ export type ConfirmationScoreBundle = {
     options_flow: ConfirmationScoreSource;
     government_contracts: ConfirmationScoreSource;
     institutional_activity: ConfirmationScoreSource;
+    macro_positioning: ConfirmationScoreSource;
   };
   drivers: string[];
   active_sources?: string[];
@@ -452,6 +453,9 @@ export type InsightsOverviewResponse = {
 export type SectorPerformancePoint = {
   sector: string;
   change_pct: number;
+  date?: string | null;
+  unit_label?: string | null;
+  source?: string | null;
 };
 
 export type MacroSnapshotResponse = {

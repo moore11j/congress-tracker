@@ -32,6 +32,7 @@ def load_intelligence_feature_flags(db: Session) -> dict[str, bool]:
         "feature_government_contracts_enabled": _read_bool_setting(db, "feature_government_contracts_enabled", default=True),
         "feature_options_flow_enabled": _read_bool_setting(db, "feature_options_flow_enabled", default=True),
         "feature_institutional_activity_enabled": _read_bool_setting(db, "feature_institutional_activity_enabled", default=True),
+        "feature_macro_positioning_enabled": _read_bool_setting(db, "feature_macro_positioning_enabled", default=True),
         "feature_intelligence_overlays_premium_required": _read_bool_setting(
             db,
             "feature_intelligence_overlays_premium_required",

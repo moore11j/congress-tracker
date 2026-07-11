@@ -20,6 +20,7 @@ from app.services.intelligence_overlays import (
     get_institutional_activity_summary,
 )
 from app.services.options_flow import get_options_flow_summary
+from app.services.macro_positioning import get_macro_positioning_summary, get_macro_positioning_summaries_for_symbols
 from app.services.price_lookup import get_daily_close_series_with_fallback, get_eod_close_series
 from app.services.signal_freshness import slim_signal_freshness_bundle
 from app.services.signal_score import calculate_smart_score
@@ -37,6 +38,7 @@ ConfirmationSourceKey = Literal[
     "government_contracts",
     "options_flow",
     "institutional_activity",
+    "macro_positioning",
 ]
 SOURCE_ORDER: tuple[ConfirmationSourceKey, ...] = (
     "congress",
@@ -47,6 +49,7 @@ SOURCE_ORDER: tuple[ConfirmationSourceKey, ...] = (
     "options_flow",
     "government_contracts",
     "institutional_activity",
+    "macro_positioning",
 )
 SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "congress": "Congress",
@@ -57,6 +60,7 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "options_flow": "Options Flow",
     "government_contracts": "Government Contracts",
     "institutional_activity": "Institutional Activity",
+    "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
 
@@ -277,6 +281,7 @@ def confirmation_score_bundle_from_source_contexts(
         "options_flow": _options_flow_context_source(contexts.get("options_flow")),
         "government_contracts": _government_contracts_context_source(contexts.get("government_contracts")),
         "institutional_activity": _institutional_context_source(contexts.get("institutional_activity")),
+        "macro_positioning": _macro_positioning_context_source(contexts.get("macro_positioning")),
     }
     return _score_bundle(symbol, bounded_lookback, sources).as_dict()
 
@@ -458,6 +463,7 @@ def get_confirmation_score_bundles_for_tickers(
     government_contracts_summaries: dict[str, dict] | None = None,
     options_flow_summaries: dict[str, dict] | None = None,
     institutional_activity_summaries: dict[str, dict] | None = None,
+    macro_positioning_summaries: dict[str, dict] | None = None,
     fundamentals_summaries: dict[str, dict] | None = None,
 ) -> dict[str, dict]:
     symbols = sorted({(ticker or "").strip().upper() for ticker in tickers if (ticker or "").strip()})
@@ -500,6 +506,10 @@ def get_confirmation_score_bundles_for_tickers(
         )[0]
     except Exception:
         institutional_activity_summaries = institutional_activity_summaries or {}
+    try:
+        macro_positioning_summaries = macro_positioning_summaries or get_macro_positioning_summaries_for_symbols(db, symbols)[0]
+    except Exception:
+        macro_positioning_summaries = macro_positioning_summaries or {}
     options_flow_summaries = options_flow_summaries or {}
     try:
         fundamentals_summaries = fundamentals_summaries or {
@@ -533,6 +543,9 @@ def get_confirmation_score_bundles_for_tickers(
             "institutional_activity": _safe_source(
                 lambda: _institutional_activity_source(institutional_activity_summaries.get(symbol))
             ),
+            "macro_positioning": _safe_source(
+                lambda: _macro_positioning_source(macro_positioning_summaries.get(symbol))
+            ),
         }
         results[symbol] = _score_bundle(symbol, bounded_lookback, sources).as_dict()
     return results
@@ -547,6 +560,7 @@ def get_confirmation_score_bundle_for_ticker(
     government_contracts_summary: dict | None = None,
     options_flow_summary: dict | None = None,
     institutional_activity_summary: dict | None = None,
+    macro_positioning_summary: dict | None = None,
     fundamentals_summary: dict | None = None,
 ) -> dict:
     symbol = (ticker or "").strip().upper()
@@ -588,6 +602,13 @@ def get_confirmation_score_bundle_for_ticker(
                 else get_institutional_activity_summary(db, symbol, lookback_days=bounded_lookback)
             )
         ),
+        "macro_positioning": _safe_source(
+            lambda: _macro_positioning_source(
+                macro_positioning_summary
+                if isinstance(macro_positioning_summary, dict)
+                else get_macro_positioning_summary(db, symbol)
+            )
+        ),
     }
 
     return _score_bundle(symbol, bounded_lookback, sources).as_dict()
@@ -614,6 +635,7 @@ def _empty_bundle(ticker: str, lookback_days: int) -> ConfirmationScoreBundle:
         "government_contracts": _empty_source("No recent government contracts"),
         "options_flow": _empty_source("Options flow not confirming"),
         "institutional_activity": _empty_source("No recent institutional activity"),
+        "macro_positioning": _empty_source("No macro positioning signal"),
     }
     return ConfirmationScoreBundle(
         ticker=ticker,
@@ -828,6 +850,29 @@ def _institutional_activity_source(summary: dict | None) -> ConfirmationSourceSu
         score_contribution=score_contribution,
         detail=detail,
         summary=summary.get("user_copy_note") if isinstance(summary.get("user_copy_note"), str) else None,
+    )
+
+
+def _macro_positioning_source(summary: dict | None) -> ConfirmationSourceSummary:
+    if not isinstance(summary, dict):
+        return _empty_source("No macro positioning signal")
+    status = str(summary.get("status") or "").strip().lower()
+    if status in {"disabled", "pro_locked", "locked"}:
+        return _empty_source("Macro Positioning locked")
+    if summary.get("active") is not True:
+        return _empty_source("No macro positioning signal")
+    overall = summary.get("overall") if summary.get("overall") in {"bullish", "bearish", "neutral"} else "neutral"
+    rating = _clamp_int(float(summary.get("rating") or 3), minimum=1, maximum=5)
+    summary_text = summary.get("summary") if isinstance(summary.get("summary"), str) else None
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=overall,
+        strength=_clamp_int(30 + rating * 10),
+        quality=_clamp_int(45 + rating * 8),
+        freshness_days=_days_since_iso(summary.get("updated")),
+        label="Macro Positioning",
+        detail=summary_text,
+        summary=summary_text,
     )
 
 
@@ -1110,6 +1155,24 @@ def _institutional_context_source(context: dict[str, Any] | None) -> Confirmatio
         label=_context_text(context, "title", "summary") or "Institutional Activity",
         detail=_context_text(context, "subtitle", "summary"),
         summary="Institutional Activity is based on 13F filing-date freshness and disclosed quarter-end holdings.",
+    )
+
+
+def _macro_positioning_context_source(context: dict[str, Any] | None) -> ConfirmationSourceSummary:
+    if not isinstance(context, dict) or context.get("active") is not True:
+        return _empty_source("No macro positioning signal")
+    overall = context.get("overall") if context.get("overall") in {"bullish", "bearish", "neutral"} else "neutral"
+    rating = _clamp_int(float(context.get("rating") or 3), minimum=1, maximum=5)
+    summary = _context_text(context, "summary", "subtitle")
+    return ConfirmationSourceSummary(
+        present=True,
+        direction=overall,
+        strength=_clamp_int(30 + rating * 10),
+        quality=_clamp_int(45 + rating * 8),
+        freshness_days=_days_since_iso(context.get("updated")),
+        label="Macro Positioning",
+        detail=summary,
+        summary=summary,
     )
 
 
@@ -1605,7 +1668,7 @@ def _score_bundle(
             source_details=empty.source_details,
         )
 
-    core_source_keys = {"congress", "insiders", "signals", "price_volume", "options_flow"}
+    core_source_keys = {"congress", "insiders", "signals", "price_volume", "options_flow", "macro_positioning"}
     breadth_denominator = len(
         [
             key
@@ -1751,6 +1814,12 @@ def _source_driver(key: ConfirmationSourceKey, source: ConfirmationSourceSummary
         if source.direction == "mixed":
             return "Mixed institutional activity"
         return "Institutional activity active"
+    if key == "macro_positioning":
+        if source.direction == "bullish":
+            return "Bullish macro positioning"
+        if source.direction == "bearish":
+            return "Macro positioning headwinds"
+        return "Neutral macro positioning"
     return None
 
 
@@ -1784,6 +1853,7 @@ def _driver_bullets(
         ("government_contracts", "No recent government contracts"),
         ("options_flow", "Options flow not confirming"),
         ("institutional_activity", "No recent institutional activity"),
+        ("macro_positioning", "No macro positioning signal"),
     ]
     for key, label in inactive_candidates:
         if len(drivers) >= 4:
@@ -1806,6 +1876,7 @@ def _inactive_source_names(sources: dict[ConfirmationSourceKey, ConfirmationSour
         "government_contracts": "government contracts",
         "options_flow": "options flow",
         "institutional_activity": "institutional activity",
+        "macro_positioning": "macro positioning",
     }
     return [labels[key] for key, source in sources.items() if not source.present]
 

@@ -73,34 +73,34 @@ const navLinks = [
 
 const signalCards = [
   {
-    title: "Congressional disclosures",
+    title: "Congress Activity",
     body: "Monitor House and Senate activity with ticker, filing, party, chamber, and trade context.",
     label: "Public disclosures",
   },
   {
-    title: "Insider transactions",
+    title: "Insider Activity",
     body: "Track executive and director purchases, sales, ownership changes, and role-weighted activity.",
-    label: "SEC Form 4",
+    label: "Insider filings",
   },
   {
-    title: "Ticker intelligence",
-    body: "Unify political, insider, financial, and event-level context around a single public-market name.",
-    label: "Ticker lens",
+    title: "Institutional Activity",
+    body: "See whether newly filed institutional positioning is accumulating, reducing, or staying quiet.",
+    label: "Pro layer",
   },
   {
-    title: "Signal Conviction Score",
-    body: "Rank names by cross-source confirmation instead of treating each disclosure as an isolated datapoint.",
-    label: "Confirmation",
+    title: "Options Flow",
+    body: "Add premium options activity to the confirmation stack when flow supports or contradicts the setup.",
+    label: "Pro layer",
   },
   {
-    title: "Watchlists and alerts",
-    body: "Keep priority tickers close and prepare for premium monitoring workflows as new signals land.",
-    label: "Monitoring",
+    title: "Macro Positioning",
+    body: "Understand whether institutional futures positioning supports or contradicts your investment thesis.",
+    label: "Pro layer",
   },
   {
-    title: "Screener and saved views",
-    body: "Turn recurring research patterns into repeatable screens across market and intelligence filters.",
-    label: "Research ops",
+    title: "Government Contracts",
+    body: "Connect contract awards and modifications to ticker-level confirmation when the exposure is material.",
+    label: "Public awards",
   },
   {
     title: "Technical indicator filters",
@@ -131,13 +131,14 @@ const availableNow = [
   "Screener",
   "Member/insider performance",
   "Institutional Activity",
+  "Options Flow",
+  "Macro Positioning",
   "Portfolio backtesting",
   "Congress leaderboards",
 ] as const;
 
 const comingSoon = [
   "AI analyst briefs",
-  "Options Flow",
   "Earnings and event calendar overlays",
   "Social Sentiment",
   "Advanced alerts/exports",
