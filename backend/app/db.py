@@ -2642,12 +2642,35 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         query_templates_json TEXT NOT NULL DEFAULT '[]',
                         minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
                         max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        max_drafts_per_day INTEGER NOT NULL DEFAULT 1,
                         recency TEXT NOT NULL DEFAULT 'week',
                         default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
                         include_disclosure BOOLEAN NOT NULL DEFAULT 1,
                         scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_article_candidates (
+                        id INTEGER PRIMARY KEY,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        provider_article_id TEXT,
+                        title TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        site TEXT,
+                        published_at TIMESTAMP,
+                        tickers_json TEXT NOT NULL DEFAULT '[]',
+                        image_url TEXT,
+                        summary TEXT,
+                        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        dedupe_hash TEXT NOT NULL
                     )
                     """
                 )
@@ -2809,12 +2832,35 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         query_templates_json TEXT NOT NULL DEFAULT '[]',
                         minimum_relevance_score INTEGER NOT NULL DEFAULT 60,
                         max_items_per_run INTEGER NOT NULL DEFAULT 10,
+                        max_drafts_per_day INTEGER NOT NULL DEFAULT 1,
                         recency TEXT NOT NULL DEFAULT 'week',
                         default_destination_page TEXT NOT NULL DEFAULT 'https://walnutmarkets.com',
                         include_disclosure BOOLEAN NOT NULL DEFAULT true,
                         scheduled_digest_enabled BOOLEAN NOT NULL DEFAULT false,
                         created_at TIMESTAMPTZ DEFAULT now(),
                         updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_article_candidates (
+                        id SERIAL PRIMARY KEY,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        provider_article_id TEXT,
+                        title TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        site TEXT,
+                        published_at TIMESTAMPTZ,
+                        tickers_json TEXT NOT NULL DEFAULT '[]',
+                        image_url TEXT,
+                        summary TEXT,
+                        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+                        first_seen_at TIMESTAMPTZ DEFAULT now(),
+                        last_seen_at TIMESTAMPTZ DEFAULT now(),
+                        dedupe_hash TEXT NOT NULL
                     )
                     """
                 )
@@ -2954,6 +3000,7 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                 "last_run_at": "TIMESTAMP",
                 "next_run_at": "TIMESTAMP",
                 "query_templates_json": "TEXT NOT NULL DEFAULT '[]'",
+                "max_drafts_per_day": "INTEGER NOT NULL DEFAULT 1",
                 "recency": "TEXT NOT NULL DEFAULT 'week'",
             }.items():
                 if name not in existing_campaign_columns:
@@ -3031,6 +3078,7 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMPTZ"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS next_run_at TIMESTAMPTZ"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS query_templates_json TEXT NOT NULL DEFAULT '[]'"))
+            conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS max_drafts_per_day INTEGER NOT NULL DEFAULT 1"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recency TEXT NOT NULL DEFAULT 'week'"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_provider TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS campaign_type TEXT"))
@@ -3072,6 +3120,24 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_settings_secret ON ai_marketing_settings (is_secret)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_enabled ON ai_marketing_campaigns (enabled)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_mode ON ai_marketing_campaigns (mode)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_marketing_article_candidates_provider_hash "
+                "ON ai_marketing_article_candidates (provider, dedupe_hash)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_article_candidates_published "
+                "ON ai_marketing_article_candidates (published_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_marketing_article_candidates_seen "
+                "ON ai_marketing_article_candidates (last_seen_at)"
+            )
+        )
         conn.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_marketing_opportunities_source "

@@ -18,7 +18,7 @@ Required for production runtime:
 | `APP_BASE_URL` | Current app URL for email templates and auth URL generation | Current code reads this. Future canonical target is `PUBLIC_APP_URL`. |
 | `PUBLIC_SITE_URL` | Marketing/public site URL | Optional if default `https://walnutmarkets.com` is correct. |
 | `SUPPORT_EMAIL` | Canonical support address | Defaults to `support@walnutmarkets.com` if absent. |
-| `FMP_API_KEY` | Financial Modeling Prep provider access | Required for provider-backed market data. |
+| `FMP_API_KEY` | Financial Modeling Prep provider access | Required for provider-backed market data and AI Growth Article-Reactive X campaigns. Server env/Fly secret only; never store in admin DB settings. |
 | `FMP_ALLOW_SYNC_USER_FETCH` | User-route live FMP fetch guardrail | Keep explicit while hybrid cache/hydration is active. |
 | `INSIGHTS_DATA_MODE` | Insights data source mode | Default is `builder_safe`; use cached EOD ETF proxies plus FRED macro cache and avoid FMP add-on endpoints. See `docs/runbooks/insights_data_sources.md` before changing after an FMP plan upgrade. |
 | `FMP_ALLOW_BOUNDED_TICKER_REFRESH` | Bounded ticker hydration refresh | Keep if live bounded refresh is enabled. |
@@ -41,6 +41,9 @@ Required for production runtime:
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
 | `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.4-mini`; do not store in admin DB settings. |
+| `AI_GROWTH_DIGEST_RECIPIENT` | AI Growth draft approval recipient | Defaults to `jarod@walnutmarkets.com`; set explicitly for production article-reactive approvals. |
+| `AI_GROWTH_ARTICLE_AUTOMATION_ENABLED` | Enables scheduled Article-Reactive X cron runs | Optional; set `true` only after reviewing dry-runs/manual runs. |
+| `AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS` | Optional global article draft cap hint | Optional; campaign settings still clamp article drafts to max 2 per day. |
 | `REDDIT_CLIENT_ID` | Reddit official API OAuth client ID | Server env/Fly secret only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |
 | `REDDIT_CLIENT_SECRET` | Reddit official API OAuth client secret | Server env/Fly secret only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |
 | `REDDIT_USER_AGENT` | Reddit official API user agent | Server env only. Required only for AI Outreach Reddit discovery; do not store in admin DB settings. |

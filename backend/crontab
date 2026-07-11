@@ -4,6 +4,7 @@ PYTHONPATH=/app
 CRON_TZ=America/Los_Angeles
 
 0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring
+35 7 * * 1-5 cd /app && sh /app/scripts/run_ai_growth_article_reactive.sh
 5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh
 */15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh
 */30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -11,7 +11,17 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base, ensure_ai_marketing_schema, ensure_email_notification_schema
-from app.models import AiMarketingEmailLog, AiMarketingOpportunity, AiMarketingSuggestion, UserAccount
+from app.models import (
+    AiMarketingArticleCandidate,
+    AiMarketingEmailLog,
+    AiMarketingOpportunity,
+    AiMarketingSetting,
+    AiMarketingSuggestion,
+    Security,
+    UserAccount,
+    Watchlist,
+    WatchlistItem,
+)
 from app.routers.ai_marketing import (
     CampaignPayload,
     EmailDigestPayload,
@@ -29,13 +39,18 @@ from app.routers.ai_marketing import (
     admin_ai_marketing_email_digest,
     admin_ai_marketing_manual_url,
     admin_ai_marketing_run_campaign,
+    admin_ai_marketing_settings,
     router as ai_marketing_router,
 )
 from app.services.ai_marketing import (
+    FMP_API_KEY,
     OPENAI_WEB_SEARCH_ENABLED,
     OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
+    ARTICLE_REACTIVE_CAMPAIGN_TYPE,
     SourceItem,
     X_POST_CHARACTER_LIMIT,
+    fetch_fmp_articles,
+    score_article_candidate,
     recommended_destination_url,
 )
 from app.services.email_templates import seed_default_email_templates
@@ -1210,6 +1225,9 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert suggestion["recommended_action"] == "draft_post"
         draft_text = result["opportunity"]["generated_content"].lower()
         assert "reported congress" in draft_text
+        assert "bias disclosed" not in draft_text
+        assert "building walnut" not in draft_text
+        assert "#nvda" in draft_text
         assert "buy" not in draft_text
         assert "sell" not in draft_text
         assert "about to explode" not in draft_text
@@ -1229,6 +1247,16 @@ def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
             detected_tickers=["TSM"],
             suggested_post=long_post,
             alternate_hooks=[long_post],
+            assets=[
+                {
+                    "title": "TSM ticker page screenshot",
+                    "asset_type": "screenshot",
+                    "url": "https://walnutmarkets.com/ticker/TSM",
+                    "thumbnail_url": "https://walnutmarkets.com/ticker/TSM",
+                    "suggested_caption": "TSM continues to be one of the strongest names in our datasets.",
+                    "source_data_notes": "Ticker page URL, not an image asset.",
+                }
+            ],
         ),
     )
     db = _session()
@@ -1247,9 +1275,14 @@ def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
         )
 
         suggestion = result["opportunity"]["suggestion"]
+        draft_text = result["opportunity"]["generated_content"]
         assert len(result["opportunity"]["generated_content"]) <= X_POST_CHARACTER_LIMIT
         assert len(suggestion["suggested_post"]) <= X_POST_CHARACTER_LIMIT
         assert len(suggestion["alternate_hooks"][0]) <= X_POST_CHARACTER_LIMIT
+        assert "bias disclosed" not in draft_text.lower()
+        assert "building walnut" not in draft_text.lower()
+        assert "#TSM" in draft_text
+        assert result["opportunity"]["assets"] == []
     finally:
         db.close()
 
@@ -1350,6 +1383,9 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert schema["properties"]["alternate_hooks"]["items"]["maxLength"] == X_POST_CHARACTER_LIMIT
         assert updated["status"] == "needs_review"
         assert "TSM margin context" in updated["generated_content"]
+        assert "bias disclosed" not in updated["generated_content"].lower()
+        assert "building walnut" not in updated["generated_content"].lower()
+        assert "#TSM" in updated["generated_content"]
     finally:
         db.close()
 
@@ -1655,3 +1691,202 @@ def test_growth_draft_manual_lifecycle_buttons_update_status(monkeypatch):
 def test_no_auto_post_endpoint_exists():
     paths = [getattr(route, "path", "") for route in ai_marketing_router.routes]
     assert not any("auto-post" in path or "autopost" in path or "auto_post" in path for path in paths)
+
+
+def _article_campaign_payload(**overrides):
+    payload = {
+        "name": "Daily Article-Reactive X",
+        "enabled": True,
+        "mode": ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+        "campaign_type": ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+        "content_type": "x_post",
+        "status": "active",
+        "schedule_config": {"cadence": "daily"},
+        "weekdays_only": True,
+        "run_time": "07:35",
+        "timezone": "America/Los_Angeles",
+        "recipient_email": "jarod@walnutmarkets.com",
+        "source_type": "fmp_articles",
+        "output_preferences": {"include_image_card": True, "include_walnut_link": True},
+        "platforms": ["x"],
+        "minimum_relevance_score": 58,
+        "max_items_per_run": 20,
+        "max_drafts_per_day": 1,
+        "recency": "day",
+        "default_destination_page": "https://walnutmarkets.com",
+        "include_disclosure": True,
+        "scheduled_digest_enabled": False,
+    }
+    payload.update(overrides)
+    return CampaignPayload(**payload)
+
+
+def _seed_watchlist_context(db, symbol: str = "NVDA") -> None:
+    security = Security(symbol=symbol, name="NVIDIA Corporation", asset_class="equity")
+    db.add(security)
+    db.commit()
+    db.refresh(security)
+    watchlist = Watchlist(name="AI Leaders", owner_user_id=None)
+    db.add(watchlist)
+    db.commit()
+    db.refresh(watchlist)
+    db.add(WatchlistItem(watchlist_id=watchlist.id, security_id=security.id))
+    db.commit()
+
+
+def _fmp_article(**overrides):
+    article = {
+        "id": "fmp-nvda-ai",
+        "title": "Nvidia AI data center demand keeps semiconductor investors focused",
+        "url": "https://example.com/nvda-ai",
+        "site": "Example Markets",
+        "publishedDate": datetime.now(timezone.utc).isoformat(),
+        "tickers": ["NVDA"],
+        "text": "AI accelerator demand is a read-through for semiconductors and the data center stack.",
+    }
+    article.update(overrides)
+    return article
+
+
+def test_article_reactive_missing_fmp_key_returns_safe_config_error(monkeypatch):
+    monkeypatch.delenv(FMP_API_KEY, raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        campaign = admin_ai_marketing_create_campaign(_article_campaign_payload(), _request_for_user(admin), db)
+        result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+        assert result["status"] == "configuration_failed"
+        assert "FMP Articles API key missing" in result["errors"][0]
+        assert "apikey" not in json.dumps(result).lower()
+    finally:
+        db.close()
+
+
+def test_fmp_articles_fetcher_uses_env_key_without_storing_or_returning_it(monkeypatch):
+    monkeypatch.setenv(FMP_API_KEY, "fmp-secret-test")
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [_fmp_article()]
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["params"] = kwargs.get("params")
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", fake_get)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        articles = fetch_fmp_articles(db)
+        settings = admin_ai_marketing_settings(_request_for_user(admin), db)
+        assert articles[0]["title"].startswith("Nvidia")
+        assert captured["url"].endswith("/stable/fmp-articles")
+        assert captured["params"]["apikey"] == "fmp-secret-test"
+        assert db.query(AiMarketingSetting).filter(AiMarketingSetting.key == FMP_API_KEY).count() == 0
+        assert "fmp-secret-test" not in json.dumps(settings)
+    finally:
+        db.close()
+
+
+def test_article_candidates_are_deduped_and_scoring_prefers_walnut_context(monkeypatch):
+    monkeypatch.setenv(FMP_API_KEY, "fmp-test")
+    db = _session()
+    try:
+        _seed_watchlist_context(db, "NVDA")
+        now = datetime.now(timezone.utc)
+        relevant = AiMarketingArticleCandidate(
+            provider="fmp",
+            provider_article_id="relevant",
+            title="Nvidia AI demand keeps semiconductor investors focused",
+            url="https://example.com/relevant",
+            published_at=now,
+            tickers_json=json.dumps(["NVDA"]),
+            summary="AI data center demand and HBM supply are the market hook.",
+            raw_metadata_json="{}",
+            first_seen_at=now,
+            last_seen_at=now,
+            dedupe_hash="relevant",
+        )
+        generic = AiMarketingArticleCandidate(
+            provider="fmp",
+            provider_article_id="generic",
+            title="Markets mixed as investors wait",
+            url="https://example.com/generic",
+            published_at=now,
+            tickers_json="[]",
+            summary="A broad market recap with no specific Walnut angle.",
+            raw_metadata_json="{}",
+            first_seen_at=now,
+            last_seen_at=now,
+            dedupe_hash="generic",
+        )
+        db.add_all([relevant, generic])
+        db.commit()
+        relevant_score = score_article_candidate(db, relevant)
+        generic_score = score_article_candidate(db, generic)
+        assert relevant_score["final_score"] > generic_score["final_score"]
+        assert relevant_score["clear_walnut_angle"] is True
+        assert generic_score["rejected"] is True
+        assert "No clear Walnut angle." in generic_score["rejected_reasons"]
+    finally:
+        db.close()
+
+
+def test_article_reactive_campaign_generates_draft_emails_and_enforces_daily_cap(monkeypatch):
+    monkeypatch.setenv(FMP_API_KEY, "fmp-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type=ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+            content_type="x_post",
+            platform="x",
+            suggested_post="NVDA AI demand is the hook. The useful question is what confirms it across price, filings, disclosures, and Walnut signal context. $NVDA #AI",
+            alternate_hooks=["NVDA AI demand is a clean read-through."],
+            alternate_reply_more_direct="NVDA AI demand matters most when it confirms across disclosures and price.",
+            compliance_notes="Human review required. No investment advice.",
+        ),
+    )
+    sent = []
+
+    def fake_send_email(db, **kwargs):
+        sent.append(kwargs)
+        return {"id": 99, "status": "sent"}
+
+    class FakeFmpResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [_fmp_article(), _fmp_article()]
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", lambda *args, **kwargs: FakeFmpResponse())
+    monkeypatch.setattr("app.services.ai_marketing.send_email", fake_send_email)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        _seed_watchlist_context(db, "NVDA")
+        campaign = admin_ai_marketing_create_campaign(_article_campaign_payload(max_drafts_per_day=1), _request_for_user(admin), db)
+        first = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+        second = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+        assert first["drafts_generated"] == 1
+        assert first["emails_sent"] == 1
+        assert sent[0]["to_email"] == "jarod@walnutmarkets.com"
+        assert second["drafts_generated"] == 0
+        assert db.query(AiMarketingArticleCandidate).count() == 1
+        opportunity = db.execute(select(AiMarketingOpportunity)).scalar_one()
+        assert opportunity.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE
+        assert opportunity.content_type == "x_post"
+        payload = admin_ai_growth_drafts(_request_for_user(admin), db, status="all", limit=10)
+        draft = payload["items"][0]
+        assert draft["generated_content"]
+        assert "$NVDA" in draft["generated_content"]
+        assert draft["assets"][0]["source_data_notes"].startswith("Source: FMP")
+        assert draft["compliance_notes"]
+    finally:
+        db.close()

@@ -9,6 +9,7 @@ const apiSource = fs.readFileSync(path.join(process.cwd(), "lib", "api.ts"), "ut
 test("AI Growth Engine exposes the new top-level IA", () => {
   for (const label of [
     "Dashboard",
+    "Article-Reactive X",
     "X Campaigns",
     "Reddit Research Threads",
     "Draft Queue",
@@ -46,10 +47,11 @@ test("content draft cards include copy and manual lifecycle actions", () => {
   }
   assert.match(viewSource, /Requested draft changes/);
   assert.match(viewSource, /regenerateAdminAiGrowthDraft/);
-  assert.doesNotMatch(viewSource, /Copy full draft|Copy short variant|Copy disclosure line|Copy Walnut link|Copy posting checklist/);
+  assert.doesNotMatch(viewSource, /Copy primary post|Copy short version|Copy direct version|Copy hashtags\/cashtags|Copy Walnut link/);
+  assert.doesNotMatch(viewSource, /Copy full draft|Copy short variant|Copy disclosure line|Copy posting checklist/);
   assert.doesNotMatch(viewSource, /Copy X post text|Copy alternate hooks|Copy image\/chart caption/);
   assert.doesNotMatch(viewSource, /Copy Reddit post title|Copy Reddit post body|Copy Reddit comment reply|Copy disclosure text|Copy markdown/);
-  assert.doesNotMatch(viewSource, /Mark copied|Mark posted manually|Send\/re-send email to Jarod|Reject/);
+  assert.doesNotMatch(viewSource, /Email to Jarod|Mark copied|Mark posted manually|Send\/re-send email to Jarod/);
 });
 
 test("draft queue keeps source links visible without platform login clutter", () => {
@@ -57,12 +59,35 @@ test("draft queue keeps source links visible without platform login clutter", ()
     "Open Reddit thread",
     "Open Reddit comment",
     "Open source",
+    "Open article",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
-  assert.doesNotMatch(viewSource, /Login\/Open X|Open X compose|Login\/Open Reddit|Open Reddit submit|Open Walnut link/);
+  assert.doesNotMatch(viewSource, /Login\/Open X|Open X compose|Login\/Open Reddit|Open Reddit submit|Open Walnut link|Open Walnut URL/);
   assert.match(apiSource, /markAdminAiGrowthDraftPosted/);
   assert.doesNotMatch(apiSource, /auto-post|autopost|auto_post/);
+});
+
+test("Article-Reactive X campaign form exposes provider status and no FMP secret input", () => {
+  for (const label of [
+    "Article-Reactive X Campaigns",
+    "FMP Articles API",
+    "Source provider",
+    "Managed outside admin UI",
+    "Max drafts per day",
+    "Recipient email",
+    "Include image/card",
+    "Include Walnut link",
+    "Hashtag mode",
+    "CTA mode",
+    "Run now",
+  ]) {
+    assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
+  }
+  assert.match(viewSource, /campaign_type: "article_reactive_x"/);
+  assert.match(viewSource, /source_type: "fmp_articles"/);
+  assert.match(apiSource, /fmp_articles_status/);
+  assert.doesNotMatch(viewSource, /FMP API Key|FMP_API_KEY.*<input|type="password"/);
 });
 
 test("AI Growth API uses draft endpoints and asset metadata", () => {
@@ -78,11 +103,17 @@ test("AI Growth API uses draft endpoints and asset metadata", () => {
   assert.doesNotMatch(viewSource, /label: "Regeneration needed"/);
   assert.match(apiSource, /type AdminAiGrowthAsset/);
   assert.match(viewSource, /Open\/download asset/);
+  assert.match(viewSource, /break-all/);
+  assert.match(viewSource, /isAssetFileUrl/);
+  assert.match(viewSource, /isAssetImageUrl/);
 });
 
 test("X drafts expose the 280 character guardrail", () => {
   assert.match(viewSource, /xCharacterCount <= 280/);
   assert.match(viewSource, /\/280/);
+  assert.match(viewSource, /formatXDraftForDisplay/);
+  assert.match(viewSource, /#Markets/);
+  assert.match(viewSource, /bias disclosed/);
 });
 
 test("settings remain env-only for provider credentials", () => {

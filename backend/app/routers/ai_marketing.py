@@ -68,6 +68,7 @@ class CampaignPayload(BaseModel):
     query_templates: list[str] = Field(default_factory=list)
     minimum_relevance_score: int = Field(default=60, ge=0, le=100)
     max_items_per_run: int = Field(default=10, ge=1, le=50)
+    max_drafts_per_day: int = Field(default=1, ge=1, le=2)
     recency: str = Field(default="week", max_length=20)
     default_destination_page: str = Field(default="https://walnutmarkets.com", max_length=1000)
     include_disclosure: bool = True
@@ -97,6 +98,7 @@ class CampaignPatchPayload(BaseModel):
     query_templates: list[str] | None = None
     minimum_relevance_score: int | None = Field(default=None, ge=0, le=100)
     max_items_per_run: int | None = Field(default=None, ge=1, le=50)
+    max_drafts_per_day: int | None = Field(default=None, ge=1, le=2)
     recency: str | None = Field(default=None, max_length=20)
     default_destination_page: str | None = Field(default=None, max_length=1000)
     include_disclosure: bool | None = None

@@ -7,21 +7,36 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AiMarketingArticleCandidate,
     AiMarketingCampaign,
     AiMarketingEmailLog,
     AiMarketingOpportunity,
     AiMarketingSetting,
     AiMarketingSuggestion,
+    ConfirmationMonitoringEvent,
+    ConfirmationMonitoringSnapshot,
+    Event,
+    GovernmentContract,
+    GovernmentContractAction,
+    InstitutionalActivityEvent,
+    SavedScreen,
+    SavedScreenEvent,
+    SavedScreenSnapshot,
+    Security,
+    TickerMeta,
+    Watchlist,
+    WatchlistItem,
 )
 from app.services.email_delivery import send_email
 
@@ -37,6 +52,9 @@ X_POST_CHARACTER_LIMIT = 280
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
+FMP_API_KEY = "FMP_API_KEY"
+AI_GROWTH_ARTICLE_AUTOMATION_ENABLED = "AI_GROWTH_ARTICLE_AUTOMATION_ENABLED"
+AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS = "AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS"
 REDDIT_CLIENT_ID = "REDDIT_CLIENT_ID"
 REDDIT_CLIENT_SECRET = "REDDIT_CLIENT_SECRET"
 REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
@@ -59,6 +77,7 @@ GROWTH_CAMPAIGN_MODES = {
     "manual_research_input",
     "x_chart_drop",
     "reddit_research_thread",
+    "article_reactive_x",
 }
 CAMPAIGN_MODES = LEGACY_CAMPAIGN_MODES | GROWTH_CAMPAIGN_MODES
 PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "x", "facebook_manual", "facebook", "linkedin", "manual", "other"}
@@ -85,6 +104,7 @@ CAMPAIGN_TYPES = {
     "manual_research_input",
     "x_chart_drop",
     "reddit_research_thread",
+    "article_reactive_x",
     "legacy_outreach_campaign",
 }
 REPLY_ANGLES = {
@@ -97,10 +117,25 @@ REPLY_ANGLES = {
     "general_market_context",
     "other",
 }
+ARTICLE_REACTIVE_PROVIDER = "fmp_articles"
+ARTICLE_REACTIVE_CAMPAIGN_TYPE = "article_reactive_x"
+FMP_ARTICLES_URL = "https://financialmodelingprep.com/stable/fmp-articles"
+ARTICLE_RUN_DEFAULT_LIMIT = 20
+ARTICLE_DEDUPE_DAYS = 14
+ARTICLE_MIN_FINAL_SCORE = 58
+ARTICLE_RELEVANT_THEMES = {
+    "ai": ("ai", "artificial intelligence", "machine learning", "data center", "datacenter"),
+    "semiconductors": ("semiconductor", "chip", "hbm", "gpu", "wafer", "memory"),
+    "defense": ("defense", "pentagon", "dod", "missile", "aerospace"),
+    "energy": ("energy", "oil", "gas", "nuclear", "uranium", "solar", "power grid"),
+    "crypto": ("crypto", "bitcoin", "ethereum", "blockchain", "stablecoin"),
+    "macro": ("fed", "inflation", "rates", "treasury", "jobs report", "cpi", "ppi"),
+}
 AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "AI Growth suggestions"},
     AI_MARKETING_MODEL: {"label": "AI Growth Model", "is_secret": False, "required_for": "AI Growth suggestions"},
     OPENAI_WEB_SEARCH_ENABLED: {"label": "OpenAI Web Search", "is_secret": False, "required_for": "AI Growth web discovery"},
+    FMP_API_KEY: {"label": "FMP Articles API", "is_secret": True, "required_for": "Article-Reactive X campaigns"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
@@ -111,6 +146,7 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
         OPENAI_API_KEY,
         AI_MARKETING_MODEL,
         OPENAI_WEB_SEARCH_ENABLED,
+        FMP_API_KEY,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -395,6 +431,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
+    if not statuses[FMP_API_KEY]["configured"]:
+        warnings.append("FMP Articles API key missing")
     if any(status.get("deprecated_admin_setting") for status in statuses.values()) or _has_legacy_db_provider_setting(db):
         warnings.append("Deprecated DB-stored provider credentials detected; ignored.")
     if not statuses[REDDIT_CLIENT_ID]["configured"]:
@@ -414,6 +452,10 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     return {
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
         "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
+        "fmp_articles_configured": bool(statuses[FMP_API_KEY]["configured"]),
+        "fmp_articles_status": "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
+        "fmp_articles_missing": [] if statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],
+        "fmp_articles_provider": "FMP Articles",
         "reddit_configured": reddit_configured,
         "reddit_status": "configured" if reddit_configured else "missing",
         "reddit_missing": [
@@ -521,6 +563,7 @@ def _default_growth_title(campaign_type: str, ticker_theme: str | None = None) -
         "manual_research_input": "Manual Research Input",
         "x_chart_drop": "X Campaign",
         "reddit_research_thread": "Reddit Research Thread",
+        "article_reactive_x": "Article-Reactive X Campaign",
     }
     label = labels.get(campaign_type, "AI Growth Draft")
     theme = str(ticker_theme or "").strip()
@@ -574,11 +617,17 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
 
     minimum_relevance_score = _clamp_int(payload.get("minimum_relevance_score", 60), 0, 100)
     max_items_per_run = _clamp_int(payload.get("max_items_per_run", 10), 1, 50)
+    max_drafts_per_day = _clamp_int(payload.get("max_drafts_per_day", payload.get("max_items_per_run", 1)), 1, 2)
     recency = str(payload.get("recency") or "week").strip().lower()
     if recency not in CAMPAIGN_RECENCIES:
         recency = "week"
     campaign_type = _normalize_campaign_type(payload.get("campaign_type"), fallback_mode=mode)
     content_type = _normalize_content_type(payload.get("content_type"), campaign_type=campaign_type, platform=platforms[0] if platforms else None)
+    if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+        mode = ARTICLE_REACTIVE_CAMPAIGN_TYPE
+        platforms = ["x"]
+        content_type = "x_post"
+        max_items_per_run = min(max_items_per_run, 20)
     status = str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "paused")).strip().lower()
     if status not in {"active", "paused"}:
         status = "active" if bool(payload.get("enabled", True)) else "paused"
@@ -607,6 +656,7 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
         "query_templates": _normalized_query_templates(payload.get("query_templates")),
         "minimum_relevance_score": minimum_relevance_score,
         "max_items_per_run": max_items_per_run,
+        "max_drafts_per_day": max_drafts_per_day,
         "recency": recency,
         "default_destination_page": _walnut_url_or_default(str(payload.get("default_destination_page") or "")),
         "include_disclosure": bool(payload.get("include_disclosure", True)),
@@ -641,6 +691,7 @@ def create_campaign(db: Session, payload: dict[str, Any]) -> AiMarketingCampaign
         query_templates_json=_dump_list(normalized["query_templates"]),
         minimum_relevance_score=normalized["minimum_relevance_score"],
         max_items_per_run=normalized["max_items_per_run"],
+        max_drafts_per_day=normalized["max_drafts_per_day"],
         recency=normalized["recency"],
         default_destination_page=normalized["default_destination_page"],
         include_disclosure=normalized["include_disclosure"],
@@ -679,6 +730,7 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
     campaign.query_templates_json = _dump_list(normalized["query_templates"])
     campaign.minimum_relevance_score = normalized["minimum_relevance_score"]
     campaign.max_items_per_run = normalized["max_items_per_run"]
+    campaign.max_drafts_per_day = normalized["max_drafts_per_day"]
     campaign.recency = normalized["recency"]
     campaign.default_destination_page = normalized["default_destination_page"]
     campaign.include_disclosure = normalized["include_disclosure"]
@@ -722,6 +774,7 @@ def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
         "query_templates": _load_list(campaign.query_templates_json),
         "minimum_relevance_score": int(campaign.minimum_relevance_score or 0),
         "max_items_per_run": int(campaign.max_items_per_run or 0),
+        "max_drafts_per_day": int(getattr(campaign, "max_drafts_per_day", 1) or 1),
         "recency": campaign.recency or "week",
         "default_destination_page": campaign.default_destination_page or DEFAULT_DESTINATION_URL,
         "include_disclosure": bool(campaign.include_disclosure),
@@ -896,11 +949,748 @@ def _posting_links(opportunity: AiMarketingOpportunity, *, suggestion: AiMarketi
     return links
 
 
+def _article_provider_status(db: Session | None = None) -> dict[str, Any]:
+    configured = bool(resolved_setting_value(db, FMP_API_KEY))
+    return {
+        "provider": ARTICLE_REACTIVE_PROVIDER,
+        "label": "FMP Articles API",
+        "configured": configured,
+        "status": "configured" if configured else "missing",
+        "managed_by": "server_env",
+        "admin_message": "Managed outside the admin UI",
+    }
+
+
+def fetch_fmp_articles(db: Session | None = None, *, page: int = 0, limit: int = ARTICLE_RUN_DEFAULT_LIMIT) -> list[dict[str, Any]]:
+    api_key = resolved_setting_value(db, FMP_API_KEY)
+    if not api_key:
+        raise MissingMarketingCredential("FMP Articles API key missing. Configure FMP_API_KEY on the server.")
+    response = requests.get(
+        FMP_ARTICLES_URL,
+        params={"page": page, "limit": limit, "apikey": api_key},
+        timeout=25,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, dict):
+        for key in ("items", "articles", "data", "results"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return []
+    return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+
+def _parse_article_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    for candidate in (text_value, text_value.replace("Z", "+00:00")):
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text_value[: len(fmt)], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _article_value(article: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = article.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _extract_article_tickers(article: dict[str, Any]) -> list[str]:
+    raw_values: list[Any] = []
+    for key in ("tickers", "symbols", "symbol", "ticker", "stock", "stocks"):
+        value = article.get(key)
+        if isinstance(value, list):
+            raw_values.extend(value)
+        elif isinstance(value, str):
+            raw_values.extend(re.split(r"[\s,;|]+", value))
+    text = " ".join(
+        _article_value(article, key)
+        for key in ("title", "text", "content", "summary", "snippet", "description")
+    )
+    raw_values.extend(_matched_tickers(text, []))
+    return _normalized_tickers(raw_values)
+
+
+def _normalize_fmp_article(article: dict[str, Any]) -> dict[str, Any] | None:
+    title = _article_value(article, "title", "headline", "name")
+    url = _article_value(article, "url", "link", "articleUrl")
+    if not title or not url:
+        return None
+    published_at = _parse_article_datetime(
+        article.get("publishedDate")
+        or article.get("published_at")
+        or article.get("date")
+        or article.get("created_at")
+    )
+    site = _article_value(article, "site", "source", "publisher")
+    summary = _truncate(_article_value(article, "text", "summary", "snippet", "description"), 1500)
+    provider_article_id = _article_value(article, "id", "articleId", "uuid") or _dedupe_key(url)
+    dedupe_hash = _dedupe_key(provider_article_id or url or title)
+    return {
+        "provider": "fmp",
+        "provider_article_id": provider_article_id,
+        "title": title,
+        "url": url,
+        "site": site or None,
+        "published_at": published_at,
+        "tickers": _extract_article_tickers(article),
+        "image_url": _article_value(article, "image", "imageUrl", "thumbnail") or None,
+        "summary": summary,
+        "raw": article,
+        "dedupe_hash": dedupe_hash,
+    }
+
+
+def upsert_article_candidate(db: Session, normalized: dict[str, Any]) -> tuple[AiMarketingArticleCandidate, bool]:
+    now = datetime.now(timezone.utc)
+    existing = db.execute(
+        select(AiMarketingArticleCandidate).where(
+            AiMarketingArticleCandidate.provider == normalized["provider"],
+            AiMarketingArticleCandidate.dedupe_hash == normalized["dedupe_hash"],
+        )
+    ).scalar_one_or_none()
+    if existing:
+        existing.title = _truncate(normalized["title"], 500) or existing.title
+        existing.url = _truncate(normalized["url"], 1200) or existing.url
+        existing.site = _truncate(normalized.get("site"), 200)
+        existing.published_at = normalized.get("published_at")
+        existing.tickers_json = _dump_list(normalized.get("tickers") or [])
+        existing.image_url = _truncate(normalized.get("image_url"), 1200)
+        existing.summary = _truncate(normalized.get("summary"), 1500)
+        existing.raw_metadata_json = _dump_object(normalized.get("raw") or {})
+        existing.last_seen_at = now
+        db.commit()
+        db.refresh(existing)
+        return existing, False
+    candidate = AiMarketingArticleCandidate(
+        provider=normalized["provider"],
+        provider_article_id=_truncate(normalized.get("provider_article_id"), 240),
+        title=_truncate(normalized["title"], 500) or "Untitled article",
+        url=_truncate(normalized["url"], 1200) or DEFAULT_DESTINATION_URL,
+        site=_truncate(normalized.get("site"), 200),
+        published_at=normalized.get("published_at"),
+        tickers_json=_dump_list(normalized.get("tickers") or []),
+        image_url=_truncate(normalized.get("image_url"), 1200),
+        summary=_truncate(normalized.get("summary"), 1500),
+        raw_metadata_json=_dump_object(normalized.get("raw") or {}),
+        first_seen_at=now,
+        last_seen_at=now,
+        dedupe_hash=normalized["dedupe_hash"],
+    )
+    db.add(candidate)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.execute(
+            select(AiMarketingArticleCandidate).where(
+                AiMarketingArticleCandidate.provider == normalized["provider"],
+                AiMarketingArticleCandidate.dedupe_hash == normalized["dedupe_hash"],
+            )
+        ).scalar_one()
+        return existing, False
+    db.refresh(candidate)
+    return candidate, True
+
+
+def _event_count_for_ticker(db: Session, ticker: str, event_types: set[str], since: datetime) -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(Event)
+            .where(
+                func.upper(Event.symbol) == ticker.upper(),
+                Event.event_type.in_(sorted(event_types)),
+                func.coalesce(Event.event_date, Event.ts) >= since,
+            )
+        ).scalar()
+        or 0
+    )
+
+
+def _walnut_context_for_article(db: Session, candidate: AiMarketingArticleCandidate, tickers: list[str]) -> dict[str, Any]:
+    since = datetime.now(timezone.utc) - timedelta(days=90)
+    context: dict[str, Any] = {
+        "tickers": tickers,
+        "themes": _article_themes(candidate.title, candidate.summary),
+        "watchlists": [],
+        "saved_screens": [],
+        "confirmation": [],
+        "signals": [],
+        "congress_activity": [],
+        "insider_activity": [],
+        "institutional_activity": [],
+        "government_contracts": [],
+        "ticker_context": [],
+    }
+    for ticker in tickers[:8]:
+        watchlists = db.execute(
+            select(Watchlist.name)
+            .join(WatchlistItem, WatchlistItem.watchlist_id == Watchlist.id)
+            .join(Security, Security.id == WatchlistItem.security_id)
+            .where(func.upper(Security.symbol) == ticker.upper())
+            .limit(5)
+        ).scalars().all()
+        if watchlists:
+            context["watchlists"].append({"ticker": ticker, "names": list(watchlists)})
+
+        saved_screen_rows = db.execute(
+            select(SavedScreen.name)
+            .join(SavedScreenSnapshot, SavedScreenSnapshot.saved_screen_id == SavedScreen.id)
+            .where(func.upper(SavedScreenSnapshot.ticker) == ticker.upper())
+            .limit(5)
+        ).scalars().all()
+        if saved_screen_rows:
+            context["saved_screens"].append({"ticker": ticker, "names": list(saved_screen_rows)})
+
+        snapshots = db.execute(
+            select(ConfirmationMonitoringSnapshot)
+            .where(func.upper(ConfirmationMonitoringSnapshot.ticker) == ticker.upper())
+            .order_by(desc(ConfirmationMonitoringSnapshot.observed_at))
+            .limit(3)
+        ).scalars().all()
+        if snapshots:
+            context["confirmation"].append(
+                {
+                    "ticker": ticker,
+                    "latest": [
+                        {
+                            "score": row.score,
+                            "band": row.band,
+                            "direction": row.direction,
+                            "source_count": row.source_count,
+                        }
+                        for row in snapshots
+                    ],
+                }
+            )
+        confirmation_events = db.execute(
+            select(ConfirmationMonitoringEvent.event_type, ConfirmationMonitoringEvent.title)
+            .where(func.upper(ConfirmationMonitoringEvent.ticker) == ticker.upper(), ConfirmationMonitoringEvent.created_at >= since)
+            .order_by(desc(ConfirmationMonitoringEvent.created_at))
+            .limit(5)
+        ).all()
+        if confirmation_events:
+            context["signals"].append({"ticker": ticker, "events": [{"type": row[0], "title": row[1]} for row in confirmation_events]})
+
+        congress_count = _event_count_for_ticker(db, ticker, {"congress_trade", "congress_treasury_trade", "congress_crypto_trade"}, since)
+        if congress_count:
+            context["congress_activity"].append({"ticker": ticker, "recent_count": congress_count})
+
+        insider_count = _event_count_for_ticker(db, ticker, {"insider_trade"}, since)
+        if insider_count:
+            context["insider_activity"].append({"ticker": ticker, "recent_count": insider_count})
+
+        institutional_rows = db.execute(
+            select(InstitutionalActivityEvent.title, InstitutionalActivityEvent.direction, InstitutionalActivityEvent.materiality_score)
+            .where(func.upper(InstitutionalActivityEvent.normalized_symbol) == ticker.upper())
+            .order_by(desc(InstitutionalActivityEvent.filing_date))
+            .limit(3)
+        ).all()
+        if institutional_rows:
+            context["institutional_activity"].append(
+                {
+                    "ticker": ticker,
+                    "items": [
+                        {"title": row[0], "direction": row[1], "materiality_score": row[2]}
+                        for row in institutional_rows
+                    ],
+                }
+            )
+
+        contract_count = int(
+            db.execute(
+                select(func.count())
+                .select_from(GovernmentContract)
+                .where(func.upper(GovernmentContract.symbol) == ticker.upper(), GovernmentContract.award_date >= since.date())
+            ).scalar()
+            or 0
+        )
+        action_count = int(
+            db.execute(
+                select(func.count())
+                .select_from(GovernmentContractAction)
+                .where(func.upper(GovernmentContractAction.symbol) == ticker.upper(), GovernmentContractAction.action_date >= since.date())
+            ).scalar()
+            or 0
+        )
+        if contract_count or action_count:
+            context["government_contracts"].append({"ticker": ticker, "awards": contract_count, "actions": action_count})
+
+        meta = db.get(TickerMeta, ticker.upper())
+        if meta:
+            context["ticker_context"].append(
+                {
+                    "ticker": ticker,
+                    "company_name": meta.company_name,
+                    "sector": meta.sector,
+                    "industry": meta.industry,
+                }
+            )
+    return context
+
+
+def _article_themes(title: str | None, summary: str | None) -> list[str]:
+    text = f"{title or ''} {summary or ''}".lower()
+    return [theme for theme, terms in ARTICLE_RELEVANT_THEMES.items() if any(term in text for term in terms)]
+
+
+def score_article_candidate(
+    db: Session,
+    candidate: AiMarketingArticleCandidate,
+    *,
+    campaign: AiMarketingCampaign | None = None,
+) -> dict[str, Any]:
+    tickers = _normalized_tickers(_load_list(candidate.tickers_json) + _matched_tickers(f"{candidate.title} {candidate.summary or ''}", []))
+    context = _walnut_context_for_article(db, candidate, tickers)
+    now = datetime.now(timezone.utc)
+    age_hours = None
+    if candidate.published_at:
+        published = candidate.published_at if candidate.published_at.tzinfo else candidate.published_at.replace(tzinfo=timezone.utc)
+        age_hours = max(0.0, (now - published).total_seconds() / 3600)
+    freshness_score = 80 if age_hours is None else 100 if age_hours <= 12 else 85 if age_hours <= 24 else 65 if age_hours <= 72 else 25
+    campaign_tickers = set(_load_list(campaign.tickers_json) if campaign else [])
+    ticker_relevance_score = 70 if tickers else 15
+    if campaign_tickers and set(tickers) & campaign_tickers:
+        ticker_relevance_score = 95
+    walnut_signal_keys = [
+        "watchlists",
+        "saved_screens",
+        "confirmation",
+        "signals",
+        "congress_activity",
+        "insider_activity",
+        "institutional_activity",
+        "government_contracts",
+        "ticker_context",
+    ]
+    walnut_context_hits = sum(1 for key in walnut_signal_keys if context.get(key))
+    walnut_context_score = min(100, walnut_context_hits * 18)
+    theme_score = 25 if context["themes"] else 0
+    if context["themes"] and tickers:
+        theme_score = 55
+    news_relevance_score = max(theme_score, 60 if tickers else 20)
+    recent_duplicate = _recent_article_draft_exists(db, candidate, days=ARTICLE_DEDUPE_DAYS)
+    duplicate_risk_score = 100 if recent_duplicate else 0
+    promotional_risk_score = 35 if _looks_promotional(candidate.title, candidate.summary) else 10
+    uniqueness_score = 100 - duplicate_risk_score
+    audience_fit_score = min(100, 45 + walnut_context_score // 2 + theme_score // 2)
+    final_score = int(
+        freshness_score * 0.14
+        + ticker_relevance_score * 0.16
+        + walnut_context_score * 0.26
+        + news_relevance_score * 0.14
+        + uniqueness_score * 0.12
+        + audience_fit_score * 0.14
+        - duplicate_risk_score * 0.10
+        - promotional_risk_score * 0.04
+    )
+    clear_walnut_angle = walnut_context_hits > 0 or (bool(tickers) and bool(context["themes"]))
+    rejected_reasons: list[str] = []
+    if not tickers and not context["themes"]:
+        rejected_reasons.append("No ticker or Walnut-relevant theme detected.")
+    if not clear_walnut_angle:
+        rejected_reasons.append("No clear Walnut angle.")
+    if age_hours is not None and age_hours > 96:
+        rejected_reasons.append("Article is stale.")
+    if recent_duplicate:
+        rejected_reasons.append("Recent duplicate article draft exists.")
+    if promotional_risk_score >= 35:
+        rejected_reasons.append("Promotional/clickbait risk is elevated.")
+    if final_score < ARTICLE_MIN_FINAL_SCORE:
+        rejected_reasons.append("Score is below article-reactive threshold.")
+    return {
+        "freshness_score": int(freshness_score),
+        "ticker_relevance_score": int(ticker_relevance_score),
+        "walnut_context_score": int(walnut_context_score),
+        "news_relevance_score": int(news_relevance_score),
+        "uniqueness_score": int(uniqueness_score),
+        "audience_fit_score": int(audience_fit_score),
+        "duplicate_risk_score": int(duplicate_risk_score),
+        "promotional_risk_score": int(promotional_risk_score),
+        "final_score": max(0, min(100, final_score)),
+        "clear_walnut_angle": clear_walnut_angle,
+        "rejected": bool(rejected_reasons),
+        "rejected_reasons": _dedupe_strings(rejected_reasons),
+        "tickers": tickers,
+        "themes": context["themes"],
+        "walnut_context": context,
+    }
+
+
+def _looks_promotional(title: str | None, summary: str | None) -> bool:
+    text = f"{title or ''} {summary or ''}".lower()
+    return any(term in text for term in ("penny stock", "explode", "guaranteed", "load up", "millionaire", "secret stock"))
+
+
+def _recent_article_draft_exists(db: Session, candidate: AiMarketingArticleCandidate, *, days: int) -> bool:
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    source_id = f"fmp:{candidate.dedupe_hash}"
+    return bool(
+        db.execute(
+            select(AiMarketingOpportunity.id)
+            .where(
+                AiMarketingOpportunity.source_provider == ARTICLE_REACTIVE_PROVIDER,
+                AiMarketingOpportunity.source_id == source_id,
+                AiMarketingOpportunity.created_at >= since,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+
+
+def _article_card_asset(candidate: AiMarketingArticleCandidate, scoring: dict[str, Any]) -> dict[str, Any]:
+    tickers = scoring.get("tickers") or []
+    themes = scoring.get("themes") or []
+    title_subject = ", ".join([*(f"${ticker}" for ticker in tickers[:3]), *themes[:2]]) or "Market context"
+    bullets = _article_context_bullets(scoring)[:3]
+    card_url = _article_card_data_uri(title_subject, candidate.title, bullets)
+    return {
+        "title": f"Walnut reaction card: {title_subject}",
+        "asset_type": "image",
+        "url": card_url,
+        "thumbnail_url": card_url,
+        "suggested_caption": "Walnut-branded 16:9 article reaction card; generate from draft metadata, not article thumbnail.",
+        "source_data_notes": "Source: FMP / linked article. Do not reuse article thumbnails unless redistribution is explicitly allowed.",
+        "card": {
+            "title": title_subject,
+            "subtitle": candidate.title,
+            "bullets": bullets,
+            "footer": "Source: FMP / linked article",
+            "brand": "Walnut Markets",
+            "ratio": "16:9",
+        },
+    }
+
+
+def _article_card_data_uri(title: str, subtitle: str, bullets: list[str]) -> str:
+    safe_title = html.escape(_truncate(title, 72) or "Market context")
+    safe_subtitle = html.escape(_truncate(subtitle, 120) or "Article reaction")
+    bullet_lines = bullets[:3] or ["Walnut context required before posting"]
+    bullet_markup = "".join(
+        f"<text x=\"86\" y=\"{302 + index * 54}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\">- {html.escape(_truncate(bullet, 82) or '')}</text>"
+        for index, bullet in enumerate(bullet_lines)
+    )
+    svg = (
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1600\" height=\"900\" viewBox=\"0 0 1600 900\">"
+        "<rect width=\"1600\" height=\"900\" fill=\"#061417\"/>"
+        "<rect x=\"56\" y=\"56\" width=\"1488\" height=\"788\" rx=\"18\" fill=\"#0b1f22\" stroke=\"#1f6f55\" stroke-width=\"3\"/>"
+        "<text x=\"84\" y=\"126\" fill=\"#22c55e\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
+        f"<text x=\"84\" y=\"220\" fill=\"#f8fafc\" font-size=\"58\" font-family=\"Arial\" font-weight=\"700\">{safe_title}</text>"
+        f"<text x=\"86\" y=\"262\" fill=\"#94a3b8\" font-size=\"25\" font-family=\"Arial\">{safe_subtitle}</text>"
+        f"{bullet_markup}"
+        "<text x=\"86\" y=\"790\" fill=\"#64748b\" font-size=\"24\" font-family=\"Arial\">Source: FMP / linked article - human review required</text>"
+        "</svg>"
+    )
+    return "data:image/svg+xml;charset=utf-8," + quote(svg, safe=":/,;=+-_.'()#")
+
+
+def _article_context_bullets(scoring: dict[str, Any]) -> list[str]:
+    context = scoring.get("walnut_context") or {}
+    bullets: list[str] = []
+    if context.get("signals") or context.get("confirmation"):
+        bullets.append("Signal and confirmation context available")
+    if context.get("congress_activity"):
+        bullets.append("Recent Congress disclosure activity to cross-check")
+    if context.get("insider_activity"):
+        bullets.append("Recent insider disclosure activity to cross-check")
+    if context.get("institutional_activity"):
+        bullets.append("Reported institutional activity adds a filing-date lens")
+    if context.get("government_contracts"):
+        bullets.append("Government contract activity adds policy/procurement context")
+    if context.get("watchlists") or context.get("saved_screens"):
+        bullets.append("Ticker appears in Walnut watchlists or saved screens")
+    if not bullets and context.get("themes"):
+        bullets.append(f"Theme: {', '.join(context['themes'][:2])}")
+    return bullets or ["Clear market hook", "Walnut context required before posting"]
+
+
+def _article_candidate_to_source_item(
+    candidate: AiMarketingArticleCandidate,
+    scoring: dict[str, Any],
+    campaign: AiMarketingCampaign,
+) -> SourceItem:
+    tickers = scoring.get("tickers") or []
+    themes = scoring.get("themes") or []
+    destination = recommended_destination_url(
+        mode=ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+        platform="x",
+        campaign_id=campaign.id,
+        tickers=tickers,
+        fallback=campaign.default_destination_page or DEFAULT_DESTINATION_URL,
+    )
+    ticker_theme = ", ".join([*(f"${ticker}" for ticker in tickers[:4]), *themes[:3]]) or "Market article"
+    compliance = "Human review required. No investment advice, no buy/sell recommendations, no article thumbnail reuse."
+    metadata = {
+        "article_reactive": True,
+        "article_candidate_id": candidate.id,
+        "provider": "fmp",
+        "article_title": candidate.title,
+        "article_source": candidate.site,
+        "article_url": candidate.url,
+        "article_published_at": _iso(candidate.published_at),
+        "article_tickers": tickers,
+        "themes": themes,
+        "walnut_context": scoring.get("walnut_context") or {},
+        "scoring": {key: value for key, value in scoring.items() if key.endswith("_score") or key in {"clear_walnut_angle", "rejected_reasons"}},
+        "suggested_destination_url": destination,
+        "email_recipient": campaign.recipient_email or ai_growth_recipient(),
+    }
+    return SourceItem(
+        platform="x",
+        source_id=f"fmp:{candidate.dedupe_hash}",
+        source_url=candidate.url,
+        title=f"Article-Reactive X: {candidate.title}",
+        source_provider=ARTICLE_REACTIVE_PROVIDER,
+        campaign_type=ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+        content_type="x_post",
+        source_platform="x",
+        ticker_theme=ticker_theme,
+        recommended_action="draft_post",
+        fit_score=int(scoring["final_score"]),
+        assets=[_article_card_asset(candidate, scoring)] if _article_campaign_pref(campaign, "include_image_card", True) else [],
+        excerpt=candidate.summary,
+        source_created_at=candidate.published_at,
+        metadata=metadata,
+        generated_content=None,
+        alternate_versions={
+            "short_version": "",
+            "more_direct_version": "",
+            "copy_hashtags_cashtags": " ".join([*(f"${ticker}" for ticker in tickers[:4]), *(f"#{theme.replace(' ', '')}" for theme in themes[:2])]),
+        },
+    )
+
+
+def _article_campaign_pref(campaign: AiMarketingCampaign, key: str, default: Any) -> Any:
+    prefs = _load_object(campaign.output_preferences_json)
+    if key in prefs:
+        return prefs[key]
+    return default
+
+
+def _article_daily_count(db: Session, campaign: AiMarketingCampaign) -> int:
+    start = _campaign_today_start_utc(campaign)
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(AiMarketingOpportunity)
+            .where(
+                AiMarketingOpportunity.campaign_id == campaign.id,
+                AiMarketingOpportunity.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+                AiMarketingOpportunity.created_at >= start,
+            )
+        ).scalar()
+        or 0
+    )
+
+
+def _article_env_daily_cap() -> int:
+    raw = os.getenv(AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS, "").strip()
+    if not raw:
+        return 2
+    return _clamp_int(raw, 1, 2)
+
+
+def _campaign_today_start_utc(campaign: AiMarketingCampaign) -> datetime:
+    tz_name = campaign.timezone or "America/Los_Angeles"
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Los_Angeles")
+    local_now = datetime.now(tz)
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_start.astimezone(timezone.utc)
+
+
+def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *, send_email_on_create: bool = True) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": "ok",
+        "articles_fetched": 0,
+        "articles_considered": 0,
+        "articles_rejected": 0,
+        "drafts_generated": 0,
+        "emails_sent": 0,
+        "errors": [],
+        "warnings": [],
+        "created": 0,
+        "deduped": 0,
+        "suggested": 0,
+        "opportunities": [],
+    }
+    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
+        summary["status"] = "paused"
+        summary["warnings"].append("Campaign is disabled; no article run was performed.")
+        return summary
+    if not resolved_setting_value(db, FMP_API_KEY):
+        summary["status"] = "configuration_failed"
+        summary["errors"].append("FMP Articles API key missing. Configure FMP_API_KEY on the server.")
+        campaign.last_run_at = datetime.now(timezone.utc)
+        db.commit()
+        return summary
+    try:
+        articles = fetch_fmp_articles(db, page=0, limit=min(max(int(campaign.max_items_per_run or 20), 1), 50))
+    except MissingMarketingCredential as exc:
+        summary["status"] = "configuration_failed"
+        summary["errors"].append(str(exc))
+        campaign.last_run_at = datetime.now(timezone.utc)
+        db.commit()
+        return summary
+    except Exception:
+        logger.exception("ai_growth_article_fmp_fetch_failed campaign_id=%s", campaign.id)
+        summary["status"] = "provider_failed"
+        summary["errors"].append("FMP Articles API request failed.")
+        campaign.last_run_at = datetime.now(timezone.utc)
+        db.commit()
+        return summary
+
+    summary["articles_fetched"] = len(articles)
+    candidates: list[tuple[AiMarketingArticleCandidate, bool, dict[str, Any]]] = []
+    for raw_article in articles:
+        normalized = _normalize_fmp_article(raw_article)
+        if not normalized:
+            summary["articles_rejected"] += 1
+            continue
+        candidate, was_created = upsert_article_candidate(db, normalized)
+        scoring = score_article_candidate(db, candidate, campaign=campaign)
+        candidates.append((candidate, was_created, scoring))
+    summary["articles_considered"] = len(candidates)
+    ranked = sorted(candidates, key=lambda item: item[2]["final_score"], reverse=True)
+    max_daily = min(_article_env_daily_cap(), max(1, int(getattr(campaign, "max_drafts_per_day", 1) or 1)))
+    remaining = max(0, max_daily - _article_daily_count(db, campaign))
+    selected: list[AiMarketingOpportunity] = []
+    for candidate, was_created, scoring in ranked:
+        if remaining <= 0:
+            break
+        if scoring["rejected"]:
+            summary["articles_rejected"] += 1
+            continue
+        source_item = _article_candidate_to_source_item(candidate, scoring, campaign)
+        opportunity, opportunity_created = upsert_source_item(db, campaign, source_item)
+        opportunity.relevance_score = int(scoring["final_score"])
+        opportunity.fit_score = int(scoring["final_score"])
+        opportunity.spam_risk_score = int(scoring["promotional_risk_score"])
+        opportunity.quality_scores_json = _dump_object({key: value for key, value in scoring.items() if key.endswith("_score")})
+        opportunity.source_notes_json = _dump_json_list(_article_context_bullets(scoring))
+        opportunity.compliance_notes = "No auto-posting. Review for investment advice, unsupported claims, and article-image licensing."
+        db.commit()
+        db.refresh(opportunity)
+        if opportunity_created:
+            summary["created"] += 1
+        else:
+            summary["deduped"] += 1
+        if resolved_setting_value(db, OPENAI_API_KEY):
+            try:
+                generate_suggestion(db, opportunity, campaign=campaign)
+                summary["suggested"] += 1
+            except OpenAISuggestionError as exc:
+                summary["warnings"].append(f"Suggestion generation failed for draft {opportunity.id}: {exc.admin_message}")
+            except Exception:
+                logger.exception("ai_growth_article_suggestion_failed opportunity_id=%s", opportunity.id)
+                summary["warnings"].append(f"Suggestion generation failed for draft {opportunity.id}.")
+        else:
+            summary["warnings"].append("OpenAI API key missing; article draft saved without generated copy.")
+            _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
+        latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+        if send_email_on_create and opportunity_created:
+            try:
+                send_draft_email(db, opportunity)
+                summary["emails_sent"] += 1
+                latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+            except Exception:
+                logger.exception("ai_growth_article_email_failed opportunity_id=%s", opportunity.id)
+                summary["warnings"].append(f"Email failed for draft {opportunity.id}.")
+        selected.append(opportunity)
+        remaining -= 1
+
+    summary["drafts_generated"] = len(selected)
+    latest = latest_suggestions_by_opportunity(db, [row.id for row in selected])
+    summary["opportunities"] = [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in selected]
+    if not selected and not summary["errors"]:
+        summary["status"] = "no_clear_angle"
+        summary["warnings"].append("No article had a clear Walnut angle after scoring.")
+    campaign.last_run_at = datetime.now(timezone.utc)
+    db.commit()
+    return summary
+
+
+def article_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None = None) -> bool:
+    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
+        return False
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) != ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+        return False
+    tz_name = campaign.timezone or "America/Los_Angeles"
+    try:
+        tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("America/Los_Angeles")
+    local_now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    if campaign.weekdays_only and local_now.weekday() >= 5:
+        return False
+    if campaign.last_run_at:
+        last_local = (campaign.last_run_at if campaign.last_run_at.tzinfo else campaign.last_run_at.replace(tzinfo=timezone.utc)).astimezone(tz)
+        if last_local.date() == local_now.date():
+            return False
+    run_time = str(campaign.run_time or "07:30").strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", run_time)
+    if match:
+        hour = max(0, min(23, int(match.group(1))))
+        minute = max(0, min(59, int(match.group(2))))
+        if local_now.time() < datetime.combine(date.today(), datetime.min.time()).replace(hour=hour, minute=minute).time():
+            return False
+    return True
+
+
+def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    campaigns = db.execute(
+        select(AiMarketingCampaign).where(
+            AiMarketingCampaign.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+            AiMarketingCampaign.enabled == True,  # noqa: E712
+        )
+    ).scalars().all()
+    results: list[dict[str, Any]] = []
+    for campaign in campaigns:
+        due = force or article_campaign_due(campaign)
+        if not due:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "not_due"})
+            continue
+        if dry_run:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "due_dry_run"})
+            continue
+        result = run_article_reactive_campaign(db, campaign)
+        result["campaign_id"] = campaign.id
+        result["campaign_name"] = campaign.name
+        results.append(result)
+    return {
+        "campaigns_checked": len(campaigns),
+        "campaigns_run": sum(1 for item in results if item.get("drafts_generated") is not None),
+        "dry_run": dry_run,
+        "items": results,
+    }
+
+
 def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     warnings: list[str] = []
     if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
         warnings.append("Campaign is disabled; no discovery run was performed.")
         return {"created": 0, "deduped": 0, "suggested": 0, "warnings": warnings, "opportunities": []}
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+        return run_article_reactive_campaign(db, campaign)
 
     items: list[SourceItem] = []
     platforms = set(_load_list(campaign.platforms_json))
@@ -979,6 +1769,8 @@ def upsert_source_item(
     campaign_tickers = _load_list(campaign.tickers_json) if campaign else []
     matched_keywords = _matched_keywords(text_for_matching, campaign_keywords)
     matched_tickers = _matched_tickers(text_for_matching, campaign_tickers)
+    metadata_tickers = _normalized_tickers((item.metadata or {}).get("article_tickers") if item.metadata else [])
+    matched_tickers = _dedupe_strings([*matched_tickers, *metadata_tickers])
     source_dedupe_key = _dedupe_key(item.source_id or item.source_url)
     now = datetime.now(timezone.utc)
     fallback_mode = campaign.mode if campaign else None
@@ -1327,6 +2119,15 @@ def generate_suggestion(
                                 "desired_output_type": opportunity_metadata.get("desired_output_type"),
                                 "change_request": opportunity_metadata.get("change_request"),
                                 "change_requests": opportunity_metadata.get("change_requests"),
+                                "article_reactive": opportunity_metadata.get("article_reactive"),
+                                "article_title": opportunity_metadata.get("article_title"),
+                                "article_source": opportunity_metadata.get("article_source"),
+                                "article_url": opportunity_metadata.get("article_url"),
+                                "article_published_at": opportunity_metadata.get("article_published_at"),
+                                "article_tickers": opportunity_metadata.get("article_tickers"),
+                                "themes": opportunity_metadata.get("themes"),
+                                "walnut_context": opportunity_metadata.get("walnut_context"),
+                                "scoring": opportunity_metadata.get("scoring"),
                             },
                             "assets": _load_json_list(opportunity.asset_refs_json),
                         },
@@ -2033,6 +2834,11 @@ def _digest_opportunities(
 def _growth_email_subject(opportunities: list[AiMarketingOpportunity], latest: dict[int, AiMarketingSuggestion]) -> str:
     count = len(opportunities)
     if count == 1 and opportunities:
+        if opportunities[0].campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+            metadata = _load_object(opportunities[0].raw_metadata_json)
+            tickers = _load_list(opportunities[0].matched_tickers_json)
+            theme = ", ".join([*(f"${ticker}" for ticker in tickers[:2]), *(_coerce_json_list(metadata.get("themes"))[:2])])
+            return f"Walnut AI Growth: Article-reactive X draft ready - {theme or 'market theme'}"
         content_type = _normalize_content_type(opportunities[0].content_type, campaign_type=opportunities[0].campaign_type, platform=opportunities[0].platform)
         labels = {
             "x_post": "X campaign draft",
@@ -2155,6 +2961,9 @@ def _digest_context(
         reason = (suggestion.short_reason if suggestion else opportunity.short_reason) or "No reasoning summary available."
         snippet = opportunity.excerpt or "none"
         query = str(metadata.get("query") or "manual").strip() or "manual"
+        article_title = str(metadata.get("article_title") or "").strip()
+        article_source = str(metadata.get("article_source") or opportunity.source_provider or "").strip()
+        article_url = str(metadata.get("article_url") or opportunity.source_url or "").strip()
         needs_manual_review = bool(metadata.get("needs_manual_review")) or (
             opportunity.source_provider == WEB_SEARCH_REDDIT_SOURCE_PROVIDER
             and len(opportunity.excerpt or "") < SHORT_SEARCH_SNIPPET_THRESHOLD
@@ -2178,6 +2987,10 @@ def _digest_context(
         compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required. No auto-posting."
         assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
         posting_links = _posting_links(opportunity, suggestion=suggestion)
+        alternate_versions = _load_object(opportunity.alternate_versions_json)
+        short_version = str(alternate_versions.get("short_version") or "").strip()
+        direct_version = str(alternate_versions.get("more_direct_version") or alternate_versions.get("alternate_reply_more_direct") or "").strip()
+        hashtag_block = str(alternate_versions.get("copy_hashtags_cashtags") or "").strip()
         admin_url = _draft_admin_url(opportunity.id)
         destination_html = (
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut link</a></p>"
@@ -2211,8 +3024,13 @@ def _digest_context(
                     f"Spam/compliance risk score: {spam if spam is not None else 'pending'}",
                     quality_text,
                     f"Source URL: {opportunity.source_url}",
+                    f"Article title: {article_title or opportunity.title}",
+                    f"Article source: {article_source or 'unknown'}",
+                    f"Article URL: {article_url or opportunity.source_url}",
                     f"Suggested destination URL: {destination or 'none'}",
                     f"Open in Walnut Admin: {admin_url}",
+                    f"Open X: {posting_links.get('open_x') or 'none'}",
+                    f"Open X Compose: {posting_links.get('open_x_compose') or 'none'}",
                     f"Snippet: {snippet}",
                     f"Search query: {query}",
                     f"Matched ticker/keywords: {tickers} / {keywords}",
@@ -2220,6 +3038,9 @@ def _digest_context(
                     f"Content angle: {angle}",
                     "Draft content:",
                     draft_content,
+                    f"Short version: {short_version or 'none'}",
+                    f"Direct version: {direct_version or 'none'}",
+                    f"Suggested hashtags/cashtags: {hashtag_block or tickers}",
                     "Copy-ready markdown:",
                     opportunity.full_markdown or draft_content,
                     f"Disclosure reminder: {disclosure or _default_disclosure_reminder(source_platform, draft_content)}",
@@ -2241,6 +3062,9 @@ def _digest_context(
             f"{quality_html}"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(opportunity.source_url, quote=True)}\">Open source post</a></p>"
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(admin_url, quote=True)}\">Open in Walnut Admin</a></p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\">Article source: {html.escape(article_source or 'unknown')}</p>"
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(article_url or opportunity.source_url, quote=True)}\">Open article</a></p>"
+            f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(str(posting_links.get('open_x') or 'https://x.com/home'), quote=True)}\">Open X</a> | <a href=\"{html.escape(str(posting_links.get('open_x_compose') or 'https://x.com/compose/post'), quote=True)}\">Open X Compose</a></p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Snippet: {html.escape(snippet)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Search query: {html.escape(query)}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Matched ticker/keywords: {html.escape(tickers)} / {html.escape(keywords)}</p>"
@@ -2248,6 +3072,8 @@ def _digest_context(
             f"{manual_review_html}"
             f"{destination_html}"
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(draft_content)}</pre>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Alternate versions:</strong> short={html.escape(short_version or 'none')} | direct={html.escape(direct_version or 'none')}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Hashtags/cashtags:</strong> {html.escape(hashtag_block or tickers)}</p>"
             f"<p style=\"margin:0 0 6px 0;color:#334155;\"><strong>Copy-ready markdown</strong></p>"
             f"<pre style=\"white-space:pre-wrap;margin:6px 0 10px 0;padding:12px;background:#0b1120;color:#d1fae5;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(opportunity.full_markdown or draft_content)}</pre>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Disclosure reminder:</strong> {html.escape(disclosure or _default_disclosure_reminder(source_platform, draft_content))}</p>"
@@ -2280,7 +3106,14 @@ def _suggestion_system_prompt() -> str:
         "For skip, suggested_reply should be exactly or very close to: 'Skip - not relevant enough.' "
         "For monitor, explain what would make the thread worth replying to later. "
         "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
-        f"For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and disclosure. "
+        "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
+        "Draft a market-native X post with a news hook, why it matters, Walnut-native context from opportunity.metadata.walnut_context, "
+        "and no or soft CTA depending on campaign preferences. Prefer cashtags over hashtags and use no more than two hashtags. "
+        "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
+        "Do not reuse article thumbnails; any image/card should be Walnut-branded original card metadata with source attribution. "
+        f"For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
+        "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
+        "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
         "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
         "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure stack, "
         "Technical picture, Fundamental picture, Recent news / filings / press releases, Catalysts, Bull case, Bear case / risks, "
@@ -2301,7 +3134,7 @@ def _suggestion_system_prompt() -> str:
         "Use reported/disclosed/filed/filing-date language for Congress, insider, and institutional disclosure data. "
         "For 13F or institutional activity, never imply live buying or exact trade dates; say reported holdings/activity, quarter-end holdings, and filing date context. "
         "Do not imply endorsement by Reddit, X, Facebook, Congress, SEC, or any data provider. "
-        "If organic X or Reddit content mentions Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
+        "If organic Reddit content mentions Walnut, disclose affiliation naturally, for example: \"I'm building Walnut, so obvious bias...\" "
         "Do not make investment advice claims, tell users to buy, sell, or short a security, guarantee returns, or use hype like 'about to explode'. "
         "Prefer educational language such as \"this may be useful\", \"you can cross-check\", and \"one way to look at it\". "
         "Include at most one Walnut link unless the thread clearly needs more. Never use spammy CTA language. "
@@ -2527,8 +3360,11 @@ def _normalize_suggestion_payload(
     else:
         suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
         alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
-        suggested_post = _ensure_walnut_affiliation_disclosure(suggested_post) if content_type in {"x_post", "reddit_thread"} else suggested_post
+        suggested_post = _ensure_walnut_affiliation_disclosure(suggested_post) if content_type == "reddit_thread" else suggested_post
     if content_type == "x_post":
+        disclosure_text = ""
+        suggested_post = _ensure_x_hashtags(_strip_x_self_disclosure(suggested_post), detected_tickers)
+        alternate_hooks = [_ensure_x_hashtags(_strip_x_self_disclosure(item), detected_tickers) for item in alternate_hooks]
         suggested_post = _fit_x_post_text(suggested_post)
         alternate_hooks = [_fit_x_post_text(item) for item in alternate_hooks]
     content_values = [suggested_reply, alternate_reply, suggested_post, *ad_variants]
@@ -2566,6 +3402,9 @@ def _normalize_suggestion_payload(
     alternate_versions = {
         "alternate_reply_more_direct": alternate_reply,
         "alternate_hooks": [item for item in alternate_hooks if item],
+        "short_version": alternate_hooks[0] if alternate_hooks else "",
+        "more_direct_version": alternate_reply or (alternate_hooks[1] if len(alternate_hooks) > 1 else ""),
+        "copy_hashtags_cashtags": " ".join([*(f"${ticker}" for ticker in detected_tickers[:4])]),
         "title_options": [item for item in title_options if item],
         "suggested_ad_variants": [item for item in ad_variants if item],
         "disclosure_text": disclosure_text,
@@ -3061,13 +3900,20 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
-        asset_url = _truncate(str(raw.get("url") or raw.get("path") or raw.get("reference") or "").strip(), 1200) or ""
-        thumbnail_url = _truncate(str(raw.get("thumbnail_url") or "").strip(), 1200) or ""
-        if not asset_url and not thumbnail_url:
-            continue
+        raw_asset_url = str(raw.get("url") or raw.get("path") or raw.get("reference") or "").strip()
+        raw_thumbnail_url = str(raw.get("thumbnail_url") or "").strip()
+        asset_url = _truncate(raw_asset_url, 4000 if raw_asset_url.startswith("data:image/") else 1200) or ""
+        thumbnail_url = _truncate(raw_thumbnail_url, 4000 if raw_thumbnail_url.startswith("data:image/") else 1200) or ""
         asset_type = str(raw.get("asset_type") or "image").strip().lower()
         if asset_type not in allowed_types:
             asset_type = "image"
+        if asset_type in {"image", "chart", "screenshot"}:
+            if asset_url and not _is_media_asset_url(asset_url):
+                asset_url = ""
+            if thumbnail_url and not _is_media_asset_url(thumbnail_url):
+                thumbnail_url = ""
+        if not asset_url and not thumbnail_url:
+            continue
         title = _truncate(str(raw.get("title") or asset_type.title()).strip(), 200) or asset_type.title()
         assets.append(
             {
@@ -3080,6 +3926,18 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
             }
         )
     return assets[:10]
+
+
+def _is_media_asset_url(value: str | None) -> bool:
+    url = str(value or "").strip()
+    if not url:
+        return False
+    lower = url.split("?", 1)[0].lower()
+    if lower.startswith("data:image/") or lower.startswith("blob:"):
+        return True
+    media_extensions = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
+    document_extensions = (".pdf", ".csv")
+    return lower.endswith(media_extensions + document_extensions)
 
 
 def _render_search_query_template(template: str, *, subreddit: str, keyword: str, ticker: str, term: str) -> str:
@@ -3226,17 +4084,48 @@ def _truncate(value: str | None, limit: int) -> str | None:
     return cleaned[: limit - 1].rstrip() + "..."
 
 
-def _fit_x_post_text(value: str | None) -> str:
+def _strip_x_self_disclosure(value: str | None) -> str:
     cleaned = re.sub(r"\s+", " ", str(value or "").strip())
-    if len(cleaned) <= X_POST_CHARACTER_LIMIT:
+    if not cleaned:
+        return ""
+    patterns = (
+        r"^(?:i'm|i am)\s+building\s+walnut,\s*so\s+obvious\s+bias,\s*but\s+",
+        r"^(?:bias disclosed:\s*)?(?:i'm|i am)\s+building\s+walnut(?:[^:\.\n]*[:\.])\s*",
+        r"^bias disclosed:\s*",
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE).strip()
+    return cleaned
+
+
+def _ensure_x_hashtags(value: str | None, tickers: list[str]) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if not cleaned or re.search(r"#[A-Za-z0-9_]+", cleaned):
+        return cleaned
+    tags = [f"#{ticker.upper()}" for ticker in tickers[:2] if ticker]
+    tags.append("#Markets")
+    tags = _dedupe_strings(tags)
+    for count in range(len(tags), 0, -1):
+        suffix = " " + " ".join(tags[:count])
+        body_limit = max(40, X_POST_CHARACTER_LIMIT - len(suffix))
+        candidate = f"{_fit_x_post_text(cleaned, limit=body_limit)}{suffix}"
+        if len(candidate) <= X_POST_CHARACTER_LIMIT:
+            return candidate
+    return _fit_x_post_text(cleaned)
+
+
+def _fit_x_post_text(value: str | None, *, limit: int = X_POST_CHARACTER_LIMIT) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    bounded_limit = max(4, min(limit, X_POST_CHARACTER_LIMIT))
+    if len(cleaned) <= bounded_limit:
         return cleaned
     suffix = "..."
-    max_body = X_POST_CHARACTER_LIMIT - len(suffix)
+    max_body = bounded_limit - len(suffix)
     trimmed = cleaned[:max_body].rstrip()
     word_boundary = trimmed.rsplit(" ", 1)[0].rstrip(" ,;:-") if " " in trimmed else trimmed
-    if len(word_boundary) >= 160:
+    if len(word_boundary) >= min(160, max_body):
         trimmed = word_boundary
-    return f"{trimmed.rstrip(' ,;:-')}{suffix}"[:X_POST_CHARACTER_LIMIT]
+    return f"{trimmed.rstrip(' ,;:-')}{suffix}"[:bounded_limit]
 
 
 def _iso(value: datetime | None) -> str | None:

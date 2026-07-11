@@ -5,12 +5,14 @@ import type { ReactNode } from "react";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
+  createAdminAiMarketingCampaign,
   createAdminAiGrowthDraft,
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
   regenerateAdminAiGrowthDraft,
   rejectAdminAiGrowthDraft,
+  runAdminAiMarketingCampaign,
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
   updateAdminAiGrowthDraftStatus,
@@ -31,6 +33,7 @@ type TabKey =
   | "dashboard"
   | "drafts"
   | "assets"
+  | "article_reactive_x"
   | "x_campaigns"
   | "reddit_threads"
   | "settings";
@@ -54,6 +57,7 @@ const DRAFT_QUEUE_STATUSES: AdminAiMarketingStatus[] = [
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
+  { key: "article_reactive_x", label: "Article-Reactive X" },
   { key: "x_campaigns", label: "X Campaigns" },
   { key: "reddit_threads", label: "Reddit Research Threads" },
   { key: "drafts", label: "Draft Queue" },
@@ -74,6 +78,7 @@ const SETTING_KEYS = [
   "OPENAI_API_KEY",
   "AI_MARKETING_MODEL",
   "OPENAI_WEB_SEARCH_ENABLED",
+  "FMP_API_KEY",
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
@@ -105,6 +110,23 @@ function emptyXForm() {
   };
 }
 
+function emptyArticleCampaignForm() {
+  return {
+    name: "Daily Article-Reactive X Campaign",
+    status: "active",
+    schedule: "weekdays",
+    run_time: "07:35",
+    timezone: "America/Los_Angeles",
+    max_drafts_per_day: "1",
+    recipient_email: "jarod@walnutmarkets.com",
+    include_image_card: true,
+    include_walnut_link: true,
+    tone: "market-native",
+    hashtag_mode: "ticker/theme only",
+    cta_mode: "soft",
+  };
+}
+
 function emptyRedditThreadForm() {
   return {
     subreddit: "",
@@ -130,6 +152,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     reddit: null,
   });
   const [manualForm, setManualForm] = useState(() => emptyManualForm());
+  const [articleForm, setArticleForm] = useState(() => emptyArticleCampaignForm());
   const [xForm, setXForm] = useState(() => emptyXForm());
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
   const [changeRequests, setChangeRequests] = useState<Record<number, string>>({});
@@ -302,6 +325,71 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const submitArticleCampaign = async () => {
+    setBusy("article_campaign");
+    try {
+      const maxDrafts = Math.max(1, Math.min(2, Number(articleForm.max_drafts_per_day) || 1));
+      const campaign = await createAdminAiMarketingCampaign({
+        name: articleForm.name.trim() || "Article-Reactive X Campaign",
+        enabled: articleForm.status === "active",
+        status: articleForm.status,
+        mode: "article_reactive_x",
+        campaign_type: "article_reactive_x",
+        content_type: "x_post",
+        schedule_config: { cadence: "daily", weekdays_only: articleForm.schedule === "weekdays" },
+        weekdays_only: articleForm.schedule === "weekdays",
+        run_time: articleForm.run_time,
+        timezone: articleForm.timezone,
+        recipient_email: articleForm.recipient_email,
+        source_type: "fmp_articles",
+        source_reference_id: null,
+        filters: {},
+        output_preferences: {
+          include_image_card: articleForm.include_image_card,
+          include_walnut_link: articleForm.include_walnut_link,
+          tone: articleForm.tone,
+          hashtag_mode: articleForm.hashtag_mode,
+          cta_mode: articleForm.cta_mode,
+        },
+        platforms: ["x"],
+        keywords: [],
+        tickers: [],
+        subreddits: [],
+        query_templates: [],
+        minimum_relevance_score: 58,
+        max_items_per_run: 20,
+        max_drafts_per_day: maxDrafts,
+        recency: "day",
+        default_destination_page: "https://walnutmarkets.com",
+        include_disclosure: true,
+        scheduled_digest_enabled: false,
+      });
+      setCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
+      notify("Article-Reactive X campaign saved.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to save article campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runCampaignNow = async (campaign: AdminAiMarketingCampaign) => {
+    setBusy(`run-campaign:${campaign.id}`);
+    try {
+      const result = await runAdminAiMarketingCampaign(campaign.id);
+      setDrafts((current) => [
+        ...result.opportunities,
+        ...current.filter((draft) => !result.opportunities.some((next) => next.id === draft.id)),
+      ]);
+      await load();
+      notify(`Article run complete: ${result.created} created, ${result.suggested} generated.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to run campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const submitGrowthDraft = async (kind: TabKey) => {
     setBusy(kind);
     try {
@@ -373,6 +461,18 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
 
       {activeTab === "assets" ? <AssetsView drafts={drafts} /> : null}
 
+      {activeTab === "article_reactive_x" ? (
+        <ArticleReactiveCampaignsView
+          form={articleForm}
+          setForm={setArticleForm}
+          campaigns={campaigns.filter((campaign) => campaign.campaign_type === "article_reactive_x" || campaign.mode === "article_reactive_x")}
+          config={config}
+          busy={busy}
+          onSubmit={() => void submitArticleCampaign()}
+          onRun={(campaign) => void runCampaignNow(campaign)}
+        />
+      ) : null}
+
       {activeTab === "x_campaigns" ? (
         <XChartDropForm
           form={xForm}
@@ -424,6 +524,7 @@ function Dashboard({
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
+        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
@@ -566,7 +667,8 @@ function DraftCard({
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
   const suggestion = draft.suggestion;
-  const fullDraft = draft.full_markdown || draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
+  const rawDraft = draft.full_markdown || draft.generated_content || suggestion?.suggested_post || suggestion?.suggested_reply || "";
+  const fullDraft = draft.content_type === "x_post" ? formatXDraftForDisplay(rawDraft, draft) : rawDraft;
   const disclosure = suggestion?.disclosure_text || disclosureFromDraft(fullDraft);
   const walnutLink = suggestion?.suggested_destination_url || draft.suggested_destination_url || "";
   const sourceUrl = draft.source_url || "";
@@ -574,6 +676,7 @@ function DraftCard({
   const sourceLink = links.open_source_post || sourceUrl || links.open_reddit_thread;
   const sourceLabel = sourceLinkLabel(draft);
   const xCharacterCount = draft.content_type === "x_post" ? fullDraft.length : null;
+  const articleUrl = textFromUnknown(draft.metadata?.article_url) || sourceUrl;
 
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -593,6 +696,7 @@ function DraftCard({
         </div>
         <div className="flex flex-wrap gap-2">
           <AssistLink href={sourceLink} label={sourceLabel} />
+          <AssistLink href={articleUrl} label="Open article" />
         </div>
       </div>
 
@@ -610,8 +714,8 @@ function DraftCard({
         <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3 text-sm text-slate-300">
           <p><span className="font-semibold text-slate-100">Action:</span> {draft.recommended_action ?? suggestion?.recommended_action ?? "pending"}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Content angle:</span> {suggestion?.content_angle || suggestion?.reply_angle || "pending"}</p>
-          <p className="mt-2"><span className="font-semibold text-slate-100">Walnut link:</span> {walnutLink || "none"}</p>
-          <p className="mt-2"><span className="font-semibold text-slate-100">Disclosure:</span> {disclosure || "Review manually."}</p>
+          <p className="mt-2"><span className="font-semibold text-slate-100">Walnut link:</span> <span className="break-all">{walnutLink || "none"}</span></p>
+          {draft.content_type === "x_post" ? null : <p className="mt-2"><span className="font-semibold text-slate-100">Disclosure:</span> {disclosure || "Review manually."}</p>}
           <p className="mt-2"><span className="font-semibold text-slate-100">Compliance:</span> {suggestion?.compliance_notes ?? draft.compliance_notes ?? "Human review required."}</p>
           <p className="mt-2"><span className="font-semibold text-slate-100">Data points:</span> {suggestion?.value_added_insight || "Pending"}</p>
           {draft.source_notes?.length ? <p className="mt-2"><span className="font-semibold text-slate-100">Source notes:</span> {draft.source_notes.join("; ")}</p> : null}
@@ -629,7 +733,7 @@ function DraftCard({
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => onCopy(draft, "Copy draft", fullDraft)} disabled={Boolean(busy)}>Copy draft</Button>
-        <Button onClick={() => onCopy(draft, "Copy source URL", sourceUrl)} disabled={Boolean(busy)}>Copy source URL</Button>
+        <Button onClick={() => onCopy(draft, "Copy source URL", sourceLink)} disabled={Boolean(busy)}>Copy source URL</Button>
       </div>
 
       <div className="mt-3 flex flex-col gap-2 md:flex-row">
@@ -680,6 +784,84 @@ function ManualResearchForm({
       </div>
       <SubmitButton busy={busy === "manual"} onClick={onSubmit} label="Create draft" busyLabel="Creating..." />
     </FormShell>
+  );
+}
+
+function ArticleReactiveCampaignsView({
+  form,
+  setForm,
+  campaigns,
+  config,
+  busy,
+  onSubmit,
+  onRun,
+}: {
+  form: ReturnType<typeof emptyArticleCampaignForm>;
+  setForm: (value: ReturnType<typeof emptyArticleCampaignForm>) => void;
+  campaigns: AdminAiMarketingCampaign[];
+  config: AdminAiMarketingConfig | null;
+  busy: string | null;
+  onSubmit: () => void;
+  onRun: (campaign: AdminAiMarketingCampaign) => void;
+}) {
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
+        <MetricCard label="Source provider" value="FMP Articles" />
+        <MetricCard label="Secrets" value="Managed outside admin UI" tone="good" />
+      </div>
+
+      <FormShell title="Article-Reactive X Campaigns">
+        <div className="grid gap-4 md:grid-cols-2">
+          <TextField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+          <SelectField label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={["active", "paused"]} />
+          <SelectField label="Schedule" value={form.schedule} onChange={(value) => setForm({ ...form, schedule: value })} options={["daily", "weekdays"]} />
+          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="07:35" />
+          <TextField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} />
+          <SelectField label="Max drafts per day" value={form.max_drafts_per_day} onChange={(value) => setForm({ ...form, max_drafts_per_day: value })} options={["1", "2"]} />
+          <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
+          <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["professional", "sharp", "educational", "market-native"]} />
+          <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
+          <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
+            <input type="checkbox" checked={form.include_image_card} onChange={(event) => setForm({ ...form, include_image_card: event.target.checked })} />
+            Include image/card
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
+            <input type="checkbox" checked={form.include_walnut_link} onChange={(event) => setForm({ ...form, include_walnut_link: event.target.checked })} />
+            Include Walnut link
+          </label>
+        </div>
+        <SubmitButton busy={busy === "article_campaign"} onClick={onSubmit} label="Save campaign" busyLabel="Saving..." />
+      </FormShell>
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <h3 className="text-lg font-semibold text-white">Saved Article-Reactive X Campaigns</h3>
+        <div className="mt-4 space-y-3">
+          {campaigns.length ? campaigns.map((campaign) => (
+            <div key={campaign.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-950/40 p-3">
+              <div>
+                <p className="font-semibold text-slate-100">{campaign.name}</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {campaign.status ?? "active"} · {campaign.weekdays_only ? "weekdays only" : "daily"} · {campaign.run_time ?? "scheduled"} {campaign.timezone ?? ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge label={`max ${campaign.max_drafts_per_day ?? 1}/day`} />
+                <Button disabled={Boolean(busy)} onClick={() => onRun(campaign)}>
+                  {busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}
+                </Button>
+              </div>
+            </div>
+          )) : (
+            <p className="text-sm text-slate-400">No Article-Reactive X campaigns saved yet.</p>
+          )}
+        </div>
+      </section>
+    </section>
   );
 }
 
@@ -811,6 +993,7 @@ function SettingsView({
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
+        <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="AI model" value={config?.openai_model ?? "Default"} />
         <MetricCard label="OpenAI Web Search" value={config?.openai_web_search_status ?? "disabled"} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
         <MetricCard label="Manual input" value={config?.manual_text_status ?? "available"} tone="good" />
@@ -948,7 +1131,8 @@ function AssistLink({ href, label }: { href?: string | null; label: string }) {
 }
 
 function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
-  const url = asset.url || asset.thumbnail_url || "";
+  const url = isAssetFileUrl(asset.url) ? asset.url || "" : "";
+  const imageUrl = isAssetImageUrl(asset.thumbnail_url) ? asset.thumbnail_url || "" : isAssetImageUrl(asset.url) ? asset.url || "" : "";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3">
       <div className="flex items-start justify-between gap-3">
@@ -958,10 +1142,24 @@ function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
         </div>
         <AssistLink href={url} label="Open/download asset" />
       </div>
-      {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt={asset.title || "Asset thumbnail"} className="mt-3 max-h-44 w-full rounded-md object-cover" /> : null}
+      {imageUrl ? <img src={imageUrl} alt={asset.title || "Asset thumbnail"} className="mt-3 max-h-44 w-full rounded-md object-cover" /> : null}
       {asset.suggested_caption ? <p className="mt-3 text-sm text-slate-300">{asset.suggested_caption}</p> : null}
     </div>
   );
+}
+
+function isAssetFileUrl(value?: string | null) {
+  const url = String(value || "").trim();
+  if (!url) return false;
+  const lower = url.split("?", 1)[0].toLowerCase();
+  return lower.startsWith("data:image/") || lower.startsWith("blob:") || /\.(png|jpe?g|webp|gif|svg|pdf|csv)$/.test(lower);
+}
+
+function isAssetImageUrl(value?: string | null) {
+  const url = String(value || "").trim();
+  if (!url) return false;
+  const lower = url.split("?", 1)[0].toLowerCase();
+  return lower.startsWith("data:image/") || lower.startsWith("blob:") || /\.(png|jpe?g|webp|gif|svg)$/.test(lower);
 }
 
 function SettingField({ item, settingKey }: { settingKey: string; item?: AdminAiMarketingSetting }) {
@@ -981,6 +1179,8 @@ function SettingField({ item, settingKey }: { settingKey: string; item?: AdminAi
       ? "Set AI_MARKETING_MODEL on the backend to override the default model."
       : settingKey === "OPENAI_WEB_SEARCH_ENABLED"
         ? "Managed outside the admin UI with OPENAI_WEB_SEARCH_ENABLED=true."
+        : settingKey === "FMP_API_KEY"
+          ? "Managed outside the admin UI with FMP_API_KEY."
         : "Managed outside the admin UI.";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -1054,6 +1254,10 @@ function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
   return "muted";
 }
 
+function textFromUnknown(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function platformLabel(platform?: string | null) {
   const normalized = String(platform || "other").toLowerCase();
   if (normalized === "x" || normalized === "x_stub") return "X";
@@ -1068,6 +1272,38 @@ function sourceLinkLabel(draft: AdminAiMarketingOpportunity) {
   const isReddit = platform.includes("reddit") || contentType.startsWith("reddit") || sourceUrl.includes("reddit.com");
   if (!isReddit) return "Open source";
   return contentType === "reddit_reply" ? "Open Reddit comment" : "Open Reddit thread";
+}
+
+function formatXDraftForDisplay(value: string, draft: AdminAiMarketingOpportunity) {
+  let cleaned = value.replace(/\s+/g, " ").trim();
+  cleaned = cleaned
+    .replace(/^(?:i'm|i am)\s+building\s+walnut,\s*so\s+obvious\s+bias,\s*but\s+/i, "")
+    .replace(/^(?:bias disclosed:\s*)?(?:i'm|i am)\s+building\s+walnut(?:[^:.\n]*[:.])\s*/i, "")
+    .replace(/^bias disclosed:\s*/i, "")
+    .trim();
+  if (!/#[A-Za-z0-9_]+/.test(cleaned)) {
+    const tickers = (draft.matched_tickers?.length ? draft.matched_tickers : tickerTagsFromTheme(draft.ticker_theme)).slice(0, 2);
+    const tags = [...new Set([...tickers.map((ticker) => `#${ticker.toUpperCase()}`), "#Markets"])];
+    for (let count = tags.length; count > 0; count -= 1) {
+      const suffix = ` ${tags.slice(0, count).join(" ")}`;
+      const candidate = `${fitXText(cleaned, 280 - suffix.length)}${suffix}`;
+      if (candidate.length <= 280) return candidate;
+    }
+  }
+  return fitXText(cleaned, 280);
+}
+
+function tickerTagsFromTheme(value?: string | null) {
+  return Array.from(String(value || "").matchAll(/\b[A-Z]{1,5}\b/g)).map((match) => match[0]);
+}
+
+function fitXText(value: string, limit: number) {
+  const boundedLimit = Math.max(4, Math.min(limit, 280));
+  if (value.length <= boundedLimit) return value;
+  const suffix = "...";
+  const body = value.slice(0, boundedLimit - suffix.length).trimEnd();
+  const wordBoundary = body.includes(" ") ? body.replace(/\s+\S*$/, "").replace(/[ ,;:-]+$/, "") : body;
+  return `${wordBoundary.length >= Math.min(160, boundedLimit - suffix.length) ? wordBoundary : body.replace(/[ ,;:-]+$/, "")}${suffix}`.slice(0, boundedLimit);
 }
 
 function contentTypeLabel(contentType?: string | null) {

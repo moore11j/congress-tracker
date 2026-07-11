@@ -822,6 +822,7 @@ class AiMarketingCampaign(Base):
     query_templates_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
     minimum_relevance_score: Mapped[int] = mapped_column(default=60, server_default=text("60"), nullable=False)
     max_items_per_run: Mapped[int] = mapped_column(default=10, server_default=text("10"), nullable=False)
+    max_drafts_per_day: Mapped[int] = mapped_column(default=1, server_default=text("1"), nullable=False)
     recency: Mapped[str] = mapped_column(Text, default="week", server_default="week", nullable=False)
     default_destination_page: Mapped[str] = mapped_column(Text, default="https://walnutmarkets.com", server_default="https://walnutmarkets.com", nullable=False)
     include_disclosure: Mapped[bool] = mapped_column(default=True, server_default=text("true"), nullable=False)
@@ -848,6 +849,30 @@ class AiMarketingSetting(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AiMarketingArticleCandidate(Base):
+    __tablename__ = "ai_marketing_article_candidates"
+    __table_args__ = (
+        Index("ix_ai_marketing_article_candidates_provider_hash", "provider", "dedupe_hash", unique=True),
+        Index("ix_ai_marketing_article_candidates_published", "published_at"),
+        Index("ix_ai_marketing_article_candidates_seen", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(Text, default="fmp", server_default="fmp", nullable=False)
+    provider_article_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    site: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    tickers_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_metadata_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    dedupe_hash: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class AiMarketingOpportunity(Base):

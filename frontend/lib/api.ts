@@ -1893,7 +1893,8 @@ export type AdminAiMarketingMode =
   | "manual_url_review"
   | "manual_research_input"
   | "x_chart_drop"
-  | "reddit_research_thread";
+  | "reddit_research_thread"
+  | "article_reactive_x";
 
 export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "facebook_manual" | "facebook" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
@@ -1915,6 +1916,10 @@ export type AdminAiMarketingStatus =
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
   openai_model: string;
+  fmp_articles_configured?: boolean;
+  fmp_articles_status?: "missing" | "configured" | string;
+  fmp_articles_missing?: string[];
+  fmp_articles_provider?: string | null;
   reddit_configured: boolean;
   reddit_status?: "pending" | "missing" | "configured" | string;
   reddit_missing: string[];
@@ -1990,6 +1995,7 @@ export type AdminAiMarketingCampaign = {
   query_templates: string[];
   minimum_relevance_score: number;
   max_items_per_run: number;
+  max_drafts_per_day?: number;
   recency: AdminAiMarketingRecency;
   default_destination_page: string;
   include_disclosure: boolean;
