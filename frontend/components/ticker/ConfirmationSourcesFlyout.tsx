@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getTickerMacroPositioning, type MacroPositioningResponse, type TickerSourceEntitlements } from "@/lib/api";
 import type { ConfirmationScoreSource } from "@/lib/types";
@@ -162,6 +163,12 @@ export function ConfirmationSourcesFlyout({ symbol, alignedSources, sources, sou
                 <p className="text-base font-semibold text-white">Macro Positioning</p>
                 <p className="mt-3 text-sm leading-6 text-slate-300">Understand whether institutional macro positioning supports or conflicts with your investment thesis.</p>
                 <p className="mt-4 text-sm font-semibold text-emerald-100">Included with Walnut Pro.</p>
+                <Link
+                  href="/pricing"
+                  className="mt-5 inline-flex items-center justify-center rounded-md border border-emerald-300/35 bg-emerald-300/15 px-3 py-2 text-sm font-semibold text-emerald-50 transition hover:border-emerald-200/60 hover:bg-emerald-300/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/35"
+                >
+                  Upgrade to Pro
+                </Link>
               </div>
             ) : loading ? (
               <p className="mt-8 text-sm text-slate-400">Loading Macro Positioning...</p>

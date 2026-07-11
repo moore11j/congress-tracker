@@ -46,6 +46,8 @@ test("ticker macro positioning avoids irrelevant locked chips and neutral missin
   assert.doesNotMatch(tickerFlyout, /macroLocked\) && !active\.includes\("macro_positioning"\)/);
   assert.doesNotMatch(tickerFlyout, /currently neutral for this investment thesis/);
   assert.match(tickerFlyout, /Macro Positioning is not available for this ticker yet\./);
+  assert.match(tickerFlyout, /href="\/pricing"/);
+  assert.match(tickerFlyout, /Upgrade to Pro/);
 });
 
 test("macro positioning does not present missing trend as stable", () => {
