@@ -629,11 +629,14 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
         content_type = "x_post"
         max_items_per_run = min(max_items_per_run, 20)
     status = str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "paused")).strip().lower()
-    if status not in {"active", "paused"}:
+    if status not in {"active", "paused", "stopped"}:
         status = "active" if bool(payload.get("enabled", True)) else "paused"
+    enabled = bool(payload.get("enabled", True))
+    if status in {"paused", "stopped"}:
+        enabled = False
     return {
         "name": name,
-        "enabled": bool(payload.get("enabled", True)),
+        "enabled": enabled,
         "status": status,
         "mode": mode,
         "campaign_type": campaign_type,
@@ -738,6 +741,11 @@ def update_campaign(db: Session, campaign: AiMarketingCampaign, payload: dict[st
     db.commit()
     db.refresh(campaign)
     return campaign
+
+
+def delete_campaign(db: Session, campaign: AiMarketingCampaign) -> None:
+    db.delete(campaign)
+    db.commit()
 
 
 def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
@@ -1533,8 +1541,9 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         "suggested": 0,
         "opportunities": [],
     }
-    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
-        summary["status"] = "paused"
+    status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
+    if not campaign.enabled or status != "active":
+        summary["status"] = status if status in {"paused", "stopped"} else "paused"
         summary["warnings"].append("Campaign is disabled; no article run was performed.")
         return summary
     if not resolved_setting_value(db, FMP_API_KEY):
@@ -1630,7 +1639,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
 
 
 def article_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None = None) -> bool:
-    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
+    if not campaign.enabled or str(campaign.status or "active").lower() != "active":
         return False
     if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) != ARTICLE_REACTIVE_CAMPAIGN_TYPE:
         return False
@@ -1686,9 +1695,10 @@ def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_
 
 def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     warnings: list[str] = []
-    if not campaign.enabled or str(campaign.status or "active").lower() == "paused":
+    status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
+    if not campaign.enabled or status != "active":
         warnings.append("Campaign is disabled; no discovery run was performed.")
-        return {"created": 0, "deduped": 0, "suggested": 0, "warnings": warnings, "opportunities": []}
+        return {"status": status if status in {"paused", "stopped"} else "paused", "created": 0, "deduped": 0, "suggested": 0, "warnings": warnings, "opportunities": []}
     if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
         return run_article_reactive_campaign(db, campaign)
 

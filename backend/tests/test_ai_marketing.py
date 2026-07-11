@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.routers.ai_marketing import (
     CampaignPayload,
+    CampaignPatchPayload,
     EmailDigestPayload,
     GrowthDraftPayload,
     GrowthDraftRegeneratePayload,
@@ -36,10 +37,12 @@ from app.routers.ai_marketing import (
     admin_ai_growth_regenerate_draft,
     admin_ai_marketing_campaigns,
     admin_ai_marketing_create_campaign,
+    admin_ai_marketing_delete_campaign,
     admin_ai_marketing_email_digest,
     admin_ai_marketing_manual_url,
     admin_ai_marketing_run_campaign,
     admin_ai_marketing_settings,
+    admin_ai_marketing_update_campaign,
     router as ai_marketing_router,
 )
 from app.services.ai_marketing import (
@@ -256,6 +259,53 @@ def test_ai_marketing_campaigns_require_admin():
         payload = admin_ai_marketing_campaigns(_request_for_user(admin), db)
         assert payload["items"] == []
         assert "openai_configured" in payload["config"]
+    finally:
+        db.close()
+
+
+def test_ai_marketing_campaign_lifecycle_controls():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        campaign = admin_ai_marketing_create_campaign(_campaign_payload(), request, db)
+
+        paused = admin_ai_marketing_update_campaign(
+            campaign["id"],
+            CampaignPatchPayload(enabled=False, status="paused"),
+            request,
+            db,
+        )
+        assert paused["enabled"] is False
+        assert paused["status"] == "paused"
+        paused_run = admin_ai_marketing_run_campaign(campaign["id"], request, db)
+        assert paused_run["status"] == "paused"
+        assert paused_run["created"] == 0
+
+        stopped = admin_ai_marketing_update_campaign(
+            campaign["id"],
+            CampaignPatchPayload(enabled=False, status="stopped"),
+            request,
+            db,
+        )
+        assert stopped["enabled"] is False
+        assert stopped["status"] == "stopped"
+        stopped_run = admin_ai_marketing_run_campaign(campaign["id"], request, db)
+        assert stopped_run["status"] == "stopped"
+        assert stopped_run["created"] == 0
+
+        active = admin_ai_marketing_update_campaign(
+            campaign["id"],
+            CampaignPatchPayload(enabled=True, status="active"),
+            request,
+            db,
+        )
+        assert active["enabled"] is True
+        assert active["status"] == "active"
+
+        deleted = admin_ai_marketing_delete_campaign(campaign["id"], request, db)
+        assert deleted == {"ok": True, "id": campaign["id"]}
+        assert admin_ai_marketing_campaigns(request, db)["items"] == []
     finally:
         db.close()
 

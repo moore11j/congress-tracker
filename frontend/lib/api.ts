@@ -2800,6 +2800,13 @@ export async function updateAdminAiMarketingCampaign(
   );
 }
 
+export async function deleteAdminAiMarketingCampaign(campaignId: number): Promise<{ ok: boolean; id: number }> {
+  return fetchJson<{ ok: boolean; id: number }>(
+    buildApiUrl(`/api/admin/ai-marketing/campaigns/${campaignId}`),
+    { method: "DELETE", source: "AdminAiMarketing" },
+  );
+}
+
 export async function runAdminAiMarketingCampaign(campaignId: number): Promise<AdminAiMarketingRunResponse> {
   return fetchJson<AdminAiMarketingRunResponse>(
     buildApiUrl(`/api/admin/ai-marketing/campaigns/${campaignId}/run`),

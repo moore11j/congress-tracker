@@ -21,6 +21,7 @@ from app.services.ai_marketing import (
     create_campaign,
     create_growth_draft,
     create_manual_opportunity,
+    delete_campaign,
     generate_suggestion,
     latest_suggestions_by_opportunity,
     mark_opportunity_copied,
@@ -254,6 +255,18 @@ def admin_ai_marketing_update_campaign(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return campaign_to_dict(updated)
+
+
+@router.delete("/admin/ai-marketing/campaigns/{campaign_id}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_marketing_delete_campaign(
+    campaign_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    campaign = _campaign_or_404(db, campaign_id)
+    delete_campaign(db, campaign)
+    return {"ok": True, "id": campaign_id}
 
 
 @router.post("/admin/ai-marketing/campaigns/{campaign_id}/run", dependencies=[Depends(rate_limit_admin_mutation)])

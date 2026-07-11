@@ -7,15 +7,18 @@ import {
   archiveAdminAiGrowthDraft,
   createAdminAiMarketingCampaign,
   createAdminAiGrowthDraft,
+  deleteAdminAiMarketingCampaign,
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
+  getAdminProviderUsageFmp,
   regenerateAdminAiGrowthDraft,
   rejectAdminAiGrowthDraft,
   runAdminAiMarketingCampaign,
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
   updateAdminAiGrowthDraftStatus,
+  updateAdminAiMarketingCampaign,
   type AdminAiGrowthAsset,
   type AdminAiMarketingCampaign,
   type AdminAiMarketingConfig,
@@ -23,6 +26,7 @@ import {
   type AdminAiMarketingSetting,
   type AdminAiMarketingSettingsTestResponse,
   type AdminAiMarketingStatus,
+  type AdminProviderUsageResponse,
 } from "@/lib/api";
 
 type AdminAiMarketingViewProps = {
@@ -144,6 +148,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [campaigns, setCampaigns] = useState<AdminAiMarketingCampaign[]>([]);
   const [config, setConfig] = useState<AdminAiMarketingConfig | null>(null);
   const [settings, setSettings] = useState<AdminAiMarketingSetting[]>([]);
+  const [providerUsage, setProviderUsage] = useState<AdminProviderUsageResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | AdminAiMarketingStatus>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<string | null>(null);
@@ -174,15 +179,17 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     setBusy("load");
     try {
       const draftStatus = statusFilter === "all" ? DRAFT_QUEUE_STATUSES.join(",") : statusFilter;
-      const [draftData, settingsData, campaignData] = await Promise.all([
+      const [draftData, settingsData, campaignData, usageData] = await Promise.all([
         getAdminAiGrowthDrafts({ status: draftStatus, limit: 100 }),
         getAdminAiMarketingSettings(),
         getAdminAiMarketingCampaigns(),
+        getAdminProviderUsageFmp().catch(() => null),
       ]);
       setDrafts(draftData.items);
       setConfig(settingsData.config);
       setSettings(settingsData.items);
       setCampaigns(campaignData.items);
+      setProviderUsage(usageData);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to load AI Growth Engine.", "error");
     } finally {
@@ -390,6 +397,36 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const setCampaignLifecycleStatus = async (campaign: AdminAiMarketingCampaign, status: "active" | "paused" | "stopped") => {
+    setBusy(`campaign-status:${campaign.id}:${status}`);
+    try {
+      const updated = await updateAdminAiMarketingCampaign(campaign.id, {
+        enabled: status === "active",
+        status,
+      });
+      setCampaigns((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      notify(`Campaign ${status === "active" ? "started" : status}.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to update campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteCampaign = async (campaign: AdminAiMarketingCampaign) => {
+    if (!window.confirm(`Delete ${campaign.name}? Existing drafts will stay in the queue.`)) return;
+    setBusy(`delete-campaign:${campaign.id}`);
+    try {
+      await deleteAdminAiMarketingCampaign(campaign.id);
+      setCampaigns((current) => current.filter((item) => item.id !== campaign.id));
+      notify("Campaign deleted.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to delete campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const submitGrowthDraft = async (kind: TabKey) => {
     setBusy(kind);
     try {
@@ -439,6 +476,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           pendingReviewCount={pendingReviewCount}
           highFitCount={highFitCount}
           assetCount={assetCount}
+          providerUsage={providerUsage}
           drafts={drafts}
           legacyCampaigns={legacyCampaigns}
         />
@@ -470,6 +508,8 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           busy={busy}
           onSubmit={() => void submitArticleCampaign()}
           onRun={(campaign) => void runCampaignNow(campaign)}
+          onSetStatus={(campaign, status) => void setCampaignLifecycleStatus(campaign, status)}
+          onDelete={(campaign) => void deleteCampaign(campaign)}
         />
       ) : null}
 
@@ -509,6 +549,7 @@ function Dashboard({
   pendingReviewCount,
   highFitCount,
   assetCount,
+  providerUsage,
   drafts,
   legacyCampaigns,
 }: {
@@ -516,15 +557,18 @@ function Dashboard({
   pendingReviewCount: number;
   highFitCount: number;
   assetCount: number;
+  providerUsage: AdminProviderUsageResponse | null;
   drafts: AdminAiMarketingOpportunity[];
   legacyCampaigns: AdminAiMarketingCampaign[];
 }) {
   const recent = drafts.slice(0, 5);
+  const apiCredits = apiCreditsMetric(providerUsage);
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
+        <MetricCard label="API credits left" value={apiCredits.value} tone={apiCredits.tone} />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
@@ -795,6 +839,8 @@ function ArticleReactiveCampaignsView({
   busy,
   onSubmit,
   onRun,
+  onSetStatus,
+  onDelete,
 }: {
   form: ReturnType<typeof emptyArticleCampaignForm>;
   setForm: (value: ReturnType<typeof emptyArticleCampaignForm>) => void;
@@ -803,6 +849,8 @@ function ArticleReactiveCampaignsView({
   busy: string | null;
   onSubmit: () => void;
   onRun: (campaign: AdminAiMarketingCampaign) => void;
+  onSetStatus: (campaign: AdminAiMarketingCampaign, status: "active" | "paused" | "stopped") => void;
+  onDelete: (campaign: AdminAiMarketingCampaign) => void;
 }) {
   return (
     <section className="space-y-4">
@@ -851,8 +899,20 @@ function ArticleReactiveCampaignsView({
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge label={`max ${campaign.max_drafts_per_day ?? 1}/day`} />
-                <Button disabled={Boolean(busy)} onClick={() => onRun(campaign)}>
+                <Button disabled={Boolean(busy) || campaign.status === "active"} onClick={() => onSetStatus(campaign, "active")}>
+                  {busy === `campaign-status:${campaign.id}:active` ? "Starting..." : "Start"}
+                </Button>
+                <Button disabled={Boolean(busy) || campaign.status === "paused"} onClick={() => onSetStatus(campaign, "paused")}>
+                  {busy === `campaign-status:${campaign.id}:paused` ? "Pausing..." : "Pause"}
+                </Button>
+                <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>
+                  {busy === `campaign-status:${campaign.id}:stopped` ? "Stopping..." : "Stop"}
+                </Button>
+                <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>
                   {busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}
+                </Button>
+                <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>
+                  {busy === `delete-campaign:${campaign.id}` ? "Deleting..." : "Delete"}
                 </Button>
               </div>
             </div>
@@ -1256,6 +1316,18 @@ function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
 
 function textFromUnknown(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function apiCreditsMetric(usage: AdminProviderUsageResponse | null): { value: string; tone: "muted" | "good" | "warn" | "bad" } {
+  const budget = usage?.budget;
+  const remaining = budget?.remaining_last_minute;
+  const limit = budget?.throttle_limit_per_minute ?? usage?.configured_calls_per_minute;
+  if (typeof remaining !== "number" || typeof limit !== "number" || limit <= 0) {
+    return { value: "Unavailable", tone: "warn" };
+  }
+  const pctLeft = remaining / limit;
+  const tone = remaining <= 0 ? "bad" : pctLeft <= 0.2 ? "warn" : "good";
+  return { value: `${remaining.toLocaleString()} / ${limit.toLocaleString()} per min`, tone };
 }
 
 function platformLabel(platform?: string | null) {

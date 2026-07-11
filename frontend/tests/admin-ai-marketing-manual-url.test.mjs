@@ -18,6 +18,10 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   ]) {
     assert.match(viewSource, new RegExp(label));
   }
+  assert.match(viewSource, /API credits left/);
+  assert.match(viewSource, /getAdminProviderUsageFmp/);
+  assert.match(viewSource, /apiCreditsMetric/);
+  assert.match(apiSource, /\/api\/admin\/provider-usage\/fmp/);
   assert.doesNotMatch(viewSource, /Email Delivery/);
   assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);
@@ -81,11 +85,20 @@ test("Article-Reactive X campaign form exposes provider status and no FMP secret
     "Hashtag mode",
     "CTA mode",
     "Run now",
+    "Start",
+    "Pause",
+    "Stop",
+    "Delete",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
   assert.match(viewSource, /campaign_type: "article_reactive_x"/);
   assert.match(viewSource, /source_type: "fmp_articles"/);
+  assert.match(viewSource, /setCampaignLifecycleStatus/);
+  assert.match(viewSource, /deleteCampaign/);
+  assert.match(apiSource, /updateAdminAiMarketingCampaign/);
+  assert.match(apiSource, /deleteAdminAiMarketingCampaign/);
+  assert.match(apiSource, /method: "DELETE"/);
   assert.match(apiSource, /fmp_articles_status/);
   assert.doesNotMatch(viewSource, /FMP API Key|FMP_API_KEY.*<input|type="password"/);
 });
