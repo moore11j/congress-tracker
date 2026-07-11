@@ -428,9 +428,16 @@ def _api_key() -> str | None:
     return key or None
 
 
-def _request_payload_with_status(endpoint: str, *, params: dict[str, Any] | None = None) -> tuple[Any, int]:
+def _request_payload_with_status(
+    endpoint: str,
+    *,
+    params: dict[str, Any] | None = None,
+    category: str | None = None,
+    allow_user_request: bool = False,
+) -> tuple[Any, int]:
+    usage_category = category or f"macro:{endpoint}"
     try:
-        ensure_fmp_live_allowed(category=f"macro:{endpoint}")
+        ensure_fmp_live_allowed(category=usage_category, allow_user_request=allow_user_request)
     except ProviderUnavailable:
         raise
     api_key = _api_key()
@@ -449,13 +456,24 @@ def _request_payload_with_status(endpoint: str, *, params: dict[str, Any] | None
         params=request_params,
         timeout=PROVIDER_TIMEOUT_SECONDS,
     )
-    record_provider_response(category=f"macro:{endpoint}", status_code=response.status_code)
+    record_provider_response(category=usage_category, status_code=response.status_code)
     response.raise_for_status()
     return response.json(), response.status_code
 
 
-def _request_payload(endpoint: str, *, params: dict[str, Any] | None = None) -> Any:
-    payload, _status = _request_payload_with_status(endpoint, params=params)
+def _request_payload(
+    endpoint: str,
+    *,
+    params: dict[str, Any] | None = None,
+    category: str | None = None,
+    allow_user_request: bool = False,
+) -> Any:
+    payload, _status = _request_payload_with_status(
+        endpoint,
+        params=params,
+        category=category,
+        allow_user_request=allow_user_request,
+    )
     return payload
 
 
@@ -1565,10 +1583,18 @@ def _normalize_sector_row(row: dict[str, Any]) -> dict[str, Any] | None:
     )
     if not sector or change_pct is None:
         return None
-    item = {"sector": sector, "change_pct": change_pct}
+    item = {
+        "sector": sector,
+        "change_pct": change_pct,
+        "unit_label": "%",
+        "source": "sector_performance_snapshot",
+    }
     row_date = _trimmed(row.get("date")) or _trimmed(row.get("calendarDate")) or _trimmed(row.get("asOfDate"))
     if row_date:
         item["date"] = row_date
+    exchange = _trimmed(row.get("exchange"))
+    if exchange:
+        item["exchange"] = exchange
     return item
 
 
@@ -1586,7 +1612,14 @@ def _build_sector_performance() -> list[dict[str, Any]]:
     for offset in range(0, 6):
         target_date = (date.today() - timedelta(days=offset)).isoformat()
         try:
-            rows = _rows(_request_payload("sector-performance-snapshot", params={"date": target_date}))
+            rows = _rows(
+                _request_payload(
+                    "sector-performance-snapshot",
+                    params={"date": target_date},
+                    category="insights_us_sectors",
+                    allow_user_request=True,
+                )
+            )
         except Exception:
             continue
         items = list(filter(None, (_normalize_sector_row(row) for row in rows)))

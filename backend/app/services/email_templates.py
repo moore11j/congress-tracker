@@ -484,6 +484,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "signals_html",
             "upcoming_events_text",
             "upcoming_events_html",
+            "calendar_alert_filters_text",
             "signal_url",
         ],
         "body_text": walnut_email_text(
@@ -493,6 +494,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                 "Ticker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}",
                 "Monitoring candidates are research inputs, not recommendations. {{cautions}}",
                 "{{signals_text}}",
+                "Calendar alert filters: {{calendar_alert_filters_text}}",
                 "{{upcoming_events_text}}",
             ],
             cta_label="{{signal_cta_label}}",
@@ -516,6 +518,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             )
             + walnut_info_card("Research caution", "Monitoring candidates are research inputs, not recommendations. {{cautions}}")
             + "{{{signals_html}}}"
+            + walnut_info_card("Calendar alert filters", "{{calendar_alert_filters_text}}")
             + "{{{upcoming_events_html}}}",
             cta_label="{{signal_cta_label}}",
             cta_url="signal_url",

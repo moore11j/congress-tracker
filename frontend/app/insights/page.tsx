@@ -1,4 +1,5 @@
 import { InsightsMarketSnapshotClient } from "@/components/insights/InsightsMarketSnapshotClient";
+import { InsightsMacroPositioningClient } from "@/components/insights/InsightsMacroPositioningClient";
 import { InsightsNewsClient } from "@/components/insights/InsightsNewsClient";
 
 type Props = {
@@ -23,6 +24,7 @@ export default async function InsightsPage({ searchParams }: Props) {
   return (
     <div className="w-full max-w-[calc(100vw-2rem)] space-y-6 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
       <InsightsMarketSnapshotClient />
+      <InsightsMacroPositioningClient />
       <InsightsNewsClient page={page} limit={limit} />
     </div>
   );

@@ -65,7 +65,11 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
 
         def fake_request(endpoint, **kwargs):
             if endpoint == "economic-calendar":
-                return [{"date": "2026-08-12 08:30:00", "event": "CPI", "country": "US", "estimate": "2.8%"}]
+                return [
+                    {"date": "2026-08-12 08:30:00", "event": "CPI", "country": "US", "estimate": "2.8%"},
+                    {"date": "2026-08-12 08:30:00", "event": "CPI", "country": "US", "estimate": "2.8%"},
+                    {"date": "2026-08-12 08:30:00", "event": "Brazilian IPCA Inflation Index SA MoM", "country": "BR", "currency": "BRL"},
+                ]
             if endpoint == "ipos-calendar":
                 return [{"date": "2026-08-20", "symbol": "AAPL", "company": "Apple Inc."}]
             if endpoint == "earnings":
@@ -93,6 +97,8 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
         assert "NVDA dividend" in titles
         assert "AAPL IPO" in titles
         assert "AAPL earnings" not in titles
+        assert titles.count("CPI") == 1
+        assert "Brazilian IPCA Inflation Index SA MoM" not in titles
         assert result.errors == []
     finally:
         db.close()

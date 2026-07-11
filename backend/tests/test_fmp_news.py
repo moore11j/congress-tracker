@@ -18,6 +18,7 @@ from app.services.fmp_market_snapshot import (
     _build_yoy_series,
     _normalize_debt_to_gdp_series,
     clear_macro_snapshot_cache,
+    get_sector_performance_snapshot,
     get_macro_snapshot,
 )
 from app.services.fmp_news import clear_news_cache, get_general_news, get_insights_category_news
@@ -852,7 +853,14 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             "context_label": "Latest available",
         },
     ]
-    assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
+    assert response["sector_performance"] == [
+        {
+            "sector": "Technology",
+            "change_pct": 1.25,
+            "unit_label": "%",
+            "source": "sector_performance_snapshot",
+        }
+    ]
 
 
 def test_macro_snapshot_falls_back_to_single_index_quotes(monkeypatch):
@@ -1336,4 +1344,67 @@ def test_macro_snapshot_uses_etf_proxies_when_index_endpoints_unavailable(monkey
         {"label": "Dow proxy", "symbol": "DIA", "value": 390.0, "change_pct": -0.1, "is_proxy": True, "source": "etf_proxy"},
         {"label": "Russell 2000 proxy", "symbol": "IWM", "value": 202.0, "change_pct": 0.2, "is_proxy": True, "source": "etf_proxy"},
     ]
-    assert response["sector_performance"] == [{"sector": "Technology", "change_pct": 1.25}]
+    assert response["sector_performance"] == [
+        {
+            "sector": "Technology",
+            "change_pct": 1.25,
+            "unit_label": "%",
+            "source": "sector_performance_snapshot",
+        }
+    ]
+
+
+def test_sector_performance_snapshot_allows_insights_user_refresh(monkeypatch):
+    calls = {"count": 0}
+    rows = [
+        {"date": "2026-07-10", "sector": "Basic Materials", "exchange": "NASDAQ", "averageChange": 0.8365747913346322},
+        {"date": "2026-07-10", "sector": "Communication Services", "exchange": "NASDAQ", "averageChange": 0.5013507510029491},
+        {"date": "2026-07-10", "sector": "Consumer Cyclical", "exchange": "NASDAQ", "averageChange": -0.726262500890007},
+        {"date": "2026-07-10", "sector": "Consumer Defensive", "exchange": "NASDAQ", "averageChange": 0.6743147207006306},
+        {"date": "2026-07-10", "sector": "Energy", "exchange": "NASDAQ", "averageChange": -0.06420896443187774},
+        {"date": "2026-07-10", "sector": "Financial Services", "exchange": "NASDAQ", "averageChange": -0.9256744840898667},
+        {"date": "2026-07-10", "sector": "Healthcare", "exchange": "NASDAQ", "averageChange": -1.669649216999869},
+        {"date": "2026-07-10", "sector": "Industrials", "exchange": "NASDAQ", "averageChange": -1.6143674605809788},
+        {"date": "2026-07-10", "sector": "Real Estate", "exchange": "NASDAQ", "averageChange": 1.5512509623254012},
+        {"date": "2026-07-10", "sector": "Technology", "exchange": "NASDAQ", "averageChange": 1.4978556994147185},
+        {"date": "2026-07-10", "sector": "Utilities", "exchange": "NASDAQ", "averageChange": 0.7174218819912648},
+    ]
+
+    def fake_get(url, params=None, timeout=30):
+        calls["count"] += 1
+        assert timeout == 8
+        assert url.endswith("/stable/sector-performance-snapshot")
+        assert params and params.get("date")
+        return _FakeResponse(200, rows)
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setenv("FMP_ALLOW_SYNC_USER_FETCH", "false")
+    monkeypatch.setattr("app.services.fmp_market_snapshot.requests.get", fake_get)
+    token = set_request_context({"path": "/api/insights/snapshot", "request_source": "client", "route_family": "insights"})
+    try:
+        response = get_sector_performance_snapshot()
+    finally:
+        reset_request_context(token)
+
+    assert calls["count"] == 1
+    assert [item["sector"] for item in response] == [
+        "Basic Materials",
+        "Communication Services",
+        "Consumer Cyclical",
+        "Consumer Defensive",
+        "Energy",
+        "Financial Services",
+        "Healthcare",
+        "Industrials",
+        "Real Estate",
+        "Technology",
+        "Utilities",
+    ]
+    assert response[0] == {
+        "sector": "Basic Materials",
+        "change_pct": 0.8365747913346322,
+        "unit_label": "%",
+        "source": "sector_performance_snapshot",
+        "date": "2026-07-10",
+        "exchange": "NASDAQ",
+    }

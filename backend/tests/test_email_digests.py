@@ -659,6 +659,53 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
         assert captured["scope"] == "watchlist"
         assert "NVDA earnings" in digest.context["upcoming_events_text"]
         assert "NVDA earnings" in digest.context["upcoming_events_html"]
+        assert digest.context["calendar_alert_filters_text"] == "Economic, Earnings, Dividends, IPOs, Splits"
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_filters_calendar_dates_by_saved_event_kinds(monkeypatch):
+    def fake_upcoming(db, user, *, start, end, scope, limit):
+        return CalendarFetchResult(
+            items=[
+                {"id": "economic:test", "kind": "economic", "date": "2026-07-13", "country": "US", "title": "CPI MoM"},
+                {"id": "earnings:test", "kind": "earnings", "date": "2026-07-14", "symbol": "NVDA", "title": "NVDA earnings"},
+                {"id": "dividend:test", "kind": "dividend", "date": "2026-07-15", "symbol": "SPY", "title": "SPY dividend"},
+            ],
+            errors=[],
+        )
+
+    monkeypatch.setattr("app.services.email_digests.upcoming_event_calendar_items", fake_upcoming)
+    db = _session()
+    try:
+        user = _user(db, "calendar-kind-filter@example.com", tier="premium")
+        _watchlist(db, user)
+        db.add(
+            NotificationSubscription(
+                email=user.email,
+                source_type="event_calendar",
+                source_id="watchlist",
+                source_name="Event calendar alerts",
+                source_payload_json=json.dumps({"scope": "watchlist", "calendar_kinds": ["earnings"]}),
+                active=True,
+                frequency="daily",
+                only_if_new=False,
+                alert_triggers_json=json.dumps(["event_calendar"]),
+            )
+        )
+        db.commit()
+
+        digest = build_signal_alert_digest(
+            db,
+            user,
+            datetime(2026, 7, 9, 7, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 7, 10, 7, 0, tzinfo=timezone.utc),
+        )
+
+        assert digest.context["calendar_alert_filters_text"] == "Earnings"
+        assert "NVDA earnings" in digest.context["upcoming_events_text"]
+        assert "CPI MoM" not in digest.context["upcoming_events_text"]
+        assert "SPY dividend" not in digest.context["upcoming_events_text"]
     finally:
         db.close()
 

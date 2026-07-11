@@ -425,7 +425,7 @@ const featureDefinitions: FeatureDefinition[] = [
     feature_key: "macro_positioning",
     label: "Macro Positioning Intelligence",
     kind: "feature",
-    description: "Institutional Macro Positioning for ticker confirmation.",
+    description: "Institutional futures positioning across major markets and ticker confirmation.",
     required_tier: "pro",
     unit_singular: "",
     unit_plural: "",

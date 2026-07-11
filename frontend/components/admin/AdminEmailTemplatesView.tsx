@@ -196,6 +196,8 @@ function sampleContextFor(template: AdminEmailTemplate): Record<string, string |
       context[variable] = "- NVDA: score 82 | bullish | multi-source activity | Congress and insider stack | 2026-06-03";
     } else if (variable === "signals_html") {
       context[variable] = sampleSignalsHtml();
+    } else if (variable === "calendar_alert_filters_text") {
+      context[variable] = "Economic, Earnings, Dividends, IPOs, Splits";
     } else if (variable === "watchlist_name") {
       context[variable] = "AI Infrastructure";
     } else if (variable === "ticker") {

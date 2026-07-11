@@ -3906,6 +3906,34 @@ export type MacroPositioningResponse = {
   subtitle?: string | null;
 };
 
+export type InsightsMacroPositioningMarket = {
+  id: string;
+  name: string;
+  bias: "bullish" | "bearish" | "neutral" | string;
+  rating: number;
+  percentile?: number | null;
+  trend?: "increasing" | "decreasing" | "stable" | string | null;
+  trend_weeks?: number | null;
+  headline?: string | null;
+  interpretation?: string | null;
+  crowding?: string | null;
+  updated_at?: string | null;
+};
+
+export type InsightsMacroPositioningResponse = {
+  status: "available" | "stale" | "locked" | "unavailable" | "awaiting_first_refresh" | string;
+  entitlement: {
+    required_plan: "pro" | string;
+    unlocked: boolean;
+  };
+  summary?: string | null;
+  markets: InsightsMacroPositioningMarket[];
+  updated_at?: string | null;
+  stale?: boolean;
+  message?: string | null;
+  subtitle?: string | null;
+};
+
 export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
 export type TickerFundamentalsSummary = {
   symbol?: string | null;
@@ -4196,6 +4224,20 @@ export async function getTickerMacroPositioning(
       source: params?.source ?? "TickerMacroPositioning",
     }),
   );
+}
+
+export async function getInsightsMacroPositioning(params?: {
+  authToken?: string | null;
+  signal?: AbortSignal;
+}): Promise<InsightsMacroPositioningResponse> {
+  const url = buildApiUrl("/api/insights/macro-positioning");
+  return fetchJson<InsightsMacroPositioningResponse>(url, {
+    headers: authHeaders(params?.authToken ?? undefined),
+    cache: "no-store",
+    next: { revalidate: 0 },
+    signal: params?.signal,
+    source: "InsightsMacroPositioning",
+  });
 }
 
 function suggestKindToGlobalType(kind: SearchSuggestKind): GlobalSearchResult["type"] {

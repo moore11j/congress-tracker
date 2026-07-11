@@ -20,6 +20,7 @@ from app.services.notifications import (
 )
 
 router = APIRouter(tags=["notifications"])
+CALENDAR_ALERT_KINDS = {"economic", "earnings", "dividend", "ipo", "split"}
 
 
 class NotificationSubscriptionPayload(BaseModel):
@@ -130,6 +131,10 @@ def put_notification_subscription(
         )
         if payload.source_id not in {"watchlist", "none"}:
             raise HTTPException(status_code=422, detail="Unsupported event calendar alert scope.")
+        calendar_kinds = (payload.source_payload or {}).get("calendar_kinds")
+        if calendar_kinds is not None:
+            if not isinstance(calendar_kinds, list) or any(str(kind) not in CALENDAR_ALERT_KINDS for kind in calendar_kinds):
+                raise HTTPException(status_code=422, detail="Unsupported event calendar alert kind.")
 
     subscription = upsert_subscription(
         db,

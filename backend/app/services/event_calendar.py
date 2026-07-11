@@ -108,6 +108,8 @@ def fetch_event_calendar(
             item = _calendar_item(kind, row)
             if item is None:
                 continue
+            if kind == "economic" and not _is_us_economic_event(item):
+                continue
             if not _in_range(item, start=start, end=end):
                 continue
             symbol_matches = _symbol_match_values(item.get("symbol"))
@@ -143,8 +145,9 @@ def fetch_event_calendar(
                         continue
                     raw_items.append(item)
 
-    raw_items.sort(key=lambda item: (str(item.get("date") or ""), _kind_order(str(item.get("kind") or "")), str(item.get("symbol") or ""), str(item.get("title") or "")))
-    return CalendarFetchResult(items=raw_items, errors=errors)
+    items = _dedupe_items(raw_items)
+    items.sort(key=lambda item: (str(item.get("date") or ""), _kind_order(str(item.get("kind") or "")), str(item.get("symbol") or ""), str(item.get("title") or "")))
+    return CalendarFetchResult(items=items, errors=errors)
 
 
 def upcoming_event_calendar_items(
@@ -185,6 +188,33 @@ def _symbol_match_values(raw: Any) -> set[str]:
         values.add(normalized)
         values.update(symbol_variants(normalized))
     return values
+
+
+def _dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, ...]] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in items:
+        key = tuple(
+            _dedupe_text(item.get(field))
+            for field in ("kind", "date", "datetime", "symbol", "title", "subtitle", "country", "exchange")
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _dedupe_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _is_us_economic_event(item: dict[str, Any]) -> bool:
+    country = _dedupe_text(item.get("country"))
+    if country in {"us", "usa", "united states", "united states of america"}:
+        return True
+    currency = _dedupe_text((item.get("payload") or {}).get("currency") if isinstance(item.get("payload"), dict) else None)
+    return not country and currency in {"usd", "us dollar"}
 
 
 def _calendar_item(kind: CalendarEventKind, row: dict[str, Any]) -> dict[str, Any] | None:

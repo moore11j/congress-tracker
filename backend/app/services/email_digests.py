@@ -60,6 +60,14 @@ WATCHLIST_FETCH_LIMIT = 25
 SIGNAL_DISPLAY_LIMIT = 10
 SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
 SIGNAL_REFRESH_TOKENS = ("refresh", "refreshed", "status", "sync", "screen refreshed")
+CALENDAR_EVENT_KINDS = ("economic", "earnings", "dividend", "ipo", "split")
+CALENDAR_EVENT_LABELS = {
+    "economic": "Economic",
+    "earnings": "Earnings",
+    "dividend": "Dividends",
+    "ipo": "IPOs",
+    "split": "Splits",
+}
 
 
 @dataclass(frozen=True)
@@ -240,7 +248,7 @@ def build_signal_alert_digest(
     signal_subject = "Walnut monitoring digest"
     signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
     summary = _count_summary(len(items), "monitoring candidate", "monitoring candidates")
-    upcoming_events = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
+    upcoming_events, calendar_filters_text = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
     return DigestBuild(
         template_key="alerts.signal_alert",
         items_count=len(items),
@@ -262,6 +270,7 @@ def build_signal_alert_digest(
             "signals_html": _signal_items_html(items),
             "upcoming_events_text": _calendar_items_text(upcoming_events),
             "upcoming_events_html": _calendar_items_html(upcoming_events),
+            "calendar_alert_filters_text": calendar_filters_text,
             "signal_url": str(lead.get("href") or _signal_url(ticker)) if is_single else f"{_frontend_base_url()}/signals",
         },
         diagnostics=diagnostics,
@@ -553,6 +562,8 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and template.preheader == "Your ranked signal candidates.":
             template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and "calendar_alert_filters_text" not in (template.variables_json or ""):
+            template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_intraday" and template.name == "Intraday signal alert":
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_intraday" and template.subject == "Walnut high-conviction signal: {{ticker}}":
@@ -805,17 +816,48 @@ def _event_calendar_subscription(db: Session, user: UserAccount) -> Notification
     )
 
 
+def _calendar_kinds_for_subscription(subscription: NotificationSubscription | None) -> tuple[str, ...]:
+    if subscription is None:
+        return CALENDAR_EVENT_KINDS
+    try:
+        payload = json.loads(subscription.source_payload_json or "{}")
+    except Exception:
+        payload = {}
+    raw_kinds = payload.get("calendar_kinds") if isinstance(payload, dict) else None
+    if raw_kinds is None:
+        return CALENDAR_EVENT_KINDS
+    if not isinstance(raw_kinds, list):
+        return CALENDAR_EVENT_KINDS
+    selected: list[str] = []
+    for kind in raw_kinds:
+        key = str(kind)
+        if key in CALENDAR_EVENT_KINDS and key not in selected:
+            selected.append(key)
+    return tuple(selected)
+
+
+def _calendar_filter_label(kinds: tuple[str, ...]) -> str:
+    if not kinds:
+        return "None"
+    if set(kinds) == set(CALENDAR_EVENT_KINDS):
+        return "Economic, Earnings, Dividends, IPOs, Splits"
+    return ", ".join(CALENDAR_EVENT_LABELS.get(kind, kind.title()) for kind in kinds)
+
+
 def _upcoming_calendar_events_for_digest(
     db: Session,
     user: UserAccount,
     *,
     window_end: datetime | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], str]:
     if not entitlements_for_user(db, user).has_feature("event_calendar"):
-        return []
+        return [], _calendar_filter_label(CALENDAR_EVENT_KINDS)
     subscription = _event_calendar_subscription(db, user)
     if subscription is not None and (not subscription.active or subscription.source_id == "none"):
-        return []
+        return [], "None"
+    enabled_kinds = _calendar_kinds_for_subscription(subscription)
+    if not enabled_kinds:
+        return [], "None"
     anchor = _coerce_aware(window_end or datetime.now(timezone.utc)).date()
     try:
         result = upcoming_event_calendar_items(
@@ -827,8 +869,8 @@ def _upcoming_calendar_events_for_digest(
             limit=12,
         )
     except Exception:
-        return []
-    return result.items
+        return [], _calendar_filter_label(enabled_kinds)
+    return [item for item in result.items if str(item.get("kind") or "") in enabled_kinds], _calendar_filter_label(enabled_kinds)
 
 
 def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int, user: UserAccount) -> list[Event]:

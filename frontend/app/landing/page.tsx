@@ -96,6 +96,7 @@ const signalCards = [
     title: "Macro Positioning",
     body: "Understand whether institutional futures positioning supports or contradicts your investment thesis.",
     label: "Pro layer",
+    href: `${appUrl}/insights#macro-positioning`,
   },
   {
     title: "Government Contracts",
@@ -121,27 +122,17 @@ const whyWalnut = [
   "Public-data edge: identify patterns hidden in plain sight.",
 ] as const;
 
-const availableNow = [
-  "Congress trades",
-  "Insider trades",
-  "Ticker intelligence",
-  "Signal scores",
-  "Government contracts",
-  "Watchlists",
-  "Screener",
-  "Member/insider performance",
-  "Institutional Activity",
-  "Options Flow",
-  "Macro Positioning",
-  "Portfolio backtesting",
-  "Congress leaderboards",
+const availableNowColumns = [
+  ["Congress trades", "Insider trades", "Ticker intelligence", "Signal scores"],
+  ["Government contracts", "Watchlists", "Screener", "Member/insider performance"],
+  ["Institutional Activity", "Options Flow", "Macro Positioning"],
+  ["Portfolio backtesting", "Congress leaderboards", "Earnings and event calendar overlays"],
 ] as const;
 
 const comingSoon = [
   "AI analyst briefs",
-  "Earnings and event calendar overlays",
   "Social Sentiment",
-  "Advanced alerts/exports",
+  "API and webhooks",
 ] as const;
 
 const fallbackTrending: TrendingTicker[] = [
@@ -802,13 +793,24 @@ export default async function LandingPage() {
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One signal is noise. A stack is intelligence.</h2>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {signalCards.map((card) => (
-              <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{card.label}</p>
-                <h3 className="mt-4 text-lg font-semibold text-white">{card.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
-              </article>
-            ))}
+            {signalCards.map((card) => {
+              const content = (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">{card.label}</p>
+                  <h3 className="mt-4 text-lg font-semibold text-white">{card.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
+                </>
+              );
+              return "href" in card ? (
+                <a key={card.title} href={card.href} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 transition hover:border-emerald-300/35 hover:bg-white/[0.055]">
+                  {content}
+                </a>
+              ) : (
+                <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+                  {content}
+                </article>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -894,20 +896,24 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut signal stack</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
-          <div className="mt-8 grid gap-4 lg:grid-cols-2">
+          <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {availableNow.map((item) => (
-                  <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200">
-                    {item}
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {availableNowColumns.map((column, columnIndex) => (
+                  <div key={`available-column-${columnIndex}`} className="grid content-start gap-3">
+                    {column.map((item) => (
+                      <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200">
+                        {item}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
             </div>
             <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.035] p-6">
               <h3 className="text-lg font-semibold text-white">Coming Soon</h3>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
                 {comingSoon.map((item) => (
                   <div key={item} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200">
                     <span>{item}</span>

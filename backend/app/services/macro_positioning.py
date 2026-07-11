@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,20 @@ from app.utils.symbols import normalize_symbol
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "macro_positioning_mappings.json"
 _BIAS_SCORES = {"bearish": -1.0, "neutral": 0.0, "bullish": 1.0}
+_INSIGHTS_STALE_AFTER_DAYS = 10
+INSIGHTS_MACRO_POSITIONING_MARKETS: tuple[dict[str, str], ...] = (
+    {"id": "sp-500", "asset_key": "sp_futures", "name": "S&P 500"},
+    {"id": "nasdaq-100", "asset_key": "nasdaq_futures", "name": "Nasdaq 100"},
+    {"id": "russell-2000", "asset_key": "russell_2000_futures", "name": "Russell 2000"},
+    {"id": "us-dollar", "asset_key": "us_dollar", "name": "US Dollar"},
+    {"id": "gold", "asset_key": "gold_futures", "name": "Gold"},
+    {"id": "silver", "asset_key": "silver", "name": "Silver"},
+    {"id": "crude-oil", "asset_key": "crude_oil", "name": "Crude Oil"},
+    {"id": "natural-gas", "asset_key": "natural_gas", "name": "Natural Gas"},
+    {"id": "copper", "asset_key": "copper", "name": "Copper"},
+    {"id": "bitcoin", "asset_key": "bitcoin_futures", "name": "Bitcoin"},
+    {"id": "us-treasuries", "asset_key": "ten_year_treasury", "name": "US Treasuries"},
+)
 
 
 @dataclass(frozen=True)
@@ -71,6 +85,217 @@ def locked_macro_positioning_summary(symbol: str) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def locked_insights_macro_positioning_payload() -> dict[str, Any]:
+    return {
+        "status": "locked",
+        "entitlement": {"required_plan": "pro", "unlocked": False},
+        "summary": None,
+        "markets": [],
+        "updated_at": None,
+        "stale": False,
+        "message": "See whether institutional futures positioning is bullish, bearish, crowded, or shifting across major markets.",
+        "subtitle": "Included with Walnut Pro.",
+    }
+
+
+def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
+    if not macro_positioning_feature_enabled(db):
+        return _insights_unavailable_payload(status="unavailable", message="Macro positioning is temporarily unavailable.")
+
+    rows = db.execute(select(MacroPositioningAsset)).scalars().all()
+    by_asset = {row.asset_key: row for row in rows}
+    markets = [
+        market
+        for target in INSIGHTS_MACRO_POSITIONING_MARKETS
+        if (market := _insights_market_from_asset(target, by_asset.get(target["asset_key"]))) is not None
+    ]
+    if not markets:
+        return _insights_unavailable_payload(status="awaiting_first_refresh", message="Macro positioning will appear after the next weekly data refresh.")
+
+    updated_dates = [
+        datetime.combine(row.positioning_date, datetime.min.time(), timezone.utc)
+        for row in rows
+        if row.asset_key in {target["asset_key"] for target in INSIGHTS_MACRO_POSITIONING_MARKETS} and isinstance(row.positioning_date, date)
+    ]
+    fetched_dates = [row.fetched_at for row in rows if row.asset_key in {target["asset_key"] for target in INSIGHTS_MACRO_POSITIONING_MARKETS} and isinstance(row.fetched_at, datetime)]
+    latest_positioning_date = max((market["positioning_date"] for market in markets if market.get("positioning_date")), default=None)
+    stale = _is_stale_positioning_date(latest_positioning_date)
+    updated_at = (max(fetched_dates) if fetched_dates else max(updated_dates) if updated_dates else datetime.now(timezone.utc)).isoformat()
+    return {
+        "status": "stale" if stale else "available",
+        "entitlement": {"required_plan": "pro", "unlocked": True},
+        "summary": _insights_positioning_summary(markets),
+        "markets": [{key: value for key, value in market.items() if key != "positioning_date"} for market in markets],
+        "updated_at": updated_at,
+        "stale": stale,
+        "message": "Latest weekly positioning data is delayed." if stale else None,
+    }
+
+
+def _insights_unavailable_payload(*, status: str, message: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "entitlement": {"required_plan": "pro", "unlocked": True},
+        "summary": None,
+        "markets": [],
+        "updated_at": None,
+        "stale": False,
+        "message": message,
+    }
+
+
+def _insights_market_from_asset(target: dict[str, str], row: MacroPositioningAsset | None) -> dict[str, Any] | None:
+    if row is None or not isinstance(row.positioning_date, date):
+        return None
+    bias = _bias_value(row.bias)
+    if bias not in {"bullish", "bearish", "neutral"}:
+        return None
+    payload = _loads_dict(row.payload_json)
+    percentile = _first_number(payload, ("percentile", "positioning_percentile", "historical_percentile", "net_percentile"))
+    trend = _trend_value(
+        payload.get("trend")
+        or payload.get("weekly_trend")
+        or payload.get("trend_direction")
+        or payload.get("positioning_direction")
+    )
+    trend_weeks = _first_int(payload, ("trend_weeks", "consecutive_weeks", "streak_weeks"))
+    crowding = _crowding_label(percentile)
+    headline = _clean_public_text(payload.get("headline")) or _headline_for_market(trend=trend, crowded=bool(crowding))
+    interpretation = _clean_public_text(payload.get("interpretation")) or _interpretation_for_market(bias=bias, trend=trend, crowded=bool(crowding))
+    positioning_date = row.positioning_date
+    return {
+        "id": target["id"],
+        "name": target["name"],
+        "bias": bias,
+        "rating": max(1, min(int(row.rating or 3), 5)),
+        "percentile": round(percentile) if percentile is not None else None,
+        "trend": trend,
+        "trend_weeks": trend_weeks,
+        "headline": headline,
+        "interpretation": interpretation,
+        "crowding": crowding,
+        "updated_at": datetime.combine(positioning_date, datetime.min.time(), timezone.utc).isoformat(),
+        "positioning_date": positioning_date,
+    }
+
+
+def _loads_dict(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _first_number(payload: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, (int, float)):
+            return max(0.0, min(float(value), 100.0))
+        if isinstance(value, str):
+            cleaned = value.strip().replace("%", "")
+            try:
+                return max(0.0, min(float(cleaned), 100.0))
+            except ValueError:
+                continue
+    return None
+
+
+def _first_int(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, int):
+            return max(1, value)
+        if isinstance(value, str) and value.strip().isdigit():
+            return max(1, int(value.strip()))
+    return None
+
+
+def _trend_value(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"increasing", "rising", "improving", "strengthening"}:
+        return "increasing"
+    if text in {"decreasing", "falling", "weakening"}:
+        return "decreasing"
+    return "stable"
+
+
+def _crowding_label(percentile: float | None) -> str | None:
+    if percentile is None:
+        return None
+    if percentile >= 85:
+        return "crowded"
+    if percentile <= 15:
+        return "positioning extreme"
+    return None
+
+
+def _headline_for_market(*, trend: str, crowded: bool) -> str:
+    if crowded:
+        return "Institutional positioning is becoming crowded."
+    if trend == "increasing":
+        return "Institutional positioning is increasing."
+    if trend == "decreasing":
+        return "Institutional positioning is decreasing."
+    return "Institutional positioning is stable."
+
+
+def _interpretation_for_market(*, bias: str, trend: str, crowded: bool) -> str:
+    bias_text = {
+        "bullish": "Positioning remains supportive.",
+        "bearish": "Positioning remains cautious.",
+        "neutral": "Positioning is balanced.",
+    }[bias]
+    if crowded:
+        return f"{bias_text} The market is also showing a positioning extreme."
+    if trend == "increasing":
+        return f"{bias_text} Weekly positioning is improving."
+    if trend == "decreasing":
+        return f"{bias_text} Weekly positioning is softening."
+    return bias_text
+
+
+def _clean_public_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.strip().split())
+    if not cleaned:
+        return None
+    forbidden = ("cot", "commitment of traders", "cftc", "fmp", "endpoint", "provider")
+    return None if any(term in cleaned.lower() for term in forbidden) else cleaned
+
+
+def _is_stale_positioning_date(value: date | None) -> bool:
+    return value is not None and value < (datetime.now(timezone.utc).date() - timedelta(days=_INSIGHTS_STALE_AFTER_DAYS))
+
+
+def _insights_positioning_summary(markets: list[dict[str, Any]]) -> str:
+    bullish = [market["name"] for market in markets if market.get("bias") == "bullish"]
+    bearish = [market["name"] for market in markets if market.get("bias") == "bearish"]
+    crowded = [market["name"] for market in markets if market.get("crowding")]
+    improving = [market["name"] for market in markets if market.get("trend") == "increasing"]
+    parts: list[str] = []
+    if improving:
+        parts.append(f"Risk appetite improved as institutional positioning strengthened in {_join_names(improving[:2])}.")
+    elif bullish:
+        parts.append(f"Institutional positioning is bullish in {_join_names(bullish[:2])}.")
+    if bearish:
+        parts.append(f"Positioning remains cautious in {_join_names(bearish[:2])}.")
+    if crowded:
+        parts.append(f"{_join_names(crowded[:2])} shows crowded positioning.")
+    if not parts:
+        parts.append("Institutional futures positioning is broadly balanced across the supported markets.")
+    return " ".join(parts)
+
+
+def _join_names(values: list[str]) -> str:
+    if not values:
+        return "supported markets"
+    if len(values) == 1:
+        return values[0]
+    return f"{', '.join(values[:-1])} and {values[-1]}"
 
 
 def get_macro_positioning_summary(db: Session, symbol: str, *, feature_enabled: bool | None = None) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import {
   ApiError,
@@ -17,13 +18,20 @@ type EventCalendarPanelProps = {
   loadingEntitlements: boolean;
 };
 
-type AlertScope = "watchlist" | "none";
 type EconomicCategoryId = "inflation" | "jobs" | "rates" | "growth" | "consumer" | "housing" | "energy" | "trade" | "other";
+type EventPopoverState = {
+  date: string;
+  items: EventCalendarItem[];
+  left: number;
+  top: number;
+  pinned: boolean;
+};
 
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fullMonthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const calendarKinds: EventCalendarKind[] = ["economic", "earnings", "dividend", "ipo", "split"];
+const calendarAlertKinds: EventCalendarKind[] = ["economic", "earnings", "dividend", "ipo", "split"];
 
 const kindClassNames: Record<EventCalendarKind, string> = {
   economic: "border-cyan-300/30 bg-cyan-300/10 text-cyan-100",
@@ -48,6 +56,8 @@ const defaultKindFilters: Record<EventCalendarKind, boolean> = {
   ipo: true,
   split: true,
 };
+
+const defaultCalendarAlertKinds = Object.fromEntries(calendarAlertKinds.map((kind) => [kind, true])) as Record<EventCalendarKind, boolean>;
 
 const economicCategories: { id: EconomicCategoryId; label: string; patterns: string[]; defaultOn: boolean }[] = [
   { id: "inflation", label: "Inflation", patterns: ["cpi", "pce", "ppi", "inflation", "price index", "prices"], defaultOn: true },
@@ -139,14 +149,99 @@ function selectedYearRange(anchor: Date) {
   return Array.from({ length: max - min + 1 }, (_, index) => min + index);
 }
 
+function dateHeading(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function itemDisplayTitle(item: EventCalendarItem) {
+  return item.kind === "economic" ? item.title : `${item.symbol || item.company || "Company"} ${kindLabels[item.kind]}`;
+}
+
+function savedCalendarAlertKinds(payload?: Record<string, unknown> | null) {
+  const rawKinds = payload?.calendar_kinds;
+  if (!Array.isArray(rawKinds)) return defaultCalendarAlertKinds;
+  const selected = new Set(rawKinds.filter((kind): kind is EventCalendarKind => calendarAlertKinds.includes(kind as EventCalendarKind)));
+  return Object.fromEntries(calendarAlertKinds.map((kind) => [kind, selected.has(kind)])) as Record<EventCalendarKind, boolean>;
+}
+
+function selectedCalendarAlertKinds(kinds: Record<EventCalendarKind, boolean>) {
+  return calendarAlertKinds.filter((kind) => kinds[kind]);
+}
+
+function EventPopover({
+  state,
+  popoverRef,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  state: EventPopoverState;
+  popoverRef: RefObject<HTMLDivElement | null>;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}) {
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      role="dialog"
+      aria-label={`Events for ${state.date}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="fixed z-[9999] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-white/15 bg-slate-950/95 shadow-2xl shadow-black/50 backdrop-blur"
+      style={{ left: state.left, top: state.top }}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Calendar events</div>
+          <div className="mt-0.5 text-sm font-semibold text-white">{dateHeading(state.date)}</div>
+        </div>
+        {state.pinned ? <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-100">Pinned</span> : null}
+      </div>
+      <div className="max-h-80 overflow-y-auto p-2 [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.45)_transparent]">
+        <div className="space-y-1.5">
+          {state.items.map((item) => {
+            const detail = eventDetail(item);
+            return (
+              <div key={item.id} className="rounded-md border border-white/10 bg-slate-900/80 p-2">
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${kindClassNames[item.kind]}`}>{kindLabels[item.kind]}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold leading-5 text-slate-100">{itemDisplayTitle(item)}</div>
+                    {detail ? <div className="mt-0.5 text-xs leading-4 text-slate-400">{detail}</div> : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function CalendarMonth({
   month,
   itemsByDate,
   muted,
+  onPreviewItems,
+  onPinItems,
+  onLeavePreview,
 }: {
   month: Date;
   itemsByDate: Map<string, EventCalendarItem[]>;
   muted?: boolean;
+  onPreviewItems: (date: string, items: EventCalendarItem[], element: HTMLElement) => void;
+  onPinItems: (date: string, items: EventCalendarItem[], element: HTMLElement) => void;
+  onLeavePreview: () => void;
 }) {
   return (
     <section className={`min-w-0 rounded-lg border border-white/10 bg-slate-950/45 p-3 ${muted ? "opacity-55" : ""}`}>
@@ -174,15 +269,35 @@ function CalendarMonth({
                   <div className="text-[11px] font-semibold text-slate-300">{cell.day}</div>
                   <div className="mt-1 space-y-1">
                     {items.slice(0, 3).map((item) => (
-                      <div
+                      <button
                         key={item.id}
+                        type="button"
                         title={`${item.title}${eventDetail(item) ? ` | ${eventDetail(item)}` : ""}`}
-                        className={`truncate rounded border px-1.5 py-0.5 text-[10px] font-semibold ${kindClassNames[item.kind]}`}
+                        onMouseEnter={(event) => cell.date && onPreviewItems(cell.date, items, event.currentTarget)}
+                        onMouseLeave={onLeavePreview}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (cell.date) onPinItems(cell.date, items, event.currentTarget);
+                        }}
+                        className={`block w-full truncate rounded border px-1.5 py-0.5 text-left text-[10px] font-semibold transition hover:border-white/35 ${kindClassNames[item.kind]}`}
                       >
                         {item.symbol || kindLabels[item.kind]} {item.kind === "economic" ? item.title : kindLabels[item.kind]}
-                      </div>
+                      </button>
                     ))}
-                    {items.length > 3 ? <div className="text-[10px] text-slate-500">+{items.length - 3} more</div> : null}
+                    {items.length > 3 ? (
+                      <button
+                        type="button"
+                        onMouseEnter={(event) => cell.date && onPreviewItems(cell.date, items, event.currentTarget)}
+                        onMouseLeave={onLeavePreview}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (cell.date) onPinItems(cell.date, items, event.currentTarget);
+                        }}
+                        className="block w-full rounded px-1 py-0.5 text-left text-[10px] text-slate-500 transition hover:bg-white/[0.04] hover:text-slate-300"
+                      >
+                        +{items.length - 3} more
+                      </button>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -201,10 +316,13 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   const [activeEconomicCategories, setActiveEconomicCategories] = useState<Record<EconomicCategoryId, boolean>>(defaultEconomicCategoryFilters);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [alertScope, setAlertScope] = useState<AlertScope>("watchlist");
+  const [alertKinds, setAlertKinds] = useState<Record<EventCalendarKind, boolean>>(defaultCalendarAlertKinds);
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [prefStatus, setPrefStatus] = useState<string | null>(null);
   const [savingPref, setSavingPref] = useState(false);
+  const [popover, setPopover] = useState<EventPopoverState | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const closePopoverTimer = useRef<number | null>(null);
 
   const months = useMemo(() => [addMonths(anchorMonth, -1), anchorMonth, addMonths(anchorMonth, 1)], [anchorMonth]);
   const start = dateKey(months[0]);
@@ -249,12 +367,65 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
     return filteredItems.filter((item) => item.date >= today).slice(0, 6);
   }, [filteredItems]);
 
+  const clearPopoverCloseTimer = () => {
+    if (closePopoverTimer.current !== null) {
+      window.clearTimeout(closePopoverTimer.current);
+      closePopoverTimer.current = null;
+    }
+  };
+
+  const popoverPosition = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const margin = 16;
+    const gap = 8;
+    const width = Math.min(384, window.innerWidth - margin * 2);
+    const estimatedHeight = 360;
+    const left = Math.min(Math.max(rect.left, margin), Math.max(margin, window.innerWidth - width - margin));
+    let top = rect.bottom + gap;
+    if (top + estimatedHeight > window.innerHeight - margin && rect.top - estimatedHeight - gap > margin) {
+      top = rect.top - estimatedHeight - gap;
+    }
+    return { left, top: Math.max(margin, Math.min(top, window.innerHeight - 120)) };
+  };
+
+  const showPopover = (date: string, nextItems: EventCalendarItem[], element: HTMLElement, pinned: boolean) => {
+    if (nextItems.length === 0) return;
+    clearPopoverCloseTimer();
+    const position = popoverPosition(element);
+    setPopover({
+      date,
+      items: nextItems,
+      left: position.left,
+      top: position.top,
+      pinned,
+    });
+  };
+
+  const schedulePopoverClose = () => {
+    clearPopoverCloseTimer();
+    closePopoverTimer.current = window.setTimeout(() => {
+      setPopover((current) => (current?.pinned ? current : null));
+    }, 120);
+  };
+
   const toggleKind = (kind: EventCalendarKind) => {
     setActiveKinds((current) => ({ ...current, [kind]: !current[kind] }));
   };
 
   const toggleEconomicCategory = (category: EconomicCategoryId) => {
     setActiveEconomicCategories((current) => ({ ...current, [category]: !current[category] }));
+  };
+
+  const toggleAlertKind = (kind: EventCalendarKind) => {
+    setAlertKinds((current) => ({ ...current, [kind]: !current[kind] }));
+  };
+
+  const clearAlertKinds = () => {
+    setAlertKinds(Object.fromEntries(calendarAlertKinds.map((kind) => [kind, false])) as Record<EventCalendarKind, boolean>);
+  };
+
+  const applyAllAlertKinds = () => {
+    setAlertKinds(defaultCalendarAlertKinds);
   };
 
   useEffect(() => {
@@ -285,8 +456,10 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
         if (cancelled) return;
         const next = response.items[0] ?? null;
         setSubscription(next);
-        if (next?.source_id === "watchlist" || next?.source_id === "none") {
-          setAlertScope(next.active ? next.source_id : "none");
+        if (!next || !next.active || next.source_id === "none") {
+          setAlertKinds(Object.fromEntries(calendarAlertKinds.map((kind) => [kind, false])) as Record<EventCalendarKind, boolean>);
+        } else if (next.source_id === "watchlist") {
+          setAlertKinds(savedCalendarAlertKinds(next.source_payload));
         }
       })
       .catch(() => {
@@ -297,21 +470,51 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
     };
   }, [canUseEventCalendar]);
 
+  useEffect(() => {
+    return () => clearPopoverCloseTimer();
+  }, []);
+
+  useEffect(() => {
+    if (!popover?.pinned) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && popoverRef.current?.contains(target)) return;
+      setPopover(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPopover(null);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [popover?.pinned]);
+
+  useEffect(() => {
+    setPopover(null);
+  }, [end, start, activeKinds, activeEconomicCategories]);
+
   const savePreference = async () => {
     setSavingPref(true);
     setPrefStatus(null);
+    const selectedKinds = selectedCalendarAlertKinds(alertKinds);
+    const active = selectedKinds.length > 0;
     try {
       const next = await saveNotificationSubscription({
         source_type: "event_calendar",
-        source_id: alertScope,
+        source_id: active ? "watchlist" : "none",
         source_name: "Event calendar alerts",
-        source_payload: { scope: alertScope },
+        source_payload: { scope: active ? "watchlist" : "none", calendar_kinds: selectedKinds },
         only_if_new: false,
-        active: alertScope !== "none",
+        active,
         alert_triggers: ["event_calendar"],
       });
       setSubscription(next);
-      setPrefStatus(alertScope === "none" ? "Calendar alerts paused." : "Calendar alert scope saved.");
+      setPrefStatus(active ? "Calendar alert filters saved." : "Calendar alerts paused.");
     } catch (error) {
       setPrefStatus(error instanceof Error ? error.message : "Unable to save calendar alerts.");
     } finally {
@@ -338,6 +541,7 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
   }
 
   return (
+    <>
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -447,7 +651,15 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
 
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         {months.map((month, index) => (
-          <CalendarMonth key={`${month.getFullYear()}-${month.getMonth()}`} month={month} itemsByDate={itemsByDate} muted={index === 0} />
+          <CalendarMonth
+            key={`${month.getFullYear()}-${month.getMonth()}`}
+            month={month}
+            itemsByDate={itemsByDate}
+            muted={index === 0}
+            onPreviewItems={(date, nextItems, element) => showPopover(date, nextItems, element, false)}
+            onPinItems={(date, nextItems, element) => showPopover(date, nextItems, element, true)}
+            onLeavePreview={schedulePopoverClose}
+          />
         ))}
       </div>
 
@@ -477,35 +689,56 @@ export function EventCalendarPanel({ canUseEventCalendar, loadingEntitlements }:
               {subscription?.active ? "Active" : "Not active"}
             </span>
           </div>
-          <div className="mt-3 grid gap-2">
-            {[
-              ["watchlist", "Watchlist tickers"],
-              ["none", "None"],
-            ].map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm font-semibold text-slate-200">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {calendarAlertKinds.map((kind) => (
+              <label key={kind} className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm font-semibold text-slate-200">
                 <input
-                  type="radio"
-                  name="event-calendar-alert-scope"
-                  value={value}
-                  checked={alertScope === value}
-                  onChange={() => setAlertScope(value as AlertScope)}
-                  className="h-4 w-4 accent-emerald-300"
+                  type="checkbox"
+                  checked={alertKinds[kind]}
+                  onChange={() => toggleAlertKind(kind)}
+                  className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-emerald-300"
                 />
-                {label}
+                <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${kindClassNames[kind]}`}>{kindLabels[kind]}</span>
+                <span>{kind === "dividend" ? "Dividends" : kind.charAt(0).toUpperCase() + kind.slice(1)}</span>
               </label>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={savePreference}
-            disabled={savingPref}
-            className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/60 disabled:opacity-60"
-          >
-            Save alerts
-          </button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={savePreference}
+              disabled={savingPref}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 text-sm font-semibold text-emerald-100 transition hover:border-emerald-200/60 disabled:opacity-60"
+            >
+              Save alerts
+            </button>
+            <button
+              type="button"
+              onClick={clearAlertKinds}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-300 transition hover:border-white/25 hover:text-white"
+            >
+              Clear All
+            </button>
+            <button
+              type="button"
+              onClick={applyAllAlertKinds}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-300 transition hover:border-white/25 hover:text-white"
+            >
+              Apply All
+            </button>
+          </div>
           {prefStatus ? <div className="mt-2 text-xs text-slate-400">{prefStatus}</div> : null}
         </div>
       </div>
     </section>
+    {popover ? (
+      <EventPopover
+        state={popover}
+        popoverRef={popoverRef}
+        onMouseEnter={clearPopoverCloseTimer}
+        onMouseLeave={schedulePopoverClose}
+      />
+    ) : null}
+    </>
   );
 }

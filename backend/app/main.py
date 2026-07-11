@@ -210,7 +210,9 @@ from app.services.confirmation_score import (
 from app.services.options_flow import unavailable_options_flow_summary
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.macro_positioning import (
+    get_insights_macro_positioning,
     get_macro_positioning_summary,
+    locked_insights_macro_positioning_payload,
     locked_macro_positioning_summary,
     unavailable_macro_positioning_summary,
 )
@@ -10929,6 +10931,14 @@ def insights_snapshot(refresh: bool = Query(False), db: Session = Depends(get_db
 @app.get("/api/insights/overview", dependencies=[Depends(rate_limit_provider_backed)])
 def insights_overview(db: Session = Depends(get_db)):
     return get_insights_quote_overview(db)
+
+
+@app.get("/api/insights/macro-positioning")
+def insights_macro_positioning(request: Request, db: Session = Depends(get_db)):
+    entitlements = current_entitlements(request, db)
+    if "macro_positioning" not in entitlements.features:
+        return locked_insights_macro_positioning_payload()
+    return get_insights_macro_positioning(db)
 
 
 @app.get("/api/tickers/{symbol}/news")

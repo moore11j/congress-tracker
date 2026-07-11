@@ -19,6 +19,7 @@ from app.models import (
     FundamentalsCache,
     InsiderTransaction,
     InsiderTransactionNormalized,
+    MacroPositioningAsset,
     MacroPositioningCache,
     PriceCache,
     ProviderUsageEvent,
@@ -294,7 +295,12 @@ def _cache_metrics(db: Session, domain_key: str) -> tuple[str | None, int | None
     if domain_key == "signal_inputs":
         return "events", _safe_count(db, Event), _latest_event_update(db, ("congress_trade", "insider_trade", "government_contract")), 0
     if domain_key == "macro_positioning":
-        return "macro_positioning_cache", _safe_count(db, MacroPositioningCache), _safe_scalar(db, select(func.max(MacroPositioningCache.generated_at))), _queue_depth(db, ("macro_positioning_weekly_refresh",))
+        latest_asset = _safe_scalar(db, select(func.max(MacroPositioningAsset.positioning_date)))
+        latest_cache = _safe_scalar(db, select(func.max(MacroPositioningCache.generated_at)))
+        latest_refresh = latest_cache
+        if latest_asset is not None:
+            latest_refresh = datetime.combine(latest_asset, datetime.min.time(), timezone.utc)
+        return "macro_positioning_assets", _safe_count(db, MacroPositioningAsset), latest_refresh, _queue_depth(db, ("macro_positioning_weekly_refresh",))
     if domain_key in {"insights_macro", "insights_treasury"}:
         return "fred_observations", _safe_count(db, FredObservation), _safe_scalar(db, select(func.max(FredSeriesRefresh.last_refreshed_at))), _queue_depth(db, ("fred_macro_refresh", "insights_refresh"))
     if domain_key == "watchlist_alerts":
