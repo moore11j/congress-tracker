@@ -3613,6 +3613,7 @@ export type TickerOwnershipPoint = {
   retail_ownership_pct?: number | null;
   total_holders?: number | null;
   total_value_usd?: number | null;
+  ownership_source?: string | null;
 };
 
 export type TickerOwnershipResponse = {
@@ -3970,6 +3971,44 @@ export type InsightsMacroPositioningResponse = {
   subtitle?: string | null;
 };
 
+export type MacroPositioningFeedItem = {
+  event_id: string;
+  market_id?: string | null;
+  market_name?: string | null;
+  market_group?: string | null;
+  positioning?: "bullish" | "bearish" | "neutral" | string | null;
+  crowded?: boolean;
+  weekly_change?: string | null;
+  percentile?: number | null;
+  trend?: "increasing" | "decreasing" | "stable" | string | null;
+  trend_weeks?: number | null;
+  event_kind?: string | null;
+  insight?: string | null;
+  report_date?: string | null;
+  updated_at?: string | null;
+};
+
+export type MacroPositioningFeedResponse = {
+  status: "available" | "locked" | "awaiting_first_refresh" | string;
+  entitlement: {
+    required_plan: "pro" | string;
+    unlocked: boolean;
+  };
+  cadence?: "weekly" | string;
+  report_date?: string | null;
+  updated_at?: string | null;
+  summary?: string | null;
+  locked_copy?: string | null;
+  view?: string | null;
+  items: MacroPositioningFeedItem[];
+  pagination?: {
+    page: number;
+    page_size: number;
+    total: number;
+  };
+  page_size_options?: number[];
+};
+
 export type FundamentalsMetricState = "bullish" | "neutral" | "bearish" | "unavailable" | string;
 export type TickerFundamentalsSummary = {
   symbol?: string | null;
@@ -4274,6 +4313,37 @@ export async function getInsightsMacroPositioning(params?: {
     signal: params?.signal,
     source: "InsightsMacroPositioning",
   });
+}
+
+export async function getMacroPositioningFeed(params?: {
+  page?: number;
+  page_size?: number;
+  view?: string;
+  market?: string;
+  positioning?: string;
+  event?: string;
+  sort?: string;
+  authToken?: string | null;
+  signal?: AbortSignal;
+}): Promise<MacroPositioningFeedResponse> {
+  return fetchJson<MacroPositioningFeedResponse>(
+    buildApiUrl("/api/feed/macro-positioning", {
+      page: params?.page,
+      page_size: params?.page_size,
+      view: params?.view,
+      market: params?.market && params.market !== "all" ? params.market : undefined,
+      positioning: params?.positioning && params.positioning !== "all" ? params.positioning : undefined,
+      event: params?.event && params.event !== "all" ? params.event : undefined,
+      sort: params?.sort,
+    }),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: "MacroPositioningFeed",
+    },
+  );
 }
 
 function suggestKindToGlobalType(kind: SearchSuggestKind): GlobalSearchResult["type"] {

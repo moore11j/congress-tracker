@@ -781,6 +781,7 @@ def ensure_macro_positioning_schema(bind=engine) -> None:
         timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
         float_int_pk = "TEXT PRIMARY KEY"
         now_default = "CURRENT_TIMESTAMP" if dialect_name == "sqlite" else "now()"
+        false_default = "0" if dialect_name == "sqlite" else "false"
         conn.execute(
             text(
                 f"""
@@ -817,6 +818,32 @@ def ensure_macro_positioning_schema(bind=engine) -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS macro_positioning_feed_events (
+                    event_id TEXT PRIMARY KEY,
+                    report_date DATE NOT NULL,
+                    market_id TEXT NOT NULL,
+                    market_name TEXT NOT NULL,
+                    market_group TEXT NOT NULL,
+                    positioning TEXT NOT NULL,
+                    crowded BOOLEAN NOT NULL DEFAULT {false_default},
+                    weekly_change TEXT,
+                    percentile DOUBLE PRECISION,
+                    trend TEXT,
+                    trend_weeks INTEGER,
+                    event_kind TEXT NOT NULL,
+                    insight TEXT,
+                    summary TEXT,
+                    significance INTEGER NOT NULL DEFAULT 0,
+                    is_summary BOOLEAN NOT NULL DEFAULT {false_default},
+                    generated_at {timestamp_type} NOT NULL,
+                    updated_at {timestamp_type} DEFAULT {now_default}
+                )
+                """
+            )
+        )
         for statement in (
             "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE macro_positioning_assets ADD COLUMN IF NOT EXISTS bias TEXT NOT NULL DEFAULT 'neutral'",
@@ -836,6 +863,23 @@ def ensure_macro_positioning_schema(bind=engine) -> None:
             f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS generated_at {timestamp_type}",
             f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS source_refresh_at {timestamp_type}",
             f"ALTER TABLE macro_positioning_cache ADD COLUMN IF NOT EXISTS updated_at {timestamp_type} DEFAULT {now_default}",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS report_date DATE",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS market_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS market_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS market_group TEXT NOT NULL DEFAULT 'other'",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS positioning TEXT NOT NULL DEFAULT 'unavailable'",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS crowded BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS weekly_change TEXT",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS percentile DOUBLE PRECISION",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS trend TEXT",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS trend_weeks INTEGER",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS event_kind TEXT NOT NULL DEFAULT 'current_state'",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS insight TEXT",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS summary TEXT",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS significance INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS is_summary BOOLEAN NOT NULL DEFAULT false",
+            f"ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS generated_at {timestamp_type}",
+            f"ALTER TABLE macro_positioning_feed_events ADD COLUMN IF NOT EXISTS updated_at {timestamp_type} DEFAULT {now_default}",
         ):
             if dialect_name != "sqlite":
                 conn.execute(text(statement))
@@ -843,6 +887,9 @@ def ensure_macro_positioning_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_assets_positioning_date ON macro_positioning_assets (positioning_date)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_macro_positioning_cache_symbol ON macro_positioning_cache (symbol)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_cache_updated ON macro_positioning_cache (updated)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_feed_events_report_date ON macro_positioning_feed_events (report_date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_feed_events_market_id ON macro_positioning_feed_events (market_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_macro_positioning_feed_events_event_kind ON macro_positioning_feed_events (event_kind)"))
 
 
 def ensure_ticker_financials_cache_schema(bind=engine) -> None:

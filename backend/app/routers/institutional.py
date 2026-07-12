@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.entitlements import current_entitlements, require_feature
 from app.models import InstitutionalHolderIndustryBreakdown
+from app.rate_limit import rate_limit_provider_backed
 from app.request_guards import api_prefetch_response, is_inactive_logged_out_api_request
 from app.services.institutional_activity import (
     INSTITUTIONAL_ACTIVITY_TOOLTIP,
@@ -131,7 +132,7 @@ def ticker_institutional_activity(
     return get_ticker_institutional_activity(db, symbol, lookback_days=lookback_days, limit=limit)
 
 
-@router.get("/tickers/{symbol}/ownership")
+@router.get("/tickers/{symbol}/ownership", dependencies=[Depends(rate_limit_provider_backed)])
 def ticker_ownership(
     symbol: str,
     request: Request,

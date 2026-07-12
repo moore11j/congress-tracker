@@ -175,7 +175,7 @@ def test_job_cursor_advances_after_successful_all_skipped_window(job_env, monkey
     assert _state(job_env).cursor_page == 10
 
 
-def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
+def test_job_empty_page_marks_first_empty_and_wraps_to_first_page(job_env, monkeypatch):
     _seed_state(job_env, cursor_page=12, enabled=True)
     monkeypatch.setenv("INSTITUTIONAL_SCHEDULED_INGEST_ENABLED", "true")
     monkeypatch.setattr(
@@ -188,10 +188,13 @@ def test_job_empty_page_marks_first_empty_and_pauses(job_env, monkeypatch):
 
     assert result["status"] == "success"
     state = _state(job_env)
-    assert state.cursor_page == 12
+    assert state.cursor_page == 0
     assert state.first_empty_page == 12
-    assert state.enabled is False
-    assert state.last_status == "paused"
+    assert state.enabled is True
+    assert state.last_status == "success"
+    run = _runs(job_env)[0]
+    assert run.next_cursor_page == 0
+    assert (json.loads(run.metadata_json or "{}")).get("stop_reason") == "empty_page_wrapped"
 
 
 def test_job_duplicate_failure_pauses_and_disables(job_env, monkeypatch):

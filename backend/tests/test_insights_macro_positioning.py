@@ -11,9 +11,15 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.main import insights_macro_positioning, ticker_macro_positioning
-from app.models import MacroPositioningAsset, MacroPositioningCache
-from app.services.macro_positioning import _CFTC_MARKET_SPECS, get_insights_macro_positioning, ingest_macro_positioning_assets
+from app.main import insights_macro_positioning, macro_positioning_feed, ticker_macro_positioning
+from app.models import MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent
+from app.services.macro_positioning import (
+    _CFTC_MARKET_SPECS,
+    get_insights_macro_positioning,
+    get_macro_positioning_feed,
+    ingest_macro_positioning_assets,
+    refresh_macro_positioning_feed_events,
+)
 
 
 def _db():
@@ -296,6 +302,128 @@ def test_macro_positioning_ingest_keeps_last_good_rows_when_source_fails(monkeyp
         assert row is not None
         assert row.positioning_date == date(2026, 7, 1)
         assert row.bias == "bullish"
+    finally:
+        db.close()
+
+
+def test_macro_positioning_feed_generation_is_idempotent(monkeypatch):
+    db = _db()
+    try:
+        _install_fake_cftc(monkeypatch)
+        ingest_macro_positioning_assets(db)
+
+        first = refresh_macro_positioning_feed_events(db)
+        second = refresh_macro_positioning_feed_events(db)
+
+        assert first["status"] == "ok"
+        assert second["status"] == "ok"
+        assert first["significant"] > 0
+        assert db.query(MacroPositioningFeedEvent).filter(MacroPositioningFeedEvent.is_summary.is_(True)).count() == 1
+        event_ids = [row.event_id for row in db.query(MacroPositioningFeedEvent).all()]
+        assert len(event_ids) == len(set(event_ids))
+    finally:
+        db.close()
+
+
+def test_macro_positioning_feed_pro_receives_dedicated_rows(monkeypatch):
+    db = _db()
+    try:
+        _set_tier(monkeypatch, "pro")
+        _install_fake_cftc(monkeypatch)
+        ingest_macro_positioning_assets(db)
+        refresh_macro_positioning_feed_events(db)
+
+        payload = macro_positioning_feed(
+            _request("/api/feed/macro-positioning"),
+            page=1,
+            page_size=25,
+            view="significant",
+            market=None,
+            positioning=None,
+            event=None,
+            sort=None,
+            db=db,
+        )
+
+        assert payload["status"] == "available"
+        assert payload["entitlement"] == {"required_plan": "pro", "unlocked": True}
+        assert payload["cadence"] == "weekly"
+        assert payload["page_size_options"] == [25, 50, 100]
+        assert payload["summary"]
+        assert payload["items"]
+        assert payload["items"][0]["report_date"] == "2026-07-07"
+        serialized = json.dumps(payload).lower()
+        for forbidden in ("cot", "commitment of traders", "cftc", "fmp", "endpoint"):
+            assert forbidden not in serialized
+    finally:
+        db.close()
+
+
+def test_macro_positioning_feed_locked_payload_redacts_market_data(monkeypatch):
+    for tier in ("free", "premium"):
+        db = _db()
+        try:
+            _set_tier(monkeypatch, tier)
+            db.add(_asset("gold_futures", "Gold", "bullish"))
+            db.commit()
+
+            payload = macro_positioning_feed(
+                _request("/api/feed/macro-positioning"),
+                page=1,
+                page_size=25,
+                view="significant",
+                market=None,
+                positioning=None,
+                event=None,
+                sort=None,
+                db=db,
+            )
+
+            assert payload["status"] == "locked"
+            assert payload["items"] == []
+            serialized = json.dumps(payload).lower()
+            assert "gold" not in serialized
+            assert "bullish" not in serialized
+            assert "percentile" not in serialized
+        finally:
+            db.close()
+
+
+def test_macro_positioning_feed_all_markets_pagination_and_filters(monkeypatch):
+    db = _db()
+    try:
+        _install_fake_cftc(monkeypatch)
+        ingest_macro_positioning_assets(db)
+        refresh_macro_positioning_feed_events(db)
+
+        all_payload = get_macro_positioning_feed(db, view="all", page_size=25)
+        significant_payload = get_macro_positioning_feed(db, view="significant", page_size=25)
+        commodities = get_macro_positioning_feed(db, view="all", market="commodities", page_size=50)
+
+        assert all_payload["pagination"]["total"] == len(_CFTC_MARKET_SPECS)
+        assert significant_payload["pagination"]["total"] < all_payload["pagination"]["total"]
+        assert all(item["event_kind"] == "current_state" for item in all_payload["items"])
+        assert all(item["market_group"] == "commodities" for item in commodities["items"])
+        assert commodities["pagination"]["page_size"] == 50
+    finally:
+        db.close()
+
+
+def test_macro_positioning_feed_request_makes_no_provider_call(monkeypatch):
+    db = _db()
+    try:
+        _install_fake_cftc(monkeypatch)
+        ingest_macro_positioning_assets(db)
+        refresh_macro_positioning_feed_events(db)
+
+        def fail_get(*_args, **_kwargs):
+            raise AssertionError("Feed request must not call upstream providers")
+
+        monkeypatch.setattr("app.services.macro_positioning.requests.get", fail_get)
+
+        payload = get_macro_positioning_feed(db, view="all")
+
+        assert payload["items"]
     finally:
         db.close()
 

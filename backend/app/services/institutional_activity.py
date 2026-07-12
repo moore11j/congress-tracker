@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
+from app.clients.fmp import fetch_symbol_positions_summary
 from app.models import (
     Event,
     CikMeta,
@@ -1156,10 +1157,31 @@ def ticker_ownership_payload(
         holder["portfolio_weight"] = _round_optional(holder.get("portfolio_weight"), 4)
         holder["filing_date"] = holder["filing_date"].isoformat() if holder.get("filing_date") else None
 
-    latest_institutional_pct = _ownership_pct(latest.institutional_ownership_pct)
+    latest_institutional_pct = _summary_ownership_pct(latest)
     if latest_institutional_pct is None:
-        holder_pct_values = [float(holder["ownership_pct"]) for holder in holders if holder.get("ownership_pct") is not None]
+        holder_pct_values = [float(holder["ownership_pct"]) for holder in holders if float(holder.get("ownership_pct") or 0.0) > 0]
         latest_institutional_pct = _ownership_pct(sum(holder_pct_values)) if holder_pct_values else None
+    provider_snapshot = None
+    if latest_institutional_pct is None:
+        provider_snapshot = _provider_symbol_ownership_snapshot(
+            normalized,
+            report_year=latest.report_year,
+            report_quarter=latest.report_quarter,
+        )
+        latest_institutional_pct = provider_snapshot.get("institutional_ownership_pct") if provider_snapshot else None
+
+    latest_total_holders = provider_snapshot.get("total_holders") if provider_snapshot and provider_snapshot.get("total_holders") is not None else latest.total_holders
+    latest_total_value = provider_snapshot.get("total_value_usd") if provider_snapshot and provider_snapshot.get("total_value_usd") is not None else latest.total_value_usd
+    history = [_ownership_history_point(row) for row in reversed(summaries)]
+    if provider_snapshot and history:
+        history[-1] = {
+            **history[-1],
+            "institutional_ownership_pct": latest_institutional_pct,
+            "retail_ownership_pct": _retail_pct(latest_institutional_pct),
+            "total_holders": latest_total_holders,
+            "total_value_usd": latest_total_value,
+            "ownership_source": provider_snapshot.get("ownership_source"),
+        }
 
     return {
         "status": "ok" if latest_institutional_pct is not None else "no_data",
@@ -1176,11 +1198,12 @@ def ticker_ownership_payload(
             "latest_filing_date": latest.latest_filing_date.isoformat() if latest.latest_filing_date else None,
             "institutional_ownership_pct": latest_institutional_pct,
             "retail_ownership_pct": _retail_pct(latest_institutional_pct),
-            "total_holders": latest.total_holders,
-            "total_value_usd": latest.total_value_usd,
+            "total_holders": latest_total_holders,
+            "total_value_usd": latest_total_value,
+            "ownership_source": provider_snapshot.get("ownership_source") if provider_snapshot else "institutional_positions",
         },
         "holders": holders,
-        "history": [_ownership_history_point(row) for row in reversed(summaries)],
+        "history": history,
     }
 
 
@@ -2455,6 +2478,15 @@ def _ownership_pct(value: Any) -> float | None:
     return max(0.0, min(parsed, 100.0))
 
 
+def _summary_ownership_pct(summary: InstitutionalSymbolSummary) -> float | None:
+    parsed = _ownership_pct(summary.institutional_ownership_pct)
+    if parsed is None:
+        return None
+    if parsed == 0 and (int(summary.total_holders or 0) > 0 or float(summary.total_value_usd or 0.0) > 0):
+        return None
+    return parsed
+
+
 def _retail_pct(institutional_pct: float | None) -> float | None:
     if institutional_pct is None:
         return None
@@ -2462,7 +2494,7 @@ def _retail_pct(institutional_pct: float | None) -> float | None:
 
 
 def _ownership_history_point(summary: InstitutionalSymbolSummary) -> dict[str, Any]:
-    institutional_pct = _ownership_pct(summary.institutional_ownership_pct)
+    institutional_pct = _summary_ownership_pct(summary)
     return {
         "report_year": summary.report_year,
         "report_quarter": summary.report_quarter,
@@ -2473,6 +2505,62 @@ def _ownership_history_point(summary: InstitutionalSymbolSummary) -> dict[str, A
         "total_holders": summary.total_holders,
         "total_value_usd": summary.total_value_usd,
     }
+
+
+def _provider_symbol_ownership_snapshot(
+    symbol: str,
+    *,
+    report_year: int,
+    report_quarter: int,
+) -> dict[str, Any] | None:
+    try:
+        rows = fetch_symbol_positions_summary(symbol=symbol, year=report_year, quarter=report_quarter)
+    except Exception:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ownership_pct = _first_number(
+            row,
+            "institutionalOwnershipPct",
+            "institutional_ownership_pct",
+            "institutionalOwnershipPercent",
+            "ownershipPercent",
+            "ownershipPercentage",
+            "percentOfSharesHeldByInstitutions",
+            "percentageOfSharesHeldByInstitutions",
+            "percentOfSharesOutstanding",
+        )
+        ownership_pct = _ownership_pct(ownership_pct)
+        if ownership_pct is None:
+            continue
+        if ownership_pct == 0:
+            continue
+        return {
+            "institutional_ownership_pct": ownership_pct,
+            "retail_ownership_pct": _retail_pct(ownership_pct),
+            "total_holders": _first_int(
+                row,
+                "investorsHolding",
+                "investorHolding",
+                "numberOfInstitutions",
+                "numberOfInstitutionalHolders",
+                "institutionsHolding",
+                "holders",
+                "totalHolders",
+            ),
+            "total_value_usd": _first_number(
+                row,
+                "totalInvested",
+                "totalValue",
+                "totalValueUsd",
+                "marketValue",
+                "marketValueUsd",
+                "valueUsd",
+            ),
+            "ownership_source": "provider_symbol_positions_summary",
+        }
+    return None
 
 
 def _loads_dict(value: str | None) -> dict[str, Any]:

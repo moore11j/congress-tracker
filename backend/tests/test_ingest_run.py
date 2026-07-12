@@ -5,7 +5,6 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.clients.fmp import FMPClientError
 from app.ingest_run import (
     _build_parser,
     _payload_exit_code,
@@ -18,18 +17,16 @@ from app.ingest_run import (
 
 
 def test_institutional_ingest_provider_error_is_non_fatal(monkeypatch, caplog) -> None:
-    def fail_institutional_ingest(*, pages, limit, days):
-        raise FMPClientError("FMP institutional API request failed: 402: Restricted Endpoint")
+    def fake_scheduled_latest_once():
+        return {"status": "retryable", "error": "latest endpoint timed out"}
 
-    monkeypatch.setattr("app.ingest_run.institutional_ingest_run", fail_institutional_ingest)
+    monkeypatch.setattr("app.ingest_run.run_scheduled_latest_once", fake_scheduled_latest_once)
 
-    with caplog.at_level(logging.WARNING, logger="app.ingest_run"):
+    with caplog.at_level(logging.INFO, logger="app.ingest_run"):
         result = _run_institutional_ingest(pages=3, limit=200, days=30)
 
-    assert result["status"] == "skipped"
-    assert result["reason"] == "subscription_restricted"
-    assert "Restricted Endpoint" in result["error"]
-    assert "institutional_ingest_skipped reason=subscription_restricted" in caplog.text
+    assert result == {"status": "retryable", "error": "latest endpoint timed out"}
+    assert "institutional_daily_ingest_delegating_to_latest_scheduler" in caplog.text
     assert "Traceback" not in caplog.text
 
 
@@ -115,6 +112,12 @@ def test_market_data_refresh_job_is_accepted_by_parser() -> None:
     assert args.job == "market-data-refresh-daily"
 
 
+def test_institutional_latest_daily_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "institutional-latest-daily"])
+
+    assert args.job == "institutional-latest-daily"
+
+
 def test_scheduled_ingest_workflow_includes_market_data_refresh() -> None:
     workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
     contents = workflow.read_text()
@@ -123,6 +126,14 @@ def test_scheduled_ingest_workflow_includes_market_data_refresh() -> None:
     assert "market-data-refresh-daily" in contents
     assert 'JOB_MODE="market-data-refresh-daily"' in contents
     assert "market-data-refresh-daily" in crontab.read_text()
+
+
+def test_crontab_runs_institutional_latest_through_ingest_dispatcher() -> None:
+    crontab = Path(__file__).resolve().parents[1] / "crontab"
+    contents = crontab.read_text()
+
+    assert "python -m app.ingest_run --job institutional-latest-daily" in contents
+    assert "scripts/run_institutional_latest_job.sh" not in contents
 
 
 def test_enrichment_queue_job_uses_bounded_env(monkeypatch) -> None:

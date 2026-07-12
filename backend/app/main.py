@@ -210,8 +210,10 @@ from app.services.confirmation_score import (
 from app.services.options_flow import unavailable_options_flow_summary
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.macro_positioning import (
+    get_macro_positioning_feed,
     get_insights_macro_positioning,
     get_macro_positioning_summary,
+    locked_macro_positioning_feed_payload,
     locked_insights_macro_positioning_payload,
     locked_macro_positioning_summary,
     unavailable_macro_positioning_summary,
@@ -4272,6 +4274,33 @@ def feed(
         next_cursor = f"{cursor_ts.isoformat()}|{last.id}"
 
     return {"items": items, "next_cursor": next_cursor}
+
+
+@app.get("/api/feed/macro-positioning")
+def macro_positioning_feed(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    view: str = Query("significant"),
+    market: str | None = Query(None),
+    positioning: str | None = Query(None),
+    event: str | None = Query(None),
+    sort: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    entitlements = current_entitlements(request, db)
+    if "macro_positioning" not in entitlements.features:
+        return locked_macro_positioning_feed_payload()
+    return get_macro_positioning_feed(
+        db,
+        page=page,
+        page_size=page_size,
+        view=view,
+        market=market,
+        positioning=positioning,
+        event=event,
+        sort=sort,
+    )
 
 
 

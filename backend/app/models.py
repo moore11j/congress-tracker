@@ -1621,6 +1621,38 @@ class MacroPositioningCache(Base):
     )
 
 
+class MacroPositioningFeedEvent(Base):
+    __tablename__ = "macro_positioning_feed_events"
+    __table_args__ = (
+        Index("ix_macro_positioning_feed_events_report_date", "report_date"),
+        Index("ix_macro_positioning_feed_events_market_id", "market_id"),
+        Index("ix_macro_positioning_feed_events_event_kind", "event_kind"),
+    )
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    report_date: Mapped[date] = mapped_column(nullable=False)
+    market_id: Mapped[str] = mapped_column(Text, nullable=False)
+    market_name: Mapped[str] = mapped_column(Text, nullable=False)
+    market_group: Mapped[str] = mapped_column(Text, nullable=False)
+    positioning: Mapped[str] = mapped_column(Text, nullable=False)
+    crowded: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    weekly_change: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    percentile: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    trend: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    trend_weeks: Mapped[Optional[int]] = mapped_column(nullable=True)
+    event_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    insight: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    significance: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    is_summary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class FredSeriesRefresh(Base):
     __tablename__ = "fred_series_refreshes"
     __table_args__ = (

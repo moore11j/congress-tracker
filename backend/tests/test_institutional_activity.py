@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from app.db import Base
 from app import ingest_institutional_activity as ingest_module
+from app.services import institutional_activity as institutional_service
 from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
 from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity, ticker_ownership
 from app.services.institutional_activity import (
@@ -1270,6 +1271,45 @@ def test_ticker_ownership_endpoint_is_pro_only_and_returns_breakdown(monkeypatch
         assert payload["holders"][0]["ownership_pct"] == 4.5
         assert payload["history"][-1]["period"] == "Q1 2026"
         assert payload["history"][-1]["institutional_ownership_pct"] == 4.5
+
+
+def test_ticker_ownership_uses_provider_summary_when_stored_percent_is_bad_zero(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    def fake_symbol_positions_summary(*, symbol: str, year: int, quarter: int):
+        assert symbol == "TSM"
+        assert year == 2026
+        assert quarter == 1
+        return [
+            {
+                "ownershipPercent": 15.66,
+                "investorsHolding": 4336,
+                "totalInvested": 170_000_000_000,
+            }
+        ]
+
+    monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", fake_symbol_positions_summary)
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="TSM",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+        )
+        db.commit()
+
+        summary = db.execute(select(InstitutionalSymbolSummary).where(InstitutionalSymbolSummary.normalized_symbol == "TSM")).scalar_one()
+        assert summary.institutional_ownership_pct == 0
+
+        payload = ticker_ownership("TSM", _request("pro"), history_limit=8, holder_limit=10, db=db)
+        assert payload["latest"]["institutional_ownership_pct"] == 15.66
+        assert payload["latest"]["retail_ownership_pct"] == 84.34
+        assert payload["latest"]["total_holders"] == 4336
+        assert payload["latest"]["ownership_source"] == "provider_symbol_positions_summary"
+        assert payload["history"][-1]["institutional_ownership_pct"] == 15.66
 
 
 def test_institution_profile_endpoints_are_locked_until_pro(monkeypatch):

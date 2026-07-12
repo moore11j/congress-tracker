@@ -285,7 +285,13 @@ export function TickerOwnershipSkeleton() {
 export function TickerOwnershipPanel({ data, locked = false }: { data: TickerOwnershipResponse | null; locked?: boolean }) {
   const displayData = useMemo(() => data, [data]);
   if (locked || displayData?.locked || displayData?.status === "pro_locked") return <LockedState />;
-  if (!displayData || displayData.status === "unavailable" || displayData.status === "no_data" || !displayData.latest) {
+  if (
+    !displayData
+    || displayData.status === "unavailable"
+    || displayData.status === "no_data"
+    || !displayData.latest
+    || !isFiniteNumber(displayData.latest.institutional_ownership_pct)
+  ) {
     return <EmptyState message={displayData?.message || "Ownership data is not available for this ticker yet."} />;
   }
   return (

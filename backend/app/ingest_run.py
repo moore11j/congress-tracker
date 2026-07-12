@@ -12,7 +12,6 @@ from pathlib import Path
 import requests
 from sqlalchemy import func, select
 
-from app.clients.fmp import FMPClientError, FMPSubscriptionRestrictedError
 from app.compute_trade_outcomes import run_compute
 from app.db import SessionLocal, engine, ensure_price_cache_volume_columns, ensure_ticker_financials_cache_schema
 from app.enrich_members import enrich_members
@@ -20,7 +19,6 @@ from app.ingest.government_contracts import DEFAULT_TARGET_SYMBOLS, run_governme
 from app.ingest_congress_recent import run_recent_congress_ingest
 from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
-from app.ingest_institutional_buys import institutional_ingest_run
 from app.populate_fundamentals_cache import populate_fundamentals_cache
 from app.ingest_senate import ingest_senate
 from app.models import Event, PriceCache, SavedScreenSnapshot, Security, TradeOutcome, WatchlistItem
@@ -34,6 +32,7 @@ from app.services.provider_usage import log_provider_budget_summary
 from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_jobs, process_data_enrichment_jobs
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
+from app.services.institutional_ingest_job import run_scheduled_latest_once
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
 
@@ -71,6 +70,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "daily-repair",
             "market-data-refresh-daily",
             "fundamentals-cache-daily",
+            "institutional-latest-daily",
             "enrichment-queue",
             "priority-ticker-prewarm",
             "all",
@@ -623,21 +623,13 @@ def _run_watchlist_confirmation_monitoring_refresh() -> dict[str, object]:
 
 
 def _run_institutional_ingest(*, pages: int, limit: int, days: int) -> dict[str, object]:
-    try:
-        return institutional_ingest_run(
-            pages=pages,
-            limit=limit,
-            days=days,
-        )
-    except FMPSubscriptionRestrictedError as exc:
-        logger.warning("institutional_ingest_skipped reason=subscription_restricted error=%s", exc)
-        return {"status": "skipped", "reason": "subscription_restricted", "error": str(exc)}
-    except FMPClientError as exc:
-        if "402" in str(exc):
-            logger.warning("institutional_ingest_skipped reason=subscription_restricted error=%s", exc)
-            return {"status": "skipped", "reason": "subscription_restricted", "error": str(exc)}
-        logger.warning("Institutional ingest skipped after FMP client error: %s", exc)
-        return {"status": "skipped_provider_error", "error": str(exc)}
+    logger.info(
+        "institutional_daily_ingest_delegating_to_latest_scheduler pages=%s limit=%s days=%s",
+        pages,
+        limit,
+        days,
+    )
+    return run_scheduled_latest_once()
 
 
 def _run_core_job() -> dict[str, object]:
@@ -949,6 +941,11 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return {
             "job": job,
             "fundamentals_cache": _run_fundamentals_cache_refresh(),
+        }
+    if job == "institutional-latest-daily":
+        return {
+            "job": job,
+            "institutional": _run_institutional_ingest(pages=1, limit=25, days=0),
         }
     if job == "enrichment-queue":
         return _run_enrichment_queue_job()

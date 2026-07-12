@@ -13,7 +13,7 @@ import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, FundamentalsCache, MacroPositioningAsset, MacroPositioningCache, Security, TickerMeta
+from app.models import AppSetting, FundamentalsCache, MacroPositioningAsset, MacroPositioningCache, MacroPositioningFeedEvent, Security, TickerMeta
 from app.utils.symbols import normalize_symbol
 
 _CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "macro_positioning_mappings.json"
@@ -35,6 +35,20 @@ INSIGHTS_MACRO_POSITIONING_MARKETS: tuple[dict[str, str], ...] = (
     {"id": "bitcoin", "asset_key": "bitcoin_futures", "name": "Bitcoin"},
     {"id": "us-treasuries", "asset_key": "ten_year_treasury", "name": "US Treasuries"},
 )
+_MARKET_META_BY_ASSET = {
+    "sp_futures": {"id": "sp-500", "group": "equity_indexes"},
+    "nasdaq_futures": {"id": "nasdaq-100", "group": "equity_indexes"},
+    "russell_2000_futures": {"id": "russell-2000", "group": "equity_indexes"},
+    "us_dollar": {"id": "us-dollar", "group": "currencies"},
+    "gold_futures": {"id": "gold", "group": "commodities"},
+    "silver": {"id": "silver", "group": "commodities"},
+    "crude_oil": {"id": "crude-oil", "group": "commodities"},
+    "natural_gas": {"id": "natural-gas", "group": "commodities"},
+    "copper": {"id": "copper", "group": "commodities"},
+    "bitcoin_futures": {"id": "bitcoin", "group": "crypto"},
+    "ten_year_treasury": {"id": "us-treasuries", "group": "rates"},
+}
+_FEED_PAGE_SIZES = {25, 50, 100}
 
 
 @dataclass(frozen=True)
@@ -369,6 +383,339 @@ def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
         "updated_at": updated_at,
         "stale": stale,
         "message": "Latest weekly positioning data is delayed." if stale else None,
+    }
+
+
+def locked_macro_positioning_feed_payload() -> dict[str, Any]:
+    return {
+        "status": "locked",
+        "entitlement": {"required_plan": "pro", "unlocked": False},
+        "cadence": "weekly",
+        "locked_copy": "Track major shifts, trends, and historical extremes in institutional futures positioning.",
+        "items": [],
+        "pagination": {"page": 1, "page_size": 25, "total": 0},
+        "page_size_options": [25, 50, 100],
+    }
+
+
+def refresh_macro_positioning_feed_events(db: Session) -> dict[str, Any]:
+    rows = db.execute(select(MacroPositioningAsset)).scalars().all()
+    supported_asset_keys = {target["asset_key"] for target in INSIGHTS_MACRO_POSITIONING_MARKETS}
+    latest_date = max((row.positioning_date for row in rows if row.asset_key in supported_asset_keys and isinstance(row.positioning_date, date)), default=None)
+    if latest_date is None:
+        return {"status": "unavailable", "generated": 0, "significant": 0, "suppressed": 0, "summary": "missing"}
+    latest_rows = [row for row in rows if row.asset_key in supported_asset_keys and row.positioning_date == latest_date]
+    if len({row.asset_key for row in latest_rows}) < len(supported_asset_keys):
+        return {"status": "partial", "generated": 0, "significant": 0, "suppressed": len(latest_rows), "summary": "missing"}
+
+    generated_at = datetime.now(timezone.utc)
+    markets = [
+        market
+        for target in INSIGHTS_MACRO_POSITIONING_MARKETS
+        for row in latest_rows
+        if row.asset_key == target["asset_key"]
+        if (market := _feed_market_from_asset(target, row, generated_at=generated_at)) is not None
+    ]
+    if not markets:
+        return {"status": "unavailable", "generated": 0, "significant": 0, "suppressed": 0, "summary": "missing"}
+
+    generated = 0
+    significant = 0
+    suppressed = 0
+    for market in markets:
+        current_event = _feed_event_payload(market, "current_state")
+        _upsert_macro_feed_event(db, current_event)
+        generated += 1
+        event_kind, state, score = _significant_event_for_market(market)
+        if event_kind:
+            significant_event = _feed_event_payload(market, event_kind, state=state, significance=score)
+            _upsert_macro_feed_event(db, significant_event)
+            generated += 1
+            significant += 1
+        else:
+            suppressed += 1
+
+    summary = _macro_feed_summary(markets)
+    summary_status = "created" if summary else "missing"
+    if summary:
+        summary_event = {
+            "event_id": f"macro:summary:{latest_date.isoformat()}",
+            "report_date": latest_date,
+            "market_id": "summary",
+            "market_name": "Weekly Summary",
+            "market_group": "summary",
+            "positioning": "summary",
+            "crowded": False,
+            "weekly_change": None,
+            "percentile": None,
+            "trend": None,
+            "trend_weeks": None,
+            "event_kind": "summary",
+            "insight": None,
+            "summary": summary,
+            "significance": 0,
+            "is_summary": True,
+            "generated_at": generated_at,
+        }
+        _upsert_macro_feed_event(db, summary_event)
+        generated += 1
+    db.commit()
+    return {
+        "status": "ok",
+        "generated": generated,
+        "significant": significant,
+        "suppressed": suppressed,
+        "report_date": latest_date.isoformat(),
+        "summary": summary_status,
+    }
+
+
+def get_macro_positioning_feed(
+    db: Session,
+    *,
+    page: int = 1,
+    page_size: int = 25,
+    view: str = "significant",
+    market: str | None = None,
+    positioning: str | None = None,
+    event: str | None = None,
+    sort: str | None = None,
+) -> dict[str, Any]:
+    page = max(1, int(page or 1))
+    page_size = int(page_size or 25)
+    if page_size not in _FEED_PAGE_SIZES:
+        page_size = 25
+    normalized_view = "all" if str(view or "").strip().lower() == "all" else "significant"
+    latest_report_date = db.execute(select(func.max(MacroPositioningFeedEvent.report_date))).scalar()
+    summary_row = None
+    if isinstance(latest_report_date, date):
+        summary_row = db.execute(
+            select(MacroPositioningFeedEvent)
+            .where(MacroPositioningFeedEvent.report_date == latest_report_date, MacroPositioningFeedEvent.is_summary.is_(True))
+            .limit(1)
+        ).scalar_one_or_none()
+
+    statement = select(MacroPositioningFeedEvent).where(MacroPositioningFeedEvent.is_summary.is_(False))
+    if normalized_view == "all":
+        statement = statement.where(MacroPositioningFeedEvent.event_kind == "current_state")
+    else:
+        statement = statement.where(MacroPositioningFeedEvent.event_kind != "current_state")
+    if market and market != "all":
+        statement = statement.where(MacroPositioningFeedEvent.market_group == market)
+    if positioning and positioning != "all":
+        if positioning == "crowded":
+            statement = statement.where(MacroPositioningFeedEvent.crowded.is_(True))
+        else:
+            statement = statement.where(MacroPositioningFeedEvent.positioning == positioning)
+    if event and event != "all":
+        statement = statement.where(MacroPositioningFeedEvent.event_kind == event)
+
+    filtered_rows = db.execute(statement).scalars().all()
+    filtered_rows = _sort_macro_feed_rows(filtered_rows, sort)
+    total = len(filtered_rows)
+    page_rows = filtered_rows[(page - 1) * page_size : page * page_size]
+    updated_at = max((row.generated_at for row in filtered_rows if isinstance(row.generated_at, datetime)), default=None)
+    if summary_row and isinstance(summary_row.generated_at, datetime):
+        updated_at = max(updated_at, summary_row.generated_at) if updated_at else summary_row.generated_at
+    return {
+        "status": "available" if latest_report_date else "awaiting_first_refresh",
+        "entitlement": {"required_plan": "pro", "unlocked": True},
+        "report_date": latest_report_date.isoformat() if isinstance(latest_report_date, date) else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+        "cadence": "weekly",
+        "summary": summary_row.summary if summary_row else None,
+        "items": [_macro_feed_event_payload(row) for row in page_rows],
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+        "page_size_options": [25, 50, 100],
+        "view": normalized_view,
+    }
+
+
+def _feed_market_from_asset(target: dict[str, str], row: MacroPositioningAsset, *, generated_at: datetime) -> dict[str, Any] | None:
+    base = _insights_market_from_asset(target, row)
+    if base is None:
+        return None
+    payload = _loads_dict(row.payload_json)
+    meta = _MARKET_META_BY_ASSET.get(target["asset_key"], {"id": target["id"], "group": "other"})
+    net_score = _number_or_none(payload.get("net_score"))
+    crowded = bool(base.get("crowding"))
+    percentile = base.get("percentile")
+    trend = base.get("trend")
+    trend_weeks = base.get("trend_weeks")
+    return {
+        "market_id": meta["id"],
+        "market_name": target["name"],
+        "market_group": meta["group"],
+        "positioning": base["bias"],
+        "crowded": crowded,
+        "weekly_change": _weekly_change_label(trend),
+        "percentile": percentile if isinstance(percentile, (int, float)) else None,
+        "trend": trend,
+        "trend_weeks": trend_weeks if isinstance(trend_weeks, int) else None,
+        "insight": base.get("interpretation"),
+        "report_date": row.positioning_date,
+        "updated_at": row.fetched_at,
+        "generated_at": generated_at,
+        "net_score": net_score,
+    }
+
+
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _weekly_change_label(trend: str | None) -> str | None:
+    if trend == "increasing":
+        return "Strengthening"
+    if trend == "decreasing":
+        return "Weakening"
+    if trend == "stable":
+        return "Little changed"
+    return None
+
+
+def _feed_event_payload(market: dict[str, Any], event_kind: str, *, state: str | None = None, significance: int = 0) -> dict[str, Any]:
+    report_date = market["report_date"]
+    event_state = state or ("state" if event_kind == "current_state" else str(market["positioning"]))
+    event_id = f"macro:{market['market_id']}:{report_date.isoformat()}:{event_kind}:{event_state}"
+    return {
+        "event_id": event_id,
+        "report_date": report_date,
+        "market_id": market["market_id"],
+        "market_name": market["market_name"],
+        "market_group": market["market_group"],
+        "positioning": market["positioning"],
+        "crowded": bool(market.get("crowded")),
+        "weekly_change": market.get("weekly_change"),
+        "percentile": market.get("percentile"),
+        "trend": market.get("trend"),
+        "trend_weeks": market.get("trend_weeks"),
+        "event_kind": event_kind,
+        "insight": _event_insight(market, event_kind),
+        "summary": None,
+        "significance": significance,
+        "is_summary": False,
+        "generated_at": market["generated_at"],
+    }
+
+
+def _event_insight(market: dict[str, Any], event_kind: str) -> str:
+    if event_kind == "historical_extreme" and market.get("crowded"):
+        return f"{market['market_name']} positioning remains {market['positioning']}, although exposure is in a historically elevated range."
+    if event_kind == "trend_milestone":
+        trend = "strengthened" if market.get("trend") == "increasing" else "weakened"
+        weeks = market.get("trend_weeks")
+        return f"{market['market_name']} positioning {trend} for {weeks} consecutive reports."
+    if event_kind == "crowding":
+        return f"{market['market_name']} positioning remains {market['positioning']} and historically crowded."
+    if event_kind == "major_shift":
+        direction = "strongly net long" if market.get("positioning") == "bullish" else "strongly net short"
+        return f"{market['market_name']} positioning is {direction} in the latest weekly report."
+    return str(market.get("insight") or "Latest weekly positioning is available.")
+
+
+def _significant_event_for_market(market: dict[str, Any]) -> tuple[str | None, str | None, int]:
+    percentile = market.get("percentile")
+    if isinstance(percentile, (int, float)):
+        if percentile >= 95:
+            return "historical_extreme", "upper_5", 95
+        if percentile >= 90:
+            return "historical_extreme", "upper_10", 90
+        if percentile <= 5:
+            return "historical_extreme", "lower_5", 95
+        if percentile <= 10:
+            return "historical_extreme", "lower_10", 90
+    trend = market.get("trend")
+    trend_weeks = market.get("trend_weeks")
+    if trend in {"increasing", "decreasing"} and isinstance(trend_weeks, int) and trend_weeks >= 3:
+        return "trend_milestone", f"{trend}_{trend_weeks}", 80 + min(trend_weeks, 10)
+    if market.get("crowded") and market.get("positioning") in {"bullish", "bearish"}:
+        return "crowding", str(market.get("positioning")), 75
+    net_score = market.get("net_score")
+    if isinstance(net_score, (int, float)) and abs(float(net_score)) >= 0.35 and market.get("positioning") in {"bullish", "bearish"}:
+        return "major_shift", str(market.get("positioning")), 70
+    return None, None, 0
+
+
+def _upsert_macro_feed_event(db: Session, payload: dict[str, Any]) -> None:
+    row = db.get(MacroPositioningFeedEvent, payload["event_id"])
+    if row is None:
+        row = MacroPositioningFeedEvent(event_id=payload["event_id"], report_date=payload["report_date"], generated_at=payload["generated_at"])
+        db.add(row)
+    row.report_date = payload["report_date"]
+    row.market_id = payload["market_id"]
+    row.market_name = payload["market_name"]
+    row.market_group = payload["market_group"]
+    row.positioning = payload["positioning"]
+    row.crowded = bool(payload.get("crowded"))
+    row.weekly_change = payload.get("weekly_change")
+    row.percentile = payload.get("percentile")
+    row.trend = payload.get("trend")
+    row.trend_weeks = payload.get("trend_weeks")
+    row.event_kind = payload["event_kind"]
+    row.insight = payload.get("insight")
+    row.summary = payload.get("summary")
+    row.significance = int(payload.get("significance") or 0)
+    row.is_summary = bool(payload.get("is_summary"))
+    row.generated_at = payload["generated_at"]
+
+
+def _macro_feed_summary(markets: list[dict[str, Any]]) -> str | None:
+    if len(markets) < 3:
+        return None
+    strengthening = [market["market_name"] for market in markets if market.get("trend") == "increasing"]
+    weakening = [market["market_name"] for market in markets if market.get("trend") == "decreasing"]
+    crowded = [market["market_name"] for market in markets if market.get("crowded")]
+    bullish = [market["market_name"] for market in markets if market.get("positioning") == "bullish"]
+    bearish = [market["market_name"] for market in markets if market.get("positioning") == "bearish"]
+    parts: list[str] = []
+    if strengthening:
+        parts.append(f"Institutional positioning strengthened in {_join_names(strengthening[:2])}.")
+    elif bullish:
+        parts.append(f"Institutional positioning remains supportive in {_join_names(bullish[:2])}.")
+    if weakening:
+        parts.append(f"Positioning weakened in {_join_names(weakening[:2])}.")
+    elif bearish:
+        parts.append(f"Positioning remains cautious in {_join_names(bearish[:2])}.")
+    if crowded:
+        parts.append(f"{_join_names(crowded[:2])} is in a historically crowded range.")
+    return " ".join(parts) if parts else "Institutional futures positioning is broadly balanced across the supported weekly markets."
+
+
+def _sort_macro_feed_rows(rows: list[MacroPositioningFeedEvent], sort: str | None) -> list[MacroPositioningFeedEvent]:
+    normalized = str(sort or "latest").strip().lower()
+    if normalized == "oldest":
+        return sorted(rows, key=lambda row: (row.report_date, row.market_name))
+    if normalized == "market":
+        return sorted(rows, key=lambda row: (row.market_name, row.report_date), reverse=False)
+    if normalized == "percentile":
+        return sorted(rows, key=lambda row: (row.percentile is None, -(row.percentile or -1), row.market_name))
+    return sorted(rows, key=lambda row: (row.report_date, row.significance, row.market_name), reverse=True)
+
+
+def _macro_feed_event_payload(row: MacroPositioningFeedEvent) -> dict[str, Any]:
+    return {
+        "event_id": row.event_id,
+        "market_id": row.market_id,
+        "market_name": row.market_name,
+        "market_group": row.market_group,
+        "positioning": row.positioning,
+        "crowded": bool(row.crowded),
+        "weekly_change": row.weekly_change,
+        "percentile": round(row.percentile) if isinstance(row.percentile, (int, float)) else None,
+        "trend": row.trend,
+        "trend_weeks": row.trend_weeks,
+        "event_kind": row.event_kind,
+        "insight": row.insight,
+        "report_date": row.report_date.isoformat() if row.report_date else None,
+        "updated_at": row.generated_at.isoformat() if row.generated_at else None,
     }
 
 

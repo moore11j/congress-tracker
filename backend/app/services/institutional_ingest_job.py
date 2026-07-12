@@ -326,11 +326,12 @@ def _finish_scheduled_run(
         state.last_error = None
         if stop_at_empty:
             empty_page = int(first_empty) if first_empty is not None else int(state.cursor_page)
-            run.next_cursor_page = int(state.cursor_page)
+            run.next_cursor_page = 0
             state.first_empty_page = empty_page
-            state.enabled = False
-            state.last_status = "paused"
-            metadata["stop_reason"] = "empty_page"
+            state.cursor_page = 0
+            state.enabled = True
+            state.last_status = "success"
+            metadata["stop_reason"] = "empty_page_wrapped"
         else:
             run.next_cursor_page = int(state.cursor_page) + 1
             state.cursor_page = run.next_cursor_page
