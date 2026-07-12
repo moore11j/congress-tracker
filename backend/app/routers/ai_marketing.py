@@ -15,6 +15,7 @@ from app.services.ai_marketing import (
     MissingMarketingCredential,
     OpenAISuggestionError,
     OPPORTUNITY_STATUSES,
+    apply_email_action,
     archive_opportunity,
     campaign_to_dict,
     config_status,
@@ -28,6 +29,8 @@ from app.services.ai_marketing import (
     mark_opportunity_opened,
     mark_opportunity_posted,
     opportunity_to_dict,
+    post_draft_to_x,
+    process_postmark_ai_growth_inbound,
     preview_digest,
     public_settings_payload,
     reject_opportunity,
@@ -41,6 +44,7 @@ from app.services.ai_marketing import (
     update_campaign,
     update_opportunity_status,
     update_settings,
+    x_account_status,
 )
 
 router = APIRouter(tags=["admin-ai-marketing"])
@@ -159,6 +163,10 @@ class EmailDigestPayload(BaseModel):
     opportunity_ids: list[int] | None = None
     statuses: list[str] | None = None
     limit: int = Field(default=25, ge=1, le=100)
+
+
+class XPostPayload(BaseModel):
+    draft_id: int
 
 
 class SettingsPatchPayload(BaseModel):
@@ -548,3 +556,88 @@ def admin_ai_marketing_email_digest(
         statuses=body.get("statuses"),
         limit=payload.limit,
     )
+
+
+@router.get("/admin/ai-growth/email-action")
+def admin_ai_growth_email_action(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        return apply_email_action(
+            db,
+            token,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MissingMarketingCredential as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/admin/ai-growth/x/oauth/start")
+def admin_ai_growth_x_oauth_start(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return {
+        "ok": False,
+        "status": x_account_status(),
+        "message": "X OAuth PKCE setup requires X_CLIENT_ID, X_CLIENT_SECRET, and X_REDIRECT_URI in server env before redirect can start.",
+        "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+    }
+
+
+@router.get("/admin/ai-growth/x/oauth/callback")
+def admin_ai_growth_x_oauth_callback(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return {"ok": False, "message": "X OAuth callback is reserved for the encrypted token exchange flow; no token data is exposed."}
+
+
+@router.get("/admin/ai-growth/x/status")
+def admin_ai_growth_x_status(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return x_account_status()
+
+
+@router.post("/admin/ai-growth/x/disconnect", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_x_disconnect(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return {"ok": False, "message": "X disconnect requires removing encrypted/server-side X credentials; no tokens are exposed here."}
+
+
+@router.post("/admin/ai-growth/x/test", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_x_test(request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    status = x_account_status()
+    return {"ok": bool(status["connected"]), "status": status, "message": "X account connected." if status["connected"] else "X account is not connected."}
+
+
+@router.post("/admin/ai-growth/x/post", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_x_post(
+    payload: XPostPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    admin = require_admin_user(db, request)
+    try:
+        return post_draft_to_x(db, payload.draft_id, actor_admin_id=admin.id)
+    except MissingMarketingCredential as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/webhooks/postmark/inbound/ai-growth")
+async def postmark_inbound_ai_growth(request: Request, db: Session = Depends(get_db)):
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Postmark inbound payload.") from exc
+    secret = request.headers.get("x-postmark-webhook-secret") or request.headers.get("x-ai-growth-webhook-secret")
+    try:
+        return process_postmark_ai_growth_inbound(db, payload, webhook_secret=secret)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

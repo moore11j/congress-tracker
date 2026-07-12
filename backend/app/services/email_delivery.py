@@ -43,6 +43,7 @@ def send_email(
     idempotency_key: str | None = None,
     force_log_only: bool = False,
     raise_http_errors: bool = False,
+    reply_to: str | None = None,
 ) -> dict[str, Any]:
     normalized_to = normalize_email(to_email)
     if not normalized_to or "@" not in normalized_to:
@@ -56,7 +57,7 @@ def send_email(
     template = _get_template(db, template_key)
     sender = resolve_sender_for_template(template)
     _log_sender_resolution(template.template_key, sender)
-    reply_to = _reply_to_for_template(template)
+    reply_to_value = reply_to or _reply_to_for_template(template)
     if not template.enabled:
         delivery = _create_delivery(
             db,
@@ -151,7 +152,7 @@ def send_email(
             api_key=api_key,
             from_value=formataddr((sender.from_name, sender.from_email)),
             to_email=normalized_to,
-            reply_to=reply_to,
+            reply_to=reply_to_value,
             subject=rendered["subject"],
             body_text=rendered["body_text"],
             body_html=rendered["body_html"],

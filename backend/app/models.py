@@ -995,6 +995,28 @@ class AiMarketingEmailLog(Base):
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AiGrowthEmailActionToken(Base):
+    __tablename__ = "ai_growth_email_action_tokens"
+    __table_args__ = (
+        Index("ix_ai_growth_email_action_tokens_token", "token_id", unique=True),
+        Index("ix_ai_growth_email_action_tokens_draft", "draft_id"),
+        Index("ix_ai_growth_email_action_tokens_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_id: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_id: Mapped[int] = mapped_column(nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    nonce_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class BillingTransaction(Base):
     __tablename__ = "billing_transactions"
     __table_args__ = (

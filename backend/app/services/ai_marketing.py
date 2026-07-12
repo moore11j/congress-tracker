@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import html
 import json
 import logging
 import os
 import re
+import secrets
+import base64
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -24,6 +27,7 @@ from app.models import (
     AiMarketingOpportunity,
     AiMarketingSetting,
     AiMarketingSuggestion,
+    AiGrowthEmailActionToken,
     ConfirmationMonitoringEvent,
     ConfirmationMonitoringSnapshot,
     Event,
@@ -55,6 +59,9 @@ OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
 FMP_API_KEY = "FMP_API_KEY"
 AI_GROWTH_ARTICLE_AUTOMATION_ENABLED = "AI_GROWTH_ARTICLE_AUTOMATION_ENABLED"
 AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS = "AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS"
+AI_GROWTH_INBOUND_REPLY_ADDRESS = "AI_GROWTH_INBOUND_REPLY_ADDRESS"
+POSTMARK_INBOUND_WEBHOOK_SECRET = "POSTMARK_INBOUND_WEBHOOK_SECRET"
+POSTMARK_INBOUND_BASIC_AUTH_SECRET = "POSTMARK_INBOUND_BASIC_AUTH_SECRET"
 REDDIT_CLIENT_ID = "REDDIT_CLIENT_ID"
 REDDIT_CLIENT_SECRET = "REDDIT_CLIENT_SECRET"
 REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
@@ -90,9 +97,12 @@ OPPORTUNITY_STATUSES = {
     "opened",
     "copied",
     "approved",
+    "posted",
     "posted_manually",
     "archived",
     "rejected",
+    "rejected_regenerate_requested",
+    "superseded",
     "dismissed",
     "regeneration_needed",
     "quality_failed",
@@ -2275,6 +2285,248 @@ def recommended_destination_url(
     return _with_utm(base_url, platform=platform, campaign_id=campaign_id)
 
 
+EMAIL_ACTIONS = {"approve", "approve_and_post", "reject", "reject_and_regenerate", "reply"}
+
+
+def _public_app_base_url() -> str:
+    return os.getenv("WALNUT_APP_URL", "").strip().rstrip("/") or "https://walnutmarkets.com"
+
+
+def _email_action_secret() -> str:
+    return os.getenv("AI_GROWTH_EMAIL_ACTION_SECRET", "").strip() or os.getenv("APP_SESSION_SECRET", "dev-session-secret")
+
+
+def _b64_json(payload: dict[str, Any]) -> str:
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _unb64_json(value: str) -> dict[str, Any]:
+    padding = "=" * (-len(value) % 4)
+    return json.loads(base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8"))
+
+
+def _sign_email_action_payload(payload_b64: str) -> str:
+    return hmac.new(_email_action_secret().encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def create_email_action_token(
+    db: Session,
+    draft_id: int,
+    action: str,
+    *,
+    actor_email: str | None = None,
+    ttl_hours: int = 72,
+) -> str:
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action not in EMAIL_ACTIONS:
+        raise ValueError("Unsupported AI Growth email action.")
+    now = datetime.now(timezone.utc)
+    token_id = secrets.token_urlsafe(12)
+    nonce = secrets.token_urlsafe(18)
+    expires_at = now + timedelta(hours=max(1, min(ttl_hours, 168)))
+    payload = {"draft_id": int(draft_id), "action": normalized_action, "exp": int(expires_at.timestamp()), "nonce": nonce, "tid": token_id}
+    payload_b64 = _b64_json(payload)
+    token = f"{payload_b64}.{_sign_email_action_payload(payload_b64)}"
+    db.add(
+        AiGrowthEmailActionToken(
+            token_id=token_id,
+            draft_id=int(draft_id),
+            action=normalized_action,
+            actor_email=actor_email,
+            nonce_hash=_dedupe_key(nonce),
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+    return token
+
+
+def email_action_url(db: Session, draft_id: int, action: str, *, actor_email: str | None = None) -> str:
+    token = create_email_action_token(db, draft_id, action, actor_email=actor_email)
+    return f"{_public_app_base_url()}/api/admin/ai-growth/email-action?token={quote(token)}"
+
+
+def reply_to_address_for_draft(db: Session, draft_id: int, *, actor_email: str | None = None) -> str:
+    address = os.getenv(AI_GROWTH_INBOUND_REPLY_ADDRESS, "ai-growth@walnutmarkets.com").strip() or "ai-growth@walnutmarkets.com"
+    local, _, domain = address.partition("@")
+    token = create_email_action_token(db, draft_id, "reply", actor_email=actor_email)
+    payload = _unb64_json(token.split(".", 1)[0])
+    return f"{local}+draft_{draft_id}_{payload['tid']}@{domain}"
+
+
+def verify_email_action_token(
+    db: Session,
+    token: str,
+    *,
+    consume: bool = True,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> tuple[AiMarketingOpportunity, AiGrowthEmailActionToken, dict[str, Any]]:
+    try:
+        payload_b64, signature = token.split(".", 1)
+        expected = _sign_email_action_payload(payload_b64)
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("Invalid token signature.")
+        payload = _unb64_json(payload_b64)
+    except Exception as exc:
+        raise ValueError("Invalid AI Growth action token.") from exc
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in EMAIL_ACTIONS:
+        raise ValueError("Unsupported AI Growth action.")
+    if datetime.now(timezone.utc).timestamp() > int(payload.get("exp") or 0):
+        raise ValueError("AI Growth action token expired.")
+    row = db.execute(
+        select(AiGrowthEmailActionToken).where(
+            AiGrowthEmailActionToken.token_id == str(payload.get("tid") or ""),
+            AiGrowthEmailActionToken.draft_id == int(payload.get("draft_id") or 0),
+            AiGrowthEmailActionToken.action == action,
+        )
+    ).scalar_one_or_none()
+    if not row or row.nonce_hash != _dedupe_key(str(payload.get("nonce") or "")):
+        raise ValueError("AI Growth action token not recognized.")
+    if row.used_at:
+        raise ValueError("AI Growth action token already used.")
+    draft = db.get(AiMarketingOpportunity, int(payload.get("draft_id") or 0))
+    if not draft:
+        raise ValueError("Draft not found.")
+    if consume:
+        row.used_at = datetime.now(timezone.utc)
+        row.ip_address = _truncate(ip_address, 120)
+        row.user_agent = _truncate(user_agent, 500)
+        db.commit()
+    return draft, row, payload
+
+
+def apply_email_action(
+    db: Session,
+    token: str,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> dict[str, Any]:
+    draft, token_row, payload = verify_email_action_token(db, token, ip_address=ip_address, user_agent=user_agent)
+    action = str(payload["action"])
+    if draft.status in {"posted", "posted_manually", "archived", "rejected", "superseded"} and action != "reply":
+        token_row.result = "rejected_status_not_allowed"
+        db.commit()
+        raise ValueError("Draft status no longer allows this action.")
+    if action == "approve":
+        draft.status = "approved"
+        token_row.result = "approved"
+    elif action == "reject":
+        draft.status = "rejected"
+        token_row.result = "rejected"
+    elif action == "reject_and_regenerate":
+        draft.status = "rejected_regenerate_requested"
+        token_row.result = "regeneration_requested"
+        regenerate_growth_draft(db, draft, change_request="Reject this idea and regenerate a replacement angle. Preserve compliance and no-investment-advice framing.")
+    elif action == "approve_and_post":
+        token_row.result = "admin_confirmation_required"
+        db.commit()
+        return {"status": "admin_confirmation_required", "draft_id": draft.id, "confirm_url": f"{_public_app_base_url()}/admin/ai-marketing?draft={draft.id}&confirm_post=1"}
+    else:
+        token_row.result = "unsupported_action"
+    draft.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    latest = latest_suggestions_by_opportunity(db, [draft.id]).get(draft.id)
+    return {"status": token_row.result, "draft": opportunity_to_dict(draft, suggestion=latest)}
+
+
+def x_account_status() -> dict[str, Any]:
+    access_token = os.getenv("X_ACCESS_TOKEN", "").strip()
+    return {
+        "connected": bool(access_token),
+        "handle": os.getenv("X_CONNECTED_HANDLE", "").strip() or None,
+        "user_id": os.getenv("X_CONNECTED_USER_ID", "").strip() or None,
+        "token_status": "configured" if access_token else "missing",
+        "last_successful_post": None,
+        "last_token_refresh": None,
+        "secrets_managed_by": "server_env_or_encrypted_store",
+    }
+
+
+def post_draft_to_x(db: Session, draft_id: int, *, actor_admin_id: int | None = None) -> dict[str, Any]:
+    draft = db.get(AiMarketingOpportunity, draft_id)
+    if not draft:
+        raise ValueError("Draft not found.")
+    if not x_account_status()["connected"]:
+        raise MissingMarketingCredential("X account is not connected. Connect Walnut's X account before posting.")
+    latest = latest_suggestions_by_opportunity(db, [draft.id]).get(draft.id)
+    body = (_generated_content_from_suggestion(latest) or draft.generated_content or draft.full_markdown or "").strip()
+    if not body:
+        raise ValueError("Draft has no post body.")
+    response = requests.post(
+        "https://api.x.com/2/tweets",
+        headers={"Authorization": f"Bearer {os.getenv('X_ACCESS_TOKEN', '').strip()}", "Content-Type": "application/json"},
+        json={"text": body[:X_POST_CHARACTER_LIMIT]},
+        timeout=20,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError("X API post failed.")
+    data = response.json()
+    post_id = str((data.get("data") or {}).get("id") or "").strip()
+    handle = x_account_status().get("handle") or "WalnutMarkets"
+    post_url = f"https://x.com/{handle}/status/{post_id}" if post_id else ""
+    metadata = _load_object(draft.raw_metadata_json)
+    metadata.update({"x_post_id": post_id, "x_post_url": post_url, "posted_by_admin_id": actor_admin_id})
+    draft.raw_metadata_json = _dump_object(metadata)
+    draft.status = "posted"
+    draft.posted_manually_at = datetime.now(timezone.utc)
+    draft.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(draft)
+    return {"status": "posted", "x_post_id": post_id, "x_post_url": post_url, "draft": opportunity_to_dict(draft, suggestion=latest)}
+
+
+def process_postmark_ai_growth_inbound(
+    db: Session,
+    payload: dict[str, Any],
+    *,
+    webhook_secret: str | None = None,
+) -> dict[str, Any]:
+    expected_secret = os.getenv(POSTMARK_INBOUND_WEBHOOK_SECRET, "").strip() or os.getenv(POSTMARK_INBOUND_BASIC_AUTH_SECRET, "").strip()
+    if expected_secret and webhook_secret != expected_secret:
+        raise ValueError("Invalid inbound webhook secret.")
+    from_email = str(payload.get("From") or (payload.get("FromFull") or {}).get("Email") or "").strip().lower()
+    if from_email and from_email != ai_growth_recipient().lower():
+        raise ValueError("Inbound AI Growth reply sender is not authorized.")
+    mailbox_hash = str(payload.get("MailboxHash") or "").strip()
+    if not mailbox_hash:
+        to_value = str(payload.get("To") or "").strip()
+        match_to = re.search(r"\+draft_(\d+)_([^@>\s]+)", to_value)
+        mailbox_hash = f"draft_{match_to.group(1)}_{match_to.group(2)}" if match_to else ""
+    match = re.fullmatch(r"draft_(\d+)_([A-Za-z0-9_-]+)", mailbox_hash)
+    if not match:
+        raise ValueError("Inbound AI Growth reply token was not found.")
+    draft_id = int(match.group(1))
+    token_id = match.group(2)
+    token_row = db.execute(
+        select(AiGrowthEmailActionToken).where(
+            AiGrowthEmailActionToken.token_id == token_id,
+            AiGrowthEmailActionToken.draft_id == draft_id,
+            AiGrowthEmailActionToken.action == "reply",
+        )
+    ).scalar_one_or_none()
+    if not token_row or token_row.used_at:
+        raise ValueError("Inbound AI Growth reply token is invalid or already used.")
+    expires_at = token_row.expires_at if token_row.expires_at.tzinfo else token_row.expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise ValueError("Inbound AI Growth reply token expired.")
+    instruction = str(payload.get("StrippedTextReply") or payload.get("TextBody") or "").strip()
+    if not instruction:
+        raise ValueError("Inbound AI Growth reply did not include revision instructions.")
+    draft = db.get(AiMarketingOpportunity, draft_id)
+    if not draft:
+        raise ValueError("Draft not found.")
+    token_row.used_at = datetime.now(timezone.utc)
+    token_row.result = "reply_regeneration_requested"
+    db.commit()
+    result = regenerate_growth_draft(db, draft, change_request=instruction[:1000])
+    send_draft_email(db, draft)
+    return {"status": "regenerated", "draft": result}
+
+
 def preview_digest(
     db: Session,
     *,
@@ -2284,7 +2536,7 @@ def preview_digest(
 ) -> dict[str, Any]:
     opportunities = _digest_opportunities(db, opportunity_ids=opportunity_ids, statuses=statuses, limit=limit)
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
-    context = _digest_context(opportunities, latest)
+    context = _digest_context(db, opportunities, latest)
     return {
         "to_email": ai_growth_recipient(),
         "subject": context["subject"],
@@ -2305,7 +2557,8 @@ def send_digest(
 ) -> dict[str, Any]:
     opportunities = _digest_opportunities(db, opportunity_ids=opportunity_ids, statuses=statuses, limit=limit)
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
-    context = _digest_context(opportunities, latest)
+    context = _digest_context(db, opportunities, latest)
+    reply_to = reply_to_address_for_draft(db, opportunities[0].id, actor_email=ai_growth_recipient()) if len(opportunities) == 1 else None
     result = send_email(
         db,
         to_email=ai_growth_recipient(),
@@ -2314,6 +2567,7 @@ def send_digest(
         user_id=admin_user_id,
         category="admin_ai_marketing",
         idempotency_key=None,
+        reply_to=reply_to,
     )
     status = str(result.get("status") or "queued")
     sent_at = datetime.now(timezone.utc) if status == "sent" else None
@@ -2954,6 +3208,7 @@ def _notes_html(label: str, notes: list[Any]) -> str:
 
 
 def _digest_context(
+    db: Session,
     opportunities: list[AiMarketingOpportunity],
     latest: dict[int, AiMarketingSuggestion],
 ) -> dict[str, Any]:
@@ -3002,6 +3257,10 @@ def _digest_context(
         direct_version = str(alternate_versions.get("more_direct_version") or alternate_versions.get("alternate_reply_more_direct") or "").strip()
         hashtag_block = str(alternate_versions.get("copy_hashtags_cashtags") or "").strip()
         admin_url = _draft_admin_url(opportunity.id)
+        approve_post_url = email_action_url(db, opportunity.id, "approve_and_post", actor_email=ai_growth_recipient())
+        approve_url = email_action_url(db, opportunity.id, "approve", actor_email=ai_growth_recipient())
+        reject_url = email_action_url(db, opportunity.id, "reject", actor_email=ai_growth_recipient())
+        reject_regenerate_url = email_action_url(db, opportunity.id, "reject_and_regenerate", actor_email=ai_growth_recipient())
         destination_html = (
             f"<p style=\"margin:0 0 8px 0;\"><a href=\"{html.escape(destination, quote=True)}\">Suggested Walnut link</a></p>"
             if destination
@@ -3051,8 +3310,13 @@ def _digest_context(
                     f"Short version: {short_version or 'none'}",
                     f"Direct version: {direct_version or 'none'}",
                     f"Suggested hashtags/cashtags: {hashtag_block or tickers}",
+                    f"Approve + Post: {approve_post_url}",
+                    f"Approve: {approve_url}",
+                    f"Reject: {reject_url}",
+                    f"Reject + Regenerate: {reject_regenerate_url}",
                     "Copy-ready markdown:",
                     opportunity.full_markdown or draft_content,
+                    "Reply instructions: Reply to this email with edits like 'make it sharper,' 'shorten it,' or 'focus more on the HBM angle.' Walnut will regenerate the draft and email you a revised version.",
                     f"Disclosure reminder: {disclosure or _default_disclosure_reminder(source_platform, draft_content)}",
                     f"Compliance notes: {compliance}",
                     notes_text,
@@ -3084,8 +3348,17 @@ def _digest_context(
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(draft_content)}</pre>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Alternate versions:</strong> short={html.escape(short_version or 'none')} | direct={html.escape(direct_version or 'none')}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Hashtags/cashtags:</strong> {html.escape(hashtag_block or tickers)}</p>"
+            "<div style=\"margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;\">"
+            f"<a href=\"{html.escape(approve_post_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#16a34a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Approve + Post</a>"
+            f"<a href=\"{html.escape(approve_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#e2e8f0;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">Approve</a>"
+            f"<a href=\"{html.escape(reject_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#475569;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Reject</a>"
+            f"<a href=\"{html.escape(reject_regenerate_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#f59e0b;color:#111827;text-decoration:none;border-radius:6px;font-weight:700;\">Reject + Regenerate</a>"
+            f"<a href=\"{html.escape(admin_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Open Draft in Walnut Admin</a>"
+            f"<a href=\"{html.escape(str(posting_links.get('open_x_compose') or 'https://x.com/compose/post'), quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Open X Compose</a>"
+            "</div>"
             f"<p style=\"margin:0 0 6px 0;color:#334155;\"><strong>Copy-ready markdown</strong></p>"
             f"<pre style=\"white-space:pre-wrap;margin:6px 0 10px 0;padding:12px;background:#0b1120;color:#d1fae5;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(opportunity.full_markdown or draft_content)}</pre>"
+            "<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Reply instructions:</strong> Reply to this email with edits like 'make it sharper,' 'shorten it,' or 'focus more on the HBM angle.' Walnut will regenerate the draft and email you a revised version.</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Disclosure reminder:</strong> {html.escape(disclosure or _default_disclosure_reminder(source_platform, draft_content))}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Compliance:</strong> {html.escape(compliance)}</p>"
             f"{notes_html}{missing_html}"
