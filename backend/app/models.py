@@ -1644,7 +1644,7 @@ class MacroPositioningFeedEvent(Base):
     insight: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     significance: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
-    is_summary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    is_summary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
