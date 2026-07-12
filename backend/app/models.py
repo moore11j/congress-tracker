@@ -1635,7 +1635,7 @@ class MacroPositioningFeedEvent(Base):
     market_name: Mapped[str] = mapped_column(Text, nullable=False)
     market_group: Mapped[str] = mapped_column(Text, nullable=False)
     positioning: Mapped[str] = mapped_column(Text, nullable=False)
-    crowded: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"), nullable=False)
+    crowded: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
     weekly_change: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     percentile: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     trend: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
