@@ -96,5 +96,8 @@ test("ownership tab is a pro lazy tab", () => {
   assert.match(api, /export async function getTickerOwnership/);
   assert.match(api, /\/api\/tickers\/\$\{tickerPathSymbol\(symbol\)\}\/ownership/);
   assert.match(panel, /Ownership breakdown requires Pro\./);
+  assert.match(panel, /Reported Institutional Holdings/);
+  assert.match(panel, /Ownership % pending/);
+  assert.match(panel, /hasReportedHoldings/);
   assert.match(panel, /strokeDasharray="6 5"/);
 });

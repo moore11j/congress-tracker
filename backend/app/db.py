@@ -2903,6 +2903,26 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_growth_email_action_tokens (
+                        id INTEGER PRIMARY KEY,
+                        token_id TEXT NOT NULL UNIQUE,
+                        draft_id INTEGER NOT NULL,
+                        action TEXT NOT NULL,
+                        actor_email TEXT,
+                        nonce_hash TEXT NOT NULL,
+                        expires_at TIMESTAMP,
+                        used_at TIMESTAMP,
+                        result TEXT,
+                        ip_address TEXT,
+                        user_agent TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
         else:
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
             conn.execute(text("SET LOCAL statement_timeout = '10s'"))
@@ -3294,6 +3314,9 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
         )
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_email_logs_created ON ai_marketing_email_logs (created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_email_logs_status ON ai_marketing_email_logs (status)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_growth_email_action_tokens_token ON ai_growth_email_action_tokens (token_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_growth_email_action_tokens_draft ON ai_growth_email_action_tokens (draft_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_growth_email_action_tokens_created ON ai_growth_email_action_tokens (created_at)"))
 
 
 def get_db():

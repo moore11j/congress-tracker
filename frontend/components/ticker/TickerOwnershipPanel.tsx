@@ -41,6 +41,19 @@ function formatNumber(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+function hasOwnershipPct(data: TickerOwnershipResponse | null | undefined): boolean {
+  return isFiniteNumber(data?.latest?.institutional_ownership_pct);
+}
+
+function hasReportedHoldings(data: TickerOwnershipResponse | null | undefined): boolean {
+  if (!data?.latest) return false;
+  return (
+    data.holders.some((holder) => isFiniteNumber(holder.value_usd) || isFiniteNumber(holder.shares) || isFiniteNumber(holder.ownership_pct))
+    || isFiniteNumber(data.latest.total_value_usd)
+    || Boolean(data.latest.total_holders && data.latest.total_holders > 0)
+  );
+}
+
 function trendFor(points: ChartPoint[]) {
   if (points.length < 2) return null;
   const n = points.length;
@@ -146,9 +159,11 @@ function OwnershipChart({ history }: { history: TickerOwnershipPoint[] }) {
 }
 
 function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
-  const visible = holders.filter((holder) => isFiniteNumber(holder.ownership_pct) && holder.ownership_pct > 0).slice(0, 12);
+  const visible = holders
+    .filter((holder) => isFiniteNumber(holder.ownership_pct) || isFiniteNumber(holder.value_usd) || isFiniteNumber(holder.shares))
+    .slice(0, 12);
   if (visible.length === 0) {
-    return <p className="text-sm text-slate-400">Holder-level ownership percentages are not available.</p>;
+    return <p className="text-sm text-slate-400">Holder-level records are not available.</p>;
   }
   return (
     <div className="max-h-72 overflow-y-auto pr-1">
@@ -162,16 +177,46 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
                   <p className="truncate text-sm font-semibold text-slate-100">{holder.holder_name || "Institution"}</p>
                   <p className="mt-1 text-xs text-slate-500">{formatCompactCurrency(holder.value_usd)} reported value</p>
                 </div>
-                <p className="shrink-0 text-sm font-semibold tabular-nums text-blue-200">{formatPct(pct)}</p>
+                <p className="shrink-0 text-sm font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : `${formatNumber(holder.shares)} sh`}</p>
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
-                <div className="h-full rounded-full bg-blue-400" style={{ width: `${pct}%` }} />
-              </div>
+              {pct > 0 ? (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full rounded-full bg-blue-400" style={{ width: `${pct}%` }} />
+                </div>
+              ) : null}
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function ReportedHoldingsSummary({ data }: { data: TickerOwnershipResponse }) {
+  const latest = data.latest;
+  return (
+    <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Reported Institutional Holdings</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            {latest?.period ?? "Latest quarter"}{latest?.latest_filing_date ? ` / Filed ${formatDateShort(latest.latest_filing_date)}` : ""}
+          </p>
+        </div>
+        <p className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-100">
+          Ownership % pending
+        </p>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <SummaryTile label="Holders" value={formatNumber(latest?.total_holders)} />
+        <SummaryTile label="Reported Value" value={formatCompactCurrency(latest?.total_value_usd)} />
+        <SummaryTile label="Holder Records" value={formatNumber(data.holders.length)} />
+      </div>
+      {data.message ? <p className="mt-4 text-sm leading-6 text-slate-400">{data.message}</p> : null}
+      <div className="mt-4">
+        <HolderBreakdown holders={data.holders} />
+      </div>
+    </section>
   );
 }
 
@@ -288,16 +333,22 @@ export function TickerOwnershipPanel({ data, locked = false }: { data: TickerOwn
   if (
     !displayData
     || displayData.status === "unavailable"
-    || displayData.status === "no_data"
     || !displayData.latest
-    || !isFiniteNumber(displayData.latest.institutional_ownership_pct)
+    || (displayData.status === "no_data" && !hasReportedHoldings(displayData))
+    || (!hasOwnershipPct(displayData) && !hasReportedHoldings(displayData))
   ) {
     return <EmptyState message={displayData?.message || "Ownership data is not available for this ticker yet."} />;
   }
   return (
     <div className="space-y-4">
-      <OwnershipSplit data={displayData} />
-      <OwnershipChart history={displayData.history} />
+      {hasOwnershipPct(displayData) ? (
+        <>
+          <OwnershipSplit data={displayData} />
+          <OwnershipChart history={displayData.history} />
+        </>
+      ) : (
+        <ReportedHoldingsSummary data={displayData} />
+      )}
       {displayData.tooltip ? <p className="text-xs leading-5 text-slate-500">{displayData.tooltip}</p> : null}
     </div>
   );

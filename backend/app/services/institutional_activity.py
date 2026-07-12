@@ -1172,6 +1172,7 @@ def ticker_ownership_payload(
 
     latest_total_holders = provider_snapshot.get("total_holders") if provider_snapshot and provider_snapshot.get("total_holders") is not None else latest.total_holders
     latest_total_value = provider_snapshot.get("total_value_usd") if provider_snapshot and provider_snapshot.get("total_value_usd") is not None else latest.total_value_usd
+    has_reported_holdings = bool(holders) or int(latest_total_holders or 0) > 0 or float(latest_total_value or 0.0) > 0.0
     history = [_ownership_history_point(row) for row in reversed(summaries)]
     if provider_snapshot and history:
         history[-1] = {
@@ -1184,12 +1185,18 @@ def ticker_ownership_payload(
         }
 
     return {
-        "status": "ok" if latest_institutional_pct is not None else "no_data",
+        "status": "ok" if latest_institutional_pct is not None or has_reported_holdings else "no_data",
         "symbol": normalized,
         "source_label": INSTITUTIONAL_SOURCE_LABEL,
         "locked": False,
         "required_plan": None,
-        "message": None if latest_institutional_pct is not None else "Ownership percentage data is not available for this ticker yet.",
+        "message": (
+            None
+            if latest_institutional_pct is not None
+            else "Reported institutional holdings are available; ownership percentage is pending for this ticker."
+            if has_reported_holdings
+            else "Ownership percentage data is not available for this ticker yet."
+        ),
         "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
         "latest": {
             "report_year": latest.report_year,

@@ -1312,6 +1312,31 @@ def test_ticker_ownership_uses_provider_summary_when_stored_percent_is_bad_zero(
         assert payload["history"][-1]["institutional_ownership_pct"] == 15.66
 
 
+def test_ticker_ownership_returns_reported_holdings_when_percent_is_pending(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", lambda **_kwargs: [])
+    engine = _engine()
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="TSM",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+        )
+        db.commit()
+
+        payload = ticker_ownership("TSM", _request("pro"), history_limit=8, holder_limit=10, db=db)
+        assert payload["status"] == "ok"
+        assert payload["message"] == "Reported institutional holdings are available; ownership percentage is pending for this ticker."
+        assert payload["latest"]["institutional_ownership_pct"] is None
+        assert payload["latest"]["total_value_usd"] == 65_000_000
+        assert payload["holders"][0]["holder_name"] == "Blue Ridge Capital"
+        assert payload["holders"][0]["value_usd"] == 65_000_000
+        assert payload["holders"][0]["shares"] == 400_000
+
+
 def test_institution_profile_endpoints_are_locked_until_pro(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
