@@ -104,7 +104,7 @@ def backfill_price_cache(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill cached EOD prices for targeted symbols.")
-    parser.add_argument("--symbols", required=True, help="Comma-separated symbols, for example ^GSPC or AAPL,MSFT")
+    parser.add_argument("--symbols", required=True, help="Comma-separated symbols, for example SPY or AAPL,MSFT")
     parser.add_argument("--start-date", required=True)
     parser.add_argument("--end-date", required=True)
     parser.add_argument("--dry-run", action="store_true")

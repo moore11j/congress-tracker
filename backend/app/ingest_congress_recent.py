@@ -157,7 +157,7 @@ def run_recent_congress_ingest(
                 repair_db,
                 since_report_date=since_report_date,
                 dry_run=False,
-                benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
+                benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY"),
             )
         finally:
             repair_db.close()

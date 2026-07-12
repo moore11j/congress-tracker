@@ -284,7 +284,7 @@ test("backtesting workbench preserves full workflow controls", () => {
   assert.match(backtestingWorkbench, /buy_and_hold: buyAndHold/);
   assert.match(backtestingWorkbench, /benchmark: selectedBenchmark/);
   assert.match(backtestingWorkbench, /benchmarkOptions\.map/);
-  assert.match(api, /BacktestBenchmarkSymbol = "\^GSPC" \| "QQQ" \| "IWM" \| "VT" \| "SPY_TLT_60_40" \| "BOGLEHEADS_3_FUND"/);
+  assert.match(api, /BacktestBenchmarkSymbol = "SPY" \| "QQQ" \| "IWM" \| "VT" \| "SPY_TLT_60_40" \| "BOGLEHEADS_3_FUND"/);
   assert.match(backtestingWorkbench, /Portfolio Settings/);
   assert.match(backtestingWorkbench, /Run Backtest/);
 });

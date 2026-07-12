@@ -75,8 +75,8 @@ def test_confirmation_score_bundle_combines_insider_and_price_confirmation():
             [
                 _price("CRM", start, 100),
                 _price("CRM", recent, 90),
-                _price("^GSPC", start, 100),
-                _price("^GSPC", recent, 98),
+                _price("SPY", start, 100),
+                _price("SPY", recent, 98),
             ]
         )
         db.commit()
@@ -301,8 +301,8 @@ def test_conflicting_government_contract_support_caps_bearish_bundle_below_excep
             [
                 _price("PLTR", start, 100),
                 _price("PLTR", recent, 84),
-                _price("^GSPC", start, 100),
-                _price("^GSPC", recent, 99),
+                _price("SPY", start, 100),
+                _price("SPY", recent, 99),
             ]
         )
         db.add(

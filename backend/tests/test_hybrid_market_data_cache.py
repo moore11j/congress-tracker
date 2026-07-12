@@ -92,7 +92,7 @@ def test_ticker_chart_uses_cached_prices_when_page_load_fmp_disabled(monkeypatch
     monkeypatch.setattr("app.main.enqueue_data_enrichment_job", lambda **kwargs: True)
     today = datetime.now(timezone.utc).date()
     prior = today - timedelta(days=1)
-    for symbol, close in [("AAPL", 190.0), ("AAPL", 195.0), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
+    for symbol, close in [("AAPL", 190.0), ("AAPL", 195.0), ("SPY", 5100.0), ("SPY", 5150.0)]:
         day = prior if close in {190.0, 5100.0} else today
         db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
     db.commit()
@@ -119,7 +119,7 @@ def test_ticker_chart_uses_cached_fundamentals_without_page_load_fmp(monkeypatch
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
     today = datetime.now(timezone.utc).date()
     prior = today - timedelta(days=1)
-    for symbol, close in [("MSTR", 340.0), ("MSTR", 350.0), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
+    for symbol, close in [("MSTR", 340.0), ("MSTR", 350.0), ("SPY", 5100.0), ("SPY", 5150.0)]:
         day = prior if close in {340.0, 5100.0} else today
         db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
     db.add(
@@ -168,7 +168,7 @@ def test_ticker_chart_cold_fundamentals_miss_enqueues_without_page_load_fmp(monk
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
     today = datetime.now(timezone.utc).date()
     prior = today - timedelta(days=1)
-    for symbol, close in [("SDRL", 8.0), ("SDRL", 8.5), ("^GSPC", 5100.0), ("^GSPC", 5150.0)]:
+    for symbol, close in [("SDRL", 8.0), ("SDRL", 8.5), ("SPY", 5100.0), ("SPY", 5150.0)]:
         day = prior if close in {8.0, 5100.0} else today
         db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
     db.commit()
@@ -205,8 +205,8 @@ def test_ticker_chart_route_returns_cached_payload_when_heavy_route_saturated(mo
     for symbol, day, close in [
         ("BMNR", prior, 10.0),
         ("BMNR", today, 11.0),
-        ("^GSPC", prior, 5100.0),
-        ("^GSPC", today, 5110.0),
+        ("SPY", prior, 5100.0),
+        ("SPY", today, 5110.0),
     ]:
         db.add(PriceCache(symbol=symbol, date=day.isoformat(), close=close))
     db.commit()

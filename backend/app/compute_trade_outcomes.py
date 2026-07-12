@@ -247,7 +247,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of events scanned.")
     parser.add_argument("--member-id", type=str, default=None, help="Only compute outcomes for one member_bioguide_id/reporting_cik.")
     parser.add_argument("--event-type", type=str, default="all", help="Event type to score: congress_trade, insider_trade, or all.")
-    parser.add_argument("--benchmark", type=str, default="^GSPC", help="Benchmark symbol (default: ^GSPC).")
+    parser.add_argument("--benchmark", type=str, default="SPY", help="Benchmark symbol (default: SPY).")
     parser.add_argument("--lookback-days", type=int, default=None, help="Only include events from the last N days.")
     parser.add_argument("--trade-date-after", type=str, default=None, help="Only include events with event_date/ts >= YYYY-MM-DD.")
     parser.add_argument("--only-missing", action="store_true", help="Only process events without a trade_outcomes row.")
@@ -379,7 +379,7 @@ def run_compute(
             compute_kwargs = {
                 "db": db,
                 "events": congress_events,
-                "benchmark_symbol": (benchmark_symbol or "^GSPC").strip() or "^GSPC",
+                "benchmark_symbol": (benchmark_symbol or "SPY").strip() or "SPY",
             }
             if budget_state is not None:
                 compute_kwargs["budget_state"] = budget_state
@@ -388,7 +388,7 @@ def run_compute(
             compute_kwargs = {
                 "db": db,
                 "events": insider_events,
-                "benchmark_symbol": (benchmark_symbol or "^GSPC").strip() or "^GSPC",
+                "benchmark_symbol": (benchmark_symbol or "SPY").strip() or "SPY",
             }
             if budget_state is not None:
                 compute_kwargs["budget_state"] = budget_state

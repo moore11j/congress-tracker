@@ -752,7 +752,7 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             limit=max(1, min(limit, 500)),
             member_id=None,
             event_type=event_type,
-            benchmark_symbol=_payload_str(payload, "benchmark_symbol") or "^GSPC",
+            benchmark_symbol=_payload_str(payload, "benchmark_symbol") or "SPY",
             lookback_days=max(1, min(lookback_days, 1095)),
             trade_date_after=None,
             only_missing=True,

@@ -133,7 +133,7 @@ def _add_congress_portfolio_fixture(db: Session, *, member_id: str, event_id: in
         )
     )
     db.merge(PriceCache(symbol=symbol, date=day.isoformat(), close=100.0))
-    db.merge(PriceCache(symbol="^GSPC", date=day.isoformat(), close=100.0))
+    db.merge(PriceCache(symbol="SPY", date=day.isoformat(), close=100.0))
     db.flush()
     return day
 
@@ -154,7 +154,7 @@ def _add_existing_portfolio_run(
         entity_id=entity_id,
         mode="realistic_disclosure_lag",
         lookback_days=lookback_days,
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         start_date=day - timedelta(days=lookback_days),
         end_date=day,
         ending_value=110000.0,
@@ -244,7 +244,7 @@ def _fake_portfolio_simulation(
         actual_end_date=None,
         calendar_points=0,
         calendar_source="test",
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         benchmark_points_loaded=0,
         benchmark_first_date=None,
         benchmark_last_date=None,
@@ -301,19 +301,19 @@ def test_load_price_histories_maps_share_class_cache_variant_to_requested_symbol
     try:
         db.add(PriceCache(symbol="BRK-B", date="2026-01-02", close=451.10))
         db.add(PriceCache(symbol="DUK-PA", date="2026-01-02", close=24.75))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
         histories = load_price_histories(
             db,
-            ["BRK/B", "DUK.PA", "^GSPC"],
+            ["BRK/B", "DUK.PA", "SPY"],
             date(2026, 1, 2),
             date(2026, 1, 2),
         )
 
         assert histories["BRK/B"] == {"2026-01-02": 451.10}
         assert histories["DUK.PA"] == {"2026-01-02": 24.75}
-        assert histories["^GSPC"] == {"2026-01-02": 100.0}
+        assert histories["SPY"] == {"2026-01-02": 100.0}
     finally:
         db.close()
 
@@ -400,7 +400,7 @@ def test_1095_day_run_aligns_benchmark_to_first_active_holding():
             )
         )
         for offset, day in enumerate(_date_keys(start, end)):
-            db.add(PriceCache(symbol="^GSPC", date=day, close=100.0 + offset))
+            db.add(PriceCache(symbol="SPY", date=day, close=100.0 + offset))
         for offset, day in enumerate(_date_keys(trade_day, end)):
             db.add(PriceCache(symbol="AAPL", date=day, close=100.0 + offset))
         db.commit()
@@ -411,7 +411,7 @@ def test_1095_day_run_aligns_benchmark_to_first_active_holding():
             entity_id="M001",
             lookback_days=1095,
             mode="realistic_disclosure_lag",
-            benchmark="^GSPC",
+            benchmark="SPY",
             end_date=end,
         )
 
@@ -504,7 +504,7 @@ def test_short_lookback_uses_warmup_events_to_reconstruct_opening_holdings():
         )
         for offset, day in enumerate(_date_keys(trade_day, end)):
             db.merge(PriceCache(symbol="AAPL", date=day, close=100.0 + offset))
-            db.merge(PriceCache(symbol="^GSPC", date=day, close=100.0))
+            db.merge(PriceCache(symbol="SPY", date=day, close=100.0))
         db.commit()
 
         simulation = run_replicated_portfolio_simulation(
@@ -513,7 +513,7 @@ def test_short_lookback_uses_warmup_events_to_reconstruct_opening_holdings():
             entity_id="M_WARM",
             lookback_days=30,
             mode="realistic_disclosure_lag",
-            benchmark="^GSPC",
+            benchmark="SPY",
             end_date=end,
         )
 
@@ -557,7 +557,7 @@ def test_1095_day_run_uses_default_warmup_to_reconstruct_opening_holdings():
         )
         for day in _date_keys(prior_trade_day, end):
             db.merge(PriceCache(symbol="AAPL", date=day, close=100.0))
-            db.merge(PriceCache(symbol="^GSPC", date=day, close=100.0))
+            db.merge(PriceCache(symbol="SPY", date=day, close=100.0))
         db.commit()
 
         simulation = run_replicated_portfolio_simulation(
@@ -566,7 +566,7 @@ def test_1095_day_run_uses_default_warmup_to_reconstruct_opening_holdings():
             entity_id="M_3Y",
             lookback_days=1095,
             mode="realistic_disclosure_lag",
-            benchmark="^GSPC",
+            benchmark="SPY",
             end_date=end,
         )
 
@@ -833,8 +833,8 @@ def test_run_simulation_loads_latest_annual_disclosure_before_visible_start():
                 ),
                 PriceCache(symbol="MSFT", date="2026-01-02", close=200.0),
                 PriceCache(symbol="MSFT", date="2026-01-03", close=250.0),
-                PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0),
-                PriceCache(symbol="^GSPC", date="2026-01-03", close=100.0),
+                PriceCache(symbol="SPY", date="2026-01-02", close=100.0),
+                PriceCache(symbol="SPY", date="2026-01-03", close=100.0),
                 HouseAnnualDisclosureHolding(
                     document_row_id=1,
                     member_name="Nancy Pelosi",
@@ -2376,7 +2376,7 @@ def test_portfolio_endpoint_returns_persisted_run_without_writes():
             issuer_cik="0000320193",
             mode="realistic_disclosure_lag",
             lookback_days=1095,
-            benchmark_symbol="^GSPC",
+            benchmark_symbol="SPY",
             start_date=date(2023, 1, 1),
             end_date=date(2026, 1, 1),
             ending_value=125000.0,
@@ -2436,7 +2436,7 @@ def test_member_portfolio_endpoint_returns_persisted_run_without_writes():
             entity_id="M_PORT",
             mode="realistic_disclosure_lag",
             lookback_days=1095,
-            benchmark_symbol="^GSPC",
+            benchmark_symbol="SPY",
             start_date=date(2023, 1, 1),
             end_date=date(2026, 1, 1),
             ending_value=131356.529,
@@ -2569,7 +2569,7 @@ def test_summary_only_does_not_dump_full_skipped_event_arrays(monkeypatch):
                 amount_max=15000,
             )
         )
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -2579,7 +2579,7 @@ def test_summary_only_does_not_dump_full_skipped_event_arrays(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
 
@@ -2621,7 +2621,7 @@ def test_apply_output_is_compact_by_default(monkeypatch):
                 )
             )
             db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -2631,7 +2631,7 @@ def test_apply_output_is_compact_by_default(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
     row = report["results"][0]
 
@@ -2687,7 +2687,7 @@ def test_apply_output_verbose_includes_full_coverage(monkeypatch):
             )
         )
         db.add(PriceCache(symbol="AAPL", date="2026-01-02", close=100.0))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -2697,7 +2697,7 @@ def test_apply_output_verbose_includes_full_coverage(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         verbose=True,
     )
     row = report["results"][0]
@@ -2740,7 +2740,7 @@ def test_targeted_entity_id_limits_compute_to_requested_entity(monkeypatch):
                 )
             )
             db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -2750,7 +2750,7 @@ def test_targeted_entity_id_limits_compute_to_requested_entity(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=5,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
 
@@ -2774,7 +2774,7 @@ def test_standard_lookback_set_expands_for_targeted_batch(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     assert report["lookbacks_requested"] == [30, 90, 180, 365, 1095]
@@ -2798,7 +2798,7 @@ def test_comma_separated_lookback_days_work(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     assert report["lookbacks_requested"] == [30, 90, 365]
@@ -2823,7 +2823,7 @@ def test_entity_ids_list_targets_only_requested_members(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=10,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     assert [row["entity_id"] for row in report["results"]] == ["M_LIST_A", "M_LIST_B"]
@@ -2850,7 +2850,7 @@ def test_existing_runs_are_skipped_by_default_without_compute(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     row = report["results"][0]
@@ -2873,7 +2873,7 @@ def test_compact_planned_result_handles_skipped_persisted_position(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     row = report["results"][0]
@@ -2901,7 +2901,7 @@ def test_compact_planned_result_populates_top_missing_price_symbols_from_positio
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     row = report["results"][0]
@@ -2930,7 +2930,7 @@ def test_batch_dry_run_across_multiple_existing_lookbacks_does_not_crash(monkeyp
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     assert [row["lookback_days"] for row in report["results"]] == [30, 90, 180]
@@ -2960,7 +2960,7 @@ def test_replace_existing_only_when_explicitly_passed(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
     assert skipped["results"][0]["status"] == "skipped_existing"
 
@@ -2971,7 +2971,7 @@ def test_replace_existing_only_when_explicitly_passed(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         replace_existing=True,
     )
 
@@ -3001,7 +3001,7 @@ def test_dry_run_writes_nothing(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     with SessionLocal() as db:
@@ -3031,7 +3031,7 @@ def test_apply_writes_only_replicated_portfolio_tables(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     with SessionLocal() as db:
@@ -3058,7 +3058,7 @@ def test_compact_output_hides_coverage_internals_unless_verbose(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
     verbose = compute_module.run_compute(
         entity_type="congress",
@@ -3067,7 +3067,7 @@ def test_compact_output_hides_coverage_internals_unless_verbose(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         verbose=True,
     )
 
@@ -3094,7 +3094,7 @@ def test_legacy_single_entity_single_lookback_shape_still_works(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     assert report["lookback_days"] == 365
@@ -4321,7 +4321,7 @@ def test_insider_candidate_selection_ranks_named_candidate_ahead_when_similar(mo
             [
                 PriceCache(symbol="ANON", date="2026-01-10", close=10.0),
                 PriceCache(symbol="NAMED", date="2026-01-10", close=10.0),
-                PriceCache(symbol="^GSPC", date="2026-01-10", close=100.0),
+                PriceCache(symbol="SPY", date="2026-01-10", close=100.0),
             ]
         )
         db.commit()
@@ -4337,7 +4337,7 @@ def test_insider_candidate_selection_ranks_named_candidate_ahead_when_similar(mo
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
     row = report["results"][0]
@@ -4416,7 +4416,7 @@ def test_targeted_insider_entity_id_bypasses_candidate_scan(monkeypatch):
             )
         )
         db.add(PriceCache(symbol="AAPL", date="2026-01-10", close=100.0))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-10", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-10", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -4426,7 +4426,7 @@ def test_targeted_insider_entity_id_bypasses_candidate_scan(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=10,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
 
@@ -4465,7 +4465,7 @@ def test_summary_only_missing_price_symbol_summary(monkeypatch):
                 amount_max=15000,
             )
         )
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -4475,7 +4475,7 @@ def test_summary_only_missing_price_symbol_summary(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
 
@@ -4516,7 +4516,7 @@ def test_summary_only_caps_coverage_and_symbol_diagnostics(monkeypatch):
                 )
             )
             db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -4526,7 +4526,7 @@ def test_summary_only_caps_coverage_and_symbol_diagnostics(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
     )
     row = report["results"][0]
@@ -4567,7 +4567,7 @@ def test_summary_only_verbose_includes_full_diagnostics(monkeypatch):
                 )
             )
             db.add(PriceCache(symbol=symbol, date="2026-01-02", close=100.0 + index))
-        db.add(PriceCache(symbol="^GSPC", date="2026-01-02", close=100.0))
+        db.add(PriceCache(symbol="SPY", date="2026-01-02", close=100.0))
         db.commit()
 
     report = compute_module.run_compute(
@@ -4577,7 +4577,7 @@ def test_summary_only_verbose_includes_full_diagnostics(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         summary_only=True,
         verbose=True,
     )
@@ -4617,7 +4617,7 @@ def test_price_preflight_dry_run_writes_no_price_cache(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
     )
 
@@ -4657,7 +4657,7 @@ def test_apply_price_preflight_backfills_only_with_backfill_flag(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
     )
     with SessionLocal() as db:
@@ -4672,7 +4672,7 @@ def test_apply_price_preflight_backfills_only_with_backfill_flag(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
     )
@@ -4713,7 +4713,7 @@ def test_price_preflight_backfills_missing_price_skips_even_when_curve_is_warnin
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=2,
@@ -4756,7 +4756,7 @@ def test_price_preflight_does_not_chase_non_share_class_missing_price_when_curve
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=2,
@@ -4798,7 +4798,7 @@ def test_price_preflight_chases_safe_repairable_symbol_when_curve_is_warning(mon
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=2,
@@ -4843,7 +4843,7 @@ def test_price_preflight_respects_max_passes_and_symbol_order(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=2,
@@ -4887,7 +4887,7 @@ def test_price_preflight_stops_when_warning_or_good_reached(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=2,
@@ -4929,7 +4929,7 @@ def test_price_preflight_does_not_repeatedly_retry_terminal_provider_history(mon
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=False,
-        benchmark="^GSPC",
+        benchmark="SPY",
         price_preflight=True,
         price_preflight_backfill=True,
         price_preflight_max_passes=3,
@@ -4957,7 +4957,7 @@ def test_compute_output_unchanged_without_price_preflight(monkeypatch):
         mode="realistic_disclosure_lag",
         limit=1,
         dry_run=True,
-        benchmark="^GSPC",
+        benchmark="SPY",
     )
 
     row = report["results"][0]
@@ -4980,7 +4980,7 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     )
 
     dry = backfill_module.backfill_price_cache(
-        symbols=["^GSPC"],
+        symbols=["SPY"],
         start_date="2026-01-02",
         end_date="2026-01-03",
         dry_run=True,
@@ -4989,14 +4989,14 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
         assert db.scalar(select(func.count()).select_from(PriceCache)) == 0
 
     applied = backfill_module.backfill_price_cache(
-        symbols=["^GSPC"],
+        symbols=["SPY"],
         start_date="2026-01-02",
         end_date="2026-01-03",
         dry_run=False,
     )
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(PriceCache)) == 2
-        assert db.get(PriceCache, ("^GSPC", "2026-01-02")).volume == 1_000_000.0
+        assert db.get(PriceCache, ("SPY", "2026-01-02")).volume == 1_000_000.0
 
     assert dry["rows"][0]["rows_missing"] == 2
     assert dry["rows"][0]["rows_provider_volume"] == 2

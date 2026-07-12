@@ -99,7 +99,7 @@ def test_compute_trade_outcomes_wraps_existing_lookup_failures(monkeypatch, capl
             limit=None,
             member_id=None,
             event_type="congress_trade",
-            benchmark_symbol="^GSPC",
+            benchmark_symbol="SPY",
             lookback_days=None,
             trade_date_after=None,
             only_missing=True,
@@ -137,7 +137,7 @@ def test_compute_trade_outcomes_persists_amounts_above_postgres_int32(monkeypatc
         db.commit()
 
     def fake_compute_congress_trade_outcomes(*, db, events, benchmark_symbol):
-        assert benchmark_symbol == "^GSPC"
+        assert benchmark_symbol == "SPY"
         assert [event.id for event in events] == [9001]
         return [
             {
@@ -152,7 +152,7 @@ def test_compute_trade_outcomes_persists_amounts_above_postgres_int32(monkeypatc
                 "entry_price_date": "2026-05-01",
                 "current_price": 11.0,
                 "current_price_date": "2026-05-02",
-                "benchmark_symbol": "^GSPC",
+                "benchmark_symbol": "SPY",
                 "benchmark_entry_price": 5000.0,
                 "benchmark_current_price": 5050.0,
                 "return_pct": 10.0,
@@ -178,7 +178,7 @@ def test_compute_trade_outcomes_persists_amounts_above_postgres_int32(monkeypatc
         limit=None,
         member_id=None,
         event_type="congress_trade",
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         lookback_days=None,
         trade_date_after=None,
         only_missing=False,
@@ -295,7 +295,7 @@ def test_compute_trade_outcomes_only_missing_can_retry_failed_statuses(monkeypat
         limit=None,
         member_id=None,
         event_type="congress_trade",
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         lookback_days=None,
         trade_date_after=None,
         only_missing=True,

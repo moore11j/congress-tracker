@@ -214,7 +214,7 @@ def test_data_enrichment_queue_processes_trade_outcome_jobs(monkeypatch) -> None
             "limit": 25,
             "member_id": None,
             "event_type": "insider_trade",
-            "benchmark_symbol": "^GSPC",
+            "benchmark_symbol": "SPY",
             "lookback_days": 30,
             "trade_date_after": None,
             "only_missing": True,

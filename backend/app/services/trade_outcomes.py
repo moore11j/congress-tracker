@@ -63,7 +63,7 @@ def _logical_trade_key(row: TradeOutcome) -> tuple:
         _normalize_trade_side(row.trade_type),
         row.amount_min,
         row.amount_max,
-        row.benchmark_symbol or "^GSPC",
+        row.benchmark_symbol or "SPY",
     )
 
 
@@ -118,7 +118,7 @@ def ensure_member_congress_trade_outcomes(
     db: Session,
     member_ids: list[str],
     lookback_days: int,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
     max_events: int = 500,
 ) -> dict[str, int]:
     """Backfill/recompute recent congress trade outcomes for member analytics freshness.
@@ -266,7 +266,7 @@ def ensure_insider_trade_outcomes_for_cik(
     db: Session,
     reporting_cik: str,
     lookback_days: int,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
     max_events: int = 500,
 ) -> dict[str, int]:
     normalized_cik = normalize_cik(reporting_cik)
@@ -367,7 +367,7 @@ def get_member_trade_outcomes(
     db: Session,
     member_id: str,
     lookback_days: int,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
     member_ids: list[str] | None = None,
 ) -> list[TradeOutcome]:
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)
@@ -401,7 +401,7 @@ def count_member_trade_outcomes(
     db: Session,
     member_id: str,
     lookback_days: int,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
     member_ids: list[str] | None = None,
 ) -> int:
     cutoff_dt = datetime.utcnow() - timedelta(days=lookback_days)

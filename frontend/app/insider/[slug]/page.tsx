@@ -131,7 +131,7 @@ function buildInsiderBacktestHref(reportingCik: string, lookbackDays: number) {
     insider_cik: reportingCik,
     lookback_days: String(lookbackDays),
     hold_days: "90",
-    benchmark: "^GSPC",
+    benchmark: "SPY",
   });
   return `/backtesting?${query.toString()}`;
 }

@@ -608,7 +608,7 @@ def _seed_score_contract_fixture(db: Session) -> None:
         "AAPL": (100, 108),
         "MSTR": (100, 96),
         "NBIS": (100, 99),
-        "^GSPC": (100, 102),
+        "SPY": (100, 102),
     }
     for symbol, (start_close, end_close) in price_points.items():
         db.add(PriceCache(symbol=symbol, date=(today - timedelta(days=29)).isoformat(), close=start_close))

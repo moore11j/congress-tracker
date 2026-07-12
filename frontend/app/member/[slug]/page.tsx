@@ -85,7 +85,7 @@ function buildMemberBacktestHref(memberId: string, lookbackDays: number) {
     member_id: memberId,
     lookback_days: String(lookbackDays),
     hold_days: "90",
-    benchmark: "^GSPC",
+    benchmark: "SPY",
   });
   return `/backtesting?${query.toString()}`;
 }

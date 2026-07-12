@@ -282,7 +282,7 @@ _CONGRESS_IDENTITY_CACHE: dict[tuple, dict] = {}
 _TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
-_TICKER_BENCHMARK_SYMBOL = "^GSPC"
+_TICKER_BENCHMARK_SYMBOL = "SPY"
 _TICKER_BENCHMARK_LABEL = "S&P 500"
 CONFIRMATION_SIGNAL_WINDOW_DAYS = 30
 _TICKER_IDENTITY_MANUAL_ALIASES = {
@@ -1908,7 +1908,7 @@ def _member_top_tickers(db: Session, member: Member, *, limit: int = 10) -> list
                 select(TradeOutcome)
                 .join(Event, Event.id == TradeOutcome.event_id, isouter=True)
                 .where(TradeOutcome.member_id.in_(normalized_member_ids))
-                .where(TradeOutcome.benchmark_symbol == "^GSPC")
+                .where(TradeOutcome.benchmark_symbol == "SPY")
                 .where(or_(Event.id.is_(None), Event.event_type == "congress_trade"))
                 .order_by(TradeOutcome.trade_date.asc(), TradeOutcome.event_id.asc())
             ).scalars().all()
@@ -2032,7 +2032,7 @@ def _member_recent_trades(
             outcomes = db.execute(
                 select(TradeOutcome)
                 .where(TradeOutcome.event_id.in_(event_ids))
-                .where(TradeOutcome.benchmark_symbol == "^GSPC")
+                .where(TradeOutcome.benchmark_symbol == "SPY")
             ).scalars().all()
             outcome_by_event_id = {row.event_id: row for row in outcomes}
             event_symbols = [
@@ -2243,7 +2243,7 @@ def _member_recent_trades(
             )
             .join(Event, Event.id == TradeOutcome.event_id)
             .where(TradeOutcome.member_id.in_(analytics_member_ids))
-            .where(TradeOutcome.benchmark_symbol == "^GSPC")
+            .where(TradeOutcome.benchmark_symbol == "SPY")
             .where(Event.event_type == "congress_trade")
             .order_by(TradeOutcome.trade_date.desc(), TradeOutcome.id.desc())
         )
@@ -2481,7 +2481,7 @@ def _member_analytics_cache_key(kind: str, member_id: str, lookback_days: int, b
             "kind": kind,
             "member_id": (member_id or "").strip().upper(),
             "lookback_days": int(lookback_days),
-            "benchmark": (benchmark or "^GSPC").strip().upper(),
+            "benchmark": (benchmark or "SPY").strip().upper(),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -4463,7 +4463,7 @@ def member_profile(bioguide_id: str, request: Request, db: Session = Depends(get
     return _build_member_profile(db, member)
 
 @app.get("/api/members/{member_id}/performance")
-def member_performance(member_id: str, request: Request, lookback_days: int = 365, benchmark: str = "^GSPC", db: Session = Depends(get_db)):
+def member_performance(member_id: str, request: Request, lookback_days: int = 365, benchmark: str = "SPY", db: Session = Depends(get_db)):
     """Member performance metrics from persisted trade outcomes."""
     started = perf_counter()
     prefetch_response = _api_prefetch_response(request, endpoint="member_performance")
@@ -4481,13 +4481,13 @@ def member_performance(member_id: str, request: Request, lookback_days: int = 36
             "win_rate": None,
             "avg_alpha": None,
             "median_alpha": None,
-            "benchmark_symbol": (benchmark or "^GSPC").strip() or "^GSPC",
+            "benchmark_symbol": (benchmark or "SPY").strip() or "SPY",
             "persisted_only": True,
             "pnl_status": "skipped",
         }
     resolved_member, analytics_member_ids = _resolve_member_analytics_aliases(db, member_id)
     analytics_member_id = resolved_member.bioguide_id if resolved_member else member_id
-    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    benchmark_symbol = (benchmark or "SPY").strip() or "SPY"
     rows = get_member_trade_outcomes(
         db=db,
         member_id=analytics_member_id,
@@ -4538,7 +4538,7 @@ def member_portfolio_performance(
     request: Request,
     lookback_days: int = 1095,
     mode: str = "realistic_disclosure_lag",
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     db: Session = Depends(get_db),
 ):
     """Read-only replicated portfolio performance from persisted portfolio runs."""
@@ -4554,7 +4554,7 @@ def member_portfolio_performance(
     normalized_mode = (mode or "realistic_disclosure_lag").strip()
     if normalized_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
         raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
     payload = latest_replicated_portfolio_payload(
         db,
         entity_type="congress_member",
@@ -4624,7 +4624,7 @@ def member_alpha_summary(
     member_id: str,
     request: Request,
     lookback_days: int = Query(365, ge=30, le=1095),
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     debug_dates: bool = False,
     db: Session = Depends(get_db),
 ):
@@ -4632,7 +4632,7 @@ def member_alpha_summary(
     prefetch_response = _api_prefetch_response(request, endpoint="member_alpha_summary")
     if prefetch_response is not None:
         return prefetch_response
-    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    benchmark_symbol = (benchmark or "SPY").strip() or "SPY"
     if _is_inactive_logged_out_api_request(request):
         logger.info("api_inactive_lightweight_response endpoint=member_alpha_summary member_id=%s", member_id)
         return {
@@ -4791,7 +4791,7 @@ def congress_trader_leaderboard(
     sort: str = "avg_alpha",
     min_trades: int = 3,
     limit: int = 100,
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     include_poor_quality: bool = False,
     db: Session = Depends(get_db),
 ):
@@ -4807,7 +4807,7 @@ def congress_trader_leaderboard(
         min_trades=min_trades,
         limit=limit,
     )
-    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    benchmark_symbol = (benchmark or "SPY").strip() or "SPY"
     normalized_chamber = (chamber or "all").strip().lower()
     if normalized_chamber not in {"all", "house", "senate"}:
         normalized_chamber = "all"

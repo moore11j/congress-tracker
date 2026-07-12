@@ -5512,7 +5512,7 @@ def insider_portfolio_performance(
     db: Session = Depends(get_db),
     lookback_days: int = Query(1095),
     mode: str = "realistic_disclosure_lag",
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     issuer: str | None = None,
 ):
     """Read-only replicated portfolio performance from persisted portfolio runs."""
@@ -5538,7 +5538,7 @@ def insider_portfolio_performance(
         issuer_symbol=issuer_symbol,
         lookback_days=lookback_days,
         mode=normalized_mode,
-        benchmark=normalize_symbol(benchmark) or "^GSPC",
+        benchmark=normalize_symbol(benchmark) or "SPY",
     )
 
 
@@ -5548,7 +5548,7 @@ def insider_alpha_summary(
     request: Request,
     db: Session = Depends(get_db),
     lookback_days: int = Query(90),
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     issuer: str | None = None,
 ):
     started = perf_counter()
@@ -5557,7 +5557,7 @@ def insider_alpha_summary(
         return prefetch_response
     lookback_days = _validated_lookback_days(lookback_days)
     normalized_cik = normalize_cik(reporting_cik)
-    benchmark_symbol = (benchmark or "^GSPC").strip() or "^GSPC"
+    benchmark_symbol = (benchmark or "SPY").strip() or "SPY"
     if is_inactive_logged_out_api_request(request):
         logger.info("api_inactive_lightweight_response endpoint=insider_alpha_summary reporting_cik=%s", normalized_cik)
         return {
@@ -5943,7 +5943,7 @@ def insider_trades(
         db,
         enriched,
         normalized_cik,
-        "^GSPC",
+        "SPY",
         lookback_days,
     )
     current_quote_meta = (

@@ -745,7 +745,7 @@ def _write_structural_outcome(db: Session, event: Event, inputs: FeedPnlInputs) 
     target.entry_price_date = None
     target.current_price = None
     target.current_price_date = None
-    target.benchmark_symbol = "^GSPC"
+    target.benchmark_symbol = "SPY"
     target.benchmark_entry_price = None
     target.benchmark_current_price = None
     target.return_pct = None
@@ -906,7 +906,7 @@ def process_feed_pnl_refresh_job(
     target.entry_price_date = entry_date
     target.current_price = float(current_quote_price)
     target.current_price_date = current_price_date
-    target.benchmark_symbol = existing.benchmark_symbol if existing is not None and existing.benchmark_symbol else "^GSPC"
+    target.benchmark_symbol = existing.benchmark_symbol if existing is not None and existing.benchmark_symbol else "SPY"
     target.benchmark_entry_price = existing.benchmark_entry_price if existing is not None else None
     target.benchmark_current_price = existing.benchmark_current_price if existing is not None else None
     target.return_pct = return_pct

@@ -2012,7 +2012,7 @@ def simulate_replicated_portfolio(
     start_date: date,
     end_date: date,
     mode: str,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
     starting_value: float = DEFAULT_STARTING_VALUE,
     max_stale_price_trading_days: int = DEFAULT_MAX_STALE_PRICE_TRADING_DAYS,
     warmup_start_date: date | None = None,
@@ -2669,7 +2669,7 @@ def run_replicated_portfolio_simulation(
     entity_id: str,
     lookback_days: int,
     mode: str,
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     issuer: str | None = None,
     end_date: date | None = None,
     warmup_days: int | None = None,
@@ -2698,7 +2698,7 @@ def run_replicated_portfolio_simulation(
         if entity_type == "congress_member"
         else []
     )
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
     histories = load_price_histories(db, symbols + [benchmark_symbol], warmup_start, end)
     benchmark_history = histories.pop(benchmark_symbol, {})
     simulation = simulate_replicated_portfolio(
@@ -2741,7 +2741,7 @@ def persist_replicated_portfolio_run(
     entity_id: str,
     lookback_days: int,
     mode: str,
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     issuer_cik: str | None = None,
     issuer_symbol: str | None = None,
     start_date: date,
@@ -2755,7 +2755,7 @@ def persist_replicated_portfolio_run(
         issuer_symbol=issuer_symbol,
         mode=mode,
         lookback_days=lookback_days,
-        benchmark_symbol=normalize_symbol(benchmark) or "^GSPC",
+        benchmark_symbol=normalize_symbol(benchmark) or "SPY",
         start_date=start_date,
         end_date=end_date,
         starting_value=summary.starting_value,
@@ -3088,11 +3088,11 @@ def latest_replicated_portfolio_payload(
     entity_id: str,
     lookback_days: int,
     mode: str,
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     issuer_cik: str | None = None,
     issuer_symbol: str | None = None,
 ) -> dict[str, Any]:
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
     query = (
         select(ReplicatedPortfolioRun)
         .where(ReplicatedPortfolioRun.entity_type == entity_type)

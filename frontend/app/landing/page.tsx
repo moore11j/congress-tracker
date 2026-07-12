@@ -161,7 +161,7 @@ const fallbackInsights: NewsItem[] = [
 
 const fallbackMarketSnapshot: MacroSnapshotResponse = {
   indexes: [
-    { label: "S&P 500", symbol: "^GSPC", timeframe_label: "1D change" },
+    { label: "S&P 500", symbol: "SPY", timeframe_label: "1D change" },
     { label: "NASDAQ", symbol: "^IXIC", timeframe_label: "1D change" },
     { label: "Dow", symbol: "^DJI", timeframe_label: "1D change" },
   ],
@@ -333,7 +333,7 @@ function publicUsIndexLabel(item: MacroSnapshotIndex): string {
   const symbol = item.symbol?.trim().toUpperCase();
   const label = item.label?.trim() ?? "";
   const identity = `${label} ${symbol ?? ""}`.toLowerCase();
-  if (symbol === "SPY" || symbol === "^GSPC" || identity.includes("s&p 500")) return "S&P 500";
+  if (symbol === "SPY" || identity.includes("s&p 500")) return "S&P 500";
   if (symbol === "QQQ" || symbol === "^IXIC" || identity.includes("nasdaq")) return "NASDAQ";
   if (symbol === "DIA" || symbol === "^DJI" || identity.includes("dow")) return "Dow";
   return label.replace(/\s*ETF\s+proxy\s*/gi, " ").replace(/\s+/g, " ").trim() || "Index";

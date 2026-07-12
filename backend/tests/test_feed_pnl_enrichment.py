@@ -348,7 +348,7 @@ def test_event_scoped_pnl_refresh_updates_existing_insider_outcome_without_metho
                 current_price=78.67,
                 current_price_date=datetime(2026, 7, 3, tzinfo=timezone.utc).date(),
                 return_pct=34.39,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 benchmark_return_pct=1.2,
                 alpha_pct=33.19,
                 scoring_status="ok",
@@ -647,7 +647,7 @@ def test_events_active_feed_quote_fallback_is_db_free_and_covers_page_symbols(mo
                     entry_price=10.0,
                     current_price=None,
                     return_pct=None,
-                    benchmark_symbol="^GSPC",
+                    benchmark_symbol="SPY",
                     scoring_status="provider_429",
                     methodology_version="feed_pnl_cache_v1",
                 )
@@ -717,7 +717,7 @@ def test_events_monitor_feed_quote_lookup_stays_cache_only_with_request_db(monke
                 entry_price=10.0,
                 current_price=None,
                 return_pct=None,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 scoring_status="provider_429",
                 methodology_version="feed_pnl_cache_v1",
             )
@@ -858,7 +858,7 @@ def test_events_endpoint_treats_retryable_missing_outcome_as_updating(monkeypatc
                 entry_price=1.68,
                 current_price=None,
                 return_pct=None,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 scoring_status="provider_429",
                 methodology_version="insider_v1",
             )
@@ -893,7 +893,7 @@ def test_events_endpoint_returns_pnl_once_trade_outcome_exists(monkeypatch) -> N
                 entry_price=10.0,
                 current_price=12.5,
                 return_pct=25.0,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 scoring_status="ok",
                 methodology_version="feed_pnl_cache_v1",
             )

@@ -1396,7 +1396,7 @@ def _missing_weekday_ranges(*, start_date: date, end_date: date, cached_dates: s
 
 def run_coverage_only(*, benchmark: str, lookback_days: int) -> dict:
     Base.metadata.create_all(bind=engine)
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
     end_date = datetime.now(timezone.utc).date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))
     with SessionLocal() as db:
@@ -1538,7 +1538,7 @@ def run_compute(
     debug_range = _parse_debug_date_range(debug_date_range)
 
     end_date = datetime.now(timezone.utc).date()
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
 
     with SessionLocal() as db:
         normalized_issuer_cik = normalize_cik(issuer_cik or issuer)
@@ -1903,7 +1903,7 @@ def run_all_congress_portfolio_batch(
     max_batches: int | None = None,
     dry_run: bool,
     lookback_days: int = ALL_CONGRESS_DEFAULT_LOOKBACK_DAYS,
-    benchmark: str = "^GSPC",
+    benchmark: str = "SPY",
     resume: bool = False,
     quality_target: str = "warning",
     replace_existing: bool = False,
@@ -1932,7 +1932,7 @@ def run_all_congress_portfolio_batch(
     offset = max(int(batch_offset or 0), 0)
     batch_count = max(int(max_batches), 1) if max_batches is not None else 1
     planned_limit = limit * batch_count
-    benchmark_symbol = normalize_symbol(benchmark) or "^GSPC"
+    benchmark_symbol = normalize_symbol(benchmark) or "SPY"
 
     with SessionLocal() as db:
         all_candidates = _all_congress_member_candidates(db)
@@ -2056,7 +2056,7 @@ def main() -> None:
     parser.add_argument("--lookback-days", help="Single lookback or comma-separated lookbacks")
     parser.add_argument("--lookback-set", choices=["standard"], help="Named lookback set. standard expands to 30,90,180,365,1095.")
     parser.add_argument("--mode", default="realistic_disclosure_lag", choices=sorted(SUPPORTED_MODES))
-    parser.add_argument("--benchmark", default="^GSPC")
+    parser.add_argument("--benchmark", default="SPY")
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")

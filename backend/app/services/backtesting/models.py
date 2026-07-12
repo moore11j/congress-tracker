@@ -14,7 +14,7 @@ WeightingMode = Literal["equal"]
 
 LOOKBACK_PRESET_DAYS: tuple[int, ...] = (30, 90, 180, 365, 1095)
 HOLD_DAY_OPTIONS: tuple[int, ...] = (30, 60, 90, 180, 365)
-DEFAULT_BENCHMARK = "^GSPC"
+DEFAULT_BENCHMARK = "SPY"
 MAX_CUSTOM_TICKERS = 25
 MAX_CUSTOM_ALLOCATED_TICKERS = 10
 
@@ -33,10 +33,10 @@ class BenchmarkDefinition:
 
 
 BENCHMARK_DEFINITIONS: dict[str, BenchmarkDefinition] = {
-    "^GSPC": BenchmarkDefinition(
-        key="^GSPC",
+    "SPY": BenchmarkDefinition(
+        key="SPY",
         label="S&P 500",
-        components=(BenchmarkComponent(symbol="^GSPC", weight=1.0),),
+        components=(BenchmarkComponent(symbol="SPY", weight=1.0),),
     ),
     "QQQ": BenchmarkDefinition(
         key="QQQ",

@@ -87,7 +87,7 @@ const CONGRESS_COUNT_OPTIONS = [5, 10, 25] as const;
 const CUSTOM_TICKER_LIMIT = 10;
 const BUY_AND_HOLD_HELPER =
   "Buy and hold keeps qualifying entries open through the end of the backtest period. For event-driven modes, this overrides the default planned hold period.";
-const FALLBACK_BENCHMARK_OPTIONS: BacktestPresetsResponse["benchmark_options"] = [{ symbol: "^GSPC", label: "S&P 500" }];
+const FALLBACK_BENCHMARK_OPTIONS: BacktestPresetsResponse["benchmark_options"] = [{ symbol: "SPY", label: "S&P 500" }];
 
 const CONGRESS_STRATEGY_OPTIONS: {
   key: CongressStrategyKey;

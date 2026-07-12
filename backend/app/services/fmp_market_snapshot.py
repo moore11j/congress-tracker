@@ -33,7 +33,7 @@ PUBLIC_MACRO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 INDEX_TARGETS = (
     {
         "label": "S&P 500",
-        "symbols": ("^GSPC", "GSPC"),
+        "symbols": ("SPY",),
         "names": ("S&P 500", "S&P500", "US 500"),
         "proxy_symbol": "SPY",
         "proxy_label": "S&P 500 proxy",

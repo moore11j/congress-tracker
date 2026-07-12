@@ -28,7 +28,7 @@ function persistedPortfolioFixture() {
     entity_id: "J000310",
     lookback_days: 1095,
     mode: PORTFOLIO_MODE,
-    benchmark_symbol: "^GSPC",
+    benchmark_symbol: "SPY",
     requested_start_date: "2023-05-20",
     effective_start_date: "2024-05-20",
     effective_end_date: "2026-05-20",

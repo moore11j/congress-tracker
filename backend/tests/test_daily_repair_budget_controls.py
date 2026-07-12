@@ -65,7 +65,7 @@ def test_compute_trade_outcomes_stops_after_provider_budget_exceeded(monkeypatch
             _congress_event(2, "MSFT"),
             _congress_event(3, "NVDA"),
         ],
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
     )
 
     assert calls == ["AAPL"]
@@ -129,7 +129,7 @@ def test_run_compute_marks_remaining_work_retry_later_when_max_seconds_reached(m
         limit=None,
         member_id=None,
         event_type="congress_trade",
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         lookback_days=None,
         trade_date_after=None,
         only_missing=True,
@@ -168,7 +168,7 @@ def test_trade_outcome_persist_retries_duplicate_event_id_race(tmp_path, monkeyp
         "entry_price_date": "2026-05-01",
         "current_price": 110.0,
         "current_price_date": "2026-05-02",
-        "benchmark_symbol": "^GSPC",
+        "benchmark_symbol": "SPY",
         "benchmark_entry_price": 5000.0,
         "benchmark_current_price": 5050.0,
         "return_pct": 10.0,
@@ -209,7 +209,7 @@ def test_trade_outcome_persist_retries_duplicate_event_id_race(tmp_path, monkeyp
             existing_by_event_id={},
             replace=True,
             retry_status_set=set(),
-            benchmark_symbol="^GSPC",
+            benchmark_symbol="SPY",
         )
 
     assert report["commit_retry_count"] == 1

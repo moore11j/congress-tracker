@@ -215,7 +215,7 @@ def test_insider_trade_row_can_prefer_live_normalized_pnl_over_stale_outcome():
         symbol="ASX",
         trade_type="sale",
         trade_date=date(2026, 4, 10),
-        benchmark_symbol="^GSPC",
+        benchmark_symbol="SPY",
         return_pct=93.5,
         alpha_pct=90.0,
         scoring_status="ok",
@@ -266,7 +266,7 @@ def test_normalized_foreign_trade_outcome_uses_corrected_entry_price(monkeypatch
     monkeypatch.setattr("app.services.member_performance._benchmark_entry_close_for_trade_date", fake_benchmark)
 
     with Session(engine) as db:
-        rows = compute_insider_trade_outcomes(db, [event], "^GSPC")
+        rows = compute_insider_trade_outcomes(db, [event], "SPY")
 
     row = rows[0]
     assert row["scoring_status"] == "ok"

@@ -197,7 +197,7 @@ def repair_recent_congress_outcomes(
     since_report_date: date | None,
     dry_run: bool,
     limit: int | None = None,
-    benchmark_symbol: str = "^GSPC",
+    benchmark_symbol: str = "SPY",
 ) -> dict[str, Any]:
     q = _event_query_since(since_report_date)
     if limit is not None and limit > 0:

@@ -105,7 +105,7 @@ def test_outcome_fallback_does_not_cross_match_by_symbol_only():
                 trade_type="sale",
                 source="fmp",
                 trade_date=datetime(2026, 3, 18, tzinfo=timezone.utc).date(),
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 return_pct=100.0,
                 alpha_pct=103.8,
                 amount_min=1000,
@@ -120,7 +120,7 @@ def test_outcome_fallback_does_not_cross_match_by_symbol_only():
             db,
             [(event, json.loads(event.payload_json))],
             "0000019617",
-            "^GSPC",
+            "SPY",
             90,
         )
 

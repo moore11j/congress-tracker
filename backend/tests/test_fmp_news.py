@@ -755,7 +755,7 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
             return _FakeResponse(
                 200,
                 [
-                    {"symbol": "^GSPC", "price": 5100.12, "changesPercentage": 0.42},
+                    {"symbol": "SPY", "price": 5100.12, "changesPercentage": 0.42},
                     {"symbol": "^IXIC", "price": 16010.45, "changePercentage": 0.88},
                     {"symbol": "^DJI", "price": 38990.0, "changesPercentage": -0.15},
                     {"symbol": "^RUT", "price": 2020.0, "change": 0.0, "previousClose": 2020.0},
@@ -795,7 +795,7 @@ def test_macro_snapshot_tolerates_partial_failures(monkeypatch):
 
     assert response["status"] == "partial"
     assert response["indexes"] == [
-        {"label": "S&P 500", "symbol": "^GSPC", "value": 5100.12, "change_pct": 0.42, "is_proxy": False, "source": "index"},
+        {"label": "S&P 500", "symbol": "SPY", "value": 5100.12, "change_pct": 0.42, "is_proxy": False, "source": "index"},
         {"label": "Nasdaq", "symbol": "^IXIC", "value": 16010.45, "change_pct": 0.88, "is_proxy": False, "source": "index"},
         {"label": "Dow", "symbol": "^DJI", "value": 38990.0, "change_pct": -0.15, "is_proxy": False, "source": "index"},
         {"label": "Russell 2000", "symbol": "^RUT", "value": 2020.0, "change_pct": 0.0, "is_proxy": False, "source": "index"},

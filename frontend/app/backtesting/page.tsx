@@ -18,7 +18,7 @@ function fallbackPresets() {
   return {
     today: new Date().toISOString().slice(0, 10),
     defaults: {
-      benchmark: "^GSPC" as const,
+      benchmark: "SPY" as const,
       weighting: "equal" as const,
       hold_days: 90 as const,
       lookback_days: 365,
@@ -55,7 +55,7 @@ function fallbackPresets() {
       { days: 365 as const, label: "365" },
     ],
     benchmark_options: [
-      { symbol: "^GSPC" as const, label: "S&P 500", components: [{ symbol: "^GSPC", weight: 1 }] },
+      { symbol: "SPY" as const, label: "S&P 500", components: [{ symbol: "SPY", weight: 1 }] },
       { symbol: "QQQ" as const, label: "QQQ - Invesco QQQ Trust", components: [{ symbol: "QQQ", weight: 1 }] },
       { symbol: "IWM" as const, label: "IWM - iShares Russell 2000 ETF", components: [{ symbol: "IWM", weight: 1 }] },
       { symbol: "VT" as const, label: "VT - Vanguard Total World Stock ETF", components: [{ symbol: "VT", weight: 1 }] },

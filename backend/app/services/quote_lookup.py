@@ -493,7 +493,7 @@ def _rows_to_quote_payload(rows: list[dict], *, fallback_symbol: str, endpoint_c
     return payload
 
 def get_index_quote(symbol: str) -> float:
-    """Fetch current index price (e.g. ^GSPC) from FMP chart/EOD endpoints."""
+    """Fetch current index price (e.g. SPY) from FMP chart/EOD endpoints."""
     api_key = os.getenv("FMP_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("FMP_API_KEY not configured")

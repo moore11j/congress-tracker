@@ -38,14 +38,14 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
             },
         )
 
-        quote_lookup.return_value = {"^GSPC": {"price": 5000.0, "asof_ts": datetime(2024, 1, 10)}}
-        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+        quote_lookup.return_value = {"SPY": {"price": 5000.0, "asof_ts": datetime(2024, 1, 10)}}
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="SPY")
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["scoring_status"], "insider_non_market")
         self.assertIn("excluded from insider analytics", rows[0]["scoring_error"])
         entry_lookup.assert_not_called()
-        quote_lookup.assert_called_once_with(unittest.mock.ANY, ["^GSPC"])
+        quote_lookup.assert_called_once_with(unittest.mock.ANY, ["SPY"])
 
     @patch("app.services.member_performance._benchmark_entry_close_for_trade_date", return_value=4000.0)
     @patch("app.services.member_performance.get_current_prices_meta_db")
@@ -68,13 +68,13 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
         def quote_side_effect(_db, symbols):
             if symbols == ["AAPL"]:
                 return {"AAPL": {"price": 90.0, "asof_ts": datetime(2024, 1, 10)}}
-            if symbols == ["^GSPC"]:
-                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2024, 1, 10)}}
+            if symbols == ["SPY"]:
+                return {"SPY": {"price": 4200.0, "asof_ts": datetime(2024, 1, 10)}}
             return {}
 
         quote_lookup.side_effect = quote_side_effect
 
-        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="SPY")
 
         self.assertEqual(rows[0]["scoring_status"], "ok")
         self.assertEqual(rows[0]["methodology_version"], INSIDER_METHODOLOGY_VERSION)
@@ -103,13 +103,13 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
         def quote_side_effect(_db, symbols):
             if symbols == ["TCBI"]:
                 return {"TCBI": {"price": 92.67, "asof_ts": datetime(2026, 3, 29)}}
-            if symbols == ["^GSPC"]:
-                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
+            if symbols == ["SPY"]:
+                return {"SPY": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
             return {}
 
         quote_lookup.side_effect = quote_side_effect
 
-        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="SPY")
 
         self.assertEqual(rows[0]["scoring_status"], "ok")
         self.assertAlmostEqual(rows[0]["entry_price"], 105.98, places=2)
@@ -137,13 +137,13 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
         def quote_side_effect(_db, symbols):
             if symbols == ["JPM"]:
                 return {"JPM": {"price": 102.0, "asof_ts": datetime(2026, 3, 29)}}
-            if symbols == ["^GSPC"]:
-                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
+            if symbols == ["SPY"]:
+                return {"SPY": {"price": 4200.0, "asof_ts": datetime(2026, 3, 29)}}
             return {}
 
         quote_lookup.side_effect = quote_side_effect
 
-        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="SPY")
 
         self.assertEqual(rows[0]["scoring_status"], "ok")
         self.assertAlmostEqual(rows[0]["entry_price"], 105.80, places=2)
@@ -169,13 +169,13 @@ class InsiderOutcomeHardeningTests(unittest.TestCase):
         def quote_side_effect(_db, symbols):
             if symbols == ["AAPL"]:
                 return {"AAPL": {"price": None, "asof_ts": None, "status": "provider_429"}}
-            if symbols == ["^GSPC"]:
-                return {"^GSPC": {"price": 4200.0, "asof_ts": datetime(2024, 1, 10)}}
+            if symbols == ["SPY"]:
+                return {"SPY": {"price": 4200.0, "asof_ts": datetime(2024, 1, 10)}}
             return {}
 
         quote_lookup.side_effect = quote_side_effect
 
-        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="^GSPC")
+        rows = compute_insider_trade_outcomes(db=SimpleNamespace(), events=[event], benchmark_symbol="SPY")
 
         self.assertEqual(rows[0]["scoring_status"], "provider_429")
         self.assertIn("Provider quote lookup failed", rows[0]["scoring_error"])

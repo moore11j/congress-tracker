@@ -21,7 +21,7 @@ def _db():
 def _payload(status: str = "ok") -> dict:
     return {
         "world_indexes": [],
-        "indexes": [{"label": "S&P 500", "symbol": "^GSPC", "value": 5000, "change_pct": 1.2}],
+        "indexes": [{"label": "S&P 500", "symbol": "SPY", "value": 5000, "change_pct": 1.2}],
         "treasury": [],
         "economics": [],
         "commodities": [],

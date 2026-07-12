@@ -18,7 +18,7 @@ def _row(
     row.trade_date = date(2025, 6, 26)
     row.amount_min = 100001
     row.amount_max = 250000
-    row.benchmark_symbol = "^GSPC"
+    row.benchmark_symbol = "SPY"
     row.computed_at = computed_at
     row.return_pct = return_pct
     row.scoring_status = "ok"

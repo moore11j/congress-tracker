@@ -1122,7 +1122,7 @@ export type BacktestStrategyType = "watchlist" | "saved_screen" | "congress" | "
 export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member" | "member_list" | "all_insiders" | "insider";
 export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
 export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
-export type BacktestBenchmarkSymbol = "^GSPC" | "QQQ" | "IWM" | "VT" | "SPY_TLT_60_40" | "BOGLEHEADS_3_FUND";
+export type BacktestBenchmarkSymbol = "SPY" | "QQQ" | "IWM" | "VT" | "SPY_TLT_60_40" | "BOGLEHEADS_3_FUND";
 
 export type BacktestTickerInput = {
   symbol: string;

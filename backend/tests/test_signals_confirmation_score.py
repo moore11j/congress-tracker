@@ -202,7 +202,7 @@ def test_unified_signals_include_normalized_price_and_pnl_fields():
                 entry_price=188.0,
                 current_price=200.0,
                 return_pct=6.38,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 scoring_status="ok",
                 methodology_version="congress_v1",
             )

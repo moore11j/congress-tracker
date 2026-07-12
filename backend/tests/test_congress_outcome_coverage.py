@@ -153,7 +153,7 @@ def _ingest_metrics(*, inserted: int = 0, filings_scanned: int = 0) -> dict[str,
 
 def _patch_outcome_prices(monkeypatch, *, entry=10.0, current=12.0):
     def fake_entry(_db, symbol, target_date, **_kwargs):
-        if symbol == "^GSPC":
+        if symbol == "SPY":
             return {"close": 100.0, "status": "ok", "error": None, "symbol": symbol}
         if entry is None:
             return {"close": None, "status": "no_data", "error": f"No entry close for {symbol}", "symbol": symbol}
@@ -162,7 +162,7 @@ def _patch_outcome_prices(monkeypatch, *, entry=10.0, current=12.0):
     def fake_current(_db, symbols, **_kwargs):
         result = {}
         for symbol in symbols:
-            if symbol == "^GSPC":
+            if symbol == "SPY":
                 result[symbol] = {"price": 110.0, "asof_ts": datetime(2026, 5, 20, tzinfo=timezone.utc)}
             elif current is not None:
                 result[symbol] = {"price": current, "asof_ts": datetime(2026, 5, 20, tzinfo=timezone.utc)}
@@ -192,7 +192,7 @@ def test_events_endpoint_uses_persisted_congress_outcome_fields(monkeypatch):
                 trade_date=date(2026, 5, 1),
                 entry_price=200.0,
                 current_price=220.0,
-                benchmark_symbol="^GSPC",
+                benchmark_symbol="SPY",
                 return_pct=10.0,
                 alpha_pct=4.0,
                 amount_min=1001,
@@ -341,7 +341,7 @@ def test_recent_ingest_survives_rollback_prone_outcome_repair_and_dedupes(monkey
         asof = datetime(2026, 5, 20, tzinfo=timezone.utc)
         return {
             symbol: {
-                "price": 110.0 if symbol == "^GSPC" else 12.0,
+                "price": 110.0 if symbol == "SPY" else 12.0,
                 "asof_ts": asof,
                 "status": "ok",
             }

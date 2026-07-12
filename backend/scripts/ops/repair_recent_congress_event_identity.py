@@ -261,7 +261,7 @@ def _apply_identity(candidate: dict[str, Any]) -> None:
 def _refresh_outcomes(db, events: list[Event]) -> dict[str, int]:
     if not events:
         return {"computed": 0, "inserted": 0, "updated": 0}
-    rows = compute_congress_trade_outcomes(db=db, events=events, benchmark_symbol="^GSPC")
+    rows = compute_congress_trade_outcomes(db=db, events=events, benchmark_symbol="SPY")
     existing = {
         row.event_id: row
         for row in db.execute(select(TradeOutcome).where(TradeOutcome.event_id.in_([event.id for event in events]))).scalars()
@@ -287,7 +287,7 @@ def _refresh_outcomes(db, events: list[Event]) -> dict[str, int]:
         target.entry_price_date = _parse_date(payload.get("entry_price_date"))
         target.current_price = payload.get("current_price")
         target.current_price_date = _parse_date(payload.get("current_price_date"))
-        target.benchmark_symbol = payload.get("benchmark_symbol") or "^GSPC"
+        target.benchmark_symbol = payload.get("benchmark_symbol") or "SPY"
         target.benchmark_entry_price = payload.get("benchmark_entry_price")
         target.benchmark_current_price = payload.get("benchmark_current_price")
         target.return_pct = payload.get("return_pct")

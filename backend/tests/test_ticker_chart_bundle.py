@@ -57,7 +57,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
             (prior.isoformat(), 190.0),
             (today.isoformat(), 195.0),
         ],
-        "^GSPC": [
+        "SPY": [
             (prior.isoformat(), 5100.0),
             (today.isoformat(), 5150.0),
         ],
@@ -108,7 +108,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
     bundle = _build_ticker_chart_bundle("aapl", 30, db)
 
     assert bundle["resolution"] == "daily"
-    assert bundle["benchmark"]["symbol"] == "^GSPC"
+    assert bundle["benchmark"]["symbol"] == "SPY"
     assert bundle["benchmark"]["label"] == "S&P 500"
     assert bundle["prices"][-1] == {"date": today.isoformat(), "close": 195.0}
     assert bundle["benchmark"]["points"][-1]["close"] == 5150.0
@@ -133,7 +133,7 @@ def test_insider_stock_chart_scopes_markers_to_reporting_cik_and_symbol(monkeypa
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
 
     today = datetime.now(timezone.utc).date()
-    for symbol in ("AAPL", "^GSPC"):
+    for symbol in ("AAPL", "SPY"):
         db.add(PriceCache(symbol=symbol, date=today.isoformat(), close=100.0))
 
     db.add(
@@ -403,7 +403,7 @@ def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
     db.add(PriceCache(symbol="AAPL", date=stale_day.isoformat(), close=190.0))
-    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.add(PriceCache(symbol="SPY", date=expected.isoformat(), close=5200.0))
     db.commit()
 
     provider_rows = [
@@ -443,7 +443,7 @@ def test_ticker_chart_request_time_uses_alternate_source_when_dense_history_tail
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
     db.add(PriceCache(symbol="NVDA", date=stale_day.isoformat(), close=180.0))
-    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.add(PriceCache(symbol="SPY", date=expected.isoformat(), close=5200.0))
     db.commit()
 
     fmp_rows = []
@@ -504,7 +504,7 @@ def test_ticker_chart_marks_stale_when_request_time_refresh_has_no_recent_data(m
     monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
     monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
     db.add(PriceCache(symbol="SNDK", date=stale_day.isoformat(), close=42.0))
-    db.add(PriceCache(symbol="^GSPC", date=expected.isoformat(), close=5200.0))
+    db.add(PriceCache(symbol="SPY", date=expected.isoformat(), close=5200.0))
     db.commit()
 
     monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", lambda *args, **kwargs: _FakeResponse(200, []))

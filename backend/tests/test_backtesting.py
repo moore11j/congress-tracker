@@ -251,8 +251,8 @@ def test_signal_backtest_uses_first_close_on_or_after_disclosure_date():
         _price(db, "AAPL", "2024-01-05", 99.0)
         _price(db, "AAPL", "2024-01-08", 110.0)
         _price(db, "AAPL", "2024-02-07", 121.0)
-        _price(db, "^GSPC", "2024-01-08", 100.0)
-        _price(db, "^GSPC", "2024-02-07", 101.0)
+        _price(db, "SPY", "2024-01-08", 100.0)
+        _price(db, "SPY", "2024-02-07", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -308,8 +308,8 @@ def test_custom_tickers_backtest_builds_static_positions():
         _price(db, "AAPL", "2024-01-05", 110.0)
         _price(db, "MSFT", "2024-01-02", 200.0)
         _price(db, "MSFT", "2024-01-05", 220.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-01-05", 101.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-01-05", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -451,8 +451,8 @@ def test_signal_entry_weekend_uses_next_available_close_and_records_fallback():
         )
         _price(db, "AAPL", "2024-01-08", 110.0)
         _price(db, "AAPL", "2024-02-05", 121.0)
-        _price(db, "^GSPC", "2024-01-08", 100.0)
-        _price(db, "^GSPC", "2024-02-05", 101.0)
+        _price(db, "SPY", "2024-01-08", 100.0)
+        _price(db, "SPY", "2024-02-05", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -496,9 +496,9 @@ def test_signal_exit_missing_close_uses_prior_fallback_without_skip():
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-01-31", 115.0)
         _price(db, "AAPL", "2024-02-06", 120.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-01-31", 101.0)
-        _price(db, "^GSPC", "2024-02-06", 102.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-01-31", 101.0)
+        _price(db, "SPY", "2024-02-06", 102.0)
         db.commit()
 
         result = run_backtest(
@@ -560,8 +560,8 @@ def test_insider_exempt_acquisition_default_stays_strict():
         )
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-02-01", 120.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-02-01", 101.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-02-01", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -608,8 +608,8 @@ def test_insider_include_exempt_acquisitions_opens_award_position():
         )
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-02-01", 120.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-02-01", 101.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-02-01", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -658,9 +658,9 @@ def test_insider_buy_and_hold_holds_purchase_through_end_date():
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-02-01", 110.0)
         _price(db, "AAPL", "2024-03-01", 130.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-02-01", 101.0)
-        _price(db, "^GSPC", "2024-03-01", 102.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-02-01", 101.0)
+        _price(db, "SPY", "2024-03-01", 102.0)
         db.commit()
 
         result = run_backtest(
@@ -710,9 +710,9 @@ def test_congress_buy_and_hold_holds_purchase_through_end_date():
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-02-01", 110.0)
         _price(db, "AAPL", "2024-03-01", 130.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-02-01", 101.0)
-        _price(db, "^GSPC", "2024-03-01", 102.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-02-01", 101.0)
+        _price(db, "SPY", "2024-03-01", 102.0)
         db.commit()
 
         result = run_backtest(
@@ -769,8 +769,8 @@ def test_insider_exempt_acquisition_buy_and_hold_combined():
         )
         _price(db, "AAPL", "2024-01-02", 100.0)
         _price(db, "AAPL", "2024-03-01", 125.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-03-01", 102.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-03-01", 102.0)
         db.commit()
 
         result = run_backtest(
@@ -821,8 +821,8 @@ def test_insider_sell_only_symbol_does_not_poison_valid_purchase():
         _price(db, "AAPL", "2024-02-02", 115.0)
         _price(db, "MSFT", "2024-01-02", 200.0)
         _price(db, "MSFT", "2024-02-01", 210.0)
-        _price(db, "^GSPC", "2024-01-03", 100.0)
-        _price(db, "^GSPC", "2024-02-02", 101.0)
+        _price(db, "SPY", "2024-01-03", 100.0)
+        _price(db, "SPY", "2024-02-02", 101.0)
         db.commit()
 
         result = run_backtest(
@@ -867,9 +867,9 @@ def test_cagr_uses_time_weighted_return_not_ending_balance_with_contributions():
         user = _user(db, "premium@example.com")
         watchlist = Watchlist(name="Empty", owner_user_id=user.id)
         db.add(watchlist)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-02-02", 100.0)
-        _price(db, "^GSPC", "2025-01-02", 100.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-02-02", 100.0)
+        _price(db, "SPY", "2025-01-02", 100.0)
         db.commit()
         db.refresh(watchlist)
 
@@ -905,10 +905,10 @@ def test_max_drawdown_uses_indexed_curve_not_raw_balance_with_contributions():
         _price(db, "AAPL", "2024-01-03", 50.0)
         _price(db, "AAPL", "2024-02-02", 50.0)
         _price(db, "AAPL", "2024-02-05", 25.0)
-        _price(db, "^GSPC", "2024-01-02", 100.0)
-        _price(db, "^GSPC", "2024-01-03", 100.0)
-        _price(db, "^GSPC", "2024-02-02", 100.0)
-        _price(db, "^GSPC", "2024-02-05", 100.0)
+        _price(db, "SPY", "2024-01-02", 100.0)
+        _price(db, "SPY", "2024-01-03", 100.0)
+        _price(db, "SPY", "2024-02-02", 100.0)
+        _price(db, "SPY", "2024-02-05", 100.0)
         db.commit()
 
         result = run_backtest(

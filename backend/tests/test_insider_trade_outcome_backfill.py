@@ -41,7 +41,7 @@ def test_ensure_insider_trade_outcomes_for_cik_inserts_missing_row(monkeypatch):
         db.commit()
 
         def fake_compute(*, db, events, benchmark_symbol, max_symbols_per_request=None):
-            assert benchmark_symbol == "^GSPC"
+            assert benchmark_symbol == "SPY"
             assert [event.id for event in events] == [115121]
             return [
                 {
@@ -56,7 +56,7 @@ def test_ensure_insider_trade_outcomes_for_cik_inserts_missing_row(monkeypatch):
                     "entry_price_date": "2026-03-20",
                     "current_price": 16.0,
                     "current_price_date": "2026-03-21",
-                    "benchmark_symbol": "^GSPC",
+                    "benchmark_symbol": "SPY",
                     "benchmark_entry_price": 5000.0,
                     "benchmark_current_price": 5050.0,
                     "return_pct": 5.88,
@@ -77,7 +77,7 @@ def test_ensure_insider_trade_outcomes_for_cik_inserts_missing_row(monkeypatch):
             db=db,
             reporting_cik="0001203302",
             lookback_days=90,
-            benchmark_symbol="^GSPC",
+            benchmark_symbol="SPY",
         )
 
         assert report["scanned_events"] == 1

@@ -180,7 +180,7 @@ def _run_signals_recompute() -> dict[str, object]:
         limit=None,
         member_id=None,
         event_type="all",
-        benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC"),
+        benchmark_symbol=os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY"),
         lookback_days=lookback_days,
         trade_date_after=None,
         only_missing=False,
@@ -195,7 +195,7 @@ def _warm_price_cache() -> dict[str, object]:
     ensure_price_cache_volume_columns(engine)
     lookback_days = int(os.getenv("INGEST_PRICE_CACHE_LOOKBACK_DAYS", "30"))
     symbol_limit = int(os.getenv("INGEST_PRICE_CACHE_SYMBOL_LIMIT", "75"))
-    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")
     since = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
     start_key = since.date().isoformat()
     end_key = datetime.now(timezone.utc).date().isoformat()
@@ -249,7 +249,7 @@ def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list
     expected_key = expected_date.isoformat()
     symbols: list[str] = []
     seen: set[str] = set()
-    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")
     priority_symbols = [
         symbol.strip()
         for symbol in os.getenv("MARKET_DATA_REFRESH_PRIORITY_SYMBOLS", "").split(",")
@@ -516,7 +516,7 @@ def _run_daily_outcome_repair() -> dict[str, object]:
     limit = _optional_int_env("OUTCOME_REPAIR_LIMIT") or max_events
     max_seconds = _positive_int_env("DAILY_REPAIR_MAX_SECONDS", default=240)
     price_lookup_budget = _positive_int_env("DAILY_REPAIR_PRICE_LOOKUP_BUDGET", default=200)
-    benchmark = os.getenv("INGEST_SIGNALS_BENCHMARK", "^GSPC")
+    benchmark = os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")
     stages_run: list[str] = []
     price_lookup_attempts_used = 0
 

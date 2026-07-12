@@ -1681,7 +1681,7 @@ class TradeOutcome(Base):
     entry_price_date: Mapped[Optional[date]]
     current_price: Mapped[Optional[float]]
     current_price_date: Mapped[Optional[date]]
-    benchmark_symbol: Mapped[str] = mapped_column(Text, default="^GSPC", server_default="^GSPC")
+    benchmark_symbol: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY")
     benchmark_entry_price: Mapped[Optional[float]]
     benchmark_current_price: Mapped[Optional[float]]
     return_pct: Mapped[Optional[float]]
@@ -1724,7 +1724,7 @@ class ReplicatedPortfolioRun(Base):
     issuer_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mode: Mapped[str] = mapped_column(Text)
     lookback_days: Mapped[int]
-    benchmark_symbol: Mapped[str] = mapped_column(Text, default="^GSPC", server_default="^GSPC")
+    benchmark_symbol: Mapped[str] = mapped_column(Text, default="SPY", server_default="SPY")
     start_date: Mapped[date]
     end_date: Mapped[date]
     starting_value: Mapped[float] = mapped_column(Float, default=100000.0, server_default=text("100000.0"))

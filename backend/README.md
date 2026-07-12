@@ -33,7 +33,7 @@ Useful flags:
 - `--replace` recomputes and updates existing rows by `event_id`.
 - `--limit 500` scans only the newest N congress trade events.
 - `--member-id A000360` computes for one member.
-- `--benchmark ^GSPC` overrides benchmark symbol (default remains `^GSPC`).
+- `--benchmark SPY` overrides benchmark symbol (default remains `SPY`).
 
 ## Production smoke checks
 ```bash

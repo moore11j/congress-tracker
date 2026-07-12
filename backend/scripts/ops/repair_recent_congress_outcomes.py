@@ -21,7 +21,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Compute the proposed repair without inserting outcomes.")
     parser.add_argument("--apply", action="store_true", help="Insert missing outcome rows.")
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--benchmark", default="^GSPC")
+    parser.add_argument("--benchmark", default="SPY")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
