@@ -109,7 +109,7 @@ def test_ticker_chart_bundle_uses_daily_prices_sp500_and_normalized_markers(monk
 
     assert bundle["resolution"] == "daily"
     assert bundle["benchmark"]["symbol"] == "SPY"
-    assert bundle["benchmark"]["label"] == "S&P 500"
+    assert bundle["benchmark"]["label"] == "S&P 500 (SPY)"
     assert bundle["prices"][-1] == {"date": today.isoformat(), "close": 195.0}
     assert bundle["benchmark"]["points"][-1]["close"] == 5150.0
     assert bundle["markers"][0]["kind"] == "congress"

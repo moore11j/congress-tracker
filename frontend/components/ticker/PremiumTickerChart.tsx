@@ -541,6 +541,7 @@ export function PremiumTickerChart({
     readout?.pinned ? "pointer-events-auto" : "",
   ].join(" ");
   const freshness = bundle?.freshness;
+  const benchmarkLabel = bundle?.benchmark.label?.trim() || "S&P 500 (SPY)";
   const freshnessBlocksChart = Boolean(
     bundle && (freshness?.is_stale || bundle.status === "stale" || bundle.status === "unavailable"),
   );
@@ -588,12 +589,12 @@ export function PremiumTickerChart({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">{title ?? `${symbol} vs S&P 500`}</h2>
+            <h2 className="mt-1 text-lg font-semibold text-white">{title ?? `${symbol} vs ${benchmarkLabel}`}</h2>
             {subtitle ? <p className="mt-1 text-sm text-slate-400">{subtitle}</p> : null}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 rounded bg-cyan-300" />{symbol}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 border-t border-dashed border-slate-300/70" />S&amp;P 500</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 border-t border-dashed border-slate-300/70" />{benchmarkLabel}</span>
             <span>Daily</span>
           </div>
         </div>
@@ -658,7 +659,7 @@ export function PremiumTickerChart({
             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
               <span className="text-slate-500">{symbol} close</span>
               <span className="text-right tabular-nums text-white">{formatMoney(readout.close)}</span>
-              <span className="text-slate-500">S&amp;P 500</span>
+              <span className="text-slate-500">{benchmarkLabel}</span>
               <span className="text-right tabular-nums text-slate-100">{formatNumber(readout.benchmarkClose, 2)}</span>
               <span className="text-slate-500">{symbol} return</span>
               <span className="text-right tabular-nums text-slate-100">{formatPct(readout.tickerReturnPct)}</span>

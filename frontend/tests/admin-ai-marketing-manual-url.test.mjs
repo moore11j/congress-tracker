@@ -39,35 +39,47 @@ test("manual research input supports platform, pasted text, output type, and des
 
 test("content draft cards include copy and manual lifecycle actions", () => {
   for (const label of [
-    "Copy draft",
-    "Copy source URL",
+    "Copy primary post",
+    "Copy short version",
+    "Copy direct version",
+    "Copy hashtags/cashtags",
+    "Copy Walnut link",
+    "Copy article URL",
+    "Email to Jarod",
     "Approve",
-    "Deny",
+    "Mark copied",
+    "Mark posted manually",
+    "Reject",
     "Archive",
     "Delete",
-    "Make Changes",
+    "Regenerate",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
   assert.match(viewSource, /Requested draft changes/);
   assert.match(viewSource, /regenerateAdminAiGrowthDraft/);
-  assert.doesNotMatch(viewSource, /Copy primary post|Copy short version|Copy direct version|Copy hashtags\/cashtags|Copy Walnut link/);
+  assert.match(viewSource, /emailAdminAiGrowthDraft/);
+  assert.match(viewSource, /markAdminAiGrowthDraftCopied/);
+  assert.match(viewSource, /markAdminAiGrowthDraftPosted/);
   assert.doesNotMatch(viewSource, /Copy full draft|Copy short variant|Copy disclosure line|Copy posting checklist/);
   assert.doesNotMatch(viewSource, /Copy X post text|Copy alternate hooks|Copy image\/chart caption/);
   assert.doesNotMatch(viewSource, /Copy Reddit post title|Copy Reddit post body|Copy Reddit comment reply|Copy disclosure text|Copy markdown/);
-  assert.doesNotMatch(viewSource, /Email to Jarod|Mark copied|Mark posted manually|Send\/re-send email to Jarod/);
+  assert.doesNotMatch(viewSource, /Send\/re-send email to Jarod/);
 });
 
-test("draft queue keeps source links visible without platform login clutter", () => {
+test("draft queue keeps source, Walnut, and X links visible without auto-posting", () => {
   for (const label of [
     "Open Reddit thread",
     "Open Reddit comment",
     "Open source",
     "Open article",
+    "Open Walnut URL",
+    "Open X",
+    "Open X compose",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
-  assert.doesNotMatch(viewSource, /Login\/Open X|Open X compose|Login\/Open Reddit|Open Reddit submit|Open Walnut link|Open Walnut URL/);
+  assert.doesNotMatch(viewSource, /Login\/Open X|Login\/Open Reddit|Open Reddit submit|Open Walnut link/);
   assert.match(apiSource, /markAdminAiGrowthDraftPosted/);
   assert.doesNotMatch(apiSource, /auto-post|autopost|auto_post/);
 });

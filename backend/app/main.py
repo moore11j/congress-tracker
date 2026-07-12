@@ -283,7 +283,7 @@ _TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "SPY"
-_TICKER_BENCHMARK_LABEL = "S&P 500"
+_TICKER_BENCHMARK_LABEL = "S&P 500 (SPY)"
 CONFIRMATION_SIGNAL_WINDOW_DAYS = 30
 _TICKER_IDENTITY_MANUAL_ALIASES = {
     "INFQ": "Infleqtion Inc.",

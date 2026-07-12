@@ -8,10 +8,13 @@ import {
   createAdminAiMarketingCampaign,
   createAdminAiGrowthDraft,
   deleteAdminAiMarketingCampaign,
+  emailAdminAiGrowthDraft,
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
   getAdminProviderUsageFmp,
+  markAdminAiGrowthDraftCopied,
+  markAdminAiGrowthDraftPosted,
   regenerateAdminAiGrowthDraft,
   rejectAdminAiGrowthDraft,
   runAdminAiMarketingCampaign,
@@ -289,6 +292,46 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const emailDraft = async (draft: AdminAiMarketingOpportunity) => {
+    setBusy(`email:${draft.id}`);
+    try {
+      await emailAdminAiGrowthDraft(draft.id);
+      const updated = await updateAdminAiGrowthDraftStatus(draft.id, { status: "emailed" });
+      replaceDraft(updated);
+      notify("Draft emailed to Jarod.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to email draft.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const markDraftCopied = async (draft: AdminAiMarketingOpportunity) => {
+    setBusy(`mark-copied:${draft.id}`);
+    try {
+      const updated = await markAdminAiGrowthDraftCopied(draft.id);
+      replaceDraft(updated);
+      notify("Draft marked copied.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to mark draft copied.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const markDraftPosted = async (draft: AdminAiMarketingOpportunity) => {
+    setBusy(`mark-posted:${draft.id}`);
+    try {
+      const updated = await markAdminAiGrowthDraftPosted(draft.id);
+      replaceDraft(updated);
+      notify("Draft marked posted manually.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to mark draft posted manually.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const testConnection = async (kind: "openai" | "reddit") => {
     setBusy(`settings-test:${kind}`);
     try {
@@ -492,6 +535,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onCopy={copyText}
           onStatus={updateDraftStatus}
           onAction={runDraftAction}
+          onEmail={emailDraft}
+          onMarkCopied={markDraftCopied}
+          onMarkPosted={markDraftPosted}
           onChangeRequest={updateChangeRequest}
           onRegenerate={regenerateDraft}
         />
@@ -627,6 +673,9 @@ function DraftsView({
   onCopy,
   onStatus,
   onAction,
+  onEmail,
+  onMarkCopied,
+  onMarkPosted,
   onChangeRequest,
   onRegenerate,
 }: {
@@ -638,6 +687,9 @@ function DraftsView({
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
+  onEmail: (draft: AdminAiMarketingOpportunity) => void;
+  onMarkCopied: (draft: AdminAiMarketingOpportunity) => void;
+  onMarkPosted: (draft: AdminAiMarketingOpportunity) => void;
   onChangeRequest: (draftId: number, value: string) => void;
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
@@ -679,6 +731,9 @@ function DraftsView({
               onCopy={onCopy}
               onStatus={onStatus}
               onAction={onAction}
+              onEmail={onEmail}
+              onMarkCopied={onMarkCopied}
+              onMarkPosted={onMarkPosted}
               onChangeRequest={onChangeRequest}
               onRegenerate={onRegenerate}
             />
@@ -698,6 +753,9 @@ function DraftCard({
   onCopy,
   onStatus,
   onAction,
+  onEmail,
+  onMarkCopied,
+  onMarkPosted,
   onChangeRequest,
   onRegenerate,
 }: {
@@ -707,6 +765,9 @@ function DraftCard({
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
+  onEmail: (draft: AdminAiMarketingOpportunity) => void;
+  onMarkCopied: (draft: AdminAiMarketingOpportunity) => void;
+  onMarkPosted: (draft: AdminAiMarketingOpportunity) => void;
   onChangeRequest: (draftId: number, value: string) => void;
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
@@ -721,6 +782,12 @@ function DraftCard({
   const sourceLabel = sourceLinkLabel(draft);
   const xCharacterCount = draft.content_type === "x_post" ? fullDraft.length : null;
   const articleUrl = textFromUnknown(draft.metadata?.article_url) || sourceUrl;
+  const alternateVersions = draft.alternate_versions ?? {};
+  const shortVersion = textFromUnknown(alternateVersions.short_version);
+  const directVersion = textFromUnknown(alternateVersions.more_direct_version) || textFromUnknown(alternateVersions.alternate_reply_more_direct);
+  const hashtagCashtagBlock = textFromUnknown(alternateVersions.copy_hashtags_cashtags) || draft.matched_tickers.map((ticker) => `$${ticker}`).join(" ");
+  const xComposeLink = links.open_x_compose;
+  const openXLink = links.open_x || (draft.content_type === "x_post" ? "https://x.com/home" : "");
 
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -741,6 +808,9 @@ function DraftCard({
         <div className="flex flex-wrap gap-2">
           <AssistLink href={sourceLink} label={sourceLabel} />
           <AssistLink href={articleUrl} label="Open article" />
+          <AssistLink href={walnutLink} label="Open Walnut URL" />
+          <AssistLink href={openXLink} label="Open X" />
+          <AssistLink href={xComposeLink} label="Open X compose" />
         </div>
       </div>
 
@@ -776,8 +846,12 @@ function DraftCard({
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={() => onCopy(draft, "Copy draft", fullDraft)} disabled={Boolean(busy)}>Copy draft</Button>
-        <Button onClick={() => onCopy(draft, "Copy source URL", sourceLink)} disabled={Boolean(busy)}>Copy source URL</Button>
+        <Button onClick={() => onCopy(draft, "Primary post", fullDraft)} disabled={Boolean(busy)}>Copy primary post</Button>
+        <Button onClick={() => onCopy(draft, "Short version", shortVersion)} disabled={Boolean(busy)}>Copy short version</Button>
+        <Button onClick={() => onCopy(draft, "Direct version", directVersion)} disabled={Boolean(busy)}>Copy direct version</Button>
+        <Button onClick={() => onCopy(draft, "Hashtags/cashtags", hashtagCashtagBlock)} disabled={Boolean(busy)}>Copy hashtags/cashtags</Button>
+        <Button onClick={() => onCopy(draft, "Walnut link", walnutLink)} disabled={Boolean(busy)}>Copy Walnut link</Button>
+        <Button onClick={() => onCopy(draft, "Article URL", articleUrl)} disabled={Boolean(busy)}>Copy article URL</Button>
       </div>
 
       <div className="mt-3 flex flex-col gap-2 md:flex-row">
@@ -789,13 +863,22 @@ function DraftCard({
           className="min-w-0 flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
         />
         <Button onClick={() => onRegenerate(draft)} disabled={Boolean(busy)}>
-          {busy === `regenerate:${draft.id}` ? "Making changes..." : "Make Changes"}
+          {busy === `regenerate:${draft.id}` ? "Regenerating..." : "Regenerate"}
         </Button>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
+        <Button onClick={() => onEmail(draft)} disabled={Boolean(busy)}>
+          {busy === `email:${draft.id}` ? "Emailing..." : "Email to Jarod"}
+        </Button>
         <Button onClick={() => onStatus(draft, "approved")} disabled={Boolean(busy)}>Approve</Button>
-        <Button onClick={() => onAction(draft, "reject")} disabled={Boolean(busy)}>Deny</Button>
+        <Button onClick={() => onMarkCopied(draft)} disabled={Boolean(busy)}>
+          {busy === `mark-copied:${draft.id}` ? "Marking..." : "Mark copied"}
+        </Button>
+        <Button onClick={() => onMarkPosted(draft)} disabled={Boolean(busy)}>
+          {busy === `mark-posted:${draft.id}` ? "Marking..." : "Mark posted manually"}
+        </Button>
+        <Button onClick={() => onAction(draft, "reject")} disabled={Boolean(busy)}>Reject</Button>
         <Button onClick={() => onAction(draft, "archive")} disabled={Boolean(busy)}>Archive</Button>
         <Button onClick={() => onAction(draft, "delete")} disabled={Boolean(busy)}>Delete</Button>
       </div>
