@@ -33,6 +33,11 @@ test("macro positioning feed pagination uses 25 50 100", () => {
   assert.doesNotMatch(client, /10 \/ page/);
 });
 
+test("macro positioning all-markets view is preserved in the URL", () => {
+  assert.match(client, /view:\s*"significant"/);
+  assert.doesNotMatch(client, /value === null \|\| value === "" \|\| value === "all"/);
+});
+
 test("macro positioning locked view avoids real values and has upgrade action", () => {
   assert.match(client, /Upgrade to Pro/);
   assert.match(client, /Pro feature/);

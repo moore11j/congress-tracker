@@ -72,10 +72,20 @@ function eventLabel(value?: string | null) {
   return "Positioning";
 }
 
+const queryDefaults: Record<string, string> = {
+  event: "all",
+  market: "all",
+  page: "1",
+  page_size: "25",
+  positioning: "all",
+  sort: "latest",
+  view: "significant",
+};
+
 function updateParams(router: ReturnType<typeof useRouter>, sp: URLSearchParams, updates: Record<string, string | null>) {
   const next = new URLSearchParams(sp.toString());
   Object.entries(updates).forEach(([key, value]) => {
-    if (value === null || value === "" || value === "all") next.delete(key);
+    if (value === null || value === "" || value === queryDefaults[key]) next.delete(key);
     else next.set(key, value);
   });
   if (!("page" in updates)) next.set("page", "1");
