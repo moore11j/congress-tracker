@@ -6,6 +6,7 @@ import {
   getEvents,
   getTickerFinancials,
   getTickerNews,
+  getTickerOwnership,
   getTickerPressReleases,
   getTickerSecFilings,
   type EventItem,
@@ -14,6 +15,7 @@ import {
   type PressReleasesResponse,
   type SecFilingsResponse,
   type TickerFinancialsResponse,
+  type TickerOwnershipResponse,
   type TickerValuationMetrics,
   type TickerValuationSection,
 } from "@/lib/api";
@@ -22,14 +24,16 @@ import { cardClassName } from "@/lib/styles";
 import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ticker/TickerFinancialsPanel";
+import { TickerOwnershipPanel, TickerOwnershipSkeleton } from "@/components/ticker/TickerOwnershipPanel";
 
 type Props = {
   symbol: string;
   overview: ReactNode;
+  canViewOwnership?: boolean;
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "events";
+type ContextTab = "overview" | "news" | "financials" | "ownership" | "events";
 
 const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
@@ -48,6 +52,7 @@ const ACTIVITY_EMPTY_MESSAGE = "No disclosure activity found for this ticker.";
 const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
 const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel";
 const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel";
+const TICKER_OWNERSHIP_PANEL_SOURCE = "TickerOwnershipPanel";
 const TICKER_PRESS_PANEL_SOURCE = "TickerPressPanel";
 const TICKER_FILINGS_PANEL_SOURCE = "TickerFilingsPanel";
 const TICKER_DISCLOSURE_PANEL_SOURCE = "TickerDisclosurePanel";
@@ -64,6 +69,7 @@ const DISCLOSURE_EVENT_TYPES = new Set(["congress_trade", "insider_trade"]);
 const NEWS_REQUEST_TIMEOUT_MS = 12000;
 const PRESS_REQUEST_TIMEOUT_MS = 12000;
 const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
+const OWNERSHIP_REQUEST_TIMEOUT_MS = 12000;
 const SEC_REQUEST_TIMEOUT_MS = 12000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
@@ -421,7 +427,7 @@ function LoadMoreButton({
   );
 }
 
-export function TickerContextCard({ symbol, overview, className }: Props) {
+export function TickerContextCard({ symbol, overview, canViewOwnership = false, className }: Props) {
   const [activeTab, setActiveTab] = useState<ContextTab>("overview");
 
   const [newsPages, setNewsPages] = useState<InsightsNewsResponse[]>([]);
@@ -438,12 +444,15 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
 
   const [financials, setFinancials] = useState<TickerFinancialsResponse | null>(null);
   const [loadingFinancials, setLoadingFinancials] = useState(false);
+  const [ownership, setOwnership] = useState<TickerOwnershipResponse | null>(null);
+  const [loadingOwnership, setLoadingOwnership] = useState(false);
 
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
   const secAbortRef = useRef<AbortController | null>(null);
   const eventsAbortRef = useRef<AbortController | null>(null);
   const financialsAbortRef = useRef<AbortController | null>(null);
+  const ownershipAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
@@ -451,17 +460,20 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
     abortRequest(secAbortRef);
     abortRequest(eventsAbortRef);
     abortRequest(financialsAbortRef);
+    abortRequest(ownershipAbortRef);
     setNewsPages([]);
     setPressPages([]);
     setSecPages([]);
     setDisclosureEvents([]);
     setEventsStatus(null);
     setFinancials(null);
+    setOwnership(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
     setLoadingEvents(false);
     setLoadingFinancials(false);
+    setLoadingOwnership(false);
   }, [symbol]);
 
   useEffect(() => {
@@ -537,6 +549,59 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
       if (financialsAbortRef.current === controller) financialsAbortRef.current = null;
     };
   }, [activeTab, financials, symbol]);
+
+  useEffect(() => {
+    if (activeTab !== "ownership") {
+      abortRequest(ownershipAbortRef);
+      setLoadingOwnership(false);
+      return;
+    }
+    if (!canViewOwnership) {
+      abortRequest(ownershipAbortRef);
+      setLoadingOwnership(false);
+      return;
+    }
+    if (ownership || ownershipAbortRef.current) return;
+
+    const controller = new AbortController();
+    abortRequest(ownershipAbortRef);
+    ownershipAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, OWNERSHIP_REQUEST_TIMEOUT_MS);
+    setLoadingOwnership(true);
+
+    getTickerOwnership(symbol, { history_limit: 8, holder_limit: 15, signal: controller.signal, source: TICKER_OWNERSHIP_PANEL_SOURCE })
+      .then((response) => {
+        if (!controller.signal.aborted) setOwnership(response);
+      })
+      .catch((error) => {
+        if (timeoutGuard.timedOut || !isAbortError(error)) {
+          setOwnership({
+            status: "unavailable",
+            symbol,
+            source_label: "Institutional Activity",
+            locked: false,
+            required_plan: null,
+            message: "Ownership data is not available for this ticker yet.",
+            latest: null,
+            holders: [],
+            history: [],
+          });
+        }
+      })
+      .finally(() => {
+        timeoutGuard.clear();
+        if (ownershipAbortRef.current === controller) {
+          ownershipAbortRef.current = null;
+          setLoadingOwnership(false);
+        }
+      });
+
+    return () => {
+      timeoutGuard.clear();
+      controller.abort();
+      if (ownershipAbortRef.current === controller) ownershipAbortRef.current = null;
+    };
+  }, [activeTab, canViewOwnership, ownership, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -830,6 +895,13 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab("ownership")}
+            className={`${TAB_CLASS} ${activeTab === "ownership" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+          >
+            Ownership
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab("events")}
             className={`${TAB_CLASS} ${activeTab === "events" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
           >
@@ -899,6 +971,24 @@ export function TickerContextCard({ symbol, overview, className }: Props) {
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               {loadingFinancials || !financials ? <TickerFinancialsSkeleton /> : <TickerFinancialsPanel data={financials} />}
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "ownership" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Ownership</p>
+                <p className="mt-2 text-sm text-slate-400">Institutional and retail ownership trend for {symbol}.</p>
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Pro</span>
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {canViewOwnership && (loadingOwnership || !ownership) ? (
+                <TickerOwnershipSkeleton />
+              ) : (
+                <TickerOwnershipPanel data={ownership} locked={!canViewOwnership} />
+              )}
             </div>
           </div>
         ) : null}

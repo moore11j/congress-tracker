@@ -2887,6 +2887,7 @@ async function DeferredTickerContent({
           <TickerContextCard
             key={normalizedSymbol}
             symbol={normalizedSymbol}
+            canViewOwnership={canViewProTickerContext}
             className="xl:h-full xl:w-full"
             overview={
               <TickerOverviewPanel

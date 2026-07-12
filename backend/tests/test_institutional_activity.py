@@ -12,7 +12,7 @@ from starlette.requests import Request
 from app.db import Base
 from app import ingest_institutional_activity as ingest_module
 from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
-from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity
+from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity, ticker_ownership
 from app.services.institutional_activity import (
     INSTITUTIONAL_EVENT_SOURCE,
     cleanup_overbroad_institutional_feed_events,
@@ -1239,6 +1239,37 @@ def test_institutional_activity_endpoint_redacts_details_until_pro(monkeypatch):
             holder_event = next(item for item in payload["items"] if item["event_type"] == "institutional_accumulation")
             assert holder_event["cik"] == "0001234567"
             assert holder_event["reported_value_usd"] == 65_000_000
+
+
+def test_ticker_ownership_endpoint_is_pro_only_and_returns_breakdown(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="OWN",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "ownershipPct": 1.25, "cusip": "000OWN001"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "ownershipPct": 4.5, "cusip": "000OWN001"},
+        )
+        db.commit()
+
+        for tier in (None, "free", "premium"):
+            payload = ticker_ownership("OWN", _request(tier), history_limit=8, holder_limit=10, db=db)
+            assert payload["locked"] is True
+            assert payload["status"] == "pro_locked"
+            assert payload["holders"] == []
+            assert payload["history"] == []
+
+        payload = ticker_ownership("OWN", _request("pro"), history_limit=8, holder_limit=10, db=db)
+        assert payload["locked"] is False
+        assert payload["latest"]["institutional_ownership_pct"] == 4.5
+        assert payload["latest"]["retail_ownership_pct"] == 95.5
+        assert payload["holders"][0]["holder_name"] == "Blue Ridge Capital"
+        assert payload["holders"][0]["ownership_pct"] == 4.5
+        assert payload["history"][-1]["period"] == "Q1 2026"
+        assert payload["history"][-1]["institutional_ownership_pct"] == 4.5
 
 
 def test_institution_profile_endpoints_are_locked_until_pro(monkeypatch):

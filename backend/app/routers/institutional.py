@@ -19,6 +19,7 @@ from app.services.institutional_activity import (
     filings_for_holder,
     get_ticker_institutional_activity,
     positions_for_holder,
+    ticker_ownership_payload,
     unavailable_institutional_summary,
     normalize_cik,
 )
@@ -63,6 +64,22 @@ def _locked_ticker_payload(symbol: str | None = None) -> dict[str, Any]:
         "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
         "locked": True,
         "required_plan": "pro",
+    }
+
+
+def _locked_ownership_payload(symbol: str | None = None) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol) if symbol else None
+    return {
+        "status": "pro_locked",
+        "symbol": normalized,
+        "source_label": "Institutional Activity",
+        "locked": True,
+        "required_plan": "pro",
+        "message": "Ownership breakdown requires Pro. 13F filings disclose quarter-end holdings and may not reflect real-time trading.",
+        "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
+        "latest": None,
+        "holders": [],
+        "history": [],
     }
 
 
@@ -112,6 +129,24 @@ def ticker_institutional_activity(
     if not _has_institutional_access(request, db):
         return _locked_ticker_payload(symbol)
     return get_ticker_institutional_activity(db, symbol, lookback_days=lookback_days, limit=limit)
+
+
+@router.get("/tickers/{symbol}/ownership")
+def ticker_ownership(
+    symbol: str,
+    request: Request,
+    history_limit: int = Query(8, ge=2, le=20),
+    holder_limit: int = Query(15, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    prefetch_response = _prefetch_response(request, "ticker_ownership")
+    if prefetch_response is not None:
+        return prefetch_response
+    if is_inactive_logged_out_api_request(request):
+        return _locked_ownership_payload(symbol)
+    if not _has_institutional_access(request, db):
+        return _locked_ownership_payload(symbol)
+    return ticker_ownership_payload(db, symbol, history_limit=history_limit, holder_limit=holder_limit)
 
 
 @router.get("/institutions")

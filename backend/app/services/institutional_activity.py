@@ -1056,6 +1056,134 @@ def get_ticker_institutional_activity(
     }
 
 
+def ticker_ownership_payload(
+    db: Session,
+    symbol: str,
+    *,
+    history_limit: int = 8,
+    holder_limit: int = 15,
+) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return unavailable_ticker_ownership_payload(symbol, status="invalid_symbol")
+    inspector = inspect(db.get_bind())
+    required_tables = {
+        InstitutionalSymbolSummary.__tablename__,
+        InstitutionalPosition.__tablename__,
+        InstitutionalHolder.__tablename__,
+    }
+    if any(not inspector.has_table(table) for table in required_tables):
+        return unavailable_ticker_ownership_payload(normalized)
+
+    bounded_history_limit = max(2, min(int(history_limit or 8), 20))
+    bounded_holder_limit = max(1, min(int(holder_limit or 15), 50))
+    summaries = db.execute(
+        select(InstitutionalSymbolSummary)
+        .where(InstitutionalSymbolSummary.normalized_symbol == normalized)
+        .order_by(
+            InstitutionalSymbolSummary.report_year.desc(),
+            InstitutionalSymbolSummary.report_quarter.desc(),
+            InstitutionalSymbolSummary.latest_filing_date.desc().nullslast(),
+        )
+        .limit(bounded_history_limit)
+    ).scalars().all()
+    if not summaries:
+        return unavailable_ticker_ownership_payload(normalized, status="no_data")
+
+    latest = summaries[0]
+    active_filing_ids = _active_filing_ids_for_period(
+        db,
+        report_year=latest.report_year,
+        report_quarter=latest.report_quarter,
+    )
+    position_query = select(InstitutionalPosition).where(
+        InstitutionalPosition.normalized_symbol == normalized,
+        InstitutionalPosition.report_year == latest.report_year,
+        InstitutionalPosition.report_quarter == latest.report_quarter,
+    )
+    if active_filing_ids:
+        position_query = position_query.where(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    positions = db.execute(position_query).scalars().all()
+    holder_ciks = sorted({position.cik for position in positions if position.cik})
+    holder_names = {
+        row.cik: row.holder_name
+        for row in db.execute(select(InstitutionalHolder).where(InstitutionalHolder.cik.in_(holder_ciks))).scalars().all()
+    } if holder_ciks else {}
+    cik_names = {
+        row.cik: row.company_name
+        for row in db.execute(select(CikMeta).where(CikMeta.cik.in_(holder_ciks))).scalars().all()
+    } if holder_ciks and inspector.has_table(CikMeta.__tablename__) else {}
+
+    holders_by_cik: dict[str, dict[str, Any]] = {}
+    for position in positions:
+        cik = position.cik
+        if not cik:
+            continue
+        holder = holders_by_cik.setdefault(
+            cik,
+            {
+                "cik": cik,
+                "holder_name": holder_names.get(cik) or cik_names.get(cik) or "Institution",
+                "ownership_pct": 0.0,
+                "value_usd": 0.0,
+                "shares": 0.0,
+                "portfolio_weight": 0.0,
+                "filing_date": position.filing_date,
+                "report_year": position.report_year,
+                "report_quarter": position.report_quarter,
+            },
+        )
+        if position.ownership_pct is not None:
+            holder["ownership_pct"] = float(holder["ownership_pct"] or 0.0) + float(position.ownership_pct)
+        if position.value_usd is not None:
+            holder["value_usd"] = float(holder["value_usd"] or 0.0) + float(position.value_usd)
+        if position.shares is not None:
+            holder["shares"] = float(holder["shares"] or 0.0) + float(position.shares)
+        if position.portfolio_weight is not None:
+            holder["portfolio_weight"] = float(holder["portfolio_weight"] or 0.0) + float(position.portfolio_weight)
+        if position.filing_date and (holder["filing_date"] is None or position.filing_date > holder["filing_date"]):
+            holder["filing_date"] = position.filing_date
+
+    holders = sorted(
+        holders_by_cik.values(),
+        key=lambda item: (float(item.get("ownership_pct") or 0.0), float(item.get("value_usd") or 0.0)),
+        reverse=True,
+    )[:bounded_holder_limit]
+    for holder in holders:
+        holder["ownership_pct"] = _round_optional(holder.get("ownership_pct"), 4)
+        holder["value_usd"] = _round_optional(holder.get("value_usd"), 2)
+        holder["shares"] = _round_optional(holder.get("shares"), 4)
+        holder["portfolio_weight"] = _round_optional(holder.get("portfolio_weight"), 4)
+        holder["filing_date"] = holder["filing_date"].isoformat() if holder.get("filing_date") else None
+
+    latest_institutional_pct = _ownership_pct(latest.institutional_ownership_pct)
+    if latest_institutional_pct is None:
+        holder_pct_values = [float(holder["ownership_pct"]) for holder in holders if holder.get("ownership_pct") is not None]
+        latest_institutional_pct = _ownership_pct(sum(holder_pct_values)) if holder_pct_values else None
+
+    return {
+        "status": "ok" if latest_institutional_pct is not None else "no_data",
+        "symbol": normalized,
+        "source_label": INSTITUTIONAL_SOURCE_LABEL,
+        "locked": False,
+        "required_plan": None,
+        "message": None if latest_institutional_pct is not None else "Ownership percentage data is not available for this ticker yet.",
+        "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
+        "latest": {
+            "report_year": latest.report_year,
+            "report_quarter": latest.report_quarter,
+            "period": f"Q{latest.report_quarter} {latest.report_year}",
+            "latest_filing_date": latest.latest_filing_date.isoformat() if latest.latest_filing_date else None,
+            "institutional_ownership_pct": latest_institutional_pct,
+            "retail_ownership_pct": _retail_pct(latest_institutional_pct),
+            "total_holders": latest.total_holders,
+            "total_value_usd": latest.total_value_usd,
+        },
+        "holders": holders,
+        "history": [_ownership_history_point(row) for row in reversed(summaries)],
+    }
+
+
 def institutional_summary_payload(
     summary: InstitutionalSymbolSummary,
     recent_events: list[InstitutionalActivityEvent],
@@ -1175,6 +1303,21 @@ def unavailable_institutional_summary(symbol: str | None = None, *, status: str 
         "institution_count": None,
         "total_value": None,
         "latest_activity_date": None,
+    }
+
+
+def unavailable_ticker_ownership_payload(symbol: str | None = None, *, status: str = "unavailable") -> dict[str, Any]:
+    return {
+        "status": status,
+        "symbol": normalize_symbol(symbol),
+        "source_label": INSTITUTIONAL_SOURCE_LABEL,
+        "locked": False,
+        "required_plan": None,
+        "message": "Ownership data is not available for this ticker yet.",
+        "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
+        "latest": None,
+        "holders": [],
+        "history": [],
     }
 
 
@@ -2291,6 +2434,45 @@ def _loads_list(value: str | None) -> list[dict[str, Any]]:
     if isinstance(parsed, list):
         return [item for item in parsed if isinstance(item, dict)]
     return []
+
+
+def _round_optional(value: Any, digits: int) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return round(parsed, digits)
+
+
+def _ownership_pct(value: Any) -> float | None:
+    parsed = _round_optional(value, 4)
+    if parsed is None:
+        return None
+    return max(0.0, min(parsed, 100.0))
+
+
+def _retail_pct(institutional_pct: float | None) -> float | None:
+    if institutional_pct is None:
+        return None
+    return round(max(0.0, 100.0 - institutional_pct), 4)
+
+
+def _ownership_history_point(summary: InstitutionalSymbolSummary) -> dict[str, Any]:
+    institutional_pct = _ownership_pct(summary.institutional_ownership_pct)
+    return {
+        "report_year": summary.report_year,
+        "report_quarter": summary.report_quarter,
+        "period": f"Q{summary.report_quarter} {summary.report_year}",
+        "latest_filing_date": summary.latest_filing_date.isoformat() if summary.latest_filing_date else None,
+        "institutional_ownership_pct": institutional_pct,
+        "retail_ownership_pct": _retail_pct(institutional_pct),
+        "total_holders": summary.total_holders,
+        "total_value_usd": summary.total_value_usd,
+    }
 
 
 def _loads_dict(value: str | None) -> dict[str, Any]:

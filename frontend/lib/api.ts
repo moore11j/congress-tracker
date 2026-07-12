@@ -3592,6 +3592,42 @@ export type TickerFinancialsResponse = {
   updatedAt: string;
 };
 
+export type TickerOwnershipHolder = {
+  cik?: string | null;
+  holder_name?: string | null;
+  ownership_pct?: number | null;
+  value_usd?: number | null;
+  shares?: number | null;
+  portfolio_weight?: number | null;
+  filing_date?: string | null;
+  report_year?: number | null;
+  report_quarter?: number | null;
+};
+
+export type TickerOwnershipPoint = {
+  report_year?: number | null;
+  report_quarter?: number | null;
+  period: string;
+  latest_filing_date?: string | null;
+  institutional_ownership_pct?: number | null;
+  retail_ownership_pct?: number | null;
+  total_holders?: number | null;
+  total_value_usd?: number | null;
+};
+
+export type TickerOwnershipResponse = {
+  status: "ok" | "loading" | "no_data" | "unavailable" | "pro_locked" | string;
+  symbol: string | null;
+  source_label?: string | null;
+  locked?: boolean;
+  required_plan?: "pro" | string | null;
+  message?: string | null;
+  tooltip?: string | null;
+  latest?: TickerOwnershipPoint | null;
+  holders: TickerOwnershipHolder[];
+  history: TickerOwnershipPoint[];
+};
+
 export type TickerGovernmentContractItem = {
   symbol?: string | null;
   contract_id?: string | null;
@@ -5576,6 +5612,29 @@ export async function getTickerFinancials(
       next: { revalidate: 0 },
       signal,
       source: params?.source ?? "TickerPage",
+    }),
+  );
+}
+
+export async function getTickerOwnership(
+  symbol: string,
+  params?: { history_limit?: number; holder_limit?: number; authToken?: string | null; signal?: AbortSignal; source?: string },
+): Promise<TickerOwnershipResponse> {
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/ownership`, {
+    history_limit: params?.history_limit,
+    holder_limit: params?.holder_limit,
+  });
+  return clientCachedJson<TickerOwnershipResponse>(
+    `ticker-ownership:${url}:${params?.authToken ? "auth" : "session"}`,
+    params?.signal,
+    (signal) => fetchJson<TickerOwnershipResponse>(url, {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerOwnershipPanel",
+      routeFamily: "ticker",
+      requestSource: typeof window === "undefined" ? "ssr" : "client",
     }),
   );
 }
