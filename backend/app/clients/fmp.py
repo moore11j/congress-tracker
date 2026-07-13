@@ -275,6 +275,17 @@ def fetch_symbol_positions_summary(
     )
 
 
+def fetch_shares_float(*, symbol: str, timeout_s: int = 30) -> list[dict[str, Any]]:
+    provider_symbol = str(symbol or "").strip().upper()
+    return _request_stable_rows(
+        "shares-float",
+        params={"symbol": provider_symbol},
+        category="ticker:shares-float",
+        symbol=provider_symbol,
+        timeout_s=timeout_s,
+    )
+
+
 def fetch_extract_analytics_by_holder(
     *,
     symbol: str,

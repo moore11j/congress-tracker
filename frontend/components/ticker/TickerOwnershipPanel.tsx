@@ -175,7 +175,9 @@ function HolderBreakdown({ holders }: { holders: TickerOwnershipHolder[] }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-100">{holder.holder_name || "Institution"}</p>
-                  <p className="mt-1 text-xs text-slate-500">{formatCompactCurrency(holder.value_usd)} reported value</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formatCompactCurrency(holder.value_usd)} reported value{isFiniteNumber(holder.shares) ? ` / ${formatNumber(holder.shares)} sh` : ""}
+                  </p>
                 </div>
                 <p className="shrink-0 text-sm font-semibold tabular-nums text-blue-200">{pct > 0 ? formatPct(pct) : `${formatNumber(holder.shares)} sh`}</p>
               </div>
@@ -204,7 +206,7 @@ function ReportedHoldingsSummary({ data }: { data: TickerOwnershipResponse }) {
           </p>
         </div>
         <p className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1 text-xs font-semibold text-amber-100">
-          Ownership % pending
+          Float unavailable
         </p>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -271,8 +273,14 @@ function OwnershipSplit({ data }: { data: TickerOwnershipResponse }) {
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
         <SummaryTile label="Holders" value={formatNumber(latest?.total_holders)} />
-        <SummaryTile label="Reported Value" value={formatCompactCurrency(latest?.total_value_usd)} />
-        <SummaryTile label="Holder Records" value={formatNumber(data.holders.length)} />
+        <SummaryTile
+          label={isFiniteNumber(latest?.total_institutional_shares) ? "Institutional Shares" : "Reported Value"}
+          value={isFiniteNumber(latest?.total_institutional_shares) ? formatNumber(latest?.total_institutional_shares) : formatCompactCurrency(latest?.total_value_usd)}
+        />
+        <SummaryTile
+          label={isFiniteNumber(latest?.float_shares) ? "Float Shares" : "Holder Records"}
+          value={isFiniteNumber(latest?.float_shares) ? formatNumber(latest?.float_shares) : formatNumber(data.holders.length)}
+        />
       </div>
       {open ? (
         <div className="absolute left-4 right-4 top-[8.75rem] z-20 rounded-2xl border border-white/15 bg-[#050b13]/95 p-4 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">

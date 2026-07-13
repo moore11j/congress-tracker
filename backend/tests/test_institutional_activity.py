@@ -1245,6 +1245,7 @@ def test_institutional_activity_endpoint_redacts_details_until_pro(monkeypatch):
 def test_ticker_ownership_endpoint_is_pro_only_and_returns_breakdown(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    monkeypatch.setattr(institutional_service, "fetch_shares_float", lambda **_kwargs: [])
     engine = _engine()
 
     with _session(engine) as db:
@@ -1273,24 +1274,17 @@ def test_ticker_ownership_endpoint_is_pro_only_and_returns_breakdown(monkeypatch
         assert payload["history"][-1]["institutional_ownership_pct"] == 4.5
 
 
-def test_ticker_ownership_uses_provider_summary_when_stored_percent_is_bad_zero(monkeypatch):
+def test_ticker_ownership_computes_split_from_institutional_shares_and_float(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
     engine = _engine()
 
-    def fake_symbol_positions_summary(*, symbol: str, year: int, quarter: int):
+    def fake_shares_float(*, symbol: str):
         assert symbol == "TSM"
-        assert year == 2026
-        assert quarter == 1
-        return [
-            {
-                "ownershipPercent": 15.66,
-                "investorsHolding": 4336,
-                "totalInvested": 170_000_000_000,
-            }
-        ]
+        return [{"symbol": "TSM", "floatShares": 2_000_000, "outstandingShares": 2_500_000}]
 
-    monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", fake_symbol_positions_summary)
+    monkeypatch.setattr(institutional_service, "fetch_shares_float", fake_shares_float)
+    monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", lambda **_kwargs: [])
 
     with _session(engine) as db:
         _process_single_change(
@@ -1305,16 +1299,21 @@ def test_ticker_ownership_uses_provider_summary_when_stored_percent_is_bad_zero(
         assert summary.institutional_ownership_pct == 0
 
         payload = ticker_ownership("TSM", _request("pro"), history_limit=8, holder_limit=10, db=db)
-        assert payload["latest"]["institutional_ownership_pct"] == 15.66
-        assert payload["latest"]["retail_ownership_pct"] == 84.34
-        assert payload["latest"]["total_holders"] == 4336
-        assert payload["latest"]["ownership_source"] == "provider_symbol_positions_summary"
-        assert payload["history"][-1]["institutional_ownership_pct"] == 15.66
+        assert payload["latest"]["institutional_ownership_pct"] == 20.0
+        assert payload["latest"]["retail_ownership_pct"] == 80.0
+        assert payload["latest"]["total_institutional_shares"] == 400_000
+        assert payload["latest"]["float_shares"] == 2_000_000
+        assert payload["latest"]["float_shares_source"] == "floatShares"
+        assert payload["latest"]["ownership_source"] == "institutional_shares_over_float"
+        assert payload["holders"][0]["ownership_pct"] == 20.0
+        assert payload["holders"][0]["ownership_pct_source"] == "shares_over_float"
+        assert payload["history"][-1]["institutional_ownership_pct"] == 20.0
 
 
 def test_ticker_ownership_returns_reported_holdings_when_percent_is_pending(monkeypatch):
     monkeypatch.setenv("CT_DEFAULT_TIER", "free")
     monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    monkeypatch.setattr(institutional_service, "fetch_shares_float", lambda **_kwargs: [])
     monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", lambda **_kwargs: [])
     engine = _engine()
 
@@ -1329,7 +1328,7 @@ def test_ticker_ownership_returns_reported_holdings_when_percent_is_pending(monk
 
         payload = ticker_ownership("TSM", _request("pro"), history_limit=8, holder_limit=10, db=db)
         assert payload["status"] == "ok"
-        assert payload["message"] == "Reported institutional holdings are available; ownership percentage is pending for this ticker."
+        assert payload["message"] == "Reported institutional holdings are available; float share data is not available for this ticker."
         assert payload["latest"]["institutional_ownership_pct"] is None
         assert payload["latest"]["total_value_usd"] == 65_000_000
         assert payload["holders"][0]["holder_name"] == "Blue Ridge Capital"

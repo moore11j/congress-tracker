@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
-from app.clients.fmp import fetch_symbol_positions_summary
+from app.clients.fmp import fetch_shares_float, fetch_symbol_positions_summary
 from app.models import (
     Event,
     CikMeta,
@@ -1145,11 +1145,27 @@ def ticker_ownership_payload(
         if position.filing_date and (holder["filing_date"] is None or position.filing_date > holder["filing_date"]):
             holder["filing_date"] = position.filing_date
 
-    holders = sorted(
+    float_snapshot = _provider_shares_float_snapshot(normalized)
+    float_shares = float_snapshot.get("float_shares") if float_snapshot else None
+    total_institutional_shares = sum(
+        float(holder.get("shares") or 0.0)
+        for holder in holders_by_cik.values()
+        if float(holder.get("shares") or 0.0) > 0
+    )
+    float_based_institutional_pct = None
+    if float_shares and float_shares > 0 and total_institutional_shares > 0:
+        float_based_institutional_pct = _ownership_pct((total_institutional_shares / float_shares) * 100)
+        for holder in holders_by_cik.values():
+            holder_shares = float(holder.get("shares") or 0.0)
+            holder["ownership_pct"] = (holder_shares / float_shares) * 100 if holder_shares > 0 else None
+            holder["ownership_pct_source"] = "shares_over_float"
+
+    all_holders = sorted(
         holders_by_cik.values(),
-        key=lambda item: (float(item.get("ownership_pct") or 0.0), float(item.get("value_usd") or 0.0)),
+        key=lambda item: (float(item.get("ownership_pct") or 0.0), float(item.get("value_usd") or 0.0), float(item.get("shares") or 0.0)),
         reverse=True,
-    )[:bounded_holder_limit]
+    )
+    holders = all_holders[:bounded_holder_limit]
     for holder in holders:
         holder["ownership_pct"] = _round_optional(holder.get("ownership_pct"), 4)
         holder["value_usd"] = _round_optional(holder.get("value_usd"), 2)
@@ -1157,7 +1173,7 @@ def ticker_ownership_payload(
         holder["portfolio_weight"] = _round_optional(holder.get("portfolio_weight"), 4)
         holder["filing_date"] = holder["filing_date"].isoformat() if holder.get("filing_date") else None
 
-    latest_institutional_pct = _summary_ownership_pct(latest)
+    latest_institutional_pct = float_based_institutional_pct if float_based_institutional_pct is not None else _summary_ownership_pct(latest)
     if latest_institutional_pct is None:
         holder_pct_values = [float(holder["ownership_pct"]) for holder in holders if float(holder.get("ownership_pct") or 0.0) > 0]
         latest_institutional_pct = _ownership_pct(sum(holder_pct_values)) if holder_pct_values else None
@@ -1174,6 +1190,13 @@ def ticker_ownership_payload(
     latest_total_value = provider_snapshot.get("total_value_usd") if provider_snapshot and provider_snapshot.get("total_value_usd") is not None else latest.total_value_usd
     has_reported_holdings = bool(holders) or int(latest_total_holders or 0) > 0 or float(latest_total_value or 0.0) > 0.0
     history = [_ownership_history_point(row) for row in reversed(summaries)]
+    latest_ownership_source = (
+        "institutional_shares_over_float"
+        if float_based_institutional_pct is not None
+        else provider_snapshot.get("ownership_source")
+        if provider_snapshot
+        else "institutional_positions"
+    )
     if provider_snapshot and history:
         history[-1] = {
             **history[-1],
@@ -1182,6 +1205,18 @@ def ticker_ownership_payload(
             "total_holders": latest_total_holders,
             "total_value_usd": latest_total_value,
             "ownership_source": provider_snapshot.get("ownership_source"),
+        }
+    if float_based_institutional_pct is not None and history:
+        history[-1] = {
+            **history[-1],
+            "institutional_ownership_pct": latest_institutional_pct,
+            "retail_ownership_pct": _retail_pct(latest_institutional_pct),
+            "total_holders": latest_total_holders,
+            "total_value_usd": latest_total_value,
+            "total_institutional_shares": _round_optional(total_institutional_shares, 4),
+            "float_shares": _round_optional(float_shares, 4),
+            "float_shares_source": float_snapshot.get("float_shares_source") if float_snapshot else None,
+            "ownership_source": latest_ownership_source,
         }
 
     return {
@@ -1193,7 +1228,7 @@ def ticker_ownership_payload(
         "message": (
             None
             if latest_institutional_pct is not None
-            else "Reported institutional holdings are available; ownership percentage is pending for this ticker."
+            else "Reported institutional holdings are available; float share data is not available for this ticker."
             if has_reported_holdings
             else "Ownership percentage data is not available for this ticker yet."
         ),
@@ -1207,7 +1242,10 @@ def ticker_ownership_payload(
             "retail_ownership_pct": _retail_pct(latest_institutional_pct),
             "total_holders": latest_total_holders,
             "total_value_usd": latest_total_value,
-            "ownership_source": provider_snapshot.get("ownership_source") if provider_snapshot else "institutional_positions",
+            "total_institutional_shares": _round_optional(total_institutional_shares, 4) if total_institutional_shares > 0 else None,
+            "float_shares": _round_optional(float_shares, 4),
+            "float_shares_source": float_snapshot.get("float_shares_source") if float_snapshot else None,
+            "ownership_source": latest_ownership_source,
         },
         "holders": holders,
         "history": history,
@@ -2352,6 +2390,18 @@ def _first_value(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _first_value_with_key(row: dict[str, Any], *keys: str) -> tuple[str | None, Any]:
+    for key in keys:
+        if key in row and row.get(key) not in (None, ""):
+            return key, row.get(key)
+    lower_map = {str(row_key).lower(): (str(row_key), value) for row_key, value in row.items()}
+    for key in keys:
+        found = lower_map.get(key.lower())
+        if found and found[1] not in (None, ""):
+            return found
+    return None, None
+
+
 def _first_text(row: dict[str, Any], *keys: str) -> str | None:
     value = _first_value(row, *keys)
     if value is None:
@@ -2362,6 +2412,11 @@ def _first_text(row: dict[str, Any], *keys: str) -> str | None:
 
 def _first_number(row: dict[str, Any], *keys: str) -> float | None:
     return _parse_number(_first_value(row, *keys))
+
+
+def _first_number_with_key(row: dict[str, Any], *keys: str) -> tuple[str | None, float | None]:
+    key, value = _first_value_with_key(row, *keys)
+    return key, _parse_number(value)
 
 
 def _first_int(row: dict[str, Any], *keys: str) -> int | None:
@@ -2512,6 +2567,49 @@ def _ownership_history_point(summary: InstitutionalSymbolSummary) -> dict[str, A
         "total_holders": summary.total_holders,
         "total_value_usd": summary.total_value_usd,
     }
+
+
+def _provider_shares_float_snapshot(symbol: str) -> dict[str, Any] | None:
+    try:
+        rows = fetch_shares_float(symbol=symbol)
+    except Exception:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        float_key, float_shares = _first_number_with_key(
+            row,
+            "floatShares",
+            "sharesFloat",
+            "freeFloatShares",
+            "publicFloatShares",
+            "publicFloat",
+            "float",
+        )
+        outstanding_key, outstanding_shares = _first_number_with_key(
+            row,
+            "outstandingShares",
+            "sharesOutstanding",
+            "weightedAverageShsOut",
+            "weightedAverageShsOutDil",
+            "sharesOut",
+        )
+        denominator_key = float_key
+        denominator = float_shares
+        if not denominator or denominator <= 0:
+            denominator_key = outstanding_key
+            denominator = outstanding_shares
+        if not denominator or denominator <= 0:
+            continue
+        return {
+            "float_shares": denominator,
+            "float_shares_source": denominator_key,
+            "reported_float_shares": float_shares if float_shares and float_shares > 0 else None,
+            "outstanding_shares": outstanding_shares if outstanding_shares and outstanding_shares > 0 else None,
+            "provider_source": _first_text(row, "source", "dataSource"),
+            "provider_date": _first_text(row, "date", "asOfDate", "reportedDate"),
+        }
+    return None
 
 
 def _provider_symbol_ownership_snapshot(
