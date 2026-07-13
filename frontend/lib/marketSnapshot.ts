@@ -139,12 +139,12 @@ export const FALLBACK_CRYPTO: SnapshotInstrument[] = [
 ];
 
 export const FALLBACK_MACRO: MacroSnapshotPoint[] = [
-  { label: "Fed Overnight Rate", value: null, value_format: "percent", change_format: "bps" },
-  { label: "Core CPI", value: null, value_format: "percent", change_format: "percentage_points" },
-  { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points" },
-  { label: "Debt/GDP", value: null, value_format: "percent", change_format: "percentage_points" },
-  { label: "Retail Sales", value: null, value_format: "currency", change_format: "percent" },
-  { label: "GDP Growth", value: null, value_format: "percent", change_format: "percentage_points" },
+  { label: "Fed Overnight Rate", value: null, value_format: "percent", change_format: "bps", unit_label: "annualized %" },
+  { label: "Core CPI", value: null, value_format: "percent", change_format: "percentage_points", unit_label: "YoY" },
+  { label: "Unemployment", value: null, value_format: "percent", change_format: "percentage_points", unit_label: "labor force %" },
+  { label: "Debt/GDP", value: null, value_format: "percent", change_format: "percentage_points", unit_label: "% of GDP" },
+  { label: "Retail Sales", value: null, value_format: "currency", change_format: "percent", unit_label: "USD" },
+  { label: "GDP Growth", value: null, value_format: "percent", change_format: "percentage_points", unit_label: "QoQ annualized" },
 ];
 
 export const FALLBACK_TREASURY: MacroSnapshotPoint[] = [

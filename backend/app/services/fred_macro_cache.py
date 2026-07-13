@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 FRED_SOURCE = "fred"
+MACRO_UNIT_LABELS = {
+    "Fed Overnight Rate": "annualized %",
+    "Core CPI": "YoY",
+    "Unemployment": "labor force %",
+    "Debt/GDP": "% of GDP",
+    "Retail Sales": "USD",
+    "GDP Growth": "QoQ annualized",
+}
 FRED_DEFAULT_TIMEOUT_SECONDS = 10
 FRED_DEFAULT_MIN_REFRESH_HOURS = 6
 FRED_DEFAULT_STALE_AFTER_HOURS = 36
@@ -363,6 +371,7 @@ def _macro_point(
     change_value: float | None = None,
     change_format: str | None = None,
     change_label: str | None = None,
+    unit_label: str | None = None,
 ) -> dict[str, Any]:
     return {
         "label": label,
@@ -376,6 +385,7 @@ def _macro_point(
         "source": FRED_SOURCE,
         "series_id": series_id,
         "cache_status": _cache_status(state),
+        "unit_label": unit_label or MACRO_UNIT_LABELS.get(label),
     }
 
 
@@ -387,6 +397,7 @@ def _macro_unavailable(
     value_format: str = "percent",
     change_format: str | None = None,
     change_label: str | None = None,
+    unit_label: str | None = None,
 ) -> dict[str, Any]:
     return _macro_point(
         label=label,
@@ -398,6 +409,7 @@ def _macro_unavailable(
         change_value=None,
         change_format=change_format,
         change_label=change_label,
+        unit_label=unit_label,
     )
 
 

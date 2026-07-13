@@ -261,6 +261,13 @@ ECONOMIC_SNAPSHOT_ORDER = (
     "Debt/GDP",
     "Retail Sales",
 )
+MACRO_UNIT_LABELS = {
+    "Fed Overnight Rate": "annualized %",
+    "Core CPI": "YoY",
+    "Unemployment": "labor force %",
+    "Debt/GDP": "% of GDP",
+    "Retail Sales": "USD",
+}
 COMMODITY_TARGETS = (
     {"label": "Gold", "symbols": ("GCUSD", "ZGUSD", "XAUUSD", "GC=F"), "unit_label": "USD"},
     {"label": "Silver", "symbols": ("SIUSD", "ZIUSD", "XAGUSD", "SI=F"), "unit_label": "USD"},
@@ -857,6 +864,7 @@ def _macro_point(
     change_format: str | None = None,
     change_label: str | None = None,
     context_label: str = "Latest available",
+    unit_label: str | None = None,
 ) -> dict[str, Any]:
     return {
         "label": label,
@@ -867,6 +875,7 @@ def _macro_point(
         "change_format": change_format,
         "change_label": change_label,
         "context_label": context_label,
+        "unit_label": unit_label or MACRO_UNIT_LABELS.get(label),
     }
 
 
@@ -877,6 +886,7 @@ def _macro_unavailable(
     change_format: str | None = None,
     change_label: str | None = None,
     context_label: str = "Latest available",
+    unit_label: str | None = None,
 ) -> dict[str, Any]:
     return _macro_point(
         label=label,
@@ -887,6 +897,7 @@ def _macro_unavailable(
         change_format=change_format,
         change_label=change_label,
         context_label=context_label,
+        unit_label=unit_label,
     )
 
 

@@ -132,18 +132,21 @@ function completeNewsPayload(
   };
 }
 
-function DesktopRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows> }) {
+function DesktopRows({ rows, categorySlug }: { rows: ReturnType<typeof marketSnapshotDetailRows>; categorySlug: MarketSnapshotCategorySlug }) {
+  const showSymbol = !["us-macro", "us-treasury", "us-sectors"].includes(categorySlug);
+  const showUnit = categorySlug !== "us-indexes";
+
   return (
     <div className="hidden overflow-hidden rounded-xl border border-white/10 sm:block">
       <table className="w-full border-collapse text-left text-sm">
         <thead className="bg-slate-950/70 text-[11px] uppercase tracking-[0.18em] text-slate-500">
           <tr>
             <th className="px-4 py-3 font-semibold">Name</th>
-            <th className="px-4 py-3 font-semibold">Symbol</th>
+            {showSymbol ? <th className="px-4 py-3 font-semibold">Symbol</th> : null}
             <th className="px-4 py-3 text-right font-semibold">Latest Value</th>
             <th className="px-4 py-3 text-right font-semibold">Change</th>
             <th className="px-4 py-3 text-right font-semibold">Date</th>
-            <th className="px-4 py-3 text-right font-semibold">Unit</th>
+            {showUnit ? <th className="px-4 py-3 text-right font-semibold">Unit</th> : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-white/10">
@@ -152,11 +155,11 @@ function DesktopRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRow
               <td className="px-4 py-4">
                 <div className={`font-semibold ${row.unavailable ? "text-slate-400" : "text-slate-100"}`}>{row.name}</div>
               </td>
-              <td className="px-4 py-4 font-mono text-xs text-slate-500">{row.symbol ?? "-"}</td>
+              {showSymbol ? <td className="px-4 py-4 font-mono text-xs text-slate-500">{row.symbol ?? "-"}</td> : null}
               <td className={`px-4 py-4 text-right font-semibold tabular-nums ${row.unavailable ? "text-slate-500" : "text-slate-100"}`}>{row.valueText}</td>
               <td className={`px-4 py-4 text-right font-semibold tabular-nums ${deltaClassName(row.changeValue)}`}>{row.changeText}</td>
               <td className="px-4 py-4 text-right text-slate-400">{row.dateText}</td>
-              <td className="px-4 py-4 text-right text-slate-500">{row.unitText ?? "-"}</td>
+              {showUnit ? <td className="px-4 py-4 text-right text-slate-500">{row.unitText ?? "-"}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -165,7 +168,10 @@ function DesktopRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRow
   );
 }
 
-function MobileRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows> }) {
+function MobileRows({ rows, categorySlug }: { rows: ReturnType<typeof marketSnapshotDetailRows>; categorySlug: MarketSnapshotCategorySlug }) {
+  const showSymbol = !["us-macro", "us-treasury", "us-sectors"].includes(categorySlug);
+  const showUnit = categorySlug !== "us-indexes";
+
   return (
     <div className="space-y-3 sm:hidden">
       {rows.map((row) => (
@@ -173,7 +179,7 @@ function MobileRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className={`truncate text-sm font-semibold ${row.unavailable ? "text-slate-400" : "text-slate-100"}`}>{row.name}</h2>
-              <p className="mt-1 font-mono text-xs text-slate-500">{row.symbol ?? row.unitText ?? "-"}</p>
+              {showSymbol && row.symbol ? <p className="mt-1 font-mono text-xs text-slate-500">{row.symbol}</p> : null}
             </div>
             <div className="shrink-0 text-right">
               <p className={`text-sm font-semibold tabular-nums ${row.unavailable ? "text-slate-500" : "text-slate-100"}`}>{row.valueText}</p>
@@ -182,7 +188,7 @@ function MobileRows({ rows }: { rows: ReturnType<typeof marketSnapshotDetailRows
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3 text-xs text-slate-500">
             <span>{row.dateText}</span>
-            <span>{row.unitText ?? "Daily Change"}</span>
+            {showUnit ? <span>{row.unitText ?? "Daily Change"}</span> : null}
           </div>
         </article>
       ))}
@@ -278,8 +284,8 @@ export function MarketSnapshotCategoryClient({ category }: Props) {
           <p className="rounded-xl border border-white/10 bg-slate-950/45 p-4 text-sm text-slate-400">No market snapshot data is available for this category right now.</p>
         ) : (
           <>
-            <DesktopRows rows={rows} />
-            <MobileRows rows={rows} />
+            <DesktopRows rows={rows} categorySlug={category.slug as MarketSnapshotCategorySlug} />
+            <MobileRows rows={rows} categorySlug={category.slug as MarketSnapshotCategorySlug} />
           </>
         )}
       </section>

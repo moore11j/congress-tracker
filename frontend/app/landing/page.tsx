@@ -786,7 +786,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Signal stack</SectionEyebrow>
@@ -815,7 +815,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
