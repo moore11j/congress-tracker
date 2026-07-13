@@ -20,6 +20,9 @@ test("AI Growth Engine exposes the new top-level IA", () => {
     assert.match(viewSource, new RegExp(label));
   }
   assert.match(viewSource, /OpenAI credits left/);
+  assert.match(viewSource, /Dismiss human review notice/);
+  assert.match(viewSource, /aiGrowthReviewBannerDismissed/);
+  assert.match(viewSource, /localStorage\.setItem\(AI_GROWTH_REVIEW_BANNER_DISMISSED_KEY, "true"\)/);
   assert.match(viewSource, /openAiCreditsMetric/);
   assert.match(viewSource, /Last response/);
   assert.match(viewSource, /Spent/);

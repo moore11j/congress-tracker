@@ -109,6 +109,7 @@ const DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = [
   "Brand idea: The market has tells. Walnut finds them.",
 ].join("\n");
 const AI_GROWTH_EMAIL_TONE_OPTIONS = ["market-native", "professional", "sharp", "educational", "contrarian"] as const;
+const AI_GROWTH_REVIEW_BANNER_DISMISSED_KEY = "aiGrowthReviewBannerDismissed";
 
 const SOURCE_PLATFORMS = ["X", "Reddit", "LinkedIn", "Other"] as const;
 const SCHEDULED_X_SOURCE_TYPES = [
@@ -213,6 +214,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [voiceTone, setVoiceTone] = useState(DEFAULT_AI_GROWTH_EMAIL_TONE);
   const [voiceCharacteristics, setVoiceCharacteristics] = useState(DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS);
   const [newVoiceCharacteristic, setNewVoiceCharacteristic] = useState("");
+  const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -227,6 +229,15 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const notify = (message: string, tone: "success" | "error" | "info" = "info") => {
     showToast?.(message, tone);
     setLoadStatus(message);
+  };
+
+  const dismissReviewBanner = () => {
+    setReviewBannerDismissed(true);
+    try {
+      window.localStorage.setItem(AI_GROWTH_REVIEW_BANNER_DISMISSED_KEY, "true");
+    } catch {
+      // Ignore storage failures; the current session still hides the banner.
+    }
   };
 
   const load = async () => {
@@ -254,6 +265,14 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   useEffect(() => {
     void load();
   }, [statusFilter]);
+
+  useEffect(() => {
+    try {
+      setReviewBannerDismissed(window.localStorage.getItem(AI_GROWTH_REVIEW_BANNER_DISMISSED_KEY) === "true");
+    } catch {
+      setReviewBannerDismissed(false);
+    }
+  }, []);
 
   useEffect(() => {
     setRecentAssetsPage(1);
@@ -720,9 +739,20 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-amber-300/20 bg-amber-300/10 p-4 text-sm font-semibold text-amber-100">
-        Human review required. No auto-posting, bot posting, automatic DMs, or platform credential collection.
-      </section>
+      {!reviewBannerDismissed ? (
+        <section className="relative rounded-lg border border-amber-300/20 bg-amber-300/10 p-4 pr-12 text-sm font-semibold text-amber-100">
+          Human review required. No auto-posting, bot posting, automatic DMs, or platform credential collection.
+          <button
+            type="button"
+            aria-label="Dismiss human review notice"
+            title="Dismiss"
+            onClick={dismissReviewBanner}
+            className="absolute right-3 top-3 rounded-md border border-amber-200/30 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-200/10"
+          >
+            X
+          </button>
+        </section>
+      ) : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         {TABS.map((tab) => (
