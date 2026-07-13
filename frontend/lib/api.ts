@@ -1918,6 +1918,10 @@ export type AdminAiMarketingConfig = {
   openai_configured: boolean;
   openai_model: string;
   openai_credits_left_usd?: number | null;
+  openai_credits_starting_balance_usd?: number | null;
+  openai_credits_spent_usd?: number | null;
+  openai_credits_last_response_cost_usd?: number | null;
+  openai_credits_last_model?: string | null;
   openai_credits_low_watermark_usd?: number | null;
   openai_credits_status?: "ok" | "low" | "missing" | "unavailable" | string;
   openai_credits_label?: string | null;
@@ -5382,6 +5386,13 @@ export async function updateAdminAiGrowthDraftStatus(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    source: "AdminAiGrowth",
+  });
+}
+
+export async function clearAdminAiGrowthDraftHistory(): Promise<{ ok: boolean; cleared: number }> {
+  return fetchJson<{ ok: boolean; cleared: number }>(buildApiUrl("/api/admin/ai-growth/drafts/clear-history"), {
+    method: "POST",
     source: "AdminAiGrowth",
   });
 }

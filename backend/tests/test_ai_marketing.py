@@ -32,6 +32,7 @@ from app.routers.ai_marketing import (
     GrowthDraftRegeneratePayload,
     ManualUrlPayload,
     admin_ai_growth_drafts,
+    admin_ai_growth_clear_draft_history,
     admin_ai_growth_create_draft,
     admin_ai_growth_email_draft,
     admin_ai_growth_mark_copied,
@@ -244,7 +245,14 @@ def _mock_openai(monkeypatch, payload):
         status_code = 200
 
         def json(self):
-            return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+            return {
+                "choices": [{"message": {"content": json.dumps(payload)}}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 250,
+                    "prompt_tokens_details": {"cached_tokens": 100},
+                },
+            }
 
     monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
 
@@ -392,6 +400,48 @@ def test_scheduled_x_campaign_lifecycle_run_email_and_delete(monkeypatch):
         deleted = admin_ai_marketing_delete_campaign(campaign["id"], request, db)
         assert deleted == {"ok": True, "id": campaign["id"]}
         assert all(item["id"] != campaign["id"] for item in admin_ai_marketing_campaigns(request, db)["items"])
+    finally:
+        db.close()
+
+
+def test_ai_growth_clear_draft_history_hides_generated_assets():
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        first = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="x",
+                title="NVDA X draft",
+                text="NVDA context",
+                generate=False,
+            ),
+            request,
+            db,
+        )
+        second = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="reddit",
+                title="MSFT DD draft",
+                text="MSFT context",
+                generate=False,
+            ),
+            request,
+            db,
+        )
+        assert {first["opportunity"]["id"], second["opportunity"]["id"]} == {
+            item["id"] for item in admin_ai_growth_drafts(request, db, status="all", limit=50)["items"]
+        }
+
+        cleared = admin_ai_growth_clear_draft_history(request, db)
+
+        assert cleared == {"ok": True, "cleared": 2}
+        assert admin_ai_growth_drafts(request, db, status="all", limit=50)["items"] == []
+        assert db.query(AiMarketingOpportunity).filter(AiMarketingOpportunity.status == "dismissed").count() == 2
     finally:
         db.close()
 

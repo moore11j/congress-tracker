@@ -19,6 +19,7 @@ from app.services.ai_marketing import (
     archive_opportunity,
     campaign_to_dict,
     campaign_to_dict_with_runs,
+    clear_ai_growth_draft_history,
     config_status,
     create_campaign,
     create_growth_draft,
@@ -353,6 +354,15 @@ def admin_ai_growth_create_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/admin/ai-growth/drafts/clear-history", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_clear_draft_history(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    return clear_ai_growth_draft_history(db)
 
 
 @router.get("/admin/ai-growth/drafts/{draft_id}")

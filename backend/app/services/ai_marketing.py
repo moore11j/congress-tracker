@@ -78,6 +78,16 @@ OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
 )
 OPENAI_WEB_SEARCH_FAILED_MESSAGE = "OpenAI web search discovery failed. Check OpenAI configuration, quota, and API availability."
 DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD = 25.0
+DEFAULT_OPENAI_CREDITS_LEDGER_START_USD = 9.91
+OPENAI_CREDITS_LEDGER_START_USD = "OPENAI_CREDITS_LEDGER_START_USD"
+OPENAI_CREDITS_LEDGER_SPENT_USD = "OPENAI_CREDITS_LEDGER_SPENT_USD"
+OPENAI_CREDITS_LEDGER_LAST_COST_USD = "OPENAI_CREDITS_LEDGER_LAST_COST_USD"
+OPENAI_CREDITS_LEDGER_LAST_MODEL = "OPENAI_CREDITS_LEDGER_LAST_MODEL"
+OPENAI_CREDITS_LEDGER_LAST_USAGE_JSON = "OPENAI_CREDITS_LEDGER_LAST_USAGE_JSON"
+OPENAI_INPUT_USD_PER_1M = "OPENAI_INPUT_USD_PER_1M"
+OPENAI_CACHED_INPUT_USD_PER_1M = "OPENAI_CACHED_INPUT_USD_PER_1M"
+OPENAI_OUTPUT_USD_PER_1M = "OPENAI_OUTPUT_USD_PER_1M"
+OPENAI_WEB_SEARCH_USD_PER_1K_CALLS = "OPENAI_WEB_SEARCH_USD_PER_1K_CALLS"
 OPENAI_CREDIT_GRANTS_URL = "https://api.openai.com/dashboard/billing/credit_grants"
 OPENAI_CREDITS_CACHE_SECONDS = 300
 _OPENAI_CREDITS_CACHE: dict[str, Any] = {"expires_at": 0.0, "api_key": None, "payload": None}
@@ -511,44 +521,162 @@ def _openai_credits_status(db: Session | None) -> dict[str, Any]:
             "source": "openai_billing",
             "error": "OPENAI_API_KEY is not configured.",
         }
-    result = _request_openai_credit_grants(api_key)
-    if not result.get("ok"):
-        return {
-            "left_usd": None,
-            "low_watermark_usd": low_watermark,
-            "status": "unavailable",
-            "label": "OpenAI balance unavailable",
-            "source": "openai_billing",
-            "error": result.get("error"),
-            "status_code": result.get("status_code"),
-        }
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    credits_left = data.get("total_available")
-    if not isinstance(credits_left, (int, float)):
-        credits_left = data.get("total_granted")
-        total_used = data.get("total_used")
-        if isinstance(credits_left, (int, float)) and isinstance(total_used, (int, float)):
-            credits_left = credits_left - total_used
-    if not isinstance(credits_left, (int, float)):
-        return {
-            "left_usd": None,
-            "low_watermark_usd": low_watermark,
-            "status": "unavailable",
-            "label": "OpenAI balance unavailable",
-            "source": "openai_billing",
-            "error": "OpenAI billing response did not include total_available.",
-            "status_code": result.get("status_code"),
-        }
-    credits_left = max(float(credits_left), 0.0)
+    starting_balance = _openai_ledger_start_usd(db)
+    spent = _openai_ledger_spent_usd(db)
+    credits_left = max(starting_balance - spent, 0.0)
     status = "low" if credits_left <= low_watermark else "ok"
     return {
         "left_usd": credits_left,
+        "starting_balance_usd": starting_balance,
+        "spent_usd": spent,
+        "last_response_cost_usd": _openai_ledger_float(db, OPENAI_CREDITS_LEDGER_LAST_COST_USD, default=0.0),
+        "last_model": _private_setting_value(db, OPENAI_CREDITS_LEDGER_LAST_MODEL),
         "low_watermark_usd": low_watermark,
         "status": status,
         "label": f"${credits_left:,.2f}",
-        "source": "openai_billing",
-        "status_code": result.get("status_code"),
+        "source": "local_usage_ledger",
     }
+
+
+def _private_setting_value(db: Session | None, key: str) -> str | None:
+    if db is None:
+        return None
+    row = db.get(AiMarketingSetting, key)
+    value = row.value if row is not None else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _upsert_private_setting(db: Session, key: str, value: str | None, *, is_secret: bool = False) -> AiMarketingSetting:
+    row = db.get(AiMarketingSetting, key)
+    now = datetime.now(timezone.utc)
+    if row is None:
+        row = AiMarketingSetting(key=key, value=value, is_secret=is_secret, created_at=now, updated_at=now)
+        db.add(row)
+    else:
+        row.value = value
+        row.is_secret = is_secret
+        row.updated_at = now
+    return row
+
+
+def _openai_ledger_float(db: Session | None, key: str, *, default: float) -> float:
+    value = _private_setting_value(db, key)
+    if value is None:
+        env_value = os.getenv(key, "").strip()
+        value = env_value or None
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(number, 0.0)
+
+
+def _openai_ledger_start_usd(db: Session | None) -> float:
+    env_start = _env_float(OPENAI_CREDITS_LEDGER_START_USD)
+    default = env_start if env_start is not None and env_start >= 0 else DEFAULT_OPENAI_CREDITS_LEDGER_START_USD
+    return _openai_ledger_float(db, OPENAI_CREDITS_LEDGER_START_USD, default=default)
+
+
+def _openai_ledger_spent_usd(db: Session | None) -> float:
+    return _openai_ledger_float(db, OPENAI_CREDITS_LEDGER_SPENT_USD, default=0.0)
+
+
+def _model_pricing_usd_per_1m(model: str) -> dict[str, float]:
+    normalized = str(model or "").strip().lower()
+    if "sol" in normalized:
+        pricing = {"input": 5.0, "cached_input": 0.5, "output": 30.0}
+    elif "terra" in normalized:
+        pricing = {"input": 2.5, "cached_input": 0.25, "output": 15.0}
+    else:
+        pricing = {"input": 1.0, "cached_input": 0.1, "output": 6.0}
+    overrides = {
+        "input": _env_float(OPENAI_INPUT_USD_PER_1M),
+        "cached_input": _env_float(OPENAI_CACHED_INPUT_USD_PER_1M),
+        "output": _env_float(OPENAI_OUTPUT_USD_PER_1M),
+    }
+    for key, value in overrides.items():
+        if value is not None and value >= 0:
+            pricing[key] = value
+    return pricing
+
+
+def _number_from_mapping(mapping: Any, *keys: str) -> int:
+    if not isinstance(mapping, dict):
+        return 0
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, (int, float)):
+            return max(int(value), 0)
+    return 0
+
+
+def _openai_usage_tokens(data: dict[str, Any]) -> dict[str, int]:
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    input_tokens = _number_from_mapping(usage, "prompt_tokens", "input_tokens")
+    output_tokens = _number_from_mapping(usage, "completion_tokens", "output_tokens")
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    if not isinstance(details, dict) and isinstance(usage, dict):
+        details = usage.get("input_tokens_details")
+    cached_tokens = _number_from_mapping(details, "cached_tokens")
+    return {
+        "input_tokens": input_tokens,
+        "cached_input_tokens": min(cached_tokens, input_tokens),
+        "output_tokens": output_tokens,
+    }
+
+
+def _estimate_openai_response_cost(model: str, data: dict[str, Any], *, web_search_calls: int = 0) -> dict[str, Any]:
+    tokens = _openai_usage_tokens(data)
+    pricing = _model_pricing_usd_per_1m(model)
+    uncached_input = max(tokens["input_tokens"] - tokens["cached_input_tokens"], 0)
+    search_rate = _env_float(OPENAI_WEB_SEARCH_USD_PER_1K_CALLS)
+    if search_rate is None or search_rate < 0:
+        search_rate = 10.0
+    token_cost = (
+        (uncached_input * pricing["input"])
+        + (tokens["cached_input_tokens"] * pricing["cached_input"])
+        + (tokens["output_tokens"] * pricing["output"])
+    ) / 1_000_000
+    search_cost = (max(web_search_calls, 0) * search_rate) / 1_000
+    return {
+        "model": model,
+        "cost_usd": round(token_cost + search_cost, 8),
+        "token_cost_usd": round(token_cost, 8),
+        "web_search_cost_usd": round(search_cost, 8),
+        "web_search_calls": max(web_search_calls, 0),
+        "pricing_usd_per_1m": pricing,
+        "web_search_usd_per_1k_calls": search_rate,
+        **tokens,
+    }
+
+
+def _record_openai_usage_cost(
+    db: Session | None,
+    *,
+    model: str,
+    data: dict[str, Any],
+    feature: str,
+    web_search_calls: int = 0,
+    commit: bool = False,
+) -> dict[str, Any]:
+    estimate = _estimate_openai_response_cost(model, data, web_search_calls=web_search_calls)
+    if db is None:
+        return estimate
+    spent = _openai_ledger_spent_usd(db) + float(estimate["cost_usd"])
+    _upsert_private_setting(db, OPENAI_CREDITS_LEDGER_START_USD, f"{_openai_ledger_start_usd(db):.2f}")
+    _upsert_private_setting(db, OPENAI_CREDITS_LEDGER_SPENT_USD, f"{spent:.8f}")
+    _upsert_private_setting(db, OPENAI_CREDITS_LEDGER_LAST_COST_USD, f"{float(estimate['cost_usd']):.8f}")
+    _upsert_private_setting(db, OPENAI_CREDITS_LEDGER_LAST_MODEL, model)
+    _upsert_private_setting(
+        db,
+        OPENAI_CREDITS_LEDGER_LAST_USAGE_JSON,
+        _dump_object({**estimate, "feature": feature, "recorded_at": datetime.now(timezone.utc).isoformat()}),
+    )
+    if commit:
+        db.commit()
+    return estimate
 
 
 def config_status(db: Session | None = None) -> dict[str, Any]:
@@ -588,6 +716,10 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
         "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
         "openai_credits_left_usd": openai_credits["left_usd"],
+        "openai_credits_starting_balance_usd": openai_credits.get("starting_balance_usd"),
+        "openai_credits_spent_usd": openai_credits.get("spent_usd"),
+        "openai_credits_last_response_cost_usd": openai_credits.get("last_response_cost_usd"),
+        "openai_credits_last_model": openai_credits.get("last_model"),
         "openai_credits_low_watermark_usd": openai_credits["low_watermark_usd"],
         "openai_credits_status": openai_credits["status"],
         "openai_credits_label": openai_credits["label"],
@@ -2864,6 +2996,7 @@ def generate_suggestion(
         _record_suggestion_failure(db, opportunity, message, code=code, status_code=response.status_code)
         raise OpenAISuggestionError(message, status_code=status_code)
     data = response.json()
+    _record_openai_usage_cost(db, model=model, data=data, feature="ai_growth_suggestion")
     content = _extract_chat_completion_content(data)
     structured = _normalize_suggestion_payload(
         json.loads(content),
@@ -3283,6 +3416,18 @@ def mark_opportunity_posted(db: Session, opportunity: AiMarketingOpportunity) ->
     return opportunity
 
 
+def clear_ai_growth_draft_history(db: Session) -> dict[str, Any]:
+    rows = db.execute(
+        select(AiMarketingOpportunity).where(AiMarketingOpportunity.status != "dismissed")
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.status = "dismissed"
+        row.updated_at = now
+    db.commit()
+    return {"ok": True, "cleared": len(rows)}
+
+
 def mark_opportunity_opened(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
     now = datetime.now(timezone.utc)
     opportunity.status = "opened" if opportunity.status in {"new", "draft", "needs_review", "emailed"} else opportunity.status
@@ -3364,7 +3509,7 @@ def resolve_web_search_provider(db: Session | None = None) -> "WebSearchProvider
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         raise MissingMarketingCredential(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
-    return OpenAIWebSearchProvider(api_key=api_key, model=marketing_model(db))
+    return OpenAIWebSearchProvider(api_key=api_key, model=marketing_model(db), db=db)
 
 
 class WebSearchProvider:
@@ -3378,9 +3523,10 @@ class OpenAIWebSearchProvider(WebSearchProvider):
     provider_name = "openai_web_search"
     endpoint = "https://api.openai.com/v1/responses"
 
-    def __init__(self, *, api_key: str, model: str) -> None:
+    def __init__(self, *, api_key: str, model: str, db: Session | None = None) -> None:
         self.api_key = api_key
         self.model = model
+        self.db = db
 
     def search(self, query: str, *, max_results: int, recency: str = "week") -> list[WebSearchResult]:
         result_limit = max(1, min(int(max_results or 10), 10))
@@ -3403,6 +3549,14 @@ class OpenAIWebSearchProvider(WebSearchProvider):
         if response.status_code >= 400:
             raise RuntimeError("OpenAI web search request failed.")
         data = response.json()
+        _record_openai_usage_cost(
+            self.db,
+            model=self.model,
+            data=data,
+            feature="openai_web_search",
+            web_search_calls=1,
+            commit=self.db is not None,
+        )
         return _parse_openai_web_search_results(data, max_results=result_limit, provider=self.provider_name)
 
 

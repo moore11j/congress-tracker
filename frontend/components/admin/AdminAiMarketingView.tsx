@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
+  clearAdminAiGrowthDraftHistory,
   createAdminAiMarketingCampaign,
   createAdminAiGrowthDraft,
   deleteAdminAiMarketingCampaign,
@@ -194,6 +195,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [scheduledXSavedSnapshot, setScheduledXSavedSnapshot] = useState<ReturnType<typeof emptyScheduledXCampaignForm> | null>(null);
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
   const [changeRequests, setChangeRequests] = useState<Record<number, string>>({});
+  const [recentAssetsPage, setRecentAssetsPage] = useState(1);
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -233,6 +235,10 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   useEffect(() => {
     void load();
   }, [statusFilter]);
+
+  useEffect(() => {
+    setRecentAssetsPage(1);
+  }, [drafts.length]);
 
   const replaceDraft = (next: AdminAiMarketingOpportunity) => {
     setDrafts((current) => current.map((draft) => (draft.id === next.id ? next : draft)));
@@ -357,6 +363,22 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       notify("Draft marked posted manually.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to mark draft posted manually.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clearGeneratedAssetHistory = async () => {
+    if (!drafts.length) return;
+    if (!window.confirm("Clear all recent generated asset history from the AI Growth dashboard?")) return;
+    setBusy("clear-assets");
+    try {
+      const result = await clearAdminAiGrowthDraftHistory();
+      setDrafts([]);
+      setRecentAssetsPage(1);
+      notify(`Cleared ${result.cleared} generated assets.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to clear generated asset history.", "error");
     } finally {
       setBusy(null);
     }
@@ -665,6 +687,10 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           assetCount={assetCount}
           drafts={drafts}
           legacyCampaigns={legacyCampaigns}
+          busy={busy}
+          recentAssetsPage={recentAssetsPage}
+          onRecentAssetsPage={setRecentAssetsPage}
+          onClearGeneratedAssetHistory={() => void clearGeneratedAssetHistory()}
         />
       ) : null}
 
@@ -758,6 +784,10 @@ function Dashboard({
   assetCount,
   drafts,
   legacyCampaigns,
+  busy,
+  recentAssetsPage,
+  onRecentAssetsPage,
+  onClearGeneratedAssetHistory,
 }: {
   config: AdminAiMarketingConfig | null;
   pendingReviewCount: number;
@@ -765,15 +795,26 @@ function Dashboard({
   assetCount: number;
   drafts: AdminAiMarketingOpportunity[];
   legacyCampaigns: AdminAiMarketingCampaign[];
+  busy: string | null;
+  recentAssetsPage: number;
+  onRecentAssetsPage: (page: number) => void;
+  onClearGeneratedAssetHistory: () => void;
 }) {
-  const recent = drafts.slice(0, 5);
+  const generatedAssets = [...drafts].sort((left, right) => {
+    const leftTime = new Date(left.created_at ?? left.updated_at ?? 0).getTime();
+    const rightTime = new Date(right.created_at ?? right.updated_at ?? 0).getTime();
+    return rightTime - leftTime;
+  });
+  const totalRecentAssetPages = Math.max(1, Math.ceil(generatedAssets.length / 5));
+  const currentRecentAssetPage = Math.min(Math.max(recentAssetsPage, 1), totalRecentAssetPages);
+  const recent = generatedAssets.slice((currentRecentAssetPage - 1) * 5, currentRecentAssetPage * 5);
   const openAiCredits = openAiCreditsMetric(config);
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
-        <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} />
+        <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} detail={openAiCredits.detail} />
         <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
         <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
@@ -796,11 +837,22 @@ function Dashboard({
       ) : null}
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
-        <h3 className="text-base font-semibold text-white">Recent generated assets</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-white">Recent generated assets</h3>
+            <p className="mt-1 text-sm text-slate-400">Showing up to 5 per page.</p>
+          </div>
+          <Button disabled={!generatedAssets.length || busy === "clear-assets"} onClick={onClearGeneratedAssetHistory}>
+            {busy === "clear-assets" ? "Clearing..." : "Clear All"}
+          </Button>
+        </div>
         <div className="mt-3 space-y-2">
           {recent.length ? recent.map((draft) => (
             <div key={draft.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-950/40 p-3">
-              <span className="text-sm font-semibold text-slate-100">{draft.title}</span>
+              <div className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-slate-100">{draft.title}</span>
+                <span className="mt-1 block text-xs text-slate-500">Generated {formatDateTime(draft.created_at ?? draft.updated_at)}</span>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Badge label={contentTypeLabel(draft.content_type)} />
                 <Badge label={draft.status} tone={statusTone(draft.status)} />
@@ -810,6 +862,15 @@ function Dashboard({
             <p className="text-sm text-slate-400">No drafts yet.</p>
           )}
         </div>
+        {generatedAssets.length > 5 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+            <span>Page {currentRecentAssetPage} of {totalRecentAssetPages}</span>
+            <div className="flex gap-2">
+              <Button disabled={currentRecentAssetPage <= 1} onClick={() => onRecentAssetsPage(currentRecentAssetPage - 1)}>Previous</Button>
+              <Button disabled={currentRecentAssetPage >= totalRecentAssetPages} onClick={() => onRecentAssetsPage(currentRecentAssetPage + 1)}>Next</Button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {legacyCampaigns.length ? (
@@ -1663,11 +1724,12 @@ function ConnectionResult({ result }: { result: AdminAiMarketingSettingsTestResp
   return <span className={`text-sm font-medium ${result.ok ? "text-emerald-200" : "text-rose-200"}`}>{result.message}</span>;
 }
 
-function MetricCard({ label, value, tone = "muted" }: { label: string; value: string; tone?: "muted" | "good" | "warn" | "bad" }) {
+function MetricCard({ label, value, tone = "muted", detail }: { label: string; value: string; tone?: "muted" | "good" | "warn" | "bad"; detail?: string | null }) {
   return (
     <div className="rounded-lg border border-white/10 bg-slate-900/70 p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className={`mt-2 text-lg font-semibold ${toneClass(tone)}`}>{value}</p>
+      {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
     </div>
   );
 }
@@ -1728,13 +1790,18 @@ function statusLabel(value?: string | null, fallback = "missing") {
     .join(" ");
 }
 
-function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: string; tone: "muted" | "good" | "warn" | "bad" } {
+function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: string; tone: "muted" | "good" | "warn" | "bad"; detail?: string | null } {
   const status = config?.openai_credits_status;
+  const lastCost = typeof config?.openai_credits_last_response_cost_usd === "number"
+    ? `Last response $${config.openai_credits_last_response_cost_usd.toFixed(4)}`
+    : null;
+  const spent = typeof config?.openai_credits_spent_usd === "number" ? `Spent $${config.openai_credits_spent_usd.toFixed(4)}` : null;
+  const detail = [lastCost, spent].filter(Boolean).join(" | ") || null;
   if (status === "ok") {
-    return { value: config?.openai_credits_label ?? "Configured", tone: "good" };
+    return { value: config?.openai_credits_label ?? "Configured", tone: "good", detail };
   }
   if (status === "low") {
-    return { value: config?.openai_credits_label ?? "Low", tone: "warn" };
+    return { value: config?.openai_credits_label ?? "Low", tone: "warn", detail };
   }
   if (status === "missing") {
     return { value: config?.openai_credits_label ?? "OpenAI API key missing", tone: "warn" };

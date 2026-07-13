@@ -21,7 +21,14 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   }
   assert.match(viewSource, /OpenAI credits left/);
   assert.match(viewSource, /openAiCreditsMetric/);
+  assert.match(viewSource, /Last response/);
+  assert.match(viewSource, /Spent/);
+  assert.match(viewSource, /Generated \{formatDateTime/);
+  assert.match(viewSource, /Clear All/);
+  assert.match(viewSource, /recentAssetsPage/);
   assert.match(apiSource, /openai_credits_left_usd/);
+  assert.match(apiSource, /clearAdminAiGrowthDraftHistory/);
+  assert.match(apiSource, /\/api\/admin\/ai-growth\/drafts\/clear-history/);
   assert.doesNotMatch(viewSource, /getAdminProviderUsageFmp/);
   assert.doesNotMatch(viewSource, /apiCreditsMetric/);
   assert.doesNotMatch(viewSource, /OPENAI_CREDITS_LEFT_USD/);
