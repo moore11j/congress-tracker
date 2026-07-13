@@ -774,8 +774,8 @@ function Dashboard({
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} />
-        <MetricCard label="X API" value={config?.x_status ?? "missing"} tone={config?.x_oauth_configured ? "good" : "warn"} />
-        <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
+        <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
+        <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
         <MetricCard label="High-fit drafts" value={String(highFitCount)} tone={highFitCount ? "good" : "muted"} />
@@ -1410,10 +1410,10 @@ function SettingsView({
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="AI model" value={config?.openai_model ?? "Default"} />
-        <MetricCard label="OpenAI Web Search" value={config?.openai_web_search_status ?? "disabled"} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
-        <MetricCard label="X API" value={config?.x_status ?? "missing"} tone={config?.x_oauth_configured ? "good" : "warn"} />
-        <MetricCard label="Manual input" value={config?.manual_text_status ?? "available"} tone="good" />
-        <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
+        <MetricCard label="OpenAI Web Search" value={statusLabel(config?.openai_web_search_status, "disabled")} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
+        <MetricCard label="X API" value={statusLabel(config?.x_status, "missing")} tone={config?.x_oauth_configured ? "good" : "warn"} />
+        <MetricCard label="Manual input" value={statusLabel(config?.manual_text_status, "available")} tone="good" />
+        <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Recipient" value={config?.recipient ?? "jarod@walnutmarkets.com"} />
         <MetricCard label="Posting" value="Manual only" tone="good" />
       </div>
@@ -1717,6 +1717,15 @@ function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
 
 function textFromUnknown(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function statusLabel(value?: string | null, fallback = "missing") {
+  const normalized = String(value || fallback).trim().replaceAll("_", " ");
+  if (!normalized) return "";
+  return normalized
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: string; tone: "muted" | "good" | "warn" | "bad" } {
