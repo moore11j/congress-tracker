@@ -68,6 +68,9 @@ POSTMARK_INBOUND_BASIC_AUTH_SECRET = "POSTMARK_INBOUND_BASIC_AUTH_SECRET"
 REDDIT_CLIENT_ID = "REDDIT_CLIENT_ID"
 REDDIT_CLIENT_SECRET = "REDDIT_CLIENT_SECRET"
 REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
+X_CLIENT_ID = "X_CLIENT_ID"
+X_CLIENT_SECRET = "X_CLIENT_SECRET"
+X_REDIRECT_URI = "X_REDIRECT_URI"
 BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
 WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
 OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
@@ -156,6 +159,9 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     AI_MARKETING_MODEL: {"label": "AI Growth Model", "is_secret": False, "required_for": "AI Growth suggestions"},
     OPENAI_WEB_SEARCH_ENABLED: {"label": "OpenAI Web Search", "is_secret": False, "required_for": "AI Growth web discovery"},
     FMP_API_KEY: {"label": "FMP Articles API", "is_secret": True, "required_for": "Article-Reactive X campaigns"},
+    X_CLIENT_ID: {"label": "X Client ID", "is_secret": True, "required_for": "X OAuth status"},
+    X_CLIENT_SECRET: {"label": "X Client Secret", "is_secret": True, "required_for": "X OAuth status"},
+    X_REDIRECT_URI: {"label": "X Redirect URI", "is_secret": False, "required_for": "X OAuth status"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
@@ -167,6 +173,9 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
         AI_MARKETING_MODEL,
         OPENAI_WEB_SEARCH_ENABLED,
         FMP_API_KEY,
+        X_CLIENT_ID,
+        X_CLIENT_SECRET,
+        X_REDIRECT_URI,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -549,6 +558,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     }
     web_search_status = web_search_provider_status(db)
     openai_credits = _openai_credits_status(db)
+    x_status = x_account_status()
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
@@ -568,8 +578,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         warnings.append("Reddit user agent missing")
     if not web_search_status["configured"]:
         warnings.append(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
-    warnings.append("X is a stub only. No X API calls or posting are implemented.")
-    warnings.append("Facebook is manual URL mode only. No Facebook scraping or posting is implemented.")
+    if not x_status["oauth_configured"]:
+        warnings.append("X API OAuth credentials missing")
     reddit_configured = all(
         bool(statuses[key]["configured"])
         for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
@@ -603,8 +613,13 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "openai_web_search_provider": web_search_status["provider"],
         "openai_web_search_missing": web_search_status["missing"],
         "manual_text_status": "available",
-        "x_status": "stub",
-        "facebook_status": "manual_url_only",
+        "x_configured": bool(x_status["oauth_configured"]),
+        "x_status": x_status["status"],
+        "x_oauth_configured": bool(x_status["oauth_configured"]),
+        "x_connected": bool(x_status["connected"]),
+        "x_missing": x_status["missing"],
+        "x_handle": x_status["handle"],
+        "x_posting_status": "manual_only",
         "warnings": warnings,
         "recipient": ai_growth_recipient(),
         "settings": statuses,
@@ -1442,6 +1457,32 @@ def _walnut_context_for_article(db: Session, candidate: AiMarketingArticleCandid
                     "industry": meta.industry,
                 }
             )
+    return context
+
+
+def _walnut_context_for_research_tickers(
+    db: Session,
+    tickers: list[str],
+    *,
+    title: str | None = None,
+    excerpt: str | None = None,
+) -> dict[str, Any]:
+    context = _walnut_context_for_article(
+        db,
+        AiMarketingArticleCandidate(
+            provider="internal",
+            title=title or "Reddit research thread",
+            summary=excerpt,
+            url=DEFAULT_DESTINATION_URL,
+            dedupe_hash="",
+        ),
+        _normalized_tickers(tickers)[:8],
+    )
+    context["research_thread"] = True
+    context["ticker_pages"] = [
+        {"ticker": ticker, "url": f"https://walnutmarkets.com/ticker/{ticker}"}
+        for ticker in context.get("tickers", [])
+    ]
     return context
 
 
@@ -2358,9 +2399,6 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
 
     if "x_stub" in platforms:
         warnings.append("X is configured as a future official API stub only; no X discovery ran.")
-    if "facebook_manual" in platforms:
-        warnings.append("Facebook is manual URL mode only; no Facebook discovery ran.")
-
     created = 0
     deduped = 0
     suggested = 0
@@ -2416,6 +2454,7 @@ def upsert_source_item(
     matched_tickers = _matched_tickers(text_for_matching, campaign_tickers)
     metadata_tickers = _normalized_tickers((item.metadata or {}).get("article_tickers") if item.metadata else [])
     matched_tickers = _dedupe_strings([*matched_tickers, *metadata_tickers])
+    item_metadata = dict(item.metadata or {})
     source_dedupe_key = _dedupe_key(item.source_id or item.source_url)
     now = datetime.now(timezone.utc)
     fallback_mode = campaign.mode if campaign else None
@@ -2423,6 +2462,13 @@ def upsert_source_item(
     content_type = _normalize_content_type(item.content_type, campaign_type=campaign_type, platform=item.platform)
     recommended_action = item.recommended_action or _default_action_for_content_type(content_type)
     source_platform = _normalize_source_platform(item.source_platform, fallback=item.platform)
+    if content_type == "reddit_thread" and matched_tickers and not item_metadata.get("walnut_context"):
+        item_metadata["walnut_context"] = _walnut_context_for_research_tickers(
+            db,
+            matched_tickers,
+            title=item.title,
+            excerpt=item.excerpt,
+        )
 
     opportunity = db.execute(
         select(AiMarketingOpportunity).where(
@@ -2449,7 +2495,7 @@ def upsert_source_item(
         opportunity.asset_refs_json = _dump_json_list(_normalize_assets(item.assets) or _load_json_list(opportunity.asset_refs_json))
         opportunity.matched_keywords_json = _dump_list(matched_keywords)
         opportunity.matched_tickers_json = _dump_list(matched_tickers)
-        opportunity.raw_metadata_json = _dump_object(item.metadata or {})
+        opportunity.raw_metadata_json = _dump_object(item_metadata)
         db.commit()
         db.refresh(opportunity)
         return opportunity, False
@@ -2480,7 +2526,7 @@ def upsert_source_item(
         generated_content=_truncate(item.generated_content, 5000),
         alternate_versions_json=_dump_object(item.alternate_versions or {}),
         asset_refs_json=_dump_json_list(_normalize_assets(item.assets)),
-        raw_metadata_json=_dump_object(item.metadata or {}),
+        raw_metadata_json=_dump_object(item_metadata),
         created_at=now,
         updated_at=now,
         last_seen_at=now,
@@ -2770,6 +2816,7 @@ def generate_suggestion(
                                 "article_url": opportunity_metadata.get("article_url"),
                                 "article_published_at": opportunity_metadata.get("article_published_at"),
                                 "article_tickers": opportunity_metadata.get("article_tickers"),
+                                "web_market_context": opportunity_metadata.get("web_market_context"),
                                 "themes": opportunity_metadata.get("themes"),
                                 "walnut_context": opportunity_metadata.get("walnut_context"),
                                 "scoring": opportunity_metadata.get("scoring"),
@@ -3056,14 +3103,32 @@ def apply_email_action(
 
 def x_account_status() -> dict[str, Any]:
     access_token = os.getenv("X_ACCESS_TOKEN", "").strip()
+    client_id = os.getenv(X_CLIENT_ID, "").strip()
+    client_secret = os.getenv(X_CLIENT_SECRET, "").strip()
+    redirect_uri = os.getenv(X_REDIRECT_URI, "").strip()
+    missing = [
+        key
+        for key, value in (
+            (X_CLIENT_ID, client_id),
+            (X_CLIENT_SECRET, client_secret),
+            (X_REDIRECT_URI, redirect_uri),
+        )
+        if not value
+    ]
+    oauth_configured = not missing
     return {
         "connected": bool(access_token),
+        "oauth_configured": oauth_configured,
+        "configured": oauth_configured,
+        "status": "connected" if access_token else "configured" if oauth_configured else "missing",
+        "missing": missing,
         "handle": os.getenv("X_CONNECTED_HANDLE", "").strip() or None,
         "user_id": os.getenv("X_CONNECTED_USER_ID", "").strip() or None,
         "token_status": "configured" if access_token else "missing",
         "last_successful_post": None,
         "last_token_refresh": None,
         "secrets_managed_by": "server_env_or_encrypted_store",
+        "posting_mode": "manual_only_no_auto_posting",
     }
 
 
@@ -3486,8 +3551,11 @@ class WebSearchRedditSourceAdapter:
         max_items = max(1, min(int(campaign.max_items_per_run or 10), 50))
         items: list[SourceItem] = []
         seen_urls: set[str] = set()
+        market_context_cache: dict[str, list[dict[str, str]]] = {}
         discovered_at = datetime.now(timezone.utc)
         recency = campaign.recency or "week"
+        campaign_tickers = _normalized_tickers(_load_list(campaign.tickers_json))
+        content_type = _normalize_content_type(campaign.content_type, campaign_type=campaign.campaign_type, platform="reddit")
         for query in queries:
             if len(items) >= max_items:
                 break
@@ -3499,6 +3567,16 @@ class WebSearchRedditSourceAdapter:
                 seen_urls.add(normalized_url)
                 snippet = _truncate(result.snippet, 800)
                 needs_manual_review = len(snippet or "") < SHORT_SEARCH_SNIPPET_THRESHOLD
+                ticker_text = " ".join(part for part in (result.title, snippet, normalized_url) if part)
+                result_tickers = _dedupe_strings([*_matched_tickers(ticker_text, campaign_tickers), *campaign_tickers])[:5]
+                web_market_context: list[dict[str, str]] = []
+                if content_type == "reddit_thread":
+                    web_market_context = self._market_context_for_tickers(
+                        provider,
+                        result_tickers,
+                        recency=recency,
+                        cache=market_context_cache,
+                    )
                 items.append(
                     SourceItem(
                         platform="reddit",
@@ -3514,11 +3592,13 @@ class WebSearchRedditSourceAdapter:
                             "query": query,
                             "snippet": snippet,
                             "snippet_only": True,
+                            "article_tickers": result_tickers,
+                            "web_market_context": web_market_context,
                             "snippet_character_count": len(snippet or ""),
                             "needs_manual_review": needs_manual_review,
                             "manual_review_reason": "short search-provider snippet" if needs_manual_review else None,
                             "discovered_at": _iso(discovered_at),
-                            "stored_fields": ["title", "url", "snippet", "source/provider", "discovered_at"],
+                            "stored_fields": ["title", "url", "snippet", "source/provider", "discovered_at", "web_market_context"],
                             "compliance": "Search-provider snippets and URLs only; Reddit page HTML was not fetched.",
                         },
                     )
@@ -3526,6 +3606,39 @@ class WebSearchRedditSourceAdapter:
                 if len(items) >= max_items:
                     break
         return items
+
+    @staticmethod
+    def _market_context_for_tickers(
+        provider: WebSearchProvider,
+        tickers: list[str],
+        *,
+        recency: str,
+        cache: dict[str, list[dict[str, str]]],
+    ) -> list[dict[str, str]]:
+        context: list[dict[str, str]] = []
+        for ticker in _normalized_tickers(tickers)[:3]:
+            if ticker not in cache:
+                query = (
+                    f"{ticker} stock earnings product business risks catalysts fundamentals "
+                    "latest filings analyst investor presentation"
+                )
+                try:
+                    rows = provider.search(query, max_results=4, recency=recency)
+                except Exception:
+                    rows = []
+                cache[ticker] = [
+                    {
+                        "ticker": ticker,
+                        "title": _truncate(row.title, 240),
+                        "url": _truncate(row.url, 800),
+                        "snippet": _truncate(row.snippet, 500),
+                        "provider": row.provider,
+                    }
+                    for row in rows
+                    if row.url
+                ][:4]
+            context.extend(cache[ticker])
+        return context[:10]
 
     @staticmethod
     def _queries_for_campaign(campaign: AiMarketingCampaign) -> list[str]:
@@ -3987,6 +4100,13 @@ def _suggestion_system_prompt() -> str:
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
         "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
         "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
+        "Use the Reddit/search result only as the discovery hook, then combine opportunity.metadata.web_market_context "
+        "with opportunity.metadata.walnut_context to build the thesis. "
+        "The web_market_context may include product, earnings, filings, risks, catalysts, and current public-news snippets. "
+        "The walnut_context may include ticker pages, confirmation signals, Congress disclosures, insider disclosures, "
+        "institutional reported activity, government contracts, watchlists, saved screens, and ticker metadata. "
+        "Include concrete tickers and Walnut ticker links when available. "
+        "If a section lacks enough evidence, say what is missing in missing_data_notes rather than inventing details. "
         "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure stack, "
         "Technical picture, Fundamental picture, Recent news / filings / press releases, Catalysts, Bull case, Bear case / risks, "
         "What would confirm the setup, What would weaken the setup, Bottom line, and Suggested Reddit disclosure. "
@@ -4015,8 +4135,10 @@ def _suggestion_system_prompt() -> str:
         "Avoid replies when spam risk is high. "
         "Avoid replying to old or inactive threads unless relevance is very high. "
         "For source_provider='web_search_reddit', you only have a search-provider title, URL, and snippet. "
-        "Do not invent unseen Reddit post or comment details. If the snippet is thin, vague, or missing, use recommended_action='monitor' "
-        "and make suggested_reply start with 'Needs manual review -' instead of drafting a full reply."
+        "Do not invent unseen Reddit post or comment details. For reddit replies, if the snippet is thin, vague, or missing, use recommended_action='monitor' "
+        "and make suggested_reply start with 'Needs manual review -' instead of drafting a full reply. "
+        "For reddit_thread, a thin snippet can still be a discovery seed when ticker, web_market_context, or walnut_context is strong; "
+        "write the DD from those evidence fields and call out Reddit-specific gaps in missing_data_notes."
     )
 
 

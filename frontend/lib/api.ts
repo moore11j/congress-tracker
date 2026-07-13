@@ -1897,7 +1897,7 @@ export type AdminAiMarketingMode =
   | "article_reactive_x"
   | "scheduled_x_campaign";
 
-export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "facebook_manual" | "facebook" | "linkedin" | "manual" | "other";
+export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
 export type AdminAiMarketingStatus =
   | "new"
@@ -1939,8 +1939,13 @@ export type AdminAiMarketingConfig = {
   openai_web_search_provider?: string | null;
   openai_web_search_missing?: string[];
   manual_text_status?: "available" | string;
+  x_configured?: boolean;
   x_status: string;
-  facebook_status: string;
+  x_oauth_configured?: boolean;
+  x_connected?: boolean;
+  x_missing?: string[];
+  x_handle?: string | null;
+  x_posting_status?: "manual_only" | string;
   warnings: string[];
   recipient: string;
   settings?: Record<string, AdminAiMarketingSetting>;

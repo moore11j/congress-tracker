@@ -174,6 +174,11 @@ test("settings remain env-only for provider credentials", () => {
   assert.match(viewSource, /Provider credentials are read from server environment variables and Fly secrets only\./);
   assert.match(viewSource, /OPENAI_WEB_SEARCH_ENABLED/);
   assert.match(viewSource, /OpenAI Web Search/);
+  assert.match(viewSource, /X_CLIENT_ID/);
+  assert.match(viewSource, /X_CLIENT_SECRET/);
+  assert.match(viewSource, /X_REDIRECT_URI/);
+  assert.match(viewSource, /X API/);
+  assert.doesNotMatch(viewSource, /"Facebook"/);
   assert.doesNotMatch(viewSource, /BING_SEARCH_API_KEY/);
   assert.doesNotMatch(viewSource, /Bing Search API Key/);
   assert.doesNotMatch(viewSource, /updateAdminAiMarketingSettings/);

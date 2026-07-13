@@ -875,6 +875,105 @@ def test_web_search_results_create_deduped_reddit_opportunities_without_fetching
         db.close()
 
 
+def test_reddit_research_threads_attach_web_and_walnut_context(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv(OPENAI_WEB_SEARCH_ENABLED, "true")
+    prompts = []
+
+    class FakeSearchResponse:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return {"output_text": json.dumps({"results": self._payload})}
+
+    class FakeSuggestionResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {"message": {"content": json.dumps(_reddit_dd_payload(content_type="reddit_thread", platform="reddit"))}}
+                ]
+            }
+
+    def fake_post(url, **kwargs):
+        if url == "https://api.openai.com/v1/responses":
+            prompt = kwargs["json"]["input"]
+            prompts.append(prompt)
+            if "site:reddit.com/r" in prompt:
+                return FakeSearchResponse(
+                    [
+                        {
+                            "title": "NVDA DD setup discussion",
+                            "url": "https://www.reddit.com/r/wallstreetbets/comments/nvda/dd_setup/",
+                            "snippet": "NVDA bulls are debating earnings catalysts, risks, and technical setup.",
+                        }
+                    ]
+                )
+            return FakeSearchResponse(
+                [
+                    {
+                        "title": "NVIDIA latest earnings and product catalysts",
+                        "url": "https://investor.nvidia.com/news/",
+                        "snippet": "Recent public updates highlight data-center demand, product launches, and margin considerations.",
+                    }
+                ]
+            )
+        return FakeSuggestionResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        db.add(
+            ConfirmationMonitoringSnapshot(
+                user_id=admin.id,
+                watchlist_id=1,
+                ticker="NVDA",
+                score=88,
+                band="strong",
+                direction="bullish",
+                source_count=3,
+                status="3-source bullish confirmation",
+                source_states_json=json.dumps({"congress": {"present": True}, "insider": {"present": True}}),
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        campaign = admin_ai_marketing_create_campaign(
+            _campaign_payload(
+                name="Reddit DD threads",
+                mode="reddit_research_thread",
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                platforms=["web_search_reddit"],
+                keywords=["DD"],
+                tickers=["NVDA"],
+                subreddits=["wallstreetbets"],
+                query_templates=["site:reddit.com/r/{subreddit} {term}"],
+                max_items_per_run=2,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+
+        assert result["created"] == 1
+        assert any("latest filings" in prompt for prompt in prompts)
+        opportunity = db.execute(select(AiMarketingOpportunity)).scalar_one()
+        metadata = json.loads(opportunity.raw_metadata_json)
+        assert metadata["article_tickers"] == ["NVDA"]
+        assert metadata["web_market_context"][0]["url"] == "https://investor.nvidia.com/news/"
+        assert metadata["walnut_context"]["ticker_pages"] == [{"ticker": "NVDA", "url": "https://walnutmarkets.com/ticker/NVDA"}]
+        assert metadata["walnut_context"]["confirmation"][0]["ticker"] == "NVDA"
+    finally:
+        db.close()
+
+
 def test_openai_web_search_provider_uses_responses_api(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AI_MARKETING_MODEL", "gpt-web-test")

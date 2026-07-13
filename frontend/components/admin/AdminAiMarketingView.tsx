@@ -87,12 +87,15 @@ const SETTING_KEYS = [
   "AI_MARKETING_MODEL",
   "OPENAI_WEB_SEARCH_ENABLED",
   "FMP_API_KEY",
+  "X_CLIENT_ID",
+  "X_CLIENT_SECRET",
+  "X_REDIRECT_URI",
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
 ] as const;
 
-const SOURCE_PLATFORMS = ["X", "Reddit", "Facebook", "LinkedIn", "Other"] as const;
+const SOURCE_PLATFORMS = ["X", "Reddit", "LinkedIn", "Other"] as const;
 const SCHEDULED_X_SOURCE_TYPES = [
   "watchlist",
   "saved_screen",
@@ -771,6 +774,7 @@ function Dashboard({
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} />
+        <MetricCard label="X API" value={config?.x_status ?? "missing"} tone={config?.x_oauth_configured ? "good" : "warn"} />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
@@ -1407,6 +1411,7 @@ function SettingsView({
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
         <MetricCard label="AI model" value={config?.openai_model ?? "Default"} />
         <MetricCard label="OpenAI Web Search" value={config?.openai_web_search_status ?? "disabled"} tone={config?.openai_web_search_status === "enabled" ? "good" : "warn"} />
+        <MetricCard label="X API" value={config?.x_status ?? "missing"} tone={config?.x_oauth_configured ? "good" : "warn"} />
         <MetricCard label="Manual input" value={config?.manual_text_status ?? "available"} tone="good" />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Recipient" value={config?.recipient ?? "jarod@walnutmarkets.com"} />
@@ -1635,6 +1640,8 @@ function SettingField({ item, settingKey }: { settingKey: string; item?: AdminAi
         ? "Managed outside the admin UI with OPENAI_WEB_SEARCH_ENABLED=true."
         : settingKey === "FMP_API_KEY"
           ? "Managed outside the admin UI with FMP_API_KEY."
+        : settingKey.startsWith("X_")
+          ? "Managed outside the admin UI with Fly secrets for X OAuth status."
         : "Managed outside the admin UI.";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
@@ -1752,7 +1759,6 @@ function emptyScheduledXCampaignForm() {
 function platformLabel(platform?: string | null) {
   const normalized = String(platform || "other").toLowerCase();
   if (normalized === "x" || normalized === "x_stub") return "X";
-  if (normalized === "facebook_manual") return "Facebook";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
