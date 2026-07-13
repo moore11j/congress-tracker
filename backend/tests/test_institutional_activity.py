@@ -1337,19 +1337,26 @@ def test_ticker_ownership_prefers_provider_13f_share_total_when_db_is_partial(mo
         "fetch_shares_float",
         lambda **_kwargs: [{"symbol": "TSM", "floatShares": 2_000_000, "outstandingShares": 2_500_000}],
     )
-    monkeypatch.setattr(
-        institutional_service,
-        "fetch_symbol_positions_summary",
-        lambda **_kwargs: [
+    def fake_symbol_positions_summary(*, symbol: str, year: int, quarter: int):
+        shares_by_period = {
+            (2025, 3): 500_000,
+            (2025, 4): 600_000,
+            (2026, 1): 800_000,
+        }
+        shares = shares_by_period.get((year, quarter))
+        if shares is None:
+            return []
+        return [
             {
                 "symbol": "TSM",
                 "investorsHolding": 300,
-                "numberOf13Fshares": 800_000,
+                "numberOf13Fshares": shares,
                 "totalInvested": 120_000_000,
-                "ownershipPercent": 32.0,
+                "ownershipPercent": (shares / 2_000_000) * 100,
             }
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(institutional_service, "fetch_symbol_positions_summary", fake_symbol_positions_summary)
     monkeypatch.setattr(
         institutional_service,
         "fetch_extract_analytics_by_holder",
@@ -1391,6 +1398,8 @@ def test_ticker_ownership_prefers_provider_13f_share_total_when_db_is_partial(mo
         assert payload["holders"][0]["holder_name"] == "FMR LLC"
         assert payload["holders"][0]["ownership_pct"] == 25.0
         assert payload["holders"][1]["ownership_pct"] == 15.0
+        assert [point["period"] for point in payload["history"][-3:]] == ["Q3 2025", "Q4 2025", "Q1 2026"]
+        assert [point["institutional_ownership_pct"] for point in payload["history"][-3:]] == [25.0, 30.0, 40.0]
 
 
 def test_latest_complete_13f_period_respects_filing_deadline():

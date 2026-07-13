@@ -1245,6 +1245,28 @@ def ticker_ownership_payload(
             "float_shares_source": float_snapshot.get("float_shares_source") if float_snapshot else None,
             "ownership_source": latest_ownership_source,
         }
+    if provider_snapshot:
+        provider_history = _provider_ownership_history(
+            normalized,
+            report_year=provider_report_year,
+            report_quarter=provider_report_quarter,
+            float_shares=float_shares,
+            periods=3,
+        )
+        if provider_history:
+            history_by_period: dict[tuple[int, int], dict[str, Any]] = {}
+            for point in history:
+                year = point.get("report_year")
+                quarter = point.get("report_quarter")
+                if year is None or quarter is None:
+                    continue
+                history_by_period[(int(year), int(quarter))] = point
+            for point in provider_history:
+                history_by_period[(int(point["report_year"]), int(point["report_quarter"]))] = point
+            history = [
+                history_by_period[key]
+                for key in sorted(history_by_period)
+            ][-bounded_history_limit:]
 
     return {
         "status": "ok" if latest_institutional_pct is not None or has_reported_holdings else "no_data",
@@ -2741,6 +2763,53 @@ def _provider_complete_symbol_ownership_snapshot(
         if snapshot:
             return snapshot
     return None
+
+
+def _provider_ownership_history(
+    symbol: str,
+    *,
+    report_year: int,
+    report_quarter: int,
+    float_shares: float | None,
+    periods: int,
+) -> list[dict[str, Any]]:
+    candidates: list[tuple[int, int]] = []
+    year = int(report_year)
+    quarter = int(report_quarter)
+    for _ in range(max(1, min(int(periods or 3), 8))):
+        candidates.append((year, quarter))
+        year, quarter = _previous_quarter(year, quarter)
+
+    points: list[dict[str, Any]] = []
+    for year, quarter in reversed(candidates):
+        snapshot = _provider_symbol_ownership_snapshot(symbol, report_year=year, report_quarter=quarter)
+        if not snapshot:
+            continue
+        total_institutional_shares = _round_optional(snapshot.get("total_institutional_shares"), 4)
+        institutional_pct = (
+            _ownership_pct((total_institutional_shares / float_shares) * 100)
+            if total_institutional_shares is not None and float_shares and float_shares > 0
+            else _ownership_pct(snapshot.get("institutional_ownership_pct"))
+        )
+        if institutional_pct is None:
+            continue
+        points.append(
+            {
+                "report_year": year,
+                "report_quarter": quarter,
+                "period": f"Q{quarter} {year}",
+                "latest_filing_date": None,
+                "institutional_ownership_pct": institutional_pct,
+                "retail_ownership_pct": _retail_pct(institutional_pct),
+                "total_holders": snapshot.get("total_holders"),
+                "total_value_usd": snapshot.get("total_value_usd"),
+                "total_institutional_shares": total_institutional_shares,
+                "float_shares": _round_optional(float_shares, 4),
+                "float_shares_source": "floatShares" if float_shares else None,
+                "ownership_source": "provider_13f_shares_over_float" if float_shares else snapshot.get("ownership_source"),
+            }
+        )
+    return points
 
 
 def _provider_symbol_ownership_snapshot(
