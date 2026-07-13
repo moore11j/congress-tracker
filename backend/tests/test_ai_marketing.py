@@ -471,6 +471,7 @@ def test_scheduled_x_campaign_uses_real_confirmation_triggers(monkeypatch):
         assert metadata["article_tickers"] == ["NVDA"]
         assert metadata["walnut_context"][0]["ticker"] == "NVDA"
         assert metadata["walnut_context"][0]["ticker_url"] == "https://app.walnutmarkets.com/ticker/NVDA"
+        assert metadata["walnut_context"][0]["relevant_url"] == "https://app.walnutmarkets.com/ticker/NVDA"
     finally:
         db.close()
 

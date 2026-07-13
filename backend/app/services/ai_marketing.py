@@ -1934,6 +1934,7 @@ def _trigger_payload(
     payload: dict[str, Any] = {
         "ticker": normalized_ticker,
         "ticker_url": _ticker_link(normalized_ticker),
+        "relevant_url": _ticker_link(normalized_ticker),
         "source": source,
         "reason": reason,
     }
@@ -1957,8 +1958,9 @@ def _trigger_line(trigger: dict[str, Any]) -> str:
         parts.append(f"Amount: {trigger['amount']}")
     if trigger.get("date"):
         parts.append(f"Date: {trigger['date']}")
-    if trigger.get("ticker_url"):
-        parts.append(f"Walnut link: {trigger['ticker_url']}")
+    relevant_url = trigger.get("relevant_url") or trigger.get("ticker_url")
+    if relevant_url:
+        parts.append(f"Relevant Walnut page: {relevant_url}")
     return " | ".join(parts)
 
 
@@ -2215,7 +2217,7 @@ def _scheduled_x_context(db: Session, campaign: AiMarketingCampaign, *, index: i
             f"Source type: {source_type}",
             f"Source selector: {source_reference_id or 'default'}",
             f"Schedule: {schedule.get('cadence') or ('weekdays' if campaign.weekdays_only else 'daily')} at {campaign.run_time or 'scheduled time'} {campaign.timezone or 'America/Los_Angeles'}",
-            "Strategy: make the draft data-led. Mention the actual tickers/entities below, explain why Walnut flagged them, and include Walnut ticker links. Do not write generic product marketing unless there are no fresh triggers.",
+            "Strategy: make the draft data-led. Mention the actual tickers/entities below, explain why Walnut flagged them, and include the relevant Walnut page URL for each example when possible. Do not write generic product marketing unless there are no fresh triggers.",
             "Walnut triggers:",
             *trigger_lines,
             f"Filters/preferences JSON: {json.dumps(filters, sort_keys=True)}",
