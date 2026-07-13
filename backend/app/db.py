@@ -774,6 +774,22 @@ def ensure_search_and_insights_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fred_series_refreshes_refreshed_at ON fred_series_refreshes (last_refreshed_at)"))
 
 
+def ensure_confirmation_monitoring_snapshot_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        if dialect_name == "sqlite":
+            existing_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(confirmation_monitoring_snapshots)")).fetchall()
+                if len(row) > 1
+            }
+            if existing_columns and "source_states_json" not in existing_columns:
+                conn.execute(text("ALTER TABLE confirmation_monitoring_snapshots ADD COLUMN source_states_json TEXT NOT NULL DEFAULT '{}'"))
+            return
+        conn.execute(text("ALTER TABLE confirmation_monitoring_snapshots ADD COLUMN IF NOT EXISTS source_states_json TEXT NOT NULL DEFAULT '{}'"))
+
+
 def ensure_macro_positioning_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
