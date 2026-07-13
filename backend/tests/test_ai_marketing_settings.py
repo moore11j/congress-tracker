@@ -19,6 +19,8 @@ from app.routers.ai_marketing import (
 from app.services.ai_marketing import (
     AI_MARKETING_MODEL,
     BING_SEARCH_API_KEY,
+    OPENAI_CREDITS_LEFT_USD,
+    OPENAI_CREDITS_LOW_WATERMARK_USD,
     OPENAI_API_KEY,
     OPENAI_WEB_SEARCH_ENABLED,
     OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
@@ -62,6 +64,8 @@ def _clear_env(monkeypatch):
         OPENAI_API_KEY,
         AI_MARKETING_MODEL,
         OPENAI_WEB_SEARCH_ENABLED,
+        OPENAI_CREDITS_LEFT_USD,
+        OPENAI_CREDITS_LOW_WATERMARK_USD,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -210,6 +214,37 @@ def test_openai_web_search_status_reflects_env_config(monkeypatch):
         assert enabled["openai_web_search_configured"] is True
         assert enabled["openai_web_search_provider"] == "openai_web_search"
         assert enabled["openai_web_search_missing"] == []
+    finally:
+        db.close()
+
+
+def test_openai_credits_status_reflects_env_balance(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(OPENAI_CREDITS_LEFT_USD, "142.50")
+    monkeypatch.setenv(OPENAI_CREDITS_LOW_WATERMARK_USD, "25")
+    db = _session()
+    try:
+        payload = config_status(db)
+
+        assert payload["openai_credits_left_usd"] == 142.5
+        assert payload["openai_credits_low_watermark_usd"] == 25.0
+        assert payload["openai_credits_status"] == "ok"
+        assert payload["openai_credits_label"] == "$142.50"
+    finally:
+        db.close()
+
+
+def test_openai_credits_low_balance_adds_repurchase_warning(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(OPENAI_CREDITS_LEFT_USD, "$4.75")
+    monkeypatch.setenv(OPENAI_CREDITS_LOW_WATERMARK_USD, "10")
+    db = _session()
+    try:
+        payload = config_status(db)
+
+        assert payload["openai_credits_status"] == "low"
+        assert payload["openai_credits_label"] == "$4.75"
+        assert any("OpenAI credits low: $4.75 remaining" in warning for warning in payload["warnings"])
     finally:
         db.close()
 

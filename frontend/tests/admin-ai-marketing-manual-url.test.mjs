@@ -18,10 +18,11 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   ]) {
     assert.match(viewSource, new RegExp(label));
   }
-  assert.match(viewSource, /API credits left/);
-  assert.match(viewSource, /getAdminProviderUsageFmp/);
-  assert.match(viewSource, /apiCreditsMetric/);
-  assert.match(apiSource, /\/api\/admin\/provider-usage\/fmp/);
+  assert.match(viewSource, /OpenAI credits left/);
+  assert.match(viewSource, /openAiCreditsMetric/);
+  assert.match(apiSource, /openai_credits_left_usd/);
+  assert.doesNotMatch(viewSource, /getAdminProviderUsageFmp/);
+  assert.doesNotMatch(viewSource, /apiCreditsMetric/);
   assert.doesNotMatch(viewSource, /Email Delivery/);
   assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);

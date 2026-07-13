@@ -12,7 +12,6 @@ import {
   getAdminAiGrowthDrafts,
   getAdminAiMarketingCampaigns,
   getAdminAiMarketingSettings,
-  getAdminProviderUsageFmp,
   markAdminAiGrowthDraftCopied,
   markAdminAiGrowthDraftPosted,
   regenerateAdminAiGrowthDraft,
@@ -29,7 +28,6 @@ import {
   type AdminAiMarketingSetting,
   type AdminAiMarketingSettingsTestResponse,
   type AdminAiMarketingStatus,
-  type AdminProviderUsageResponse,
 } from "@/lib/api";
 
 type AdminAiMarketingViewProps = {
@@ -151,7 +149,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [campaigns, setCampaigns] = useState<AdminAiMarketingCampaign[]>([]);
   const [config, setConfig] = useState<AdminAiMarketingConfig | null>(null);
   const [settings, setSettings] = useState<AdminAiMarketingSetting[]>([]);
-  const [providerUsage, setProviderUsage] = useState<AdminProviderUsageResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | AdminAiMarketingStatus>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<string | null>(null);
@@ -182,17 +179,15 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     setBusy("load");
     try {
       const draftStatus = statusFilter === "all" ? DRAFT_QUEUE_STATUSES.join(",") : statusFilter;
-      const [draftData, settingsData, campaignData, usageData] = await Promise.all([
+      const [draftData, settingsData, campaignData] = await Promise.all([
         getAdminAiGrowthDrafts({ status: draftStatus, limit: 100 }),
         getAdminAiMarketingSettings(),
         getAdminAiMarketingCampaigns(),
-        getAdminProviderUsageFmp().catch(() => null),
       ]);
       setDrafts(draftData.items);
       setConfig(settingsData.config);
       setSettings(settingsData.items);
       setCampaigns(campaignData.items);
-      setProviderUsage(usageData);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to load AI Growth Engine.", "error");
     } finally {
@@ -519,7 +514,6 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           pendingReviewCount={pendingReviewCount}
           highFitCount={highFitCount}
           assetCount={assetCount}
-          providerUsage={providerUsage}
           drafts={drafts}
           legacyCampaigns={legacyCampaigns}
         />
@@ -595,7 +589,6 @@ function Dashboard({
   pendingReviewCount,
   highFitCount,
   assetCount,
-  providerUsage,
   drafts,
   legacyCampaigns,
 }: {
@@ -603,18 +596,17 @@ function Dashboard({
   pendingReviewCount: number;
   highFitCount: number;
   assetCount: number;
-  providerUsage: AdminProviderUsageResponse | null;
   drafts: AdminAiMarketingOpportunity[];
   legacyCampaigns: AdminAiMarketingCampaign[];
 }) {
   const recent = drafts.slice(0, 5);
-  const apiCredits = apiCreditsMetric(providerUsage);
+  const openAiCredits = openAiCreditsMetric(config);
   return (
     <section className="space-y-4">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="OpenAI" value={config?.openai_configured ? "Configured" : "Missing"} tone={config?.openai_configured ? "good" : "bad"} />
         <MetricCard label="FMP Articles API" value={config?.fmp_articles_status === "configured" ? "Configured" : "Missing"} tone={config?.fmp_articles_status === "configured" ? "good" : "bad"} />
-        <MetricCard label="API credits left" value={apiCredits.value} tone={apiCredits.tone} />
+        <MetricCard label="OpenAI credits left" value={openAiCredits.value} tone={openAiCredits.tone} />
         <MetricCard label="Reddit API" value={config?.reddit_status ?? "missing"} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
@@ -1401,16 +1393,18 @@ function textFromUnknown(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function apiCreditsMetric(usage: AdminProviderUsageResponse | null): { value: string; tone: "muted" | "good" | "warn" | "bad" } {
-  const budget = usage?.budget;
-  const remaining = budget?.remaining_last_minute;
-  const limit = budget?.throttle_limit_per_minute ?? usage?.configured_calls_per_minute;
-  if (typeof remaining !== "number" || typeof limit !== "number" || limit <= 0) {
-    return { value: "Unavailable", tone: "warn" };
+function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: string; tone: "muted" | "good" | "warn" | "bad" } {
+  const status = config?.openai_credits_status;
+  if (status === "ok") {
+    return { value: config?.openai_credits_label ?? "Configured", tone: "good" };
   }
-  const pctLeft = remaining / limit;
-  const tone = remaining <= 0 ? "bad" : pctLeft <= 0.2 ? "warn" : "good";
-  return { value: `${remaining.toLocaleString()} / ${limit.toLocaleString()} per min`, tone };
+  if (status === "low") {
+    return { value: config?.openai_credits_label ?? "Low", tone: "warn" };
+  }
+  if (status === "missing") {
+    return { value: config?.openai_credits_label ?? "Set OPENAI_CREDITS_LEFT_USD", tone: "warn" };
+  }
+  return { value: "Unavailable", tone: "warn" };
 }
 
 function platformLabel(platform?: string | null) {

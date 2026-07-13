@@ -56,6 +56,8 @@ X_POST_CHARACTER_LIMIT = 280
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
+OPENAI_CREDITS_LEFT_USD = "OPENAI_CREDITS_LEFT_USD"
+OPENAI_CREDITS_LOW_WATERMARK_USD = "OPENAI_CREDITS_LOW_WATERMARK_USD"
 FMP_API_KEY = "FMP_API_KEY"
 AI_GROWTH_ARTICLE_AUTOMATION_ENABLED = "AI_GROWTH_ARTICLE_AUTOMATION_ENABLED"
 AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS = "AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS"
@@ -71,6 +73,7 @@ OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
     "OpenAI web search is not configured. Enable OPENAI_WEB_SEARCH_ENABLED=true and confirm OPENAI_API_KEY is set."
 )
 OPENAI_WEB_SEARCH_FAILED_MESSAGE = "OpenAI web search discovery failed. Check OpenAI configuration, quota, and API availability."
+DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD = 25.0
 
 LEGACY_CAMPAIGN_MODES = {
     "ticker_thread_assist",
@@ -432,15 +435,54 @@ def _has_legacy_db_provider_setting(db: Session | None) -> bool:
     return False
 
 
+def _env_float(key: str) -> float | None:
+    raw = os.getenv(key)
+    if raw is None:
+        return None
+    cleaned = raw.strip().replace("$", "").replace(",", "")
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _openai_credits_status() -> dict[str, Any]:
+    credits_left = _env_float(OPENAI_CREDITS_LEFT_USD)
+    low_watermark = _env_float(OPENAI_CREDITS_LOW_WATERMARK_USD)
+    if low_watermark is None or low_watermark < 0:
+        low_watermark = DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD
+    if credits_left is None:
+        return {
+            "left_usd": None,
+            "low_watermark_usd": low_watermark,
+            "status": "missing",
+            "label": f"Set {OPENAI_CREDITS_LEFT_USD}",
+        }
+    status = "low" if credits_left <= low_watermark else "ok"
+    return {
+        "left_usd": credits_left,
+        "low_watermark_usd": low_watermark,
+        "status": status,
+        "label": f"${credits_left:,.2f}",
+    }
+
+
 def config_status(db: Session | None = None) -> dict[str, Any]:
     statuses = {
         key: public_setting_payload(db, key) if db is not None else _public_setting_payload_without_db(key)
         for key in AI_MARKETING_SETTINGS
     }
     web_search_status = web_search_provider_status(db)
+    openai_credits = _openai_credits_status()
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
+    if openai_credits["status"] == "low":
+        warnings.append(
+            f"OpenAI credits low: {openai_credits['label']} remaining. Repurchase before AI Growth generation stalls."
+        )
     if not statuses[FMP_API_KEY]["configured"]:
         warnings.append("FMP Articles API key missing")
     if any(status.get("deprecated_admin_setting") for status in statuses.values()) or _has_legacy_db_provider_setting(db):
@@ -462,6 +504,10 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     return {
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
         "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
+        "openai_credits_left_usd": openai_credits["left_usd"],
+        "openai_credits_low_watermark_usd": openai_credits["low_watermark_usd"],
+        "openai_credits_status": openai_credits["status"],
+        "openai_credits_label": openai_credits["label"],
         "fmp_articles_configured": bool(statuses[FMP_API_KEY]["configured"]),
         "fmp_articles_status": "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
         "fmp_articles_missing": [] if statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],

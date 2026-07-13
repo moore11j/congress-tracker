@@ -1916,6 +1916,10 @@ export type AdminAiMarketingStatus =
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
   openai_model: string;
+  openai_credits_left_usd?: number | null;
+  openai_credits_low_watermark_usd?: number | null;
+  openai_credits_status?: "ok" | "low" | "missing" | string;
+  openai_credits_label?: string | null;
   fmp_articles_configured?: boolean;
   fmp_articles_status?: "missing" | "configured" | string;
   fmp_articles_missing?: string[];
