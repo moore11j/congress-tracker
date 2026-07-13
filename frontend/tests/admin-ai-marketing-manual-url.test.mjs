@@ -93,6 +93,7 @@ test("content draft cards include copy and manual lifecycle actions", () => {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
   assert.match(viewSource, /Requested draft changes/);
+  assert.match(viewSource, /Are you sure you want to delete this draft\?/);
   assert.match(viewSource, /regenerateAdminAiGrowthDraft/);
   assert.match(viewSource, /emailAdminAiGrowthDraft/);
   assert.match(viewSource, /markAdminAiGrowthDraftCopied/);

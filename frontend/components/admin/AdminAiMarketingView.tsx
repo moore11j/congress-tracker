@@ -283,6 +283,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     draft: AdminAiMarketingOpportunity,
     action: DraftAction,
   ) => {
+    if (action === "delete" && !window.confirm("Are you sure you want to delete this draft? It will be removed from the Draft Queue.")) {
+      return;
+    }
     setBusy(`${action}:${draft.id}`);
     try {
       if (action === "delete") {
