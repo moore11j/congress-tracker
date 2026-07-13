@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.orm import Session
 
-from app.clients.fmp import fetch_shares_float, fetch_symbol_positions_summary
+from app.clients.fmp import fetch_extract_analytics_by_holder, fetch_shares_float, fetch_symbol_positions_summary
 from app.models import (
     Event,
     CikMeta,
@@ -1145,23 +1145,48 @@ def ticker_ownership_payload(
         if position.filing_date and (holder["filing_date"] is None or position.filing_date > holder["filing_date"]):
             holder["filing_date"] = position.filing_date
 
+    provider_snapshot = _provider_complete_symbol_ownership_snapshot(
+        normalized,
+        report_year=latest.report_year,
+        report_quarter=latest.report_quarter,
+    )
+    provider_report_year = int(provider_snapshot.get("report_year") or latest.report_year) if provider_snapshot else latest.report_year
+    provider_report_quarter = int(provider_snapshot.get("report_quarter") or latest.report_quarter) if provider_snapshot else latest.report_quarter
+    provider_total_institutional_shares = (
+        float(provider_snapshot.get("total_institutional_shares") or 0.0)
+        if provider_snapshot
+        else 0.0
+    )
     float_snapshot = _provider_shares_float_snapshot(normalized)
     float_shares = float_snapshot.get("float_shares") if float_snapshot else None
-    total_institutional_shares = sum(
+    db_total_institutional_shares = sum(
         float(holder.get("shares") or 0.0)
         for holder in holders_by_cik.values()
         if float(holder.get("shares") or 0.0) > 0
     )
+    use_provider_total = provider_total_institutional_shares > db_total_institutional_shares
+    total_institutional_shares = provider_total_institutional_shares if use_provider_total else db_total_institutional_shares
+    provider_holders = (
+        _provider_holder_analytics(
+            normalized,
+            report_year=provider_report_year,
+            report_quarter=provider_report_quarter,
+            limit=bounded_holder_limit,
+            float_shares=float_shares,
+        )
+        if use_provider_total
+        else []
+    )
     float_based_institutional_pct = None
     if float_shares and float_shares > 0 and total_institutional_shares > 0:
         float_based_institutional_pct = _ownership_pct((total_institutional_shares / float_shares) * 100)
-        for holder in holders_by_cik.values():
+        for holder in ([] if provider_holders else holders_by_cik.values()):
             holder_shares = float(holder.get("shares") or 0.0)
             holder["ownership_pct"] = (holder_shares / float_shares) * 100 if holder_shares > 0 else None
             holder["ownership_pct_source"] = "shares_over_float"
 
     all_holders = sorted(
-        holders_by_cik.values(),
+        provider_holders or holders_by_cik.values(),
         key=lambda item: (float(item.get("ownership_pct") or 0.0), float(item.get("value_usd") or 0.0), float(item.get("shares") or 0.0)),
         reverse=True,
     )
@@ -1177,13 +1202,7 @@ def ticker_ownership_payload(
     if latest_institutional_pct is None:
         holder_pct_values = [float(holder["ownership_pct"]) for holder in holders if float(holder.get("ownership_pct") or 0.0) > 0]
         latest_institutional_pct = _ownership_pct(sum(holder_pct_values)) if holder_pct_values else None
-    provider_snapshot = None
     if latest_institutional_pct is None:
-        provider_snapshot = _provider_symbol_ownership_snapshot(
-            normalized,
-            report_year=latest.report_year,
-            report_quarter=latest.report_quarter,
-        )
         latest_institutional_pct = provider_snapshot.get("institutional_ownership_pct") if provider_snapshot else None
 
     latest_total_holders = provider_snapshot.get("total_holders") if provider_snapshot and provider_snapshot.get("total_holders") is not None else latest.total_holders
@@ -1191,7 +1210,9 @@ def ticker_ownership_payload(
     has_reported_holdings = bool(holders) or int(latest_total_holders or 0) > 0 or float(latest_total_value or 0.0) > 0.0
     history = [_ownership_history_point(row) for row in reversed(summaries)]
     latest_ownership_source = (
-        "institutional_shares_over_float"
+        "provider_13f_shares_over_float"
+        if float_based_institutional_pct is not None and use_provider_total
+        else "institutional_shares_over_float"
         if float_based_institutional_pct is not None
         else provider_snapshot.get("ownership_source")
         if provider_snapshot
@@ -1200,6 +1221,9 @@ def ticker_ownership_payload(
     if provider_snapshot and history:
         history[-1] = {
             **history[-1],
+            "report_year": provider_report_year,
+            "report_quarter": provider_report_quarter,
+            "period": f"Q{provider_report_quarter} {provider_report_year}",
             "institutional_ownership_pct": latest_institutional_pct,
             "retail_ownership_pct": _retail_pct(latest_institutional_pct),
             "total_holders": latest_total_holders,
@@ -1209,6 +1233,9 @@ def ticker_ownership_payload(
     if float_based_institutional_pct is not None and history:
         history[-1] = {
             **history[-1],
+            "report_year": provider_report_year if use_provider_total else history[-1].get("report_year"),
+            "report_quarter": provider_report_quarter if use_provider_total else history[-1].get("report_quarter"),
+            "period": f"Q{provider_report_quarter} {provider_report_year}" if use_provider_total else history[-1].get("period"),
             "institutional_ownership_pct": latest_institutional_pct,
             "retail_ownership_pct": _retail_pct(latest_institutional_pct),
             "total_holders": latest_total_holders,
@@ -1234,9 +1261,9 @@ def ticker_ownership_payload(
         ),
         "tooltip": INSTITUTIONAL_ACTIVITY_TOOLTIP,
         "latest": {
-            "report_year": latest.report_year,
-            "report_quarter": latest.report_quarter,
-            "period": f"Q{latest.report_quarter} {latest.report_year}",
+            "report_year": provider_report_year if use_provider_total else latest.report_year,
+            "report_quarter": provider_report_quarter if use_provider_total else latest.report_quarter,
+            "period": f"Q{provider_report_quarter} {provider_report_year}" if use_provider_total else f"Q{latest.report_quarter} {latest.report_year}",
             "latest_filing_date": latest.latest_filing_date.isoformat() if latest.latest_filing_date else None,
             "institutional_ownership_pct": latest_institutional_pct,
             "retail_ownership_pct": _retail_pct(latest_institutional_pct),
@@ -2612,6 +2639,110 @@ def _provider_shares_float_snapshot(symbol: str) -> dict[str, Any] | None:
     return None
 
 
+def _provider_holder_analytics(
+    symbol: str,
+    *,
+    report_year: int,
+    report_quarter: int,
+    limit: int,
+    float_shares: float | None,
+) -> list[dict[str, Any]]:
+    try:
+        rows = fetch_extract_analytics_by_holder(
+            symbol=symbol,
+            year=report_year,
+            quarter=report_quarter,
+            page=0,
+            limit=max(1, min(int(limit or 15), 50)),
+        )
+    except Exception:
+        return []
+
+    holders: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        shares = _first_number(row, "sharesNumber", "shares", "numberOfShares")
+        provider_ownership = _ownership_pct(_first_number(row, "ownership", "ownershipPct", "ownershipPercent"))
+        ownership_pct = (
+            _ownership_pct((shares / float_shares) * 100)
+            if shares is not None and float_shares and float_shares > 0
+            else provider_ownership
+        )
+        holders.append(
+            {
+                "cik": _first_text(row, "cik"),
+                "holder_name": _first_text(row, "investorName", "holderName", "name") or "Institution",
+                "ownership_pct": ownership_pct,
+                "ownership_pct_source": "shares_over_float" if ownership_pct is not None and float_shares else "provider_holder_analytics",
+                "value_usd": _first_number(row, "marketValue", "valueUsd", "totalValue"),
+                "shares": shares,
+                "portfolio_weight": _first_number(row, "weight", "portfolioWeight"),
+                "filing_date": _parse_date(_first_text(row, "filingDate", "date")),
+                "report_year": report_year,
+                "report_quarter": report_quarter,
+            }
+        )
+    return [holder for holder in holders if holder.get("shares") is not None or holder.get("value_usd") is not None or holder.get("ownership_pct") is not None]
+
+
+def _quarter_end(year: int, quarter: int) -> date:
+    quarter = max(1, min(int(quarter or 1), 4))
+    month_day = {
+        1: (3, 31),
+        2: (6, 30),
+        3: (9, 30),
+        4: (12, 31),
+    }[quarter]
+    return date(int(year), month_day[0], month_day[1])
+
+
+def _previous_quarter(year: int, quarter: int) -> tuple[int, int]:
+    quarter = int(quarter)
+    year = int(year)
+    if quarter <= 1:
+        return year - 1, 4
+    return year, quarter - 1
+
+
+def _latest_complete_13f_period(today: date | None = None) -> tuple[int, int]:
+    today = today or datetime.now(timezone.utc).date()
+    quarter = ((today.month - 1) // 3) + 1
+    year = today.year
+    while _quarter_end(year, quarter) + timedelta(days=45) > today:
+        year, quarter = _previous_quarter(year, quarter)
+    return year, quarter
+
+
+def _provider_complete_symbol_ownership_snapshot(
+    symbol: str,
+    *,
+    report_year: int,
+    report_quarter: int,
+) -> dict[str, Any] | None:
+    today = datetime.now(timezone.utc).date()
+    candidates: list[tuple[int, int]] = []
+    latest_complete = _latest_complete_13f_period(today)
+    candidates.append(latest_complete)
+    fallback = (int(report_year), int(report_quarter))
+    candidates.append(fallback)
+    candidates.append(_previous_quarter(*latest_complete))
+    candidates.append(_previous_quarter(*fallback))
+
+    seen: set[tuple[int, int]] = set()
+    for year, quarter in candidates:
+        candidate = (int(year), int(quarter))
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if _quarter_end(candidate[0], candidate[1]) + timedelta(days=45) > today:
+            continue
+        snapshot = _provider_symbol_ownership_snapshot(symbol, report_year=candidate[0], report_quarter=candidate[1])
+        if snapshot:
+            return snapshot
+    return None
+
+
 def _provider_symbol_ownership_snapshot(
     symbol: str,
     *,
@@ -2637,13 +2768,25 @@ def _provider_symbol_ownership_snapshot(
             "percentOfSharesOutstanding",
         )
         ownership_pct = _ownership_pct(ownership_pct)
-        if ownership_pct is None:
-            continue
-        if ownership_pct == 0:
+        total_institutional_shares = _first_number(
+            row,
+            "numberOf13Fshares",
+            "numberOf13FShares",
+            "total13FShares",
+            "totalInstitutionalShares",
+            "sharesNumber",
+            "shares",
+        )
+        if ownership_pct is None and (total_institutional_shares is None or total_institutional_shares <= 0):
             continue
         return {
+            "report_year": report_year,
+            "report_quarter": report_quarter,
+            "period": f"Q{report_quarter} {report_year}",
+            "report_date": _first_text(row, "date", "periodDate"),
             "institutional_ownership_pct": ownership_pct,
             "retail_ownership_pct": _retail_pct(ownership_pct),
+            "total_institutional_shares": total_institutional_shares if total_institutional_shares and total_institutional_shares > 0 else None,
             "total_holders": _first_int(
                 row,
                 "investorsHolding",

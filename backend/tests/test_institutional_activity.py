@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+import requests
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from starlette.requests import Request
 
 from app.db import Base
 from app import ingest_institutional_activity as ingest_module
+from app.clients.fmp import fetch_shares_float
+from app.request_priority import reset_request_context, set_request_context
 from app.services import institutional_activity as institutional_service
 from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
 from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity, ticker_ownership
@@ -33,6 +36,20 @@ from app.services.institutional_activity import (
     upsert_institutional_holder,
     upsert_positions_for_filing,
 )
+
+
+class _FakeFmpResponse:
+    def __init__(self, status_code: int, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
 def _engine():
@@ -1308,6 +1325,103 @@ def test_ticker_ownership_computes_split_from_institutional_shares_and_float(mon
         assert payload["holders"][0]["ownership_pct"] == 20.0
         assert payload["holders"][0]["ownership_pct_source"] == "shares_over_float"
         assert payload["history"][-1]["institutional_ownership_pct"] == 20.0
+
+
+def test_ticker_ownership_prefers_provider_13f_share_total_when_db_is_partial(monkeypatch):
+    monkeypatch.setenv("CT_DEFAULT_TIER", "free")
+    monkeypatch.setenv("CT_ALLOW_ENTITLEMENT_HEADER", "1")
+    engine = _engine()
+
+    monkeypatch.setattr(
+        institutional_service,
+        "fetch_shares_float",
+        lambda **_kwargs: [{"symbol": "TSM", "floatShares": 2_000_000, "outstandingShares": 2_500_000}],
+    )
+    monkeypatch.setattr(
+        institutional_service,
+        "fetch_symbol_positions_summary",
+        lambda **_kwargs: [
+            {
+                "symbol": "TSM",
+                "investorsHolding": 300,
+                "numberOf13Fshares": 800_000,
+                "totalInvested": 120_000_000,
+                "ownershipPercent": 32.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        institutional_service,
+        "fetch_extract_analytics_by_holder",
+        lambda **_kwargs: [
+            {
+                "cik": "0000315066",
+                "investorName": "FMR LLC",
+                "sharesNumber": 500_000,
+                "marketValue": 75_000_000,
+                "weight": 1.1,
+                "filingDate": "2026-05-15",
+            },
+            {
+                "cik": "0001422849",
+                "investorName": "CAPITAL WORLD INVESTORS",
+                "sharesNumber": 300_000,
+                "marketValue": 45_000_000,
+                "weight": 0.8,
+                "filingDate": "2026-05-13",
+            },
+        ],
+    )
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="TSM",
+            prior_row={"shares": 100_000, "marketValue": 5_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+            current_row={"shares": 400_000, "marketValue": 65_000_000, "ownershipPct": 0, "cusip": "000TSM001"},
+        )
+        db.commit()
+
+        payload = ticker_ownership("TSM", _request("pro"), history_limit=8, holder_limit=10, db=db)
+        assert payload["latest"]["institutional_ownership_pct"] == 40.0
+        assert payload["latest"]["retail_ownership_pct"] == 60.0
+        assert payload["latest"]["total_institutional_shares"] == 800_000
+        assert payload["latest"]["total_holders"] == 300
+        assert payload["latest"]["ownership_source"] == "provider_13f_shares_over_float"
+        assert payload["holders"][0]["holder_name"] == "FMR LLC"
+        assert payload["holders"][0]["ownership_pct"] == 25.0
+        assert payload["holders"][1]["ownership_pct"] == 15.0
+
+
+def test_latest_complete_13f_period_respects_filing_deadline():
+    assert institutional_service._latest_complete_13f_period(date(2026, 7, 13)) == (2026, 1)
+    assert institutional_service._latest_complete_13f_period(date(2026, 8, 13)) == (2026, 1)
+    assert institutional_service._latest_complete_13f_period(date(2026, 8, 14)) == (2026, 2)
+
+
+def test_shares_float_fetch_is_allowed_for_ownership_user_route(monkeypatch):
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.delenv("FMP_ALLOW_SYNC_USER_FETCH", raising=False)
+    monkeypatch.delenv("FMP_LIVE_USER_ROUTES_ENABLED", raising=False)
+    monkeypatch.delenv("FMP_CACHE_ONLY_USER_ROUTES", raising=False)
+
+    def fake_get(url, params=None, timeout=30):
+        assert url.endswith("/stable/shares-float")
+        assert params["symbol"] == "TSM"
+        assert params["apikey"] == "test-key"
+        return _FakeFmpResponse(
+            200,
+            [{"symbol": "TSM", "floatShares": 5_181_822_541, "outstandingShares": 5_186_480_000}],
+        )
+
+    monkeypatch.setattr("app.clients.fmp.requests.get", fake_get)
+    token = set_request_context({"path": "/api/tickers/TSM/ownership", "request_source": "client", "route_family": "ticker"})
+    try:
+        rows = fetch_shares_float(symbol="TSM")
+    finally:
+        reset_request_context(token)
+
+    assert rows[0]["floatShares"] == 5_181_822_541
 
 
 def test_ticker_ownership_returns_reported_holdings_when_percent_is_pending(monkeypatch):

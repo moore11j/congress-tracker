@@ -45,6 +45,7 @@ def _request_stable_rows(
     category: str,
     symbol: str | None = None,
     timeout_s: int = 30,
+    allow_user_request: bool = False,
 ) -> list[dict[str, Any]]:
     request_params: dict[str, Any] = {"apikey": _api_key()}
     for key, value in (params or {}).items():
@@ -54,7 +55,7 @@ def _request_stable_rows(
             continue
         request_params[key] = value
 
-    ensure_fmp_live_allowed(category=category, symbol=symbol)
+    ensure_fmp_live_allowed(category=category, symbol=symbol, allow_user_request=allow_user_request)
     try:
         response = requests.get(
             f"{FMP_BASE_URL}/{endpoint}",
@@ -272,6 +273,7 @@ def fetch_symbol_positions_summary(
         category="ticker:institutional-ownership:symbol-summary",
         symbol=provider_symbol,
         timeout_s=timeout_s,
+        allow_user_request=True,
     )
 
 
@@ -283,6 +285,7 @@ def fetch_shares_float(*, symbol: str, timeout_s: int = 30) -> list[dict[str, An
         category="ticker:shares-float",
         symbol=provider_symbol,
         timeout_s=timeout_s,
+        allow_user_request=True,
     )
 
 
@@ -308,6 +311,7 @@ def fetch_extract_analytics_by_holder(
         category="ticker:institutional-ownership:holder-analytics",
         symbol=provider_symbol,
         timeout_s=timeout_s,
+        allow_user_request=True,
     )
 
 
