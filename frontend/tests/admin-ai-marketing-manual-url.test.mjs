@@ -42,6 +42,9 @@ test("manual X draft is distinct from scheduled X campaigns", () => {
   assert.match(viewSource, /One-off manual X draft generation/);
   assert.match(viewSource, /Generate X draft/);
   assert.match(viewSource, /Create Scheduled X Campaign/);
+  assert.match(viewSource, /scheduled-x-campaign-form/);
+  assert.match(viewSource, /scrollIntoView/);
+  assert.match(viewSource, /Save campaign/);
   assert.match(viewSource, /Saved Scheduled X Campaigns/);
   assert.match(viewSource, /Editing: \$\{selected\.name\}/);
   assert.match(viewSource, /Unsaved changes/);
@@ -186,9 +189,17 @@ test("settings remain env-only for provider credentials", () => {
   assert.match(viewSource, /X_CLIENT_SECRET/);
   assert.match(viewSource, /X_REDIRECT_URI/);
   assert.match(viewSource, /X API/);
+  assert.match(viewSource, /AI Growth Voice/);
+  assert.match(viewSource, /Overall email tone/);
+  assert.match(viewSource, /Add characteristic/);
+  assert.match(viewSource, /Saved characteristics/);
+  assert.match(viewSource, /Delete characteristic/);
+  assert.match(viewSource, /Save voice settings/);
+  assert.match(viewSource, /AI_GROWTH_EMAIL_TONE/);
+  assert.match(viewSource, /AI_GROWTH_VOICE_CHARACTERISTICS/);
+  assert.match(viewSource, /updateAdminAiMarketingSettings/);
   assert.doesNotMatch(viewSource, /"Facebook"/);
   assert.doesNotMatch(viewSource, /BING_SEARCH_API_KEY/);
   assert.doesNotMatch(viewSource, /Bing Search API Key/);
-  assert.doesNotMatch(viewSource, /updateAdminAiMarketingSettings/);
   assert.doesNotMatch(viewSource, /type="password"/);
 });

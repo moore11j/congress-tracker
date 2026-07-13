@@ -58,6 +58,8 @@ X_POST_CHARACTER_LIMIT = 280
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
+AI_GROWTH_EMAIL_TONE = "AI_GROWTH_EMAIL_TONE"
+AI_GROWTH_VOICE_CHARACTERISTICS = "AI_GROWTH_VOICE_CHARACTERISTICS"
 OPENAI_CREDITS_LOW_WATERMARK_USD = "OPENAI_CREDITS_LOW_WATERMARK_USD"
 FMP_API_KEY = "FMP_API_KEY"
 AI_GROWTH_ARTICLE_AUTOMATION_ENABLED = "AI_GROWTH_ARTICLE_AUTOMATION_ENABLED"
@@ -78,6 +80,17 @@ OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
 )
 OPENAI_WEB_SEARCH_FAILED_MESSAGE = "OpenAI web search discovery failed. Check OpenAI configuration, quota, and API availability."
 DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD = 25.0
+DEFAULT_AI_GROWTH_EMAIL_TONE = "market-native"
+DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
+    [
+        "Professional-grade market intelligence for sophisticated retail investors.",
+        "Sharp market participant voice: useful, concrete, concise, and non-spammy.",
+        "Lead with ticker-specific evidence, then explain why Walnut flagged it.",
+        "Use reported/disclosed/filed language for Congress, insider, and institutional data.",
+        "No hype, guarantees, buy/sell/short instructions, or spammy CTA language.",
+        "Brand idea: The market has tells. Walnut finds them.",
+    ]
+)
 DEFAULT_OPENAI_CREDITS_LEDGER_START_USD = 9.91
 OPENAI_CREDITS_LEDGER_START_USD = "OPENAI_CREDITS_LEDGER_START_USD"
 OPENAI_CREDITS_LEDGER_SPENT_USD = "OPENAI_CREDITS_LEDGER_SPENT_USD"
@@ -168,6 +181,8 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     OPENAI_API_KEY: {"label": "OpenAI API Key", "is_secret": True, "required_for": "AI Growth suggestions"},
     AI_MARKETING_MODEL: {"label": "AI Growth Model", "is_secret": False, "required_for": "AI Growth suggestions"},
     OPENAI_WEB_SEARCH_ENABLED: {"label": "OpenAI Web Search", "is_secret": False, "required_for": "AI Growth web discovery"},
+    AI_GROWTH_EMAIL_TONE: {"label": "AI Growth Email Tone", "is_secret": False, "required_for": "AI Growth messaging"},
+    AI_GROWTH_VOICE_CHARACTERISTICS: {"label": "AI Growth Voice Characteristics", "is_secret": False, "required_for": "AI Growth messaging"},
     FMP_API_KEY: {"label": "FMP Articles API", "is_secret": True, "required_for": "Article-Reactive X campaigns"},
     X_CLIENT_ID: {"label": "X Client ID", "is_secret": True, "required_for": "X OAuth status"},
     X_CLIENT_SECRET: {"label": "X Client Secret", "is_secret": True, "required_for": "X OAuth status"},
@@ -321,6 +336,14 @@ def marketing_model(db: Session | None = None) -> str:
     return resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL
 
 
+def ai_growth_email_tone(db: Session | None = None) -> str:
+    return resolved_setting_value(db, AI_GROWTH_EMAIL_TONE) or DEFAULT_AI_GROWTH_EMAIL_TONE
+
+
+def ai_growth_voice_characteristics(db: Session | None = None) -> str:
+    return resolved_setting_value(db, AI_GROWTH_VOICE_CHARACTERISTICS) or DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS
+
+
 def resolved_setting_value(db: Session | None, key: str) -> str | None:
     resolved = resolve_setting(db, key)
     return resolved["value"] if isinstance(resolved["value"], str) and resolved["value"].strip() else None
@@ -385,6 +408,11 @@ def resolve_setting(db: Session | None, key: str) -> dict[str, Any]:
 
     if env_value:
         return {"key": key, "value": env_value, "source": "server_env", "row": row}
+
+    if key == AI_GROWTH_EMAIL_TONE:
+        return {"key": key, "value": DEFAULT_AI_GROWTH_EMAIL_TONE, "source": "default", "row": row}
+    if key == AI_GROWTH_VOICE_CHARACTERISTICS:
+        return {"key": key, "value": DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS, "source": "default", "row": row}
 
     return {"key": key, "value": None, "source": "missing", "row": row}
 
@@ -715,6 +743,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     return {
         "openai_configured": bool(statuses[OPENAI_API_KEY]["configured"]),
         "openai_model": resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL,
+        "ai_growth_email_tone": ai_growth_email_tone(db),
+        "ai_growth_voice_characteristics": ai_growth_voice_characteristics(db),
         "openai_credits_left_usd": openai_credits["left_usd"],
         "openai_credits_starting_balance_usd": openai_credits.get("starting_balance_usd"),
         "openai_credits_spent_usd": openai_credits.get("spent_usd"),
@@ -2906,7 +2936,7 @@ def generate_suggestion(
     request_payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _suggestion_system_prompt()},
+            {"role": "system", "content": _suggestion_system_prompt(db)},
             {
                 "role": "user",
                 "content": json.dumps(
@@ -4236,9 +4266,13 @@ def _digest_context(
     }
 
 
-def _suggestion_system_prompt() -> str:
+def _suggestion_system_prompt(db: Session | None = None) -> str:
+    configured_tone = ai_growth_email_tone(db)
+    characteristics = ai_growth_voice_characteristics(db)
     return (
         "You draft human-reviewed AI Growth Engine assets for Walnut Market Terminal. "
+        f"Default email and campaign tone: {configured_tone}. "
+        f"Saved Walnut voice characteristics to apply consistently: {characteristics}. "
         "Return only JSON matching the supplied schema. First decide whether the thread deserves a reply at all. "
         "Use recommended_action='skip' when the source is not clearly about investing, markets, public companies, trading, finance, or research tools. "
         "Use recommended_action='skip' or 'monitor' when Walnut cannot add a meaningful, specific angle. "
@@ -4886,8 +4920,13 @@ def _public_setting_payload_without_db(key: str) -> dict[str, Any]:
     else:
         value = os.getenv(key, "").strip()
     env_only = key in ENV_ONLY_PROVIDER_SETTING_KEYS
-    source = "server_env" if value else "default" if key == AI_MARKETING_MODEL else "missing"
-    configured = bool(value) or key == AI_MARKETING_MODEL
+    default_values = {
+        AI_MARKETING_MODEL: DEFAULT_AI_MARKETING_MODEL,
+        AI_GROWTH_EMAIL_TONE: DEFAULT_AI_GROWTH_EMAIL_TONE,
+        AI_GROWTH_VOICE_CHARACTERISTICS: DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS,
+    }
+    source = "server_env" if value else "default" if key in default_values else "missing"
+    configured = bool(value) or key in default_values
     is_secret = bool(meta["is_secret"])
     payload = {
         "key": key,
@@ -4901,7 +4940,7 @@ def _public_setting_payload_without_db(key: str) -> dict[str, Any]:
         "updated_at": None,
     }
     if not is_secret and not env_only:
-        payload["value"] = value or (DEFAULT_AI_MARKETING_MODEL if key == AI_MARKETING_MODEL else "")
+        payload["value"] = value or default_values.get(key, "")
     return payload
 
 

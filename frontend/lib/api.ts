@@ -1917,6 +1917,8 @@ export type AdminAiMarketingStatus =
 export type AdminAiMarketingConfig = {
   openai_configured: boolean;
   openai_model: string;
+  ai_growth_email_tone?: string | null;
+  ai_growth_voice_characteristics?: string | null;
   openai_credits_left_usd?: number | null;
   openai_credits_starting_balance_usd?: number | null;
   openai_credits_spent_usd?: number | null;

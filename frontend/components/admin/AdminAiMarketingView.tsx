@@ -21,6 +21,7 @@ import {
   testAdminAiMarketingOpenAI,
   testAdminAiMarketingReddit,
   updateAdminAiGrowthDraftStatus,
+  updateAdminAiMarketingSettings,
   updateAdminAiMarketingCampaign,
   type AdminAiGrowthAsset,
   type AdminAiMarketingCampaign,
@@ -95,6 +96,19 @@ const SETTING_KEYS = [
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
 ] as const;
+
+const AI_GROWTH_EMAIL_TONE = "AI_GROWTH_EMAIL_TONE";
+const AI_GROWTH_VOICE_CHARACTERISTICS = "AI_GROWTH_VOICE_CHARACTERISTICS";
+const DEFAULT_AI_GROWTH_EMAIL_TONE = "market-native";
+const DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = [
+  "Professional-grade market intelligence for sophisticated retail investors.",
+  "Sharp market participant voice: useful, concrete, concise, and non-spammy.",
+  "Lead with ticker-specific evidence, then explain why Walnut flagged it.",
+  "Use reported/disclosed/filed language for Congress, insider, and institutional data.",
+  "No hype, guarantees, buy/sell/short instructions, or spammy CTA language.",
+  "Brand idea: The market has tells. Walnut finds them.",
+].join("\n");
+const AI_GROWTH_EMAIL_TONE_OPTIONS = ["market-native", "professional", "sharp", "educational", "contrarian"] as const;
 
 const SOURCE_PLATFORMS = ["X", "Reddit", "LinkedIn", "Other"] as const;
 const SCHEDULED_X_SOURCE_TYPES = [
@@ -196,6 +210,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
   const [changeRequests, setChangeRequests] = useState<Record<number, string>>({});
   const [recentAssetsPage, setRecentAssetsPage] = useState(1);
+  const [voiceTone, setVoiceTone] = useState(DEFAULT_AI_GROWTH_EMAIL_TONE);
+  const [voiceCharacteristics, setVoiceCharacteristics] = useState(DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS);
+  const [newVoiceCharacteristic, setNewVoiceCharacteristic] = useState("");
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -224,6 +241,8 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       setDrafts(draftData.items);
       setConfig(settingsData.config);
       setSettings(settingsData.items);
+      setVoiceTone(settingValue(settingsData.items, AI_GROWTH_EMAIL_TONE, settingsData.config.ai_growth_email_tone ?? DEFAULT_AI_GROWTH_EMAIL_TONE));
+      setVoiceCharacteristics(settingValue(settingsData.items, AI_GROWTH_VOICE_CHARACTERISTICS, settingsData.config.ai_growth_voice_characteristics ?? DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS));
       setCampaigns(campaignData.items);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to load AI Growth Engine.", "error");
@@ -402,6 +421,47 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const addVoiceCharacteristic = () => {
+    const next = newVoiceCharacteristic.trim();
+    if (!next) {
+      notify("Add a messaging characteristic first.", "error");
+      return;
+    }
+    const current = voiceCharacteristicLines(voiceCharacteristics);
+    if (current.some((item) => item.toLowerCase() === next.toLowerCase())) {
+      setNewVoiceCharacteristic("");
+      notify("That characteristic is already saved locally.", "info");
+      return;
+    }
+    setVoiceCharacteristics([...current, next].join("\n"));
+    setNewVoiceCharacteristic("");
+  };
+
+  const removeVoiceCharacteristic = (line: string) => {
+    setVoiceCharacteristics(voiceCharacteristicLines(voiceCharacteristics).filter((item) => item !== line).join("\n"));
+  };
+
+  const saveVoiceSettings = async () => {
+    setBusy("save-voice-settings");
+    try {
+      const result = await updateAdminAiMarketingSettings({
+        updates: {
+          [AI_GROWTH_EMAIL_TONE]: voiceTone,
+          [AI_GROWTH_VOICE_CHARACTERISTICS]: voiceCharacteristicLines(voiceCharacteristics).join("\n"),
+        },
+      });
+      setSettings(result.items);
+      setConfig(result.config);
+      setVoiceTone(settingValue(result.items, AI_GROWTH_EMAIL_TONE, result.config.ai_growth_email_tone ?? DEFAULT_AI_GROWTH_EMAIL_TONE));
+      setVoiceCharacteristics(settingValue(result.items, AI_GROWTH_VOICE_CHARACTERISTICS, result.config.ai_growth_voice_characteristics ?? DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS));
+      notify("AI Growth voice settings saved.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to save AI Growth voice settings.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const submitManual = async () => {
     if (!manualForm.text.trim() && !manualForm.url.trim()) {
       notify("Paste source text or add a source URL first.", "error");
@@ -457,6 +517,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     setSelectedScheduledXId(campaign.id);
     setScheduledXForm(next);
     setScheduledXSavedSnapshot(next);
+    window.setTimeout(() => {
+      document.getElementById("scheduled-x-campaign-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   };
 
   const resetScheduledXCreateForm = () => {
@@ -773,6 +836,15 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           settings={settings}
           settingsTest={settingsTest}
           busy={busy}
+          voiceTone={voiceTone}
+          voiceCharacteristics={voiceCharacteristics}
+          newVoiceCharacteristic={newVoiceCharacteristic}
+          setVoiceTone={setVoiceTone}
+          setVoiceCharacteristics={setVoiceCharacteristics}
+          setNewVoiceCharacteristic={setNewVoiceCharacteristic}
+          onAddVoiceCharacteristic={addVoiceCharacteristic}
+          onRemoveVoiceCharacteristic={removeVoiceCharacteristic}
+          onSaveVoiceSettings={() => void saveVoiceSettings()}
           onTest={testConnection}
         />
       ) : null}
@@ -1271,7 +1343,10 @@ function ScheduledXCampaignsView({
             <h3 className="text-lg font-semibold text-white">Scheduled X Campaigns</h3>
             <p className="mt-1 text-sm text-slate-400">Walnut-native automation that generates reviewed X drafts only. No X or Reddit auto-posting.</p>
           </div>
-          <Button disabled={Boolean(busy)} onClick={onCreateNew}>Create campaign</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={Boolean(busy)} onClick={onCreateNew}>Create campaign</Button>
+            {selected ? <Button disabled={Boolean(busy)} onClick={onSubmit}>{busy === "scheduled_x_campaign" ? "Saving..." : "Save campaign"}</Button> : null}
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {SCHEDULED_X_TEMPLATES.map((template) => (
@@ -1280,7 +1355,7 @@ function ScheduledXCampaignsView({
         </div>
       </section>
 
-      <FormShell title={selected ? `Editing: ${selected.name}` : "Create Scheduled X Campaign"}>
+      <FormShell title={selected ? `Editing: ${selected.name}` : "Create Scheduled X Campaign"} id="scheduled-x-campaign-form">
         {unsaved ? <p className="mb-3 text-sm font-semibold text-amber-200">Unsaved changes.</p> : null}
         <div className="grid gap-4 md:grid-cols-2">
           <TextField label="Campaign name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
@@ -1307,7 +1382,7 @@ function ScheduledXCampaignsView({
             Include Walnut link
           </label>
         </div>
-        <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save changes" : "Create campaign"} busyLabel="Saving..." />
+        <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
       </FormShell>
 
       <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
@@ -1450,14 +1525,33 @@ function SettingsView({
   settings,
   settingsTest,
   busy,
+  voiceTone,
+  voiceCharacteristics,
+  newVoiceCharacteristic,
+  setVoiceTone,
+  setVoiceCharacteristics,
+  setNewVoiceCharacteristic,
+  onAddVoiceCharacteristic,
+  onRemoveVoiceCharacteristic,
+  onSaveVoiceSettings,
   onTest,
 }: {
   config: AdminAiMarketingConfig | null;
   settings: AdminAiMarketingSetting[];
   settingsTest: Record<"openai" | "reddit", AdminAiMarketingSettingsTestResponse | null>;
   busy: string | null;
+  voiceTone: string;
+  voiceCharacteristics: string;
+  newVoiceCharacteristic: string;
+  setVoiceTone: (value: string) => void;
+  setVoiceCharacteristics: (value: string) => void;
+  setNewVoiceCharacteristic: (value: string) => void;
+  onAddVoiceCharacteristic: () => void;
+  onRemoveVoiceCharacteristic: (line: string) => void;
+  onSaveVoiceSettings: () => void;
   onTest: (kind: "openai" | "reddit") => void;
 }) {
+  const characteristicLines = voiceCharacteristicLines(voiceCharacteristics);
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1484,6 +1578,47 @@ function SettingsView({
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {SETTING_KEYS.map((key) => <SettingField key={key} settingKey={key} item={settings.find((setting) => setting.key === key)} />)}
       </div>
+      <section className="mt-5 border-t border-white/10 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h4 className="text-base font-semibold text-white">AI Growth Voice</h4>
+            <p className="mt-1 text-sm text-slate-400">Controls the default tone and saved memory characteristics used by generated drafts and review emails.</p>
+          </div>
+          <Button disabled={Boolean(busy)} onClick={onSaveVoiceSettings}>{busy === "save-voice-settings" ? "Saving..." : "Save voice settings"}</Button>
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)]">
+          <SelectField label="Overall email tone" value={voiceTone} onChange={setVoiceTone} options={[...AI_GROWTH_EMAIL_TONE_OPTIONS]} />
+          <label className="block text-sm">
+            <span className="block font-medium text-slate-200">Add characteristic</span>
+            <div className="mt-1 flex gap-2">
+              <input
+                value={newVoiceCharacteristic}
+                onChange={(event) => setNewVoiceCharacteristic(event.target.value)}
+                placeholder="Example: Lead with the ticker and the reason Walnut flagged it."
+                className="min-w-0 flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/50"
+              />
+              <Button disabled={Boolean(busy)} onClick={onAddVoiceCharacteristic}>Add</Button>
+            </div>
+          </label>
+        </div>
+        <TextareaField label="Saved characteristics" value={voiceCharacteristics} onChange={setVoiceCharacteristics} rows={8} />
+        <div className="mt-3 space-y-2">
+          {characteristicLines.length ? characteristicLines.map((line) => (
+            <div key={line} className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-900/70 px-3 py-2">
+              <span className="text-sm text-slate-200">{line}</span>
+              <button
+                type="button"
+                title="Delete characteristic"
+                aria-label={`Delete characteristic: ${line}`}
+                onClick={() => onRemoveVoiceCharacteristic(line)}
+                className="rounded-md border border-rose-300/30 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-300/10"
+              >
+                X
+              </button>
+            </div>
+          )) : <p className="text-sm text-slate-400">No voice characteristics saved.</p>}
+        </div>
+      </section>
       <div className="mt-4 flex flex-wrap gap-3">
         <ConnectionResult result={settingsTest.openai} />
         <ConnectionResult result={settingsTest.reddit} />
@@ -1592,9 +1727,9 @@ function buildGrowthPayload(
   throw new Error("Unsupported AI Growth workflow.");
 }
 
-function FormShell({ title, children }: { title: string; children: ReactNode }) {
+function FormShell({ title, children, id }: { title: string; children: ReactNode; id?: string }) {
   return (
-    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+    <section id={id} className="scroll-mt-6 rounded-lg border border-white/10 bg-slate-900/70 p-5">
       <h3 className="text-lg font-semibold text-white">{title}</h3>
       <div className="mt-4">{children}</div>
     </section>
@@ -1782,6 +1917,17 @@ function statusTone(status: string): "muted" | "good" | "warn" | "bad" {
 
 function textFromUnknown(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function settingValue(items: AdminAiMarketingSetting[], key: string, fallback: string) {
+  return items.find((item) => item.key === key)?.value?.trim() || fallback;
+}
+
+function voiceCharacteristicLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function statusLabel(value?: string | null, fallback = "missing") {

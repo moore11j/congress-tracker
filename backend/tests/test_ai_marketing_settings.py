@@ -17,6 +17,8 @@ from app.routers.ai_marketing import (
     admin_ai_marketing_update_settings,
 )
 from app.services.ai_marketing import (
+    AI_GROWTH_EMAIL_TONE,
+    AI_GROWTH_VOICE_CHARACTERISTICS,
     AI_MARKETING_MODEL,
     BING_SEARCH_API_KEY,
     OPENAI_CREDITS_LOW_WATERMARK_USD,
@@ -33,6 +35,7 @@ from app.services.ai_marketing import (
     X_REDIRECT_URI,
     config_status,
     resolved_setting_value,
+    _suggestion_system_prompt,
     test_openai_connection as run_openai_connection_test,
     test_reddit_connection as run_reddit_connection_test,
     _OPENAI_CREDITS_CACHE,
@@ -165,6 +168,40 @@ def test_non_admin_cannot_read_or_update_settings(monkeypatch):
         with pytest.raises(HTTPException) as update_exc:
             admin_ai_marketing_update_settings(SettingsPatchPayload(updates={AI_MARKETING_MODEL: "gpt-test-mini"}), request, db)
         assert update_exc.value.status_code == 403
+    finally:
+        db.close()
+
+
+def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
+    _clear_env(monkeypatch)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+
+        payload = admin_ai_marketing_settings(request, db)
+        items = _items_by_key(payload)
+        assert items[AI_GROWTH_EMAIL_TONE]["value"] == "market-native"
+        assert "The market has tells. Walnut finds them." in items[AI_GROWTH_VOICE_CHARACTERISTICS]["value"]
+        assert payload["config"]["ai_growth_email_tone"] == "market-native"
+
+        updated = admin_ai_marketing_update_settings(
+            SettingsPatchPayload(
+                updates={
+                    AI_GROWTH_EMAIL_TONE: "sharp",
+                    AI_GROWTH_VOICE_CHARACTERISTICS: "Lead with the ticker.\nStay concise.",
+                }
+            ),
+            request,
+            db,
+        )
+
+        updated_items = _items_by_key(updated)
+        assert updated_items[AI_GROWTH_EMAIL_TONE]["value"] == "sharp"
+        assert updated["config"]["ai_growth_voice_characteristics"] == "Lead with the ticker.\nStay concise."
+        prompt = _suggestion_system_prompt(db)
+        assert "Default email and campaign tone: sharp." in prompt
+        assert "Lead with the ticker." in prompt
     finally:
         db.close()
 
