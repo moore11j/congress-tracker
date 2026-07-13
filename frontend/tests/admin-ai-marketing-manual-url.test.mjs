@@ -10,7 +10,8 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   for (const label of [
     "Dashboard",
     "Article-Reactive X",
-    "X Campaigns",
+    "Manual X Draft",
+    "Scheduled X Campaigns",
     "Reddit Research Threads",
     "Draft Queue",
     "Assets",
@@ -27,6 +28,32 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   assert.doesNotMatch(viewSource, /Email Delivery/);
   assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);
+  assert.doesNotMatch(viewSource, /label: "X Campaigns"/);
+});
+
+test("manual X draft is distinct from scheduled X campaigns", () => {
+  assert.match(viewSource, /One-off manual X draft generation/);
+  assert.match(viewSource, /Generate X draft/);
+  assert.match(viewSource, /Create Scheduled X Campaign/);
+  assert.match(viewSource, /Saved Scheduled X Campaigns/);
+  assert.match(viewSource, /Editing: \$\{selected\.name\}/);
+  assert.match(viewSource, /Unsaved changes/);
+  for (const label of [
+    "Daily Watchlist Opportunities",
+    "Daily Bullish Confirmation",
+    "Daily Bearish Confirmation",
+    "Daily Congress Activity Spotlight",
+    "Daily Insider Activity Spotlight",
+    "Daily Institutional Increases",
+    "Daily Government Contracts",
+    "Daily Signal Stack Names",
+  ]) {
+    assert.match(viewSource, new RegExp(label));
+  }
+  assert.match(viewSource, /campaign_type: "scheduled_x_campaign"/);
+  assert.match(viewSource, /recent_runs/);
+  assert.doesNotMatch(apiSource, /\/api\/admin\/ai-growth\/x\/post/);
+  assert.doesNotMatch(viewSource, /Approve \+ Post|approve_and_post|postAdminAiGrowthDraftToX/);
 });
 
 test("manual research input supports platform, pasted text, output type, and destination URL", () => {

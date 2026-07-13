@@ -836,6 +836,24 @@ class AiMarketingCampaign(Base):
     )
 
 
+class AiMarketingCampaignRun(Base):
+    __tablename__ = "ai_marketing_campaign_runs"
+    __table_args__ = (
+        Index("ix_ai_marketing_campaign_runs_campaign_time", "campaign_id", "run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(nullable=False)
+    campaign_type: Mapped[str] = mapped_column(Text, nullable=False)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    candidates_considered: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    drafts_generated: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    emails_sent: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+
+
 class AiMarketingSetting(Base):
     __tablename__ = "ai_marketing_settings"
 

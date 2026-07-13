@@ -23,6 +23,7 @@ import {
   updateAdminAiMarketingCampaign,
   type AdminAiGrowthAsset,
   type AdminAiMarketingCampaign,
+  type AdminAiMarketingCampaignPayload,
   type AdminAiMarketingConfig,
   type AdminAiMarketingOpportunity,
   type AdminAiMarketingSetting,
@@ -39,7 +40,8 @@ type TabKey =
   | "drafts"
   | "assets"
   | "article_reactive_x"
-  | "x_campaigns"
+  | "manual_x_draft"
+  | "scheduled_x_campaigns"
   | "reddit_threads"
   | "settings";
 
@@ -63,7 +65,8 @@ const DRAFT_QUEUE_STATUSES: AdminAiMarketingStatus[] = [
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
   { key: "article_reactive_x", label: "Article-Reactive X" },
-  { key: "x_campaigns", label: "X Campaigns" },
+  { key: "manual_x_draft", label: "Manual X Draft" },
+  { key: "scheduled_x_campaigns", label: "Scheduled X Campaigns" },
   { key: "reddit_threads", label: "Reddit Research Threads" },
   { key: "drafts", label: "Draft Queue" },
   { key: "assets", label: "Assets" },
@@ -90,6 +93,30 @@ const SETTING_KEYS = [
 ] as const;
 
 const SOURCE_PLATFORMS = ["X", "Reddit", "Facebook", "LinkedIn", "Other"] as const;
+const SCHEDULED_X_SOURCE_TYPES = [
+  "watchlist",
+  "saved_screen",
+  "saved_view",
+  "bullish_confirmation",
+  "bearish_confirmation",
+  "signal_feed",
+  "congress_activity",
+  "insider_activity",
+  "institutional_activity",
+  "government_contracts",
+  "ticker_context",
+] as const;
+
+const SCHEDULED_X_TEMPLATES = [
+  { name: "Daily Watchlist Opportunities", source_type: "watchlist", schedule: "daily", tone: "market-native" },
+  { name: "Daily Bullish Confirmation", source_type: "bullish_confirmation", schedule: "daily", tone: "sharp" },
+  { name: "Daily Bearish Confirmation", source_type: "bearish_confirmation", schedule: "daily", tone: "sharp" },
+  { name: "Daily Congress Activity Spotlight", source_type: "congress_activity", schedule: "daily", tone: "market-native" },
+  { name: "Daily Insider Activity Spotlight", source_type: "insider_activity", schedule: "daily", tone: "market-native" },
+  { name: "Daily Institutional Increases", source_type: "institutional_activity", schedule: "daily", tone: "professional" },
+  { name: "Daily Government Contracts", source_type: "government_contracts", schedule: "daily", tone: "market-native" },
+  { name: "Daily Signal Stack Names", source_type: "signal_feed", schedule: "daily", tone: "sharp" },
+] as const;
 
 function emptyManualForm() {
   return {
@@ -159,6 +186,9 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [manualForm, setManualForm] = useState(() => emptyManualForm());
   const [articleForm, setArticleForm] = useState(() => emptyArticleCampaignForm());
   const [xForm, setXForm] = useState(() => emptyXForm());
+  const [scheduledXForm, setScheduledXForm] = useState(() => emptyScheduledXCampaignForm());
+  const [selectedScheduledXId, setSelectedScheduledXId] = useState<number | null>(null);
+  const [scheduledXSavedSnapshot, setScheduledXSavedSnapshot] = useState<ReturnType<typeof emptyScheduledXCampaignForm> | null>(null);
   const [redditThreadForm, setRedditThreadForm] = useState(() => emptyRedditThreadForm());
   const [changeRequests, setChangeRequests] = useState<Record<number, string>>({});
 
@@ -169,6 +199,8 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const highFitCount = useMemo(() => drafts.filter((draft) => (draft.fit_score ?? draft.relevance_score ?? 0) >= 75).length, [drafts]);
   const assetCount = useMemo(() => drafts.reduce((total, draft) => total + (draft.assets?.length ?? 0), 0), [drafts]);
   const legacyCampaigns = campaigns.filter((campaign) => campaign.legacy);
+  const scheduledXCampaigns = campaigns.filter((campaign) => campaign.campaign_type === "scheduled_x_campaign" || campaign.mode === "scheduled_x_campaign");
+  const scheduledXUnsaved = selectedScheduledXId !== null && scheduledXSavedSnapshot !== null && JSON.stringify(scheduledXForm) !== JSON.stringify(scheduledXSavedSnapshot);
 
   const notify = (message: string, tone: "success" | "error" | "info" = "info") => {
     showToast?.(message, tone);
@@ -370,6 +402,119 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const scheduledXFormFromCampaign = (campaign: AdminAiMarketingCampaign): ReturnType<typeof emptyScheduledXCampaignForm> => {
+    const preferences = campaign.output_preferences ?? {};
+    const schedule = campaign.schedule_config ?? {};
+    return {
+      name: campaign.name ?? "",
+      status: campaign.status ?? (campaign.enabled ? "active" : "paused"),
+      schedule: String(schedule.cadence ?? (campaign.weekdays_only ? "weekdays" : "daily")),
+      run_time: campaign.run_time ?? "07:45",
+      timezone: campaign.timezone ?? "America/Los_Angeles",
+      max_drafts_per_run: String(campaign.max_drafts_per_day ?? 1),
+      recipient_email: campaign.recipient_email ?? "jarod@walnutmarkets.com",
+      source_type: campaign.source_type ?? "watchlist",
+      source_reference_id: campaign.source_reference_id ?? "",
+      filters_json: JSON.stringify(campaign.filters ?? {}, null, 2),
+      tone: String(preferences.tone ?? "market-native"),
+      cta_mode: String(preferences.cta_mode ?? "soft"),
+      hashtag_mode: String(preferences.hashtag_mode ?? "ticker/theme only"),
+      include_image_card: preferences.include_image_card !== false,
+      include_walnut_link: preferences.include_walnut_link !== false,
+    };
+  };
+
+  const selectScheduledXCampaign = (campaign: AdminAiMarketingCampaign) => {
+    const next = scheduledXFormFromCampaign(campaign);
+    setSelectedScheduledXId(campaign.id);
+    setScheduledXForm(next);
+    setScheduledXSavedSnapshot(next);
+  };
+
+  const resetScheduledXCreateForm = () => {
+    const next = emptyScheduledXCampaignForm();
+    setSelectedScheduledXId(null);
+    setScheduledXForm(next);
+    setScheduledXSavedSnapshot(null);
+  };
+
+  const applyScheduledXTemplate = (template: (typeof SCHEDULED_X_TEMPLATES)[number]) => {
+    setSelectedScheduledXId(null);
+    setScheduledXForm({
+      ...emptyScheduledXCampaignForm(),
+      name: template.name,
+      source_type: template.source_type,
+      schedule: template.schedule,
+      tone: template.tone,
+    });
+    setScheduledXSavedSnapshot(null);
+  };
+
+  const scheduledXPayload = (): AdminAiMarketingCampaignPayload => {
+    let filters: Record<string, unknown> = {};
+    try {
+      filters = JSON.parse(scheduledXForm.filters_json || "{}");
+    } catch {
+      throw new Error("Filters JSON is invalid.");
+    }
+    const maxDrafts = Math.max(1, Math.min(10, Number(scheduledXForm.max_drafts_per_run) || 1));
+    return {
+      name: scheduledXForm.name.trim() || "Scheduled X Campaign",
+      enabled: scheduledXForm.status === "active",
+      status: scheduledXForm.status,
+      mode: "scheduled_x_campaign",
+      campaign_type: "scheduled_x_campaign",
+      content_type: "x_post",
+      schedule_config: { cadence: scheduledXForm.schedule },
+      weekdays_only: scheduledXForm.schedule === "weekdays",
+      run_time: scheduledXForm.run_time,
+      timezone: scheduledXForm.timezone,
+      recipient_email: scheduledXForm.recipient_email,
+      source_type: scheduledXForm.source_type,
+      source_reference_id: scheduledXForm.source_reference_id.trim() || null,
+      filters,
+      output_preferences: {
+        tone: scheduledXForm.tone,
+        cta_mode: scheduledXForm.cta_mode,
+        hashtag_mode: scheduledXForm.hashtag_mode,
+        include_image_card: scheduledXForm.include_image_card,
+        include_walnut_link: scheduledXForm.include_walnut_link,
+      },
+      platforms: ["x"],
+      keywords: [],
+      tickers: [],
+      subreddits: [],
+      query_templates: [],
+      minimum_relevance_score: 60,
+      max_items_per_run: maxDrafts,
+      max_drafts_per_day: maxDrafts,
+      recency: "day",
+      default_destination_page: scheduledXForm.include_walnut_link ? "https://walnutmarkets.com" : "",
+      include_disclosure: true,
+      scheduled_digest_enabled: true,
+    };
+  };
+
+  const submitScheduledXCampaign = async () => {
+    setBusy("scheduled_x_campaign");
+    try {
+      const payload = scheduledXPayload();
+      const campaign = selectedScheduledXId
+        ? await updateAdminAiMarketingCampaign(selectedScheduledXId, payload)
+        : await createAdminAiMarketingCampaign(payload);
+      setCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
+      const snapshot = scheduledXFormFromCampaign(campaign);
+      setSelectedScheduledXId(campaign.id);
+      setScheduledXForm(snapshot);
+      setScheduledXSavedSnapshot(snapshot);
+      notify(selectedScheduledXId ? "Scheduled X campaign updated." : "Scheduled X campaign created.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to save scheduled X campaign.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const submitArticleCampaign = async () => {
     setBusy("article_campaign");
     try {
@@ -427,7 +572,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         ...current.filter((draft) => !result.opportunities.some((next) => next.id === draft.id)),
       ]);
       await load();
-      notify(`Article run complete: ${result.created} created, ${result.suggested} generated.`, "success");
+      notify(`Campaign run complete: ${result.drafts_generated ?? result.created ?? 0} drafts, ${result.emails_sent ?? 0} emails.`, "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to run campaign.", "error");
     } finally {
@@ -457,6 +602,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     try {
       await deleteAdminAiMarketingCampaign(campaign.id);
       setCampaigns((current) => current.filter((item) => item.id !== campaign.id));
+      if (selectedScheduledXId === campaign.id) resetScheduledXCreateForm();
       notify("Campaign deleted.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to delete campaign.", "error");
@@ -471,7 +617,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       const payload = buildGrowthPayload(kind, { xForm, redditThreadForm });
       const result = await createAdminAiGrowthDraft(payload);
       prependDraft(result.opportunity);
-      if (kind === "x_campaigns") setXForm(emptyXForm());
+      if (kind === "manual_x_draft") setXForm(emptyXForm());
       if (kind === "reddit_threads") setRedditThreadForm(emptyRedditThreadForm());
       notify(result.warning || "AI Growth draft created.", result.warning ? "info" : "success");
     } catch (error) {
@@ -553,12 +699,30 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
         />
       ) : null}
 
-      {activeTab === "x_campaigns" ? (
+      {activeTab === "manual_x_draft" ? (
         <XChartDropForm
           form={xForm}
           busy={busy}
           setForm={setXForm}
-          onSubmit={() => void submitGrowthDraft("x_campaigns")}
+          onSubmit={() => void submitGrowthDraft("manual_x_draft")}
+        />
+      ) : null}
+
+      {activeTab === "scheduled_x_campaigns" ? (
+        <ScheduledXCampaignsView
+          form={scheduledXForm}
+          setForm={setScheduledXForm}
+          campaigns={scheduledXCampaigns}
+          selectedCampaignId={selectedScheduledXId}
+          unsaved={scheduledXUnsaved}
+          busy={busy}
+          onCreateNew={resetScheduledXCreateForm}
+          onTemplate={applyScheduledXTemplate}
+          onSubmit={() => void submitScheduledXCampaign()}
+          onEdit={selectScheduledXCampaign}
+          onRun={(campaign) => void runCampaignNow(campaign)}
+          onSetStatus={(campaign, status) => void setCampaignLifecycleStatus(campaign, status)}
+          onDelete={(campaign) => void deleteCampaign(campaign)}
         />
       ) : null}
 
@@ -996,6 +1160,117 @@ function ArticleReactiveCampaignsView({
           )}
         </div>
       </section>
+      <RunHistoryPanel title="Article-Reactive X run history" campaigns={campaigns} />
+    </section>
+  );
+}
+
+function ScheduledXCampaignsView({
+  form,
+  setForm,
+  campaigns,
+  selectedCampaignId,
+  unsaved,
+  busy,
+  onCreateNew,
+  onTemplate,
+  onSubmit,
+  onEdit,
+  onRun,
+  onSetStatus,
+  onDelete,
+}: {
+  form: ReturnType<typeof emptyScheduledXCampaignForm>;
+  setForm: (value: ReturnType<typeof emptyScheduledXCampaignForm>) => void;
+  campaigns: AdminAiMarketingCampaign[];
+  selectedCampaignId: number | null;
+  unsaved: boolean;
+  busy: string | null;
+  onCreateNew: () => void;
+  onTemplate: (template: (typeof SCHEDULED_X_TEMPLATES)[number]) => void;
+  onSubmit: () => void;
+  onEdit: (campaign: AdminAiMarketingCampaign) => void;
+  onRun: (campaign: AdminAiMarketingCampaign) => void;
+  onSetStatus: (campaign: AdminAiMarketingCampaign, status: "active" | "paused" | "stopped") => void;
+  onDelete: (campaign: AdminAiMarketingCampaign) => void;
+}) {
+  const selected = campaigns.find((campaign) => campaign.id === selectedCampaignId);
+  return (
+    <section className="space-y-4">
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Scheduled X Campaigns</h3>
+            <p className="mt-1 text-sm text-slate-400">Walnut-native automation that generates reviewed X drafts only. No X or Reddit auto-posting.</p>
+          </div>
+          <Button disabled={Boolean(busy)} onClick={onCreateNew}>Create campaign</Button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {SCHEDULED_X_TEMPLATES.map((template) => (
+            <Button key={template.name} disabled={Boolean(busy)} onClick={() => onTemplate(template)}>{template.name}</Button>
+          ))}
+        </div>
+      </section>
+
+      <FormShell title={selected ? `Editing: ${selected.name}` : "Create Scheduled X Campaign"}>
+        {unsaved ? <p className="mb-3 text-sm font-semibold text-amber-200">Unsaved changes.</p> : null}
+        <div className="grid gap-4 md:grid-cols-2">
+          <TextField label="Campaign name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+          <SelectField label="Campaign status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={["active", "paused"]} />
+          <SelectField label="Schedule" value={form.schedule} onChange={(value) => setForm({ ...form, schedule: value })} options={["daily", "weekdays", "weekly"]} />
+          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="07:45" />
+          <TextField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} />
+          <SelectField label="Max drafts per run" value={form.max_drafts_per_run} onChange={(value) => setForm({ ...form, max_drafts_per_run: value })} options={["1", "2", "3", "4", "5"]} />
+          <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
+          <SelectField label="Source type" value={form.source_type} onChange={(value) => setForm({ ...form, source_type: value })} options={[...SCHEDULED_X_SOURCE_TYPES]} />
+          <TextField label="Source selector" value={form.source_reference_id} onChange={(value) => setForm({ ...form, source_reference_id: value })} placeholder={sourceSelectorPlaceholder(form.source_type)} />
+          <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["market-native", "sharp", "educational", "contrarian", "professional"]} />
+          <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
+          <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
+        </div>
+        <TextareaField label="Filters JSON / preferences" value={form.filters_json} onChange={(value) => setForm({ ...form, filters_json: value })} rows={6} />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
+            <input type="checkbox" checked={form.include_image_card} onChange={(event) => setForm({ ...form, include_image_card: event.target.checked })} />
+            Include image/card
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
+            <input type="checkbox" checked={form.include_walnut_link} onChange={(event) => setForm({ ...form, include_walnut_link: event.target.checked })} />
+            Include Walnut link
+          </label>
+        </div>
+        <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save changes" : "Create campaign"} busyLabel="Saving..." />
+      </FormShell>
+
+      <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+        <h3 className="text-lg font-semibold text-white">Saved Scheduled X Campaigns</h3>
+        <div className="mt-4 space-y-3">
+          {campaigns.length ? campaigns.map((campaign) => (
+            <div key={campaign.id} className="rounded-md border border-white/10 bg-slate-950/40 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-100">{campaign.name}</p>
+                  <p className="mt-1 text-sm text-slate-400">{campaign.source_type ?? "watchlist"} - {campaign.status ?? "active"} - {campaignScheduleLabel(campaign)}</p>
+                  <p className="mt-1 text-xs text-slate-500">Next run: {formatDateTime(campaign.next_run_at)} - Last run: {formatDateTime(campaign.last_run_at)} - Last status: {campaign.last_status ?? "none"}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge label={`max ${campaign.max_drafts_per_day ?? 1}/day`} />
+                  <Button disabled={Boolean(busy) || campaign.status === "active"} onClick={() => onSetStatus(campaign, "active")}>Start</Button>
+                  <Button disabled={Boolean(busy) || campaign.status === "paused"} onClick={() => onSetStatus(campaign, "paused")}>Pause</Button>
+                  <Button disabled={Boolean(busy) || campaign.status === "stopped"} onClick={() => onSetStatus(campaign, "stopped")}>Stop</Button>
+                  <Button disabled={Boolean(busy) || campaign.status !== "active"} onClick={() => onRun(campaign)}>{busy === `run-campaign:${campaign.id}` ? "Running..." : "Run now"}</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onEdit(campaign)}>Edit</Button>
+                  <Button disabled={Boolean(busy)} onClick={() => onDelete(campaign)}>{busy === `delete-campaign:${campaign.id}` ? "Deleting..." : "Delete"}</Button>
+                </div>
+              </div>
+            </div>
+          )) : (
+            <p className="text-sm text-slate-400">No Scheduled X campaigns saved yet.</p>
+          )}
+        </div>
+      </section>
+
+      <RunHistoryPanel title="Scheduled X Campaigns run history" campaigns={campaigns} />
     </section>
   );
 }
@@ -1013,7 +1288,8 @@ function XChartDropForm({
 }) {
   const sourceTypes = ["signals", "Congress", "insiders", "government contracts", "price/volume", "financials/filings"];
   return (
-    <FormShell title="X Campaigns">
+    <FormShell title="Manual X Draft">
+      <p className="mb-4 text-sm text-slate-400">One-off manual X draft generation. This does not create, save, schedule, or run a campaign.</p>
       <div className="grid gap-4 md:grid-cols-2">
         <TextField label="Ticker or theme" value={form.ticker_theme} onChange={(value) => setForm({ ...form, ticker_theme: value })} />
         <TextField label="Timeframe" value={form.timeframe} onChange={(value) => setForm({ ...form, timeframe: value })} />
@@ -1043,7 +1319,7 @@ function XChartDropForm({
           Include link
         </label>
       </div>
-      <SubmitButton busy={busy === "x_campaigns"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
+      <SubmitButton busy={busy === "manual_x_draft"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
     </FormShell>
   );
 }
@@ -1147,6 +1423,49 @@ function SettingsView({
   );
 }
 
+function RunHistoryPanel({ title, campaigns }: { title: string; campaigns: AdminAiMarketingCampaign[] }) {
+  const runs = campaigns.flatMap((campaign) => (campaign.recent_runs ?? []).map((run) => ({ ...run, campaignName: campaign.name })));
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
+      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <div className="mt-4 space-y-2">
+        {runs.length ? runs.map((run) => (
+          <div key={`${run.campaign_id}-${run.id}`} className="grid gap-2 rounded-md border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300 md:grid-cols-6">
+            <span>{formatDateTime(run.run_at)}</span>
+            <span>{run.status}</span>
+            <span>{run.candidates_considered} considered</span>
+            <span>{run.drafts_generated} drafts</span>
+            <span>{run.emails_sent} emails</span>
+            <span>{run.failure_reason || run.campaignName}</span>
+          </div>
+        )) : (
+          <p className="text-sm text-slate-400">No recent campaign runs yet.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function sourceSelectorPlaceholder(sourceType: string) {
+  if (sourceType === "watchlist") return "Watchlist name or ID";
+  if (sourceType === "saved_screen") return "Saved screen name or ID";
+  if (sourceType === "saved_view") return "Saved view name or ID";
+  if (sourceType === "ticker_context") return "Ticker or comma-separated tickers";
+  return "Optional selector";
+}
+
+function campaignScheduleLabel(campaign: AdminAiMarketingCampaign) {
+  const cadence = String(campaign.schedule_config?.cadence ?? (campaign.weekdays_only ? "weekdays" : "daily"));
+  return `${cadence} at ${campaign.run_time ?? "scheduled"} ${campaign.timezone ?? ""}`.trim();
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "none";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
 function buildGrowthPayload(
   kind: TabKey,
   forms: {
@@ -1154,7 +1473,7 @@ function buildGrowthPayload(
     redditThreadForm: ReturnType<typeof emptyRedditThreadForm>;
   },
 ) {
-  if (kind === "x_campaigns") {
+  if (kind === "manual_x_draft") {
     const assets = forms.xForm.asset_url.trim()
       ? [{
           title: "Suggested X chart",
@@ -1408,6 +1727,26 @@ function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: st
     return { value: config?.openai_credits_label ?? "OpenAI balance unavailable", tone: "warn" };
   }
   return { value: "Unavailable", tone: "warn" };
+}
+
+function emptyScheduledXCampaignForm() {
+  return {
+    name: "",
+    status: "active",
+    schedule: "daily",
+    run_time: "07:45",
+    timezone: "America/Los_Angeles",
+    max_drafts_per_run: "1",
+    recipient_email: "jarod@walnutmarkets.com",
+    source_type: "watchlist",
+    source_reference_id: "",
+    filters_json: "{}",
+    tone: "market-native",
+    cta_mode: "soft",
+    hashtag_mode: "ticker/theme only",
+    include_image_card: true,
+    include_walnut_link: true,
+  };
 }
 
 function platformLabel(platform?: string | null) {

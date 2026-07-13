@@ -13,6 +13,7 @@ from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base, ensure_ai_marketing_schema, ensure_email_notification_schema
 from app.models import (
     AiMarketingArticleCandidate,
+    AiMarketingCampaignRun,
     AiMarketingEmailLog,
     AiMarketingOpportunity,
     AiMarketingSetting,
@@ -306,6 +307,90 @@ def test_ai_marketing_campaign_lifecycle_controls():
         deleted = admin_ai_marketing_delete_campaign(campaign["id"], request, db)
         assert deleted == {"ok": True, "id": campaign["id"]}
         assert admin_ai_marketing_campaigns(request, db)["items"] == []
+    finally:
+        db.close()
+
+
+def test_scheduled_x_campaign_lifecycle_run_email_and_delete(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="scheduled_x_campaign",
+            content_type="x_post",
+            platform="x",
+            suggested_post="Daily watchlist opportunity: NVDA has a cleaner signal stack today. Cross-check price, filings, and disclosure context in Walnut. $NVDA #Markets",
+        ),
+    )
+    sent = []
+
+    def fake_send_email(db, **kwargs):
+        sent.append(kwargs)
+        return {"id": 123, "status": "sent"}
+
+    monkeypatch.setattr("app.services.ai_marketing.send_email", fake_send_email)
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        campaign = admin_ai_marketing_create_campaign(
+            CampaignPayload(
+                name="Daily Watchlist Opportunities",
+                enabled=True,
+                status="active",
+                mode="scheduled_x_campaign",
+                campaign_type="scheduled_x_campaign",
+                content_type="x_post",
+                schedule_config={"cadence": "weekdays"},
+                weekdays_only=True,
+                run_time="06:30",
+                timezone="America/Los_Angeles",
+                recipient_email="jarod@walnutmarkets.com",
+                source_type="watchlist",
+                source_reference_id="AI Leaders",
+                filters={"min_signal_score": 70},
+                output_preferences={"tone": "market-native", "cta_mode": "soft", "hashtag_mode": "ticker/theme only"},
+                platforms=["x"],
+                max_items_per_run=1,
+                max_drafts_per_day=1,
+            ),
+            request,
+            db,
+        )
+        assert campaign["campaign_type"] == "scheduled_x_campaign"
+        assert campaign["source_type"] == "watchlist"
+        assert campaign["run_time"] == "06:30"
+
+        edited = admin_ai_marketing_update_campaign(
+            campaign["id"],
+            CampaignPatchPayload(run_time="07:15", timezone="America/New_York", max_drafts_per_day=2, status="paused", enabled=False),
+            request,
+            db,
+        )
+        assert edited["run_time"] == "07:15"
+        assert edited["timezone"] == "America/New_York"
+        assert edited["max_drafts_per_day"] == 2
+        assert edited["status"] == "paused"
+
+        active = admin_ai_marketing_update_campaign(campaign["id"], CampaignPatchPayload(status="active", enabled=True), request, db)
+        assert active["enabled"] is True
+        result = admin_ai_marketing_run_campaign(campaign["id"], request, db)
+        assert result["drafts_generated"] == 2
+        assert result["emails_sent"] == 2
+        assert sent and sent[0]["to_email"] == "jarod@walnutmarkets.com"
+        assert db.query(AiMarketingOpportunity).filter(AiMarketingOpportunity.campaign_id == campaign["id"]).count() == 2
+        run = db.query(AiMarketingCampaignRun).filter(AiMarketingCampaignRun.campaign_id == campaign["id"]).one()
+        assert run.status == "ok"
+        assert run.drafts_generated == 2
+
+        payload = admin_ai_marketing_campaigns(request, db)
+        row = next(item for item in payload["items"] if item["id"] == campaign["id"])
+        assert row["recent_runs"][0]["drafts_generated"] == 2
+        assert row["last_status"] == "ok"
+
+        deleted = admin_ai_marketing_delete_campaign(campaign["id"], request, db)
+        assert deleted == {"ok": True, "id": campaign["id"]}
+        assert all(item["id"] != campaign["id"] for item in admin_ai_marketing_campaigns(request, db)["items"])
     finally:
         db.close()
 

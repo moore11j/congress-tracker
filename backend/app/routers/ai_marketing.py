@@ -18,6 +18,7 @@ from app.services.ai_marketing import (
     apply_email_action,
     archive_opportunity,
     campaign_to_dict,
+    campaign_to_dict_with_runs,
     config_status,
     create_campaign,
     create_growth_draft,
@@ -29,7 +30,6 @@ from app.services.ai_marketing import (
     mark_opportunity_opened,
     mark_opportunity_posted,
     opportunity_to_dict,
-    post_draft_to_x,
     process_postmark_ai_growth_inbound,
     preview_digest,
     public_settings_payload,
@@ -73,7 +73,7 @@ class CampaignPayload(BaseModel):
     query_templates: list[str] = Field(default_factory=list)
     minimum_relevance_score: int = Field(default=60, ge=0, le=100)
     max_items_per_run: int = Field(default=10, ge=1, le=50)
-    max_drafts_per_day: int = Field(default=1, ge=1, le=2)
+    max_drafts_per_day: int = Field(default=1, ge=1, le=10)
     recency: str = Field(default="week", max_length=20)
     default_destination_page: str = Field(default="https://walnutmarkets.com", max_length=1000)
     include_disclosure: bool = True
@@ -103,7 +103,7 @@ class CampaignPatchPayload(BaseModel):
     query_templates: list[str] | None = None
     minimum_relevance_score: int | None = Field(default=None, ge=0, le=100)
     max_items_per_run: int | None = Field(default=None, ge=1, le=50)
-    max_drafts_per_day: int | None = Field(default=None, ge=1, le=2)
+    max_drafts_per_day: int | None = Field(default=None, ge=1, le=10)
     recency: str | None = Field(default=None, max_length=20)
     default_destination_page: str | None = Field(default=None, max_length=1000)
     include_disclosure: bool | None = None
@@ -163,10 +163,6 @@ class EmailDigestPayload(BaseModel):
     opportunity_ids: list[int] | None = None
     statuses: list[str] | None = None
     limit: int = Field(default=25, ge=1, le=100)
-
-
-class XPostPayload(BaseModel):
-    draft_id: int
 
 
 class SettingsPatchPayload(BaseModel):
@@ -230,7 +226,7 @@ def admin_ai_marketing_campaigns(request: Request, db: Session = Depends(get_db)
     require_admin_user(db, request)
     campaigns = db.execute(select(AiMarketingCampaign).order_by(desc(AiMarketingCampaign.updated_at), desc(AiMarketingCampaign.id))).scalars().all()
     return {
-        "items": [campaign_to_dict(campaign) for campaign in campaigns],
+        "items": [campaign_to_dict_with_runs(db, campaign) for campaign in campaigns],
         "config": config_status(db),
     }
 
@@ -584,7 +580,7 @@ def admin_ai_growth_x_oauth_start(request: Request, db: Session = Depends(get_db
         "ok": False,
         "status": x_account_status(),
         "message": "X OAuth PKCE setup requires X_CLIENT_ID, X_CLIENT_SECRET, and X_REDIRECT_URI in server env before redirect can start.",
-        "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        "required_scopes": ["tweet.read", "users.read", "offline.access"],
     }
 
 
@@ -611,23 +607,6 @@ def admin_ai_growth_x_test(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
     status = x_account_status()
     return {"ok": bool(status["connected"]), "status": status, "message": "X account connected." if status["connected"] else "X account is not connected."}
-
-
-@router.post("/admin/ai-growth/x/post", dependencies=[Depends(rate_limit_admin_mutation)])
-def admin_ai_growth_x_post(
-    payload: XPostPayload,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    admin = require_admin_user(db, request)
-    try:
-        return post_draft_to_x(db, payload.draft_id, actor_admin_id=admin.id)
-    except MissingMarketingCredential as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/webhooks/postmark/inbound/ai-growth")

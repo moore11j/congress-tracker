@@ -1894,7 +1894,8 @@ export type AdminAiMarketingMode =
   | "manual_research_input"
   | "x_chart_drop"
   | "reddit_research_thread"
-  | "article_reactive_x";
+  | "article_reactive_x"
+  | "scheduled_x_campaign";
 
 export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "facebook_manual" | "facebook" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
@@ -1993,6 +1994,19 @@ export type AdminAiMarketingCampaign = {
   updated_by?: number | null;
   last_run_at?: string | null;
   next_run_at?: string | null;
+  last_status?: string | null;
+  recent_runs?: Array<{
+    id: number;
+    campaign_id: number;
+    campaign_type: string;
+    run_at?: string | null;
+    status: string;
+    candidates_considered: number;
+    drafts_generated: number;
+    emails_sent: number;
+    failure_reason?: string | null;
+    payload?: Record<string, unknown>;
+  }>;
   legacy?: boolean;
   platforms: AdminAiMarketingPlatform[];
   keywords: string[];
@@ -2123,9 +2137,15 @@ export type AdminAiMarketingOpportunitiesResponse = {
 };
 
 export type AdminAiMarketingRunResponse = {
+  status?: string;
   created: number;
   deduped: number;
   suggested: number;
+  drafts_generated?: number;
+  emails_sent?: number;
+  candidates_considered?: number;
+  articles_considered?: number;
+  errors?: string[];
   warnings: string[];
   opportunities: AdminAiMarketingOpportunity[];
 };
@@ -3602,6 +3622,7 @@ export type TickerOwnershipHolder = {
   cik?: string | null;
   holder_name?: string | null;
   ownership_pct?: number | null;
+  ownership_pct_source?: string | null;
   value_usd?: number | null;
   shares?: number | null;
   portfolio_weight?: number | null;
@@ -3619,6 +3640,9 @@ export type TickerOwnershipPoint = {
   retail_ownership_pct?: number | null;
   total_holders?: number | null;
   total_value_usd?: number | null;
+  total_institutional_shares?: number | null;
+  float_shares?: number | null;
+  float_shares_source?: string | null;
   ownership_source?: string | null;
 };
 

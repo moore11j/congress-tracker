@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     AiMarketingArticleCandidate,
     AiMarketingCampaign,
+    AiMarketingCampaignRun,
     AiMarketingEmailLog,
     AiMarketingOpportunity,
     AiMarketingSetting,
@@ -91,6 +92,7 @@ GROWTH_CAMPAIGN_MODES = {
     "x_chart_drop",
     "reddit_research_thread",
     "article_reactive_x",
+    "scheduled_x_campaign",
 }
 CAMPAIGN_MODES = LEGACY_CAMPAIGN_MODES | GROWTH_CAMPAIGN_MODES
 PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "x", "facebook_manual", "facebook", "linkedin", "manual", "other"}
@@ -121,6 +123,7 @@ CAMPAIGN_TYPES = {
     "x_chart_drop",
     "reddit_research_thread",
     "article_reactive_x",
+    "scheduled_x_campaign",
     "legacy_outreach_campaign",
 }
 REPLY_ANGLES = {
@@ -135,6 +138,7 @@ REPLY_ANGLES = {
 }
 ARTICLE_REACTIVE_PROVIDER = "fmp_articles"
 ARTICLE_REACTIVE_CAMPAIGN_TYPE = "article_reactive_x"
+SCHEDULED_X_CAMPAIGN_TYPE = "scheduled_x_campaign"
 FMP_ARTICLES_URL = "https://financialmodelingprep.com/stable/fmp-articles"
 ARTICLE_RUN_DEFAULT_LIMIT = 20
 ARTICLE_DEDUPE_DAYS = 14
@@ -691,6 +695,7 @@ def _default_growth_title(campaign_type: str, ticker_theme: str | None = None) -
         "x_chart_drop": "X Campaign",
         "reddit_research_thread": "Reddit Research Thread",
         "article_reactive_x": "Article-Reactive X Campaign",
+        "scheduled_x_campaign": "Scheduled X Campaign",
     }
     label = labels.get(campaign_type, "AI Growth Draft")
     theme = str(ticker_theme or "").strip()
@@ -917,6 +922,65 @@ def campaign_to_dict(campaign: AiMarketingCampaign) -> dict[str, Any]:
         "created_at": _iso(campaign.created_at),
         "updated_at": _iso(campaign.updated_at),
     }
+
+
+def campaign_run_to_dict(run: AiMarketingCampaignRun) -> dict[str, Any]:
+    return {
+        "id": run.id,
+        "campaign_id": run.campaign_id,
+        "campaign_type": run.campaign_type,
+        "run_at": _iso(run.run_at),
+        "status": run.status,
+        "candidates_considered": int(run.candidates_considered or 0),
+        "drafts_generated": int(run.drafts_generated or 0),
+        "emails_sent": int(run.emails_sent or 0),
+        "failure_reason": run.failure_reason,
+        "payload": _load_object(run.payload_json),
+    }
+
+
+def campaign_to_dict_with_runs(db: Session, campaign: AiMarketingCampaign, *, limit: int = 5) -> dict[str, Any]:
+    payload = campaign_to_dict(campaign)
+    runs = db.execute(
+        select(AiMarketingCampaignRun)
+        .where(AiMarketingCampaignRun.campaign_id == campaign.id)
+        .order_by(desc(AiMarketingCampaignRun.run_at), desc(AiMarketingCampaignRun.id))
+        .limit(max(1, min(limit, 20)))
+    ).scalars().all()
+    payload["recent_runs"] = [campaign_run_to_dict(run) for run in runs]
+    payload["last_status"] = runs[0].status if runs else None
+    return payload
+
+
+def record_campaign_run(
+    db: Session,
+    campaign: AiMarketingCampaign,
+    summary: dict[str, Any],
+    *,
+    candidates_considered: int | None = None,
+    drafts_generated: int | None = None,
+    emails_sent: int | None = None,
+    failure_reason: str | None = None,
+) -> AiMarketingCampaignRun:
+    warnings = _coerce_json_list(summary.get("warnings"))
+    errors = _coerce_json_list(summary.get("errors"))
+    status = str(summary.get("status") or "ok")
+    reason = failure_reason or (str(errors[0]) if errors else str(warnings[0]) if warnings and status not in {"ok", "success"} else None)
+    run = AiMarketingCampaignRun(
+        campaign_id=campaign.id,
+        campaign_type=_normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode),
+        run_at=datetime.now(timezone.utc),
+        status=status,
+        candidates_considered=int(candidates_considered if candidates_considered is not None else summary.get("candidates_considered") or summary.get("articles_considered") or 0),
+        drafts_generated=int(drafts_generated if drafts_generated is not None else summary.get("drafts_generated") or summary.get("created") or 0),
+        emails_sent=int(emails_sent if emails_sent is not None else summary.get("emails_sent") or 0),
+        failure_reason=_truncate(reason or "", 1000) or None,
+        payload_json=_dump_object({key: value for key, value in summary.items() if key != "opportunities"}),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
 
 
 def latest_suggestions_by_opportunity(db: Session, opportunity_ids: list[int]) -> dict[int, AiMarketingSuggestion]:
@@ -1672,12 +1736,14 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
     if not campaign.enabled or status != "active":
         summary["status"] = status if status in {"paused", "stopped"} else "paused"
         summary["warnings"].append("Campaign is disabled; no article run was performed.")
+        record_campaign_run(db, campaign, summary)
         return summary
     if not resolved_setting_value(db, FMP_API_KEY):
         summary["status"] = "configuration_failed"
         summary["errors"].append("FMP Articles API key missing. Configure FMP_API_KEY on the server.")
         campaign.last_run_at = datetime.now(timezone.utc)
         db.commit()
+        record_campaign_run(db, campaign, summary)
         return summary
     try:
         articles = fetch_fmp_articles(db, page=0, limit=min(max(int(campaign.max_items_per_run or 20), 1), 50))
@@ -1686,6 +1752,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         summary["errors"].append(str(exc))
         campaign.last_run_at = datetime.now(timezone.utc)
         db.commit()
+        record_campaign_run(db, campaign, summary)
         return summary
     except Exception:
         logger.exception("ai_growth_article_fmp_fetch_failed campaign_id=%s", campaign.id)
@@ -1693,6 +1760,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         summary["errors"].append("FMP Articles API request failed.")
         campaign.last_run_at = datetime.now(timezone.utc)
         db.commit()
+        record_campaign_run(db, campaign, summary)
         return summary
 
     summary["articles_fetched"] = len(articles)
@@ -1762,6 +1830,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         summary["warnings"].append("No article had a clear Walnut angle after scoring.")
     campaign.last_run_at = datetime.now(timezone.utc)
     db.commit()
+    record_campaign_run(db, campaign, summary)
     return summary
 
 
@@ -1820,6 +1889,128 @@ def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_
     }
 
 
+def _scheduled_x_source_label(source_type: str | None, source_reference_id: str | None) -> str:
+    source = str(source_type or "watchlist").strip().replace("_", " ")
+    selector = str(source_reference_id or "").strip()
+    return f"{source}: {selector}" if selector else source
+
+
+def _scheduled_x_context(campaign: AiMarketingCampaign, *, index: int = 1) -> tuple[str, dict[str, Any]]:
+    filters = _load_object(campaign.filters_json)
+    preferences = _load_object(campaign.output_preferences_json)
+    schedule = _load_object(campaign.schedule_config_json)
+    source_type = campaign.source_type or "watchlist"
+    source_reference_id = campaign.source_reference_id or ""
+    source_label = _scheduled_x_source_label(source_type, source_reference_id)
+    ticker_theme = source_reference_id or ", ".join(_load_list(campaign.tickers_json)) or source_label
+    text = "\n".join(
+        [
+            f"Saved Walnut scheduled X campaign: {campaign.name}",
+            f"Source type: {source_type}",
+            f"Source selector: {source_reference_id or 'default'}",
+            f"Schedule: {schedule.get('cadence') or ('weekdays' if campaign.weekdays_only else 'daily')} at {campaign.run_time or 'scheduled time'} {campaign.timezone or 'America/Los_Angeles'}",
+            f"Filters/preferences JSON: {json.dumps(filters, sort_keys=True)}",
+            f"Draft preferences: {json.dumps(preferences, sort_keys=True)}",
+            f"Draft slot: {index}",
+            "Create a human-reviewed X draft for Walnut. No auto-posting. Save to Draft Queue and email the recipient for copy/open actions.",
+        ]
+    )
+    inputs = {
+        "scheduled_campaign": True,
+        "source_type": source_type,
+        "source_reference_id": source_reference_id,
+        "filters": filters,
+        "schedule": schedule,
+        "preferences": preferences,
+        "draft_slot": index,
+        "include_image_card": bool(preferences.get("include_image_card", True)),
+        "include_walnut_link": bool(preferences.get("include_walnut_link", True)),
+        "cta_mode": preferences.get("cta_mode", "soft"),
+        "hashtag_mode": preferences.get("hashtag_mode", "ticker/theme only"),
+    }
+    return ticker_theme, {"text": text, "inputs": inputs, "preferences": preferences, "source_label": source_label}
+
+
+def run_scheduled_x_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": "ok",
+        "candidates_considered": 0,
+        "drafts_generated": 0,
+        "emails_sent": 0,
+        "created": 0,
+        "deduped": 0,
+        "suggested": 0,
+        "warnings": [],
+        "errors": [],
+        "opportunities": [],
+    }
+    status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
+    if not campaign.enabled or status != "active":
+        summary["status"] = status if status in {"paused", "stopped"} else "paused"
+        summary["warnings"].append("Campaign is disabled; no scheduled X run was performed.")
+        record_campaign_run(db, campaign, summary)
+        return summary
+    max_drafts = max(1, min(int(campaign.max_drafts_per_day or 1), 10))
+    selected: list[AiMarketingOpportunity] = []
+    for index in range(1, max_drafts + 1):
+        ticker_theme, context = _scheduled_x_context(campaign, index=index)
+        source_key = f"scheduled-x:{campaign.id}:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}:{index}"
+        source_item = SourceItem(
+            platform="x",
+            source_id=source_key,
+            source_url=MANUAL_SOURCE_URL,
+            source_provider="scheduled_x_campaign",
+            campaign_type=SCHEDULED_X_CAMPAIGN_TYPE,
+            content_type="x_post",
+            source_platform="x",
+            ticker_theme=ticker_theme,
+            recommended_action="draft_post",
+            title=f"{campaign.name}: {context['source_label']}",
+            excerpt=context["text"],
+            source_score=80,
+            metadata={
+                "scheduled_campaign": True,
+                "source_type": campaign.source_type,
+                "source_reference_id": campaign.source_reference_id,
+                "inputs": context["inputs"],
+                "tone": context["preferences"].get("tone"),
+                "suggested_destination_url": campaign.default_destination_page or DEFAULT_DESTINATION_URL,
+            },
+        )
+        opportunity, was_created = upsert_source_item(db, campaign, source_item)
+        selected.append(opportunity)
+        summary["candidates_considered"] += 1
+        if was_created:
+            summary["created"] += 1
+        else:
+            summary["deduped"] += 1
+        if resolved_setting_value(db, OPENAI_API_KEY):
+            try:
+                generate_suggestion(db, opportunity, campaign=campaign)
+                summary["suggested"] += 1
+            except OpenAISuggestionError as exc:
+                summary["warnings"].append(f"Suggestion generation failed for draft {opportunity.id}: {exc.admin_message}")
+            except Exception:
+                logger.exception("scheduled_x_suggestion_failed opportunity_id=%s", opportunity.id)
+                summary["warnings"].append(f"Suggestion generation failed for draft {opportunity.id}.")
+        else:
+            summary["warnings"].append("OpenAI API key missing; scheduled X draft saved without generated copy.")
+            _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
+        try:
+            send_draft_email(db, opportunity, to_email=campaign.recipient_email or ai_growth_recipient())
+            summary["emails_sent"] += 1
+        except Exception:
+            logger.exception("scheduled_x_email_failed opportunity_id=%s", opportunity.id)
+            summary["warnings"].append(f"Email failed for draft {opportunity.id}.")
+    summary["drafts_generated"] = len(selected)
+    latest = latest_suggestions_by_opportunity(db, [row.id for row in selected])
+    summary["opportunities"] = [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in selected]
+    campaign.last_run_at = datetime.now(timezone.utc)
+    db.commit()
+    record_campaign_run(db, campaign, summary)
+    return summary
+
+
 def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     warnings: list[str] = []
     status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
@@ -1828,6 +2019,8 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
         return {"status": status if status in {"paused", "stopped"} else "paused", "created": 0, "deduped": 0, "suggested": 0, "warnings": warnings, "opportunities": []}
     if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
         return run_article_reactive_campaign(db, campaign)
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == SCHEDULED_X_CAMPAIGN_TYPE:
+        return run_scheduled_x_campaign(db, campaign)
 
     items: list[SourceItem] = []
     platforms = set(_load_list(campaign.platforms_json))
@@ -2402,7 +2595,7 @@ def recommended_destination_url(
     return _with_utm(base_url, platform=platform, campaign_id=campaign_id)
 
 
-EMAIL_ACTIONS = {"approve", "approve_and_post", "reject", "reject_and_regenerate", "reply"}
+EMAIL_ACTIONS = {"approve", "reject", "reject_and_regenerate", "reply"}
 
 
 def _public_app_base_url() -> str:
@@ -2538,10 +2731,6 @@ def apply_email_action(
         draft.status = "rejected_regenerate_requested"
         token_row.result = "regeneration_requested"
         regenerate_growth_draft(db, draft, change_request="Reject this idea and regenerate a replacement angle. Preserve compliance and no-investment-advice framing.")
-    elif action == "approve_and_post":
-        token_row.result = "admin_confirmation_required"
-        db.commit()
-        return {"status": "admin_confirmation_required", "draft_id": draft.id, "confirm_url": f"{_public_app_base_url()}/admin/ai-marketing?draft={draft.id}&confirm_post=1"}
     else:
         token_row.result = "unsupported_action"
     draft.updated_at = datetime.now(timezone.utc)
@@ -2561,39 +2750,6 @@ def x_account_status() -> dict[str, Any]:
         "last_token_refresh": None,
         "secrets_managed_by": "server_env_or_encrypted_store",
     }
-
-
-def post_draft_to_x(db: Session, draft_id: int, *, actor_admin_id: int | None = None) -> dict[str, Any]:
-    draft = db.get(AiMarketingOpportunity, draft_id)
-    if not draft:
-        raise ValueError("Draft not found.")
-    if not x_account_status()["connected"]:
-        raise MissingMarketingCredential("X account is not connected. Connect Walnut's X account before posting.")
-    latest = latest_suggestions_by_opportunity(db, [draft.id]).get(draft.id)
-    body = (_generated_content_from_suggestion(latest) or draft.generated_content or draft.full_markdown or "").strip()
-    if not body:
-        raise ValueError("Draft has no post body.")
-    response = requests.post(
-        "https://api.x.com/2/tweets",
-        headers={"Authorization": f"Bearer {os.getenv('X_ACCESS_TOKEN', '').strip()}", "Content-Type": "application/json"},
-        json={"text": body[:X_POST_CHARACTER_LIMIT]},
-        timeout=20,
-    )
-    if response.status_code >= 400:
-        raise RuntimeError("X API post failed.")
-    data = response.json()
-    post_id = str((data.get("data") or {}).get("id") or "").strip()
-    handle = x_account_status().get("handle") or "WalnutMarkets"
-    post_url = f"https://x.com/{handle}/status/{post_id}" if post_id else ""
-    metadata = _load_object(draft.raw_metadata_json)
-    metadata.update({"x_post_id": post_id, "x_post_url": post_url, "posted_by_admin_id": actor_admin_id})
-    draft.raw_metadata_json = _dump_object(metadata)
-    draft.status = "posted"
-    draft.posted_manually_at = datetime.now(timezone.utc)
-    draft.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(draft)
-    return {"status": "posted", "x_post_id": post_id, "x_post_url": post_url, "draft": opportunity_to_dict(draft, suggestion=latest)}
 
 
 def process_postmark_ai_growth_inbound(
@@ -2650,12 +2806,13 @@ def preview_digest(
     opportunity_ids: list[int] | None = None,
     statuses: list[str] | None = None,
     limit: int = 25,
+    to_email: str | None = None,
 ) -> dict[str, Any]:
     opportunities = _digest_opportunities(db, opportunity_ids=opportunity_ids, statuses=statuses, limit=limit)
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
     context = _digest_context(db, opportunities, latest)
     return {
-        "to_email": ai_growth_recipient(),
+        "to_email": to_email or ai_growth_recipient(),
         "subject": context["subject"],
         "items": [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in opportunities],
         "body_text": context["items_text"],
@@ -2671,14 +2828,16 @@ def send_digest(
     statuses: list[str] | None = None,
     limit: int = 25,
     admin_user_id: int | None = None,
+    to_email: str | None = None,
 ) -> dict[str, Any]:
     opportunities = _digest_opportunities(db, opportunity_ids=opportunity_ids, statuses=statuses, limit=limit)
     latest = latest_suggestions_by_opportunity(db, [row.id for row in opportunities])
     context = _digest_context(db, opportunities, latest)
-    reply_to = reply_to_address_for_draft(db, opportunities[0].id, actor_email=ai_growth_recipient()) if len(opportunities) == 1 else None
+    recipient = to_email or ai_growth_recipient()
+    reply_to = reply_to_address_for_draft(db, opportunities[0].id, actor_email=recipient) if len(opportunities) == 1 else None
     result = send_email(
         db,
-        to_email=ai_growth_recipient(),
+        to_email=recipient,
         template_key=AI_MARKETING_TEMPLATE_KEY,
         context=context,
         user_id=admin_user_id,
@@ -2690,7 +2849,7 @@ def send_digest(
     sent_at = datetime.now(timezone.utc) if status == "sent" else None
     log = AiMarketingEmailLog(
         delivery_id=result.get("id") if isinstance(result.get("id"), int) else None,
-        to_email=ai_growth_recipient(),
+        to_email=recipient,
         subject=context["subject"],
         opportunity_ids_json=_dump_list([str(row.id) for row in opportunities]),
         status=status,
@@ -2719,8 +2878,9 @@ def send_draft_email(
     opportunity: AiMarketingOpportunity,
     *,
     admin_user_id: int | None = None,
+    to_email: str | None = None,
 ) -> dict[str, Any]:
-    return send_digest(db, opportunity_ids=[opportunity.id], statuses=None, limit=1, admin_user_id=admin_user_id)
+    return send_digest(db, opportunity_ids=[opportunity.id], statuses=None, limit=1, admin_user_id=admin_user_id, to_email=to_email)
 
 
 def mark_opportunity_copied(db: Session, opportunity: AiMarketingOpportunity) -> AiMarketingOpportunity:
@@ -3374,7 +3534,6 @@ def _digest_context(
         direct_version = str(alternate_versions.get("more_direct_version") or alternate_versions.get("alternate_reply_more_direct") or "").strip()
         hashtag_block = str(alternate_versions.get("copy_hashtags_cashtags") or "").strip()
         admin_url = _draft_admin_url(opportunity.id)
-        approve_post_url = email_action_url(db, opportunity.id, "approve_and_post", actor_email=ai_growth_recipient())
         approve_url = email_action_url(db, opportunity.id, "approve", actor_email=ai_growth_recipient())
         reject_url = email_action_url(db, opportunity.id, "reject", actor_email=ai_growth_recipient())
         reject_regenerate_url = email_action_url(db, opportunity.id, "reject_and_regenerate", actor_email=ai_growth_recipient())
@@ -3427,7 +3586,6 @@ def _digest_context(
                     f"Short version: {short_version or 'none'}",
                     f"Direct version: {direct_version or 'none'}",
                     f"Suggested hashtags/cashtags: {hashtag_block or tickers}",
-                    f"Approve + Post: {approve_post_url}",
                     f"Approve: {approve_url}",
                     f"Reject: {reject_url}",
                     f"Reject + Regenerate: {reject_regenerate_url}",
@@ -3466,7 +3624,6 @@ def _digest_context(
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Alternate versions:</strong> short={html.escape(short_version or 'none')} | direct={html.escape(direct_version or 'none')}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Hashtags/cashtags:</strong> {html.escape(hashtag_block or tickers)}</p>"
             "<div style=\"margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;\">"
-            f"<a href=\"{html.escape(approve_post_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#16a34a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Approve + Post</a>"
             f"<a href=\"{html.escape(approve_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#e2e8f0;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">Approve</a>"
             f"<a href=\"{html.escape(reject_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#475569;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Reject</a>"
             f"<a href=\"{html.escape(reject_regenerate_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#f59e0b;color:#111827;text-decoration:none;border-radius:6px;font-weight:700;\">Reject + Regenerate</a>"

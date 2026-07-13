@@ -2796,6 +2796,24 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             conn.execute(
                 text(
                     """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_campaign_runs (
+                        id INTEGER PRIMARY KEY,
+                        campaign_id INTEGER NOT NULL,
+                        campaign_type TEXT NOT NULL,
+                        run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status TEXT NOT NULL,
+                        candidates_considered INTEGER NOT NULL DEFAULT 0,
+                        drafts_generated INTEGER NOT NULL DEFAULT 0,
+                        emails_sent INTEGER NOT NULL DEFAULT 0,
+                        failure_reason TEXT,
+                        payload_json TEXT NOT NULL DEFAULT '{}'
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
                     CREATE TABLE IF NOT EXISTS ai_marketing_opportunities (
                         id INTEGER PRIMARY KEY,
                         campaign_id INTEGER,
@@ -2999,6 +3017,24 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
                         first_seen_at TIMESTAMPTZ DEFAULT now(),
                         last_seen_at TIMESTAMPTZ DEFAULT now(),
                         dedupe_hash TEXT NOT NULL
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_campaign_runs (
+                        id SERIAL PRIMARY KEY,
+                        campaign_id INTEGER NOT NULL,
+                        campaign_type TEXT NOT NULL,
+                        run_at TIMESTAMPTZ DEFAULT now(),
+                        status TEXT NOT NULL,
+                        candidates_considered INTEGER NOT NULL DEFAULT 0,
+                        drafts_generated INTEGER NOT NULL DEFAULT 0,
+                        emails_sent INTEGER NOT NULL DEFAULT 0,
+                        failure_reason TEXT,
+                        payload_json TEXT NOT NULL DEFAULT '{}'
                     )
                     """
                 )
@@ -3218,6 +3254,24 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS query_templates_json TEXT NOT NULL DEFAULT '[]'"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS max_drafts_per_day INTEGER NOT NULL DEFAULT 1"))
             conn.execute(text("ALTER TABLE ai_marketing_campaigns ADD COLUMN IF NOT EXISTS recency TEXT NOT NULL DEFAULT 'week'"))
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS ai_marketing_campaign_runs (
+                        id SERIAL PRIMARY KEY,
+                        campaign_id INTEGER NOT NULL,
+                        campaign_type TEXT NOT NULL,
+                        run_at TIMESTAMPTZ DEFAULT now(),
+                        status TEXT NOT NULL,
+                        candidates_considered INTEGER NOT NULL DEFAULT 0,
+                        drafts_generated INTEGER NOT NULL DEFAULT 0,
+                        emails_sent INTEGER NOT NULL DEFAULT 0,
+                        failure_reason TEXT,
+                        payload_json TEXT NOT NULL DEFAULT '{}'
+                    )
+                    """
+                )
+            )
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS source_provider TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS campaign_type TEXT"))
             conn.execute(text("ALTER TABLE ai_marketing_opportunities ADD COLUMN IF NOT EXISTS content_type TEXT"))
@@ -3258,6 +3312,7 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_settings_secret ON ai_marketing_settings (is_secret)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_enabled ON ai_marketing_campaigns (enabled)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaigns_mode ON ai_marketing_campaigns (mode)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_marketing_campaign_runs_campaign_time ON ai_marketing_campaign_runs (campaign_id, run_at)"))
         conn.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_marketing_article_candidates_provider_hash "
