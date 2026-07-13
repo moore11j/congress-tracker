@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from app.db import SessionLocal, engine, ensure_ai_marketing_schema, ensure_confirmation_monitoring_snapshot_schema
+from app.db import SessionLocal, engine, ensure_confirmation_monitoring_snapshot_schema
 from app.services.ai_marketing import run_due_ai_growth_campaigns
 
 
@@ -13,7 +13,6 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    ensure_ai_marketing_schema(engine)
     ensure_confirmation_monitoring_snapshot_schema(engine)
     with SessionLocal() as db:
         result = run_due_ai_growth_campaigns(db, force=args.force, dry_run=args.dry_run)
