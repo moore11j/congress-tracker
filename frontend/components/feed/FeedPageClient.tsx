@@ -199,9 +199,6 @@ export function FeedPageClient() {
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <span className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Market Activity</span>
-              <a href="/feed/macro-positioning" className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-white/25 hover:text-white">
-                Macro Positioning
-              </a>
             </div>
           </div>
           <div className="contents">

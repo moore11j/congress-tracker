@@ -30,6 +30,16 @@ test("macro positioning section has pro lock, cards, and flyout", () => {
   assert.match(component, /Interpretation/);
 });
 
+test("macro positioning section owns overview and positioning feed tabs", () => {
+  assert.match(component, /Overview/);
+  assert.match(component, /Positioning Feed/);
+  assert.match(component, /getMacroPositioningFeed/);
+  assert.match(api, /\/api\/feed\/macro-positioning/);
+  for (const heading of ["Report Date", "Market", "Positioning", "Weekly Change", "Historical Range", "Trend", "Insight"]) {
+    assert.match(component, new RegExp(heading));
+  }
+});
+
 test("macro positioning user-facing code avoids provider terminology", () => {
   for (const source of [component, insightsPage]) {
     assert.doesNotMatch(source, /\bCOT\b|Commitment of Traders|CFTC|FMP|provider|endpoint/i);
