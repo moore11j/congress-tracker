@@ -397,6 +397,73 @@ def test_targeted_symbol_mode_uses_aliases(monkeypatch):
     assert any(term and "RTX" in term.upper() for term in captured_terms)
 
 
+def test_award_search_failure_is_partial_and_continues(monkeypatch):
+    engine = _engine()
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.ingest.government_contracts.SessionLocal", testing_session)
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_award_transaction_history", lambda *_args, **_kwargs: [])
+
+    def fake_fetch(*, recipient_search_text=None, **_kwargs):
+        if recipient_search_text and "LOCKHEED" in recipient_search_text.upper():
+            raise TimeoutError("usaspending timed out")
+        return [_row(award_id="AWD-RTX", recipient_name="RTX CORPORATION", amount=8_000_000)]
+
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_spending_by_award", fake_fetch)
+
+    result = ingest_government_contracts(
+        lookback_days=30,
+        min_award_amount=1_000_000,
+        limit=100,
+        max_pages=1,
+        symbols=["LMT", "RTX"],
+        dry_run=False,
+        verbose=False,
+        enforce_guardrail=False,
+    )
+
+    with Session(engine) as db:
+        contracts = db.execute(select(GovernmentContract)).scalars().all()
+
+    assert result["status"] == "partial"
+    assert result["error_count"] >= 1
+    assert result["errors"][0]["stage"] == "award_search"
+    assert result["inserted_count"] >= 1
+    assert {contract.symbol for contract in contracts} == {"RTX"}
+
+
+def test_transaction_history_failure_is_partial_and_keeps_parent_award(monkeypatch):
+    engine = _engine()
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("app.ingest.government_contracts.SessionLocal", testing_session)
+    monkeypatch.setattr("app.ingest.government_contracts.fetch_spending_by_award", lambda **_kwargs: [_row()])
+    monkeypatch.setattr(
+        "app.ingest.government_contracts.fetch_award_transaction_history",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("transaction endpoint timed out")),
+    )
+
+    result = ingest_government_contracts(
+        lookback_days=30,
+        min_award_amount=1_000_000,
+        limit=100,
+        max_pages=1,
+        symbols=["LMT"],
+        dry_run=False,
+        verbose=False,
+        enforce_guardrail=False,
+    )
+
+    with Session(engine) as db:
+        contracts = db.execute(select(GovernmentContract)).scalars().all()
+        actions = db.execute(select(GovernmentContractAction)).scalars().all()
+
+    assert result["status"] == "partial"
+    assert result["error_count"] == 1
+    assert result["errors"][0]["stage"] == "transaction_history"
+    assert result["inserted_count"] == 1
+    assert len(contracts) == 1
+    assert actions == []
+
+
 def test_aggregate_summary_sees_ingested_rows(monkeypatch):
     engine = _engine()
     testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)

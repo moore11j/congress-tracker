@@ -556,6 +556,8 @@ def ingest_government_contracts(
         "mode": mode,
         "lookback_days": max(1, int(lookback_days or 365)),
         "min_award_amount": float(min_award_amount or 0),
+        "error_count": 0,
+        "errors": [],
         "fetched_count": 0,
         "mapped_count": 0,
         "inserted_count": 0,
@@ -594,15 +596,39 @@ def ingest_government_contracts(
     unmapped_counter: Counter[str] = Counter()
     pending_rows: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     search_space = deduped_terms or [None]
+
+    def record_external_error(stage: str, identifier: str | None, exc: Exception) -> None:
+        summary["status"] = "partial"
+        summary["error_count"] += 1
+        errors = summary["errors"]
+        if isinstance(errors, list) and len(errors) < 25:
+            errors.append(
+                {
+                    "stage": stage,
+                    "identifier": identifier,
+                    "error": str(exc),
+                }
+            )
+
     for term in search_space:
-        rows = fetch_spending_by_award(
-            lookback_days=lookback_days,
-            min_award_amount=min_award_amount,
-            limit=limit,
-            max_pages=max_pages,
-            recipient_search_text=term,
-            verbose=verbose,
-        )
+        try:
+            rows = fetch_spending_by_award(
+                lookback_days=lookback_days,
+                min_award_amount=min_award_amount,
+                limit=limit,
+                max_pages=max_pages,
+                recipient_search_text=term,
+                verbose=verbose,
+            )
+        except Exception as exc:
+            record_external_error("award_search", term, exc)
+            logger.warning(
+                "government_contracts award search unavailable recipient=%s error=%s",
+                term,
+                exc,
+                exc_info=verbose,
+            )
+            continue
         summary["fetched_count"] += len(rows)
         for raw_row in rows:
             recipient_name = _clean_text(raw_row.get("Recipient Name"))
@@ -639,10 +665,12 @@ def ingest_government_contracts(
                         ]
                         if action is not None
                     ]
-                except Exception:
-                    logger.info(
-                        "government_contracts transaction history unavailable award_id=%s",
+                except Exception as exc:
+                    record_external_error("transaction_history", transaction_award_id, exc)
+                    logger.warning(
+                        "government_contracts transaction history unavailable award_id=%s error=%s",
                         normalized_row.get("award_id"),
+                        exc,
                         exc_info=verbose,
                     )
             pending_rows.append((normalized_row, action_rows))
