@@ -17,7 +17,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -795,7 +795,7 @@ def _campaign_type_for_mode(mode: str | None) -> str:
         "manual_research_input",
     }:
         return "manual_research_input"
-    if normalized in {"x_chart_drop", "reddit_research_thread"}:
+    if normalized in {"x_chart_drop", "reddit_research_thread", ARTICLE_REACTIVE_CAMPAIGN_TYPE, SCHEDULED_X_CAMPAIGN_TYPE}:
         return normalized
     return "legacy_outreach_campaign"
 
@@ -2064,10 +2064,95 @@ def article_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None 
     return True
 
 
+def _campaign_run_timezone(campaign: AiMarketingCampaign) -> ZoneInfo:
+    try:
+        return ZoneInfo(campaign.timezone or "America/Los_Angeles")
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("America/Los_Angeles")
+
+
+def _campaign_run_time(campaign: AiMarketingCampaign, *, default: str = "07:00") -> tuple[int, int]:
+    run_time = str(campaign.run_time or default).strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", run_time)
+    if not match:
+        run_time = default
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", run_time)
+    if not match:
+        return 7, 0
+    return max(0, min(23, int(match.group(1)))), max(0, min(59, int(match.group(2))))
+
+
+def _campaign_last_run_local(campaign: AiMarketingCampaign, tz: ZoneInfo) -> datetime | None:
+    if not campaign.last_run_at:
+        return None
+    value = campaign.last_run_at if campaign.last_run_at.tzinfo else campaign.last_run_at.replace(tzinfo=timezone.utc)
+    return value.astimezone(tz)
+
+
+def _weekly_campaign_day(schedule_config: dict[str, Any]) -> int | None:
+    raw = schedule_config.get("weekday") or schedule_config.get("day_of_week") or schedule_config.get("day")
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, int):
+        return raw if 0 <= raw <= 6 else None
+    text = str(raw).strip().lower()
+    names = {
+        "monday": 0,
+        "mon": 0,
+        "tuesday": 1,
+        "tue": 1,
+        "wednesday": 2,
+        "wed": 2,
+        "thursday": 3,
+        "thu": 3,
+        "friday": 4,
+        "fri": 4,
+        "saturday": 5,
+        "sat": 5,
+        "sunday": 6,
+        "sun": 6,
+    }
+    if text.isdigit():
+        value = int(text)
+        return value if 0 <= value <= 6 else None
+    return names.get(text)
+
+
+def scheduled_x_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None = None) -> bool:
+    if not campaign.enabled or str(campaign.status or "active").lower() != "active":
+        return False
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) != SCHEDULED_X_CAMPAIGN_TYPE:
+        return False
+    tz = _campaign_run_timezone(campaign)
+    local_now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    schedule_config = _load_object(campaign.schedule_config_json)
+    cadence = str(schedule_config.get("cadence") or ("weekdays" if campaign.weekdays_only else "daily")).strip().lower()
+    if cadence not in {"daily", "weekdays", "weekly"}:
+        cadence = "weekdays" if campaign.weekdays_only else "daily"
+    if cadence == "weekdays" and local_now.weekday() >= 5:
+        return False
+    if cadence == "weekly":
+        configured_day = _weekly_campaign_day(schedule_config)
+        if configured_day is not None and local_now.weekday() != configured_day:
+            return False
+    hour, minute = _campaign_run_time(campaign, default="07:00")
+    scheduled_local = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if local_now < scheduled_local:
+        return False
+    last_local = _campaign_last_run_local(campaign, tz)
+    if not last_local:
+        return True
+    if last_local.date() == local_now.date():
+        return False
+    if cadence == "weekly" and (local_now.date() - last_local.date()).days < 6:
+        return False
+    return True
+
+
 def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
     campaigns = db.execute(
         select(AiMarketingCampaign).where(
-            AiMarketingCampaign.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE,
+            or_(AiMarketingCampaign.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE, AiMarketingCampaign.mode == ARTICLE_REACTIVE_CAMPAIGN_TYPE),
             AiMarketingCampaign.enabled == True,  # noqa: E712
         )
     ).scalars().all()
@@ -2089,6 +2174,46 @@ def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_
         "campaigns_run": sum(1 for item in results if item.get("drafts_generated") is not None),
         "dry_run": dry_run,
         "items": results,
+    }
+
+
+def run_due_scheduled_x_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    campaigns = db.execute(
+        select(AiMarketingCampaign).where(
+            or_(AiMarketingCampaign.campaign_type == SCHEDULED_X_CAMPAIGN_TYPE, AiMarketingCampaign.mode == SCHEDULED_X_CAMPAIGN_TYPE),
+            AiMarketingCampaign.enabled == True,  # noqa: E712
+        )
+    ).scalars().all()
+    results: list[dict[str, Any]] = []
+    for campaign in campaigns:
+        due = force or scheduled_x_campaign_due(campaign)
+        if not due:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "not_due"})
+            continue
+        if dry_run:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "due_dry_run"})
+            continue
+        result = run_scheduled_x_campaign(db, campaign)
+        result["campaign_id"] = campaign.id
+        result["campaign_name"] = campaign.name
+        results.append(result)
+    return {
+        "campaigns_checked": len(campaigns),
+        "campaigns_run": sum(1 for item in results if item.get("drafts_generated") is not None),
+        "dry_run": dry_run,
+        "items": results,
+    }
+
+
+def run_due_ai_growth_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    article = run_due_article_reactive_campaigns(db, force=force, dry_run=dry_run)
+    scheduled_x = run_due_scheduled_x_campaigns(db, force=force, dry_run=dry_run)
+    return {
+        "campaigns_checked": int(article.get("campaigns_checked") or 0) + int(scheduled_x.get("campaigns_checked") or 0),
+        "campaigns_run": int(article.get("campaigns_run") or 0) + int(scheduled_x.get("campaigns_run") or 0),
+        "dry_run": dry_run,
+        "article_reactive_x": article,
+        "scheduled_x_campaigns": scheduled_x,
     }
 
 
