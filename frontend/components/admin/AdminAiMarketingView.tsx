@@ -92,6 +92,7 @@ const SETTING_KEYS = [
   "X_CLIENT_ID",
   "X_CLIENT_SECRET",
   "X_REDIRECT_URI",
+  "X_ACCESS_TOKEN",
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
@@ -741,7 +742,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     <div className="space-y-5">
       {!reviewBannerDismissed ? (
         <section className="relative rounded-lg border border-amber-300/20 bg-amber-300/10 p-4 pr-12 text-sm font-semibold text-amber-100">
-          Human review required. No auto-posting, bot posting, automatic DMs, or platform credential collection.
+          Human review required. X drafts post only after approval when the X access token is connected. No automatic DMs or platform credential collection.
           <button
             type="button"
             aria-label="Dismiss human review notice"
@@ -925,7 +926,7 @@ function Dashboard({
         <MetricCard label="Review queue" value={String(pendingReviewCount)} tone={pendingReviewCount ? "warn" : "good"} />
         <MetricCard label="Recent assets" value={String(assetCount)} />
         <MetricCard label="High-fit drafts" value={String(highFitCount)} tone={highFitCount ? "good" : "muted"} />
-        <MetricCard label="Posting" value="Manual only" tone="good" />
+        <MetricCard label="Posting" value={config?.x_connected ? "Auto on approval" : "Approval only"} tone={config?.x_connected ? "good" : "warn"} />
       </div>
 
       {config?.warnings.length ? (
@@ -1371,7 +1372,7 @@ function ScheduledXCampaignsView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-white">Scheduled X Campaigns</h3>
-            <p className="mt-1 text-sm text-slate-400">Walnut-native automation that generates reviewed X drafts only. No X or Reddit auto-posting.</p>
+            <p className="mt-1 text-sm text-slate-400">Walnut-native automation that generates X drafts for review. Approved X drafts post when the X access token is connected.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button disabled={Boolean(busy)} onClick={onCreateNew}>Create campaign</Button>
@@ -1603,7 +1604,7 @@ function SettingsView({
         <MetricCard label="Manual input" value={statusLabel(config?.manual_text_status, "available")} tone="good" />
         <MetricCard label="Reddit API" value={statusLabel(config?.reddit_status, "missing")} tone={config?.reddit_status === "configured" ? "good" : "warn"} />
         <MetricCard label="Recipient" value={config?.recipient ?? "jarod@walnutmarkets.com"} />
-        <MetricCard label="Posting" value="Manual only" tone="good" />
+        <MetricCard label="Posting" value={config?.x_connected ? "Auto on approval" : "Approval only"} tone={config?.x_connected ? "good" : "warn"} />
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {SETTING_KEYS.map((key) => <SettingField key={key} settingKey={key} item={settings.find((setting) => setting.key === key)} />)}

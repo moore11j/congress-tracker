@@ -73,6 +73,8 @@ REDDIT_USER_AGENT = "REDDIT_USER_AGENT"
 X_CLIENT_ID = "X_CLIENT_ID"
 X_CLIENT_SECRET = "X_CLIENT_SECRET"
 X_REDIRECT_URI = "X_REDIRECT_URI"
+X_ACCESS_TOKEN = "X_ACCESS_TOKEN"
+X_API_BASE_URL = "X_API_BASE_URL"
 BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
 WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
 OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
@@ -187,6 +189,7 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     X_CLIENT_ID: {"label": "X Client ID", "is_secret": True, "required_for": "X OAuth status"},
     X_CLIENT_SECRET: {"label": "X Client Secret", "is_secret": True, "required_for": "X OAuth status"},
     X_REDIRECT_URI: {"label": "X Redirect URI", "is_secret": False, "required_for": "X OAuth status"},
+    X_ACCESS_TOKEN: {"label": "X Access Token", "is_secret": True, "required_for": "X posting on approval"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
@@ -201,6 +204,7 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
         X_CLIENT_ID,
         X_CLIENT_SECRET,
         X_REDIRECT_URI,
+        X_ACCESS_TOKEN,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -736,6 +740,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         warnings.append(OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE)
     if not x_status["oauth_configured"]:
         warnings.append("X API OAuth credentials missing")
+    if not x_status["connected"]:
+        warnings.append("X access token missing; approval will not post to X")
     reddit_configured = all(
         bool(statuses[key]["configured"])
         for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
@@ -781,7 +787,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "x_connected": bool(x_status["connected"]),
         "x_missing": x_status["missing"],
         "x_handle": x_status["handle"],
-        "x_posting_status": "manual_only",
+        "x_posting_status": "approve_posts_to_x" if x_status["connected"] else "approval_only",
         "warnings": warnings,
         "recipient": ai_growth_recipient(),
         "settings": statuses,
@@ -1994,7 +2000,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         opportunity.spam_risk_score = int(scoring["promotional_risk_score"])
         opportunity.quality_scores_json = _dump_object({key: value for key, value in scoring.items() if key.endswith("_score")})
         opportunity.source_notes_json = _dump_json_list(_article_context_bullets(scoring))
-        opportunity.compliance_notes = "No auto-posting. Review for investment advice, unsupported claims, and article-image licensing."
+        opportunity.compliance_notes = "No posting before approval. Review for investment advice, unsupported claims, and article-image licensing."
         db.commit()
         db.refresh(opportunity)
         if opportunity_created:
@@ -2551,7 +2557,7 @@ def _scheduled_x_context(db: Session, campaign: AiMarketingCampaign, *, index: i
             f"Filters/preferences JSON: {json.dumps(filters, sort_keys=True)}",
             f"Draft preferences: {json.dumps(preferences, sort_keys=True)}",
             f"Draft slot: {index}",
-            "Create a human-reviewed X draft for Walnut. No auto-posting. Save to Draft Queue and email the recipient for copy/open actions.",
+            "Create a human-reviewed X draft for Walnut. Save to Draft Queue and email the recipient for approval/posting actions.",
         ]
     )
     inputs = {
@@ -3246,6 +3252,7 @@ def recommended_destination_url(
 
 
 EMAIL_ACTIONS = {"approve", "reject", "reject_and_regenerate", "reply"}
+X_POST_ENDPOINT_PATH = "/2/tweets"
 
 
 def _public_app_base_url() -> str:
@@ -3372,25 +3379,136 @@ def apply_email_action(
         db.commit()
         raise ValueError("Draft status no longer allows this action.")
     if action == "approve":
-        draft.status = "approved"
-        token_row.result = "approved"
+        latest = latest_suggestions_by_opportunity(db, [draft.id]).get(draft.id)
+        posting = post_approved_draft_to_x(db, draft, suggestion=latest)
+        token_row.result = "posted" if posting.get("ok") else "approved"
     elif action == "reject":
         draft.status = "rejected"
         token_row.result = "rejected"
+        posting = None
     elif action == "reject_and_regenerate":
         draft.status = "rejected_regenerate_requested"
         token_row.result = "regeneration_requested"
         regenerate_growth_draft(db, draft, change_request="Reject this idea and regenerate a replacement angle. Preserve compliance and no-investment-advice framing.")
+        posting = None
     else:
         token_row.result = "unsupported_action"
+        posting = None
     draft.updated_at = datetime.now(timezone.utc)
     db.commit()
     latest = latest_suggestions_by_opportunity(db, [draft.id]).get(draft.id)
-    return {"status": token_row.result, "draft": opportunity_to_dict(draft, suggestion=latest)}
+    result = {"status": token_row.result, "draft": opportunity_to_dict(draft, suggestion=latest)}
+    if posting is not None:
+        result["posting"] = posting
+    return result
+
+
+def _x_api_base_url() -> str:
+    return (os.getenv(X_API_BASE_URL, "").strip().rstrip("/") or "https://api.x.com")
+
+
+def _x_post_public_url(post_id: str | None) -> str | None:
+    cleaned = str(post_id or "").strip()
+    if not cleaned:
+        return None
+    handle = os.getenv("X_CONNECTED_HANDLE", "").strip().lstrip("@")
+    if handle:
+        return f"https://x.com/{quote(handle)}/status/{quote(cleaned)}"
+    return f"https://x.com/i/web/status/{quote(cleaned)}"
+
+
+def _x_error_message(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if isinstance(payload, dict):
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            messages = []
+            for error in errors:
+                if isinstance(error, dict):
+                    detail = error.get("detail") or error.get("message") or error.get("title")
+                    if detail:
+                        messages.append(str(detail))
+            if messages:
+                return "; ".join(messages[:3])
+        detail = payload.get("detail") or payload.get("title") or payload.get("message")
+        if detail:
+            return str(detail)
+    return f"X API returned HTTP {response.status_code}."
+
+
+def post_approved_draft_to_x(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    *,
+    suggestion: AiMarketingSuggestion | None = None,
+) -> dict[str, Any]:
+    content_type = _normalize_content_type(opportunity.content_type, campaign_type=opportunity.campaign_type, platform=opportunity.platform)
+    if content_type != "x_post":
+        opportunity.status = "approved"
+        return {"attempted": False, "ok": False, "reason": "Draft is not an X post."}
+
+    access_token = os.getenv(X_ACCESS_TOKEN, "").strip()
+    if not access_token:
+        opportunity.status = "approved"
+        return {"attempted": False, "ok": False, "reason": "X_ACCESS_TOKEN is not configured on the server."}
+
+    text = (_generated_content_from_suggestion(suggestion) or opportunity.generated_content or opportunity.full_markdown or "").strip()
+    if not text:
+        opportunity.status = "approved"
+        return {"attempted": False, "ok": False, "reason": "Draft has no post text."}
+    if len(text) > X_POST_CHARACTER_LIMIT:
+        opportunity.status = "approved"
+        return {"attempted": False, "ok": False, "reason": f"Draft is {len(text)} characters; X posts must be {X_POST_CHARACTER_LIMIT} characters or fewer."}
+
+    try:
+        response = requests.post(
+            f"{_x_api_base_url()}{X_POST_ENDPOINT_PATH}",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={"text": text},
+            timeout=12,
+        )
+    except requests.RequestException as exc:
+        opportunity.status = "approved"
+        return {"attempted": True, "ok": False, "reason": f"X API request failed: {exc}"}
+
+    if not (200 <= response.status_code < 300):
+        opportunity.status = "approved"
+        reason = _x_error_message(response)
+        if response.status_code in {401, 403}:
+            reason = f"{reason} Confirm the X access token has tweet.write scope."
+        return {"attempted": True, "ok": False, "status_code": response.status_code, "reason": reason}
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    post_id = str(data.get("id") or "").strip() if isinstance(data, dict) else ""
+    now = datetime.now(timezone.utc)
+    metadata = _load_object(opportunity.raw_metadata_json)
+    metadata["x_post_id"] = post_id
+    metadata["x_post_url"] = _x_post_public_url(post_id)
+    metadata["x_posted_at"] = now.isoformat()
+    opportunity.raw_metadata_json = _dump_object(metadata)
+    opportunity.status = "posted"
+    opportunity.posted_manually_at = now
+    opportunity.updated_at = now
+    db.flush()
+    return {
+        "attempted": True,
+        "ok": True,
+        "status_code": response.status_code,
+        "x_post_id": post_id or None,
+        "x_post_url": metadata.get("x_post_url"),
+        "text": data.get("text") if isinstance(data, dict) else text,
+    }
 
 
 def x_account_status() -> dict[str, Any]:
-    access_token = os.getenv("X_ACCESS_TOKEN", "").strip()
+    access_token = os.getenv(X_ACCESS_TOKEN, "").strip()
     client_id = os.getenv(X_CLIENT_ID, "").strip()
     client_secret = os.getenv(X_CLIENT_SECRET, "").strip()
     redirect_uri = os.getenv(X_REDIRECT_URI, "").strip()
@@ -3416,7 +3534,8 @@ def x_account_status() -> dict[str, Any]:
         "last_successful_post": None,
         "last_token_refresh": None,
         "secrets_managed_by": "server_env_or_encrypted_store",
-        "posting_mode": "manual_only_no_auto_posting",
+        "posting_mode": "approve_posts_to_x" if access_token else "approval_only_until_x_access_token_configured",
+        "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
     }
 
 
@@ -4156,7 +4275,7 @@ def _draft_admin_url(opportunity_id: int) -> str:
 def _default_disclosure_reminder(source_platform: str, content: str) -> str:
     if "walnut" in (content or "").lower() and source_platform in {"x", "reddit"}:
         return "Disclose Walnut affiliation naturally before posting."
-    return "Human review required. No auto-posting."
+    return "Human review required before approval/posting."
 
 
 def _assets_text(assets: list[dict[str, Any]]) -> str:
@@ -4263,9 +4382,19 @@ def _digest_context(
         action = (suggestion.recommended_action if suggestion else opportunity.recommended_action) or "pending"
         angle = (suggestion.content_angle if suggestion else None) or (suggestion.reply_angle if suggestion else "pending")
         disclosure = suggestion.disclosure_text if suggestion else ""
-        compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required. No auto-posting."
+        compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required before approval/posting."
         assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
         posting_links = _posting_links(opportunity, suggestion=suggestion)
+        x_status = x_account_status()
+        approve_posts_to_x = content_type == "x_post" and bool(x_status.get("connected"))
+        approve_label = "Approve & Post to X" if approve_posts_to_x else "Approve"
+        approve_behavior_text = (
+            "Approve behavior: posts directly to X via the configured X API token."
+            if approve_posts_to_x
+            else "Approve behavior: saves approval in Walnut; no X post will be created until X_ACCESS_TOKEN with tweet.write scope is configured."
+            if content_type == "x_post"
+            else "Approve behavior: saves approval in Walnut."
+        )
         alternate_versions = _load_object(opportunity.alternate_versions_json)
         short_version = str(alternate_versions.get("short_version") or "").strip()
         direct_version = str(alternate_versions.get("more_direct_version") or alternate_versions.get("alternate_reply_more_direct") or "").strip()
@@ -4290,10 +4419,10 @@ def _digest_context(
         checklist = [
             "Open source post",
             "Copy draft",
-            "Paste into platform",
+            "Click Approve & Post to X" if approve_posts_to_x else "Paste into platform",
             "Attach image if relevant",
             "Review disclosure",
-            "Post manually",
+            "Confirm posted status" if approve_posts_to_x else "Post manually",
         ]
         items_text.append(
             "\n".join(
@@ -4324,6 +4453,7 @@ def _digest_context(
                     f"Direct version: {direct_version or 'none'}",
                     f"Suggested hashtags/cashtags: {hashtag_block or tickers}",
                     f"Approve: {approve_url}",
+                    approve_behavior_text,
                     f"Reject: {reject_url}",
                     f"Reject + Regenerate: {reject_regenerate_url}",
                     "Copy-ready markdown:",
@@ -4361,7 +4491,7 @@ def _digest_context(
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Alternate versions:</strong> short={html.escape(short_version or 'none')} | direct={html.escape(direct_version or 'none')}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Hashtags/cashtags:</strong> {html.escape(hashtag_block or tickers)}</p>"
             "<div style=\"margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;\">"
-            f"<a href=\"{html.escape(approve_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#e2e8f0;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">Approve</a>"
+            f"<a href=\"{html.escape(approve_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#e2e8f0;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">{html.escape(approve_label)}</a>"
             f"<a href=\"{html.escape(reject_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#475569;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Reject</a>"
             f"<a href=\"{html.escape(reject_regenerate_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#f59e0b;color:#111827;text-decoration:none;border-radius:6px;font-weight:700;\">Reject + Regenerate</a>"
             f"<a href=\"{html.escape(admin_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Open Draft in Walnut Admin</a>"
@@ -4372,6 +4502,7 @@ def _digest_context(
             "<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Reply instructions:</strong> Reply to this email with edits like 'make it sharper,' 'shorten it,' or 'focus more on the HBM angle.' Walnut will regenerate the draft and email you a revised version.</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Disclosure reminder:</strong> {html.escape(disclosure or _default_disclosure_reminder(source_platform, draft_content))}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Compliance:</strong> {html.escape(compliance)}</p>"
+            f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Approve behavior:</strong> {html.escape(approve_behavior_text)}</p>"
             f"{notes_html}{missing_html}"
             f"{assets_html}"
             "<ol style=\"margin:12px 0 0 18px;color:#334155;\">"
@@ -4384,7 +4515,7 @@ def _digest_context(
         "first_name": "Jarod",
         "subject": subject,
         "digest_title": subject,
-        "summary": f"{count} AI Growth draft{'s' if count != 1 else ''} ready for human review. No auto-posting was performed.",
+        "summary": f"{count} AI Growth draft{'s' if count != 1 else ''} ready for human review.",
         "items_text": "\n\n".join(items_text) if items_text else "No matching opportunities are ready for digest.",
         "items_html": "".join(items_html) if items_html else "<p>No matching opportunities are ready for digest.</p>",
         "digest_url": "https://walnutmarkets.com/admin/ai-marketing",

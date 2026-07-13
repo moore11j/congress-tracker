@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -175,6 +177,156 @@ def _payload_dict(payload: BaseModel, *, exclude_unset: bool = False) -> dict[st
     if hasattr(payload, "model_dump"):
         return payload.model_dump(exclude_unset=exclude_unset)
     return payload.dict(exclude_unset=exclude_unset)
+
+
+def _email_action_result_page(result: dict[str, Any], *, status_code: int = 200) -> HTMLResponse:
+    status = str(result.get("status") or "updated").replace("_", " ")
+    draft = result.get("draft") if isinstance(result.get("draft"), dict) else {}
+    title = str(draft.get("title") or "AI Growth draft")
+    draft_status = str(draft.get("status") or status)
+    content_type = str(draft.get("content_type") or "")
+    metadata = draft.get("metadata") if isinstance(draft.get("metadata"), dict) else {}
+    posting = result.get("posting") if isinstance(result.get("posting"), dict) else {}
+    posting_links = draft.get("posting_links") if isinstance(draft.get("posting_links"), dict) else {}
+    x_compose = str(posting_links.get("open_x_compose") or "").strip()
+    x_post_url = str(posting.get("x_post_url") or metadata.get("x_post_url") or "").strip()
+    admin_url = "/admin/ai-marketing"
+    if posting.get("ok"):
+        heading = "Posted to X"
+        message = "Walnut approved this draft and posted it to X."
+        next_step = "Open the post to confirm how it appears publicly."
+    elif posting.get("attempted"):
+        heading = "Approved, but X post failed"
+        message = str(posting.get("reason") or "Walnut approved the draft, but X rejected the posting request.")
+        next_step = "Check the X token, app permissions, and tweet.write scope, then post from Walnut Admin or X Compose."
+    elif status == "approved" and content_type == "x_post":
+        heading = "Draft approved"
+        message = "This draft was approved in Walnut, but it was not posted to X."
+        next_step = str(posting.get("reason") or "Configure X_ACCESS_TOKEN with tweet.write scope, then approve a new draft to post automatically.")
+    elif status == "approved":
+        heading = "Draft approved"
+        message = "This draft was approved in Walnut."
+        next_step = "No X post was created because this draft is not an X post."
+    elif "regeneration" in status:
+        heading = "Regeneration requested"
+        message = "Walnut recorded the rejection and requested a replacement draft."
+        next_step = "A revised draft will appear in the AI Growth queue."
+    elif status == "rejected":
+        heading = "Draft rejected"
+        message = "Walnut marked this draft as rejected."
+        next_step = "No post was created."
+    else:
+        heading = "Draft updated"
+        message = f"Walnut recorded the action: {status}."
+        next_step = "Review the AI Growth queue for the current state."
+
+    compose_button = (
+        f'<a class="button primary" href="{html.escape(x_compose, quote=True)}">Open X Compose</a>'
+        if x_compose
+        else ""
+    )
+    post_button = (
+        f'<a class="button primary" href="{html.escape(x_post_url, quote=True)}">Open X Post</a>'
+        if x_post_url
+        else ""
+    )
+    content = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(heading)}</title>
+  <style>
+    :root {{ color-scheme: dark; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }}
+    main {{
+      width: min(92vw, 620px);
+      padding: 28px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      border-radius: 10px;
+      background: #111827;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }}
+    h1 {{ margin: 0 0 12px; font-size: 28px; line-height: 1.15; }}
+    p {{ margin: 10px 0; color: #cbd5e1; }}
+    .meta {{
+      margin-top: 18px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.75);
+      color: #94a3b8;
+      font-size: 14px;
+    }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }}
+    .button {{
+      display: inline-block;
+      padding: 10px 13px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #e2e8f0;
+      text-decoration: none;
+      font-weight: 700;
+    }}
+    .primary {{ background: #e2e8f0; color: #0f172a; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{html.escape(heading)}</h1>
+    <p>{html.escape(message)}</p>
+    <p>{html.escape(next_step)}</p>
+    <div class="meta">
+      <div><strong>Draft:</strong> {html.escape(title)}</div>
+      <div><strong>Status:</strong> {html.escape(draft_status.replace("_", " "))}</div>
+    </div>
+    <div class="actions">
+      {post_button}
+      {compose_button}
+      <a class="button" href="{html.escape(admin_url, quote=True)}">Open Walnut Admin</a>
+    </div>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(content=content, status_code=status_code, headers={"Cache-Control": "no-store"})
+
+
+def _email_action_error_page(message: str, *, status_code: int) -> HTMLResponse:
+    safe_message = str(message or "Unable to apply this action.")
+    return HTMLResponse(
+        content=f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Action not applied</title>
+  <style>
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:#0f172a; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+    main {{ width:min(92vw,560px); padding:28px; border:1px solid rgba(248,113,113,.35); border-radius:10px; background:#111827; }}
+    h1 {{ margin:0 0 12px; font-size:26px; }}
+    p {{ color:#cbd5e1; line-height:1.5; }}
+    a {{ color:#bbf7d0; font-weight:700; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Action not applied</h1>
+    <p>{html.escape(safe_message)}</p>
+    <p><a href="/admin/ai-marketing">Open Walnut Admin</a></p>
+  </main>
+</body>
+</html>""",
+        status_code=status_code,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _campaign_or_404(db: Session, campaign_id: int) -> AiMarketingCampaign:
@@ -571,16 +723,17 @@ def admin_ai_growth_email_action(
     db: Session = Depends(get_db),
 ):
     try:
-        return apply_email_action(
+        result = apply_email_action(
             db,
             token,
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )
+        return _email_action_result_page(result)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _email_action_error_page(str(exc), status_code=400)
     except MissingMarketingCredential as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _email_action_error_page(str(exc), status_code=422)
 
 
 @router.get("/admin/ai-growth/x/oauth/start")
@@ -590,7 +743,7 @@ def admin_ai_growth_x_oauth_start(request: Request, db: Session = Depends(get_db
         "ok": False,
         "status": x_account_status(),
         "message": "X OAuth PKCE setup requires X_CLIENT_ID, X_CLIENT_SECRET, and X_REDIRECT_URI in server env before redirect can start.",
-        "required_scopes": ["tweet.read", "users.read", "offline.access"],
+        "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
     }
 
 

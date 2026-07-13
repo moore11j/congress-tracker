@@ -1951,7 +1951,7 @@ export type AdminAiMarketingConfig = {
   x_connected?: boolean;
   x_missing?: string[];
   x_handle?: string | null;
-  x_posting_status?: "manual_only" | string;
+  x_posting_status?: "approve_posts_to_x" | "approval_only" | string;
   warnings: string[];
   recipient: string;
   settings?: Record<string, AdminAiMarketingSetting>;

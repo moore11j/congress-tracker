@@ -31,6 +31,7 @@ from app.routers.ai_marketing import (
     GrowthDraftPayload,
     GrowthDraftRegeneratePayload,
     ManualUrlPayload,
+    admin_ai_growth_email_action,
     admin_ai_growth_drafts,
     admin_ai_growth_clear_draft_history,
     admin_ai_growth_create_draft,
@@ -54,7 +55,9 @@ from app.services.ai_marketing import (
     OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
     ARTICLE_REACTIVE_CAMPAIGN_TYPE,
     SourceItem,
+    X_ACCESS_TOKEN,
     X_POST_CHARACTER_LIMIT,
+    create_email_action_token,
     fetch_fmp_articles,
     score_article_candidate,
     recommended_destination_url,
@@ -76,6 +79,10 @@ def _session():
 def _request_for_user(user: UserAccount) -> Request:
     token = sign_session_payload({"uid": user.id, "email": user.email})
     return Request({"type": "http", "method": "POST", "path": "/", "headers": [(b"cookie", f"{SESSION_COOKIE_NAME}={token}".encode())]})
+
+
+def _email_action_request() -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/api/admin/ai-growth/email-action", "headers": [(b"accept", b"text/html")], "client": ("127.0.0.1", 12345)})
 
 
 def _user(db, email: str, *, role: str = "user") -> UserAccount:
@@ -2049,6 +2056,98 @@ def test_growth_draft_manual_lifecycle_buttons_update_status(monkeypatch):
         posted = admin_ai_growth_mark_posted(draft_id, _request_for_user(admin), db)
         assert posted["status"] == "posted_manually"
         assert posted["posted_manually_at"] is not None
+    finally:
+        db.close()
+
+
+def test_email_approve_posts_x_draft_when_access_token_is_configured(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv(X_ACCESS_TOKEN, "x-post-token")
+    monkeypatch.setenv("X_CONNECTED_HANDLE", "walnutmarkets")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 201
+
+        def json(self):
+            return {"data": {"id": "12345", "text": captured["json"]["text"]}}
+
+    def fake_post(url, *args, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs["headers"]
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin-email-post@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                text="$TSM margin context is cleaner when filings and price action confirm the same tell. #TSM #Markets",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+        opportunity.generated_content = "$TSM margin context is cleaner when filings and price action confirm the same tell. #TSM #Markets"
+        db.commit()
+        token = create_email_action_token(db, draft_id, "approve", actor_email="jarod@walnutmarkets.com")
+
+        response = admin_ai_growth_email_action(token, _email_action_request(), db)
+        body = response.body.decode("utf-8")
+        db.expire_all()
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+
+        assert response.status_code == 200
+        assert "Posted to X" in body
+        assert "Open X Post" in body
+        assert captured["url"] == "https://api.x.com/2/tweets"
+        assert captured["headers"]["Authorization"] == "Bearer x-post-token"
+        assert captured["json"]["text"].startswith("$TSM margin context")
+        assert opportunity.status == "posted"
+        assert json.loads(opportunity.raw_metadata_json)["x_post_id"] == "12345"
+    finally:
+        db.close()
+
+
+def test_email_approve_returns_html_when_x_access_token_is_missing(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv(X_ACCESS_TOKEN, raising=False)
+    db = _session()
+    try:
+        admin = _user(db, "admin-email-approve@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                text="$TSM margin context is cleaner when filings and price action confirm the same tell. #TSM #Markets",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+        token = create_email_action_token(db, draft_id, "approve", actor_email="jarod@walnutmarkets.com")
+
+        response = admin_ai_growth_email_action(token, _email_action_request(), db)
+        body = response.body.decode("utf-8")
+        db.expire_all()
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+
+        assert response.status_code == 200
+        assert "Draft approved" in body
+        assert "not posted to X" in body
+        assert "X_ACCESS_TOKEN is not configured" in body
+        assert opportunity.status == "approved"
     finally:
         db.close()
 

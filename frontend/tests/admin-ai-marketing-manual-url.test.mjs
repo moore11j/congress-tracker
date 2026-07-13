@@ -191,7 +191,10 @@ test("settings remain env-only for provider credentials", () => {
   assert.match(viewSource, /X_CLIENT_ID/);
   assert.match(viewSource, /X_CLIENT_SECRET/);
   assert.match(viewSource, /X_REDIRECT_URI/);
+  assert.match(viewSource, /X_ACCESS_TOKEN/);
   assert.match(viewSource, /X API/);
+  assert.match(viewSource, /Auto on approval/);
+  assert.match(viewSource, /Approval only/);
   assert.match(viewSource, /AI Growth Voice/);
   assert.match(viewSource, /Overall email tone/);
   assert.match(viewSource, /Add characteristic/);

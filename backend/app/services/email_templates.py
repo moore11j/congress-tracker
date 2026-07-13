@@ -702,7 +702,7 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             intro="Hello {{first_name}}, {{summary}}",
             content_html=walnut_info_card(
                 "Review guardrail",
-                "Review each draft before posting. Avoid spam and disclose affiliation when relevant. No auto-posting was performed.",
+                "Review each draft before approval. Approved X drafts post automatically when the X access token is connected. Avoid spam and disclose affiliation when relevant.",
             )
             + "{{{items_html}}}",
             cta_label="Open AI Growth",
