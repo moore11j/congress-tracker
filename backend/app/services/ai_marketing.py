@@ -1895,20 +1895,329 @@ def _scheduled_x_source_label(source_type: str | None, source_reference_id: str 
     return f"{source}: {selector}" if selector else source
 
 
-def _scheduled_x_context(campaign: AiMarketingCampaign, *, index: int = 1) -> tuple[str, dict[str, Any]]:
+def _compact_money(value: float | int | None) -> str:
+    if value is None:
+        return "unknown amount"
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "unknown amount"
+    sign = "-" if amount < 0 else ""
+    amount = abs(amount)
+    if amount >= 1_000_000_000:
+        return f"{sign}${amount / 1_000_000_000:.1f}B"
+    if amount >= 1_000_000:
+        return f"{sign}${amount / 1_000_000:.1f}M"
+    if amount >= 1_000:
+        return f"{sign}${amount / 1_000:.1f}K"
+    return f"{sign}${amount:,.0f}"
+
+
+def _ticker_link(symbol: str | None) -> str | None:
+    ticker = str(symbol or "").strip().upper()
+    if not ticker:
+        return None
+    return f"https://app.walnutmarkets.com/ticker/{quote(ticker)}"
+
+
+def _trigger_payload(
+    *,
+    ticker: str | None,
+    reason: str,
+    source: str,
+    actor: str | None = None,
+    amount: str | None = None,
+    date_value: date | datetime | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_ticker = str(ticker or "").strip().upper()
+    payload: dict[str, Any] = {
+        "ticker": normalized_ticker,
+        "ticker_url": _ticker_link(normalized_ticker),
+        "source": source,
+        "reason": reason,
+    }
+    if actor:
+        payload["actor"] = actor
+    if amount:
+        payload["amount"] = amount
+    if date_value:
+        payload["date"] = date_value.isoformat()
+    if extra:
+        payload.update({key: value for key, value in extra.items() if value not in (None, "", [], {})})
+    return payload
+
+
+def _trigger_line(trigger: dict[str, Any]) -> str:
+    ticker = trigger.get("ticker") or "UNKNOWN"
+    parts = [f"${ticker}: {trigger.get('reason') or 'Walnut trigger'}"]
+    if trigger.get("actor"):
+        parts.append(f"Actor: {trigger['actor']}")
+    if trigger.get("amount"):
+        parts.append(f"Amount: {trigger['amount']}")
+    if trigger.get("date"):
+        parts.append(f"Date: {trigger['date']}")
+    if trigger.get("ticker_url"):
+        parts.append(f"Walnut link: {trigger['ticker_url']}")
+    return " | ".join(parts)
+
+
+def _recent_since(days: int = 14) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
+def _top_confirmation_triggers(db: Session, *, direction: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
+    query = select(ConfirmationMonitoringSnapshot).where(ConfirmationMonitoringSnapshot.ticker.is_not(None))
+    if direction:
+        query = query.where(ConfirmationMonitoringSnapshot.direction == direction)
+    rows = db.execute(
+        query.order_by(desc(ConfirmationMonitoringSnapshot.score), desc(ConfirmationMonitoringSnapshot.observed_at)).limit(limit)
+    ).scalars().all()
+    triggers: list[dict[str, Any]] = []
+    for row in rows:
+        source_states = _load_object(row.source_states_json)
+        source_labels = [
+            key.replace("_", " ")
+            for key, state in source_states.items()
+            if isinstance(state, dict) and bool(state.get("present"))
+        ][:5]
+        reason = f"{row.status or row.band} with score {row.score}"
+        if source_labels:
+            reason = f"{reason}; sources: {', '.join(source_labels)}"
+        triggers.append(
+            _trigger_payload(
+                ticker=row.ticker,
+                source="confirmation_monitoring",
+                reason=reason,
+                date_value=row.observed_at,
+                extra={"direction": row.direction, "source_count": row.source_count, "confirmation_score": row.score},
+            )
+        )
+    return triggers
+
+
+def _recent_trade_triggers(db: Session, *, event_type: str, limit: int = 8) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(Event)
+        .where(Event.event_type == event_type)
+        .where(Event.symbol.is_not(None))
+        .where(Event.ts >= _recent_since(30))
+        .order_by(desc(Event.ts), desc(Event.amount_max))
+        .limit(limit)
+    ).scalars().all()
+    triggers: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _load_object(row.payload_json)
+        actor = (
+            row.member_name
+            or payload.get("member_name")
+            or payload.get("memberName")
+            or payload.get("insider_name")
+            or payload.get("reporting_owner_name")
+            or payload.get("reportingOwnerName")
+        )
+        trade_type = row.transaction_type or row.trade_type or payload.get("transaction_type") or payload.get("transactionType") or "trade"
+        amount = _compact_money(row.amount_max or row.amount_min or payload.get("value") or payload.get("amount"))
+        source = "congress_activity" if event_type == "congress_trade" else "insider_activity"
+        reason = f"{trade_type} reported"
+        if actor:
+            reason = f"{actor} {reason}"
+        triggers.append(
+            _trigger_payload(
+                ticker=row.symbol,
+                source=source,
+                reason=reason,
+                actor=actor,
+                amount=amount,
+                date_value=row.event_date or row.ts,
+                extra={"trade_type": trade_type, "event_id": row.id},
+            )
+        )
+    return triggers
+
+
+def _institutional_triggers(db: Session, *, limit: int = 6) -> list[dict[str, Any]]:
+    rows = db.execute(
+        select(InstitutionalActivityEvent)
+        .where(InstitutionalActivityEvent.feed_visible == True)  # noqa: E712
+        .where(InstitutionalActivityEvent.direction == "bullish")
+        .order_by(desc(InstitutionalActivityEvent.materiality_score), desc(InstitutionalActivityEvent.filing_date))
+        .limit(limit)
+    ).scalars().all()
+    triggers: list[dict[str, Any]] = []
+    for row in rows:
+        amount_value = row.value_delta_usd if row.value_delta_usd is not None else row.reported_value_usd
+        reason = row.summary or row.title or row.event_type.replace("_", " ")
+        triggers.append(
+            _trigger_payload(
+                ticker=row.normalized_symbol or row.symbol,
+                source="institutional_activity",
+                reason=reason,
+                actor=row.holder_name,
+                amount=_compact_money(amount_value),
+                date_value=row.filing_date,
+                extra={
+                    "event_type": row.event_type,
+                    "materiality_score": row.materiality_score,
+                    "confirmation_score": row.confirmation_score,
+                },
+            )
+        )
+    return triggers
+
+
+def _government_contract_triggers(db: Session, *, limit: int = 6) -> list[dict[str, Any]]:
+    action_rows = db.execute(
+        select(GovernmentContractAction)
+        .where(GovernmentContractAction.symbol.is_not(None))
+        .where(GovernmentContractAction.action_date >= (date.today() - timedelta(days=45)))
+        .order_by(desc(GovernmentContractAction.obligated_amount), desc(GovernmentContractAction.action_date))
+        .limit(limit)
+    ).scalars().all()
+    triggers: list[dict[str, Any]] = []
+    for row in action_rows:
+        agency = row.awarding_sub_agency or row.awarding_agency or "government agency"
+        description = row.description or row.action_type or "contract action"
+        triggers.append(
+            _trigger_payload(
+                ticker=row.symbol,
+                source="government_contracts",
+                reason=f"{agency}: {description}",
+                actor=row.company_name or row.recipient_name,
+                amount=_compact_money(row.obligated_amount),
+                date_value=row.action_date,
+                extra={"award_id": row.parent_award_id, "action_type": row.action_type},
+            )
+        )
+    if triggers:
+        return triggers
+    contract_rows = db.execute(
+        select(GovernmentContract)
+        .where(GovernmentContract.symbol.is_not(None))
+        .where(GovernmentContract.award_date >= (date.today() - timedelta(days=45)))
+        .order_by(desc(GovernmentContract.award_amount), desc(GovernmentContract.award_date))
+        .limit(limit)
+    ).scalars().all()
+    for row in contract_rows:
+        agency = row.awarding_sub_agency or row.awarding_agency or "government agency"
+        description = row.description or row.contract_type or "contract award"
+        triggers.append(
+            _trigger_payload(
+                ticker=row.symbol,
+                source="government_contracts",
+                reason=f"{agency}: {description}",
+                actor=row.recipient_name or row.raw_recipient_name,
+                amount=_compact_money(row.award_amount),
+                date_value=row.award_date,
+                extra={"award_id": row.award_id, "contract_type": row.contract_type},
+            )
+        )
+    return triggers
+
+
+def _watchlist_triggers(db: Session, campaign: AiMarketingCampaign, *, limit: int = 5) -> list[dict[str, Any]]:
+    selector = str(campaign.source_reference_id or "").strip()
+    tickers: list[str] = []
+    if selector:
+        watchlist = db.execute(select(Watchlist).where(func.lower(Watchlist.name) == selector.lower())).scalar_one_or_none()
+        if watchlist:
+            rows = db.execute(
+                select(Security.symbol)
+                .join(WatchlistItem, WatchlistItem.security_id == Security.id)
+                .where(WatchlistItem.watchlist_id == watchlist.id)
+                .where(Security.symbol.is_not(None))
+                .limit(100)
+            ).all()
+            tickers = [str(row[0]).upper() for row in rows if row[0]]
+    query = select(ConfirmationMonitoringSnapshot).where(ConfirmationMonitoringSnapshot.ticker.is_not(None))
+    if tickers:
+        query = query.where(func.upper(ConfirmationMonitoringSnapshot.ticker).in_(tickers))
+    rows = db.execute(
+        query.order_by(desc(ConfirmationMonitoringSnapshot.score), desc(ConfirmationMonitoringSnapshot.source_count), desc(ConfirmationMonitoringSnapshot.observed_at)).limit(limit)
+    ).scalars().all()
+    return [
+        _trigger_payload(
+            ticker=row.ticker,
+            source="watchlist",
+            reason=f"{row.status or row.band}; score {row.score}; {row.source_count} active sources",
+            date_value=row.observed_at,
+            extra={"watchlist": selector, "direction": row.direction, "confirmation_score": row.score},
+        )
+        for row in rows
+    ]
+
+
+def _saved_screen_triggers(db: Session, campaign: AiMarketingCampaign, *, limit: int = 5) -> list[dict[str, Any]]:
+    selector = str(campaign.source_reference_id or "").strip()
+    screen_ids: list[int] = []
+    if selector:
+        screens = db.execute(select(SavedScreen).where(func.lower(SavedScreen.name) == selector.lower())).scalars().all()
+        screen_ids = [row.id for row in screens]
+    query = select(SavedScreenSnapshot).where(SavedScreenSnapshot.ticker.is_not(None))
+    if screen_ids:
+        query = query.where(SavedScreenSnapshot.saved_screen_id.in_(screen_ids))
+    rows = db.execute(
+        query.order_by(desc(SavedScreenSnapshot.confirmation_score), desc(SavedScreenSnapshot.source_count), desc(SavedScreenSnapshot.observed_at)).limit(limit)
+    ).scalars().all()
+    return [
+        _trigger_payload(
+            ticker=row.ticker,
+            source="saved_screen",
+            reason=f"{row.confirmation_band} {row.direction}; score {row.confirmation_score}; {row.source_count} active sources",
+            date_value=row.observed_at,
+            extra={"saved_screen": selector, "why_now_state": row.why_now_state},
+        )
+        for row in rows
+    ]
+
+
+def _scheduled_x_triggers(db: Session, campaign: AiMarketingCampaign) -> list[dict[str, Any]]:
+    source_type = str(campaign.source_type or "watchlist").strip()
+    if source_type == "watchlist":
+        return _watchlist_triggers(db, campaign)
+    if source_type in {"saved_screen", "saved_view"}:
+        return _saved_screen_triggers(db, campaign)
+    if source_type == "bullish_confirmation":
+        return _top_confirmation_triggers(db, direction="bullish")
+    if source_type == "bearish_confirmation":
+        return _top_confirmation_triggers(db, direction="bearish")
+    if source_type == "congress_activity":
+        return _recent_trade_triggers(db, event_type="congress_trade")
+    if source_type == "insider_activity":
+        return _recent_trade_triggers(db, event_type="insider_trade")
+    if source_type == "institutional_activity":
+        return _institutional_triggers(db)
+    if source_type == "government_contracts":
+        return _government_contract_triggers(db)
+    if source_type in {"signal_feed", "ticker_context"}:
+        return _top_confirmation_triggers(db, limit=6)
+    return _watchlist_triggers(db, campaign)
+
+
+def _scheduled_x_context(db: Session, campaign: AiMarketingCampaign, *, index: int = 1) -> tuple[str, dict[str, Any]]:
     filters = _load_object(campaign.filters_json)
     preferences = _load_object(campaign.output_preferences_json)
     schedule = _load_object(campaign.schedule_config_json)
     source_type = campaign.source_type or "watchlist"
     source_reference_id = campaign.source_reference_id or ""
     source_label = _scheduled_x_source_label(source_type, source_reference_id)
-    ticker_theme = source_reference_id or ", ".join(_load_list(campaign.tickers_json)) or source_label
+    triggers = _scheduled_x_triggers(db, campaign)
+    tickers = _dedupe_strings([str(trigger.get("ticker") or "").upper() for trigger in triggers if trigger.get("ticker")])
+    ticker_theme = ", ".join(f"${ticker}" for ticker in tickers[:5]) or source_reference_id or ", ".join(_load_list(campaign.tickers_json)) or source_label
+    trigger_lines = [_trigger_line(trigger) for trigger in triggers[:8]]
+    if not trigger_lines:
+        trigger_lines = [
+            "No fresh Walnut trigger rows were found for this campaign. Draft should say Walnut is monitoring this source and avoid inventing ticker examples."
+        ]
     text = "\n".join(
         [
             f"Saved Walnut scheduled X campaign: {campaign.name}",
             f"Source type: {source_type}",
             f"Source selector: {source_reference_id or 'default'}",
             f"Schedule: {schedule.get('cadence') or ('weekdays' if campaign.weekdays_only else 'daily')} at {campaign.run_time or 'scheduled time'} {campaign.timezone or 'America/Los_Angeles'}",
+            "Strategy: make the draft data-led. Mention the actual tickers/entities below, explain why Walnut flagged them, and include Walnut ticker links. Do not write generic product marketing unless there are no fresh triggers.",
+            "Walnut triggers:",
+            *trigger_lines,
             f"Filters/preferences JSON: {json.dumps(filters, sort_keys=True)}",
             f"Draft preferences: {json.dumps(preferences, sort_keys=True)}",
             f"Draft slot: {index}",
@@ -1922,6 +2231,8 @@ def _scheduled_x_context(campaign: AiMarketingCampaign, *, index: int = 1) -> tu
         "filters": filters,
         "schedule": schedule,
         "preferences": preferences,
+        "walnut_triggers": triggers,
+        "trigger_tickers": tickers,
         "draft_slot": index,
         "include_image_card": bool(preferences.get("include_image_card", True)),
         "include_walnut_link": bool(preferences.get("include_walnut_link", True)),
@@ -1953,7 +2264,7 @@ def run_scheduled_x_campaign(db: Session, campaign: AiMarketingCampaign) -> dict
     max_drafts = max(1, min(int(campaign.max_drafts_per_day or 1), 10))
     selected: list[AiMarketingOpportunity] = []
     for index in range(1, max_drafts + 1):
-        ticker_theme, context = _scheduled_x_context(campaign, index=index)
+        ticker_theme, context = _scheduled_x_context(db, campaign, index=index)
         source_key = f"scheduled-x:{campaign.id}:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}:{index}"
         source_item = SourceItem(
             platform="x",
@@ -1974,6 +2285,8 @@ def run_scheduled_x_campaign(db: Session, campaign: AiMarketingCampaign) -> dict
                 "source_reference_id": campaign.source_reference_id,
                 "inputs": context["inputs"],
                 "tone": context["preferences"].get("tone"),
+                "article_tickers": context["inputs"].get("trigger_tickers") or [],
+                "walnut_context": context["inputs"].get("walnut_triggers") or [],
                 "suggested_destination_url": campaign.default_destination_page or DEFAULT_DESTINATION_URL,
             },
         )

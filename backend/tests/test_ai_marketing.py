@@ -18,6 +18,7 @@ from app.models import (
     AiMarketingOpportunity,
     AiMarketingSetting,
     AiMarketingSuggestion,
+    ConfirmationMonitoringSnapshot,
     Security,
     UserAccount,
     Watchlist,
@@ -391,6 +392,85 @@ def test_scheduled_x_campaign_lifecycle_run_email_and_delete(monkeypatch):
         deleted = admin_ai_marketing_delete_campaign(campaign["id"], request, db)
         assert deleted == {"ok": True, "id": campaign["id"]}
         assert all(item["id"] != campaign["id"] for item in admin_ai_marketing_campaigns(request, db)["items"])
+    finally:
+        db.close()
+
+
+def test_scheduled_x_campaign_uses_real_confirmation_triggers(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
+    _mock_openai(
+        monkeypatch,
+        _growth_openai_payload(
+            campaign_type="scheduled_x_campaign",
+            content_type="x_post",
+            platform="x",
+            detected_tickers=["NVDA"],
+            suggested_destination_url="https://app.walnutmarkets.com/ticker/NVDA",
+            suggested_post="$NVDA is one of today's bullish confirmation names in Walnut. Review the ticker page before acting.",
+        ),
+    )
+    monkeypatch.setattr("app.services.ai_marketing.send_email", lambda *args, **kwargs: {"id": 123, "status": "sent"})
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        request = _request_for_user(admin)
+        db.add(
+            ConfirmationMonitoringSnapshot(
+                user_id=admin.id,
+                watchlist_id=1,
+                ticker="NVDA",
+                score=91,
+                band="exceptional",
+                direction="bullish",
+                source_count=3,
+                status="3-source bullish confirmation",
+                source_states_json=json.dumps(
+                    {
+                        "congress": {"present": True},
+                        "price_volume": {"present": True},
+                        "fundamentals": {"present": True},
+                    }
+                ),
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        campaign = admin_ai_marketing_create_campaign(
+            CampaignPayload(
+                name="Daily Bullish Confirmation",
+                enabled=True,
+                status="active",
+                mode="scheduled_x_campaign",
+                campaign_type="scheduled_x_campaign",
+                content_type="x_post",
+                schedule_config={"cadence": "weekdays"},
+                weekdays_only=True,
+                run_time="09:30",
+                timezone="America/Los_Angeles",
+                recipient_email="jarod@walnutmarkets.com",
+                source_type="bullish_confirmation",
+                source_reference_id="Bullish confirmation monitor",
+                output_preferences={"tone": "sharp", "cta_mode": "soft", "hashtag_mode": "ticker/theme only"},
+                platforms=["x"],
+                max_items_per_run=1,
+                max_drafts_per_day=1,
+            ),
+            request,
+            db,
+        )
+
+        result = admin_ai_marketing_run_campaign(campaign["id"], request, db)
+        assert result["drafts_generated"] == 1
+        opportunity = db.query(AiMarketingOpportunity).filter(AiMarketingOpportunity.campaign_id == campaign["id"]).one()
+        metadata = json.loads(opportunity.raw_metadata_json)
+        assert "$NVDA" in opportunity.excerpt
+        assert "https://app.walnutmarkets.com/ticker/NVDA" in opportunity.excerpt
+        assert "score 91" in opportunity.excerpt
+        assert "NVDA" in json.loads(opportunity.matched_tickers_json)
+        assert metadata["article_tickers"] == ["NVDA"]
+        assert metadata["walnut_context"][0]["ticker"] == "NVDA"
+        assert metadata["walnut_context"][0]["ticker_url"] == "https://app.walnutmarkets.com/ticker/NVDA"
     finally:
         db.close()
 
