@@ -43,10 +43,10 @@ function formatSignalStrengthText(band?: string | null): string {
 function gateFromError(error: unknown): { reason: GateReason; message: string } {
   if (error instanceof ApiError) {
     if (error.status === 401) {
-      return { reason: "auth", message: "Create an account or log in to unlock signal activity." };
+      return { reason: "auth", message: "Create an account and subscribe to premium to unlock signal activity." };
     }
     if (error.status === 402 || error.status === 403) {
-      return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
+      return { reason: "upgrade", message: "Subscribe to premium to unlock signal activity." };
     }
   }
   return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
@@ -54,7 +54,7 @@ function gateFromError(error: unknown): { reason: GateReason; message: string } 
 
 function gateFromActivityState(state: SignalActivityState | null | undefined): { reason: GateReason; message: string } | null {
   if (state === "locked") {
-    return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
+    return { reason: "upgrade", message: "Subscribe to premium to unlock signal activity." };
   }
   if (state === "unavailable") {
     return { reason: "unavailable", message: "Ticker signals are temporarily unavailable." };
@@ -234,9 +234,9 @@ export function TickerSignalActivityClient({
   }, [hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
 
   const visibleItems = items;
-  const gateHref = gate?.reason === "upgrade" ? "/pricing" : `/login?return_to=${encodeURIComponent(returnTo)}`;
-  const gateLabel = gate?.reason === "upgrade" ? "View Premium" : "Login or register";
-  const gateTitle = gate?.reason === "upgrade" ? "Signal Activity is a premium feature." : "Signals are gated for this view.";
+  const gateHref = gate?.reason === "unavailable" ? returnTo : "/pricing";
+  const gateLabel = "View Premium";
+  const gateTitle = "Signal activity requires premium";
   const visibleTotal = total ?? visibleItems.length;
   const statusLabel = loading ? "loading" : gate ? (gate.reason === "unavailable" ? "unavailable" : "locked") : `${visibleTotal} signals`;
 

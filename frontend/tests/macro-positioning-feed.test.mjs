@@ -16,6 +16,7 @@ test("macro positioning activity is routed through the insights widget", () => {
   assert.match(api, /\/api\/feed\/macro-positioning/);
   assert.doesNotMatch(feedShell, /\/feed\/macro-positioning/);
   assert.doesNotMatch(feedShell, />\s*Macro Positioning\s*<\/a>/);
+  assert.doesNotMatch(feedShell, /Market Activity/);
 });
 
 test("macro positioning widget renders required table hierarchy", () => {
@@ -23,16 +24,21 @@ test("macro positioning widget renders required table hierarchy", () => {
     assert.match(component, new RegExp(heading));
   }
   assert.match(component, /Overview/);
-  assert.match(component, /Positioning Feed/);
+  assert.match(component, /Weekly Reports/);
+  assert.match(component, /Macro Position Summary/);
+  assert.match(component, /Changes This Past Week/);
+  assert.doesNotMatch(component, /Positioning Feed/);
+  assert.doesNotMatch(component, /Weekly Positioning Summary/);
   assert.match(component, /Significant Changes/);
   assert.match(component, /All Markets/);
   assert.match(component, /getMacroPositioningFeed/);
 });
 
-test("macro positioning feed pagination uses 25 50 100", () => {
-  assert.match(component, /const pageSizeOptions = \[25, 50, 100\] as const/);
-  assert.doesNotMatch(component, /5 \/ page/);
-  assert.doesNotMatch(component, /10 \/ page/);
+test("macro positioning weekly reports pagination defaults to 5 and uses 5 10 25", () => {
+  assert.match(component, /const pageSizeOptions = \[5, 10, 25\] as const/);
+  assert.match(component, /useState<\(typeof pageSizeOptions\)\[number\]>\(5\)/);
+  assert.doesNotMatch(component, /50 \/ page/);
+  assert.doesNotMatch(component, /100 \/ page/);
 });
 
 test("macro positioning all-markets view remains selectable in the widget", () => {

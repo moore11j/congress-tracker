@@ -197,9 +197,6 @@ export function FeedPageClient() {
             <p className="max-w-2xl text-sm text-slate-400">
               One intelligence workflow: switch between All, Congress, Insider, Government Contracts, and Institutional Activity with mode-aware filters.
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Market Activity</span>
-            </div>
           </div>
           <div className="contents">
             <DebugMountLogger

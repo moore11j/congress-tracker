@@ -964,11 +964,11 @@ function formatSignalStrengthText(band?: string | null): string {
 }
 
 function signalGateForAuthenticatedFreeUser(): SignalGateState {
-  return { reason: "upgrade", message: "Upgrade to unlock ticker-level signal context." };
+  return { reason: "upgrade", message: "Subscribe to premium to unlock signal activity." };
 }
 
 function signalGateForUnauthenticatedUser(): SignalGateState {
-  return { reason: "auth", message: "Create an account or log in to unlock signal activity." };
+  return { reason: "auth", message: "Create an account and subscribe to premium to unlock signal activity." };
 }
 
 function canUseSignalActivity(entitlements: Entitlements | null): boolean {
@@ -2749,6 +2749,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
   canViewProTickerContext,
+  hasAuthForEntitlementDisplay,
   canViewPremiumMetrics,
   tickerConfirmationGate,
 }: {
@@ -2767,6 +2768,7 @@ async function DeferredTickerContent({
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
   canViewProTickerContext: boolean;
+  hasAuthForEntitlementDisplay: boolean;
   canViewPremiumMetrics: boolean;
   tickerConfirmationGate?: TickerConfirmationGate | null;
 }) {
@@ -2860,13 +2862,14 @@ async function DeferredTickerContent({
     [...signalSourceEvents, ...congressEvents, ...insiderEvents].map((event) => [event.id, event]),
   );
   const tickerReturnTo = tickerHref(normalizedSymbol) ?? `/ticker/${normalizedSymbol}`;
-  const signalGateHref = signalsUnavailable?.reason === "upgrade"
-    ? "/pricing"
-    : `/login?return_to=${encodeURIComponent(tickerReturnTo)}`;
-  const signalGateLabel = signalsUnavailable?.reason === "upgrade" ? "View Premium" : "Login or register";
-  const signalGateTitle = signalsUnavailable?.reason === "upgrade"
-    ? "Signal Activity is a premium feature."
-    : "Signals are gated for this view.";
+  const signalGateHref = signalsUnavailable?.reason === "unavailable"
+    ? tickerReturnTo
+    : "/pricing";
+  const signalGateLabel = "View Premium";
+  const signalGateTitle = "Signal activity requires premium";
+  const institutionalGateMessage = hasAuthForEntitlementDisplay
+    ? "Subscribe to pro to review 13F holder activity for this ticker."
+    : "Create an account and subscribe to pro to review 13F holder activity for this ticker.";
   const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
   const confirmationLookbackDays = confirmationBundle.lookback_days;
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
@@ -3476,7 +3479,7 @@ async function DeferredTickerContent({
                 {institutionalCardLocked ? (
                   <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
                     <p className="text-sm font-semibold text-white">Institutional activity requires Pro.</p>
-                    <p className="mt-1 text-sm text-slate-400">Upgrade to review 13F holder activity for this ticker.</p>
+                    <p className="mt-1 text-sm text-slate-400">{institutionalGateMessage}</p>
                     <Link
                       href="/pricing"
                       prefetch={false}
@@ -3963,6 +3966,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}
           canViewProTickerContext={canViewProContext}
+          hasAuthForEntitlementDisplay={hasAuthForEntitlementDisplay}
           canViewPremiumMetrics={canViewPremiumMetrics}
           tickerConfirmationGate={tickerConfirmationGate}
         />

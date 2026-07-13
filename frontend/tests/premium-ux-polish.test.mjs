@@ -174,6 +174,11 @@ test("ticker Signal Activity avoids login copy during auth-hint hydration", () =
   assert.match(tickerSignalActivityClient, /SignalActivitySkeleton/);
   assert.match(tickerSignalActivityClient, /getSignalsAll\(\{/);
   assert.match(tickerSignalActivityClient, /source: "TickerSignalActivity"/);
-  assert.match(tickerSignalActivityClient, /Create an account or log in to unlock signal activity\./);
+  assert.match(tickerSignalActivityClient, /Create an account and subscribe to premium to unlock signal activity\./);
+  assert.match(tickerSignalActivityClient, /Subscribe to premium to unlock signal activity\./);
+  assert.match(tickerSignalActivityClient, /Signal activity requires premium/);
+  assert.match(tickerSignalActivityClient, /const gateLabel = "View Premium"/);
+  assert.match(tickerPage, /Create an account and subscribe to pro to review 13F holder activity for this ticker\./);
+  assert.match(tickerPage, /Subscribe to pro to review 13F holder activity for this ticker\./);
   assert.doesNotMatch(tickerPage, /Create a free account or log in to unlock premium ticker signals/);
 });

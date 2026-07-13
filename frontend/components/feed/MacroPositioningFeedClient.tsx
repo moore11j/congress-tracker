@@ -82,6 +82,14 @@ const queryDefaults: Record<string, string> = {
   view: "significant",
 };
 
+const lockedMacroPositioningFallback: MacroPositioningFeedResponse = {
+  status: "locked",
+  entitlement: { required_plan: "pro", unlocked: false },
+  locked_copy: "Track major shifts, trends, and historical extremes in institutional futures positioning.",
+  items: [],
+  pagination: { page: 1, page_size: 25, total: 0 },
+};
+
 function updateParams(router: ReturnType<typeof useRouter>, sp: URLSearchParams, updates: Record<string, string | null>) {
   const next = new URLSearchParams(sp.toString());
   Object.entries(updates).forEach(([key, value]) => {
@@ -92,6 +100,8 @@ function updateParams(router: ReturnType<typeof useRouter>, sp: URLSearchParams,
   router.replace(`/feed/macro-positioning${next.toString() ? `?${next.toString()}` : ""}`, { scroll: false });
 }
 
+const proButtonClassName = "inline-flex w-fit items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-1.5 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15";
+
 function LockedView({ data }: { data: MacroPositioningFeedResponse }) {
   return (
     <section className={`${cardClassName} space-y-5`}>
@@ -101,11 +111,11 @@ function LockedView({ data }: { data: MacroPositioningFeedResponse }) {
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
             {data.locked_copy ?? "Track major shifts, trends, and historical extremes in institutional futures positioning."}
           </p>
-          <p className="mt-3 text-sm font-semibold text-emerald-100">Included with Walnut Pro.</p>
+          <p className="mt-3 text-sm font-semibold text-emerald-100">Macro positioning requires pro</p>
+          <Link href="/pricing" className={`mt-3 ${proButtonClassName}`}>
+            View Pro
+          </Link>
         </div>
-        <Link href="/pricing" className={ghostButtonClassName}>
-          Upgrade to Pro
-        </Link>
       </div>
       <div className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/45">
         <div className="hidden grid-cols-[1fr_1fr_1fr_1fr_1fr_2fr] gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
@@ -167,10 +177,10 @@ function DetailDrawer({ item, onClose }: { item: MacroPositioningFeedItem; onClo
   );
 }
 
-export function MacroPositioningFeedClient() {
+export function MacroPositioningFeedClient({ initialData = null }: { initialData?: MacroPositioningFeedResponse | null }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const [data, setData] = useState<MacroPositioningFeedResponse | null>(null);
+  const [data, setData] = useState<MacroPositioningFeedResponse | null>(initialData);
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<MacroPositioningFeedItem | null>(null);
 
@@ -202,7 +212,8 @@ export function MacroPositioningFeedClient() {
   const items = data?.items ?? [];
   const showing = useMemo(() => `${total === 0 ? 0 : (page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} of ${total}`, [page, pageSize, total]);
 
-  if (data?.status === "locked" || data?.entitlement?.unlocked === false) return <LockedView data={data} />;
+  if (data === null) return <LockedView data={lockedMacroPositioningFallback} />;
+  if (data.status === "locked" || data.entitlement?.unlocked === false) return <LockedView data={data} />;
 
   return (
     <div className="space-y-6">

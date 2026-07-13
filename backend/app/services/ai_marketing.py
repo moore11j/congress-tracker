@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import base64
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -56,7 +57,6 @@ X_POST_CHARACTER_LIMIT = 280
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
-OPENAI_CREDITS_LEFT_USD = "OPENAI_CREDITS_LEFT_USD"
 OPENAI_CREDITS_LOW_WATERMARK_USD = "OPENAI_CREDITS_LOW_WATERMARK_USD"
 FMP_API_KEY = "FMP_API_KEY"
 AI_GROWTH_ARTICLE_AUTOMATION_ENABLED = "AI_GROWTH_ARTICLE_AUTOMATION_ENABLED"
@@ -74,6 +74,9 @@ OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
 )
 OPENAI_WEB_SEARCH_FAILED_MESSAGE = "OpenAI web search discovery failed. Check OpenAI configuration, quota, and API availability."
 DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD = 25.0
+OPENAI_CREDIT_GRANTS_URL = "https://api.openai.com/dashboard/billing/credit_grants"
+OPENAI_CREDITS_CACHE_SECONDS = 300
+_OPENAI_CREDITS_CACHE: dict[str, Any] = {"expires_at": 0.0, "api_key": None, "payload": None}
 
 LEGACY_CAMPAIGN_MODES = {
     "ticker_thread_assist",
@@ -448,24 +451,90 @@ def _env_float(key: str) -> float | None:
         return None
 
 
-def _openai_credits_status() -> dict[str, Any]:
-    credits_left = _env_float(OPENAI_CREDITS_LEFT_USD)
+def _request_openai_credit_grants(api_key: str) -> dict[str, Any]:
+    now = time.monotonic()
+    cache_key = api_key[-12:]
+    if _OPENAI_CREDITS_CACHE.get("api_key") == cache_key and float(_OPENAI_CREDITS_CACHE.get("expires_at") or 0) > now:
+        cached = _OPENAI_CREDITS_CACHE.get("payload")
+        if isinstance(cached, dict):
+            return cached
+    try:
+        response = requests.get(
+            OPENAI_CREDIT_GRANTS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=8,
+        )
+    except requests.RequestException as exc:
+        payload = {"ok": False, "status_code": None, "error": str(exc)}
+    else:
+        status_code = getattr(response, "status_code", None)
+        response_ok = bool(getattr(response, "ok", False)) or (isinstance(status_code, int) and 200 <= status_code < 300)
+        if response_ok:
+            try:
+                payload = {"ok": True, "status_code": status_code, "data": response.json()}
+            except ValueError:
+                payload = {"ok": False, "status_code": status_code, "error": "OpenAI billing response was not JSON."}
+        else:
+            payload = {
+                "ok": False,
+                "status_code": status_code,
+                "error": "OpenAI billing credits request failed.",
+            }
+    _OPENAI_CREDITS_CACHE.update({"api_key": cache_key, "expires_at": now + OPENAI_CREDITS_CACHE_SECONDS, "payload": payload})
+    return payload
+
+
+def _openai_credits_status(db: Session | None) -> dict[str, Any]:
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
     low_watermark = _env_float(OPENAI_CREDITS_LOW_WATERMARK_USD)
     if low_watermark is None or low_watermark < 0:
         low_watermark = DEFAULT_OPENAI_CREDITS_LOW_WATERMARK_USD
-    if credits_left is None:
+    if not api_key:
         return {
             "left_usd": None,
             "low_watermark_usd": low_watermark,
             "status": "missing",
-            "label": f"Set {OPENAI_CREDITS_LEFT_USD}",
+            "label": "OpenAI API key missing",
+            "source": "openai_billing",
+            "error": "OPENAI_API_KEY is not configured.",
         }
+    result = _request_openai_credit_grants(api_key)
+    if not result.get("ok"):
+        return {
+            "left_usd": None,
+            "low_watermark_usd": low_watermark,
+            "status": "unavailable",
+            "label": "OpenAI balance unavailable",
+            "source": "openai_billing",
+            "error": result.get("error"),
+            "status_code": result.get("status_code"),
+        }
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    credits_left = data.get("total_available")
+    if not isinstance(credits_left, (int, float)):
+        credits_left = data.get("total_granted")
+        total_used = data.get("total_used")
+        if isinstance(credits_left, (int, float)) and isinstance(total_used, (int, float)):
+            credits_left = credits_left - total_used
+    if not isinstance(credits_left, (int, float)):
+        return {
+            "left_usd": None,
+            "low_watermark_usd": low_watermark,
+            "status": "unavailable",
+            "label": "OpenAI balance unavailable",
+            "source": "openai_billing",
+            "error": "OpenAI billing response did not include total_available.",
+            "status_code": result.get("status_code"),
+        }
+    credits_left = max(float(credits_left), 0.0)
     status = "low" if credits_left <= low_watermark else "ok"
     return {
         "left_usd": credits_left,
         "low_watermark_usd": low_watermark,
         "status": status,
         "label": f"${credits_left:,.2f}",
+        "source": "openai_billing",
+        "status_code": result.get("status_code"),
     }
 
 
@@ -475,7 +544,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         for key in AI_MARKETING_SETTINGS
     }
     web_search_status = web_search_provider_status(db)
-    openai_credits = _openai_credits_status()
+    openai_credits = _openai_credits_status(db)
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
@@ -508,6 +577,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "openai_credits_low_watermark_usd": openai_credits["low_watermark_usd"],
         "openai_credits_status": openai_credits["status"],
         "openai_credits_label": openai_credits["label"],
+        "openai_credits_source": openai_credits.get("source"),
+        "openai_credits_error": openai_credits.get("error"),
         "fmp_articles_configured": bool(statuses[FMP_API_KEY]["configured"]),
         "fmp_articles_status": "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
         "fmp_articles_missing": [] if statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],

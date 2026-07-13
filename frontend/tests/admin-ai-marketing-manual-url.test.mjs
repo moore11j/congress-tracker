@@ -23,6 +23,7 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   assert.match(apiSource, /openai_credits_left_usd/);
   assert.doesNotMatch(viewSource, /getAdminProviderUsageFmp/);
   assert.doesNotMatch(viewSource, /apiCreditsMetric/);
+  assert.doesNotMatch(viewSource, /OPENAI_CREDITS_LEFT_USD/);
   assert.doesNotMatch(viewSource, /Email Delivery/);
   assert.doesNotMatch(viewSource, /Influencer Packs|Influencer Report Packs|Reddit Paid Ads/);
   assert.doesNotMatch(viewSource, /Ticker thread assist|Congress trade angle|Insider buying angle|Unusual signal angle|Tool alternative/);

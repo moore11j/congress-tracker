@@ -1402,7 +1402,10 @@ function openAiCreditsMetric(config: AdminAiMarketingConfig | null): { value: st
     return { value: config?.openai_credits_label ?? "Low", tone: "warn" };
   }
   if (status === "missing") {
-    return { value: config?.openai_credits_label ?? "Set OPENAI_CREDITS_LEFT_USD", tone: "warn" };
+    return { value: config?.openai_credits_label ?? "OpenAI API key missing", tone: "warn" };
+  }
+  if (status === "unavailable") {
+    return { value: config?.openai_credits_label ?? "OpenAI balance unavailable", tone: "warn" };
   }
   return { value: "Unavailable", tone: "warn" };
 }

@@ -32,7 +32,11 @@ test("macro positioning section has pro lock, cards, and flyout", () => {
 
 test("macro positioning section owns overview and positioning feed tabs", () => {
   assert.match(component, /Overview/);
-  assert.match(component, /Positioning Feed/);
+  assert.match(component, /Weekly Reports/);
+  assert.match(component, /Macro Position Summary/);
+  assert.match(component, /Changes This Past Week/);
+  assert.doesNotMatch(component, /Positioning Feed/);
+  assert.doesNotMatch(component, /Weekly Positioning Summary/);
   assert.match(component, /getMacroPositioningFeed/);
   assert.match(api, /\/api\/feed\/macro-positioning/);
   for (const heading of ["Report Date", "Market", "Positioning", "Weekly Change", "Historical Range", "Trend", "Insight"]) {

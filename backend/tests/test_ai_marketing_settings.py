@@ -19,7 +19,6 @@ from app.routers.ai_marketing import (
 from app.services.ai_marketing import (
     AI_MARKETING_MODEL,
     BING_SEARCH_API_KEY,
-    OPENAI_CREDITS_LEFT_USD,
     OPENAI_CREDITS_LOW_WATERMARK_USD,
     OPENAI_API_KEY,
     OPENAI_WEB_SEARCH_ENABLED,
@@ -31,6 +30,7 @@ from app.services.ai_marketing import (
     resolved_setting_value,
     test_openai_connection as run_openai_connection_test,
     test_reddit_connection as run_reddit_connection_test,
+    _OPENAI_CREDITS_CACHE,
 )
 
 
@@ -60,11 +60,11 @@ def _items_by_key(payload: dict):
 
 
 def _clear_env(monkeypatch):
+    _OPENAI_CREDITS_CACHE.update({"expires_at": 0.0, "api_key": None, "payload": None})
     for key in (
         OPENAI_API_KEY,
         AI_MARKETING_MODEL,
         OPENAI_WEB_SEARCH_ENABLED,
-        OPENAI_CREDITS_LEFT_USD,
         OPENAI_CREDITS_LOW_WATERMARK_USD,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
@@ -218,26 +218,55 @@ def test_openai_web_search_status_reflects_env_config(monkeypatch):
         db.close()
 
 
-def test_openai_credits_status_reflects_env_balance(monkeypatch):
+def test_openai_credits_status_reflects_openai_balance(monkeypatch):
     _clear_env(monkeypatch)
-    monkeypatch.setenv(OPENAI_CREDITS_LEFT_USD, "142.50")
+    monkeypatch.setenv(OPENAI_API_KEY, "sk-env-openai")
     monkeypatch.setenv(OPENAI_CREDITS_LOW_WATERMARK_USD, "25")
+
+    class Response:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {"total_granted": 200.0, "total_used": 57.5, "total_available": 142.5}
+
+    captured = {}
+
+    def fake_get(url, *, headers, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", fake_get)
     db = _session()
     try:
         payload = config_status(db)
 
+        assert captured["url"] == "https://api.openai.com/dashboard/billing/credit_grants"
+        assert captured["headers"]["Authorization"] == "Bearer sk-env-openai"
         assert payload["openai_credits_left_usd"] == 142.5
         assert payload["openai_credits_low_watermark_usd"] == 25.0
         assert payload["openai_credits_status"] == "ok"
         assert payload["openai_credits_label"] == "$142.50"
+        assert payload["openai_credits_source"] == "openai_billing"
     finally:
         db.close()
 
 
-def test_openai_credits_low_balance_adds_repurchase_warning(monkeypatch):
+def test_openai_credits_low_openai_balance_adds_repurchase_warning(monkeypatch):
     _clear_env(monkeypatch)
-    monkeypatch.setenv(OPENAI_CREDITS_LEFT_USD, "$4.75")
+    monkeypatch.setenv(OPENAI_API_KEY, "sk-env-openai")
     monkeypatch.setenv(OPENAI_CREDITS_LOW_WATERMARK_USD, "10")
+
+    class Response:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {"total_available": 4.75}
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", lambda *args, **kwargs: Response())
     db = _session()
     try:
         payload = config_status(db)
@@ -245,6 +274,27 @@ def test_openai_credits_low_balance_adds_repurchase_warning(monkeypatch):
         assert payload["openai_credits_status"] == "low"
         assert payload["openai_credits_label"] == "$4.75"
         assert any("OpenAI credits low: $4.75 remaining" in warning for warning in payload["warnings"])
+    finally:
+        db.close()
+
+
+def test_openai_credits_unavailable_when_openai_billing_lookup_fails(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(OPENAI_API_KEY, "sk-env-openai")
+
+    class Response:
+        ok = False
+        status_code = 404
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", lambda *args, **kwargs: Response())
+    db = _session()
+    try:
+        payload = config_status(db)
+
+        assert payload["openai_credits_left_usd"] is None
+        assert payload["openai_credits_status"] == "unavailable"
+        assert payload["openai_credits_label"] == "OpenAI balance unavailable"
+        assert payload["openai_credits_source"] == "openai_billing"
     finally:
         db.close()
 

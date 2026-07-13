@@ -12,7 +12,7 @@ import {
 } from "@/lib/api";
 import { cardClassName, ghostButtonClassName, selectClassName } from "@/lib/styles";
 
-const pageSizeOptions = [25, 50, 100] as const;
+const pageSizeOptions = [5, 10, 25] as const;
 
 type MacroPositioningTab = "overview" | "feed";
 type MacroFeedView = "significant" | "all";
@@ -284,7 +284,7 @@ function MacroFeedPanel({ overviewSummary }: { overviewSummary?: string | null }
   const [data, setData] = useState<MacroPositioningFeedResponse | null>(null);
   const [failed, setFailed] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<(typeof pageSizeOptions)[number]>(25);
+  const [pageSize, setPageSize] = useState<(typeof pageSizeOptions)[number]>(5);
   const [view, setView] = useState<MacroFeedView>("significant");
   const [market, setMarket] = useState("all");
   const [positioning, setPositioning] = useState("all");
@@ -349,7 +349,7 @@ function MacroFeedPanel({ overviewSummary }: { overviewSummary?: string | null }
       <div className="rounded-lg border border-white/10 bg-slate-950/45 p-4">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Weekly Positioning Summary</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Changes This Past Week</p>
             <p className="mt-3 text-sm leading-6 text-slate-200">{summary}</p>
           </div>
           <div className="text-xs text-slate-500 lg:text-right">
@@ -424,7 +424,7 @@ function MacroFeedPanel({ overviewSummary }: { overviewSummary?: string | null }
               {!data && !failed ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-slate-400">
-                    Loading positioning feed.
+                    Loading weekly reports.
                   </td>
                 </tr>
               ) : failed ? (
@@ -552,7 +552,7 @@ export function InsightsMacroPositioningClient() {
       <div className="mt-5 inline-flex rounded-lg border border-white/10 bg-slate-950/55 p-1">
         {[
           ["overview", "Overview"],
-          ["feed", "Positioning Feed"],
+          ["feed", "Weekly Reports"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -569,7 +569,7 @@ export function InsightsMacroPositioningClient() {
 
       {data.summary ? (
         <div className={activeTab === "overview" ? "mt-5 rounded-lg border border-white/10 bg-slate-950/45 p-4" : "hidden"}>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Weekly Positioning Summary</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Macro Position Summary</p>
           <p className="mt-3 text-sm leading-6 text-slate-200">{data.summary}</p>
         </div>
       ) : null}
