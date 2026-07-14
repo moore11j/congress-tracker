@@ -883,11 +883,13 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
     symbol_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "25") or 25)
     popular_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "0") or 0)
     per_user_limit = int(os.getenv("PRIORITY_TICKER_PREWARM_PER_USER_LIMIT", "5") or 5)
+    prewarm_mode = os.getenv("PRIORITY_TICKER_PREWARM_MODE", "complete") or "complete"
     logger.info(
-        "prewarm_ticker_cache_start symbol_limit=%s popular_limit=%s per_user_limit=%s",
+        "prewarm_ticker_cache_start symbol_limit=%s popular_limit=%s per_user_limit=%s mode=%s",
         symbol_limit,
         popular_limit,
         per_user_limit,
+        prewarm_mode,
     )
     with SessionLocal() as db:
         result = enqueue_priority_ticker_prewarm_jobs(
@@ -896,6 +898,7 @@ def _run_priority_ticker_prewarm_job() -> dict[str, object]:
             popular_limit=popular_limit,
             per_user_limit=per_user_limit,
             source="priority_ticker_prewarm",
+            mode=prewarm_mode,
         )
     logger.info(
         "prewarm_ticker_cache_selected selected_tickers_count=%s watchlist_tickers=%s recently_viewed_tickers=%s active_event_tickers=%s popular_tickers=%s landing_tickers=%s",

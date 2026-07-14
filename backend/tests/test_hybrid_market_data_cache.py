@@ -13,7 +13,7 @@ from app.request_priority import reset_request_context, set_request_context
 from app.services.cache_policy import CachePolicy, is_fresh, is_stale_but_usable
 from app.services.fmp_news import clear_news_cache, get_general_news
 from app.services.market_data_cache import get_or_refresh_market_data
-from app.services.provider_usage import provider_usage_summary, reset_provider_usage
+from app.services.provider_usage import ProviderDisabled, provider_usage_summary, reset_provider_usage
 from app.services.ticker_financials import clear_financials_cache, get_ticker_financials
 
 
@@ -22,6 +22,29 @@ def _session():
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine, future=True)
     return Session()
+
+
+def test_live_user_fetch_is_limited_to_configured_categories(monkeypatch):
+    monkeypatch.setenv("FMP_LIVE_USER_ROUTES_ENABLED", "true")
+    monkeypatch.setenv("FMP_LIVE_USER_ROUTE_CATEGORIES", "quote,price:*")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    reset_provider_usage()
+
+    from app.services.provider_usage import ensure_fmp_live_allowed
+
+    token = set_request_context({"path": "/api/tickers/AAPL/context-bundle", "priority": "heavy"})
+    try:
+        ensure_fmp_live_allowed(category="quote", symbol="AAPL")
+        ensure_fmp_live_allowed(category="price:series", symbol="AAPL")
+        try:
+            ensure_fmp_live_allowed(category="news_stock", symbol="AAPL")
+        except ProviderDisabled as exc:
+            assert exc.reason == "provider_disabled"
+        else:
+            raise AssertionError("unlisted user fetch category should be blocked")
+    finally:
+        reset_request_context(token)
+        reset_provider_usage()
 
 
 def test_cache_policy_fresh_and_stale_windows():

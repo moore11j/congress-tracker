@@ -37,6 +37,28 @@ SYMBOL_REQUIRED_JOB_TYPES = {
     "technical_indicators",
     "profile",
 }
+COMPLETE_PREWARM_JOB_TYPES = (
+    "quote",
+    "ticker_meta",
+    "fundamentals",
+    "ticker_financials",
+    "news_stock",
+    "press_releases",
+    "sec_filings",
+    "price_series",
+    "technical_indicators",
+)
+CORE_PREWARM_JOB_TYPES = (
+    "quote",
+    "ticker_meta",
+    "fundamentals",
+    "price_series",
+    "technical_indicators",
+)
+PREWARM_MODE_JOB_TYPES = {
+    "complete": COMPLETE_PREWARM_JOB_TYPES,
+    "core": CORE_PREWARM_JOB_TYPES,
+}
 
 
 class RetryableProviderTimeout(RuntimeError):
@@ -65,6 +87,15 @@ def _normalized_prewarm_symbol(raw: str | None, *, source: str) -> str | None:
 
 def _job_requires_symbol(job_type: str | None) -> bool:
     return (job_type or "").strip().lower() in SYMBOL_REQUIRED_JOB_TYPES
+
+
+def _priority_ticker_prewarm_mode(mode: str | None = None) -> str:
+    raw = (mode or os.getenv("PRIORITY_TICKER_PREWARM_MODE") or "complete").strip().lower()
+    return raw if raw in PREWARM_MODE_JOB_TYPES else "complete"
+
+
+def _priority_ticker_prewarm_job_types(mode: str | None = None) -> set[str]:
+    return set(PREWARM_MODE_JOB_TYPES[_priority_ticker_prewarm_mode(mode)])
 
 
 def build_dedupe_key(
@@ -366,10 +397,13 @@ def enqueue_priority_ticker_prewarm_jobs(
     popular_limit: int = 0,
     per_user_limit: int = 5,
     source: str = "priority_ticker_prewarm",
+    mode: str | None = None,
 ) -> dict[str, Any]:
     normalized_limit = max(1, min(int(symbol_limit or 25), 100))
     normalized_popular_limit = max(0, min(int(popular_limit or 0), normalized_limit))
     normalized_per_user_limit = max(1, min(int(per_user_limit or 5), normalized_limit))
+    prewarm_mode = _priority_ticker_prewarm_mode(mode)
+    prewarm_job_types = _priority_ticker_prewarm_job_types(prewarm_mode)
     active_limit = max(1, min(normalized_limit, int(os.getenv("PRIORITY_TICKER_PREWARM_ACTIVE_LIMIT", str(normalized_limit)) or normalized_limit)))
     active_lookback_days = max(
         1,
@@ -485,6 +519,8 @@ def enqueue_priority_ticker_prewarm_jobs(
             ("press_releases", 70, {"page": 0, "limit": 20}),
             ("sec_filings", 75, {"page": 0, "limit": 50}),
         ):
+            if job_type not in prewarm_job_types:
+                continue
             _enqueue(
                 job_type=job_type,
                 symbol=symbol,
@@ -494,29 +530,33 @@ def enqueue_priority_ticker_prewarm_jobs(
                 payload=payload,
                 max_attempts=3,
             )
-        for label, (start_key, end_key, priority) in windows.items():
+        if "price_series" in prewarm_job_types:
+            for label, (start_key, end_key, priority) in windows.items():
+                _enqueue(
+                    job_type="price_series",
+                    symbol=symbol,
+                    window_key=f"{start_key}:{end_key}",
+                    source=source,
+                    reason="enqueued_missing_price_volume",
+                    priority=priority,
+                    max_attempts=3,
+                )
+        if "technical_indicators" in prewarm_job_types:
             _enqueue(
-                job_type="price_series",
+                job_type="technical_indicators",
                 symbol=symbol,
-                window_key=f"{start_key}:{end_key}",
+                window_key="technical:90d",
                 source=source,
                 reason="enqueued_missing_price_volume",
-                priority=priority,
+                priority=60,
                 max_attempts=3,
             )
-        _enqueue(
-            job_type="technical_indicators",
-            symbol=symbol,
-            window_key="technical:90d",
-            source=source,
-            reason="enqueued_missing_price_volume",
-            priority=60,
-            max_attempts=3,
-        )
 
     return {
         "symbols": symbols,
         "symbol_count": len(symbols),
+        "prewarm_mode": prewarm_mode,
+        "prewarm_job_types": sorted(prewarm_job_types),
         "attempted": attempted,
         "enqueued": enqueued,
         "attempted_by_type": attempted_by_type,
@@ -571,6 +611,21 @@ def _enqueue_skip_reason(
     return "skipped_enqueue_failed"
 
 
+def _enrichment_queue_pressure_guard_enabled() -> bool:
+    return os.getenv("DATA_ENRICHMENT_QUEUE_PER_JOB_GUARD_ENABLED", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _check_enrichment_queue_pressure(db: Session) -> Any:
+    from app.background_job_guard import check_background_job_guard
+
+    return check_background_job_guard("enrichment-queue", db=db)
+
+
 def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
     if os.getenv("ENRICHMENT_QUEUE_ENABLED", "false").strip().lower() in {"0", "false", "no", "off", ""}:
         logger.info("data_enrichment_queue_skipped reason=enrichment_queue_disabled")
@@ -595,7 +650,7 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
             .order_by(DataEnrichmentJob.priority.asc(), DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
             .limit(max(1, int(limit)))
         ).scalars().all()
-        for job in jobs:
+        for index, job in enumerate(jobs):
             if deadline is not None and time.monotonic() >= deadline:
                 skipped = len(jobs) - processed
                 logger.info(
@@ -605,6 +660,18 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
                     max_seconds,
                 )
                 break
+            if _enrichment_queue_pressure_guard_enabled():
+                guard = _check_enrichment_queue_pressure(db)
+                if not guard.proceed:
+                    skipped += len(jobs) - index
+                    logger.info(
+                        "data_enrichment_queue_pressure_yield reason=%s processed=%s skipped=%s guard=%s",
+                        guard.reason,
+                        processed,
+                        len(jobs) - index,
+                        guard.to_dict(),
+                    )
+                    break
             processed += 1
             if _job_requires_symbol(job.job_type) and not is_valid_enrichment_symbol(job.symbol):
                 skipped += 1

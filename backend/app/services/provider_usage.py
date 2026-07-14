@@ -17,6 +17,19 @@ PROVIDER = "fmp"
 DEFAULT_CALLS_PER_MINUTE = 500
 REPORT_PLAN_NAME = "Enterprise"
 REPORT_PLAN_CALLS_PER_MINUTE = 500
+DEFAULT_LIVE_USER_ROUTE_CATEGORIES = (
+    "quote",
+    "quote:index",
+    "ticker:quote-snapshot",
+    "ticker_meta",
+    "cik_meta",
+    "price:eod",
+    "price:index-eod",
+    "price:series",
+    "market:quotes",
+    "market:snapshot",
+    "market:stock-screener",
+)
 _EVENT_LIMIT = 500
 _WINDOW_SECONDS = 60.0
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -270,13 +283,40 @@ def live_fmp_user_routes_enabled() -> bool:
     return False
 
 
+def live_fmp_user_route_categories() -> list[str]:
+    raw = os.getenv("FMP_LIVE_USER_ROUTE_CATEGORIES")
+    if not raw:
+        return list(DEFAULT_LIVE_USER_ROUTE_CATEGORIES)
+    categories = [
+        item.strip().lower()
+        for item in raw.replace("|", ",").split(",")
+        if item.strip()
+    ]
+    return categories or list(DEFAULT_LIVE_USER_ROUTE_CATEGORIES)
+
+
+def live_fmp_user_category_enabled(category: str) -> bool:
+    if not live_fmp_user_routes_enabled():
+        return False
+    normalized = (category or "").strip().lower()
+    if not normalized:
+        return False
+    allowed = live_fmp_user_route_categories()
+    if "*" in allowed:
+        return True
+    return any(
+        normalized == item or (item.endswith("*") and normalized.startswith(item[:-1]))
+        for item in allowed
+    )
+
+
 def ensure_fmp_live_allowed(*, category: str, symbol: str | None = None, allow_user_request: bool = False) -> None:
     if _env_bool("FMP_PROVIDER_DISABLED", False):
         reason = "background_provider_disabled" if not _is_user_request() else "provider_disabled"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
 
-    if _is_user_request() and not allow_user_request and not live_fmp_user_routes_enabled():
+    if _is_user_request() and not allow_user_request and not live_fmp_user_category_enabled(category):
         reason = "page_fetch_blocked"
         record_fallback(category=category, symbol=symbol, reason=reason)
         raise ProviderDisabled(reason)
@@ -544,6 +584,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
                 "cache_only_user_routes": not live_fmp_user_routes_enabled(),
                 "provider_disabled": _env_bool("FMP_PROVIDER_DISABLED", False),
                 "allow_sync_user_fetch": live_fmp_user_routes_enabled(),
+                "live_user_route_categories": live_fmp_user_route_categories(),
             },
         }
     if db is not None:
@@ -678,6 +719,7 @@ def provider_usage_summary(*, limit: int = 20, db: Any | None = None) -> dict[st
     summary["status"] = status
     summary["enabled"] = not _env_bool("FMP_PROVIDER_DISABLED", False)
     summary["live_page_fetch_enabled"] = live_fmp_user_routes_enabled()
+    summary["live_page_fetch_categories"] = live_fmp_user_route_categories()
     summary["cache_mode"] = os.getenv("FMP_CACHE_MODE") or os.getenv("CACHE_STORE_MODE", "memory")
     summary["recommendation"] = _recommendation(summary)
     return summary

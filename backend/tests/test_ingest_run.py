@@ -245,7 +245,7 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
         def __exit__(self, *args):
             return False
 
-    def fake_enqueue_priority_ticker_prewarm_jobs(db, *, symbol_limit, popular_limit, per_user_limit, source):
+    def fake_enqueue_priority_ticker_prewarm_jobs(db, *, symbol_limit, popular_limit, per_user_limit, source, mode):
         seen.update(
             {
                 "db": db,
@@ -253,6 +253,7 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
                 "popular_limit": popular_limit,
                 "per_user_limit": per_user_limit,
                 "source": source,
+                "mode": mode,
             }
         )
         return {
@@ -273,6 +274,7 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT", "2")
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_POPULAR_LIMIT", "1")
     monkeypatch.setenv("PRIORITY_TICKER_PREWARM_PER_USER_LIMIT", "1")
+    monkeypatch.setenv("PRIORITY_TICKER_PREWARM_MODE", "core")
     monkeypatch.setattr("app.ingest_run.SessionLocal", FakeSession)
     monkeypatch.setattr("app.ingest_run.enqueue_priority_ticker_prewarm_jobs", fake_enqueue_priority_ticker_prewarm_jobs)
 
@@ -284,6 +286,7 @@ def test_priority_ticker_prewarm_job_uses_bounded_env(monkeypatch) -> None:
     assert seen["popular_limit"] == 1
     assert seen["per_user_limit"] == 1
     assert seen["source"] == "priority_ticker_prewarm"
+    assert seen["mode"] == "core"
 
 
 def test_priority_ticker_prewarm_job_defaults_to_disabled(monkeypatch) -> None:
