@@ -186,7 +186,7 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         payload = admin_ai_marketing_settings(request, db)
         items = _items_by_key(payload)
         assert items[AI_GROWTH_EMAIL_TONE]["value"] == "market-native"
-        assert "The market has tells. Walnut finds them." in items[AI_GROWTH_VOICE_CHARACTERISTICS]["value"]
+        assert "The market has tells. We help find them." in items[AI_GROWTH_VOICE_CHARACTERISTICS]["value"]
         assert payload["config"]["ai_growth_email_tone"] == "market-native"
 
         updated = admin_ai_marketing_update_settings(
@@ -206,6 +206,8 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         prompt = _suggestion_system_prompt(db)
         assert "Default email and campaign tone: sharp." in prompt
         assert "Lead with the ticker." in prompt
+        assert "use 'we', 'our', and 'we are seeing'" in prompt
+        assert "State what the signal/data says" in prompt
     finally:
         db.close()
 

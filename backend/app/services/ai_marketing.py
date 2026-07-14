@@ -87,10 +87,10 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
     [
         "Professional-grade market intelligence for sophisticated retail investors.",
         "Sharp market participant voice: useful, concrete, concise, and non-spammy.",
-        "Lead with ticker-specific evidence, then explain why Walnut flagged it.",
+        "Lead with ticker-specific evidence, then explain why we flagged it.",
         "Use reported/disclosed/filed language for Congress, insider, and institutional data.",
         "No hype, guarantees, buy/sell/short instructions, or spammy CTA language.",
-        "Brand idea: The market has tells. Walnut finds them.",
+        "Brand idea: The market has tells. We help find them.",
     ]
 )
 DEFAULT_OPENAI_CREDITS_LEDGER_START_USD = 9.91
@@ -4540,6 +4540,8 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "and no or soft CTA depending on campaign preferences. Prefer cashtags over hashtags and use no more than two hashtags. "
         "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
         "Do not reuse article thumbnails; any image/card should be Walnut-branded original card metadata with source attribution. "
+        "For x_post from @WalnutMarkets, write in first-person plural when referring to the product or signal process: use 'we', 'our', and 'we are seeing' rather than third-person phrasing like 'Walnut shows', 'Walnut flags', or 'Walnut finds'. "
+        "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the signal/data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
         f"For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
         "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
@@ -4560,7 +4562,7 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "Walnut Market Terminal is a professional-grade market intelligence platform for sophisticated retail investors. "
         "It helps users find market tells by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
         "Congress trading disclosures, government contracts, signal conviction, screener workflows, and evidence trail or why-now context. "
-        "The brand idea is: 'The market has tells. Walnut finds them.' Do not describe Walnut as a casual stock app. "
+        "The brand idea is: 'The market has tells. We help find them.' Do not describe Walnut as a casual stock app. "
         "When replying, lead with useful insight specific to the thread, then add nuance, then mention Walnut only if it has a strong natural angle. "
         "Sound like a sharp market participant and excellent founder/salesperson, while staying concise, helpful, and non-spammy. "
         "Explain Walnut concretely when mentioned; vague phrases like 'compare drivers in one place' are not enough. "
