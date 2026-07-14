@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Depends, Query, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Depends, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select, func, and_, or_, text, bindparam, String, Float, Integer, case, literal, inspect
 from sqlalchemy.orm import Session
@@ -11108,6 +11108,21 @@ def _refresh_monitored_watchlist_alerts(request: Request, db: Session, user: Use
     return watchlists
 
 
+def _refresh_watchlist_alerts_background(user_id: int, watchlist_id: int) -> None:
+    db = SessionLocal()
+    try:
+        watchlist = db.get(Watchlist, watchlist_id)
+        if watchlist is None or watchlist.owner_user_id != user_id:
+            return
+        refresh_watchlist_alerts(db, user_id=user_id, watchlist=watchlist, lookback_days=7)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("watchlist_alert_refresh_background_failed user_id=%s watchlist_id=%s", user_id, watchlist_id)
+    finally:
+        db.close()
+
+
 def _refresh_monitored_saved_screen_alerts(request: Request, db: Session, user: UserAccount) -> list[SavedScreen]:
     screens = _monitored_saved_screens_for_user(request, db, user)
     ensure_alerts_for_saved_screen_events(db, user_id=user.id, screens=screens)
@@ -11625,11 +11640,15 @@ def mark_watchlist_seen(watchlist_id: int, request: Request, db: Session = Depen
 
 
 @app.get("/api/watchlists/{watchlist_id}")
-def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get_db)):
+def get_watchlist(
+    watchlist_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     user = _require_account(request, db)
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
-    refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist, lookback_days=7)
-    db.commit()
+    background_tasks.add_task(_refresh_watchlist_alerts_background, user.id, watchlist_id)
 
     q = (
         select(Security.symbol, Security.name)
@@ -11644,7 +11663,7 @@ def get_watchlist(watchlist_id: int, request: Request, db: Session = Depends(get
         "watchlist_id": watchlist_id,
         "name": watchlist.name,
         "tickers": [
-            {"symbol": s, "name": _resolve_ticker_page_name(db, s, canonical_profile_name=n)} for s, n in rows
+            {"symbol": s, "name": safe_company_identity_candidate(n, s) or n or s} for s, n in rows
         ],
         **_watchlist_view_summary(db, watchlist_id, user.id),
     }

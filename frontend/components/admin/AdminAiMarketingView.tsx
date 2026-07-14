@@ -93,6 +93,7 @@ const SETTING_KEYS = [
   "X_CLIENT_SECRET",
   "X_REDIRECT_URI",
   "X_ACCESS_TOKEN",
+  "X_REFRESH_TOKEN",
   "REDDIT_CLIENT_ID",
   "REDDIT_CLIENT_SECRET",
   "REDDIT_USER_AGENT",
@@ -1820,7 +1821,7 @@ function AssistLink({ href, label }: { href?: string | null; label: string }) {
 }
 
 function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
-  const url = isAssetFileUrl(asset.url) ? asset.url || "" : "";
+  const url = asset.download_url || (isAssetFileUrl(asset.url) ? asset.url || "" : "");
   const imageUrl = isAssetImageUrl(asset.thumbnail_url) ? asset.thumbnail_url || "" : isAssetImageUrl(asset.url) ? asset.url || "" : "";
   return (
     <div className="rounded-lg border border-white/10 bg-slate-900/70 p-3">

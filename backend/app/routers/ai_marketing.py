@@ -4,7 +4,7 @@ import html
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from app.services.ai_marketing import (
     MissingMarketingCredential,
     OpenAISuggestionError,
     OPPORTUNITY_STATUSES,
+    ai_growth_asset_download,
     apply_email_action,
     archive_opportunity,
     campaign_to_dict,
@@ -529,6 +530,29 @@ def admin_ai_growth_draft_detail(
     return opportunity_to_dict(opportunity, suggestion=latest)
 
 
+@router.get("/admin/ai-growth/drafts/{draft_id}/assets/{asset_index}/download")
+def admin_ai_growth_download_asset(
+    draft_id: int,
+    asset_index: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = _opportunity_or_404(db, draft_id)
+    try:
+        asset = ai_growth_asset_download(db, opportunity, asset_index)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=asset["content"],
+        media_type=asset["content_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{asset["name"]}"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 @router.patch("/admin/ai-growth/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_ai_growth_update_draft(
     draft_id: int,
@@ -741,7 +765,7 @@ def admin_ai_growth_x_oauth_start(request: Request, db: Session = Depends(get_db
     require_admin_user(db, request)
     return {
         "ok": False,
-        "status": x_account_status(),
+        "status": x_account_status(db),
         "message": "X OAuth PKCE setup requires X_CLIENT_ID, X_CLIENT_SECRET, and X_REDIRECT_URI in server env before redirect can start.",
         "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
     }
@@ -756,7 +780,7 @@ def admin_ai_growth_x_oauth_callback(request: Request, db: Session = Depends(get
 @router.get("/admin/ai-growth/x/status")
 def admin_ai_growth_x_status(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    return x_account_status()
+    return x_account_status(db)
 
 
 @router.post("/admin/ai-growth/x/disconnect", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -768,7 +792,7 @@ def admin_ai_growth_x_disconnect(request: Request, db: Session = Depends(get_db)
 @router.post("/admin/ai-growth/x/test", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_ai_growth_x_test(request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    status = x_account_status()
+    status = x_account_status(db)
     return {"ok": bool(status["connected"]), "status": status, "message": "X account connected." if status["connected"] else "X account is not connected."}
 
 

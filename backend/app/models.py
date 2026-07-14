@@ -406,6 +406,12 @@ class Watchlist(Base):
 
 class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "security_id", name="uq_watchlist_items_scope"),
+        Index("ix_watchlist_items_watchlist_security", "watchlist_id", "security_id"),
+        Index("ix_watchlist_items_security_id", "security_id"),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
     watchlist_id: Mapped[int]
     security_id: Mapped[int]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import formataddr, parseaddr
@@ -44,6 +45,7 @@ def send_email(
     force_log_only: bool = False,
     raise_http_errors: bool = False,
     reply_to: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_to = normalize_email(to_email)
     if not normalized_to or "@" not in normalized_to:
@@ -156,6 +158,7 @@ def send_email(
             subject=rendered["subject"],
             body_text=rendered["body_text"],
             body_html=rendered["body_html"],
+            attachments=attachments,
         )
     except Exception as exc:
         delivery.status = "failed"
@@ -359,7 +362,9 @@ def _send_with_provider(
     subject: str,
     body_text: str,
     body_html: str | None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> str | None:
+    normalized_attachments = _normalize_email_attachments(attachments)
     if provider == "postmark":
         return _send_with_postmark(
             api_key=api_key,
@@ -369,6 +374,7 @@ def _send_with_provider(
             subject=subject,
             body_text=body_text,
             body_html=body_html,
+            attachments=normalized_attachments,
         )
     if provider != "resend":
         raise ValueError(f"Unsupported email provider: {provider}")
@@ -382,6 +388,15 @@ def _send_with_provider(
         payload["html"] = body_html
     if reply_to:
         payload["reply_to"] = reply_to
+    if normalized_attachments:
+        payload["attachments"] = [
+            {
+                "filename": attachment["name"],
+                "content": attachment["content_base64"],
+                "content_type": attachment["content_type"],
+            }
+            for attachment in normalized_attachments
+        ]
     response = requests.post(
         "https://api.resend.com/emails",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -402,6 +417,7 @@ def _send_with_postmark(
     subject: str,
     body_text: str,
     body_html: str | None,
+    attachments: list[dict[str, str]] | None = None,
 ) -> str | None:
     payload: dict[str, Any] = {
         "From": from_value,
@@ -414,6 +430,15 @@ def _send_with_postmark(
         payload["HtmlBody"] = body_html
     if reply_to:
         payload["ReplyTo"] = reply_to
+    if attachments:
+        payload["Attachments"] = [
+            {
+                "Name": attachment["name"],
+                "Content": attachment["content_base64"],
+                "ContentType": attachment["content_type"],
+            }
+            for attachment in attachments
+        ]
     response = requests.post(
         "https://api.postmarkapp.com/email",
         headers={
@@ -428,6 +453,43 @@ def _send_with_postmark(
         raise ValueError(_provider_error_detail(response))
     parsed = response.json()
     return str(parsed.get("MessageID")) if isinstance(parsed, dict) and parsed.get("MessageID") else None
+
+
+def _normalize_email_attachments(attachments: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    seen_names: set[str] = set()
+    for attachment in attachments or []:
+        if not isinstance(attachment, dict):
+            continue
+        name = str(attachment.get("name") or attachment.get("filename") or "").strip()
+        content_type = str(attachment.get("content_type") or attachment.get("contentType") or "application/octet-stream").strip()
+        if not name:
+            continue
+        content_base64 = str(attachment.get("content_base64") or "").strip()
+        if not content_base64:
+            raw_content = attachment.get("content")
+            if isinstance(raw_content, bytes):
+                content_base64 = base64.b64encode(raw_content).decode("ascii")
+            elif isinstance(raw_content, str) and raw_content:
+                content_base64 = base64.b64encode(raw_content.encode("utf-8")).decode("ascii")
+        if not content_base64:
+            continue
+        safe_name = _safe_attachment_name(name)
+        stem, dot, suffix = safe_name.rpartition(".")
+        unique_name = safe_name
+        counter = 2
+        while unique_name.lower() in seen_names:
+            unique_name = f"{stem or safe_name}-{counter}{dot}{suffix}" if dot else f"{safe_name}-{counter}"
+            counter += 1
+        seen_names.add(unique_name.lower())
+        normalized.append({"name": unique_name, "content_base64": content_base64, "content_type": content_type})
+    return normalized[:10]
+
+
+def _safe_attachment_name(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in value.strip())
+    cleaned = cleaned.strip(".-") or "attachment"
+    return cleaned[:120]
 
 
 def _provider_error_detail(response: requests.Response) -> str:

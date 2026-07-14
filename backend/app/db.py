@@ -1603,6 +1603,22 @@ def ensure_event_columns() -> None:
                 "ON watchlist_view_states (last_seen_at)"
             )
         )
+        watchlist_items_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlist_items'")
+        ).fetchone()
+        if watchlist_items_exists:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist_security "
+                    "ON watchlist_items (watchlist_id, security_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_watchlist_items_security_id "
+                    "ON watchlist_items (security_id)"
+                )
+            )
         conn.execute(
             text(
                 """

@@ -56,7 +56,12 @@ from app.services.ai_marketing import (
     ARTICLE_REACTIVE_CAMPAIGN_TYPE,
     SourceItem,
     X_ACCESS_TOKEN,
+    X_CLIENT_ID,
+    X_CLIENT_SECRET,
+    X_CURRENT_ACCESS_TOKEN_SETTING,
+    X_CURRENT_REFRESH_TOKEN_SETTING,
     X_POST_CHARACTER_LIMIT,
+    X_REFRESH_TOKEN,
     create_email_action_token,
     fetch_fmp_articles,
     score_article_candidate,
@@ -131,6 +136,18 @@ def _growth_openai_payload(**overrides):
         "suggested_reply": "",
         "suggested_post": "I am building Walnut, so bias disclosed: NVDA has a cleaner read when reported Congress activity is checked against price/volume and filings context.",
         "suggested_ad_variants": [],
+        "visual_brief": {
+            "title": "NVDA disclosure stack",
+            "chart_type": "ranked_bars",
+            "metric_label": "Confirmation strength",
+            "rows": [
+                {"label": "Price/volume", "value": "82", "note": "Confirmation layer"},
+                {"label": "Filings", "value": "74", "note": "Evidence layer"},
+                {"label": "Disclosures", "value": "68", "note": "Reported activity"},
+            ],
+            "source_note": "Source: Walnut signal context and linked source.",
+            "missing_data_note": "",
+        },
         "influencer_outreach_draft": "",
         "report_pack_outline": "",
         "alternate_hooks": ["The market has tells. Walnut finds them."],
@@ -461,9 +478,9 @@ def test_scheduled_x_campaign_uses_real_confirmation_triggers(monkeypatch):
             campaign_type="scheduled_x_campaign",
             content_type="x_post",
             platform="x",
-            detected_tickers=["NVDA"],
-            suggested_destination_url="https://app.walnutmarkets.com/ticker/NVDA",
-            suggested_post="$NVDA is one of today's bullish confirmation names in Walnut. Review the ticker page before acting.",
+            detected_tickers=["SPY"],
+            suggested_destination_url="https://app.walnutmarkets.com/ticker/SPY",
+            suggested_post="$SPY hit our Bullish Confirmation monitor this week. Bullish MACD. Neutral RSI at 54. Institutional accumulation. 73/100 confirmation score. One signal is noise. A stack is intelligence. https://app.walnutmarkets.com/ticker/SPY $SPY",
         ),
     )
     monkeypatch.setattr("app.services.ai_marketing.send_email", lambda *args, **kwargs: {"id": 123, "status": "sent"})
@@ -475,17 +492,17 @@ def test_scheduled_x_campaign_uses_real_confirmation_triggers(monkeypatch):
             ConfirmationMonitoringSnapshot(
                 user_id=admin.id,
                 watchlist_id=1,
-                ticker="NVDA",
-                score=91,
-                band="exceptional",
+                ticker="SPY",
+                score=73,
+                band="strong",
                 direction="bullish",
                 source_count=3,
                 status="3-source bullish confirmation",
                 source_states_json=json.dumps(
                     {
-                        "congress": {"present": True},
-                        "price_volume": {"present": True},
-                        "fundamentals": {"present": True},
+                        "price_volume": {"present": True, "direction": "bullish", "label": "Bullish tape confirmation", "summary": "Bullish MACD. Neutral RSI at 54."},
+                        "institutional_activity": {"present": True, "direction": "bullish", "label": "Institutional Activity", "summary": "Net reported accumulation."},
+                        "macro_positioning": {"present": True, "direction": "neutral", "label": "Macro Positioning", "summary": "Macro positioning currently supports banks."},
                     }
                 ),
                 observed_at=datetime.now(timezone.utc),
@@ -521,14 +538,24 @@ def test_scheduled_x_campaign_uses_real_confirmation_triggers(monkeypatch):
         assert result["drafts_generated"] == 1
         opportunity = db.query(AiMarketingOpportunity).filter(AiMarketingOpportunity.campaign_id == campaign["id"]).one()
         metadata = json.loads(opportunity.raw_metadata_json)
-        assert "$NVDA" in opportunity.excerpt
-        assert "https://app.walnutmarkets.com/ticker/NVDA" in opportunity.excerpt
-        assert "score 91" in opportunity.excerpt
-        assert "NVDA" in json.loads(opportunity.matched_tickers_json)
-        assert metadata["article_tickers"] == ["NVDA"]
-        assert metadata["walnut_context"][0]["ticker"] == "NVDA"
-        assert metadata["walnut_context"][0]["ticker_url"] == "https://app.walnutmarkets.com/ticker/NVDA"
-        assert metadata["walnut_context"][0]["relevant_url"] == "https://app.walnutmarkets.com/ticker/NVDA"
+        assert "$SPY" in opportunity.excerpt
+        assert "https://app.walnutmarkets.com/ticker/SPY" in opportunity.excerpt
+        assert "73/100 confirmation score" in opportunity.excerpt
+        assert "Price / Volume" in opportunity.excerpt
+        assert "Institutional Activity" in opportunity.excerpt
+        assert "Net reported accumulation" in opportunity.excerpt
+        assert "Macro Positioning" in opportunity.excerpt
+        assert "SPY" in json.loads(opportunity.matched_tickers_json)
+        assert metadata["article_tickers"] == ["SPY"]
+        assert metadata["walnut_context"][0]["ticker"] == "SPY"
+        assert metadata["walnut_context"][0]["ticker_url"] == "https://app.walnutmarkets.com/ticker/SPY"
+        assert metadata["walnut_context"][0]["relevant_url"] == "https://app.walnutmarkets.com/ticker/SPY"
+        assert metadata["walnut_context"][0]["source_count"] == 3
+        assert [item["key"] for item in metadata["walnut_context"][0]["source_stack"][:3]] == [
+            "price_volume",
+            "institutional_activity",
+            "macro_positioning",
+        ]
     finally:
         db.close()
 
@@ -1603,6 +1630,10 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert "buy" not in draft_text
         assert "sell" not in draft_text
         assert "about to explode" not in draft_text
+        assert result["opportunity"]["assets"][0]["asset_type"] == "chart"
+        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut visual:")
+        assert result["opportunity"]["assets"][0]["url"].startswith("data:image/svg+xml")
+        assert result["opportunity"]["assets"][0]["download_url"].endswith("/assets/0/download")
     finally:
         db.close()
 
@@ -1654,7 +1685,8 @@ def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
         assert "bias disclosed" not in draft_text.lower()
         assert "building walnut" not in draft_text.lower()
         assert "#TSM" in draft_text
-        assert result["opportunity"]["assets"] == []
+        assert len(result["opportunity"]["assets"]) == 1
+        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut visual:")
     finally:
         db.close()
 
@@ -1751,6 +1783,14 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert prompt["content_constraints"]["x_post"]["max_characters"] == X_POST_CHARACTER_LIMIT
         assert prompt["content_constraints"]["x_post"]["hard_requirement"] is True
         assert prompt["opportunity"]["metadata"]["change_request"] == "Make it shorter and focus on the TSM margin angle."
+        assert "visual_brief" in schema["properties"]
+        assert "visual_brief" in schema["required"]
+        assert schema["properties"]["visual_brief"]["properties"]["chart_type"]["enum"] == [
+            "ranked_bars",
+            "bucket_breakdown",
+            "signal_stack",
+            "comparison_card",
+        ]
         assert schema["properties"]["suggested_post"]["maxLength"] == X_POST_CHARACTER_LIMIT
         assert schema["properties"]["alternate_hooks"]["items"]["maxLength"] == X_POST_CHARACTER_LIMIT
         assert updated["status"] == "needs_review"
@@ -1968,8 +2008,8 @@ def test_growth_draft_email_includes_posting_assist_checklist_and_assets(monkeyp
                     {
                         "title": "NVDA chart",
                         "asset_type": "chart",
-                        "url": "https://walnutmarkets.com/admin/assets/nvda-chart.png",
-                        "thumbnail_url": "https://walnutmarkets.com/admin/assets/nvda-thumb.png",
+                        "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http://www.w3.org/2000/svg%22%3E%3C/svg%3E",
+                        "thumbnail_url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http://www.w3.org/2000/svg%22%3E%3C/svg%3E",
                         "suggested_caption": "Reported disclosures plus price context.",
                     }
                 ],
@@ -2024,6 +2064,9 @@ def test_growth_draft_email_includes_posting_assist_checklist_and_assets(monkeyp
         assert "Review disclosure" in context["items_text"]
         assert "https://walnutmarkets.com/admin/ai-marketing?draft=" in context["items_text"]
         assert "NVDA chart" in context["items_text"]
+        assert sent["attachments"][0]["name"].endswith(".svg")
+        assert sent["attachments"][0]["content_type"] == "image/svg+xml"
+        assert sent["attachments"][0]["content"].startswith(b"<svg")
         assert email["email_log"]["status"] == "sent"
         db.refresh(opportunity)
         assert opportunity.status == "emailed"
@@ -2113,6 +2156,77 @@ def test_email_approve_posts_x_draft_when_access_token_is_configured(monkeypatch
         assert captured["json"]["text"].startswith("$TSM margin context")
         assert opportunity.status == "posted"
         assert json.loads(opportunity.raw_metadata_json)["x_post_id"] == "12345"
+    finally:
+        db.close()
+
+
+def test_email_approve_refreshes_expired_x_access_token_and_posts(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv(X_ACCESS_TOKEN, "expired-token")
+    monkeypatch.setenv(X_REFRESH_TOKEN, "old-refresh-token")
+    monkeypatch.setenv(X_CLIENT_ID, "x-client-id")
+    monkeypatch.setenv(X_CLIENT_SECRET, "x-client-secret")
+    requests_seen = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, *args, **kwargs):
+        requests_seen.append({"url": url, "kwargs": kwargs})
+        if url.endswith("/2/oauth2/token"):
+            assert kwargs["auth"] == ("x-client-id", "x-client-secret")
+            assert kwargs["data"]["grant_type"] == "refresh_token"
+            assert kwargs["data"]["refresh_token"] == "old-refresh-token"
+            return FakeResponse(200, {"access_token": "fresh-access-token", "refresh_token": "fresh-refresh-token"})
+        if len([request for request in requests_seen if request["url"].endswith("/2/tweets")]) == 1:
+            assert kwargs["headers"]["Authorization"] == "Bearer expired-token"
+            return FakeResponse(401, {"title": "Unauthorized"})
+        assert kwargs["headers"]["Authorization"] == "Bearer fresh-access-token"
+        return FakeResponse(201, {"data": {"id": "67890", "text": kwargs["json"]["text"]}})
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin-email-refresh-post@example.com", role="admin")
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                text="$TSM margin context is cleaner when filings and price action confirm the same tell. #TSM #Markets",
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+        opportunity.generated_content = "$TSM margin context is cleaner when filings and price action confirm the same tell. #TSM #Markets"
+        db.commit()
+        token = create_email_action_token(db, draft_id, "approve", actor_email="jarod@walnutmarkets.com")
+
+        response = admin_ai_growth_email_action(token, _email_action_request(), db)
+        body = response.body.decode("utf-8")
+        db.expire_all()
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+
+        assert response.status_code == 200
+        assert "Posted to X" in body
+        assert opportunity.status == "posted"
+        assert json.loads(opportunity.raw_metadata_json)["x_post_id"] == "67890"
+        assert db.get(AiMarketingSetting, X_CURRENT_ACCESS_TOKEN_SETTING).value == "fresh-access-token"
+        assert db.get(AiMarketingSetting, X_CURRENT_REFRESH_TOKEN_SETTING).value == "fresh-refresh-token"
+        assert [request["url"] for request in requests_seen] == [
+            "https://api.x.com/2/tweets",
+            "https://api.x.com/2/oauth2/token",
+            "https://api.x.com/2/tweets",
+        ]
     finally:
         db.close()
 

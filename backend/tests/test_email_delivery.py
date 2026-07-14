@@ -503,6 +503,46 @@ def test_postmark_success_marks_delivery_sent(monkeypatch):
         db.close()
 
 
+def test_postmark_success_includes_attachments(monkeypatch):
+    monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
+    monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
+    monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse(200, {"MessageID": "postmark-message-id"})
+
+    monkeypatch.setattr("app.services.email_delivery.requests.post", fake_post)
+    db = _session()
+    try:
+        result = send_email(
+            db,
+            to_email="reader@example.com",
+            template_key="account.password_reset",
+            context=_reset_context(),
+            category="account",
+            attachments=[
+                {
+                    "name": "walnut-card.svg",
+                    "content_type": "image/svg+xml",
+                    "content": b"<svg></svg>",
+                }
+            ],
+        )
+
+        assert result["status"] == "sent"
+        assert captured["json"]["Attachments"] == [
+            {
+                "Name": "walnut-card.svg",
+                "Content": "PHN2Zz48L3N2Zz4=",
+                "ContentType": "image/svg+xml",
+            }
+        ]
+    finally:
+        db.close()
+
+
 def test_template_sender_overrides_alerts_env_fallback(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")

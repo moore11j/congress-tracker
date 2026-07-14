@@ -111,13 +111,30 @@ def _user_can_view_signal_context(db: Session, user_id: int | None) -> bool:
     return bool(user and entitlements_for_user(db, user).has_feature("signals"))
 
 
-def _event_types_for_user(db: Session, user_id: int | None) -> tuple[str, ...]:
+def _event_types_from_visibility(*, can_view_institutional: bool, can_view_signal_context: bool) -> tuple[str, ...]:
     event_types = ALERTABLE_EVENT_TYPES
-    if not _user_can_view_institutional_activity(db, user_id):
+    if not can_view_institutional:
         event_types = tuple(event_type for event_type in event_types if event_type not in INSTITUTIONAL_EVENT_TYPES)
-    if not _user_can_view_signal_context(db, user_id):
+    if not can_view_signal_context:
         event_types = tuple(event_type for event_type in event_types if event_type not in SIGNAL_ALERT_TYPES)
     return event_types
+
+
+def _event_types_for_user(db: Session, user_id: int | None) -> tuple[str, ...]:
+    return _event_types_from_visibility(
+        can_view_institutional=_user_can_view_institutional_activity(db, user_id),
+        can_view_signal_context=_user_can_view_signal_context(db, user_id),
+    )
+
+
+def _visibility_for_user(db: Session, user_id: int | None) -> tuple[bool, bool]:
+    if user_id is None:
+        return True, False
+    user = db.get(UserAccount, user_id)
+    if user is None:
+        return False, False
+    entitlements = entitlements_for_user(db, user)
+    return entitlements.has_feature("institutional_feed"), entitlements.has_feature("signals")
 
 
 def _is_institutional_alert_type(value: str | None) -> bool:
@@ -217,6 +234,7 @@ def refresh_watchlist_alerts(
     lookback_days: int = 7,
     force_lookback: bool = False,
 ) -> int:
+    can_view_institutional, can_view_signal_context = _visibility_for_user(db, user_id)
     symbols = watchlist_symbols(db, watchlist.id)
     checkpoint = watchlist_checkpoint(db, watchlist.id)
     since = datetime.now(timezone.utc) - timedelta(days=max(int(lookback_days or 1), 1))
@@ -238,7 +256,14 @@ def refresh_watchlist_alerts(
             select(Event)
             .where(Event.symbol.is_not(None))
             .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(_event_types_for_user(db, user_id)))
+            .where(
+                Event.event_type.in_(
+                    _event_types_from_visibility(
+                        can_view_institutional=can_view_institutional,
+                        can_view_signal_context=can_view_signal_context,
+                    )
+                )
+            )
             .where(freshness_ts > since)
             .order_by(freshness_ts.asc(), Event.id.asc())
         )
@@ -246,10 +271,14 @@ def refresh_watchlist_alerts(
         .all()
     )
 
-    created = 0
-    for event in events:
-        if _ensure_alert_for_event(db, user_id=user_id, watchlist=watchlist, event=event):
-            created += 1
+    created = _ensure_alerts_for_events(
+        db,
+        user_id=user_id,
+        watchlist=watchlist,
+        events=events,
+        can_view_institutional=can_view_institutional,
+        can_view_signal_context=can_view_signal_context,
+    )
 
     logger.info(
         "monitoring_watchlist_check user_id=%s watchlist_id=%s symbols_count=%s checkpoint=%s matched_events=%s unread_created=%s",
@@ -581,6 +610,70 @@ def _ensure_alert_for_event(db: Session, *, user_id: int, watchlist: Watchlist, 
     db.add(alert)
     db.flush()
     return True
+
+
+def _ensure_alerts_for_events(
+    db: Session,
+    *,
+    user_id: int,
+    watchlist: Watchlist,
+    events: list[Event],
+    can_view_institutional: bool,
+    can_view_signal_context: bool,
+) -> int:
+    event_ids = [event.id for event in events if event.id is not None]
+    if not event_ids:
+        return 0
+
+    existing_event_ids = {
+        int(event_id)
+        for event_id in db.execute(
+            select(MonitoringAlert.event_id).where(
+                MonitoringAlert.user_id == user_id,
+                MonitoringAlert.source_type == "watchlist",
+                MonitoringAlert.source_id == str(watchlist.id),
+                MonitoringAlert.event_id.in_(event_ids),
+            )
+        )
+        .scalars()
+        .all()
+        if event_id is not None
+    }
+
+    alerts: list[MonitoringAlert] = []
+    for event in events:
+        if event.id in existing_event_ids:
+            continue
+        if event.event_type in INSTITUTIONAL_EVENT_TYPES and not can_view_institutional:
+            continue
+        if event.event_type in SIGNAL_ALERT_TYPES and not can_view_signal_context:
+            continue
+
+        payload = _event_payload(event)
+        if not can_view_signal_context:
+            payload = _redact_premium_signal_payload(payload)
+        alerts.append(
+            MonitoringAlert(
+                user_id=user_id,
+                source_type="watchlist",
+                source_id=str(watchlist.id),
+                source_name=watchlist.name,
+                event_id=event.id,
+                alert_type=event.event_type,
+                symbol=(event.symbol or "").upper() or None,
+                title=_event_title(event, payload),
+                body=_event_body(event, payload),
+                payload_json=json.dumps({"event": payload}, default=str),
+                event_created_at=event_freshness_at(event),
+            )
+        )
+
+    if not alerts:
+        return 0
+
+    db.add_all(alerts)
+    db.flush()
+    return len(alerts)
 
 
 def ensure_alert_for_saved_screen_event(

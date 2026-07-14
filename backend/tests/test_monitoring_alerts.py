@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event as sqlalchemy_event
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -12,6 +12,7 @@ from app.db import Base
 from app.main import (
     get_monitoring_inbox,
     get_monitoring_unread_count,
+    get_watchlist,
     mark_monitoring_items_read,
     mark_monitoring_items_unread,
     dismiss_monitoring_items,
@@ -114,6 +115,82 @@ def test_watchlist_alert_uses_created_at_not_old_trade_date_and_dedupes():
         assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 0
         db.commit()
         assert db.query(MonitoringAlert).count() == 1
+    finally:
+        db.close()
+
+
+def test_get_watchlist_does_not_refresh_alerts_inline():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now,
+                event_date=now,
+                created_at=now,
+                symbol="AAPL",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        response = get_watchlist(watchlist.id, _request_for_user(user), None, db)
+
+        assert response["watchlist_id"] == watchlist.id
+        assert response["tickers"] == [{"symbol": "AAPL", "name": "Apple"}]
+        assert response["unseen_count"] == 1
+        assert db.query(MonitoringAlert).count() == 0
+    finally:
+        db.close()
+
+
+def test_refresh_watchlist_alerts_batches_existing_alert_lookup():
+    db = _session()
+    statements: list[str] = []
+
+    def before_cursor_execute(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        for index in range(6):
+            db.add(
+                Event(
+                    event_type="insider_trade",
+                    ts=now + timedelta(seconds=index),
+                    event_date=now + timedelta(seconds=index),
+                    created_at=now + timedelta(seconds=index),
+                    symbol="AAPL",
+                    source="insider",
+                    trade_type="sale",
+                    payload_json=json.dumps({"sequence": index}),
+                    impact_score=0,
+                )
+            )
+        db.commit()
+
+        sqlalchemy_event.listen(db.get_bind(), "before_cursor_execute", before_cursor_execute)
+        try:
+            assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 6
+        finally:
+            sqlalchemy_event.remove(db.get_bind(), "before_cursor_execute", before_cursor_execute)
+
+        duplicate_alert_selects = [
+            statement
+            for statement in statements
+            if "FROM monitoring_alerts" in statement and "monitoring_alerts.event_id" in statement
+        ]
+        per_event_duplicate_selects = [
+            statement
+            for statement in statements
+            if "SELECT monitoring_alerts.id" in statement and "FROM monitoring_alerts" in statement
+        ]
+        assert len(duplicate_alert_selects) == 1
+        assert per_event_duplicate_selects == []
     finally:
         db.close()
 

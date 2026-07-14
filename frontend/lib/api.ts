@@ -2133,6 +2133,7 @@ export type AdminAiGrowthAsset = {
   path?: string;
   reference?: string;
   thumbnail_url?: string;
+  download_url?: string;
   suggested_caption?: string;
   source_data_notes?: string;
 };

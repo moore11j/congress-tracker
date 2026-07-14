@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -44,6 +44,7 @@ from app.models import (
     Watchlist,
     WatchlistItem,
 )
+from app.services.confirmation_score import get_confirmation_score_bundles_for_tickers
 from app.services.email_delivery import send_email
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_AI_GROWTH_RECIPIENT = "jarod@walnutmarkets.com"
 AI_GROWTH_DIGEST_RECIPIENT = "AI_GROWTH_DIGEST_RECIPIENT"
 AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
-AI_MARKETING_PROMPT_VERSION = "ai_growth_v1"
+AI_MARKETING_PROMPT_VERSION = "ai_growth_v2"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
 X_POST_CHARACTER_LIMIT = 280
@@ -74,7 +75,12 @@ X_CLIENT_ID = "X_CLIENT_ID"
 X_CLIENT_SECRET = "X_CLIENT_SECRET"
 X_REDIRECT_URI = "X_REDIRECT_URI"
 X_ACCESS_TOKEN = "X_ACCESS_TOKEN"
+X_REFRESH_TOKEN = "X_REFRESH_TOKEN"
 X_API_BASE_URL = "X_API_BASE_URL"
+X_OAUTH2_TOKEN_URL = "X_OAUTH2_TOKEN_URL"
+X_CURRENT_ACCESS_TOKEN_SETTING = "X_OAUTH2_CURRENT_ACCESS_TOKEN"
+X_CURRENT_REFRESH_TOKEN_SETTING = "X_OAUTH2_CURRENT_REFRESH_TOKEN"
+X_TOKEN_REFRESHED_AT_SETTING = "X_OAUTH2_LAST_REFRESHED_AT"
 BING_SEARCH_API_KEY = "BING_SEARCH_API_KEY"
 WEB_SEARCH_REDDIT_SOURCE_PROVIDER = "web_search_reddit"
 OPENAI_WEB_SEARCH_NOT_CONFIGURED_MESSAGE = (
@@ -190,6 +196,7 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     X_CLIENT_SECRET: {"label": "X Client Secret", "is_secret": True, "required_for": "X OAuth status"},
     X_REDIRECT_URI: {"label": "X Redirect URI", "is_secret": False, "required_for": "X OAuth status"},
     X_ACCESS_TOKEN: {"label": "X Access Token", "is_secret": True, "required_for": "X posting on approval"},
+    X_REFRESH_TOKEN: {"label": "X Refresh Token", "is_secret": True, "required_for": "X token refresh"},
     REDDIT_CLIENT_ID: {"label": "Reddit Client ID", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_CLIENT_SECRET: {"label": "Reddit Client Secret", "is_secret": True, "required_for": "Reddit discovery"},
     REDDIT_USER_AGENT: {"label": "Reddit User Agent", "is_secret": False, "required_for": "Reddit discovery"},
@@ -205,6 +212,7 @@ ENV_ONLY_PROVIDER_SETTING_KEYS = frozenset(
         X_CLIENT_SECRET,
         X_REDIRECT_URI,
         X_ACCESS_TOKEN,
+        X_REFRESH_TOKEN,
         REDDIT_CLIENT_ID,
         REDDIT_CLIENT_SECRET,
         REDDIT_USER_AGENT,
@@ -718,7 +726,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
     }
     web_search_status = web_search_provider_status(db)
     openai_credits = _openai_credits_status(db)
-    x_status = x_account_status()
+    x_status = x_account_status(db)
     warnings: list[str] = []
     if not statuses[OPENAI_API_KEY]["configured"]:
         warnings.append("OpenAI API key missing")
@@ -742,6 +750,8 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         warnings.append("X API OAuth credentials missing")
     if not x_status["connected"]:
         warnings.append("X access token missing; approval will not post to X")
+    elif x_status.get("refresh_token_status") != "configured":
+        warnings.append("X refresh token missing; expired access tokens will require manual replacement")
     reddit_configured = all(
         bool(statuses[key]["configured"])
         for key in (REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT)
@@ -785,6 +795,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "x_status": x_status["status"],
         "x_oauth_configured": bool(x_status["oauth_configured"]),
         "x_connected": bool(x_status["connected"]),
+        "x_refresh_token_configured": x_status.get("refresh_token_status") == "configured",
         "x_missing": x_status["missing"],
         "x_handle": x_status["handle"],
         "x_posting_status": "approve_posts_to_x" if x_status["connected"] else "approval_only",
@@ -1189,9 +1200,7 @@ def opportunity_to_dict(
     content_type = _normalize_content_type(opportunity.content_type, campaign_type=campaign_type, platform=opportunity.platform)
     source_platform = _normalize_source_platform(opportunity.source_platform, fallback=opportunity.platform)
     generated_content = opportunity.generated_content or _generated_content_from_suggestion(suggestion)
-    assets = _load_json_list(opportunity.asset_refs_json)
-    if suggestion:
-        assets = _normalize_assets(assets + _load_json_list(suggestion.assets_json))
+    assets = _opportunity_assets(opportunity, suggestion=suggestion, include_download_urls=True)
     return {
         "id": opportunity.id,
         "campaign_id": opportunity.campaign_id,
@@ -1239,6 +1248,40 @@ def opportunity_to_dict(
         "posted_manually_at": _iso(opportunity.posted_manually_at),
         "suggestion": suggestion_to_dict(suggestion) if suggestion else None,
     }
+
+
+def _opportunity_assets(
+    opportunity: AiMarketingOpportunity,
+    *,
+    suggestion: AiMarketingSuggestion | None = None,
+    include_download_urls: bool = False,
+) -> list[dict[str, Any]]:
+    assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
+    if not include_download_urls:
+        return assets
+    decorated: list[dict[str, Any]] = []
+    for index, asset in enumerate(assets):
+        next_asset = dict(asset)
+        if _asset_data_uri(next_asset):
+            next_asset["download_url"] = f"/api/admin/ai-growth/drafts/{opportunity.id}/assets/{index}/download"
+        decorated.append(next_asset)
+    return decorated
+
+
+def ai_growth_asset_download(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    asset_index: int,
+) -> dict[str, Any]:
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    assets = _opportunity_assets(opportunity, suggestion=latest)
+    if asset_index < 0 or asset_index >= len(assets):
+        raise ValueError("Asset not found.")
+    asset = assets[asset_index]
+    payload = _decode_data_uri_asset(asset)
+    if not payload:
+        raise ValueError("Asset is not a generated downloadable image.")
+    return payload
 
 
 def suggestion_to_dict(suggestion: AiMarketingSuggestion | None) -> dict[str, Any] | None:
@@ -1829,6 +1872,118 @@ def _article_context_bullets(scoring: dict[str, Any]) -> list[str]:
     return bullets or ["Clear market hook", "Walnut context required before posting"]
 
 
+def _x_visual_brief_asset(value: Any, *, detected_tickers: list[str]) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    rows: list[dict[str, str]] = []
+    for row in _coerce_json_list(value.get("rows")):
+        if not isinstance(row, dict):
+            continue
+        label = _truncate(str(row.get("label") or "").strip(), 28) or ""
+        row_value = _truncate(str(row.get("value") or "").strip(), 18) or ""
+        note = _truncate(str(row.get("note") or "").strip(), 60) or ""
+        if label:
+            rows.append({"label": label, "value": row_value, "note": note})
+    if not rows:
+        return None
+    title = _truncate(str(value.get("title") or "").strip(), 72) or "Walnut market breakdown"
+    metric_label = _truncate(str(value.get("metric_label") or "").strip(), 56) or "Metric"
+    chart_type = str(value.get("chart_type") or "ranked_bars").strip().lower()
+    source_note = _truncate(str(value.get("source_note") or "").strip(), 110) or "Source: Walnut context and linked source; human reviewed."
+    missing_note = _truncate(str(value.get("missing_data_note") or "").strip(), 90) or ""
+    subtitle = ", ".join(f"${ticker}" for ticker in detected_tickers[:5]) or metric_label
+    card_url = _x_visual_brief_data_uri(
+        title=title,
+        subtitle=subtitle,
+        metric_label=metric_label,
+        chart_type=chart_type,
+        rows=rows[:8],
+        source_note=source_note,
+        missing_note=missing_note,
+    )
+    return {
+        "title": f"Walnut visual: {title}",
+        "asset_type": "chart",
+        "url": card_url,
+        "thumbnail_url": card_url,
+        "suggested_caption": f"{title} - {metric_label}",
+        "source_data_notes": f"{source_note}" + (f" Missing data: {missing_note}" if missing_note else ""),
+    }
+
+
+def _x_visual_brief_data_uri(
+    *,
+    title: str,
+    subtitle: str,
+    metric_label: str,
+    chart_type: str,
+    rows: list[dict[str, str]],
+    source_note: str,
+    missing_note: str,
+) -> str:
+    safe_title = html.escape(_truncate(title, 72) or "Walnut market breakdown")
+    safe_subtitle = html.escape(_truncate(subtitle, 90) or "")
+    safe_metric = html.escape(_truncate(metric_label, 56) or "Metric")
+    safe_source = html.escape(_truncate(source_note, 110) or "")
+    safe_missing = html.escape(_truncate(missing_note, 90) or "")
+    numeric_values = [_numeric_value_from_label(row.get("value")) for row in rows]
+    max_value = max([value for value in numeric_values if value is not None] or [0])
+    row_markup: list[str] = []
+    start_y = 282
+    row_gap = 68 if len(rows) <= 6 else 58
+    for index, row in enumerate(rows):
+        y = start_y + index * row_gap
+        label = html.escape(_truncate(row.get("label"), 28) or "")
+        value_text = html.escape(_truncate(row.get("value"), 18) or "")
+        note = html.escape(_truncate(row.get("note"), 60) or "")
+        numeric_value = numeric_values[index] if index < len(numeric_values) else None
+        if numeric_value is not None and max_value > 0:
+            bar_width = int(220 + (numeric_value / max_value) * 520)
+            bar = (
+                f"<rect x=\"430\" y=\"{y - 28}\" width=\"{bar_width}\" height=\"34\" rx=\"8\" fill=\"#22c55e\" opacity=\"0.82\"/>"
+                f"<text x=\"{min(1380, 450 + bar_width)}\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text}</text>"
+            )
+        else:
+            bucket_width = 650 if chart_type in {"bucket_breakdown", "signal_stack", "comparison_card"} else 520
+            bar = (
+                f"<rect x=\"430\" y=\"{y - 28}\" width=\"{bucket_width}\" height=\"34\" rx=\"8\" fill=\"#1f6f55\" opacity=\"0.72\"/>"
+                f"<text x=\"452\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text or 'Review'}</text>"
+            )
+        row_markup.append(
+            f"<text x=\"86\" y=\"{y}\" fill=\"#f8fafc\" font-size=\"31\" font-family=\"Arial\" font-weight=\"700\">{label}</text>"
+            f"{bar}"
+            f"<text x=\"430\" y=\"{y + 32}\" fill=\"#94a3b8\" font-size=\"22\" font-family=\"Arial\">{note}</text>"
+        )
+    missing_markup = (
+        f"<text x=\"86\" y=\"750\" fill=\"#fbbf24\" font-size=\"22\" font-family=\"Arial\">Missing: {safe_missing}</text>"
+        if safe_missing
+        else ""
+    )
+    svg = (
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1600\" height=\"900\" viewBox=\"0 0 1600 900\">"
+        "<rect width=\"1600\" height=\"900\" fill=\"#071315\"/>"
+        "<rect x=\"48\" y=\"48\" width=\"1504\" height=\"804\" rx=\"20\" fill=\"#0d1f22\" stroke=\"#1f6f55\" stroke-width=\"3\"/>"
+        "<text x=\"84\" y=\"118\" fill=\"#22c55e\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
+        f"<text x=\"84\" y=\"190\" fill=\"#f8fafc\" font-size=\"54\" font-family=\"Arial\" font-weight=\"700\">{safe_title}</text>"
+        f"<text x=\"86\" y=\"232\" fill=\"#94a3b8\" font-size=\"25\" font-family=\"Arial\">{safe_subtitle} | {safe_metric}</text>"
+        f"{''.join(row_markup)}"
+        f"{missing_markup}"
+        f"<text x=\"86\" y=\"805\" fill=\"#64748b\" font-size=\"22\" font-family=\"Arial\">{safe_source}</text>"
+        "</svg>"
+    )
+    return "data:image/svg+xml;charset=utf-8," + quote(svg, safe=":/,;=+-_.'()#")
+
+
+def _numeric_value_from_label(value: str | None) -> float | None:
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value or "").replace(",", ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
 def _article_candidate_to_source_item(
     candidate: AiMarketingArticleCandidate,
     scoring: dict[str, Any],
@@ -2286,6 +2441,20 @@ def _trigger_payload(
 def _trigger_line(trigger: dict[str, Any]) -> str:
     ticker = trigger.get("ticker") or "UNKNOWN"
     parts = [f"${ticker}: {trigger.get('reason') or 'Walnut trigger'}"]
+    source_stack = trigger.get("source_stack")
+    if isinstance(source_stack, list) and source_stack:
+        stack_lines = []
+        for item in source_stack[:6]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or item.get("key") or "").strip()
+            detail = str(item.get("detail") or item.get("direction") or "").strip()
+            if label and detail:
+                stack_lines.append(f"{label}: {detail}")
+            elif label:
+                stack_lines.append(label)
+        if stack_lines:
+            parts.append(f"Source stack: {'; '.join(stack_lines)}")
     if trigger.get("actor"):
         parts.append(f"Actor: {trigger['actor']}")
     if trigger.get("amount"):
@@ -2302,6 +2471,67 @@ def _recent_since(days: int = 14) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
+CONFIRMATION_SOURCE_LABELS = {
+    "price_volume": "Price / Volume",
+    "institutional_activity": "Institutional Activity",
+    "macro_positioning": "Macro Positioning",
+    "fundamentals": "Fundamentals",
+    "signals": "Signals",
+    "congress": "Congress",
+    "insiders": "Insiders",
+    "government_contracts": "Government Contracts",
+    "options_flow": "Options Flow",
+}
+
+CONFIRMATION_SOURCE_PRIORITY = (
+    "price_volume",
+    "institutional_activity",
+    "macro_positioning",
+    "fundamentals",
+    "signals",
+    "congress",
+    "insiders",
+    "government_contracts",
+    "options_flow",
+)
+
+
+def _confirmation_source_stack(bundle: dict[str, Any] | None, source_states: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_sources = bundle.get("sources") if isinstance(bundle, dict) and isinstance(bundle.get("sources"), dict) else {}
+    source_details = bundle.get("source_details") if isinstance(bundle, dict) and isinstance(bundle.get("source_details"), dict) else {}
+    keys = list(CONFIRMATION_SOURCE_PRIORITY)
+    for key in list(raw_sources.keys()) + list(source_states.keys()):
+        if key not in keys:
+            keys.append(key)
+
+    stack: list[dict[str, Any]] = []
+    for key in keys:
+        source = raw_sources.get(key) if isinstance(raw_sources.get(key), dict) else {}
+        state = source_states.get(key) if isinstance(source_states.get(key), dict) else {}
+        source_present = source.get("present") is True
+        state_present = state.get("present") is True
+        present = source_present or state_present
+        if not present:
+            continue
+        label = str(CONFIRMATION_SOURCE_LABELS.get(key) or source.get("label") or state.get("label") or key.replace("_", " ")).strip()
+        direction = str(source.get("direction") or state.get("direction") or "").strip()
+        if source_present:
+            detail_value = source_details.get(key) or source.get("detail") or source.get("summary") or state.get("detail") or state.get("summary") or state.get("label")
+        else:
+            detail_value = state.get("detail") or state.get("summary") or state.get("label") or source_details.get(key) or source.get("detail") or source.get("summary")
+        detail = str(detail_value or "").strip()
+        if key == "institutional_activity" and not detail and direction == "bullish":
+            detail = "net reported accumulation"
+        if key == "institutional_activity" and direction == "bullish" and "accumulation" not in detail.lower():
+            detail = f"{detail}; institutional accumulation".strip("; ")
+        if key == "price_volume" and not detail and direction in {"bullish", "bearish"}:
+            detail = f"{direction} tape confirmation"
+        if key == "macro_positioning" and not detail:
+            detail = "macro positioning support" if direction in {"bullish", "neutral"} else "macro positioning headwind"
+        stack.append({"key": key, "label": label, "direction": direction, "detail": detail})
+    return stack
+
+
 def _top_confirmation_triggers(db: Session, *, direction: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
     query = select(ConfirmationMonitoringSnapshot).where(ConfirmationMonitoringSnapshot.ticker.is_not(None))
     if direction:
@@ -2309,24 +2539,46 @@ def _top_confirmation_triggers(db: Session, *, direction: str | None = None, lim
     rows = db.execute(
         query.order_by(desc(ConfirmationMonitoringSnapshot.score), desc(ConfirmationMonitoringSnapshot.observed_at)).limit(limit)
     ).scalars().all()
+    symbols = [str(row.ticker or "").strip().upper() for row in rows if str(row.ticker or "").strip()]
+    fresh_bundles: dict[str, dict[str, Any]] = {}
+    if symbols:
+        try:
+            fresh_bundles = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=30)
+        except Exception:
+            logger.exception("ai_growth_confirmation_bundle_refresh_failed")
+            fresh_bundles = {}
     triggers: list[dict[str, Any]] = []
     for row in rows:
         source_states = _load_object(row.source_states_json)
-        source_labels = [
-            key.replace("_", " ")
-            for key, state in source_states.items()
-            if isinstance(state, dict) and bool(state.get("present"))
-        ][:5]
-        reason = f"{row.status or row.band} with score {row.score}"
+        bundle = fresh_bundles.get(str(row.ticker or "").strip().upper()) or {}
+        source_stack = _confirmation_source_stack(bundle, source_states)
+        raw_bundle_sources = bundle.get("sources") if isinstance(bundle, dict) and isinstance(bundle.get("sources"), dict) else {}
+        bundle_has_active_sources = any(isinstance(source, dict) and source.get("present") is True for source in raw_bundle_sources.values())
+        bundle_score = int(bundle.get("score") or 0) if isinstance(bundle, dict) else 0
+        bundle_is_authoritative = bundle_has_active_sources or bundle_score > 0
+        score = bundle_score or int(row.score or 0)
+        bundle_direction = bundle.get("direction") if isinstance(bundle, dict) else None
+        resolved_direction = bundle_direction if bundle_is_authoritative and bundle_direction in {"bullish", "bearish", "mixed", "neutral"} else row.direction
+        status = str((bundle.get("status") if bundle_is_authoritative else None) or row.status or row.band or "confirmation").strip() if isinstance(bundle, dict) else str(row.status or row.band or "confirmation").strip()
+        source_labels = [str(item.get("label") or item.get("key") or "").strip() for item in source_stack if item.get("label") or item.get("key")]
+        source_count = len(source_stack) or int(row.source_count or 0)
+        if source_count >= 2 and resolved_direction in {"bullish", "bearish"}:
+            status = f"{source_count}-source {resolved_direction} confirmation"
+        reason = f"{status}; {score}/100 confirmation score"
         if source_labels:
-            reason = f"{reason}; sources: {', '.join(source_labels)}"
+            reason = f"{reason}; active sources: {', '.join(source_labels[:6])}"
         triggers.append(
             _trigger_payload(
                 ticker=row.ticker,
                 source="confirmation_monitoring",
                 reason=reason,
                 date_value=row.observed_at,
-                extra={"direction": row.direction, "source_count": row.source_count, "confirmation_score": row.score},
+                extra={
+                    "direction": resolved_direction,
+                    "source_count": source_count,
+                    "confirmation_score": score,
+                    "source_stack": source_stack,
+                },
             )
         )
     return triggers
@@ -3407,6 +3659,10 @@ def _x_api_base_url() -> str:
     return (os.getenv(X_API_BASE_URL, "").strip().rstrip("/") or "https://api.x.com")
 
 
+def _x_oauth2_token_url() -> str:
+    return os.getenv(X_OAUTH2_TOKEN_URL, "").strip() or f"{_x_api_base_url()}/2/oauth2/token"
+
+
 def _x_post_public_url(post_id: str | None) -> str | None:
     cleaned = str(post_id or "").strip()
     if not cleaned:
@@ -3439,6 +3695,78 @@ def _x_error_message(response: requests.Response) -> str:
     return f"X API returned HTTP {response.status_code}."
 
 
+def _x_current_access_token(db: Session | None = None) -> str:
+    return (_private_setting_value(db, X_CURRENT_ACCESS_TOKEN_SETTING) or os.getenv(X_ACCESS_TOKEN, "")).strip()
+
+
+def _x_current_refresh_token(db: Session | None = None) -> str:
+    return (_private_setting_value(db, X_CURRENT_REFRESH_TOKEN_SETTING) or os.getenv(X_REFRESH_TOKEN, "")).strip()
+
+
+def _post_x_tweet(access_token: str, text: str) -> requests.Response:
+    return requests.post(
+        f"{_x_api_base_url()}{X_POST_ENDPOINT_PATH}",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+        json={"text": text},
+        timeout=12,
+    )
+
+
+def _refresh_x_oauth2_access_token(db: Session) -> dict[str, Any]:
+    refresh_token = _x_current_refresh_token(db)
+    client_id = os.getenv(X_CLIENT_ID, "").strip()
+    client_secret = os.getenv(X_CLIENT_SECRET, "").strip()
+    if not refresh_token:
+        return {"ok": False, "attempted": False, "reason": "X_REFRESH_TOKEN is not configured on the server."}
+    if not client_id or not client_secret:
+        missing = [key for key, value in ((X_CLIENT_ID, client_id), (X_CLIENT_SECRET, client_secret)) if not value]
+        return {"ok": False, "attempted": False, "reason": f"X token refresh is missing: {', '.join(missing)}."}
+
+    try:
+        response = requests.post(
+            _x_oauth2_token_url(),
+            auth=(client_id, client_secret),
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": client_id},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=12,
+        )
+    except requests.RequestException as exc:
+        return {"ok": False, "attempted": True, "reason": f"X token refresh failed: {exc}"}
+
+    if not (200 <= response.status_code < 300):
+        return {
+            "ok": False,
+            "attempted": True,
+            "status_code": response.status_code,
+            "reason": f"X token refresh failed: {_x_error_message(response)}",
+        }
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    access_token = str(payload.get("access_token") or "").strip()
+    rotated_refresh_token = str(payload.get("refresh_token") or "").strip() or refresh_token
+    if not access_token:
+        return {
+            "ok": False,
+            "attempted": True,
+            "status_code": response.status_code,
+            "reason": "X token refresh response did not include an access token.",
+        }
+
+    refreshed_at = datetime.now(timezone.utc).isoformat()
+    _upsert_private_setting(db, X_CURRENT_ACCESS_TOKEN_SETTING, access_token, is_secret=True)
+    _upsert_private_setting(db, X_CURRENT_REFRESH_TOKEN_SETTING, rotated_refresh_token, is_secret=True)
+    _upsert_private_setting(db, X_TOKEN_REFRESHED_AT_SETTING, refreshed_at, is_secret=False)
+    os.environ[X_ACCESS_TOKEN] = access_token
+    os.environ[X_REFRESH_TOKEN] = rotated_refresh_token
+    db.flush()
+    return {"ok": True, "attempted": True, "access_token": access_token, "refreshed_at": refreshed_at}
+
+
 def post_approved_draft_to_x(
     db: Session,
     opportunity: AiMarketingOpportunity,
@@ -3450,7 +3778,7 @@ def post_approved_draft_to_x(
         opportunity.status = "approved"
         return {"attempted": False, "ok": False, "reason": "Draft is not an X post."}
 
-    access_token = os.getenv(X_ACCESS_TOKEN, "").strip()
+    access_token = _x_current_access_token(db)
     if not access_token:
         opportunity.status = "approved"
         return {"attempted": False, "ok": False, "reason": "X_ACCESS_TOKEN is not configured on the server."}
@@ -3463,23 +3791,41 @@ def post_approved_draft_to_x(
         opportunity.status = "approved"
         return {"attempted": False, "ok": False, "reason": f"Draft is {len(text)} characters; X posts must be {X_POST_CHARACTER_LIMIT} characters or fewer."}
 
+    refresh_result: dict[str, Any] | None = None
     try:
-        response = requests.post(
-            f"{_x_api_base_url()}{X_POST_ENDPOINT_PATH}",
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-            json={"text": text},
-            timeout=12,
-        )
+        response = _post_x_tweet(access_token, text)
     except requests.RequestException as exc:
         opportunity.status = "approved"
         return {"attempted": True, "ok": False, "reason": f"X API request failed: {exc}"}
+
+    if response.status_code == 401:
+        refresh_result = _refresh_x_oauth2_access_token(db)
+        if refresh_result.get("ok"):
+            try:
+                response = _post_x_tweet(str(refresh_result["access_token"]), text)
+            except requests.RequestException as exc:
+                opportunity.status = "approved"
+                return {
+                    "attempted": True,
+                    "ok": False,
+                    "refreshed": True,
+                    "reason": f"X API request failed after token refresh: {exc}",
+                }
 
     if not (200 <= response.status_code < 300):
         opportunity.status = "approved"
         reason = _x_error_message(response)
         if response.status_code in {401, 403}:
             reason = f"{reason} Confirm the X access token has tweet.write scope."
-        return {"attempted": True, "ok": False, "status_code": response.status_code, "reason": reason}
+        if refresh_result and not refresh_result.get("ok"):
+            reason = f"{reason} Token refresh did not complete: {refresh_result.get('reason')}"
+        return {
+            "attempted": True,
+            "ok": False,
+            "status_code": response.status_code,
+            "refreshed": bool(refresh_result and refresh_result.get("ok")),
+            "reason": reason,
+        }
 
     try:
         payload = response.json()
@@ -3504,11 +3850,13 @@ def post_approved_draft_to_x(
         "x_post_id": post_id or None,
         "x_post_url": metadata.get("x_post_url"),
         "text": data.get("text") if isinstance(data, dict) else text,
+        "refreshed": bool(refresh_result and refresh_result.get("ok")),
     }
 
 
-def x_account_status() -> dict[str, Any]:
-    access_token = os.getenv(X_ACCESS_TOKEN, "").strip()
+def x_account_status(db: Session | None = None) -> dict[str, Any]:
+    access_token = _x_current_access_token(db)
+    refresh_token = _x_current_refresh_token(db)
     client_id = os.getenv(X_CLIENT_ID, "").strip()
     client_secret = os.getenv(X_CLIENT_SECRET, "").strip()
     redirect_uri = os.getenv(X_REDIRECT_URI, "").strip()
@@ -3531,8 +3879,9 @@ def x_account_status() -> dict[str, Any]:
         "handle": os.getenv("X_CONNECTED_HANDLE", "").strip() or None,
         "user_id": os.getenv("X_CONNECTED_USER_ID", "").strip() or None,
         "token_status": "configured" if access_token else "missing",
+        "refresh_token_status": "configured" if refresh_token else "missing",
         "last_successful_post": None,
-        "last_token_refresh": None,
+        "last_token_refresh": _private_setting_value(db, X_TOKEN_REFRESHED_AT_SETTING),
         "secrets_managed_by": "server_env_or_encrypted_store",
         "posting_mode": "approve_posts_to_x" if access_token else "approval_only_until_x_access_token_configured",
         "required_scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
@@ -3631,6 +3980,7 @@ def send_digest(
         category="admin_ai_marketing",
         idempotency_key=None,
         reply_to=reply_to,
+        attachments=_email_asset_attachments(opportunities, latest),
     )
     status = str(result.get("status") or "queued")
     sent_at = datetime.now(timezone.utc) if status == "sent" else None
@@ -4293,15 +4643,16 @@ def _assets_text(assets: list[dict[str, Any]]) -> str:
 def _assets_html(assets: list[dict[str, Any]]) -> str:
     if not assets:
         return "<p style=\"margin:0 0 8px 0;color:#334155;\">Assets to attach: none</p>"
-    parts = ["<div style=\"margin:10px 0;color:#334155;\"><strong>Assets to attach</strong>"]
+    parts = ["<div style=\"margin:10px 0;color:#334155;\"><strong>Assets attached</strong>"]
     for asset in assets:
         title = html.escape(str(asset.get("title") or "Asset"))
         url = html.escape(str(asset.get("url") or asset.get("thumbnail_url") or ""), quote=True)
-        thumb = html.escape(str(asset.get("thumbnail_url") or ""), quote=True)
         caption = html.escape(str(asset.get("suggested_caption") or ""))
-        link = f"<a href=\"{url}\">{title}</a>" if url else title
-        image = f"<br><img src=\"{thumb}\" alt=\"{title}\" style=\"max-width:180px;height:auto;border-radius:6px;margin-top:6px;\">" if thumb else ""
-        parts.append(f"<p style=\"margin:8px 0;\">{link}{image}<br><span>{caption}</span></p>")
+        if _asset_data_uri(asset):
+            link = f"{title} <span style=\"color:#64748b;\">(attached image file)</span>"
+        else:
+            link = f"<a href=\"{url}\">{title}</a>" if url else title
+        parts.append(f"<p style=\"margin:8px 0;\">{link}<br><span>{caption}</span></p>")
     parts.append("</div>")
     return "".join(parts)
 
@@ -4385,7 +4736,7 @@ def _digest_context(
         compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required before approval/posting."
         assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
         posting_links = _posting_links(opportunity, suggestion=suggestion)
-        x_status = x_account_status()
+        x_status = x_account_status(db)
         approve_posts_to_x = content_type == "x_post" and bool(x_status.get("connected"))
         approve_label = "Approve & Post to X" if approve_posts_to_x else "Approve"
         approve_behavior_text = (
@@ -4538,11 +4889,16 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
         "Draft a market-native X post with a news hook, why it matters, Walnut-native context from opportunity.metadata.walnut_context, "
         "and no or soft CTA depending on campaign preferences. Prefer cashtags over hashtags and use no more than two hashtags. "
-        "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
-        "Do not reuse article thumbnails; any image/card should be Walnut-branded original card metadata with source attribution. "
+        "High-quality X output should pair concise analysis with a visual: ranked metric breakdowns, comparison buckets, signal stacks, "
+        "or a clean chart/card that could stand alone in the feed. Use the style of a market analyst, not a generic article summary. "
+        "For x_post, always fill visual_brief with a chart-ready concept: title, chart_type, metric_label, 3-8 rows, and source_note. "
+        "Only use numeric values when they are present in the provided context; otherwise use qualitative buckets and say what data is missing. "
         "For x_post from @WalnutMarkets, write in first-person plural when referring to the product or signal process: use 'we', 'our', and 'we are seeing' rather than third-person phrasing like 'Walnut shows', 'Walnut flags', or 'Walnut finds'. "
         "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the signal/data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
-        f"For x_post, write suggested_post plus alternate_hooks and a chart/report idea in value_added_insight. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
+        "For bullish/bearish confirmation X posts, use opportunity.metadata.walnut_context.source_stack when present. Name the active sources directly, especially Price / Volume, Institutional Activity, and Macro Positioning, and include the confirmation score when supplied. "
+        "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
+        "Do not reuse article thumbnails; any image/card should be Walnut-branded original card metadata with source attribution. "
+        f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
         "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
         "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
@@ -4609,6 +4965,31 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "suggested_reply": {"type": "string"},
             "suggested_post": {"type": "string", "maxLength": X_POST_CHARACTER_LIMIT},
             "suggested_ad_variants": {"type": "array", "items": {"type": "string"}},
+            "visual_brief": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "chart_type": {"type": "string", "enum": ["ranked_bars", "bucket_breakdown", "signal_stack", "comparison_card"]},
+                    "metric_label": {"type": "string"},
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "value": {"type": "string"},
+                                "note": {"type": "string"},
+                            },
+                            "required": ["label", "value", "note"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "source_note": {"type": "string"},
+                    "missing_data_note": {"type": "string"},
+                },
+                "required": ["title", "chart_type", "metric_label", "rows", "source_note", "missing_data_note"],
+                "additionalProperties": False,
+            },
             "title": {"type": "string"},
             "tldr_bullets": {"type": "array", "items": {"type": "string"}},
             "why_selected": {"type": "string"},
@@ -4705,6 +5086,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "suggested_reply",
             "suggested_post",
             "suggested_ad_variants",
+            "visual_brief",
             "title",
             "tldr_bullets",
             "why_selected",
@@ -4821,6 +5203,10 @@ def _normalize_suggestion_payload(
     assets = _normalize_assets(payload.get("assets"))
     if reddit_structured and reddit_structured["suggested_image_asset"]:
         assets = _normalize_assets([*assets, reddit_structured["suggested_image_asset"]])
+    if content_type == "x_post":
+        visual_asset = _x_visual_brief_asset(payload.get("visual_brief"), detected_tickers=detected_tickers)
+        if visual_asset:
+            assets = _normalize_assets([visual_asset, *assets])
     generated_content = _generated_content_from_structured(
         content_type=content_type,
         suggested_reply=suggested_reply,
@@ -5341,14 +5727,15 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
         return []
     raw_items = value if isinstance(value, list) else [value]
     assets: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
     allowed_types = {"image", "chart", "csv", "pdf", "screenshot", "report"}
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
         raw_asset_url = str(raw.get("url") or raw.get("path") or raw.get("reference") or "").strip()
         raw_thumbnail_url = str(raw.get("thumbnail_url") or "").strip()
-        asset_url = _truncate(raw_asset_url, 4000 if raw_asset_url.startswith("data:image/") else 1200) or ""
-        thumbnail_url = _truncate(raw_thumbnail_url, 4000 if raw_thumbnail_url.startswith("data:image/") else 1200) or ""
+        asset_url = _truncate(raw_asset_url, 250000 if raw_asset_url.startswith("data:image/") else 1200) or ""
+        thumbnail_url = _truncate(raw_thumbnail_url, 250000 if raw_thumbnail_url.startswith("data:image/") else 1200) or ""
         asset_type = str(raw.get("asset_type") or "image").strip().lower()
         if asset_type not in allowed_types:
             asset_type = "image"
@@ -5360,6 +5747,10 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
         if not asset_url and not thumbnail_url:
             continue
         title = _truncate(str(raw.get("title") or asset_type.title()).strip(), 200) or asset_type.title()
+        dedupe_key = (asset_type, asset_url or thumbnail_url, title.lower())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
         assets.append(
             {
                 "title": title,
@@ -5371,6 +5762,81 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
             }
         )
     return assets[:10]
+
+
+def _asset_data_uri(asset: dict[str, Any]) -> str:
+    for key in ("url", "thumbnail_url"):
+        value = str(asset.get(key) or "").strip()
+        if value.lower().startswith("data:image/"):
+            return value
+    return ""
+
+
+def _decode_data_uri_asset(asset: dict[str, Any], *, fallback_name: str | None = None) -> dict[str, Any] | None:
+    data_uri = _asset_data_uri(asset)
+    if not data_uri or "," not in data_uri:
+        return None
+    header, payload = data_uri.split(",", 1)
+    if not header.lower().startswith("data:"):
+        return None
+    media_type = header[5:].split(";", 1)[0].strip().lower() or "application/octet-stream"
+    if not media_type.startswith("image/"):
+        return None
+    try:
+        content = base64.b64decode(payload, validate=True) if ";base64" in header.lower() else unquote_to_bytes(payload)
+    except Exception:
+        return None
+    if not content:
+        return None
+    title = fallback_name or str(asset.get("title") or "walnut-asset")
+    extension = _image_extension_for_media_type(media_type)
+    filename = _safe_asset_filename(title, extension)
+    return {"name": filename, "content": content, "content_type": media_type}
+
+
+def _email_asset_attachments(
+    opportunities: list[AiMarketingOpportunity],
+    latest: dict[int, AiMarketingSuggestion],
+) -> list[dict[str, Any]]:
+    attachments: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for opportunity in opportunities:
+        assets = _opportunity_assets(opportunity, suggestion=latest.get(opportunity.id))
+        for index, asset in enumerate(assets):
+            decoded = _decode_data_uri_asset(asset, fallback_name=f"{opportunity.title}-{index + 1}")
+            if not decoded:
+                continue
+            key = f"{decoded['name']}:{len(decoded['content'])}"
+            if key in seen:
+                continue
+            seen.add(key)
+            attachments.append(decoded)
+            if len(attachments) >= 10:
+                return attachments
+    return attachments
+
+
+def _image_extension_for_media_type(media_type: str) -> str:
+    normalized = media_type.lower().split(";", 1)[0]
+    if normalized == "image/svg+xml":
+        return "svg"
+    if normalized == "image/jpeg":
+        return "jpg"
+    if normalized == "image/png":
+        return "png"
+    if normalized == "image/webp":
+        return "webp"
+    if normalized == "image/gif":
+        return "gif"
+    return "img"
+
+
+def _safe_asset_filename(value: str, extension: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "walnut-asset")).strip(".-")
+    cleaned = cleaned or "walnut-asset"
+    if not cleaned.lower().endswith(f".{extension.lower()}"):
+        cleaned = f"{cleaned}.{extension}"
+    return cleaned[:140]
 
 
 def _is_media_asset_url(value: str | None) -> bool:

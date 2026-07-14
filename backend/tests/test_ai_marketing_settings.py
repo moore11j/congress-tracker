@@ -34,6 +34,7 @@ from app.services.ai_marketing import (
     X_CLIENT_SECRET,
     X_REDIRECT_URI,
     X_ACCESS_TOKEN,
+    X_REFRESH_TOKEN,
     config_status,
     resolved_setting_value,
     _suggestion_system_prompt,
@@ -84,6 +85,7 @@ def _clear_env(monkeypatch):
         X_CLIENT_SECRET,
         X_REDIRECT_URI,
         X_ACCESS_TOKEN,
+        X_REFRESH_TOKEN,
         BING_SEARCH_API_KEY,
     ):
         monkeypatch.delenv(key, raising=False)
@@ -107,6 +109,7 @@ def _deprecated_provider_setting(db, key: str, value: str, *, is_secret: bool = 
         X_CLIENT_SECRET,
         X_REDIRECT_URI,
         X_ACCESS_TOKEN,
+        X_REFRESH_TOKEN,
     ],
 )
 def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
@@ -139,6 +142,7 @@ def test_admin_cannot_save_provider_env_only_settings(monkeypatch, key):
         X_CLIENT_SECRET,
         X_REDIRECT_URI,
         X_ACCESS_TOKEN,
+        X_REFRESH_TOKEN,
     ],
 )
 def test_admin_cannot_clear_provider_env_only_settings(monkeypatch, key):
@@ -224,6 +228,7 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
     monkeypatch.setenv(X_CLIENT_SECRET, "x-env-secret")
     monkeypatch.setenv(X_REDIRECT_URI, "https://app.walnutmarkets.com/api/admin/ai-growth/x/oauth/callback")
     monkeypatch.setenv(X_ACCESS_TOKEN, "x-env-access-token")
+    monkeypatch.setenv(X_REFRESH_TOKEN, "x-env-refresh-token")
     monkeypatch.setenv(BING_SEARCH_API_KEY, "bing-env-key")
     db = _session()
     try:
@@ -249,12 +254,16 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
         assert items[X_REDIRECT_URI]["configured"] is True
         assert items[X_ACCESS_TOKEN]["configured"] is True
         assert items[X_ACCESS_TOKEN]["source"] == "server_env"
+        assert items[X_REFRESH_TOKEN]["configured"] is True
+        assert items[X_REFRESH_TOKEN]["source"] == "server_env"
         assert payload["config"]["x_status"] == "connected"
         assert payload["config"]["x_oauth_configured"] is True
         assert payload["config"]["x_connected"] is True
+        assert payload["config"]["x_refresh_token_configured"] is True
         assert payload["config"]["x_posting_status"] == "approve_posts_to_x"
         assert "X API OAuth credentials missing" not in payload["config"]["warnings"]
         assert "X access token missing; approval will not post to X" not in payload["config"]["warnings"]
+        assert "X refresh token missing; expired access tokens will require manual replacement" not in payload["config"]["warnings"]
         assert BING_SEARCH_API_KEY not in items
         assert "Deprecated DB-stored provider credentials detected; ignored." in payload["config"]["warnings"]
         assert "sk-env-openai" not in serialized
@@ -266,6 +275,7 @@ def test_get_settings_returns_provider_status_without_raw_values(monkeypatch):
         assert "x-env-client" not in serialized
         assert "x-env-secret" not in serialized
         assert "x-env-access-token" not in serialized
+        assert "x-env-refresh-token" not in serialized
         assert "bing-env-key" not in serialized
     finally:
         db.close()
