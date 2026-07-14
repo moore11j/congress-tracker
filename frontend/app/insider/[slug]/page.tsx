@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getInsiderSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
+import { ShareLinks } from "@/components/member/ShareLinks";
 import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import {
   getInsiderDisplayName,
@@ -20,6 +21,7 @@ type Props = {
 type Lookback = "30" | "90" | "180" | "365" | "1095";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
 type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
+const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
 
 const LOOKBACK_OPTIONS = [
   { label: "30D", value: "30" },
@@ -136,6 +138,26 @@ function buildInsiderBacktestHref(reportingCik: string, lookbackDays: number) {
   return `/backtesting?${query.toString()}`;
 }
 
+function getSiteUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+}
+
+function buildInsiderSharePath(
+  canonicalSlug: string,
+  lookback: Lookback,
+  issuer: string,
+  chartSymbol: string,
+  recentTradesPage: number,
+) {
+  const query = new URLSearchParams();
+  if (lookback !== "90") query.set("lookback", lookback);
+  if (issuer) query.set("issuer", issuer);
+  if (chartSymbol) query.set("symbol", chartSymbol);
+  if (recentTradesPage > 0) query.set("recent_trades_page", String(recentTradesPage));
+  const suffix = query.toString();
+  return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
+}
+
 export default async function InsiderPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const reportingCik = reportingCikFromInsiderSlug(slug);
@@ -158,6 +180,8 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
   const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
   const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
+  const canonicalInsiderPath = buildInsiderSharePath(canonicalSlug, lookback, issuer, chartSymbol, recentTradesPage);
+  const canonicalInsiderUrl = new URL(canonicalInsiderPath, getSiteUrl()).toString();
 
   if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
     const query = new URLSearchParams();
@@ -205,6 +229,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={subtlePrimaryButtonClassName}>
               Backtest following this insider
             </Link>
+            <ShareLinks canonicalUrl={canonicalInsiderUrl} />
             <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
           </div>
         </div>

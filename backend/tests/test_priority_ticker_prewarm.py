@@ -41,7 +41,7 @@ def test_priority_ticker_prewarm_includes_logged_in_watchlist_symbols(monkeypatc
         result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=3, popular_limit=0)
 
         assert "BMNR" in result["symbols"]
-        assert "MSTR" not in result["symbols"]
+        assert "MSTR" in result["symbols"]
         assert "NBIS" not in result["symbols"]
         assert result["symbol_count"] <= 3
         bmnr_job_types = {job["job_type"] for job in captured if job.get("symbol") == "BMNR"}
@@ -93,7 +93,7 @@ def test_priority_ticker_prewarm_skips_placeholder_symbols_before_selection(monk
         assert "[SYMBOL]" not in result["symbols"]
         assert "UNKNOWN" not in result["symbols"]
         assert "SYMBOL" not in result["symbols"]
-        assert result["symbols"] == ["BMNR", "NBIS"]
+        assert result["symbols"] == ["BMNR", "MSTR", "NBIS"]
         assert all(job.get("symbol") not in {"[SYMBOL]", "UNKNOWN", "SYMBOL"} for job in captured)
         assert result["attempted"] == result["symbol_count"] * 10
         assert "prewarm_ticker_invalid_symbol_skipped source=watchlist symbol=[SYMBOL]" in caplog.text
@@ -180,7 +180,7 @@ def test_recently_viewed_ticker_symbols_extracts_real_path_and_ignores_templates
         db.close()
 
 
-def test_priority_ticker_prewarm_counts_real_recently_viewed_tickers_without_template_noise(monkeypatch, caplog):
+def test_priority_ticker_prewarm_includes_real_recently_viewed_tickers_without_template_noise(monkeypatch, caplog):
     db = _db()
     captured = []
     now = datetime.now(timezone.utc)
@@ -216,8 +216,8 @@ def test_priority_ticker_prewarm_counts_real_recently_viewed_tickers_without_tem
         with caplog.at_level("INFO", logger=queue_module.logger.name):
             result = enqueue_priority_ticker_prewarm_jobs(db, symbol_limit=2, popular_limit=0)
 
-        assert result["recently_viewed_symbol_count"] == 0
-        assert result["symbols"] == []
+        assert result["recently_viewed_symbol_count"] == 1
+        assert result["symbols"] == ["AMD"]
         assert all(job.get("symbol") != "[symbol]" for job in captured)
         assert "prewarm_ticker_invalid_symbol_skipped source=recently_viewed symbol=[symbol]" not in caplog.text
     finally:

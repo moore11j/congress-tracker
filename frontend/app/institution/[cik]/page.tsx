@@ -12,6 +12,7 @@ import {
   type InstitutionProfileResponse,
 } from "@/lib/api";
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
+import { ShareLinks } from "@/components/member/ShareLinks";
 import { normalizeInstitutionCik } from "@/lib/institution";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { withServerTimeout } from "@/lib/serverTimeout";
@@ -22,6 +23,12 @@ import { formatCurrency, formatDateShort } from "@/lib/format";
 type Props = {
   params: Promise<{ cik: string }>;
 };
+
+const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
+
+function getSiteUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { cik: rawCik } = await params;
@@ -82,6 +89,8 @@ export default async function InstitutionPage({ params }: Props) {
 
   const unavailable = profile.availability_status === "unavailable" || profile.status === "no_data";
   const name = profile.holder_name ?? "Institution unavailable";
+  const canonicalInstitutionPath = `/institution/${encodeURIComponent(cik)}`;
+  const canonicalInstitutionUrl = new URL(canonicalInstitutionPath, getSiteUrl()).toString();
   const reportPeriod = profile.latest_report_year && profile.latest_report_quarter
     ? `Q${profile.latest_report_quarter} ${profile.latest_report_year}`
     : "Unavailable";
@@ -103,6 +112,7 @@ export default async function InstitutionPage({ params }: Props) {
             <Link href="/feed?mode=institutional" className={ghostButtonClassName} prefetch={false}>
               Institutional feed
             </Link>
+            <ShareLinks canonicalUrl={canonicalInstitutionUrl} />
             <Link href="/signals?mode=institutional" className={ghostButtonClassName} prefetch={false}>
               Institutional signals
             </Link>

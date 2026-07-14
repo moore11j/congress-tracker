@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {"queued", "running"}
 DEFAULT_PREWARM_SYMBOLS = ("MSTR", "NBIS", "BMNR", "IBIT", "AAPL", "MSFT", "NVDA", "TSLA")
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
+DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
     "quote",
     "price_eod",
@@ -334,6 +335,30 @@ def _recently_viewed_ticker_symbols(db: Session, *, limit: int) -> list[str]:
     return symbols
 
 
+def _active_event_symbols(db: Session, *, limit: int, lookback_days: int = DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS) -> list[str]:
+    rows = db.execute(
+        select(func.upper(Event.symbol), func.max(Event.ts), func.count(Event.id))
+        .where(Event.symbol.is_not(None))
+        .where(func.length(func.trim(Event.symbol)) > 0)
+        .where(Event.ts >= datetime.now(timezone.utc) - timedelta(days=max(1, int(lookback_days or 1))))
+        .where(Event.event_type.in_(["congress_trade", "insider_trade", "government_contract"]))
+        .group_by(func.upper(Event.symbol))
+        .order_by(func.max(Event.ts).desc(), func.count(Event.id).desc(), func.upper(Event.symbol))
+        .limit(max(1, limit * 4))
+    ).all()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for raw, _latest_ts, _count in rows:
+        symbol = _normalized_prewarm_symbol(raw, source="active_events")
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+        if len(symbols) >= limit:
+            break
+    return symbols
+
+
 def enqueue_priority_ticker_prewarm_jobs(
     db: Session,
     *,
@@ -345,6 +370,11 @@ def enqueue_priority_ticker_prewarm_jobs(
     normalized_limit = max(1, min(int(symbol_limit or 25), 100))
     normalized_popular_limit = max(0, min(int(popular_limit or 0), normalized_limit))
     normalized_per_user_limit = max(1, min(int(per_user_limit or 5), normalized_limit))
+    active_limit = max(1, min(normalized_limit, int(os.getenv("PRIORITY_TICKER_PREWARM_ACTIVE_LIMIT", str(normalized_limit)) or normalized_limit)))
+    active_lookback_days = max(
+        1,
+        int(os.getenv("PRIORITY_TICKER_PREWARM_ACTIVE_LOOKBACK_DAYS", str(DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS)) or DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS),
+    )
     watchlist_rows = db.execute(
         select(Watchlist.owner_user_id, func.upper(Security.symbol), func.count(WatchlistItem.id))
         .select_from(WatchlistItem)
@@ -388,7 +418,8 @@ def enqueue_priority_ticker_prewarm_jobs(
         for raw in raw_popular_symbols
         if (symbol := _normalized_prewarm_symbol(raw, source="popular"))
     ]
-    recently_viewed_symbols: list[str] = []
+    recently_viewed_symbols = _recently_viewed_ticker_symbols(db, limit=active_limit)
+    active_event_symbols = _active_event_symbols(db, limit=active_limit, lookback_days=active_lookback_days)
     landing_symbols = [
         symbol
         for raw in os.getenv("PRIORITY_TICKER_PREWARM_LANDING_SYMBOLS", "").replace("|", ",").split(",")
@@ -398,7 +429,9 @@ def enqueue_priority_ticker_prewarm_jobs(
     symbols: list[str] = []
     seen: set[str] = set()
     ordered_sources = [
+        *[(raw, "recently_viewed") for raw in recently_viewed_symbols],
         *[(raw, "watchlist") for raw in watchlist_symbols],
+        *[(raw, "active_events") for raw in active_event_symbols],
         *[(raw, "popular") for raw in popular_symbols],
         *[(raw, "landing") for raw in landing_symbols],
     ]
@@ -491,10 +524,13 @@ def enqueue_priority_ticker_prewarm_jobs(
         "skip_reasons": skip_reasons,
         "skip_reasons_by_type": skip_reasons_by_type,
         "watchlist_symbol_count": len(watchlist_symbols),
-        "recently_viewed_symbol_count": 0,
+        "recently_viewed_symbol_count": len(recently_viewed_symbols),
+        "active_event_symbol_count": len(active_event_symbols),
         "popular_symbol_count": len(popular_symbols),
         "landing_symbol_count": len(landing_symbols),
         "per_user_limit": normalized_per_user_limit,
+        "active_limit": active_limit,
+        "active_lookback_days": active_lookback_days,
         "skipped_budget": 0,
         "skipped_fresh": skip_reasons.get("skipped_fresh", 0),
         "skipped_existing_pending": skip_reasons.get("skipped_existing_pending", 0),

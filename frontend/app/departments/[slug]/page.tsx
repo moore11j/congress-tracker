@@ -2,13 +2,21 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ApiError, getDepartmentProfile, type DepartmentContractItem, type DepartmentProfileResponse } from "@/lib/api";
+import { ShareLinks } from "@/components/member/ShareLinks";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
+import { departmentHref } from "@/lib/departments";
 
 type Props = {
   params: Promise<{ slug: string }>;
 };
+
+const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
+
+function getSiteUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+}
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
@@ -39,6 +47,8 @@ export default async function DepartmentPage({ params }: Props) {
   const topRecipient = summary.topTicker
     ? `${summary.topTicker}${summary.topCompany ? ` - ${summary.topCompany}` : ""}`
     : "-";
+  const canonicalDepartmentPath = departmentHref(department.name) ?? `/departments/${encodeURIComponent(slug)}`;
+  const canonicalDepartmentUrl = new URL(canonicalDepartmentPath, getSiteUrl()).toString();
 
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
@@ -55,6 +65,7 @@ export default async function DepartmentPage({ params }: Props) {
             <Link href="/?mode=government_contracts" className={ghostButtonClassName} prefetch={false}>
               Government contracts feed
             </Link>
+            <ShareLinks canonicalUrl={canonicalDepartmentUrl} />
             <Link href="/screener?government_contracts_active=true&government_contracts_lookback_days=365" className={ghostButtonClassName} prefetch={false}>
               Screener overlay
             </Link>

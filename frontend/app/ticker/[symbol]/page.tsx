@@ -16,6 +16,7 @@ import { TickerInstitutionalSourceCardClient } from "@/components/ticker/TickerI
 import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
+import { ShareLinks } from "@/components/member/ShareLinks";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { entitlementsFromTierHint, hasEntitlement, type Entitlements } from "@/lib/entitlements";
@@ -62,6 +63,11 @@ const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
 const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE + 1;
 const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
+const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
+
+function getSiteUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+}
 
 function contextWindowLabel(days: number): string {
   return `${days} Day`;
@@ -3686,6 +3692,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const institutionalPage = clampPage(one(sp, "institutional_page"));
   const contractsPage = clampPage(one(sp, "contracts_page"));
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const canonicalTickerPath = tickerHref(normalizedSymbol) ?? `/ticker/${encodeURIComponent(normalizedSymbol)}`;
+  const canonicalTickerUrl = new URL(canonicalTickerPath, getSiteUrl()).toString();
   const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
   const authState = await optionalPageAuthState();
@@ -3941,6 +3949,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AddTickerToWatchlist symbol={normalizedSymbol} />
+          <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>
       </div>
