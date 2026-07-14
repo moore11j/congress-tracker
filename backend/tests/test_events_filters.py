@@ -334,7 +334,7 @@ def test_events_feed_uses_one_shared_quote_lookup_for_visible_pnl(monkeypatch):
         db.close()
 
 
-def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(monkeypatch):
+def test_events_feed_direct_logged_out_request_uses_bounded_live_fallback_for_visible_pnl(monkeypatch):
     db = _db()
     try:
         _clear_events_response_cache()
@@ -347,9 +347,18 @@ def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(m
 
         def fake_quotes(_db, symbols, **kwargs):
             calls.append((list(symbols), kwargs))
-            assert kwargs["cache_only"] is True
-            assert kwargs["allow_live_user_fetch"] is False
-            return {}
+            assert _db is None
+            assert kwargs["cache_only"] is False
+            assert kwargs["allow_live_user_fetch"] is True
+            return {
+                "AAPL": {
+                    "symbol": "AAPL",
+                    "price": 110.0,
+                    "asof_ts": datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    "is_stale": False,
+                    "source": "live_quote",
+                }
+            }
 
         monkeypatch.setattr("app.routers.events.get_current_prices_meta_db", fake_quotes)
         db.add_all(
@@ -391,17 +400,18 @@ def test_events_feed_direct_logged_out_request_uses_cache_only_for_visible_pnl(m
                     "allow_cache_write": False,
                     "release_connection_before_fetch": False,
                     "lane": "feed_quote",
-                        "allow_live_user_fetch": False,
-                        "stale_while_revalidate": False,
-                        "cache_only": True,
-                        "force_quote_endpoint": False,
-                        "skip_db_sanity": False,
-                    },
+                    "allow_live_user_fetch": True,
+                    "stale_while_revalidate": True,
+                    "cache_only": False,
+                    "force_quote_endpoint": True,
+                    "skip_db_sanity": True,
+                },
                 )
             ]
-        assert page.items[0].current_price is None
-        assert page.items[0].pnl_pct is None
-        assert page.items[0].gain_loss_status == "missing_current_price"
+        assert page.items[0].current_price == 110.0
+        assert round(page.items[0].pnl_pct or 0, 6) == 10.0
+        assert page.items[0].quote_is_stale is False
+        assert page.items[0].gain_loss_status == "ok"
     finally:
         db.close()
 

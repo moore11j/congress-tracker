@@ -378,7 +378,7 @@ def _cap_feed_quote_symbols(symbols: Iterable[str]) -> list[str]:
     return capped
 
 
-def _allow_visible_feed_quote_fallback(request: Request | None) -> bool:
+def _allow_visible_feed_quote_fallback(request: Request | None, *, enrich_prices: bool = False) -> bool:
     if request is None:
         return True
     if not hasattr(request, "headers"):
@@ -389,7 +389,7 @@ def _allow_visible_feed_quote_fallback(request: Request | None) -> bool:
     if user_agent_class in {"bot", "crawler", "prefetch"}:
         return False
     source = request_source(request, user_agent_class)
-    if source in {"direct_api", "monitor_probe", "cron", "bot_shell", "prefetch", "prefetch_204"}:
+    if source in {"monitor_probe", "cron", "bot_shell", "prefetch", "prefetch_204"}:
         return False
     auth_state, _tier = request_auth_state(request)
     if auth_state in {"logged_in", "admin"}:
@@ -397,6 +397,9 @@ def _allow_visible_feed_quote_fallback(request: Request | None) -> bool:
     active_marker = bounded_log_value(request.headers.get("x-walnut-active-user"), max_length=16).lower()
     if active_marker in {"1", "true", "yes", "browser"} and source in {"client", "visibility", "idle"}:
         return True
+    if source == "direct_api":
+        query_enrich_prices = (request.query_params.get("enrich_prices") or "").strip().lower()
+        return enrich_prices or query_enrich_prices in {"1", "true", "yes", "on"}
     return source == "ssr" and bounded_log_value(request.headers.get("x-walnut-route-family"), max_length=32).lower() == "feed"
 
 
@@ -4727,7 +4730,7 @@ def list_events(
     include_total = include_total is True
     enrich_prices = enrich_prices is not False
     include_net_flows = include_net_flows is not False
-    allow_live_feed_quote_fallback = _allow_visible_feed_quote_fallback(request)
+    allow_live_feed_quote_fallback = _allow_visible_feed_quote_fallback(request, enrich_prices=enrich_prices)
     debug_enabled = _events_debug_enabled(db, request, debug)
     can_view_institutional = _can_view_institutional_events(db, request)
 
@@ -5466,7 +5469,7 @@ def list_watchlist_events(
         q,
         limit,
         use_effective_activity_date=True,
-        allow_live_quote_fallback=_allow_visible_feed_quote_fallback(request),
+        allow_live_quote_fallback=_allow_visible_feed_quote_fallback(request, enrich_prices=True),
     )
 
     if not _is_production_runtime() or is_admin_user(user):
