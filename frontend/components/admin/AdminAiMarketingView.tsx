@@ -168,7 +168,7 @@ function emptyArticleCampaignForm() {
     name: "Daily Article-Reactive X Campaign",
     status: "active",
     schedule: "weekdays",
-    run_time: "07:35",
+    run_time: "06:30",
     timezone: "America/Los_Angeles",
     max_drafts_per_day: "1",
     recipient_email: "jarod@walnutmarkets.com",
@@ -518,7 +518,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       name: campaign.name ?? "",
       status: campaign.status ?? (campaign.enabled ? "active" : "paused"),
       schedule: String(schedule.cadence ?? (campaign.weekdays_only ? "weekdays" : "daily")),
-      run_time: campaign.run_time ?? "07:45",
+      run_time: campaign.run_time ?? "06:45",
       timezone: campaign.timezone ?? "America/Los_Angeles",
       max_drafts_per_run: String(campaign.max_drafts_per_day ?? 1),
       recipient_email: campaign.recipient_email ?? "jarod@walnutmarkets.com",
@@ -1276,7 +1276,7 @@ function ArticleReactiveCampaignsView({
           <TextField label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
           <SelectField label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={["active", "paused"]} />
           <SelectField label="Schedule" value={form.schedule} onChange={(value) => setForm({ ...form, schedule: value })} options={["daily", "weekdays"]} />
-          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="07:35" />
+          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="06:30" />
           <TextField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} />
           <SelectField label="Max drafts per day" value={form.max_drafts_per_day} onChange={(value) => setForm({ ...form, max_drafts_per_day: value })} options={["1", "2"]} />
           <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
@@ -1393,7 +1393,7 @@ function ScheduledXCampaignsView({
           <TextField label="Campaign name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
           <SelectField label="Campaign status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={["active", "paused"]} />
           <SelectField label="Schedule" value={form.schedule} onChange={(value) => setForm({ ...form, schedule: value })} options={["daily", "weekdays", "weekly"]} />
-          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="07:45" />
+          <TextField label="Run time" value={form.run_time} onChange={(value) => setForm({ ...form, run_time: value })} placeholder="06:45" />
           <TextField label="Timezone" value={form.timezone} onChange={(value) => setForm({ ...form, timezone: value })} />
           <SelectField label="Max drafts per run" value={form.max_drafts_per_run} onChange={(value) => setForm({ ...form, max_drafts_per_run: value })} options={["1", "2", "3", "4", "5"]} />
           <TextField label="Recipient email" value={form.recipient_email} onChange={(value) => setForm({ ...form, recipient_email: value })} />
@@ -1998,7 +1998,7 @@ function emptyScheduledXCampaignForm() {
     name: "",
     status: "active",
     schedule: "daily",
-    run_time: "07:45",
+    run_time: "06:45",
     timezone: "America/Los_Angeles",
     max_drafts_per_run: "1",
     recipient_email: "jarod@walnutmarkets.com",

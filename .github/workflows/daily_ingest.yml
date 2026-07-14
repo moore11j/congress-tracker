@@ -53,6 +53,8 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [ -n "${{ github.event.inputs.job }}" ]; then
             JOB_MODE="${{ github.event.inputs.job }}"
           elif [ "${{ github.event.schedule }}" = "5 13-23 * * 1-5" ]; then
@@ -75,4 +77,20 @@ jobs:
           REMOTE_COMMAND="cd /app && python -m app.ingest_run --job $JOB_MODE"
           echo "Running ingest job: $JOB_MODE"
           echo "Remote command: $REMOTE_COMMAND"
-          flyctl ssh console -a congress-tracker-api -C "sh -lc \"$REMOTE_COMMAND\""
+          log_file="$(mktemp)"
+          for attempt in 1 2 3; do
+            if flyctl ssh console -a congress-tracker-api -C "sh -lc \"$REMOTE_COMMAND\"" 2>&1 | tee "$log_file"; then
+              exit 0
+            fi
+
+            if ! grep -Eqi "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded|i/o timeout|connection reset|connection refused" "$log_file"; then
+              exit 1
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+
+            echo "Fly SSH transport failed; retrying in $((attempt * 20)) seconds (attempt $attempt/3)"
+            sleep $((attempt * 20))
+          done

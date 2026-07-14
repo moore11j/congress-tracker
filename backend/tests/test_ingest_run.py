@@ -74,6 +74,15 @@ def test_scheduled_ingest_workflow_calls_ingest_module_directly() -> None:
     assert "Remote command: $REMOTE_COMMAND" in contents
 
 
+def test_scheduled_ingest_workflow_retries_transient_fly_ssh_failures() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
+    contents = workflow.read_text()
+
+    assert "for attempt in 1 2 3" in contents
+    assert "Fly SSH transport failed; retrying" in contents
+    assert "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded" in contents
+
+
 def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
     seen = {}
 

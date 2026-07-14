@@ -55,6 +55,12 @@ test("landing quote cards render prices with two decimals", () => {
   assert.doesNotMatch(landingPage, /maximumFractionDigits:\s*value >= 100 \? 0 : 2/);
 });
 
+test("landing pricing fetch bypasses the shared landing data cache", () => {
+  assert.match(landingPage, /type LandingFetchCacheMode = "revalidate" \| "no-store"/);
+  assert.match(landingPage, /cacheMode === "no-store" \? \{ cache: "no-store" as const \} : \{ next: \{ revalidate \} \}/);
+  assert.match(landingPage, /landingFetchJson<PlanConfig>\("\/api\/plan-config", undefined, 2500, "no-store"\)/);
+});
+
 test("landing macro rows resolve Core CPI by label variants", () => {
   assert.match(landingPage, /landingMacroLabelGroups/);
   assert.match(landingPage, /"Core CPI YoY"/);
@@ -71,13 +77,13 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
   assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
   assert.match(faqPage, /chrome=\{chrome\}/);
-  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
   assert.match(middleware, /const isMarketingStaticPage = publicStaticPaths\.has\(pathname\) && publicLandingHosts\.has\(host\)/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
-  assert.match(middleware, /matcher: \["\/", "\/robots\.txt", "\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
+  assert.match(middleware, /matcher: \["\/", "\/robots\.txt", "\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
   assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);

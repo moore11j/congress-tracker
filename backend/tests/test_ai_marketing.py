@@ -2455,6 +2455,9 @@ def test_article_reactive_campaign_generates_draft_emails_and_enforces_daily_cap
         assert first["drafts_generated"] == 1
         assert first["emails_sent"] == 1
         assert sent[0]["to_email"] == "jarod@walnutmarkets.com"
+        assert "Open Article" in sent[0]["context"]["items_html"]
+        assert "https://example.com/nvda-ai" in sent[0]["context"]["items_html"]
+        assert "Article URL: https://example.com/nvda-ai" in sent[0]["context"]["items_text"]
         assert second["drafts_generated"] == 0
         assert db.query(AiMarketingArticleCandidate).count() == 1
         opportunity = db.execute(select(AiMarketingOpportunity)).scalar_one()

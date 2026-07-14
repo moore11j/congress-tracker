@@ -215,7 +215,14 @@ const landingMacroLabelGroups = [
   ["Unemployment", "Unemployment Rate", "unemploymentRate"],
 ] as const;
 
-async function landingFetchJson<T>(path: string, params?: Record<string, string | number | undefined>, timeoutMs = 3500): Promise<T> {
+type LandingFetchCacheMode = "revalidate" | "no-store";
+
+async function landingFetchJson<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+  timeoutMs = 3500,
+  cacheMode: LandingFetchCacheMode = "revalidate",
+): Promise<T> {
   const url = new URL(path, API_BASE);
   Object.entries(params ?? {}).forEach(([key, value]) => {
     if (value !== undefined) url.searchParams.set(key, String(value));
@@ -223,13 +230,14 @@ async function landingFetchJson<T>(path: string, params?: Record<string, string 
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const cacheOptions = cacheMode === "no-store" ? { cache: "no-store" as const } : { next: { revalidate } };
   try {
     const response = await fetch(url, {
       headers: {
         "X-Walnut-Route": "/landing",
         "X-Walnut-Component": "LandingPage",
       },
-      next: { revalidate },
+      ...cacheOptions,
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Landing fetch failed: ${response.status}`);
@@ -241,7 +249,7 @@ async function landingFetchJson<T>(path: string, params?: Record<string, string 
 
 async function loadPlanConfig(): Promise<PlanConfig | null> {
   try {
-    const config = await landingFetchJson<PlanConfig>("/api/plan-config", undefined, 2500);
+    const config = await landingFetchJson<PlanConfig>("/api/plan-config", undefined, 2500, "no-store");
     return config.plan_prices?.length ? config : null;
   } catch {
     return null;

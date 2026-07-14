@@ -4759,6 +4759,19 @@ def _digest_context(
             if destination
             else "<p style=\"margin:0 0 8px 0;color:#334155;\">Suggested Walnut link: none</p>"
         )
+        source_article_html = ""
+        article_button_html = ""
+        if opportunity.campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE and (article_url or opportunity.source_url):
+            article_link_url = article_url or opportunity.source_url
+            source_article_html = (
+                f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Source article:</strong> "
+                f"{html.escape(article_title or opportunity.title)}"
+                f"{' from ' + html.escape(article_source) if article_source else ''}</p>"
+            )
+            article_button_html = (
+                f"<a href=\"{html.escape(article_link_url, quote=True)}\" "
+                "style=\"display:inline-block;padding:10px 12px;background:#14b8a6;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">Open Article</a>"
+            )
         assets_text = _assets_text(assets)
         assets_html = _assets_html(assets)
         quality_text = _quality_scores_text(quality_scores)
@@ -4838,10 +4851,12 @@ def _digest_context(
             f"<p style=\"margin:0 0 8px 0;color:#334155;\">Content angle: {html.escape(str(angle))}</p>"
             f"{manual_review_html}"
             f"{destination_html}"
+            f"{source_article_html}"
             f"<pre style=\"white-space:pre-wrap;margin:10px 0;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:6px;font-size:13px;line-height:18px;\">{html.escape(draft_content)}</pre>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Alternate versions:</strong> short={html.escape(short_version or 'none')} | direct={html.escape(direct_version or 'none')}</p>"
             f"<p style=\"margin:0 0 8px 0;color:#334155;\"><strong>Hashtags/cashtags:</strong> {html.escape(hashtag_block or tickers)}</p>"
             "<div style=\"margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;\">"
+            f"{article_button_html}"
             f"<a href=\"{html.escape(approve_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#e2e8f0;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:700;\">{html.escape(approve_label)}</a>"
             f"<a href=\"{html.escape(reject_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#475569;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;\">Reject</a>"
             f"<a href=\"{html.escape(reject_regenerate_url, quote=True)}\" style=\"display:inline-block;padding:10px 12px;background:#f59e0b;color:#111827;text-decoration:none;border-radius:6px;font-weight:700;\">Reject + Regenerate</a>"
