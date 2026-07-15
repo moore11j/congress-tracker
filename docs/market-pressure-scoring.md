@@ -44,7 +44,7 @@ Invalid parameters fall back to defaults and are listed in `warnings`.
 
 ## Canonical Data Source
 
-Confirmation evidence comes from the existing confirmation score service. Price performance comes from `price_cache.close`, the same cached daily close table used by Walnut price history surfaces. The endpoint does not make provider calls.
+Confirmation evidence comes from the existing confirmation score service. Price performance comes from `price_cache.close`, the same cached daily close table used by Walnut price history surfaces. Index membership comes from the reusable `index_memberships` table. The endpoint does not make provider calls.
 
 Company identity and sector hydration use cached `ticker_meta`, `securities`, and `fundamentals_cache` rows. Sector summaries are equal-weight averages of the returned tiles' price change percentages. They are not index returns.
 
@@ -126,14 +126,31 @@ Unsupported views:
 - `crowded_trades`: requires defensible positioning, concentration, extension, or overbought data beyond high confirmation plus positive return.
 - `rotation`: requires historical sector-level confirmation snapshots or reproducible historical aggregates.
 
-Supported universe:
+## Index Universe Sources
+
+Repository audit findings:
+
+- No pre-existing security-master index constituent table was found.
+- No existing S&P 500 or Nasdaq-100 static dataset was found.
+- The screener uses cached fundamentals plus the FMP company screener integration, but that is not canonical index membership.
+- Existing FMP/provider guardrails and background-refresh conventions exist and are reused.
+- Existing ETF proxy runbooks are for Insights price/index proxy surfaces, not constituent membership.
+
+Canonical source:
+
+- Runtime source: `index_memberships`, keyed by `index_code`, `symbol`, `effective_from`, `effective_to`, `source`, `source_as_of`, `refreshed_at`, and `is_active`.
+- Refresh source: existing FMP stable index constituent endpoints, called only by `backend/app/jobs/refresh_index_memberships.py` outside the Market Pressure request path.
+- Validation: active membership is available only when records exist, count is defensible, source metadata exists, and the dataset passes validation. S&P 500 accepts defensible share-class variation rather than an exact 500. Nasdaq-100 accepts defensible share-class variation rather than an exact 100.
+- Safety: empty or malformed refresh responses are rejected and do not wipe existing active memberships. Removed members are end-dated rather than deleted.
+
+Supported universes:
 
 - `watchlist`: uses the authenticated user's first owned watchlist by existing owner scoping.
+- `sp500`: enabled when active `index_memberships` rows pass validation.
+- `nasdaq100`: enabled when active `index_memberships` rows pass validation.
 
-Unsupported universes:
+Unsupported universe:
 
-- `sp500`: no canonical S&P 500 membership source was found for this feature.
-- `nasdaq100`: no canonical Nasdaq 100 membership source was found for this feature.
 - `all_us`: unsupported until Walnut can return the complete eligible universe without hidden sampling.
 
 Unsupported universes return explicit capabilities and warnings rather than sampled substitutes.
@@ -142,11 +159,11 @@ Unsupported universes return explicit capabilities and warnings rather than samp
 
 The endpoint performs batched work:
 
-- One watchlist membership query when `universe=watchlist`.
+- One membership query when `universe=watchlist`, `universe=sp500`, or `universe=nasdaq100`.
 - One cached price-history query for the requested symbol set and period window.
 - One batch identity hydration pass across cached identity tables.
 - One canonical batch confirmation call for the requested symbol set.
-- One in-memory entitlement filtering and serialization pass.
+- One in-memory classification and serialization pass.
 
 The endpoint does not call FMP, options, filings, or market data providers. There is no per-symbol frontend request and no per-tile detail fetch.
 

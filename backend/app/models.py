@@ -29,6 +29,39 @@ class Security(Base):
     sector: Mapped[Optional[str]]
 
 
+class IndexMembership(Base):
+    __tablename__ = "index_memberships"
+    __table_args__ = (
+        UniqueConstraint(
+            "index_code",
+            "symbol",
+            "effective_from",
+            "source",
+            "source_as_of",
+            name="uq_index_memberships_version",
+        ),
+        Index("ix_index_memberships_active_lookup", "index_code", "is_active", "symbol"),
+        Index(
+            "uq_index_memberships_active_symbol",
+            "index_code",
+            "symbol",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+            postgresql_where=text("is_active"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    index_code: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_from: Mapped[date] = mapped_column(nullable=False)
+    effective_to: Mapped[Optional[date]]
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_as_of: Mapped[date] = mapped_column(nullable=False)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+
+
 class Filing(Base):
     __tablename__ = "filings"
     id: Mapped[int] = mapped_column(primary_key=True)

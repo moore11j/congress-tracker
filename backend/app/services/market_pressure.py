@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -7,7 +8,7 @@ from time import perf_counter
 from typing import Any, Callable, Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import TierEntitlements
@@ -18,6 +19,7 @@ from app.services.confirmation_score import (
     confirmation_band_for_score,
     get_confirmation_score_bundles_for_tickers,
 )
+from app.services.index_memberships import active_index_membership_snapshot, index_universe_capabilities
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -117,13 +119,38 @@ def resolve_market_pressure_params(
     )
 
 
-def market_pressure_capabilities() -> dict[str, Any]:
+def market_pressure_capabilities(db: Session | None = None) -> dict[str, Any]:
+    index_capabilities = index_universe_capabilities(db) if db is not None else {}
+    sp500 = index_capabilities.get("sp500", {"supported": False, "status": "unavailable", "reason": "membership_not_loaded"})
+    nasdaq100 = index_capabilities.get("nasdaq100", {"supported": False, "status": "unavailable", "reason": "membership_not_loaded"})
     return {
         "universes": {
-            "sp500": False,
-            "nasdaq100": False,
+            "sp500": bool(sp500.get("supported")),
+            "nasdaq100": bool(nasdaq100.get("supported")),
             "all_us": False,
             "watchlist": True,
+        },
+        "universeDetails": {
+            "sp500": sp500,
+            "nasdaq100": nasdaq100,
+            "all_us": {
+                "supported": False,
+                "membershipCount": 0,
+                "source": None,
+                "sourceAsOf": None,
+                "refreshedAt": None,
+                "status": "unavailable",
+                "reason": "complete_us_equity_universe_not_available",
+            },
+            "watchlist": {
+                "supported": True,
+                "membershipCount": None,
+                "source": "user_watchlist",
+                "sourceAsOf": None,
+                "refreshedAt": None,
+                "status": "available",
+                "reason": None,
+            },
         },
         "views": {
             "market_pressure": True,
@@ -149,76 +176,108 @@ def build_market_pressure_response(
     require_market_pressure_access(entitlements, user)
     started = perf_counter()
     generated_at = datetime.now(timezone.utc)
-    params = resolve_market_pressure_params(universe=universe, period=period, view=view)
-    warnings = list(params.warnings)
-    capabilities = market_pressure_capabilities()
+    timings: dict[str, float] = {}
+    sql_query_count = 0
+    bind = db.get_bind()
 
-    if not capabilities["views"][params.view]:
-        warnings.append(f"unsupported_view:{params.view}")
-        return _empty_response(params, generated_at, entitlements, capabilities, warnings)
+    def count_sql(*_args: Any, **_kwargs: Any) -> None:
+        nonlocal sql_query_count
+        sql_query_count += 1
 
-    if not capabilities["universes"][params.universe]:
-        warnings.append(f"unsupported_universe:{params.universe}")
-        return _empty_response(params, generated_at, entitlements, capabilities, warnings)
+    event.listen(bind, "before_cursor_execute", count_sql)
+    try:
+        params = resolve_market_pressure_params(universe=universe, period=period, view=view)
+        warnings = list(params.warnings)
 
-    symbols = _resolve_universe_symbols(db, params.universe, user)
-    if not symbols:
-        warnings.append("empty_universe")
-        return _empty_response(params, generated_at, entitlements, capabilities, warnings)
+        mark = perf_counter()
+        capabilities = market_pressure_capabilities(db)
+        timings["capabilitiesDurationMs"] = _elapsed_ms(mark)
 
-    price_by_symbol = _load_price_performance(db, symbols, params.period, generated_at.date())
-    identities = _load_identities(db, symbols)
-    loader = confirmation_loader or _default_confirmation_loader
-    canonical_bundles = loader(db, symbols)
+        if not capabilities["views"][params.view]:
+            warnings.append(f"unsupported_view:{params.view}")
+            response = _empty_response(params, generated_at, entitlements, capabilities, warnings)
+            return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
-    tiles: list[dict[str, Any]] = []
-    for symbol in symbols:
-        raw_bundle = canonical_bundles.get(symbol, {})
-        price = price_by_symbol.get(symbol, PricePerformance(None, None, None, None, False))
-        identity = identities.get(symbol, Identity(symbol=symbol))
-        tile = _build_tile(symbol, identity, price, raw_bundle, generated_at)
-        if _tile_matches_view(tile, params.view):
-            tiles.append(tile)
+        if not capabilities["universes"][params.universe]:
+            warnings.append(f"unsupported_universe:{params.universe}")
+            response = _empty_response(params, generated_at, entitlements, capabilities, warnings)
+            return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
-    sectors = _group_tiles_by_sector(tiles)
-    summary = _summary_for_tiles(tiles, len(symbols))
-    price_as_of = _latest_iso([tile.get("priceEndAt") for tile in tiles])
-    confirmation_as_of = _latest_iso([tile.get("confirmationAsOf") for tile in tiles])
+        mark = perf_counter()
+        symbols = _resolve_universe_symbols(db, params.universe, user)
+        timings["membershipDurationMs"] = _elapsed_ms(mark)
+        if not symbols:
+            warnings.append("empty_universe")
+            response = _empty_response(params, generated_at, entitlements, capabilities, warnings)
+            return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
-    duration_ms = round((perf_counter() - started) * 1000, 1)
-    logger.info(
-        "market_pressure_request universe=%s period=%s view=%s tier=%s symbol_count=%s classified_count=%s duration_ms=%.1f cache_hit=%s warning_count=%s",
-        params.universe,
-        params.period,
-        params.view,
-        entitlements.tier,
-        len(symbols),
-        summary["classifiedCount"],
-        duration_ms,
-        False,
-        len(warnings),
-    )
-    return {
-        "universe": params.universe,
-        "period": params.period,
-        "view": params.view,
-        "generatedAt": _dt_iso(generated_at),
-        "priceAsOf": price_as_of,
-        "confirmationAsOf": confirmation_as_of,
-        "confirmationFreshnessWindowDays": CONFIRMATION_FRESHNESS_WINDOW_DAYS,
-        "scoringVersion": SCORING_VERSION,
-        "capabilities": capabilities,
-        "entitlement": _entitlement_payload(entitlements),
-        "summary": summary,
-        "sectors": sectors,
-        "warnings": warnings,
-        "metadata": {
-            "cacheHit": False,
-            "cacheScope": "request",
-            "responseTimeMs": duration_ms,
-            "priceCloseBasis": "price_cache.close",
-        },
-    }
+        mark = perf_counter()
+        price_by_symbol = _load_price_performance(db, symbols, params.period, generated_at.date())
+        timings["priceDurationMs"] = _elapsed_ms(mark)
+        mark = perf_counter()
+        identities = _load_identities(db, symbols)
+        timings["identityDurationMs"] = _elapsed_ms(mark)
+        loader = confirmation_loader or _default_confirmation_loader
+        mark = perf_counter()
+        canonical_bundles = loader(db, symbols)
+        timings["confirmationDurationMs"] = _elapsed_ms(mark)
+
+        mark = perf_counter()
+        tiles: list[dict[str, Any]] = []
+        for symbol in symbols:
+            raw_bundle = canonical_bundles.get(symbol, {})
+            price = price_by_symbol.get(symbol, PricePerformance(None, None, None, None, False))
+            identity = identities.get(symbol, Identity(symbol=symbol))
+            tile = _build_tile(symbol, identity, price, raw_bundle, generated_at)
+            if _tile_matches_view(tile, params.view):
+                tiles.append(tile)
+
+        sectors = _group_tiles_by_sector(tiles)
+        summary = _summary_for_tiles(tiles, len(symbols))
+        price_as_of = _latest_iso([tile.get("priceEndAt") for tile in tiles])
+        confirmation_as_of = _latest_iso([tile.get("confirmationAsOf") for tile in tiles])
+        timings["serializationDurationMs"] = _elapsed_ms(mark)
+
+        duration_ms = round((perf_counter() - started) * 1000, 1)
+        logger.info(
+            "market_pressure_request universe=%s period=%s view=%s tier=%s symbol_count=%s classified_count=%s partial_count=%s unavailable_count=%s sql_query_count=%s duration_ms=%.1f cache_hit=%s warning_count=%s",
+            params.universe,
+            params.period,
+            params.view,
+            entitlements.tier,
+            len(symbols),
+            summary["classifiedCount"],
+            summary["partialCount"],
+            summary["unavailableCount"],
+            sql_query_count,
+            duration_ms,
+            False,
+            len(warnings),
+        )
+        response = {
+            "universe": params.universe,
+            "period": params.period,
+            "view": params.view,
+            "generatedAt": _dt_iso(generated_at),
+            "priceAsOf": price_as_of,
+            "confirmationAsOf": confirmation_as_of,
+            "confirmationFreshnessWindowDays": CONFIRMATION_FRESHNESS_WINDOW_DAYS,
+            "scoringVersion": SCORING_VERSION,
+            "capabilities": capabilities,
+            "entitlement": _entitlement_payload(entitlements),
+            "summary": summary,
+            "sectors": sectors,
+            "warnings": warnings,
+            "metadata": {
+                "cacheHit": False,
+                "cacheScope": "request",
+                "responseTimeMs": duration_ms,
+                "priceCloseBasis": "price_cache.close",
+            },
+        }
+        return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
+    finally:
+        event.remove(bind, "before_cursor_execute", count_sql)
 
 
 def _default_confirmation_loader(db: Session, symbols: list[str]) -> dict[str, dict]:
@@ -245,6 +304,9 @@ def require_market_pressure_access(entitlements: TierEntitlements, user: UserAcc
 
 
 def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, user: UserAccount | None) -> list[str]:
+    if universe in {"sp500", "nasdaq100"}:
+        snapshot = active_index_membership_snapshot(db, universe)
+        return snapshot.symbols if snapshot.supported else []
     if universe != "watchlist":
         return []
     if user is None:
@@ -593,6 +655,7 @@ def _summary_for_tiles(tiles: list[dict[str, Any]], symbol_count: int) -> dict[s
     return {
         "symbolCount": symbol_count,
         "classifiedCount": len(classified),
+        "partialCount": sum(1 for tile in tiles if tile.get("dataState") == "partial"),
         "unavailableCount": sum(1 for tile in tiles if tile.get("confirmationDirection") == "unavailable"),
         "bullishCount": sum(1 for tile in tiles if tile.get("confirmationDirection") == "bullish"),
         "bearishCount": sum(1 for tile in tiles if tile.get("confirmationDirection") == "bearish"),
@@ -646,6 +709,25 @@ def _empty_response(
         "warnings": warnings,
         "metadata": {"cacheHit": False, "cacheScope": "request", "responseTimeMs": 0, "priceCloseBasis": "price_cache.close"},
     }
+
+
+def _attach_metadata(
+    response: dict[str, Any],
+    *,
+    started: float,
+    sql_query_count: int,
+    timings: dict[str, float],
+) -> dict[str, Any]:
+    metadata = response.setdefault("metadata", {})
+    metadata.update(timings)
+    metadata["sqlQueryCount"] = sql_query_count
+    metadata["responseTimeMs"] = round((perf_counter() - started) * 1000, 1)
+    metadata["payloadBytes"] = len(json.dumps(response, separators=(",", ":"), default=str).encode("utf-8"))
+    return response
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 1)
 
 
 def _safe_int(value: Any) -> int | None:

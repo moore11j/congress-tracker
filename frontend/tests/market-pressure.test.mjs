@@ -59,7 +59,8 @@ test("Market Pressure is gated as a Pro feature before protected fetches", () =>
   assert.match(contract, /response\.status === 403/);
   assert.match(contract, /pro_required/);
   assert.match(client, /Upgrade to Pro/);
-  assert.match(client, /initialData\.status === "entitlement" \|\| initialData\.status === "auth-required"/);
+  assert.doesNotMatch(client, /LayerAccessPanel/);
+  assert.doesNotMatch(client, /FAST, RELIABLE, COMPLETE data only/);
 });
 
 test("Market Pressure renders no mock ticker data in production", () => {
@@ -77,6 +78,13 @@ test("Market Pressure visualization includes loading, no-data, error, and entitl
   assert.match(client, /unsupported: \{/);
   assert.match(client, /"auth-required": \{/);
   assert.match(client, /aria-busy=\{state === "loading"\}/);
+});
+
+test("Market Pressure universe controls are driven by backend capability metadata", () => {
+  assert.match(contract, /universeDetails\?: Record<MarketPressureUniverse, MarketPressureUniverseCapability>/);
+  assert.match(contract, /membershipCount: number \| null/);
+  assert.match(contract, /complete_us_equity_universe_not_available/);
+  assert.match(client, /initialData\.capabilities\.universes\[option\.value\]/);
 });
 
 test("Market Pressure typed adapter isolates the future backend endpoint", () => {

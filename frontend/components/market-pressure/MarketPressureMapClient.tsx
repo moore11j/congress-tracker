@@ -7,13 +7,10 @@ import type { ReactNode } from "react";
 import { recordProductEvent } from "@/lib/api";
 import {
   marketPressureQueryString,
-  marketPressureLayerLabels,
   marketPressureTimeRanges,
   marketPressureUniverses,
   marketPressureViewModes,
   periodToTimeRange,
-  type MarketPressureLayerAccess,
-  type MarketPressureLayerKey,
   type MarketPressureMapResult,
   type MarketPressureTile,
   type MarketPressureTimeRange,
@@ -26,17 +23,6 @@ type Props = {
   initialData: MarketPressureMapResult;
   canonicalUrl: string;
 };
-
-const pressureOrder: MarketPressureLayerKey[] = [
-  "priceVolume",
-  "fundamentals",
-  "congress",
-  "insiders",
-  "governmentContracts",
-  "institutions",
-  "optionsFlow",
-  "macroPositioning",
-];
 
 function segmentedButtonClass(active: boolean) {
   return [
@@ -67,20 +53,6 @@ function AnalyticsButton({
       {children}
     </button>
   );
-}
-
-function layerStatusLabel(access: MarketPressureLayerAccess, latestSuccessfulDataAt: string | null) {
-  if (access === "locked") return "Locked";
-  if (access === "unavailable") return "Unavailable";
-  return latestSuccessfulDataAt ? "Available" : "No data";
-}
-
-function layerStatusClass(access: MarketPressureLayerAccess, latestSuccessfulDataAt: string | null) {
-  if (access === "locked") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
-  if (access === "unavailable") return "border-slate-500/25 bg-slate-700/20 text-slate-300";
-  return latestSuccessfulDataAt
-    ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
-    : "border-cyan-300/25 bg-cyan-300/10 text-cyan-100";
 }
 
 function priceDirectionClass(value: number | null) {
@@ -256,34 +228,6 @@ function MarketPressureLegend({ data }: { data: MarketPressureMapResult }) {
         <p className="mt-1 leading-5">
           {data.latestSuccessfulDataAt ? `Latest batch: ${data.latestSuccessfulDataAt}. Confirmation window: ${data.confirmationFreshnessWindowDays} days.` : "Latest batch: not available"}
         </p>
-      </div>
-    </div>
-  );
-}
-
-function LayerAccessPanel({ data }: { data: MarketPressureMapResult }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Layer access</h2>
-          <p className="mt-1 text-xs text-slate-400">Pro and Admin responses use the complete canonical confirmation stack.</p>
-        </div>
-        <Link href="/pricing" prefetch={false} className="text-xs font-semibold text-emerald-200 hover:text-emerald-100 hover:underline">
-          Compare plans
-        </Link>
-      </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {pressureOrder.map((key) => {
-          const access = data.layerAccess[key];
-          const label = layerStatusLabel(access, data.latestSuccessfulDataAt);
-          return (
-            <div key={key} className={`rounded-xl border px-3 py-2 ${layerStatusClass(access, data.latestSuccessfulDataAt)}`}>
-              <div className="text-xs font-semibold text-white">{marketPressureLayerLabels[key]}</div>
-              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide">{label}</div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -488,9 +432,6 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
               {selectedUniverseLabel} - {timeRange} - Canonical confirmation window {initialData.confirmationFreshnessWindowDays} days
             </p>
           </div>
-          <div className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-xs font-semibold text-cyan-100">
-            FAST, RELIABLE, COMPLETE data only
-          </div>
         </div>
         <MarketPressureVisualization data={initialData} />
         <div className="mt-4">
@@ -498,7 +439,6 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
         </div>
       </section>
 
-      {initialData.status === "entitlement" || initialData.status === "auth-required" ? null : <LayerAccessPanel data={initialData} />}
     </div>
   );
 }

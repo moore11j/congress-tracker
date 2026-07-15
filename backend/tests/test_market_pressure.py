@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -9,8 +9,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import FundamentalsCache, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, IndexMembership, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
+from app.services.index_memberships import refresh_index_memberships
 from app.services.market_pressure import build_market_pressure_response, resolve_market_pressure_params
 
 
@@ -23,6 +24,7 @@ def _session_factory():
             Watchlist.__table__,
             WatchlistItem.__table__,
             Security.__table__,
+            IndexMembership.__table__,
             PriceCache.__table__,
             TickerMeta.__table__,
             FundamentalsCache.__table__,
@@ -86,6 +88,21 @@ def _seed_price(db, symbol: str, *, start_close: float = 100.0, end_close: float
         ]
     )
     db.commit()
+
+
+def _seed_index_membership(db, index_code: str, *, count: int) -> list[str]:
+    prefix = "SP" if index_code == "sp500" else "NQ"
+    symbols = [f"{prefix}{idx:03d}" for idx in range(1, count + 1)]
+    result = refresh_index_memberships(
+        db,
+        index_code=index_code,
+        rows=[{"symbol": symbol} for symbol in symbols],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 14),
+        refreshed_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert result.status == "ok"
+    return symbols
 
 
 def _tiles_by_symbol(response: dict) -> dict[str, dict]:
@@ -224,7 +241,11 @@ def test_market_pressure_rejects_unauthorized_before_protected_batch_work(db, mo
     suspended = _seed_watchlist(db, user_email="suspended@example.com", symbols=["SUSP"])
     suspended.is_suspended = True
     db.commit()
-    calls = {"price": 0, "confirmation": 0}
+    calls = {"membership": 0, "price": 0, "confirmation": 0}
+
+    def forbidden_membership(*_args, **_kwargs):
+        calls["membership"] += 1
+        raise AssertionError("membership should not be loaded for unauthorized requests")
 
     def forbidden_price(*_args, **_kwargs):
         calls["price"] += 1
@@ -236,6 +257,8 @@ def test_market_pressure_rejects_unauthorized_before_protected_batch_work(db, mo
 
     import app.services.market_pressure as market_pressure
 
+    monkeypatch.setattr(market_pressure, "index_universe_capabilities", forbidden_membership)
+    monkeypatch.setattr(market_pressure, "active_index_membership_snapshot", forbidden_membership)
     monkeypatch.setattr(market_pressure, "_load_price_performance", forbidden_price)
 
     unauthorized_cases = [
@@ -257,7 +280,55 @@ def test_market_pressure_rejects_unauthorized_before_protected_batch_work(db, mo
             )
         assert exc.value.status_code == expected_status
 
-    assert calls == {"price": 0, "confirmation": 0}
+    assert calls == {"membership": 0, "price": 0, "confirmation": 0}
+
+
+def test_market_pressure_pro_and_admin_can_access_supported_index_universes(db):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    sp500_symbols = _seed_index_membership(db, "sp500", count=503)
+    nasdaq_symbols = _seed_index_membership(db, "nasdaq100", count=101)
+    for symbol in [sp500_symbols[0], nasdaq_symbols[0]]:
+        _seed_price(db, symbol, start_close=100, end_close=104)
+        db.add(TickerMeta(symbol=symbol, company_name=f"{symbol} Corp", exchange="NASDAQ", sector="Technology"))
+    db.commit()
+
+    def fixture_confirmation(_db, symbols):
+        return {
+            symbol: _bundle(symbol, {"price_volume": _source("bullish"), "signals": _source("bullish")})
+            for symbol in symbols[:1]
+        }
+
+    pro_sp500 = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=fixture_confirmation,
+    )
+    admin_nasdaq = build_market_pressure_response(
+        db,
+        universe="nasdaq100",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["admin"],
+        user=user,
+        confirmation_loader=fixture_confirmation,
+    )
+
+    assert pro_sp500["capabilities"]["universes"]["sp500"] is True
+    assert pro_sp500["capabilities"]["universeDetails"]["sp500"]["membershipCount"] == 503
+    assert pro_sp500["summary"]["symbolCount"] == 503
+    assert pro_sp500["summary"]["unavailableCount"] == 502
+    assert pro_sp500["metadata"]["sqlQueryCount"] >= 1
+    assert pro_sp500["metadata"]["payloadBytes"] > 0
+    assert pro_sp500["metadata"]["confirmationDurationMs"] >= 0
+    assert admin_nasdaq["capabilities"]["universes"]["nasdaq100"] is True
+    assert admin_nasdaq["capabilities"]["universeDetails"]["nasdaq100"]["membershipCount"] == 101
+    assert admin_nasdaq["summary"]["symbolCount"] == 101
+    assert admin_nasdaq["capabilities"]["universes"]["all_us"] is False
+    assert admin_nasdaq["capabilities"]["universeDetails"]["all_us"]["reason"] == "complete_us_equity_universe_not_available"
 
 
 def test_market_pressure_unsupported_invalid_and_auth_states(db):
@@ -290,6 +361,55 @@ def test_market_pressure_unsupported_invalid_and_auth_states(db):
         confirmation_loader=lambda _db, _symbols: {},
     )
     assert crowded["warnings"] == ["unsupported_view:crowded_trades"]
+
+
+def test_index_membership_refresh_rejects_empty_or_malformed_without_wiping_existing(db):
+    existing_symbols = _seed_index_membership(db, "sp500", count=503)
+
+    empty = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 15),
+        refreshed_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+    malformed = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[{"not_symbol": "AAPL"}],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 15),
+        refreshed_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    active = db.query(IndexMembership).filter_by(index_code="sp500", is_active=True).all()
+    assert empty.status == "rejected"
+    assert malformed.status == "rejected"
+    assert sorted(row.symbol for row in active) == existing_symbols
+
+
+def test_index_membership_refresh_end_dates_removed_members_without_deleting(db):
+    existing_symbols = _seed_index_membership(db, "nasdaq100", count=101)
+    refreshed_symbols = existing_symbols[:-1]
+    refreshed_symbols.append("NQ999")
+
+    result = refresh_index_memberships(
+        db,
+        index_code="nasdaq100",
+        rows=refreshed_symbols,
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 15),
+        refreshed_at=datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    removed = db.query(IndexMembership).filter_by(index_code="nasdaq100", symbol=existing_symbols[-1]).one()
+    added = db.query(IndexMembership).filter_by(index_code="nasdaq100", symbol="NQ999").one()
+    assert result.status == "ok"
+    assert result.end_dated_count == 1
+    assert removed.is_active is False
+    assert removed.effective_to == date(2026, 7, 15)
+    assert added.is_active is True
 
 
 def test_market_pressure_watchlist_is_user_scoped(db):

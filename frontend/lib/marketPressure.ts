@@ -72,6 +72,16 @@ export type MarketPressureSector = {
   tiles: MarketPressureTile[];
 };
 
+export type MarketPressureUniverseCapability = {
+  supported: boolean;
+  membershipCount: number | null;
+  source: string | null;
+  sourceAsOf: string | null;
+  refreshedAt: string | null;
+  status: "available" | "stale" | "unavailable";
+  reason?: string | null;
+};
+
 export type MarketPressureMapResult = {
   status: "loading" | "ready" | "no-data" | "error" | "entitlement" | "unsupported" | "auth-required";
   universe: MarketPressureUniverse;
@@ -84,6 +94,7 @@ export type MarketPressureMapResult = {
   scoringVersion: string | null;
   capabilities: {
     universes: Record<MarketPressureUniverse, boolean>;
+    universeDetails?: Record<MarketPressureUniverse, MarketPressureUniverseCapability>;
     views: Record<MarketPressureViewMode, boolean>;
     pressureTrendAvailable: boolean;
   };
@@ -95,6 +106,7 @@ export type MarketPressureMapResult = {
   summary: {
     symbolCount: number;
     classifiedCount: number;
+    partialCount: number;
     unavailableCount: number;
     bullishCount: number;
     bearishCount: number;
@@ -154,6 +166,44 @@ export const defaultMarketPressureCapabilities: MarketPressureMapResult["capabil
     nasdaq100: false,
     all_us: false,
     watchlist: true,
+  },
+  universeDetails: {
+    sp500: {
+      supported: false,
+      membershipCount: 0,
+      source: null,
+      sourceAsOf: null,
+      refreshedAt: null,
+      status: "unavailable",
+      reason: "membership_not_loaded",
+    },
+    nasdaq100: {
+      supported: false,
+      membershipCount: 0,
+      source: null,
+      sourceAsOf: null,
+      refreshedAt: null,
+      status: "unavailable",
+      reason: "membership_not_loaded",
+    },
+    all_us: {
+      supported: false,
+      membershipCount: 0,
+      source: null,
+      sourceAsOf: null,
+      refreshedAt: null,
+      status: "unavailable",
+      reason: "complete_us_equity_universe_not_available",
+    },
+    watchlist: {
+      supported: true,
+      membershipCount: null,
+      source: "user_watchlist",
+      sourceAsOf: null,
+      refreshedAt: null,
+      status: "available",
+      reason: null,
+    },
   },
   views: {
     market_pressure: true,
@@ -250,6 +300,7 @@ export function emptyMarketPressureMap(
     summary: {
       symbolCount: 0,
       classifiedCount: 0,
+      partialCount: 0,
       unavailableCount: 0,
       bullishCount: 0,
       bearishCount: 0,

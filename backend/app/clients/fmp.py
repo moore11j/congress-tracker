@@ -410,3 +410,21 @@ def fetch_company_screener(
         if isinstance(rows, list):
             return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def fetch_index_constituents(index_code: str, *, timeout_s: int = 30) -> list[dict[str, Any]]:
+    """Fetch index constituent rows from FMP's stable API for background refresh jobs."""
+    normalized = (index_code or "").strip().lower().replace("-", "").replace("_", "")
+    endpoint_by_index = {
+        "sp500": "sp500-constituent",
+        "nasdaq100": "nasdaq-constituent",
+    }
+    endpoint = endpoint_by_index.get(normalized)
+    if not endpoint:
+        raise FMPClientError(f"Unsupported FMP index constituent universe: {index_code}")
+    return _request_stable_rows(
+        endpoint,
+        category="reference:index-constituents",
+        symbol=normalized,
+        timeout_s=timeout_s,
+    )
