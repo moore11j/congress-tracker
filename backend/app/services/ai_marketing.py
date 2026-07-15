@@ -2281,9 +2281,9 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
     accent = _social_card_accent(str(spec.get("sentiment") or "notable"))
     ticker = str(spec.get("ticker") or "").upper()
     card_type = str(spec.get("card_type") or "ticker_signal")
-    chip_text = [str(item) for item in spec.get("chips", []) if str(item).strip()][:4]
-    stats = [item for item in spec.get("key_stats", []) if isinstance(item, dict)][:4]
-    bullets = [str(item) for item in spec.get("bullets", []) if str(item).strip()][:4]
+    chip_text = [str(item) for item in spec.get("chips", []) if str(item).strip()][:3]
+    stats = [item for item in spec.get("key_stats", []) if isinstance(item, dict)][:3]
+    bullets = [str(item) for item in spec.get("bullets", []) if str(item).strip()][:3]
     source_label = str(spec.get("source_label") or "Walnut intelligence")
     cta = str(spec.get("cta") or "Track the stack on Walnut")
     url = str(spec.get("url") or DEFAULT_DESTINATION_URL)
@@ -2292,40 +2292,44 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
     include_source_tag = bool(spec.get("include_source_tag", True))
     include_url = bool(spec.get("include_walnut_url", True))
     visual_label = str(spec.get("visual_emphasis") or "signal stack")
-    headline_lines = _svg_line_tspans(spec.get("headline"), max_chars=24 if card_type == "research_cover" else 27, max_lines=3, x=88, y=236, font_size=58, line_height=66)
-    subheadline_lines = _svg_line_tspans(spec.get("subheadline"), max_chars=56, max_lines=2, x=90, y=442, font_size=27, line_height=36, fill="#b6cbd0")
-    bullet_markup = _social_card_bullet_markup(bullets, x=96, y=548, max_chars=58)
-    chip_markup = _social_card_chip_markup(chip_text, x=88, y=144, accent=accent)
-    stat_markup = _social_card_stat_markup(stats, x=930, y=150, accent=accent)
-    chart_markup = _social_card_chart_markup(stats, x=930, y=420, accent=accent, label=visual_label) if include_chart else _social_card_signal_panel(x=930, y=420, accent=accent, label=visual_label)
+    headline_lines = _svg_line_tspans(spec.get("headline"), max_chars=23 if card_type == "research_cover" else 24, max_lines=3, x=92, y=274, font_size=52, line_height=59)
+    subheadline_lines = _svg_line_tspans(spec.get("subheadline"), max_chars=47, max_lines=2, x=94, y=485, font_size=25, line_height=34, fill="#b8cbd0", weight="600")
+    bullet_markup = _social_card_bullet_markup(bullets, x=102, y=600, max_chars=43)
+    chip_markup = _social_card_chip_markup(chip_text, x=92, y=164, accent=accent, max_total_width=820)
+    stat_markup = _social_card_stat_markup(stats, x=1086, y=294, accent=accent)
+    chart_markup = _social_card_chart_markup(stats, x=1086, y=548, accent=accent, label=visual_label) if include_chart else _social_card_signal_panel(x=1086, y=548, accent=accent, label=visual_label)
     ticker_markup = (
-        f"<rect x=\"930\" y=\"74\" width=\"210\" height=\"58\" rx=\"14\" fill=\"{accent}\" opacity=\"0.18\" stroke=\"{accent}\" stroke-width=\"2\"/>"
-        f"<text x=\"954\" y=\"113\" fill=\"#f8fafc\" font-size=\"34\" font-family=\"Arial\" font-weight=\"700\">${html.escape(_truncate(ticker, 8) or 'WMT')}</text>"
+        f"<rect x=\"1242\" y=\"74\" width=\"236\" height=\"58\" rx=\"14\" fill=\"{accent}\" opacity=\"0.20\" stroke=\"{accent}\" stroke-width=\"2\"/>"
+        f"<text x=\"1266\" y=\"113\" fill=\"#f8fafc\" font-size=\"32\" font-family=\"Arial\" font-weight=\"700\">${html.escape(_truncate(ticker, 8) or 'WMT')}</text>"
         if ticker
         else ""
     )
     source_markup = (
-        f"<text x=\"1210\" y=\"112\" fill=\"#8ea5aa\" font-size=\"22\" font-family=\"Arial\">{html.escape(_truncate(source_label, 34) or '')}</text>"
+        f"<text x=\"1088\" y=\"167\" fill=\"#88a1a6\" font-size=\"19\" font-family=\"Arial\" font-weight=\"600\">Source: {html.escape(_truncate(source_label, 30) or 'Walnut')}</text>"
         if include_source_tag
         else ""
     )
     cta_markup = ""
     if include_cta:
         cta_markup = (
-            f"<rect x=\"64\" y=\"770\" width=\"1472\" height=\"74\" rx=\"18\" fill=\"#071e21\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.94\"/>"
-            f"<text x=\"94\" y=\"817\" fill=\"#f8fafc\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(cta, 58) or 'Track the stack on Walnut')}</text>"
-            f"<text x=\"1120\" y=\"817\" fill=\"#8ff5c6\" font-size=\"24\" font-family=\"Arial\">{html.escape(_short_card_url(url) if include_url else 'walnutmarkets.com')}</text>"
+            f"<rect x=\"72\" y=\"770\" width=\"1456\" height=\"74\" rx=\"18\" fill=\"#071e21\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.96\"/>"
+            f"<text x=\"104\" y=\"817\" fill=\"#f8fafc\" font-size=\"29\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(cta, 40) or 'Track the stack on Walnut')}</text>"
+            f"<text x=\"1102\" y=\"817\" fill=\"#8ff5c6\" font-size=\"23\" font-family=\"Arial\" font-weight=\"600\">{html.escape(_short_card_url(url) if include_url else 'walnutmarkets.com')}</text>"
         )
     footer = f"{card_type.replace('_', ' ').title()} / Walnut Markets"
     svg = (
         f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{SOCIAL_CARD_WIDTH}\" height=\"{SOCIAL_CARD_HEIGHT}\" viewBox=\"0 0 {SOCIAL_CARD_WIDTH} {SOCIAL_CARD_HEIGHT}\">"
         "<rect width=\"1600\" height=\"900\" fill=\"#061114\"/>"
-        "<rect x=\"0\" y=\"0\" width=\"1600\" height=\"900\" fill=\"#071a1f\" opacity=\"0.82\"/>"
-        f"<rect x=\"42\" y=\"42\" width=\"1516\" height=\"816\" rx=\"26\" fill=\"#0b1d22\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.98\"/>"
-        f"<rect x=\"64\" y=\"64\" width=\"1472\" height=\"118\" rx=\"20\" fill=\"#0f2a2f\" opacity=\"0.78\"/>"
-        f"<rect x=\"64\" y=\"710\" width=\"820\" height=\"2\" fill=\"{accent}\" opacity=\"0.72\"/>"
-        f"<text x=\"88\" y=\"112\" fill=\"#f8fafc\" font-size=\"31\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
-        f"<text x=\"88\" y=\"790\" fill=\"#6e858a\" font-size=\"20\" font-family=\"Arial\">{html.escape(footer)}</text>"
+        "<rect x=\"0\" y=\"0\" width=\"1600\" height=\"900\" fill=\"#071a1f\" opacity=\"0.88\"/>"
+        f"<rect x=\"48\" y=\"48\" width=\"1504\" height=\"804\" rx=\"24\" fill=\"#0a1d22\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.98\"/>"
+        f"<rect x=\"72\" y=\"72\" width=\"1456\" height=\"92\" rx=\"18\" fill=\"#102b30\" opacity=\"0.92\"/>"
+        f"<rect x=\"84\" y=\"92\" width=\"44\" height=\"44\" rx=\"11\" fill=\"{accent}\" opacity=\"0.22\" stroke=\"{accent}\" stroke-width=\"2\"/>"
+        f"<text x=\"97\" y=\"124\" fill=\"#f8fafc\" font-size=\"25\" font-family=\"Arial\" font-weight=\"700\">W</text>"
+        f"<text x=\"144\" y=\"124\" fill=\"#f8fafc\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
+        f"<rect x=\"1036\" y=\"204\" width=\"454\" height=\"516\" rx=\"22\" fill=\"#07181c\" stroke=\"#1b4148\" stroke-width=\"1\" opacity=\"0.96\"/>"
+        f"<text x=\"1086\" y=\"250\" fill=\"#f8fafc\" font-size=\"25\" font-family=\"Arial\" font-weight=\"700\">Evidence panel</text>"
+        f"<rect x=\"92\" y=\"724\" width=\"820\" height=\"2\" fill=\"{accent}\" opacity=\"0.72\"/>"
+        f"<text x=\"92\" y=\"744\" fill=\"#6e858a\" font-size=\"18\" font-family=\"Arial\">{html.escape(footer)}</text>"
         f"{ticker_markup}{source_markup}{chip_markup}{headline_lines}{subheadline_lines}{bullet_markup}{stat_markup}{chart_markup}{cta_markup}"
         "</svg>"
     )
@@ -2342,10 +2346,21 @@ def _social_card_accent(sentiment: str) -> str:
     }.get(sentiment, "#2dd4bf")
 
 
-def _svg_line_tspans(value: Any, *, max_chars: int, max_lines: int, x: int, y: int, font_size: int, line_height: int, fill: str = "#f8fafc") -> str:
+def _svg_line_tspans(
+    value: Any,
+    *,
+    max_chars: int,
+    max_lines: int,
+    x: int,
+    y: int,
+    font_size: int,
+    line_height: int,
+    fill: str = "#f8fafc",
+    weight: str = "700",
+) -> str:
     lines = _wrap_card_text(str(value or ""), max_chars=max_chars, max_lines=max_lines)
     return "".join(
-        f"<text x=\"{x}\" y=\"{y + index * line_height}\" fill=\"{fill}\" font-size=\"{font_size}\" font-family=\"Arial\" font-weight=\"700\">{html.escape(line)}</text>"
+        f"<text x=\"{x}\" y=\"{y + index * line_height}\" fill=\"{fill}\" font-size=\"{font_size}\" font-family=\"Arial\" font-weight=\"{weight}\">{html.escape(line)}</text>"
         for index, line in enumerate(lines)
     )
 
@@ -2375,16 +2390,18 @@ def _wrap_card_text(value: str, *, max_chars: int, max_lines: int) -> list[str]:
         lines = lines[:max_lines]
     consumed = " ".join(lines).replace("...", "")
     if len(lines) == max_lines and len(consumed) < len(cleaned):
-        lines[-1] = _truncate(lines[-1], max(4, max_chars - 3)) + "..."
+        lines[-1] = lines[-1][: max(4, max_chars - 3)].rstrip(". ") + "..."
     return lines
 
 
-def _social_card_chip_markup(chips: list[str], *, x: int, y: int, accent: str) -> str:
+def _social_card_chip_markup(chips: list[str], *, x: int, y: int, accent: str, max_total_width: int = 820) -> str:
     markup: list[str] = []
     cursor = x
-    for chip in chips[:4]:
-        label = _truncate(chip, 22) or ""
-        width = max(92, min(210, 34 + len(label) * 13))
+    for chip in chips[:3]:
+        label = _truncate(chip, 18) or ""
+        width = max(112, min(238, 36 + len(label) * 12))
+        if cursor + width > x + max_total_width:
+            break
         markup.append(
             f"<rect x=\"{cursor}\" y=\"{y}\" width=\"{width}\" height=\"38\" rx=\"10\" fill=\"{accent}\" opacity=\"0.16\" stroke=\"{accent}\" stroke-width=\"1\"/>"
             f"<text x=\"{cursor + 16}\" y=\"{y + 25}\" fill=\"#d8fff0\" font-size=\"18\" font-family=\"Arial\" font-weight=\"700\">{html.escape(label)}</text>"
@@ -2396,7 +2413,7 @@ def _social_card_chip_markup(chips: list[str], *, x: int, y: int, accent: str) -
 def _social_card_bullet_markup(bullets: list[str], *, x: int, y: int, max_chars: int) -> str:
     markup: list[str] = []
     cursor_y = y
-    for bullet in bullets[:4]:
+    for bullet in bullets[:3]:
         lines = _wrap_card_text(bullet, max_chars=max_chars, max_lines=2)
         if not lines:
             continue
@@ -2411,37 +2428,35 @@ def _social_card_bullet_markup(bullets: list[str], *, x: int, y: int, max_chars:
 
 def _social_card_stat_markup(stats: list[dict[str, Any]], *, x: int, y: int, accent: str) -> str:
     markup: list[str] = []
-    for index, stat in enumerate(stats[:4]):
-        col = index % 2
-        row = index // 2
-        stat_x = x + col * 294
-        stat_y = y + row * 126
-        label = html.escape(_truncate(str(stat.get("label") or "Signal"), 20) or "Signal")
-        value = html.escape(_truncate(str(stat.get("value") or "Review"), 16) or "Review")
+    for index, stat in enumerate(stats[:3]):
+        stat_x = x
+        stat_y = y + index * 78
+        label = html.escape(_truncate(str(stat.get("label") or "Signal"), 24) or "Signal")
+        value = html.escape(_truncate(str(stat.get("value") or "Review"), 22) or "Review")
         markup.append(
-            f"<rect x=\"{stat_x}\" y=\"{stat_y}\" width=\"260\" height=\"98\" rx=\"18\" fill=\"#10292e\" stroke=\"#1e444b\" stroke-width=\"1\"/>"
-            f"<text x=\"{stat_x + 22}\" y=\"{stat_y + 34}\" fill=\"#8ea5aa\" font-size=\"18\" font-family=\"Arial\" font-weight=\"700\">{label}</text>"
-            f"<text x=\"{stat_x + 22}\" y=\"{stat_y + 74}\" fill=\"{accent}\" font-size=\"32\" font-family=\"Arial\" font-weight=\"700\">{value}</text>"
+            f"<rect x=\"{stat_x}\" y=\"{stat_y}\" width=\"354\" height=\"66\" rx=\"14\" fill=\"#10292e\" stroke=\"#1e444b\" stroke-width=\"1\"/>"
+            f"<text x=\"{stat_x + 20}\" y=\"{stat_y + 26}\" fill=\"#8ea5aa\" font-size=\"17\" font-family=\"Arial\" font-weight=\"700\">{label}</text>"
+            f"<text x=\"{stat_x + 20}\" y=\"{stat_y + 53}\" fill=\"{accent}\" font-size=\"24\" font-family=\"Arial\" font-weight=\"700\">{value}</text>"
         )
     return "".join(markup)
 
 
 def _social_card_chart_markup(stats: list[dict[str, Any]], *, x: int, y: int, accent: str, label: str) -> str:
     markup = [
-        f"<rect x=\"{x}\" y=\"{y}\" width=\"554\" height=\"246\" rx=\"22\" fill=\"#08181c\" stroke=\"#1d3d43\" stroke-width=\"1\"/>",
-        f"<text x=\"{x + 28}\" y=\"{y + 42}\" fill=\"#f8fafc\" font-size=\"24\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(label, 32) or 'Signal stack')}</text>",
+        f"<rect x=\"{x}\" y=\"{y}\" width=\"354\" height=\"132\" rx=\"18\" fill=\"#08181c\" stroke=\"#1d3d43\" stroke-width=\"1\"/>",
+        f"<text x=\"{x + 22}\" y=\"{y + 34}\" fill=\"#f8fafc\" font-size=\"20\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(label, 25) or 'Signal stack')}</text>",
     ]
     values = [_numeric_value_from_label(str(stat.get("value") or "")) for stat in stats[:4]]
     max_value = max([value for value in values if value is not None] or [100])
-    for index in range(7):
-        height = 46 + ((index * 37 + len(stats) * 11) % 132)
+    for index in range(6):
+        height = 26 + ((index * 29 + len(stats) * 11) % 62)
         if index < len(values) and values[index] is not None and max_value:
-            height = max(36, min(154, int(42 + (values[index] or 0) / max_value * 118)))
-        bar_x = x + 42 + index * 70
-        bar_y = y + 202 - height
+            height = max(24, min(76, int(22 + (values[index] or 0) / max_value * 58)))
+        bar_x = x + 30 + index * 50
+        bar_y = y + 104 - height
         opacity = "0.95" if index < len(stats) else "0.28"
-        markup.append(f"<rect x=\"{bar_x}\" y=\"{bar_y}\" width=\"40\" height=\"{height}\" rx=\"10\" fill=\"{accent}\" opacity=\"{opacity}\"/>")
-    markup.append(f"<text x=\"{x + 28}\" y=\"{y + 224}\" fill=\"#6e858a\" font-size=\"18\" font-family=\"Arial\">Deterministic Walnut chart module</text>")
+        markup.append(f"<rect x=\"{bar_x}\" y=\"{bar_y}\" width=\"32\" height=\"{height}\" rx=\"8\" fill=\"{accent}\" opacity=\"{opacity}\"/>")
+    markup.append(f"<text x=\"{x + 22}\" y=\"{y + 120}\" fill=\"#6e858a\" font-size=\"15\" font-family=\"Arial\">Signal stack</text>")
     return "".join(markup)
 
 

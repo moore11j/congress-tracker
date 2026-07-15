@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import unquote
 
 import pytest
 from fastapi import HTTPException
@@ -62,6 +63,8 @@ from app.services.ai_marketing import (
     X_CURRENT_REFRESH_TOKEN_SETTING,
     X_POST_CHARACTER_LIMIT,
     X_REFRESH_TOKEN,
+    _normalize_social_card_spec,
+    _social_card_asset,
     create_email_action_token,
     fetch_fmp_articles,
     score_article_candidate,
@@ -1693,6 +1696,54 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert result["opportunity"]["assets"][0]["download_url"].endswith("/assets/0/download")
     finally:
         db.close()
+
+
+def test_social_card_renderer_keeps_story_and_evidence_zones_separate():
+    spec = _normalize_social_card_spec(
+        {
+            "card_type": "ticker_signal",
+            "template": "ticker_signal",
+            "ticker": "SPCX",
+            "tickers": ["SPCX", "NBIS"],
+            "sentiment": "bearish",
+            "headline": "Bearish confirmation is cleaner in $SPCX than $NBIS",
+            "subheadline": "One name has a tight bearish stack. The other is mixed: weak tape, but reported accumulation and fundamental context.",
+            "bullets": [
+                "$SPCX: 76/100 confirmation score",
+                "$NBIS: 59/100, mixed stack",
+                "Price / Volume is bearish on both",
+            ],
+            "key_stats": [
+                {"label": "SPCX score", "value": "76/100"},
+                {"label": "NBIS score", "value": "59/100"},
+                {"label": "NBIS 13F", "value": "Reported accumulation"},
+            ],
+            "chips": ["Price / Volume", "Macro Positioning", "Institutional Activity", "Insiders"],
+            "cta": "View the signal stack",
+            "url": "https://walnutmarkets.com/ticker/SPCX",
+            "visual_emphasis": "Split-screen comparison of a clean bearish stack",
+            "source_label": "Walnut confirmation monitoring",
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        fallback_card_type="ticker_signal",
+        fallback_tickers=["SPCX", "NBIS"],
+        fallback_url="https://walnutmarkets.com/ticker/SPCX",
+    )
+
+    svg = unquote(_social_card_asset(spec)["url"].split(",", 1)[1])
+
+    assert "Walnut Markets" in svg
+    assert ">W</text>" in svg
+    assert "Evidence panel" in svg
+    assert 'x="1036"' in svg
+    assert 'x="1086"' in svg
+    assert 'x="930"' not in svg
+    assert "......" not in svg
+    assert "Reported accumulation" in svg
 
 
 def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
