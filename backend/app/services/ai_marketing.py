@@ -4470,6 +4470,20 @@ def recommended_destination_url(
 
 EMAIL_ACTIONS = {"approve", "reject", "reject_and_regenerate", "reply"}
 X_POST_ENDPOINT_PATH = "/2/tweets"
+X_CASHTAG_RE = re.compile(r"(?<![\w$])\$([A-Za-z][A-Za-z0-9.]{0,14})(?![A-Za-z0-9_])")
+
+
+def _normalize_x_post_text_for_api(text: str) -> str:
+    seen_cashtag = False
+
+    def replace_extra_cashtag(match: re.Match[str]) -> str:
+        nonlocal seen_cashtag
+        if not seen_cashtag:
+            seen_cashtag = True
+            return match.group(0)
+        return match.group(1)
+
+    return X_CASHTAG_RE.sub(replace_extra_cashtag, text)
 
 
 def _public_app_base_url() -> str:
@@ -4861,6 +4875,7 @@ def post_approved_draft_to_x(
         return {"attempted": False, "ok": False, "reason": "X_ACCESS_TOKEN is not configured on the server."}
 
     text = (_generated_content_from_suggestion(suggestion) or opportunity.generated_content or opportunity.full_markdown or "").strip()
+    text = _normalize_x_post_text_for_api(text)
     if not text:
         opportunity.status = "approved"
         return {"attempted": False, "ok": False, "reason": "Draft has no post text."}

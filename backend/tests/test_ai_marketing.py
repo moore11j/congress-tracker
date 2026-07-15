@@ -2281,6 +2281,59 @@ def test_email_approve_posts_x_draft_when_access_token_is_configured(monkeypatch
         db.close()
 
 
+def test_email_approve_posts_multi_symbol_x_draft_with_one_api_cashtag(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv(X_ACCESS_TOKEN, "x-post-token")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 201
+
+        def json(self):
+            return {"data": {"id": "multi-symbol-post", "text": captured["json"]["text"]}}
+
+    def fake_post(url, *args, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+    db = _session()
+    try:
+        admin = _user(db, "admin-email-multi-symbol@example.com", role="admin")
+        post_text = "$TSM $NVDA $AMD confirmation stack is bearish across price, volume, and macro pressure."
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="X",
+                ticker_theme="TSM",
+                text=post_text,
+                generate=False,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+        opportunity.generated_content = post_text
+        db.commit()
+        token = create_email_action_token(db, draft_id, "approve", actor_email="jarod@walnutmarkets.com")
+
+        response = admin_ai_growth_email_action(token, _email_action_request(), db)
+        body = response.body.decode("utf-8")
+        db.expire_all()
+        opportunity = db.get(AiMarketingOpportunity, draft_id)
+
+        assert response.status_code == 200
+        assert "Posted to X" in body
+        assert captured["url"] == "https://api.x.com/2/tweets"
+        assert captured["json"]["text"] == "$TSM NVDA AMD confirmation stack is bearish across price, volume, and macro pressure."
+        assert opportunity.status == "posted"
+    finally:
+        db.close()
+
+
 def test_email_approve_refreshes_expired_x_access_token_and_posts(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv(X_ACCESS_TOKEN, "expired-token")
