@@ -51,21 +51,22 @@ test("Market Pressure controls are semantic keyboard-accessible buttons", () => 
   assert.match(client, /focus-visible:ring-2/);
 });
 
-test("Market Pressure entitlements use existing feature gates", () => {
-  assert.match(contract, /hasEntitlement\(entitlements, "congress_feed"\)/);
-  assert.match(contract, /hasEntitlement\(entitlements, "insider_feed"\)/);
-  assert.match(contract, /hasEntitlement\(entitlements, "government_contracts_feed"\)/);
-  assert.match(contract, /hasEntitlement\(entitlements, "institutional_feed"\)/);
-  assert.match(contract, /hasEntitlement\(entitlements, "options_flow_feed"\)/);
-  assert.match(contract, /hasEntitlement\(entitlements, "macro_positioning"\)/);
-  assert.match(client, /Locked layers are not requested or exposed in the browser payload\./);
+test("Market Pressure is gated as a Pro feature before protected fetches", () => {
+  assert.match(page, /getEntitlements/);
+  assert.match(page, /function canUseMarketPressure/);
+  assert.match(page, /canUseMarketPressure\(entitlements, Boolean\(authState\.token\)\)/);
+  assert.match(page, /Market Pressure is available with Pro/);
+  assert.match(contract, /response\.status === 403/);
+  assert.match(contract, /pro_required/);
+  assert.match(client, /Upgrade to Pro/);
+  assert.match(client, /initialData\.status === "entitlement" \|\| initialData\.status === "auth-required"/);
 });
 
 test("Market Pressure renders no mock ticker data in production", () => {
   assert.doesNotMatch(contract, /AAPL|MSFT|NVDA|TSLA|SPY|QQQ/);
   assert.doesNotMatch(client, /AAPL|MSFT|NVDA|TSLA|sample|mock|placeholder/i);
-  assert.match(contract, /tiles: \[\]/);
-  assert.match(contract, /canonical Market Pressure batch endpoint is not connected yet/);
+  assert.match(contract, /GET \/api\/market-pressure|marketPressureApiUrl|\/api\/market-pressure/);
+  assert.doesNotMatch(contract, /pressureScore/);
 });
 
 test("Market Pressure visualization includes loading, no-data, error, and entitlement states", () => {
@@ -73,14 +74,18 @@ test("Market Pressure visualization includes loading, no-data, error, and entitl
   assert.match(client, /"no-data": \{/);
   assert.match(client, /error: \{/);
   assert.match(client, /entitlement: \{/);
+  assert.match(client, /unsupported: \{/);
+  assert.match(client, /"auth-required": \{/);
   assert.match(client, /aria-busy=\{state === "loading"\}/);
 });
 
 test("Market Pressure typed adapter isolates the future backend endpoint", () => {
   assert.match(contract, /export type MarketPressureTile = \{/);
-  assert.match(contract, /pressureDirection: "bullish" \| "bearish" \| "neutral" \| "conflicted"/);
+  assert.match(contract, /confirmationDirection: "bullish" \| "bearish" \| "neutral" \| "conflicted" \| "unavailable"/);
+  assert.match(contract, /divergence:/);
   assert.match(contract, /export async function getMarketPressureMap/);
-  assert.doesNotMatch(contract, /fetch\(/);
+  assert.match(contract, /fetch\(url/);
+  assert.match(contract, /marketPressureQueryString/);
 });
 
 test("Market Pressure share and analytics events are wired through first-party helpers", () => {

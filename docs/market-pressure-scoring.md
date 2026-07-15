@@ -1,0 +1,172 @@
+# Market Pressure Scoring
+
+## Audit Findings
+
+Market Pressure is a visualization layer over Walnut's canonical confirmation score. The canonical implementation is `backend/app/services/confirmation_score.py`.
+
+The canonical source order is:
+
+- `congress`
+- `insiders`
+- `signals`
+- `price_volume`
+- `fundamentals`
+- `options_flow`
+- `government_contracts`
+- `institutional_activity`
+- `macro_positioning`
+
+The batch entry point is `get_confirmation_score_bundles_for_tickers(db, tickers, lookback_days=30)`. It builds one confirmation bundle per symbol from existing database/cache-backed source summaries. The Market Pressure endpoint calls this batch service once for the requested symbol set and does not create a second score.
+
+Canonical score bands are:
+
+- `inactive`: 0-19
+- `weak`: 20-39
+- `moderate`: 40-59
+- `strong`: 60-79
+- `exceptional`: 80-100
+
+The existing bundle direction values are `bullish`, `bearish`, `neutral`, and `mixed`. Market Pressure renders `mixed` as `conflicted`.
+
+## Endpoint
+
+The Phase 2 endpoint is:
+
+`GET /api/market-pressure`
+
+Query parameters:
+
+- `universe=sp500|nasdaq100|all_us|watchlist`
+- `period=1d|5d|1m|3m|ytd|1y`
+- `view=market_pressure|hidden_accumulation|fragile_winners|crowded_trades|rotation`
+
+Invalid parameters fall back to defaults and are listed in `warnings`.
+
+## Canonical Data Source
+
+Confirmation evidence comes from the existing confirmation score service. Price performance comes from `price_cache.close`, the same cached daily close table used by Walnut price history surfaces. The endpoint does not make provider calls.
+
+Company identity and sector hydration use cached `ticker_meta`, `securities`, and `fundamentals_cache` rows. Sector summaries are equal-weight averages of the returned tiles' price change percentages. They are not index returns.
+
+## Classification Rules
+
+Each ticker resolves to:
+
+- `bullish`: canonical direction is bullish and confirmation score is at least the moderate band.
+- `bearish`: canonical direction is bearish and confirmation score is at least the moderate band.
+- `neutral`: canonical evidence exists, but it does not meet bullish or bearish thresholds.
+- `conflicted`: canonical direction is mixed.
+- `unavailable`: canonical evidence is insufficient or inactive.
+
+Missing evidence never counts as neutral.
+
+Confirmation strength derives from canonical bands:
+
+- weak band -> `weak`
+- moderate band -> `moderate`
+- strong or exceptional band -> `strong`
+- inactive or unavailable -> `null`
+
+The endpoint does not expose a public pressure score.
+
+## Divergence Rules
+
+Each ticker resolves to:
+
+- `hidden_accumulation`: price change is flat or negative, confirmation is bullish, strength is moderate/strong, at least two active canonical sources exist, and evidence is not stale.
+- `fragile_winner`: price change is positive, confirmation is bearish or conflicted, strength is moderate/strong, at least two active canonical sources exist, and evidence is not stale.
+- `aligned_bullish`: price change is positive and confirmation is bullish.
+- `aligned_bearish`: price change is negative and confirmation is bearish.
+- `conflicted`: canonical confirmation layers are conflicted.
+- `none`: price and confirmation are sufficient but no divergence rule matches.
+- `unavailable`: price or canonical confirmation data is insufficient or stale.
+
+Pressure trend is `null` because the repository does not currently expose comparable historical confirmation snapshots with stable scoring semantics.
+
+## Freshness
+
+Confirmation freshness remains the canonical current window of 30 days. Changing `period` only changes price performance comparison; it does not change confirmation lookback semantics.
+
+Layer freshness is based on the source `freshness_days` already present in confirmation bundles. A source older than 30 days is rendered as `stale`. Exact per-source timestamps are not always present in the canonical bundle, so the endpoint derives an approximate `asOf` from `generatedAt - freshness_days` when freshness is available and otherwise returns `null`.
+
+## Missing Data
+
+Provider/cache gaps are represented as unavailable layer states. A ticker can appear with partial data. Missing optional layers do not exclude a symbol and are not treated as bearish, bullish, or neutral evidence.
+
+## Entitlement and Canonical Score Semantics
+
+Market Pressure is restricted to Pro and Admin users. It uses Walnut's complete canonical Confirmation Score and does not generate entitlement-specific partial scores. Unauthorized tiers receive no Market Pressure result data.
+
+Authorized:
+
+- Pro
+- Admin
+
+Unauthorized:
+
+- Logged out
+- Free
+- Premium
+- Suspended users
+
+The backend checks authorization before loading universe membership, cached prices, identities, confirmation bundles, divergences, sectors, or summaries. Unauthorized requests return the application's authentication-required or Pro-required error response rather than an empty successful map.
+
+Pro and Admin users receive the same complete Market Pressure payload. Missing provider data is returned as unavailable and is never treated as active or neutral evidence.
+
+## Supported Modes
+
+Supported views:
+
+- `market_pressure`
+- `hidden_accumulation`
+- `fragile_winners`
+
+Unsupported views:
+
+- `crowded_trades`: requires defensible positioning, concentration, extension, or overbought data beyond high confirmation plus positive return.
+- `rotation`: requires historical sector-level confirmation snapshots or reproducible historical aggregates.
+
+Supported universe:
+
+- `watchlist`: uses the authenticated user's first owned watchlist by existing owner scoping.
+
+Unsupported universes:
+
+- `sp500`: no canonical S&P 500 membership source was found for this feature.
+- `nasdaq100`: no canonical Nasdaq 100 membership source was found for this feature.
+- `all_us`: unsupported until Walnut can return the complete eligible universe without hidden sampling.
+
+Unsupported universes return explicit capabilities and warnings rather than sampled substitutes.
+
+## Performance Architecture
+
+The endpoint performs batched work:
+
+- One watchlist membership query when `universe=watchlist`.
+- One cached price-history query for the requested symbol set and period window.
+- One batch identity hydration pass across cached identity tables.
+- One canonical batch confirmation call for the requested symbol set.
+- One in-memory entitlement filtering and serialization pass.
+
+The endpoint does not call FMP, options, filings, or market data providers. There is no per-symbol frontend request and no per-tile detail fetch.
+
+No cross-user payload cache is added in Phase 2. Responses are request scoped and the endpoint returns `Cache-Control: private, no-store` because Market Pressure payloads contain full Pro intelligence. A future shared cache for index universes must check Pro/Admin authorization before cache retrieval and must keep user-specific watchlist keys scoped by user.
+
+## Sorting
+
+Tiles are sorted within each sector by:
+
+1. Divergence relevance
+2. Confirmation strength
+3. Absolute price move
+4. Symbol
+
+Sectors sort alphabetically, with `Unclassified` last.
+
+## Known Limitations
+
+- Broad index universes need canonical membership storage before they can be enabled.
+- Rotation and trend views need historical confirmation snapshots with scoring version and timestamp metadata.
+- Layer `asOf` is approximate when the canonical bundle exposes only `freshness_days`.
+- Price performance uses cached close values from `price_cache.close`; no adjusted-close column is currently available in that table.
+- The watchlist universe currently uses the user's first owned watchlist because no separate primary/default watchlist marker was found.

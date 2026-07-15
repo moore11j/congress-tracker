@@ -135,6 +135,7 @@ from app.routers.debug import router as debug_router
 from app.routers.event_calendar import router as event_calendar_router
 from app.routers.institutional import router as institutional_router
 from app.routers.institutional_ingest_admin import router as institutional_ingest_admin_router
+from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
 from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.ai_marketing import router as ai_marketing_router
@@ -11935,6 +11936,7 @@ app.include_router(events_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
 app.include_router(institutional_router, prefix="/api")
 app.include_router(institutional_ingest_admin_router, prefix="/api")
+app.include_router(market_pressure_router, prefix="/api")
 app.include_router(screener_router, prefix="/api")
 app.include_router(backtests_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")

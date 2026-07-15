@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { recordProductEvent } from "@/lib/api";
 import {
+  marketPressureQueryString,
   marketPressureLayerLabels,
   marketPressureTimeRanges,
   marketPressureUniverses,
   marketPressureViewModes,
+  periodToTimeRange,
   type MarketPressureLayerAccess,
   type MarketPressureLayerKey,
   type MarketPressureMapResult,
@@ -49,14 +52,18 @@ function AnalyticsButton({
   children,
   onClick,
   ariaLabel,
+  disabled,
+  title,
 }: {
   active: boolean;
   children: ReactNode;
   onClick: () => void;
   ariaLabel: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <button type="button" className={segmentedButtonClass(active)} aria-pressed={active} aria-label={ariaLabel} onClick={onClick}>
+    <button type="button" className={segmentedButtonClass(active)} aria-pressed={active} aria-label={ariaLabel} disabled={disabled} title={title} onClick={onClick}>
       {children}
     </button>
   );
@@ -83,10 +90,11 @@ function priceDirectionClass(value: number | null) {
   return "border-slate-400/25 bg-slate-700/40";
 }
 
-function pressureDirectionClass(direction: MarketPressureTile["pressureDirection"]) {
+function pressureDirectionClass(direction: MarketPressureTile["confirmationDirection"]) {
   if (direction === "bullish") return "border-l-emerald-300";
   if (direction === "bearish") return "border-l-rose-300";
   if (direction === "conflicted") return "border-l-amber-300";
+  if (direction === "unavailable") return "border-l-slate-600";
   return "border-l-slate-400";
 }
 
@@ -95,9 +103,13 @@ function formatPct(value: number | null) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function formatStrength(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return "Strength unavailable";
-  return `${Math.round(value)} strength`;
+function formatStrength(value: MarketPressureTile["confirmationStrength"]) {
+  return value ? `${value} strength` : "Strength unavailable";
+}
+
+function formatScore(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "Score unavailable";
+  return `${Math.round(value)} score`;
 }
 
 function marketPressureTickerHref(symbol: string) {
@@ -109,8 +121,8 @@ function MarketPressureTileCard({ tile }: { tile: MarketPressureTile }) {
   const href = marketPressureTickerHref(tile.symbol);
   const body = (
     <div
-      className={`min-h-[6.5rem] rounded-xl border border-l-4 p-3 ${priceDirectionClass(tile.priceChangePct)} ${pressureDirectionClass(tile.pressureDirection)}`}
-      aria-label={`${tile.symbol} price ${formatPct(tile.priceChangePct)}, pressure ${tile.pressureDirection}`}
+      className={`min-h-[6.5rem] rounded-xl border border-l-4 p-3 ${priceDirectionClass(tile.priceChangePct)} ${pressureDirectionClass(tile.confirmationDirection)}`}
+      aria-label={`${tile.symbol} price ${formatPct(tile.priceChangePct)}, confirmation ${tile.confirmationDirection}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -120,9 +132,13 @@ function MarketPressureTileCard({ tile }: { tile: MarketPressureTile }) {
         <div className="shrink-0 text-right text-[11px] font-semibold text-slate-100">{formatPct(tile.priceChangePct)}</div>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
-        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-200">{tile.pressureDirection}</span>
-        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-300">{formatStrength(tile.pressureStrength)}</span>
-        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-400">{tile.pressureTrend ?? "trend unavailable"}</span>
+        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-200">{tile.confirmationDirection}</span>
+        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-300">{formatScore(tile.confirmationScore)}</span>
+        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-300">{formatStrength(tile.confirmationStrength)}</span>
+        <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-400">{tile.divergence}</span>
+        {tile.dataState === "complete" ? null : (
+          <span className="rounded-md border border-white/10 bg-slate-950/50 px-2 py-1 text-slate-400">{tile.dataState}</span>
+        )}
       </div>
     </div>
   );
@@ -166,8 +182,16 @@ function MarketPressureStatusState({
       body: message ?? "Walnut could not load Market Pressure data. Existing data is not hidden or replaced.",
     },
     entitlement: {
-      title: "Layer access required",
-      body: message ?? "Some pressure layers are locked by your current Walnut plan.",
+      title: "Market Pressure is available with Pro",
+      body: message ?? "See where price movement and Walnut's complete confirmation stack are aligning, or diverging, across the market.",
+    },
+    unsupported: {
+      title: "Unsupported Market Pressure request",
+      body: message ?? "This universe or view needs canonical data that is not available yet.",
+    },
+    "auth-required": {
+      title: "Sign in with Pro",
+      body: message ?? "Market Pressure is a Pro feature and does not expose protected map data to logged-out users.",
     },
   }[state];
 
@@ -177,35 +201,36 @@ function MarketPressureStatusState({
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200/80">{state.replace("-", " ")}</p>
         <h2 className="mt-3 text-xl font-semibold text-white">{copy.title}</h2>
         <p className="mt-3 text-sm leading-6 text-slate-300">{copy.body}</p>
+        {state === "entitlement" ? (
+          <Link href="/pricing" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-xl px-4`}>
+            Upgrade to Pro
+          </Link>
+        ) : null}
+        {state === "auth-required" ? (
+          <Link href="/login?return_to=%2Fmarket-pressure" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-xl px-4`}>
+            Sign in
+          </Link>
+        ) : null}
       </div>
     </div>
   );
 }
 
 function MarketPressureVisualization({ data }: { data: MarketPressureMapResult }) {
-  const sectorGroups = useMemo(() => {
-    const groups = new Map<string, MarketPressureTile[]>();
-    data.tiles.forEach((tile) => {
-      const sector = tile.sector.trim() || "Sector unavailable";
-      groups.set(sector, [...(groups.get(sector) ?? []), tile]);
-    });
-    return Array.from(groups.entries());
-  }, [data.tiles]);
-
   if (data.status !== "ready" || data.tiles.length === 0) {
     return <MarketPressureStatusState state={data.status === "ready" ? "no-data" : data.status} message={data.providerMessage} />;
   }
 
   return (
     <div className="space-y-6">
-      {sectorGroups.map(([sector, tiles]) => (
-        <section key={sector} aria-label={`${sector} sector pressure`}>
+      {data.sectors.map((sectorGroup) => (
+        <section key={sectorGroup.sector} aria-label={`${sectorGroup.sector} sector pressure`}>
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">{sector}</h2>
-            <span className="text-xs text-slate-500">{tiles.length} tickers</span>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">{sectorGroup.sector}</h2>
+            <span className="text-xs text-slate-500">{sectorGroup.summary.symbolCount} tickers</span>
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3">
-            {tiles.map((tile) => (
+            {sectorGroup.tiles.map((tile) => (
               <MarketPressureTileCard key={`${tile.sector}:${tile.symbol}`} tile={tile} />
             ))}
           </div>
@@ -228,7 +253,9 @@ function MarketPressureLegend({ data }: { data: MarketPressureMapResult }) {
       </div>
       <div className="rounded-xl border border-white/10 bg-slate-950/45 p-3">
         <div className="font-semibold text-white">Freshness</div>
-        <p className="mt-1 leading-5">{data.latestSuccessfulDataAt ? `Latest successful batch: ${data.latestSuccessfulDataAt}` : "Latest successful batch: not available"}</p>
+        <p className="mt-1 leading-5">
+          {data.latestSuccessfulDataAt ? `Latest batch: ${data.latestSuccessfulDataAt}. Confirmation window: ${data.confirmationFreshnessWindowDays} days.` : "Latest batch: not available"}
+        </p>
       </div>
     </div>
   );
@@ -240,7 +267,7 @@ function LayerAccessPanel({ data }: { data: MarketPressureMapResult }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-white">Layer access</h2>
-          <p className="mt-1 text-xs text-slate-400">Locked layers are not requested or exposed in the browser payload.</p>
+          <p className="mt-1 text-xs text-slate-400">Pro and Admin responses use the complete canonical confirmation stack.</p>
         </div>
         <Link href="/pricing" prefetch={false} className="text-xs font-semibold text-emerald-200 hover:text-emerald-100 hover:underline">
           Compare plans
@@ -346,9 +373,10 @@ function ShareMapButton({ canonicalUrl }: { canonicalUrl: string }) {
 }
 
 export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
-  const [timeRange, setTimeRange] = useState<MarketPressureTimeRange>("1D");
-  const [universe, setUniverse] = useState<MarketPressureUniverse>("sp500");
-  const [viewMode, setViewMode] = useState<MarketPressureViewMode>("market-pressure");
+  const router = useRouter();
+  const [timeRange, setTimeRange] = useState<MarketPressureTimeRange>(periodToTimeRange(initialData.period));
+  const [universe, setUniverse] = useState<MarketPressureUniverse>(initialData.universe);
+  const [viewMode, setViewMode] = useState<MarketPressureViewMode>(initialData.view);
 
   useEffect(() => {
     recordProductEvent({ event_name: "market_pressure_page_view" });
@@ -356,6 +384,19 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
 
   const selectedUniverseLabel = marketPressureUniverses.find((option) => option.value === universe)?.label ?? "S&P 500";
   const selectedViewLabel = marketPressureViewModes.find((option) => option.value === viewMode)?.label ?? "Market Pressure";
+  const currentCanonicalUrl = `${canonicalUrl}?${marketPressureQueryString({ timeRange, universe, viewMode })}`;
+
+  function updateQuery(next: Partial<{ timeRange: MarketPressureTimeRange; universe: MarketPressureUniverse; viewMode: MarketPressureViewMode }>) {
+    const nextQuery = {
+      timeRange: next.timeRange ?? timeRange,
+      universe: next.universe ?? universe,
+      viewMode: next.viewMode ?? viewMode,
+    };
+    setTimeRange(nextQuery.timeRange);
+    setUniverse(nextQuery.universe);
+    setViewMode(nextQuery.viewMode);
+    router.push(`/market-pressure?${marketPressureQueryString(nextQuery)}`);
+  }
 
   return (
     <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
@@ -373,7 +414,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             Most heatmaps show where the market has been. Walnut shows where pressure is building.
           </p>
         </div>
-        <ShareMapButton canonicalUrl={canonicalUrl} />
+        <ShareMapButton canonicalUrl={currentCanonicalUrl} />
       </section>
 
       <section className="rounded-2xl border border-white/10 bg-slate-900/55 p-4 shadow-card">
@@ -387,7 +428,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
                   active={timeRange === option}
                   ariaLabel={`Set time range to ${option}`}
                   onClick={() => {
-                    setTimeRange(option);
+                    updateQuery({ timeRange: option });
                     recordProductEvent({ event_name: "market_pressure_time_range_changed", properties: { time_range: option } });
                   }}
                 >
@@ -404,8 +445,10 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
                   key={option.value}
                   active={universe === option.value}
                   ariaLabel={`Set universe to ${option.label}`}
+                  disabled={!initialData.capabilities.universes[option.value]}
+                  title={!initialData.capabilities.universes[option.value] ? "This universe requires canonical membership data and is not available yet." : undefined}
                   onClick={() => {
-                    setUniverse(option.value);
+                    updateQuery({ universe: option.value });
                     recordProductEvent({ event_name: "market_pressure_universe_changed", properties: { universe: option.value } });
                   }}
                 >
@@ -422,8 +465,10 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
                   key={option.value}
                   active={viewMode === option.value}
                   ariaLabel={`Set view mode to ${option.label}`}
+                  disabled={!initialData.capabilities.views[option.value]}
+                  title={!initialData.capabilities.views[option.value] ? "Rotation and crowded-trades views require historical or positioning data that is not available yet." : undefined}
                   onClick={() => {
-                    setViewMode(option.value);
+                    updateQuery({ viewMode: option.value });
                     recordProductEvent({ event_name: "market_pressure_view_changed", properties: { view_mode: option.value } });
                   }}
                 >
@@ -440,7 +485,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
           <div>
             <h2 className="text-lg font-semibold text-white">{selectedViewLabel}</h2>
             <p className="mt-1 text-xs text-slate-400">
-              {selectedUniverseLabel} - {timeRange} - Batch endpoint pending
+              {selectedUniverseLabel} - {timeRange} - Canonical confirmation window {initialData.confirmationFreshnessWindowDays} days
             </p>
           </div>
           <div className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-xs font-semibold text-cyan-100">
@@ -453,7 +498,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
         </div>
       </section>
 
-      <LayerAccessPanel data={initialData} />
+      {initialData.status === "entitlement" || initialData.status === "auth-required" ? null : <LayerAccessPanel data={initialData} />}
     </div>
   );
 }
