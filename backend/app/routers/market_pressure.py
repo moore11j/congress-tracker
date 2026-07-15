@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
@@ -23,11 +23,16 @@ def market_pressure(
     response.headers["Cache-Control"] = "private, no-store"
     user = current_user(db, request, required=False)
     entitlements = current_entitlements(request, db)
-    return build_market_pressure_response(
-        db,
-        universe=universe,
-        period=period,
-        view=view,
-        entitlements=entitlements,
-        user=user,
-    )
+    try:
+        return build_market_pressure_response(
+            db,
+            universe=universe,
+            period=period,
+            view=view,
+            entitlements=entitlements,
+            user=user,
+        )
+    except HTTPException as exc:
+        headers = dict(exc.headers or {})
+        headers["Cache-Control"] = "private, no-store"
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers) from exc
