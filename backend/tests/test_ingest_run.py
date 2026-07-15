@@ -81,6 +81,7 @@ def test_scheduled_ingest_workflow_retries_transient_fly_ssh_failures() -> None:
     assert "for attempt in 1 2 3" in contents
     assert "Fly SSH transport failed; retrying" in contents
     assert "tunnel unavailable|Error contacting Fly.io API|context deadline exceeded" in contents
+    assert "has no started VMs|not have been deployed yet" in contents
 
 
 def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
