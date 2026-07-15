@@ -2064,9 +2064,9 @@ def test_growth_draft_email_includes_posting_assist_checklist_and_assets(monkeyp
         assert "Review disclosure" in context["items_text"]
         assert "https://walnutmarkets.com/admin/ai-marketing?draft=" in context["items_text"]
         assert "NVDA chart" in context["items_text"]
-        assert sent["attachments"][0]["name"].endswith(".svg")
-        assert sent["attachments"][0]["content_type"] == "image/svg+xml"
-        assert sent["attachments"][0]["content"].startswith(b"<svg")
+        assert sent["attachments"][0]["name"].endswith(".png")
+        assert sent["attachments"][0]["content_type"] == "image/png"
+        assert sent["attachments"][0]["content"].startswith(b"\x89PNG")
         assert email["email_log"]["status"] == "sent"
         db.refresh(opportunity)
         assert opportunity.status == "emailed"

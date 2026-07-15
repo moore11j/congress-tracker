@@ -12,8 +12,10 @@ import base64
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from typing import Any
 from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlencode, urlparse, urlunparse
+from xml.etree import ElementTree
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -5803,10 +5805,119 @@ def _decode_data_uri_asset(asset: dict[str, Any], *, fallback_name: str | None =
         return None
     if not content:
         return None
+    if media_type == "image/svg+xml":
+        png_content = _svg_bytes_to_png(content)
+        if not png_content:
+            return None
+        content = png_content
+        media_type = "image/png"
     title = fallback_name or str(asset.get("title") or "walnut-asset")
     extension = _image_extension_for_media_type(media_type)
     filename = _safe_asset_filename(title, extension)
     return {"name": filename, "content": content, "content_type": media_type}
+
+
+def _svg_bytes_to_png(content: bytes) -> bytes | None:
+    try:
+        from PIL import Image, ImageColor, ImageDraw, ImageFont
+    except Exception:
+        logger.warning("Pillow is unavailable; AI Growth SVG asset will not be converted to PNG.")
+        return None
+    try:
+        root = ElementTree.fromstring(content.decode("utf-8", errors="replace"))
+    except Exception:
+        logger.warning("Unable to parse AI Growth SVG asset for PNG conversion.")
+        return None
+    width, height = _svg_dimensions(root)
+    if width <= 0 or height <= 0:
+        return None
+    image = Image.new("RGBA", (width, height), (6, 20, 23, 255))
+    draw = ImageDraw.Draw(image)
+    for element in root.iter():
+        tag = _svg_local_name(element.tag)
+        if tag == "rect":
+            fill = _svg_color(element.get("fill"), default=(0, 0, 0, 0), image_color=ImageColor)
+            stroke = _svg_color(element.get("stroke"), default=None, image_color=ImageColor)
+            opacity = _svg_float(element.get("opacity"), 1.0)
+            if opacity < 1 and fill:
+                fill = (*fill[:3], max(0, min(255, int(fill[3] * opacity))))
+            x = _svg_float(element.get("x"), 0)
+            y = _svg_float(element.get("y"), 0)
+            rect_width = _svg_float(element.get("width"), width)
+            rect_height = _svg_float(element.get("height"), height)
+            radius = _svg_float(element.get("rx"), 0)
+            stroke_width = max(1, int(_svg_float(element.get("stroke-width"), 1)))
+            box = [x, y, x + rect_width, y + rect_height]
+            if radius > 0:
+                draw.rounded_rectangle(box, radius=radius, fill=fill, outline=stroke, width=stroke_width)
+            else:
+                draw.rectangle(box, fill=fill, outline=stroke, width=stroke_width)
+        elif tag == "text":
+            text_value = "".join(element.itertext()).strip()
+            if not text_value:
+                continue
+            x = _svg_float(element.get("x"), 0)
+            y = _svg_float(element.get("y"), 0)
+            font_size = max(8, int(_svg_float(element.get("font-size"), 24)))
+            is_bold = str(element.get("font-weight") or "").lower() in {"600", "700", "bold", "bolder"}
+            font = _svg_font(font_size, is_bold=is_bold, image_font=ImageFont)
+            fill = _svg_color(element.get("fill"), default=(248, 250, 252, 255), image_color=ImageColor)
+            draw.text((x, y - font_size), text_value, fill=fill, font=font)
+    output = BytesIO()
+    image.convert("RGB").save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def _svg_dimensions(root: ElementTree.Element) -> tuple[int, int]:
+    width = _svg_float(root.get("width"), 0)
+    height = _svg_float(root.get("height"), 0)
+    if (width <= 0 or height <= 0) and root.get("viewBox"):
+        parts = re.split(r"[\s,]+", str(root.get("viewBox") or "").strip())
+        if len(parts) == 4:
+            width = _svg_float(parts[2], width)
+            height = _svg_float(parts[3], height)
+    return max(1, int(width)), max(1, int(height))
+
+
+def _svg_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def _svg_float(value: Any, default: float) -> float:
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value or ""))
+    if not match:
+        return default
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return default
+
+
+def _svg_color(value: Any, *, default: Any, image_color: Any) -> tuple[int, int, int, int] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return default
+    if raw.lower() == "none":
+        return None
+    try:
+        parsed = image_color.getrgb(raw)
+    except Exception:
+        return default
+    if len(parsed) == 4:
+        return parsed
+    return (*parsed, 255)
+
+
+def _svg_font(size: int, *, is_bold: bool, image_font: Any) -> Any:
+    font_names = (
+        ("DejaVuSans-Bold.ttf", "arialbd.ttf") if is_bold else ("DejaVuSans.ttf", "arial.ttf")
+    )
+    for font_name in font_names:
+        try:
+            return image_font.truetype(font_name, size=size)
+        except Exception:
+            continue
+    return image_font.load_default()
 
 
 def _email_asset_attachments(
