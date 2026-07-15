@@ -2959,6 +2959,32 @@ export function recordPageView(payload: { path: string; referrer_path?: string |
   }).catch(() => undefined);
 }
 
+export function recordProductEvent(payload: { event_name: string; path?: string | null; properties?: Record<string, string | number | boolean | null> }): void {
+  if (typeof window === "undefined") return;
+  const eventName = payload.event_name.trim();
+  if (!eventName) return;
+  const url = buildApiUrl("/api/analytics/event");
+  const body = JSON.stringify({
+    event_name: eventName,
+    path: payload.path ?? window.location.pathname,
+    properties: payload.properties ?? {},
+  });
+  if (navigator.sendBeacon) {
+    const blob = new Blob([body], { type: "application/json" });
+    if (navigator.sendBeacon(url, blob)) return;
+  }
+  clearLegacyAuthStorage();
+  void fetch(url, {
+    method: "POST",
+    body,
+    keepalive: true,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  }).catch(() => undefined);
+}
+
 export async function getAdminEmailTemplates(): Promise<{ items: AdminEmailTemplate[] }> {
   return fetchJson<{ items: AdminEmailTemplate[] }>(buildApiUrl("/api/admin/email/templates"));
 }
