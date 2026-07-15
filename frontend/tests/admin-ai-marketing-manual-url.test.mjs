@@ -12,6 +12,7 @@ test("AI Growth Engine exposes the new top-level IA", () => {
     "Article-Reactive X",
     "Manual X Draft",
     "Scheduled X Campaigns",
+    "X Reply Campaigns",
     "Reddit Research Threads",
     "Draft Queue",
     "Assets",
@@ -67,6 +68,26 @@ test("manual X draft is distinct from scheduled X campaigns", () => {
   assert.match(viewSource, /recent_runs/);
   assert.doesNotMatch(apiSource, /\/api\/admin\/ai-growth\/x\/post/);
   assert.doesNotMatch(viewSource, /Approve \+ Post|approve_and_post|postAdminAiGrowthDraftToX/);
+});
+
+test("X reply campaigns create suggestions without auto-posting", () => {
+  for (const label of [
+    "X Reply Campaigns",
+    "Create X Reply Campaign",
+    "Saved X Reply Campaigns",
+    "Max suggestions per day",
+    "Target handles",
+    "Handles to ignore",
+    "Keywords / cashtags",
+    "Require ticker/cashtag",
+    "No reply is posted automatically",
+  ]) {
+    assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
+  }
+  assert.match(viewSource, /campaign_type: "x_reply_campaign"/);
+  assert.match(viewSource, /content_type: "x_reply"/);
+  assert.match(apiSource, /"x_reply_campaign"/);
+  assert.doesNotMatch(viewSource, /Open X reply compose|Post reply automatically|Auto-post reply/);
 });
 
 test("manual research input supports platform, pasted text, output type, and destination URL", () => {

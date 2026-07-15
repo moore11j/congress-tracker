@@ -148,6 +148,34 @@ def _growth_openai_payload(**overrides):
             "source_note": "Source: Walnut signal context and linked source.",
             "missing_data_note": "",
         },
+        "social_card": {
+            "card_type": "ticker_signal",
+            "template": "ticker_signal",
+            "ticker": "NVDA",
+            "tickers": ["NVDA"],
+            "sentiment": "bullish",
+            "headline": "NVDA signal stack is active",
+            "subheadline": "Price, filings, and disclosed activity are cleaner together than alone.",
+            "bullets": [
+                "Price and volume confirmation leads the stack.",
+                "Filings context adds the evidence layer.",
+                "Disclosed activity needs human review before posting.",
+            ],
+            "key_stats": [
+                {"label": "Confirmation", "value": "82/100"},
+                {"label": "Signal", "value": "Bullish"},
+            ],
+            "chips": ["Signals", "Filings", "Disclosures"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/NVDA",
+            "visual_emphasis": "confirmation stack",
+            "source_label": "Walnut context",
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
         "influencer_outreach_draft": "",
         "report_pack_outline": "",
         "alternate_hooks": ["The market has tells. Walnut finds them."],
@@ -1785,6 +1813,14 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert prompt["opportunity"]["metadata"]["change_request"] == "Make it shorter and focus on the TSM margin angle."
         assert "visual_brief" in schema["properties"]
         assert "visual_brief" in schema["required"]
+        assert "social_card" in schema["properties"]
+        assert "social_card" in schema["required"]
+        assert schema["properties"]["social_card"]["properties"]["card_type"]["enum"] == [
+            "article_reactive",
+            "congress_insider_activity",
+            "research_cover",
+            "ticker_signal",
+        ]
         assert schema["properties"]["visual_brief"]["properties"]["chart_type"]["enum"] == [
             "ranked_bars",
             "bucket_breakdown",
@@ -1798,6 +1834,9 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert "bias disclosed" not in updated["generated_content"].lower()
         assert "building walnut" not in updated["generated_content"].lower()
         assert "#TSM" in updated["generated_content"]
+        assert updated["assets"][0]["card_type"] == "ticker_signal"
+        assert updated["assets"][0]["template"] == "ticker_signal"
+        assert updated["assets"][0]["url"].startswith("data:image/svg+xml")
     finally:
         db.close()
 

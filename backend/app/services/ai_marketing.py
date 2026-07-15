@@ -58,6 +58,23 @@ AI_MARKETING_PROMPT_VERSION = "ai_growth_v2"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
 DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
 X_POST_CHARACTER_LIMIT = 280
+SOCIAL_CARD_WIDTH = 1600
+SOCIAL_CARD_HEIGHT = 900
+SOCIAL_CARD_TYPES = {
+    "article_reactive",
+    "ticker_signal",
+    "congress_insider_activity",
+    "research_cover",
+}
+SOCIAL_CARD_TEMPLATES = SOCIAL_CARD_TYPES | {
+    "auto",
+    "fast_reaction",
+    "signal_card",
+    "activity_card",
+    "dd_cover",
+}
+SOCIAL_CARD_TONES = {"sharp", "market-native", "neutral", "educational"}
+SOCIAL_CARD_SENTIMENTS = {"bullish", "bearish", "neutral", "notable", "active"}
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
@@ -134,6 +151,7 @@ GROWTH_CAMPAIGN_MODES = {
     "reddit_research_thread",
     "article_reactive_x",
     "scheduled_x_campaign",
+    "x_reply_campaign",
 }
 CAMPAIGN_MODES = LEGACY_CAMPAIGN_MODES | GROWTH_CAMPAIGN_MODES
 PLATFORMS = {"reddit", WEB_SEARCH_REDDIT_SOURCE_PROVIDER, "x_stub", "x", "facebook_manual", "facebook", "linkedin", "manual", "other"}
@@ -158,13 +176,14 @@ OPPORTUNITY_STATUSES = {
 }
 INTENTS = {"question", "complaint", "trade_idea", "tool_search", "news_reaction", "other"}
 RECOMMENDED_ACTIONS = {"reply", "skip", "monitor", "draft_post", "draft_ad"}
-CONTENT_TYPES = {"reddit_reply", "reddit_thread", "x_post", "paid_ad"}
+CONTENT_TYPES = {"reddit_reply", "reddit_thread", "x_post", "x_reply", "paid_ad"}
 CAMPAIGN_TYPES = {
     "manual_research_input",
     "x_chart_drop",
     "reddit_research_thread",
     "article_reactive_x",
     "scheduled_x_campaign",
+    "x_reply_campaign",
     "legacy_outreach_campaign",
 }
 REPLY_ANGLES = {
@@ -180,6 +199,8 @@ REPLY_ANGLES = {
 ARTICLE_REACTIVE_PROVIDER = "fmp_articles"
 ARTICLE_REACTIVE_CAMPAIGN_TYPE = "article_reactive_x"
 SCHEDULED_X_CAMPAIGN_TYPE = "scheduled_x_campaign"
+X_REPLY_CAMPAIGN_TYPE = "x_reply_campaign"
+X_REPLY_PROVIDER = "x_api"
 FMP_ARTICLES_URL = "https://financialmodelingprep.com/stable/fmp-articles"
 ARTICLE_RUN_DEFAULT_LIMIT = 20
 ARTICLE_DEDUPE_DAYS = 14
@@ -826,6 +847,8 @@ def _campaign_type_for_mode(mode: str | None) -> str:
 
 def _content_type_for_campaign_type(campaign_type: str | None, *, desired_output_type: str | None = None, platform: str | None = None) -> str:
     desired = str(desired_output_type or "").strip().lower().replace(" ", "_")
+    if desired in {"x_reply", "x_comment", "reply_to_x", "twitter_reply"}:
+        return "x_reply"
     if desired in {"x_post", "x", "post"}:
         return "x_post"
     if desired in {"reddit_research_thread", "reddit_thread", "thread"}:
@@ -840,6 +863,8 @@ def _content_type_for_campaign_type(campaign_type: str | None, *, desired_output
         return "x_post"
     if normalized == "reddit_research_thread":
         return "reddit_thread"
+    if normalized == X_REPLY_CAMPAIGN_TYPE:
+        return "x_reply"
     if str(platform or "").strip().lower() in {"x", "x_stub", "twitter"}:
         return "x_post"
     return "reddit_reply"
@@ -848,6 +873,7 @@ def _content_type_for_campaign_type(campaign_type: str | None, *, desired_output
 def _default_action_for_content_type(content_type: str | None) -> str:
     return {
         "x_post": "draft_post",
+        "x_reply": "reply",
         "reddit_thread": "draft_post",
         "paid_ad": "draft_ad",
         "reddit_reply": "reply",
@@ -883,7 +909,7 @@ def _normalize_source_platform(value: str | None, *, fallback: str | None = None
 
 
 def _platform_for_content_type(content_type: str) -> str:
-    if content_type == "x_post":
+    if content_type in {"x_post", "x_reply"}:
         return "x"
     if content_type in {"reddit_reply", "reddit_thread"}:
         return "reddit"
@@ -897,6 +923,7 @@ def _default_growth_title(campaign_type: str, ticker_theme: str | None = None) -
         "reddit_research_thread": "Reddit Research Thread",
         "article_reactive_x": "Article-Reactive X Campaign",
         "scheduled_x_campaign": "Scheduled X Campaign",
+        "x_reply_campaign": "X Reply Campaign",
     }
     label = labels.get(campaign_type, "AI Growth Draft")
     theme = str(ticker_theme or "").strip()
@@ -950,7 +977,6 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
 
     minimum_relevance_score = _clamp_int(payload.get("minimum_relevance_score", 60), 0, 100)
     max_items_per_run = _clamp_int(payload.get("max_items_per_run", 10), 1, 50)
-    max_drafts_per_day = _clamp_int(payload.get("max_drafts_per_day", payload.get("max_items_per_run", 1)), 1, 2)
     recency = str(payload.get("recency") or "week").strip().lower()
     if recency not in CAMPAIGN_RECENCIES:
         recency = "week"
@@ -961,6 +987,13 @@ def normalize_campaign_input(payload: dict[str, Any]) -> dict[str, Any]:
         platforms = ["x"]
         content_type = "x_post"
         max_items_per_run = min(max_items_per_run, 20)
+    if campaign_type == X_REPLY_CAMPAIGN_TYPE:
+        mode = X_REPLY_CAMPAIGN_TYPE
+        platforms = ["x"]
+        content_type = "x_reply"
+        max_items_per_run = min(max_items_per_run, 50)
+    max_drafts_limit = 10 if campaign_type in {SCHEDULED_X_CAMPAIGN_TYPE, X_REPLY_CAMPAIGN_TYPE} else 2
+    max_drafts_per_day = _clamp_int(payload.get("max_drafts_per_day", payload.get("max_items_per_run", 1)), 1, max_drafts_limit)
     status = str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "paused")).strip().lower()
     if status not in {"active", "paused", "stopped"}:
         status = "active" if bool(payload.get("enabled", True)) else "paused"
@@ -1374,6 +1407,7 @@ def _posting_links(opportunity: AiMarketingOpportunity, *, suggestion: AiMarketi
         "open_walnut_link": destination or None,
         "open_x": "https://x.com/home",
         "open_x_compose": f"https://x.com/intent/post?{urlencode({'text': x_text[:260]})}" if content_type == "x_post" else None,
+        "open_x_reply_source": source_url if content_type == "x_reply" and source_url else None,
         "open_reddit": "https://www.reddit.com/",
         "open_reddit_thread": source_url if source_url and "reddit.com" in source_url.lower() else None,
         "open_reddit_submit": f"https://www.reddit.com/r/{subreddit}/submit" if subreddit and content_type == "reddit_thread" else None,
@@ -1818,45 +1852,38 @@ def _article_card_asset(candidate: AiMarketingArticleCandidate, scoring: dict[st
     themes = scoring.get("themes") or []
     title_subject = ", ".join([*(f"${ticker}" for ticker in tickers[:3]), *themes[:2]]) or "Market context"
     bullets = _article_context_bullets(scoring)[:3]
-    card_url = _article_card_data_uri(title_subject, candidate.title, bullets)
-    return {
-        "title": f"Walnut reaction card: {title_subject}",
-        "asset_type": "image",
-        "url": card_url,
-        "thumbnail_url": card_url,
-        "suggested_caption": "Walnut-branded 16:9 article reaction card; generate from draft metadata, not article thumbnail.",
-        "source_data_notes": "Source: FMP / linked article. Do not reuse article thumbnails unless redistribution is explicitly allowed.",
-        "card": {
-            "title": title_subject,
-            "subtitle": candidate.title,
+    spec = _normalize_social_card_spec(
+        {
+            "card_type": "article_reactive",
+            "template": "article_reactive",
+            "ticker": tickers[0] if tickers else "",
+            "tickers": tickers,
+            "sentiment": "notable",
+            "headline": title_subject,
+            "subheadline": candidate.title,
             "bullets": bullets,
-            "footer": "Source: FMP / linked article",
-            "brand": "Walnut Markets",
-            "ratio": "16:9",
+            "key_stats": [
+                {"label": "Fit", "value": f"{scoring.get('final_score', 0)}/100"},
+                {"label": "Signal", "value": "Review"},
+            ],
+            "chips": [*(themes[:2]), "Article", "Signals"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com",
+            "visual_emphasis": "mini chart",
+            "source_label": str(candidate.site or "FMP / linked article"),
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
         },
-    }
-
-
-def _article_card_data_uri(title: str, subtitle: str, bullets: list[str]) -> str:
-    safe_title = html.escape(_truncate(title, 72) or "Market context")
-    safe_subtitle = html.escape(_truncate(subtitle, 120) or "Article reaction")
-    bullet_lines = bullets[:3] or ["Walnut context required before posting"]
-    bullet_markup = "".join(
-        f"<text x=\"86\" y=\"{302 + index * 54}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\">- {html.escape(_truncate(bullet, 82) or '')}</text>"
-        for index, bullet in enumerate(bullet_lines)
+        fallback_card_type="article_reactive",
+        fallback_tickers=tickers,
+        fallback_url="https://walnutmarkets.com",
     )
-    svg = (
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1600\" height=\"900\" viewBox=\"0 0 1600 900\">"
-        "<rect width=\"1600\" height=\"900\" fill=\"#061417\"/>"
-        "<rect x=\"56\" y=\"56\" width=\"1488\" height=\"788\" rx=\"18\" fill=\"#0b1f22\" stroke=\"#1f6f55\" stroke-width=\"3\"/>"
-        "<text x=\"84\" y=\"126\" fill=\"#22c55e\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
-        f"<text x=\"84\" y=\"220\" fill=\"#f8fafc\" font-size=\"58\" font-family=\"Arial\" font-weight=\"700\">{safe_title}</text>"
-        f"<text x=\"86\" y=\"262\" fill=\"#94a3b8\" font-size=\"25\" font-family=\"Arial\">{safe_subtitle}</text>"
-        f"{bullet_markup}"
-        "<text x=\"86\" y=\"790\" fill=\"#64748b\" font-size=\"24\" font-family=\"Arial\">Source: FMP / linked article - human review required</text>"
-        "</svg>"
-    )
-    return "data:image/svg+xml;charset=utf-8," + quote(svg, safe=":/,;=+-_.'()#")
+    asset = _social_card_asset(spec, source_note="Source: FMP / linked article. Do not reuse article thumbnails unless redistribution is explicitly allowed.")
+    asset["suggested_caption"] = "Walnut-branded 16:9 article reaction card generated from structured metadata."
+    return asset
 
 
 def _article_context_bullets(scoring: dict[str, Any]) -> list[str]:
@@ -1877,6 +1904,565 @@ def _article_context_bullets(scoring: dict[str, Any]) -> list[str]:
     if not bullets and context.get("themes"):
         bullets.append(f"Theme: {', '.join(context['themes'][:2])}")
     return bullets or ["Clear market hook", "Walnut context required before posting"]
+
+
+def _social_card_json_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "card_type": {"type": "string", "enum": sorted(SOCIAL_CARD_TYPES)},
+            "template": {"type": "string", "enum": sorted(SOCIAL_CARD_TEMPLATES)},
+            "ticker": {"type": "string"},
+            "tickers": {"type": "array", "items": {"type": "string"}},
+            "sentiment": {"type": "string", "enum": sorted(SOCIAL_CARD_SENTIMENTS)},
+            "headline": {"type": "string"},
+            "subheadline": {"type": "string"},
+            "bullets": {"type": "array", "items": {"type": "string"}},
+            "key_stats": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["label", "value"],
+                    "additionalProperties": False,
+                },
+            },
+            "chips": {"type": "array", "items": {"type": "string"}},
+            "cta": {"type": "string"},
+            "url": {"type": "string"},
+            "visual_emphasis": {"type": "string"},
+            "source_label": {"type": "string"},
+            "tone": {"type": "string", "enum": sorted(SOCIAL_CARD_TONES)},
+            "include_chart": {"type": "boolean"},
+            "include_cta": {"type": "boolean"},
+            "include_source_tag": {"type": "boolean"},
+            "include_walnut_url": {"type": "boolean"},
+        },
+        "required": [
+            "card_type",
+            "template",
+            "ticker",
+            "tickers",
+            "sentiment",
+            "headline",
+            "subheadline",
+            "bullets",
+            "key_stats",
+            "chips",
+            "cta",
+            "url",
+            "visual_emphasis",
+            "source_label",
+            "tone",
+            "include_chart",
+            "include_cta",
+            "include_source_tag",
+            "include_walnut_url",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _social_card_preferences(opportunity_metadata: dict[str, Any]) -> dict[str, Any]:
+    inputs = opportunity_metadata.get("inputs") if isinstance(opportunity_metadata.get("inputs"), dict) else {}
+    raw = inputs.get("social_card") if isinstance(inputs.get("social_card"), dict) else {}
+    return {
+        "template": str(raw.get("template") or raw.get("card_template") or "auto").strip().lower(),
+        "tone": str(raw.get("tone") or inputs.get("tone") or opportunity_metadata.get("tone") or "market-native").strip().lower(),
+        "include_chart": bool(raw.get("include_chart", True)),
+        "include_cta": bool(raw.get("include_cta", True)),
+        "include_source_tag": bool(raw.get("include_source_tag", True)),
+        "include_walnut_url": bool(raw.get("include_walnut_url", True)),
+        "include_article_thumbnail": bool(raw.get("include_article_thumbnail", False)),
+    }
+
+
+def _social_card_type_for_context(campaign_type: str | None, content_type: str | None, preferences: dict[str, Any]) -> str:
+    template = str(preferences.get("template") or "").strip().lower()
+    if template in {"article_reactive", "fast_reaction"}:
+        return "article_reactive"
+    if template in {"ticker_signal", "signal_card"}:
+        return "ticker_signal"
+    if template in {"congress_insider_activity", "activity_card"}:
+        return "congress_insider_activity"
+    if template in {"research_cover", "dd_cover"}:
+        return "research_cover"
+    if campaign_type == "article_reactive_x":
+        return "article_reactive"
+    if campaign_type == "reddit_research_thread" or content_type == "reddit_thread":
+        return "research_cover"
+    return "ticker_signal"
+
+
+def _normalize_social_card_spec(
+    value: Any,
+    *,
+    fallback_card_type: str,
+    fallback_tickers: list[str],
+    fallback_url: str,
+    preferences: dict[str, Any] | None = None,
+    visual_brief: Any = None,
+) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    prefs = preferences or {}
+    card_type = str(raw.get("card_type") or fallback_card_type or "ticker_signal").strip().lower()
+    if card_type not in SOCIAL_CARD_TYPES:
+        card_type = fallback_card_type if fallback_card_type in SOCIAL_CARD_TYPES else "ticker_signal"
+    template = str(raw.get("template") or prefs.get("template") or card_type).strip().lower()
+    if template == "auto" or template not in SOCIAL_CARD_TEMPLATES:
+        template = card_type
+    tone = str(raw.get("tone") or prefs.get("tone") or "market-native").strip().lower()
+    if tone not in SOCIAL_CARD_TONES:
+        tone = "market-native"
+    tickers = _normalized_tickers(raw.get("tickers") or fallback_tickers)
+    ticker = _normalized_tickers([raw.get("ticker")])[0] if _normalized_tickers([raw.get("ticker")]) else (tickers[0] if tickers else "")
+    if ticker and ticker not in tickers:
+        tickers = [ticker, *tickers]
+    sentiment = str(raw.get("sentiment") or "notable").strip().lower()
+    if sentiment not in SOCIAL_CARD_SENTIMENTS:
+        sentiment = "notable"
+    headline = _truncate(str(raw.get("headline") or "").strip(), 120) or _fallback_social_card_headline(card_type, ticker)
+    subheadline = _truncate(str(raw.get("subheadline") or "").strip(), 180) or "A Walnut signal stack worth reviewing before the market narrative gets too clean."
+    bullets = [_truncate(str(item or "").strip(), 110) or "" for item in _coerce_json_list(raw.get("bullets"))]
+    bullets = [item for item in bullets if item][:5]
+    if not bullets:
+        bullets = _social_card_bullets_from_visual_brief(visual_brief) or [
+            "One signal is noise. A stack is intelligence.",
+            "Watch price, disclosure, and confirmation data together.",
+            "Human review required before posting.",
+        ]
+    key_stats: list[dict[str, str]] = []
+    for item in _coerce_json_list(raw.get("key_stats")):
+        if not isinstance(item, dict):
+            continue
+        label = _truncate(str(item.get("label") or "").strip(), 22) or ""
+        stat_value = _truncate(str(item.get("value") or "").strip(), 24) or ""
+        if label or stat_value:
+            key_stats.append({"label": label or "Signal", "value": stat_value or "Review"})
+    if not key_stats:
+        key_stats = _social_card_stats_from_visual_brief(visual_brief) or [{"label": "Confirmation", "value": "Review"}, {"label": "Mode", "value": sentiment.title()}]
+    chips = [_truncate(str(item or "").strip(), 24) or "" for item in _coerce_json_list(raw.get("chips"))]
+    chips = [item for item in _dedupe_strings(chips) if item][:5]
+    if not chips:
+        chips = _default_social_card_chips(card_type)
+    url = _truncate(str(raw.get("url") or fallback_url or DEFAULT_DESTINATION_URL).strip(), 1200) or DEFAULT_DESTINATION_URL
+    return {
+        "card_type": card_type,
+        "template": template,
+        "ticker": ticker,
+        "tickers": tickers[:5],
+        "sentiment": sentiment,
+        "headline": headline,
+        "subheadline": subheadline,
+        "bullets": bullets[:5],
+        "key_stats": key_stats[:4],
+        "chips": chips[:5],
+        "cta": _truncate(str(raw.get("cta") or "Track the stack on Walnut").strip(), 80) or "Track the stack on Walnut",
+        "url": url,
+        "visual_emphasis": _truncate(str(raw.get("visual_emphasis") or "signal stack").strip(), 80) or "signal stack",
+        "source_label": _truncate(str(raw.get("source_label") or "Walnut intelligence").strip(), 48) or "Walnut intelligence",
+        "tone": tone,
+        "include_chart": bool(raw.get("include_chart", prefs.get("include_chart", True))),
+        "include_cta": bool(raw.get("include_cta", prefs.get("include_cta", True))),
+        "include_source_tag": bool(raw.get("include_source_tag", prefs.get("include_source_tag", True))),
+        "include_walnut_url": bool(raw.get("include_walnut_url", prefs.get("include_walnut_url", True))),
+    }
+
+
+def _fallback_social_card_headline(card_type: str, ticker: str) -> str:
+    if card_type == "article_reactive":
+        return f"{ticker or 'This headline'} needs a signal check"
+    if card_type == "congress_insider_activity":
+        return f"{ticker or 'Disclosure'} activity just hit the stack"
+    if card_type == "research_cover":
+        return f"{ticker or 'Market'} research stack"
+    return f"{ticker or 'Ticker'} signal stack is active"
+
+
+def _default_social_card_chips(card_type: str) -> list[str]:
+    if card_type == "article_reactive":
+        return ["Article", "Why now", "Signals"]
+    if card_type == "congress_insider_activity":
+        return ["Disclosure", "Activity", "Why it matters"]
+    if card_type == "research_cover":
+        return ["Research", "DD", "Evidence trail"]
+    return ["Signals", "Confirmation", "Price/Volume"]
+
+
+def _social_card_bullets_from_visual_brief(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    bullets = []
+    for row in _coerce_json_list(value.get("rows"))[:4]:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        note = str(row.get("note") or "").strip()
+        row_value = str(row.get("value") or "").strip()
+        line = " - ".join(part for part in (label, row_value, note) if part)
+        if line:
+            bullets.append(_truncate(line, 110) or "")
+    return [item for item in bullets if item]
+
+
+def _social_card_stats_from_visual_brief(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, dict):
+        return []
+    stats = []
+    for row in _coerce_json_list(value.get("rows"))[:3]:
+        if not isinstance(row, dict):
+            continue
+        label = _truncate(str(row.get("label") or "").strip(), 22) or ""
+        row_value = _truncate(str(row.get("value") or "").strip(), 24) or ""
+        if label or row_value:
+            stats.append({"label": label or "Signal", "value": row_value or "Active"})
+    return stats
+
+
+def _social_card_asset(spec: dict[str, Any], *, source_note: str | None = None) -> dict[str, Any]:
+    card_url = _social_card_data_uri(spec)
+    card_type = str(spec.get("card_type") or "ticker_signal")
+    template = str(spec.get("template") or card_type)
+    tone = str(spec.get("tone") or "market-native")
+    title = _truncate(str(spec.get("headline") or "Walnut social card").strip(), 90) or "Walnut social card"
+    return {
+        "title": f"Walnut {card_type.replace('_', ' ')} card: {title}",
+        "asset_type": "image",
+        "url": card_url,
+        "thumbnail_url": card_url,
+        "suggested_caption": _truncate(str(spec.get("headline") or title), 180) or title,
+        "source_data_notes": source_note or f"Template: {template}; tone: {tone}; deterministic 1600x900 Walnut social-card render.",
+        "template": template,
+        "card_type": card_type,
+        "tone": tone,
+        "card_spec": spec,
+        "width": SOCIAL_CARD_WIDTH,
+        "height": SOCIAL_CARD_HEIGHT,
+    }
+
+
+def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
+    demos = [
+        {
+            "card_type": "ticker_signal",
+            "template": "ticker_signal",
+            "ticker": "NVDA",
+            "tickers": ["NVDA"],
+            "sentiment": "bullish",
+            "headline": "NVDA's signal stack is still leading",
+            "subheadline": "The tell is not one data point. It is confirmation across price, filings, and disclosure context.",
+            "bullets": ["Price/volume remains the first confirmation layer.", "Disclosure and filing context keep the move on watch.", "We are watching whether the stack broadens or fades."],
+            "key_stats": [{"label": "Confirm", "value": "82/100"}, {"label": "RSI", "value": "Active"}, {"label": "Flow", "value": "Watch"}],
+            "chips": ["Signals", "Price/Volume", "Filings"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/NVDA",
+            "visual_emphasis": "confirmation stack",
+            "source_label": "Demo signal",
+            "tone": "sharp",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        {
+            "card_type": "ticker_signal",
+            "template": "ticker_signal",
+            "ticker": "SPY",
+            "tickers": ["SPY"],
+            "sentiment": "bullish",
+            "headline": "SPY breadth needs confirmation, not vibes",
+            "subheadline": "A bullish read gets stronger when macro, price, and source-stack context move together.",
+            "bullets": ["Confirmation score is the first read, not the final answer.", "Price and macro context should validate the move.", "Watch whether the signal survives the next risk window."],
+            "key_stats": [{"label": "Confirm", "value": "76/100"}, {"label": "Mode", "value": "Bullish"}, {"label": "Stack", "value": "3 layers"}],
+            "chips": ["Macro", "Signals", "Confirmation"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/SPY",
+            "visual_emphasis": "bullish confirmation",
+            "source_label": "Demo confirmation",
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        {
+            "card_type": "article_reactive",
+            "template": "article_reactive",
+            "ticker": "IBM",
+            "tickers": ["IBM"],
+            "sentiment": "bearish",
+            "headline": "IBM's AI story just got a harder read",
+            "subheadline": "The market is repricing where AI spend concentrates and which stacks can defend demand.",
+            "bullets": ["Software and infrastructure durability need validation.", "AI capex can grow while spend concentrates elsewhere.", "Watch institutional and confirmation data for follow-through."],
+            "key_stats": [{"label": "Move", "value": "Down"}, {"label": "Signal", "value": "Watch"}],
+            "chips": ["Article", "Financials", "Institutional"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/IBM",
+            "visual_emphasis": "reaction stack",
+            "source_label": "Demo article",
+            "tone": "sharp",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        {
+            "card_type": "article_reactive",
+            "template": "fast_reaction",
+            "ticker": "NBIS",
+            "tickers": ["NBIS"],
+            "sentiment": "active",
+            "headline": "AI infrastructure is turning into a capacity trade",
+            "subheadline": "Nebius-style compute headlines need a demand, margin, and funding stack before the story is clean.",
+            "bullets": ["Compute deals can be catalysts and capital-intensity warnings.", "Contract quality matters more than headline size.", "Price/volume tells whether the market believes the ramp."],
+            "key_stats": [{"label": "Theme", "value": "AI infra"}, {"label": "Mode", "value": "Active"}],
+            "chips": ["AI Infra", "Contracts", "Why now"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/NBIS",
+            "visual_emphasis": "capacity stack",
+            "source_label": "Demo article",
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        {
+            "card_type": "congress_insider_activity",
+            "template": "activity_card",
+            "ticker": "MSFT",
+            "tickers": ["MSFT"],
+            "sentiment": "notable",
+            "headline": "A Congress disclosure is only the first tell",
+            "subheadline": "The useful read comes from trade timing, filing lag, ticker context, and confirmation after disclosure.",
+            "bullets": ["Reported activity needs trade date and disclosure date together.", "Filing lag changes how fresh the signal really is.", "Ticker confirmation decides whether it matters now."],
+            "key_stats": [{"label": "Type", "value": "Buy"}, {"label": "Lag", "value": "Review"}],
+            "chips": ["Congress", "Disclosure", "Why it matters"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/feed?event_type=congress_trade",
+            "visual_emphasis": "disclosure timeline",
+            "source_label": "Demo disclosure",
+            "tone": "neutral",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+        {
+            "card_type": "congress_insider_activity",
+            "template": "activity_card",
+            "ticker": "PLTR",
+            "tickers": ["PLTR"],
+            "sentiment": "active",
+            "headline": "Insider activity needs context before it becomes signal",
+            "subheadline": "Form 4 activity is strongest when role, size, timing, and price behavior line up.",
+            "bullets": ["Role and transaction type change the interpretation.", "Reported date is not the same thing as market confirmation.", "Watch whether price/volume validates the disclosure."],
+            "key_stats": [{"label": "Type", "value": "Sell"}, {"label": "Signal", "value": "Context"}],
+            "chips": ["Insider", "Form 4", "Signals"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/feed?event_type=insider_trade",
+            "visual_emphasis": "activity stack",
+            "source_label": "Demo insider",
+            "tone": "educational",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
+    ]
+    return [_social_card_asset(_normalize_social_card_spec(item, fallback_card_type=str(item["card_type"]), fallback_tickers=item.get("tickers", []), fallback_url=str(item.get("url") or DEFAULT_DESTINATION_URL))) for item in demos]
+
+
+def _social_card_data_uri(spec: dict[str, Any]) -> str:
+    accent = _social_card_accent(str(spec.get("sentiment") or "notable"))
+    ticker = str(spec.get("ticker") or "").upper()
+    card_type = str(spec.get("card_type") or "ticker_signal")
+    chip_text = [str(item) for item in spec.get("chips", []) if str(item).strip()][:4]
+    stats = [item for item in spec.get("key_stats", []) if isinstance(item, dict)][:4]
+    bullets = [str(item) for item in spec.get("bullets", []) if str(item).strip()][:4]
+    source_label = str(spec.get("source_label") or "Walnut intelligence")
+    cta = str(spec.get("cta") or "Track the stack on Walnut")
+    url = str(spec.get("url") or DEFAULT_DESTINATION_URL)
+    include_chart = bool(spec.get("include_chart", True))
+    include_cta = bool(spec.get("include_cta", True))
+    include_source_tag = bool(spec.get("include_source_tag", True))
+    include_url = bool(spec.get("include_walnut_url", True))
+    visual_label = str(spec.get("visual_emphasis") or "signal stack")
+    headline_lines = _svg_line_tspans(spec.get("headline"), max_chars=24 if card_type == "research_cover" else 27, max_lines=3, x=88, y=236, font_size=58, line_height=66)
+    subheadline_lines = _svg_line_tspans(spec.get("subheadline"), max_chars=56, max_lines=2, x=90, y=442, font_size=27, line_height=36, fill="#b6cbd0")
+    bullet_markup = _social_card_bullet_markup(bullets, x=96, y=548, max_chars=58)
+    chip_markup = _social_card_chip_markup(chip_text, x=88, y=144, accent=accent)
+    stat_markup = _social_card_stat_markup(stats, x=930, y=150, accent=accent)
+    chart_markup = _social_card_chart_markup(stats, x=930, y=420, accent=accent, label=visual_label) if include_chart else _social_card_signal_panel(x=930, y=420, accent=accent, label=visual_label)
+    ticker_markup = (
+        f"<rect x=\"930\" y=\"74\" width=\"210\" height=\"58\" rx=\"14\" fill=\"{accent}\" opacity=\"0.18\" stroke=\"{accent}\" stroke-width=\"2\"/>"
+        f"<text x=\"954\" y=\"113\" fill=\"#f8fafc\" font-size=\"34\" font-family=\"Arial\" font-weight=\"700\">${html.escape(_truncate(ticker, 8) or 'WMT')}</text>"
+        if ticker
+        else ""
+    )
+    source_markup = (
+        f"<text x=\"1210\" y=\"112\" fill=\"#8ea5aa\" font-size=\"22\" font-family=\"Arial\">{html.escape(_truncate(source_label, 34) or '')}</text>"
+        if include_source_tag
+        else ""
+    )
+    cta_markup = ""
+    if include_cta:
+        cta_markup = (
+            f"<rect x=\"64\" y=\"770\" width=\"1472\" height=\"74\" rx=\"18\" fill=\"#071e21\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.94\"/>"
+            f"<text x=\"94\" y=\"817\" fill=\"#f8fafc\" font-size=\"30\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(cta, 58) or 'Track the stack on Walnut')}</text>"
+            f"<text x=\"1120\" y=\"817\" fill=\"#8ff5c6\" font-size=\"24\" font-family=\"Arial\">{html.escape(_short_card_url(url) if include_url else 'walnutmarkets.com')}</text>"
+        )
+    footer = f"{card_type.replace('_', ' ').title()} / Walnut Markets"
+    svg = (
+        f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{SOCIAL_CARD_WIDTH}\" height=\"{SOCIAL_CARD_HEIGHT}\" viewBox=\"0 0 {SOCIAL_CARD_WIDTH} {SOCIAL_CARD_HEIGHT}\">"
+        "<rect width=\"1600\" height=\"900\" fill=\"#061114\"/>"
+        "<rect x=\"0\" y=\"0\" width=\"1600\" height=\"900\" fill=\"#071a1f\" opacity=\"0.82\"/>"
+        f"<rect x=\"42\" y=\"42\" width=\"1516\" height=\"816\" rx=\"26\" fill=\"#0b1d22\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.98\"/>"
+        f"<rect x=\"64\" y=\"64\" width=\"1472\" height=\"118\" rx=\"20\" fill=\"#0f2a2f\" opacity=\"0.78\"/>"
+        f"<rect x=\"64\" y=\"710\" width=\"820\" height=\"2\" fill=\"{accent}\" opacity=\"0.72\"/>"
+        f"<text x=\"88\" y=\"112\" fill=\"#f8fafc\" font-size=\"31\" font-family=\"Arial\" font-weight=\"700\">Walnut Markets</text>"
+        f"<text x=\"88\" y=\"790\" fill=\"#6e858a\" font-size=\"20\" font-family=\"Arial\">{html.escape(footer)}</text>"
+        f"{ticker_markup}{source_markup}{chip_markup}{headline_lines}{subheadline_lines}{bullet_markup}{stat_markup}{chart_markup}{cta_markup}"
+        "</svg>"
+    )
+    return "data:image/svg+xml;charset=utf-8," + quote(svg, safe=":/,;=+-_.'()#")
+
+
+def _social_card_accent(sentiment: str) -> str:
+    return {
+        "bullish": "#25d889",
+        "bearish": "#f87171",
+        "active": "#38bdf8",
+        "neutral": "#8ff5c6",
+        "notable": "#2dd4bf",
+    }.get(sentiment, "#2dd4bf")
+
+
+def _svg_line_tspans(value: Any, *, max_chars: int, max_lines: int, x: int, y: int, font_size: int, line_height: int, fill: str = "#f8fafc") -> str:
+    lines = _wrap_card_text(str(value or ""), max_chars=max_chars, max_lines=max_lines)
+    return "".join(
+        f"<text x=\"{x}\" y=\"{y + index * line_height}\" fill=\"{fill}\" font-size=\"{font_size}\" font-family=\"Arial\" font-weight=\"700\">{html.escape(line)}</text>"
+        for index, line in enumerate(lines)
+    )
+
+
+def _wrap_card_text(value: str, *, max_chars: int, max_lines: int) -> list[str]:
+    cleaned = re.sub(r"\s+", " ", value).strip()
+    if not cleaned:
+        return []
+    words = cleaned.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if len(word) > max_chars:
+            word = f"{word[: max(1, max_chars - 1)]}..."
+        candidate = f"{current} {word}".strip()
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        current = word
+        if len(lines) >= max_lines:
+            break
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    consumed = " ".join(lines).replace("...", "")
+    if len(lines) == max_lines and len(consumed) < len(cleaned):
+        lines[-1] = _truncate(lines[-1], max(4, max_chars - 3)) + "..."
+    return lines
+
+
+def _social_card_chip_markup(chips: list[str], *, x: int, y: int, accent: str) -> str:
+    markup: list[str] = []
+    cursor = x
+    for chip in chips[:4]:
+        label = _truncate(chip, 22) or ""
+        width = max(92, min(210, 34 + len(label) * 13))
+        markup.append(
+            f"<rect x=\"{cursor}\" y=\"{y}\" width=\"{width}\" height=\"38\" rx=\"10\" fill=\"{accent}\" opacity=\"0.16\" stroke=\"{accent}\" stroke-width=\"1\"/>"
+            f"<text x=\"{cursor + 16}\" y=\"{y + 25}\" fill=\"#d8fff0\" font-size=\"18\" font-family=\"Arial\" font-weight=\"700\">{html.escape(label)}</text>"
+        )
+        cursor += width + 12
+    return "".join(markup)
+
+
+def _social_card_bullet_markup(bullets: list[str], *, x: int, y: int, max_chars: int) -> str:
+    markup: list[str] = []
+    cursor_y = y
+    for bullet in bullets[:4]:
+        lines = _wrap_card_text(bullet, max_chars=max_chars, max_lines=2)
+        if not lines:
+            continue
+        markup.append(f"<rect x=\"{x}\" y=\"{cursor_y - 24}\" width=\"10\" height=\"10\" rx=\"3\" fill=\"#2dd4bf\"/>")
+        for index, line in enumerate(lines):
+            markup.append(
+                f"<text x=\"{x + 28}\" y=\"{cursor_y + index * 29}\" fill=\"#d7e5e8\" font-size=\"25\" font-family=\"Arial\">{html.escape(line)}</text>"
+            )
+        cursor_y += 48 + (len(lines) - 1) * 29
+    return "".join(markup)
+
+
+def _social_card_stat_markup(stats: list[dict[str, Any]], *, x: int, y: int, accent: str) -> str:
+    markup: list[str] = []
+    for index, stat in enumerate(stats[:4]):
+        col = index % 2
+        row = index // 2
+        stat_x = x + col * 294
+        stat_y = y + row * 126
+        label = html.escape(_truncate(str(stat.get("label") or "Signal"), 20) or "Signal")
+        value = html.escape(_truncate(str(stat.get("value") or "Review"), 16) or "Review")
+        markup.append(
+            f"<rect x=\"{stat_x}\" y=\"{stat_y}\" width=\"260\" height=\"98\" rx=\"18\" fill=\"#10292e\" stroke=\"#1e444b\" stroke-width=\"1\"/>"
+            f"<text x=\"{stat_x + 22}\" y=\"{stat_y + 34}\" fill=\"#8ea5aa\" font-size=\"18\" font-family=\"Arial\" font-weight=\"700\">{label}</text>"
+            f"<text x=\"{stat_x + 22}\" y=\"{stat_y + 74}\" fill=\"{accent}\" font-size=\"32\" font-family=\"Arial\" font-weight=\"700\">{value}</text>"
+        )
+    return "".join(markup)
+
+
+def _social_card_chart_markup(stats: list[dict[str, Any]], *, x: int, y: int, accent: str, label: str) -> str:
+    markup = [
+        f"<rect x=\"{x}\" y=\"{y}\" width=\"554\" height=\"246\" rx=\"22\" fill=\"#08181c\" stroke=\"#1d3d43\" stroke-width=\"1\"/>",
+        f"<text x=\"{x + 28}\" y=\"{y + 42}\" fill=\"#f8fafc\" font-size=\"24\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(label, 32) or 'Signal stack')}</text>",
+    ]
+    values = [_numeric_value_from_label(str(stat.get("value") or "")) for stat in stats[:4]]
+    max_value = max([value for value in values if value is not None] or [100])
+    for index in range(7):
+        height = 46 + ((index * 37 + len(stats) * 11) % 132)
+        if index < len(values) and values[index] is not None and max_value:
+            height = max(36, min(154, int(42 + (values[index] or 0) / max_value * 118)))
+        bar_x = x + 42 + index * 70
+        bar_y = y + 202 - height
+        opacity = "0.95" if index < len(stats) else "0.28"
+        markup.append(f"<rect x=\"{bar_x}\" y=\"{bar_y}\" width=\"40\" height=\"{height}\" rx=\"10\" fill=\"{accent}\" opacity=\"{opacity}\"/>")
+    markup.append(f"<text x=\"{x + 28}\" y=\"{y + 224}\" fill=\"#6e858a\" font-size=\"18\" font-family=\"Arial\">Deterministic Walnut chart module</text>")
+    return "".join(markup)
+
+
+def _social_card_signal_panel(*, x: int, y: int, accent: str, label: str) -> str:
+    safe_label = html.escape(_truncate(label, 36) or "Evidence trail")
+    return (
+        f"<rect x=\"{x}\" y=\"{y}\" width=\"554\" height=\"246\" rx=\"22\" fill=\"#08181c\" stroke=\"#1d3d43\" stroke-width=\"1\"/>"
+        f"<text x=\"{x + 30}\" y=\"{y + 52}\" fill=\"#f8fafc\" font-size=\"26\" font-family=\"Arial\" font-weight=\"700\">{safe_label}</text>"
+        f"<rect x=\"{x + 34}\" y=\"{y + 92}\" width=\"486\" height=\"28\" rx=\"9\" fill=\"{accent}\" opacity=\"0.72\"/>"
+        f"<rect x=\"{x + 34}\" y=\"{y + 142}\" width=\"386\" height=\"28\" rx=\"9\" fill=\"#8ff5c6\" opacity=\"0.42\"/>"
+        f"<rect x=\"{x + 34}\" y=\"{y + 192}\" width=\"446\" height=\"28\" rx=\"9\" fill=\"#38bdf8\" opacity=\"0.34\"/>"
+    )
+
+
+def _short_card_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.netloc:
+        path = parsed.path.rstrip("/")
+        if path:
+            return f"{parsed.netloc}{_truncate(path, 28) or ''}"
+        return parsed.netloc
+    return _truncate(value, 42) or "walnutmarkets.com"
 
 
 def _x_visual_brief_asset(value: Any, *, detected_tickers: list[str]) -> dict[str, Any] | None:
@@ -2317,6 +2903,44 @@ def scheduled_x_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | N
     return True
 
 
+def x_reply_campaign_due(campaign: AiMarketingCampaign, *, now: datetime | None = None) -> bool:
+    if not campaign.enabled or str(campaign.status or "active").lower() != "active":
+        return False
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) != X_REPLY_CAMPAIGN_TYPE:
+        return False
+    tz = _campaign_run_timezone(campaign)
+    local_now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    schedule_config = _load_object(campaign.schedule_config_json)
+    start_date = str(schedule_config.get("start_date") or "").strip()
+    if start_date:
+        try:
+            if local_now.date() < date.fromisoformat(start_date):
+                return False
+        except ValueError:
+            pass
+    cadence = str(schedule_config.get("cadence") or ("weekdays" if campaign.weekdays_only else "daily")).strip().lower()
+    if cadence not in {"daily", "weekdays", "weekly"}:
+        cadence = "weekdays" if campaign.weekdays_only else "daily"
+    if cadence == "weekdays" and local_now.weekday() >= 5:
+        return False
+    if cadence == "weekly":
+        configured_day = _weekly_campaign_day(schedule_config)
+        if configured_day is not None and local_now.weekday() != configured_day:
+            return False
+    hour, minute = _campaign_run_time(campaign, default="07:15")
+    scheduled_local = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if local_now < scheduled_local:
+        return False
+    last_local = _campaign_last_run_local(campaign, tz)
+    if not last_local:
+        return True
+    if last_local.date() == local_now.date():
+        return False
+    if cadence == "weekly" and (local_now.date() - last_local.date()).days < 6:
+        return False
+    return True
+
+
 def run_due_article_reactive_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
     campaigns = db.execute(
         select(AiMarketingCampaign).where(
@@ -2373,15 +2997,45 @@ def run_due_scheduled_x_campaigns(db: Session, *, force: bool = False, dry_run: 
     }
 
 
+def run_due_x_reply_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    campaigns = db.execute(
+        select(AiMarketingCampaign).where(
+            or_(AiMarketingCampaign.campaign_type == X_REPLY_CAMPAIGN_TYPE, AiMarketingCampaign.mode == X_REPLY_CAMPAIGN_TYPE),
+            AiMarketingCampaign.enabled == True,  # noqa: E712
+        )
+    ).scalars().all()
+    results: list[dict[str, Any]] = []
+    for campaign in campaigns:
+        due = force or x_reply_campaign_due(campaign)
+        if not due:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "not_due"})
+            continue
+        if dry_run:
+            results.append({"campaign_id": campaign.id, "campaign_name": campaign.name, "status": "due_dry_run"})
+            continue
+        result = run_x_reply_campaign(db, campaign)
+        result["campaign_id"] = campaign.id
+        result["campaign_name"] = campaign.name
+        results.append(result)
+    return {
+        "campaigns_checked": len(campaigns),
+        "campaigns_run": sum(1 for item in results if item.get("drafts_generated") is not None),
+        "dry_run": dry_run,
+        "items": results,
+    }
+
+
 def run_due_ai_growth_campaigns(db: Session, *, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
     article = run_due_article_reactive_campaigns(db, force=force, dry_run=dry_run)
     scheduled_x = run_due_scheduled_x_campaigns(db, force=force, dry_run=dry_run)
+    x_replies = run_due_x_reply_campaigns(db, force=force, dry_run=dry_run)
     return {
-        "campaigns_checked": int(article.get("campaigns_checked") or 0) + int(scheduled_x.get("campaigns_checked") or 0),
-        "campaigns_run": int(article.get("campaigns_run") or 0) + int(scheduled_x.get("campaigns_run") or 0),
+        "campaigns_checked": int(article.get("campaigns_checked") or 0) + int(scheduled_x.get("campaigns_checked") or 0) + int(x_replies.get("campaigns_checked") or 0),
+        "campaigns_run": int(article.get("campaigns_run") or 0) + int(scheduled_x.get("campaigns_run") or 0) + int(x_replies.get("campaigns_run") or 0),
         "dry_run": dry_run,
         "article_reactive_x": article,
         "scheduled_x_campaigns": scheduled_x,
+        "x_reply_campaigns": x_replies,
     }
 
 
@@ -2837,6 +3491,241 @@ def _scheduled_x_context(db: Session, campaign: AiMarketingCampaign, *, index: i
     return ticker_theme, {"text": text, "inputs": inputs, "preferences": preferences, "source_label": source_label}
 
 
+def _x_reply_handle_list(filters: dict[str, Any], campaign: AiMarketingCampaign, key: str) -> list[str]:
+    values = filters.get(key)
+    if not values and key == "target_handles":
+        values = campaign.source_reference_id
+    return _dedupe_strings([item.strip().lstrip("@") for item in _normalized_string_list(values) if item.strip()])
+
+
+def _x_reply_search_terms(filters: dict[str, Any], campaign: AiMarketingCampaign) -> list[str]:
+    terms = _normalized_string_list(filters.get("keywords") or filters.get("search_terms"))
+    terms.extend(_load_list(campaign.keywords_json))
+    terms.extend(f"${ticker}" for ticker in _load_list(campaign.tickers_json))
+    return _dedupe_strings([term for term in terms if term])
+
+
+def _x_author_map(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    includes = payload.get("includes") if isinstance(payload.get("includes"), dict) else {}
+    users = includes.get("users") if isinstance(includes.get("users"), list) else []
+    return {str(user.get("id")): user for user in users if isinstance(user, dict) and user.get("id")}
+
+
+def _x_metric(metrics: dict[str, Any], key: str) -> int:
+    try:
+        return int(metrics.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _x_reply_candidate_score(tweet: dict[str, Any], author: dict[str, Any], *, matched_tickers: list[str], target_handles: list[str]) -> int:
+    metrics = tweet.get("public_metrics") if isinstance(tweet.get("public_metrics"), dict) else {}
+    user_metrics = author.get("public_metrics") if isinstance(author.get("public_metrics"), dict) else {}
+    score = 35
+    score += min(30, _x_metric(metrics, "like_count") // 10)
+    score += min(20, _x_metric(metrics, "reply_count") // 5)
+    score += min(20, _x_metric(metrics, "retweet_count") // 5)
+    score += min(15, _x_metric(metrics, "quote_count") // 3)
+    score += min(25, _x_metric(user_metrics, "followers_count") // 50000)
+    if matched_tickers:
+        score += 15
+    if str(author.get("username") or "").lower() in {handle.lower() for handle in target_handles}:
+        score += 20
+    if author.get("verified"):
+        score += 5
+    return max(0, min(score, 100))
+
+
+def _x_tweet_to_source_item(
+    db: Session,
+    campaign: AiMarketingCampaign,
+    tweet: dict[str, Any],
+    author: dict[str, Any],
+    *,
+    source_mode: str,
+    target_handles: list[str],
+) -> SourceItem | None:
+    tweet_id = str(tweet.get("id") or "").strip()
+    text = _truncate(str(tweet.get("text") or "").strip(), 1500) or ""
+    if not tweet_id or not text:
+        return None
+    username = str(author.get("username") or "").strip()
+    name = str(author.get("name") or username or "X user").strip()
+    source_url = _x_author_public_url(username, tweet_id)
+    tickers = _matched_tickers(text, _load_list(campaign.tickers_json))
+    walnut_context = _walnut_context_for_research_tickers(db, tickers[:3], title=text[:140], excerpt=text) if tickers else {}
+    metrics = tweet.get("public_metrics") if isinstance(tweet.get("public_metrics"), dict) else {}
+    score = _x_reply_candidate_score(tweet, author, matched_tickers=tickers, target_handles=target_handles)
+    created_at = _parse_article_datetime(tweet.get("created_at"))
+    ticker_theme = ", ".join(f"${ticker}" for ticker in tickers[:4]) or (f"@{username}" if username else "X reply")
+    title = f"Reply candidate: @{username}" if username else "X reply candidate"
+    return SourceItem(
+        platform="x",
+        source_id=f"x-reply:{tweet_id}",
+        source_url=source_url,
+        source_provider=X_REPLY_PROVIDER,
+        campaign_type=X_REPLY_CAMPAIGN_TYPE,
+        content_type="x_reply",
+        source_platform="x",
+        ticker_theme=ticker_theme,
+        recommended_action="reply",
+        title=title,
+        excerpt=text,
+        author=f"@{username}" if username else name,
+        community="X",
+        source_score=score,
+        comment_count=_x_metric(metrics, "reply_count"),
+        source_created_at=created_at,
+        metadata={
+            "x_reply_campaign": True,
+            "x_source_mode": source_mode,
+            "x_tweet_id": tweet_id,
+            "x_author_id": tweet.get("author_id"),
+            "x_author_username": username,
+            "x_author_name": name,
+            "x_public_metrics": metrics,
+            "x_author_metrics": author.get("public_metrics") if isinstance(author.get("public_metrics"), dict) else {},
+            "x_conversation_id": tweet.get("conversation_id"),
+            "walnut_context": walnut_context,
+            "article_tickers": tickers,
+            "suggested_destination_url": f"https://walnutmarkets.com/ticker/{tickers[0]}" if tickers else campaign.default_destination_page,
+            "inputs": {
+                "reply_candidate_text": text,
+                "reply_to_author": f"@{username}" if username else name,
+                "reply_to_url": source_url,
+                "source_mode": source_mode,
+                "public_metrics": metrics,
+                "campaign_preferences": _load_object(campaign.output_preferences_json),
+                "filters": _load_object(campaign.filters_json),
+                "instruction": "Generate a reply suggestion only. Do not post. Match Walnut's concise high-performing X reply voice.",
+            },
+        },
+    )
+
+
+def _x_reply_candidate_items(db: Session, campaign: AiMarketingCampaign) -> list[SourceItem]:
+    filters = _load_object(campaign.filters_json)
+    source_mode = str(campaign.source_type or filters.get("source_mode") or "home_feed").strip().lower()
+    target_handles = _x_reply_handle_list(filters, campaign, "target_handles")
+    ignore_handles = {handle.lower() for handle in _x_reply_handle_list(filters, campaign, "ignore_handles")}
+    own_handle = (os.getenv("X_CONNECTED_HANDLE", "").strip().lstrip("@") or "WalnutMarkets").lower()
+    ignore_handles.add(own_handle)
+    limit = max(10, min(int(campaign.max_items_per_run or 25), 100))
+    payloads: list[tuple[str, dict[str, Any]]] = []
+    if source_mode in {"home_feed", "feed", "timeline"}:
+        payloads.append(("home_feed", _x_home_timeline(db, limit=limit)))
+    if source_mode in {"mentions", "account_mentions"}:
+        payloads.append(("mentions", _x_mentions(db, limit=limit)))
+    if source_mode in {"target_handles", "handles", "watch_handles"}:
+        for handle in target_handles[:10]:
+            query = f"from:{handle} -from:{own_handle} -is:retweet -is:reply lang:en"
+            payloads.append((f"from:{handle}", _x_recent_search(db, query, limit=limit)))
+    if source_mode in {"keyword_search", "search", "cashtag_search"}:
+        terms = _x_reply_search_terms(filters, campaign)
+        query_body = " OR ".join(terms[:12]) if terms else "$SPY OR $QQQ OR $NVDA OR $AAPL"
+        query = f"({query_body}) -from:{own_handle} -is:retweet -is:reply lang:en"
+        payloads.append(("keyword_search", _x_recent_search(db, query, limit=limit)))
+    if not payloads:
+        payloads.append(("home_feed", _x_home_timeline(db, limit=limit)))
+
+    items: list[SourceItem] = []
+    seen_ids: set[str] = set()
+    min_score = _clamp_int(filters.get("minimum_candidate_score") or campaign.minimum_relevance_score or 50, 0, 100)
+    require_ticker = bool(filters.get("require_ticker", False))
+    for mode, payload in payloads:
+        authors = _x_author_map(payload)
+        tweets = payload.get("data") if isinstance(payload.get("data"), list) else []
+        for tweet in tweets:
+            if not isinstance(tweet, dict):
+                continue
+            tweet_id = str(tweet.get("id") or "")
+            if not tweet_id or tweet_id in seen_ids:
+                continue
+            author = authors.get(str(tweet.get("author_id") or ""), {})
+            username = str(author.get("username") or "").strip().lstrip("@")
+            if username.lower() in ignore_handles:
+                continue
+            text = str(tweet.get("text") or "")
+            if require_ticker and not _matched_tickers(text, _load_list(campaign.tickers_json)):
+                continue
+            item = _x_tweet_to_source_item(db, campaign, tweet, author, source_mode=mode, target_handles=target_handles)
+            if not item or int(item.source_score or 0) < min_score:
+                continue
+            seen_ids.add(tweet_id)
+            items.append(item)
+    return sorted(items, key=lambda item: int(item.source_score or 0), reverse=True)
+
+
+def run_x_reply_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": "ok",
+        "candidates_considered": 0,
+        "drafts_generated": 0,
+        "emails_sent": 0,
+        "created": 0,
+        "deduped": 0,
+        "suggested": 0,
+        "warnings": [],
+        "errors": [],
+        "opportunities": [],
+    }
+    status = str(campaign.status or ("active" if campaign.enabled else "paused")).lower()
+    if not campaign.enabled or status != "active":
+        summary["status"] = status if status in {"paused", "stopped"} else "paused"
+        summary["warnings"].append("Campaign is disabled; no X reply discovery run was performed.")
+        record_campaign_run(db, campaign, summary)
+        return summary
+    try:
+        candidates = _x_reply_candidate_items(db, campaign)
+    except MissingMarketingCredential as exc:
+        summary["status"] = "config_error"
+        summary["errors"].append(str(exc))
+        record_campaign_run(db, campaign, summary)
+        return summary
+    except Exception as exc:
+        logger.exception("x_reply_discovery_failed campaign_id=%s", campaign.id)
+        summary["status"] = "error"
+        summary["errors"].append(f"X reply discovery failed: {exc}")
+        record_campaign_run(db, campaign, summary)
+        return summary
+
+    summary["candidates_considered"] = len(candidates)
+    max_drafts = max(1, min(int(campaign.max_drafts_per_day or 5), 10))
+    selected: list[AiMarketingOpportunity] = []
+    for item in candidates[:max_drafts]:
+        opportunity, was_created = upsert_source_item(db, campaign, item)
+        selected.append(opportunity)
+        if was_created:
+            summary["created"] += 1
+        else:
+            summary["deduped"] += 1
+        if resolved_setting_value(db, OPENAI_API_KEY):
+            try:
+                generate_suggestion(db, opportunity, campaign=campaign)
+                summary["suggested"] += 1
+            except OpenAISuggestionError as exc:
+                summary["warnings"].append(f"Reply suggestion failed for draft {opportunity.id}: {exc.admin_message}")
+            except Exception:
+                logger.exception("x_reply_suggestion_failed opportunity_id=%s", opportunity.id)
+                summary["warnings"].append(f"Reply suggestion failed for draft {opportunity.id}.")
+        else:
+            summary["warnings"].append("OpenAI API key missing; X reply candidate saved without generated copy.")
+            _record_suggestion_failure(db, opportunity, OPENAI_MISSING_KEY_MESSAGE, code="missing_key")
+        try:
+            send_draft_email(db, opportunity, to_email=campaign.recipient_email or ai_growth_recipient())
+            summary["emails_sent"] += 1
+        except Exception:
+            logger.exception("x_reply_email_failed opportunity_id=%s", opportunity.id)
+            summary["warnings"].append(f"Email failed for X reply draft {opportunity.id}.")
+    summary["drafts_generated"] = len(selected)
+    latest = latest_suggestions_by_opportunity(db, [row.id for row in selected])
+    summary["opportunities"] = [opportunity_to_dict(row, suggestion=latest.get(row.id)) for row in selected]
+    campaign.last_run_at = datetime.now(timezone.utc)
+    db.commit()
+    record_campaign_run(db, campaign, summary)
+    return summary
+
+
 def run_scheduled_x_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "status": "ok",
@@ -2929,6 +3818,8 @@ def run_campaign(db: Session, campaign: AiMarketingCampaign) -> dict[str, Any]:
         return run_article_reactive_campaign(db, campaign)
     if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == SCHEDULED_X_CAMPAIGN_TYPE:
         return run_scheduled_x_campaign(db, campaign)
+    if _normalize_campaign_type(campaign.campaign_type, fallback_mode=campaign.mode) == X_REPLY_CAMPAIGN_TYPE:
+        return run_x_reply_campaign(db, campaign)
 
     items: list[SourceItem] = []
     platforms = set(_load_list(campaign.platforms_json))
@@ -3252,14 +4143,21 @@ def regenerate_growth_draft(
     opportunity: AiMarketingOpportunity,
     *,
     change_request: str | None = None,
+    card_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     change_text = _truncate(str(change_request or "").strip(), 1000) or ""
-    if change_text:
+    if change_text or card_options:
         metadata = _load_object(opportunity.raw_metadata_json)
-        history = _coerce_json_list(metadata.get("change_requests"))
-        history.append({"requested_at": datetime.now(timezone.utc).isoformat(), "request": change_text})
-        metadata["change_request"] = change_text
-        metadata["change_requests"] = history[-10:]
+        if change_text:
+            history = _coerce_json_list(metadata.get("change_requests"))
+            history.append({"requested_at": datetime.now(timezone.utc).isoformat(), "request": change_text})
+            metadata["change_request"] = change_text
+            metadata["change_requests"] = history[-10:]
+        if card_options:
+            inputs = metadata.get("inputs") if isinstance(metadata.get("inputs"), dict) else {}
+            existing = inputs.get("social_card") if isinstance(inputs.get("social_card"), dict) else {}
+            inputs["social_card"] = {**existing, **card_options}
+            metadata["inputs"] = inputs
         opportunity.raw_metadata_json = _dump_object(metadata)
     opportunity.status = "needs_review"
     opportunity.updated_at = datetime.now(timezone.utc)
@@ -3316,6 +4214,8 @@ def generate_suggestion(
     campaign_type = _normalize_campaign_type(opportunity.campaign_type or (campaign.campaign_type if campaign else None), fallback_mode=campaign.mode if campaign else None)
     content_type = _normalize_content_type(opportunity.content_type, campaign_type=campaign_type, platform=platform)
     source_platform = _normalize_source_platform(opportunity.source_platform, fallback=platform)
+    social_card_preferences = _social_card_preferences(opportunity_metadata)
+    social_card_type = _social_card_type_for_context(campaign_type, content_type, social_card_preferences)
     destination_hint = recommended_destination_url(
         mode=campaign_type if campaign_type != "legacy_outreach_campaign" else (campaign.mode if campaign else "manual_url_review"),
         platform=platform,
@@ -3372,14 +4272,35 @@ def generate_suggestion(
                                 "themes": opportunity_metadata.get("themes"),
                                 "walnut_context": opportunity_metadata.get("walnut_context"),
                                 "scoring": opportunity_metadata.get("scoring"),
+                                "social_card_preferences": social_card_preferences,
                             },
                             "assets": _load_json_list(opportunity.asset_refs_json),
                         },
                         "routing_hint": destination_hint,
                         "content_constraints": {
+                            "social_card": {
+                                "required": content_type in {"x_post", "reddit_thread"},
+                                "preferred_card_type": social_card_type,
+                                "allowed_card_types": sorted(SOCIAL_CARD_TYPES),
+                                "allowed_tones": sorted(SOCIAL_CARD_TONES),
+                                "x_landscape_ratio": "1600x900",
+                                "hard_requirements": [
+                                    "structured JSON only",
+                                    "short headline and subheadline",
+                                    "2-4 concise bullets",
+                                    "no invented data",
+                                    "CTA/url fields obey include flags",
+                                ],
+                                "preferences": social_card_preferences,
+                            },
                             "x_post": {
                                 "max_characters": X_POST_CHARACTER_LIMIT,
                                 "applies_to": ["suggested_post", "alternate_hooks"],
+                                "hard_requirement": True,
+                            },
+                            "x_reply": {
+                                "max_characters": X_POST_CHARACTER_LIMIT,
+                                "applies_to": ["suggested_reply", "alternate_reply_more_direct"],
                                 "hard_requirement": True,
                             },
                         },
@@ -3702,6 +4623,16 @@ def _x_error_message(response: requests.Response) -> str:
     return f"X API returned HTTP {response.status_code}."
 
 
+def _x_author_public_url(username: str | None, tweet_id: str | None) -> str:
+    clean_id = str(tweet_id or "").strip()
+    handle = str(username or "").strip().lstrip("@")
+    if handle and clean_id:
+        return f"https://x.com/{quote(handle)}/status/{quote(clean_id)}"
+    if clean_id:
+        return f"https://x.com/i/web/status/{quote(clean_id)}"
+    return "https://x.com/home"
+
+
 def _x_current_access_token(db: Session | None = None) -> str:
     return (_private_setting_value(db, X_CURRENT_ACCESS_TOKEN_SETTING) or os.getenv(X_ACCESS_TOKEN, "")).strip()
 
@@ -3717,6 +4648,108 @@ def _post_x_tweet(access_token: str, text: str) -> requests.Response:
         json={"text": text},
         timeout=12,
     )
+
+
+def _x_get_json(db: Session, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    access_token = _x_current_access_token(db)
+    if not access_token:
+        raise MissingMarketingCredential("X access token missing. Connect X OAuth before running reply suggestions.")
+
+    url = f"{_x_api_base_url()}{path}"
+    try:
+        response = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params or {}, timeout=18)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"X API request failed: {exc}") from exc
+
+    if response.status_code == 401:
+        refresh_result = _refresh_x_oauth2_access_token(db)
+        if refresh_result.get("ok"):
+            try:
+                response = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {refresh_result['access_token']}"},
+                    params=params or {},
+                    timeout=18,
+                )
+            except requests.RequestException as exc:
+                raise RuntimeError(f"X API request failed after token refresh: {exc}") from exc
+        elif refresh_result.get("attempted"):
+            raise MissingMarketingCredential(f"X token refresh failed: {refresh_result.get('reason')}")
+
+    if not (200 <= response.status_code < 300):
+        raise RuntimeError(_x_error_message(response))
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("X API returned a non-JSON response.") from exc
+    return data if isinstance(data, dict) else {}
+
+
+def _x_connected_user_id(db: Session) -> str:
+    configured = os.getenv("X_CONNECTED_USER_ID", "").strip()
+    if configured:
+        return configured
+    data = _x_get_json(db, "/2/users/me", params={"user.fields": "username,name"})
+    user = data.get("data") if isinstance(data.get("data"), dict) else {}
+    user_id = str(user.get("id") or "").strip()
+    if not user_id:
+        raise MissingMarketingCredential("X OAuth is connected, but /2/users/me did not return a user id.")
+    os.environ["X_CONNECTED_USER_ID"] = user_id
+    if user.get("username"):
+        os.environ["X_CONNECTED_HANDLE"] = str(user.get("username") or "").strip()
+    return user_id
+
+
+def _x_recent_search(db: Session, query: str, *, limit: int) -> dict[str, Any]:
+    return _x_get_json(
+        db,
+        "/2/tweets/search/recent",
+        params={
+            "query": query,
+            "max_results": max(10, min(limit, 100)),
+            "tweet.fields": "created_at,public_metrics,conversation_id,author_id,entities,referenced_tweets,lang",
+            "expansions": "author_id",
+            "user.fields": "username,name,verified,public_metrics",
+        },
+    )
+
+
+def _x_home_timeline(db: Session, *, limit: int) -> dict[str, Any]:
+    user_id = _x_connected_user_id(db)
+    return _x_get_json(
+        db,
+        f"/2/users/{quote(user_id)}/timelines/reverse_chronological",
+        params={
+            "max_results": max(5, min(limit, 100)),
+            "exclude": "retweets,replies",
+            "tweet.fields": "created_at,public_metrics,conversation_id,author_id,entities,referenced_tweets,lang",
+            "expansions": "author_id",
+            "user.fields": "username,name,verified,public_metrics",
+        },
+    )
+
+
+def _x_mentions(db: Session, *, limit: int) -> dict[str, Any]:
+    user_id = _x_connected_user_id(db)
+    return _x_get_json(
+        db,
+        f"/2/users/{quote(user_id)}/mentions",
+        params={
+            "max_results": max(5, min(limit, 100)),
+            "tweet.fields": "created_at,public_metrics,conversation_id,author_id,entities,referenced_tweets,lang",
+            "expansions": "author_id",
+            "user.fields": "username,name,verified,public_metrics",
+        },
+    )
+
+
+def _x_user_lookup(db: Session, handle: str) -> dict[str, Any] | None:
+    cleaned = str(handle or "").strip().lstrip("@")
+    if not cleaned:
+        return None
+    data = _x_get_json(db, f"/2/users/by/username/{quote(cleaned)}", params={"user.fields": "username,name,verified,public_metrics"})
+    user = data.get("data")
+    return user if isinstance(user, dict) else None
 
 
 def _refresh_x_oauth2_access_token(db: Session) -> dict[str, Any]:
@@ -4909,10 +5942,16 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "For monitor, explain what would make the thread worth replying to later. "
         "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
         "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
+        "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics exactly. "
         "Draft a market-native X post with a news hook, why it matters, Walnut-native context from opportunity.metadata.walnut_context, "
         "and no or soft CTA depending on campaign preferences. Prefer cashtags over hashtags and use no more than two hashtags. "
         "High-quality X output should pair concise analysis with a visual: ranked metric breakdowns, comparison buckets, signal stacks, "
         "or a clean chart/card that could stand alone in the feed. Use the style of a market analyst, not a generic article summary. "
+        "For x_post and reddit_thread, always fill social_card as a deterministic render spec, not prose and not an image prompt. "
+        "The social_card must create one scroll-stopping finance-media idea with a short hook, readable subheadline, 2-4 bullets, bounded key stats, category chips, CTA, source label, and Walnut URL when allowed. "
+        "Use card_type='article_reactive' for news/article reactions, 'ticker_signal' for ticker confirmation or signal stacks, 'congress_insider_activity' for Congress or insider transactions, and 'research_cover' for Reddit/DD covers. "
+        "Keep social_card copy concise enough for a 1600x900 card: no long sentences, no walls of text, no generic hype, and no invented numbers. "
+        "Respect opportunity.metadata.social_card_preferences for template, tone, chart, CTA, source tag, and Walnut URL inclusion. "
         "For x_post, always fill visual_brief with a chart-ready concept: title, chart_type, metric_label, 3-8 rows, and source_note. "
         "Only use numeric values when they are present in the provided context; otherwise use qualitative buckets and say what data is missing. "
         "For x_post from @WalnutMarkets, write in first-person plural when referring to the product or signal process: use 'we', 'our', and 'we are seeing' rather than third-person phrasing like 'Walnut shows', 'Walnut flags', or 'Walnut finds'. "
@@ -4923,6 +5962,9 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
         "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
+        "For x_reply, produce suggested_reply as a concise reply to the source post, not a standalone post. Mimic the strongest Walnut replies: one or two lines, direct market judgment, anchored to the original author's point, and no generic product pitch. "
+        "For x_reply, do not add self-disclosure, do not say 'cross-check this on Walnut', and do not force a Walnut link unless the reply names a specific ticker where the link adds useful context. "
+        "For x_reply, if the original post invites a one-word answer, one word is acceptable; otherwise avoid generic one-word replies. "
         "For reddit_thread, write a serious, comprehensive Reddit-native DD post, not a promotional summary. "
         "Use the Reddit/search result only as the discovery hook, then combine opportunity.metadata.web_market_context "
         "with opportunity.metadata.walnut_context to build the thesis. "
@@ -5012,6 +6054,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
                 "required": ["title", "chart_type", "metric_label", "rows", "source_note", "missing_data_note"],
                 "additionalProperties": False,
             },
+            "social_card": _social_card_json_schema(),
             "title": {"type": "string"},
             "tldr_bullets": {"type": "array", "items": {"type": "string"}},
             "why_selected": {"type": "string"},
@@ -5109,6 +6152,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
             "suggested_post",
             "suggested_ad_variants",
             "visual_brief",
+            "social_card",
             "title",
             "tldr_bullets",
             "why_selected",
@@ -5201,6 +6245,10 @@ def _normalize_suggestion_payload(
     elif recommended_action == "monitor":
         suggested_reply = suggested_reply or "Monitor - relevant, but not worth replying yet."
         alternate_reply = alternate_reply or suggested_reply
+    elif content_type == "x_reply":
+        disclosure_text = ""
+        suggested_reply = _fit_x_post_text(_strip_x_self_disclosure(suggested_reply or "No safe reply suggested."))
+        alternate_reply = _fit_x_post_text(_strip_x_self_disclosure(alternate_reply)) if alternate_reply else ""
     else:
         suggested_reply = _ensure_walnut_affiliation_disclosure(suggested_reply or "No safe reply suggested.")
         alternate_reply = _ensure_walnut_affiliation_disclosure(alternate_reply) if alternate_reply else ""
@@ -5225,10 +6273,19 @@ def _normalize_suggestion_payload(
     assets = _normalize_assets(payload.get("assets"))
     if reddit_structured and reddit_structured["suggested_image_asset"]:
         assets = _normalize_assets([*assets, reddit_structured["suggested_image_asset"]])
-    if content_type == "x_post":
-        visual_asset = _x_visual_brief_asset(payload.get("visual_brief"), detected_tickers=detected_tickers)
-        if visual_asset:
-            assets = _normalize_assets([visual_asset, *assets])
+    if content_type in {"x_post", "reddit_thread"}:
+        preferences = _social_card_preferences(opportunity_metadata)
+        fallback_card_type = _social_card_type_for_context(campaign_type, content_type, preferences)
+        card_spec = _normalize_social_card_spec(
+            payload.get("social_card"),
+            fallback_card_type=fallback_card_type,
+            fallback_tickers=detected_tickers,
+            fallback_url=destination or destination_hint,
+            preferences=preferences,
+            visual_brief=payload.get("visual_brief"),
+        )
+        social_asset = _social_card_asset(card_spec)
+        assets = _normalize_assets([social_asset, *assets])
     generated_content = _generated_content_from_structured(
         content_type=content_type,
         suggested_reply=suggested_reply,
@@ -5781,6 +6838,12 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
                 "thumbnail_url": thumbnail_url,
                 "suggested_caption": _truncate(str(raw.get("suggested_caption") or "").strip(), 1000) or "",
                 "source_data_notes": _truncate(str(raw.get("source_data_notes") or "").strip(), 1000) or "",
+                "template": _truncate(str(raw.get("template") or "").strip(), 80) or "",
+                "card_type": _truncate(str(raw.get("card_type") or "").strip(), 80) or "",
+                "tone": _truncate(str(raw.get("tone") or "").strip(), 80) or "",
+                "card_spec": raw.get("card_spec") if isinstance(raw.get("card_spec"), dict) else {},
+                "width": _clamp_int(raw.get("width") or 0, 0, 4000),
+                "height": _clamp_int(raw.get("height") or 0, 0, 4000),
             }
         )
     return assets[:10]

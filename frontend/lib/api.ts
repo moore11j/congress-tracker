@@ -1895,7 +1895,8 @@ export type AdminAiMarketingMode =
   | "x_chart_drop"
   | "reddit_research_thread"
   | "article_reactive_x"
-  | "scheduled_x_campaign";
+  | "scheduled_x_campaign"
+  | "x_reply_campaign";
 
 export type AdminAiMarketingPlatform = "reddit" | "web_search_reddit" | "x_stub" | "x" | "linkedin" | "manual" | "other";
 export type AdminAiMarketingRecency = "any" | "day" | "week" | "month" | string;
@@ -2136,6 +2137,12 @@ export type AdminAiGrowthAsset = {
   download_url?: string;
   suggested_caption?: string;
   source_data_notes?: string;
+  template?: string;
+  card_type?: string;
+  tone?: string;
+  card_spec?: Record<string, unknown>;
+  width?: number;
+  height?: number;
 };
 
 export type AdminAiMarketingCampaignsResponse = {
@@ -5428,7 +5435,16 @@ export async function clearAdminAiGrowthDraftHistory(): Promise<{ ok: boolean; c
 
 export async function regenerateAdminAiGrowthDraft(
   draftId: number,
-  payload: { change_request?: string | null },
+  payload: {
+    change_request?: string | null;
+    card_template?: string | null;
+    card_tone?: string | null;
+    include_chart?: boolean | null;
+    include_cta?: boolean | null;
+    include_source_tag?: boolean | null;
+    include_walnut_url?: boolean | null;
+    include_article_thumbnail?: boolean | null;
+  },
 ): Promise<AdminAiMarketingOpportunity> {
   return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/regenerate`), {
     method: "POST",

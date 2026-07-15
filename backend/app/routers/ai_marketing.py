@@ -17,6 +17,7 @@ from app.services.ai_marketing import (
     MissingMarketingCredential,
     OpenAISuggestionError,
     OPPORTUNITY_STATUSES,
+    ai_growth_social_card_demo_assets,
     ai_growth_asset_download,
     apply_email_action,
     archive_opportunity,
@@ -160,6 +161,13 @@ class GrowthDraftPayload(BaseModel):
 
 class GrowthDraftRegeneratePayload(BaseModel):
     change_request: str | None = Field(default=None, max_length=1000)
+    card_template: str | None = Field(default=None, max_length=80)
+    card_tone: str | None = Field(default=None, max_length=80)
+    include_chart: bool | None = None
+    include_cta: bool | None = None
+    include_source_tag: bool | None = None
+    include_walnut_url: bool | None = None
+    include_article_thumbnail: bool | None = None
 
 
 class EmailDigestPayload(BaseModel):
@@ -482,6 +490,15 @@ def admin_ai_growth_drafts(
     return admin_ai_marketing_opportunities(request, db, status=status, campaign_id=campaign_id, limit=limit)
 
 
+@router.get("/admin/ai-growth/card-demo")
+def admin_ai_growth_card_demo(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _ = require_admin_user(request, db)
+    return {"items": ai_growth_social_card_demo_assets(), "count": 6}
+
+
 @router.post("/admin/ai-growth/drafts", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_ai_growth_create_draft(
     payload: GrowthDraftPayload,
@@ -573,7 +590,20 @@ def admin_ai_growth_regenerate_draft(
     require_admin_user(db, request)
     opportunity = _opportunity_or_404(db, draft_id)
     try:
-        return regenerate_growth_draft(db, opportunity, change_request=payload.change_request)
+        card_options = {
+            key: value
+            for key, value in {
+                "template": payload.card_template,
+                "tone": payload.card_tone,
+                "include_chart": payload.include_chart,
+                "include_cta": payload.include_cta,
+                "include_source_tag": payload.include_source_tag,
+                "include_walnut_url": payload.include_walnut_url,
+                "include_article_thumbnail": payload.include_article_thumbnail,
+            }.items()
+            if value is not None
+        }
+        return regenerate_growth_draft(db, opportunity, change_request=payload.change_request, card_options=card_options)
     except MissingMarketingCredential as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OpenAISuggestionError as exc:
