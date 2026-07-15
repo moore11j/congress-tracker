@@ -327,7 +327,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
 
   const defaultCardControls = (draft: AdminAiMarketingOpportunity): SocialCardControls => {
     const cardAsset = draft.assets?.find((asset) => asset.card_type || asset.template || asset.card_spec);
-    const spec = cardAsset?.card_spec ?? {};
+    const spec = (cardAsset?.card_spec ?? {}) as Record<string, unknown>;
     const metadataPreferences = draft.metadata?.inputs && typeof draft.metadata.inputs === "object"
       ? (draft.metadata.inputs as Record<string, unknown>).social_card
       : null;
@@ -417,15 +417,17 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
 
   const regenerateDraft = async (draft: AdminAiMarketingOpportunity) => {
     const changeRequest = changeRequests[draft.id]?.trim() ?? "";
-    if (!changeRequest) {
-      notify("Describe the changes to make before regenerating.", "error");
-      return;
-    }
+    const cardOptions = cardRequests[draft.id] ?? defaultCardControls(draft);
     setBusy(`regenerate:${draft.id}`);
     try {
-      const updated = await regenerateAdminAiGrowthDraft(draft.id, { change_request: changeRequest });
+      const updated = await regenerateAdminAiGrowthDraft(draft.id, { change_request: changeRequest, ...cardOptions });
       replaceDraft(updated);
       setChangeRequests((current) => {
+        const next = { ...current };
+        delete next[draft.id];
+        return next;
+      });
+      setCardRequests((current) => {
         const next = { ...current };
         delete next[draft.id];
         return next;
@@ -1008,6 +1010,8 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           busy={busy}
           statusFilter={statusFilter}
           changeRequests={changeRequests}
+          cardRequests={cardRequests}
+          defaultCardControls={defaultCardControls}
           onStatusFilter={setStatusFilter}
           onCopy={copyText}
           onStatus={updateDraftStatus}
@@ -1016,6 +1020,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onMarkCopied={markDraftCopied}
           onMarkPosted={markDraftPosted}
           onChangeRequest={updateChangeRequest}
+          onCardRequest={updateCardRequest}
           onRegenerate={regenerateDraft}
         />
       ) : null}
@@ -1224,6 +1229,8 @@ function DraftsView({
   busy,
   statusFilter,
   changeRequests,
+  cardRequests,
+  defaultCardControls,
   onStatusFilter,
   onCopy,
   onStatus,
@@ -1232,12 +1239,15 @@ function DraftsView({
   onMarkCopied,
   onMarkPosted,
   onChangeRequest,
+  onCardRequest,
   onRegenerate,
 }: {
   drafts: AdminAiMarketingOpportunity[];
   busy: string | null;
   statusFilter: "all" | AdminAiMarketingStatus;
   changeRequests: Record<number, string>;
+  cardRequests: Record<number, SocialCardControls>;
+  defaultCardControls: (draft: AdminAiMarketingOpportunity) => SocialCardControls;
   onStatusFilter: (status: "all" | AdminAiMarketingStatus) => void;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
@@ -1246,6 +1256,7 @@ function DraftsView({
   onMarkCopied: (draft: AdminAiMarketingOpportunity) => void;
   onMarkPosted: (draft: AdminAiMarketingOpportunity) => void;
   onChangeRequest: (draftId: number, value: string) => void;
+  onCardRequest: (draftId: number, patch: Partial<SocialCardControls>) => void;
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
   return (
@@ -1283,6 +1294,7 @@ function DraftsView({
               draft={draft}
               busy={busy}
               changeRequest={changeRequests[draft.id] ?? ""}
+              cardControls={cardRequests[draft.id] ?? defaultCardControls(draft)}
               onCopy={onCopy}
               onStatus={onStatus}
               onAction={onAction}
@@ -1290,6 +1302,7 @@ function DraftsView({
               onMarkCopied={onMarkCopied}
               onMarkPosted={onMarkPosted}
               onChangeRequest={onChangeRequest}
+              onCardRequest={onCardRequest}
               onRegenerate={onRegenerate}
             />
           ))
@@ -1305,6 +1318,7 @@ function DraftCard({
   draft,
   busy,
   changeRequest,
+  cardControls,
   onCopy,
   onStatus,
   onAction,
@@ -1312,11 +1326,13 @@ function DraftCard({
   onMarkCopied,
   onMarkPosted,
   onChangeRequest,
+  onCardRequest,
   onRegenerate,
 }: {
   draft: AdminAiMarketingOpportunity;
   busy: string | null;
   changeRequest: string;
+  cardControls: SocialCardControls;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
@@ -1324,6 +1340,7 @@ function DraftCard({
   onMarkCopied: (draft: AdminAiMarketingOpportunity) => void;
   onMarkPosted: (draft: AdminAiMarketingOpportunity) => void;
   onChangeRequest: (draftId: number, value: string) => void;
+  onCardRequest: (draftId: number, patch: Partial<SocialCardControls>) => void;
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
   const suggestion = draft.suggestion;
@@ -1407,6 +1424,31 @@ function DraftCard({
         <Button onClick={() => onCopy(draft, "Hashtags/cashtags", hashtagCashtagBlock)} disabled={Boolean(busy)}>Copy hashtags/cashtags</Button>
         <Button onClick={() => onCopy(draft, "Walnut link", walnutLink)} disabled={Boolean(busy)}>Copy Walnut link</Button>
         <Button onClick={() => onCopy(draft, "Article URL", articleUrl)} disabled={Boolean(busy)}>Copy article URL</Button>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-white/10 bg-slate-900/50 p-3">
+        <p className="text-sm font-semibold text-white">Card render</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <SelectField
+            label="Template"
+            value={cardControls.card_template}
+            onChange={(value) => onCardRequest(draft.id, { card_template: value })}
+            options={[...SOCIAL_CARD_TEMPLATE_OPTIONS]}
+          />
+          <SelectField
+            label="Tone"
+            value={cardControls.card_tone}
+            onChange={(value) => onCardRequest(draft.id, { card_tone: value })}
+            options={[...SOCIAL_CARD_TONE_OPTIONS]}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <CheckboxPill label="Chart" checked={cardControls.include_chart} onChange={(value) => onCardRequest(draft.id, { include_chart: value })} />
+          <CheckboxPill label="CTA strip" checked={cardControls.include_cta} onChange={(value) => onCardRequest(draft.id, { include_cta: value })} />
+          <CheckboxPill label="Source tag" checked={cardControls.include_source_tag} onChange={(value) => onCardRequest(draft.id, { include_source_tag: value })} />
+          <CheckboxPill label="Walnut URL" checked={cardControls.include_walnut_url} onChange={(value) => onCardRequest(draft.id, { include_walnut_url: value })} />
+          <CheckboxPill label="Article thumbnail" checked={cardControls.include_article_thumbnail} onChange={(value) => onCardRequest(draft.id, { include_article_thumbnail: value })} />
+        </div>
       </div>
 
       <div className="mt-3 flex flex-col gap-2 md:flex-row">
@@ -1510,16 +1552,16 @@ function ArticleReactiveCampaignsView({
           <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["professional", "sharp", "educational", "market-native"]} />
           <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
           <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
+          <SelectField label="Card template" value={form.card_template} onChange={(value) => setForm({ ...form, card_template: value })} options={[...SOCIAL_CARD_TEMPLATE_OPTIONS]} />
+          <SelectField label="Card tone" value={form.card_tone} onChange={(value) => setForm({ ...form, card_tone: value })} options={[...SOCIAL_CARD_TONE_OPTIONS]} />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">
-          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
-            <input type="checkbox" checked={form.include_image_card} onChange={(event) => setForm({ ...form, include_image_card: event.target.checked })} />
-            Include image/card
-          </label>
-          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
-            <input type="checkbox" checked={form.include_walnut_link} onChange={(event) => setForm({ ...form, include_walnut_link: event.target.checked })} />
-            Include Walnut link
-          </label>
+          <CheckboxPill label="Include image/card" checked={form.include_image_card} onChange={(value) => setForm({ ...form, include_image_card: value })} />
+          <CheckboxPill label="Include Walnut link" checked={form.include_walnut_link} onChange={(value) => setForm({ ...form, include_walnut_link: value })} />
+          <CheckboxPill label="Chart" checked={form.include_chart} onChange={(value) => setForm({ ...form, include_chart: value })} />
+          <CheckboxPill label="CTA strip" checked={form.include_cta} onChange={(value) => setForm({ ...form, include_cta: value })} />
+          <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
+          <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
         </div>
         <SubmitButton busy={busy === "article_campaign"} onClick={onSubmit} label="Save campaign" busyLabel="Saving..." />
       </FormShell>
@@ -1629,17 +1671,17 @@ function ScheduledXCampaignsView({
           <SelectField label="Tone" value={form.tone} onChange={(value) => setForm({ ...form, tone: value })} options={["market-native", "sharp", "educational", "contrarian", "professional"]} />
           <SelectField label="CTA mode" value={form.cta_mode} onChange={(value) => setForm({ ...form, cta_mode: value })} options={["none", "soft", "direct"]} />
           <SelectField label="Hashtag mode" value={form.hashtag_mode} onChange={(value) => setForm({ ...form, hashtag_mode: value })} options={["none", "minimal", "ticker/theme only"]} />
+          <SelectField label="Card template" value={form.card_template} onChange={(value) => setForm({ ...form, card_template: value })} options={[...SOCIAL_CARD_TEMPLATE_OPTIONS]} />
+          <SelectField label="Card tone" value={form.card_tone} onChange={(value) => setForm({ ...form, card_tone: value })} options={[...SOCIAL_CARD_TONE_OPTIONS]} />
         </div>
         <TextareaField label="Filters JSON / preferences" value={form.filters_json} onChange={(value) => setForm({ ...form, filters_json: value })} rows={6} />
         <div className="mt-4 flex flex-wrap gap-3">
-          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
-            <input type="checkbox" checked={form.include_image_card} onChange={(event) => setForm({ ...form, include_image_card: event.target.checked })} />
-            Include image/card
-          </label>
-          <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
-            <input type="checkbox" checked={form.include_walnut_link} onChange={(event) => setForm({ ...form, include_walnut_link: event.target.checked })} />
-            Include Walnut link
-          </label>
+          <CheckboxPill label="Include image/card" checked={form.include_image_card} onChange={(value) => setForm({ ...form, include_image_card: value })} />
+          <CheckboxPill label="Include Walnut link" checked={form.include_walnut_link} onChange={(value) => setForm({ ...form, include_walnut_link: value })} />
+          <CheckboxPill label="Chart" checked={form.include_chart} onChange={(value) => setForm({ ...form, include_chart: value })} />
+          <CheckboxPill label="CTA strip" checked={form.include_cta} onChange={(value) => setForm({ ...form, include_cta: value })} />
+          <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
+          <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
         </div>
         <SubmitButton busy={busy === "scheduled_x_campaign"} onClick={onSubmit} label={selected ? "Save campaign" : "Create campaign"} busyLabel="Saving..." />
       </FormShell>
@@ -1807,6 +1849,8 @@ function XChartDropForm({
         <TextField label="Suggested destination URL" value={form.destination_url} onChange={(value) => setForm({ ...form, destination_url: value })} />
         <TextField label="Chart/image URL optional" value={form.asset_url} onChange={(value) => setForm({ ...form, asset_url: value })} />
         <TextField label="Image/chart caption optional" value={form.asset_caption} onChange={(value) => setForm({ ...form, asset_caption: value })} />
+        <SelectField label="Card template" value={form.card_template} onChange={(value) => setForm({ ...form, card_template: value })} options={[...SOCIAL_CARD_TEMPLATE_OPTIONS]} />
+        <SelectField label="Card tone" value={form.card_tone} onChange={(value) => setForm({ ...form, card_tone: value })} options={[...SOCIAL_CARD_TONE_OPTIONS]} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         {sourceTypes.map((sourceType) => (
@@ -1828,6 +1872,10 @@ function XChartDropForm({
           <input type="checkbox" checked={form.include_link} onChange={(event) => setForm({ ...form, include_link: event.target.checked })} />
           Include link
         </label>
+        <CheckboxPill label="Chart" checked={form.include_chart} onChange={(value) => setForm({ ...form, include_chart: value })} />
+        <CheckboxPill label="CTA strip" checked={form.include_cta} onChange={(value) => setForm({ ...form, include_cta: value })} />
+        <CheckboxPill label="Source tag" checked={form.include_source_tag} onChange={(value) => setForm({ ...form, include_source_tag: value })} />
+        <CheckboxPill label="Walnut URL" checked={form.include_walnut_url} onChange={(value) => setForm({ ...form, include_walnut_url: value })} />
       </div>
       <SubmitButton busy={busy === "manual_x_draft"} onClick={onSubmit} label="Generate X draft" busyLabel="Generating..." />
     </FormShell>
@@ -2140,6 +2188,15 @@ function SelectField({ label, value, onChange, options }: { label: string; value
   );
 }
 
+function CheckboxPill({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-sm text-slate-200">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
 function SubmitButton({ busy, onClick, label, busyLabel }: { busy: boolean; onClick: () => void; label: string; busyLabel: string }) {
   return (
     <div className="mt-4">
@@ -2172,6 +2229,11 @@ function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
         <div>
           <p className="font-semibold text-white">{asset.title || "Asset"}</p>
           <p className="text-xs uppercase tracking-wide text-slate-500">{asset.asset_type || "asset"}</p>
+          {asset.card_type || asset.template || asset.tone ? (
+            <p className="mt-1 text-xs text-slate-400">
+              {[asset.card_type, asset.template, asset.tone, asset.width && asset.height ? `${asset.width}x${asset.height}` : ""].filter(Boolean).join(" / ")}
+            </p>
+          ) : null}
         </div>
         <AssistLink href={url} label="Open/download asset" />
       </div>

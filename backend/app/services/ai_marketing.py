@@ -2017,8 +2017,9 @@ def _normalize_social_card_spec(
     tone = str(raw.get("tone") or prefs.get("tone") or "market-native").strip().lower()
     if tone not in SOCIAL_CARD_TONES:
         tone = "market-native"
-    tickers = _normalized_tickers(raw.get("tickers") or fallback_tickers)
-    ticker = _normalized_tickers([raw.get("ticker")])[0] if _normalized_tickers([raw.get("ticker")]) else (tickers[0] if tickers else "")
+    tickers = _normalized_tickers(fallback_tickers) or _normalized_tickers(raw.get("tickers"))
+    raw_ticker = _normalized_tickers([raw.get("ticker")])[0] if _normalized_tickers([raw.get("ticker")]) else ""
+    ticker = tickers[0] if tickers else raw_ticker
     if ticker and ticker not in tickers:
         tickers = [ticker, *tickers]
     sentiment = str(raw.get("sentiment") or "notable").strip().lower()
@@ -2593,6 +2594,7 @@ def _article_candidate_to_source_item(
     )
     ticker_theme = ", ".join([*(f"${ticker}" for ticker in tickers[:4]), *themes[:3]]) or "Market article"
     compliance = "Human review required. No investment advice, no buy/sell recommendations, no article thumbnail reuse."
+    preferences = _load_object(campaign.output_preferences_json)
     metadata = {
         "article_reactive": True,
         "article_candidate_id": candidate.id,
@@ -2607,6 +2609,17 @@ def _article_candidate_to_source_item(
         "scoring": {key: value for key, value in scoring.items() if key.endswith("_score") or key in {"clear_walnut_angle", "rejected_reasons"}},
         "suggested_destination_url": destination,
         "email_recipient": campaign.recipient_email or ai_growth_recipient(),
+        "inputs": {
+            "social_card": {
+                "template": preferences.get("card_template") or preferences.get("template") or "article_reactive",
+                "tone": preferences.get("card_tone") or preferences.get("tone") or "market-native",
+                "include_chart": bool(preferences.get("include_chart", True)),
+                "include_cta": bool(preferences.get("include_cta", True)),
+                "include_source_tag": bool(preferences.get("include_source_tag", True)),
+                "include_walnut_url": bool(preferences.get("include_walnut_url", True)),
+                "include_article_thumbnail": bool(preferences.get("include_article_thumbnail", False)),
+            }
+        },
     }
     return SourceItem(
         platform="x",
@@ -3487,6 +3500,15 @@ def _scheduled_x_context(db: Session, campaign: AiMarketingCampaign, *, index: i
         "include_walnut_link": bool(preferences.get("include_walnut_link", True)),
         "cta_mode": preferences.get("cta_mode", "soft"),
         "hashtag_mode": preferences.get("hashtag_mode", "ticker/theme only"),
+        "social_card": {
+            "template": preferences.get("card_template") or preferences.get("template") or "ticker_signal",
+            "tone": preferences.get("card_tone") or preferences.get("tone") or "market-native",
+            "include_chart": bool(preferences.get("include_chart", True)),
+            "include_cta": bool(preferences.get("include_cta", True)),
+            "include_source_tag": bool(preferences.get("include_source_tag", True)),
+            "include_walnut_url": bool(preferences.get("include_walnut_url", True)),
+            "include_article_thumbnail": bool(preferences.get("include_article_thumbnail", False)),
+        },
     }
     return ticker_theme, {"text": text, "inputs": inputs, "preferences": preferences, "source_label": source_label}
 

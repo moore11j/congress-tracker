@@ -242,6 +242,34 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
         content_type="reddit_thread",
         platform="reddit",
         recommended_action="draft_post",
+        social_card={
+            "card_type": "research_cover",
+            "template": "research_cover",
+            "ticker": "NVDA",
+            "tickers": ["NVDA"],
+            "sentiment": "notable",
+            "headline": "$NVDA DD: disclosure stack plus confirmation",
+            "subheadline": "A research cover for technicals, fundamentals, catalysts, alternative data, and risks.",
+            "bullets": [
+                "Technical picture needs confirmation.",
+                "Fundamentals and catalysts frame the setup.",
+                "Disclosure intelligence adds the why-now layer.",
+            ],
+            "key_stats": [
+                {"label": "Depth", "value": "DD"},
+                {"label": "Risk", "value": "Balanced"},
+            ],
+            "chips": ["Research", "DD", "Evidence"],
+            "cta": "Track the stack on Walnut",
+            "url": "https://walnutmarkets.com/ticker/NVDA",
+            "visual_emphasis": "research pillars",
+            "source_label": "Walnut DD",
+            "tone": "market-native",
+            "include_chart": True,
+            "include_cta": True,
+            "include_source_tag": True,
+            "include_walnut_url": True,
+        },
         title="$NVDA DD: reported disclosure stack plus technical and fundamental context",
         tldr_bullets=[
             "NVDA surfaced from reported/disclosed cross-source activity.",
@@ -1658,8 +1686,9 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert "buy" not in draft_text
         assert "sell" not in draft_text
         assert "about to explode" not in draft_text
-        assert result["opportunity"]["assets"][0]["asset_type"] == "chart"
-        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut visual:")
+        assert result["opportunity"]["assets"][0]["asset_type"] == "image"
+        assert result["opportunity"]["assets"][0]["card_type"] == "ticker_signal"
+        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut ticker signal card:")
         assert result["opportunity"]["assets"][0]["url"].startswith("data:image/svg+xml")
         assert result["opportunity"]["assets"][0]["download_url"].endswith("/assets/0/download")
     finally:
@@ -1714,7 +1743,8 @@ def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
         assert "building walnut" not in draft_text.lower()
         assert "#TSM" in draft_text
         assert len(result["opportunity"]["assets"]) == 1
-        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut visual:")
+        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut ticker signal card:")
+        assert "TSM" in result["opportunity"]["assets"][0]["url"]
     finally:
         db.close()
 
@@ -1898,7 +1928,8 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
         assert result["opportunity"]["quality_scores"]["research_depth_score"] >= 75
         assert result["opportunity"]["status"] == "new"
         assert result["opportunity"]["full_markdown"] == generated
-        assert result["opportunity"]["assets"][0]["title"] == "NVDA disclosure stack card"
+        assert result["opportunity"]["assets"][0]["card_type"] == "research_cover"
+        assert any(asset["title"] == "NVDA disclosure stack card" for asset in result["opportunity"]["assets"])
     finally:
         db.close()
 
