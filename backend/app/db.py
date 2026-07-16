@@ -401,6 +401,41 @@ def ensure_ticker_meta_identity_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE ticker_meta ADD COLUMN IF NOT EXISTS country TEXT"))
 
 
+def ensure_index_membership_metadata_schema(bind=engine) -> None:
+    columns = {
+        "source_kind": "TEXT",
+        "source_page": "TEXT",
+        "source_revision_id": "TEXT",
+        "resolved_source_title": "TEXT",
+        "parser_version": "TEXT",
+    }
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        if dialect_name == "sqlite":
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='index_memberships'")
+            ).fetchone()
+            if not table_exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(index_memberships)")).fetchall()
+                if len(row) > 1
+            }
+            for name, column_type in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE index_memberships ADD COLUMN {name} {column_type}"))
+            return
+
+        if dialect_name == "postgresql":
+            table_exists = conn.execute(text("SELECT to_regclass('public.index_memberships')")).scalar()
+            if table_exists is None:
+                return
+            for name, column_type in columns.items():
+                conn.execute(text(f"ALTER TABLE index_memberships ADD COLUMN IF NOT EXISTS {name} {column_type}"))
+
+
 def ensure_price_cache_volume_columns(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

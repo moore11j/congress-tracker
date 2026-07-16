@@ -76,6 +76,12 @@ export type MarketPressureUniverseCapability = {
   supported: boolean;
   membershipCount: number | null;
   source: string | null;
+  sourceKind?: string | null;
+  sourcePage?: string | null;
+  sourceRevisionId?: string | null;
+  resolvedSourceTitle?: string | null;
+  sourceLabel?: string | null;
+  parserVersion?: string | null;
   sourceAsOf: string | null;
   refreshedAt: string | null;
   status: "available" | "stale" | "unavailable";

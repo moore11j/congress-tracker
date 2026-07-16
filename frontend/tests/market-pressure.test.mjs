@@ -84,8 +84,10 @@ test("Market Pressure visualization includes loading, no-data, error, and entitl
 test("Market Pressure universe controls are driven by backend capability metadata", () => {
   assert.match(contract, /universeDetails\?: Record<MarketPressureUniverse, MarketPressureUniverseCapability>/);
   assert.match(contract, /membershipCount: number \| null/);
+  assert.match(contract, /sourceLabel\?: string \| null/);
   assert.match(contract, /complete_us_equity_universe_not_available/);
   assert.match(client, /initialData\.capabilities\.universes\[option\.value\]/);
+  assert.match(client, /Source: \{universeDetails\.sourceLabel\}/);
 });
 
 test("Market Pressure defaults and falls back from backend capabilities", () => {

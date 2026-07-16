@@ -57,6 +57,11 @@ class IndexMembership(Base):
     effective_from: Mapped[date] = mapped_column(nullable=False)
     effective_to: Mapped[Optional[date]]
     source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_page: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_revision_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolved_source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parser_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_as_of: Mapped[date] = mapped_column(nullable=False)
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)

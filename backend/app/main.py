@@ -42,6 +42,7 @@ from app.db import (
     ensure_event_columns,
     ensure_fundamentals_cache_schema,
     ensure_house_annual_disclosure_schema,
+    ensure_index_membership_metadata_schema,
     ensure_institutional_activity_schema,
     ensure_macro_positioning_schema,
     ensure_monitoring_alert_columns,
@@ -3695,6 +3696,7 @@ def _startup_create_tables():
 
     schema_steps = (
         ("schema_email_notifications", lambda: ensure_email_notification_schema(engine)),
+        ("schema_index_membership_metadata", lambda: ensure_index_membership_metadata_schema(engine)),
         ("schema_price_cache_volume_columns", lambda: ensure_price_cache_volume_columns(engine)),
         ("schema_fundamentals_cache", lambda: ensure_fundamentals_cache_schema(engine)),
         ("schema_ticker_meta_identity", lambda: ensure_ticker_meta_identity_schema(engine)),
