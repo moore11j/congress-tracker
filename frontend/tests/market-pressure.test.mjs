@@ -13,19 +13,19 @@ const contract = read("lib/marketPressure.ts");
 const api = read("lib/api.ts");
 const middleware = read("middleware.ts");
 
-test("Market Pressure appears before Pricing in the shared top navigation", () => {
-  const marketPressureIndex = nav.indexOf('{ href: "/market-pressure", label: "Market Pressure" }');
+test("Maps appears before Pricing in the shared top navigation", () => {
+  const marketPressureIndex = nav.indexOf('{ href: "/market-pressure", label: "Maps" }');
   const pricingIndex = nav.indexOf('{ href: "/pricing", label: "Pricing" }');
-  assert.ok(marketPressureIndex > -1, "Market Pressure nav item is missing");
+  assert.ok(marketPressureIndex > -1, "Maps nav item is missing");
   assert.ok(pricingIndex > -1, "Pricing nav item is missing");
-  assert.ok(marketPressureIndex < pricingIndex, "Market Pressure should appear before Pricing");
+  assert.ok(marketPressureIndex < pricingIndex, "Maps should appear before Pricing");
   assert.match(nav, /usePathname/);
 });
 
 test("Market Pressure uses the responsive shared nav rather than a duplicate mobile implementation", () => {
   assert.match(nav, /overflow-x-auto/);
   assert.match(nav, /topNavLinks\.map/);
-  assert.equal((nav.match(/Market Pressure/g) ?? []).length, 1);
+  assert.equal((nav.match(/label: "Maps"/g) ?? []).length, 1);
 });
 
 test("/market-pressure route renders a discoverable page with metadata", () => {

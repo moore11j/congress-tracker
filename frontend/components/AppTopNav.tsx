@@ -11,7 +11,7 @@ const topNavLinks = [
   { href: "/screener", label: "Screener" },
   { href: "/leaderboards/congress-traders", label: "Leaderboards" },
   { href: "/backtesting", label: "Backtesting" },
-  { href: "/market-pressure", label: "Market Pressure" },
+  { href: "/market-pressure", label: "Maps" },
   { href: "/pricing", label: "Pricing" },
 ] as const;
 
