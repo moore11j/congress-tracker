@@ -376,8 +376,6 @@ function MarketSummaryStrip({ data }: { data: MarketPressureMapResult }) {
       <div className="text-xs leading-5 text-slate-400 md:max-w-xs md:text-right">
         <div>Price as of {formatDate(data.priceAsOf)}</div>
         <div>Confirmation as of {formatDate(data.confirmationAsOf)}</div>
-        {universeDetails?.sourceLabel ? <div>Source: {universeDetails.sourceLabel}</div> : null}
-        {universeDetails?.sourceAsOf ? <div>Membership source as of {formatDate(universeDetails.sourceAsOf)}</div> : null}
         {universeDetails?.status === "stale" ? <div className="font-semibold text-amber-200">Membership data is stale</div> : null}
       </div>
     </section>

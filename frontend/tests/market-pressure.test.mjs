@@ -91,7 +91,8 @@ test("Market Pressure universe controls are driven by backend capability metadat
   assert.match(contract, /complete_us_equity_universe_not_available/);
   assert.match(client, /initialData\.capabilities\.universes\[option\.value\]/);
   assert.match(client, /ETF universe data is temporarily unavailable/);
-  assert.match(client, /Source: \{universeDetails\.sourceLabel\}/);
+  assert.doesNotMatch(client, /Source: \{universeDetails\.sourceLabel\}/);
+  assert.doesNotMatch(client, /Membership source as of/);
 });
 
 test("Market Pressure defaults and falls back from backend capabilities", () => {
