@@ -42,10 +42,26 @@ Divergence = Literal[
 
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
 SCORING_VERSION = "confirmation_score_v1"
-MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 503
+MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 260
 MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS: dict[MarketPressureUniverse, set[str]] = {
     "sp500": {"GOOG"},
 }
+MARKET_PRESSURE_LIVE_QUOTE_PRIORITY: tuple[str, ...] = (
+    "NVDA",
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "AVGO",
+    "ORCL",
+    "TSLA",
+    "PLTR",
+    "INTC",
+    "MU",
+    "JPM",
+    "XOM",
+)
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
 SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "etf", "all_us", "watchlist")
 SUPPORTED_VIEWS: tuple[MarketPressureView, ...] = (
@@ -466,7 +482,7 @@ def _load_price_performance(
             for symbol in symbols
             if identities is not None and identities.get(symbol, Identity(symbol=symbol)).market_cap is None
         ]
-        live_symbols = list(dict.fromkeys([*missing, *missing_cap]))
+        live_symbols = _prioritize_live_quote_symbols(list(dict.fromkeys([*missing_cap, *missing])))
         live_results = _load_live_one_day_price_fallback(db, live_symbols)
         for symbol, live_price in live_results.items():
             current = results.get(symbol)
@@ -493,6 +509,11 @@ def _market_pressure_live_price_limit() -> int:
     except ValueError:
         return MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT
     return max(0, min(parsed, 503))
+
+
+def _prioritize_live_quote_symbols(symbols: list[str]) -> list[str]:
+    priority = {symbol: index for index, symbol in enumerate(MARKET_PRESSURE_LIVE_QUOTE_PRIORITY)}
+    return sorted(symbols, key=lambda symbol: (priority.get(symbol, len(priority)), symbol))
 
 
 def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[str, PricePerformance]:
