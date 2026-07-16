@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
 from app.models import FundamentalsCache, IndexMembership, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+import app.services.market_pressure as market_pressure
 from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
 from app.services.index_memberships import refresh_index_memberships
 from app.services.market_pressure import (
@@ -111,6 +112,80 @@ def _seed_index_membership(db, index_code: str, *, count: int) -> list[str]:
 
 def _tiles_by_symbol(response: dict) -> dict[str, dict]:
     return {tile["symbol"]: tile for sector in response["sectors"] for tile in sector["tiles"]}
+
+
+def test_market_pressure_uses_market_cap_and_live_quote_fallback_for_missing_one_day_prices(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["MEGA", "MID", "SMALL"])
+    fetched_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    db.add_all(
+        [
+            FundamentalsCache(
+                symbol="MEGA",
+                provider="fixture",
+                fetched_at=fetched_at,
+                status="ok",
+                company_name="Mega Cap Corp",
+                sector="Technology",
+                exchange="NASDAQ",
+                market_cap=3_000_000_000_000,
+            ),
+            FundamentalsCache(
+                symbol="MID",
+                provider="fixture",
+                fetched_at=fetched_at,
+                status="ok",
+                company_name="Mid Cap Corp",
+                sector="Technology",
+                exchange="NYSE",
+                market_cap=50_000_000_000,
+            ),
+            FundamentalsCache(
+                symbol="SMALL",
+                provider="fixture",
+                fetched_at=fetched_at,
+                status="ok",
+                company_name="Small Cap Corp",
+                sector="Technology",
+                exchange="NASDAQ",
+                market_cap=500_000_000,
+            ),
+        ]
+    )
+    db.commit()
+    monkeypatch.setenv("MARKET_PRESSURE_LIVE_PRICE_LIMIT", "2")
+    requested_symbols: list[str] = []
+
+    def fixture_quotes(_db, symbols, **kwargs):
+        requested_symbols.extend(symbols)
+        assert kwargs["lane"] == "market_pressure_quote"
+        assert kwargs["allow_live_user_fetch"] is True
+        assert kwargs["force_quote_endpoint"] is True
+        return {
+            "MEGA": {"change_percent": 2.5, "asof_ts": fetched_at},
+            "MID": {"change_percent": -1.25, "asof_ts": fetched_at},
+        }
+
+    monkeypatch.setattr(market_pressure, "get_current_prices_meta_db", fixture_quotes)
+
+    response = build_market_pressure_response(
+        db,
+        universe="watchlist",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    assert requested_symbols == ["MEGA", "MID"]
+    assert tiles["MEGA"]["marketCap"] == 3_000_000_000_000
+    assert tiles["MID"]["marketCap"] == 50_000_000_000
+    assert tiles["SMALL"]["marketCap"] == 500_000_000
+    assert tiles["MEGA"]["priceChangePct"] == 2.5
+    assert tiles["MID"]["priceChangePct"] == -1.25
+    assert tiles["SMALL"]["priceChangePct"] is None
+    assert response["priceAsOf"].startswith("2026-07-15")
 
 
 def test_market_pressure_classifies_complete_canonical_confirmation_and_divergence(db):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from time import perf_counter
@@ -20,6 +21,7 @@ from app.services.confirmation_score import (
     get_confirmation_score_bundles_for_tickers,
 )
 from app.services.index_memberships import active_index_membership_snapshot, index_universe_capabilities
+from app.services.quote_lookup import get_current_prices_meta_db
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ Divergence = Literal[
 
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
 SCORING_VERSION = "confirmation_score_v1"
+MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 180
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
 SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "etf", "all_us", "watchlist")
 SUPPORTED_VIEWS: tuple[MarketPressureView, ...] = (
@@ -87,6 +90,7 @@ class Identity:
     company_name: str | None = None
     sector: str | None = None
     exchange: str | None = None
+    market_cap: float | None = None
 
 
 @dataclass(frozen=True)
@@ -249,11 +253,12 @@ def build_market_pressure_response(
             return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
         mark = perf_counter()
-        price_by_symbol = _load_price_performance(db, symbols, params.period, generated_at.date())
-        timings["priceDurationMs"] = _elapsed_ms(mark)
-        mark = perf_counter()
         identities = _load_identities(db, symbols)
         timings["identityDurationMs"] = _elapsed_ms(mark)
+        mark = perf_counter()
+        prioritized_symbols = _prioritize_symbols_for_market_data(symbols, identities)
+        price_by_symbol = _load_price_performance(db, prioritized_symbols, params.period, generated_at.date())
+        timings["priceDurationMs"] = _elapsed_ms(mark)
         loader = confirmation_loader or _default_confirmation_loader
         mark = perf_counter()
         canonical_bundles = loader(db, symbols)
@@ -442,7 +447,56 @@ def _load_price_performance(
     results: dict[str, PricePerformance] = {}
     for symbol, values in grouped.items():
         results[symbol] = _price_performance_from_rows(values, period, target)
+    if period == "1d":
+        missing = [symbol for symbol in symbols if not results.get(symbol, PricePerformance(None, None, None, None, False)).complete]
+        results.update(_load_live_one_day_price_fallback(db, missing))
     return results
+
+
+def _market_pressure_live_price_limit() -> int:
+    raw = os.getenv("MARKET_PRESSURE_LIVE_PRICE_LIMIT", "").strip()
+    if not raw:
+        return MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT
+    return max(0, min(parsed, 503))
+
+
+def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[str, PricePerformance]:
+    limit = _market_pressure_live_price_limit()
+    if not symbols or limit <= 0:
+        return {}
+    requested = symbols[:limit]
+    try:
+        quote_meta = get_current_prices_meta_db(
+            db,
+            requested,
+            lane="market_pressure_quote",
+            allow_live_user_fetch=True,
+            stale_while_revalidate=True,
+            force_quote_endpoint=True,
+            skip_db_sanity=True,
+        )
+    except Exception:
+        logger.exception("market_pressure_live_price_fallback_failed symbols=%s", len(requested))
+        return {}
+
+    fallback: dict[str, PricePerformance] = {}
+    for symbol, meta in quote_meta.items():
+        change_pct = _safe_float(meta.get("change_percent"))
+        if change_pct is None:
+            continue
+        as_of = _quote_as_of_iso(meta.get("asof_ts")) or _dt_iso(datetime.now(timezone.utc))
+        fallback[symbol] = PricePerformance(
+            change_pct=round(change_pct, 4),
+            start_at=None,
+            end_at=as_of,
+            as_of=as_of,
+            complete=True,
+        )
+    return fallback
 
 
 def _price_performance_from_rows(
@@ -471,7 +525,8 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
         symbol = normalize_symbol(row.symbol)
         if not symbol:
             continue
-        identities[symbol] = Identity(symbol=symbol, company_name=row.name, sector=row.sector)
+        current = identities.get(symbol, Identity(symbol=symbol))
+        identities[symbol] = Identity(symbol=symbol, company_name=row.name, sector=row.sector, exchange=current.exchange, market_cap=current.market_cap)
 
     for row in db.execute(
         select(TickerMeta.symbol, TickerMeta.company_name, TickerMeta.exchange, TickerMeta.sector)
@@ -486,6 +541,7 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             company_name=row.company_name or current.company_name,
             sector=row.sector or current.sector,
             exchange=row.exchange or current.exchange,
+            market_cap=current.market_cap,
         )
 
     for row in db.execute(
@@ -494,6 +550,7 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             FundamentalsCache.company_name,
             FundamentalsCache.exchange,
             FundamentalsCache.sector,
+            FundamentalsCache.market_cap,
         ).where(FundamentalsCache.symbol.in_(symbols), FundamentalsCache.status == "ok")
     ).all():
         symbol = normalize_symbol(row.symbol)
@@ -505,8 +562,19 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             company_name=current.company_name or row.company_name,
             sector=current.sector or row.sector,
             exchange=current.exchange or row.exchange,
+            market_cap=_safe_float(row.market_cap) or current.market_cap,
         )
     return identities
+
+
+def _prioritize_symbols_for_market_data(symbols: list[str], identities: dict[str, Identity]) -> list[str]:
+    return sorted(
+        symbols,
+        key=lambda symbol: (
+            -float(identities.get(symbol, Identity(symbol=symbol)).market_cap or 0),
+            symbol,
+        ),
+    )
 
 
 def _entitlement_payload(entitlements: TierEntitlements) -> dict[str, Any]:
@@ -540,6 +608,7 @@ def _build_tile(
         "companyName": identity.company_name,
         "sector": identity.sector or "Unclassified",
         "exchange": identity.exchange,
+        "marketCap": identity.market_cap,
         "priceChangePct": price.change_pct,
         "priceStartAt": price.start_at,
         "priceEndAt": price.end_at,
@@ -798,6 +867,34 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed:
+        return None
+    return parsed
+
+
+def _quote_as_of_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return _dt_iso(dt)
 
 
 def _date_iso(value: str) -> str:

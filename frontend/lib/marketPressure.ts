@@ -36,6 +36,7 @@ export type MarketPressureTile = {
   companyName: string | null;
   sector: string;
   exchange: string | null;
+  marketCap: number | null;
   priceChangePct: number | null;
   priceStartAt: string | null;
   priceEndAt: string | null;

@@ -110,6 +110,7 @@ test("Market Pressure defaults and falls back from backend capabilities", () => 
 
 test("Market Pressure typed adapter isolates the future backend endpoint", () => {
   assert.match(contract, /export type MarketPressureTile = \{/);
+  assert.match(contract, /marketCap: number \| null/);
   assert.match(contract, /confirmationDirection: "bullish" \| "bearish" \| "neutral" \| "conflicted" \| "unavailable"/);
   assert.match(contract, /divergence:/);
   assert.match(contract, /export async function getMarketPressureMap/);
@@ -133,11 +134,15 @@ test("Market Pressure share and analytics events are wired through first-party h
 
 test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.match(client, /function priceFillClass/);
+  assert.match(client, /function priceFillHex/);
+  assert.match(client, /#00a64a/);
+  assert.match(client, /#ff202f/);
   assert.match(client, /function confirmationFrameClass/);
   assert.match(client, /border-dashed border-amber-200/);
   assert.match(client, /hidden_accumulation: "Accumulation"/);
   assert.match(client, /fragile_winner: "Fragile"/);
   assert.match(client, /tile\.divergence/);
+  assert.match(client, /text-3xl/);
   assert.doesNotMatch(client, /pressureScore/);
   assert.doesNotMatch(client, /confirmationScore\s*[+\-*/]/);
 });
@@ -145,11 +150,15 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
 test("Market Pressure map uses a sector-nested treemap layout", () => {
   assert.match(client, /type TreemapRect/);
   assert.match(client, /function layoutTreemap/);
+  assert.match(client, /function tileWeight/);
+  assert.match(client, /function sectorWeight/);
   assert.match(client, /data-sector-treemap/);
   assert.match(client, /data-treemap-tile/);
   assert.match(client, /style=\{rect \? rectStyle\(rect\) : undefined\}/);
   assert.match(client, /rounded-none/);
   assert.match(client, /layoutTreemap\(sectors\.map/);
+  assert.match(client, /weight: sectorWeight\(sectorGroup\)/);
+  assert.match(client, /weight: tileWeight\(tile\)/);
   assert.doesNotMatch(client, /grid grid-cols-\[repeat\(auto-fill,minmax\(7\.6rem,1fr\)\)\]/);
 });
 

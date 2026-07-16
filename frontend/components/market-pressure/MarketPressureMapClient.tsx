@@ -128,13 +128,21 @@ function statusTitle(status: string) {
 
 function priceFillClass(value: number | null) {
   if (value == null || !Number.isFinite(value)) return "bg-[repeating-linear-gradient(135deg,rgba(51,65,85,0.82)_0,rgba(51,65,85,0.82)_6px,rgba(15,23,42,0.92)_6px,rgba(15,23,42,0.92)_12px)] text-slate-100";
-  if (value >= 4) return "bg-emerald-700/85 text-white";
-  if (value >= 1.5) return "bg-emerald-600/70 text-white";
-  if (value > 0.15) return "bg-emerald-500/35 text-emerald-50";
-  if (value <= -4) return "bg-rose-800/85 text-white";
-  if (value <= -1.5) return "bg-rose-700/70 text-white";
-  if (value < -0.15) return "bg-rose-500/35 text-rose-50";
-  return "bg-slate-700/80 text-slate-100";
+  if (value >= 6) return "bg-[#00a64a] text-white";
+  if (value >= 4) return "bg-[#09b850] text-white";
+  if (value >= 3) return "bg-[#18c861] text-white";
+  if (value >= 2) return "bg-[#2fbd63] text-white";
+  if (value >= 1) return "bg-[#2f8f59] text-white";
+  if (value >= 0.5) return "bg-[#376f5d] text-white";
+  if (value > 0.15) return "bg-[#3d5f5d] text-white";
+  if (value <= -6) return "bg-[#ff202f] text-white";
+  if (value <= -4) return "bg-[#f02c37] text-white";
+  if (value <= -3) return "bg-[#df3542] text-white";
+  if (value <= -2) return "bg-[#be3e4d] text-white";
+  if (value <= -1) return "bg-[#8f4555] text-white";
+  if (value <= -0.5) return "bg-[#6d4655] text-white";
+  if (value < -0.15) return "bg-[#584856] text-white";
+  return "bg-[#35495a] text-slate-100";
 }
 
 function confirmationFrameClass(tile: MarketPressureTile) {
@@ -170,6 +178,14 @@ function compareTiles(a: MarketPressureTile, b: MarketPressureTile) {
     if (left[index] > right[index]) return 1;
   }
   return 0;
+}
+
+function tileWeight(tile: MarketPressureTile) {
+  return typeof tile.marketCap === "number" && Number.isFinite(tile.marketCap) && tile.marketCap > 0 ? tile.marketCap : 1_000_000_000;
+}
+
+function sectorWeight(sector: MarketPressureSector) {
+  return Math.max(1, sector.tiles.reduce((total, tile) => total + tileWeight(tile), 0));
 }
 
 function sortSectors(sectors: MarketPressureSector[]) {
@@ -380,8 +396,9 @@ function MarketTile({
   rect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
-  const compact = rect ? rect.width < 96 || rect.height < 58 : false;
-  const micro = rect ? rect.width < 44 || rect.height < 30 : false;
+  const compact = rect ? rect.width < 15 || rect.height < 18 : false;
+  const micro = rect ? rect.width < 6 || rect.height < 9 : false;
+  const feature = rect ? rect.width >= 30 && rect.height >= 24 : false;
   const tileClassName = rect
     ? `group absolute overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
@@ -405,9 +422,9 @@ function MarketTile({
       <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
-      <span className={`${micro ? "text-[8px]" : compact ? "text-[10px]" : "text-sm"} block max-w-full truncate font-mono font-black tracking-normal`}>{tile.symbol}</span>
-      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : "mt-1 text-sm"} block font-bold`}>{formatPct(tile.priceChangePct, true)}</span>
-      <span className={`${compact ? "hidden" : "mt-1 block text-[10px]"} font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
+      <span className={`${micro ? "text-[9px]" : compact ? "text-xs" : feature ? "text-3xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{tile.symbol}</span>
+      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{formatPct(tile.priceChangePct, true)}</span>
+      <span className={`${compact || feature ? "hidden" : "mt-1 block text-[10px]"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
       <span className={`${compact ? "hidden" : "mt-1 flex"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
         {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
@@ -427,9 +444,9 @@ function SectorMap({
 }) {
   const sectorLayouts = useMemo(
     () =>
-      layoutTreemap(sectors.map((sectorGroup) => ({ item: sectorGroup, weight: Math.max(1, sectorGroup.tiles.length) }))).map((sectorLayout) => ({
+      layoutTreemap(sectors.map((sectorGroup) => ({ item: sectorGroup, weight: sectorWeight(sectorGroup) }))).map((sectorLayout) => ({
         ...sectorLayout,
-        tileLayouts: layoutTreemap(sectorLayout.item.tiles.map((tile) => ({ item: tile, weight: 1 }))),
+        tileLayouts: layoutTreemap(sectorLayout.item.tiles.map((tile) => ({ item: tile, weight: tileWeight(tile) }))),
       })),
     [sectors],
   );
@@ -580,16 +597,38 @@ function svgEscape(value: string | number | null | undefined) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
+function priceFillHex(value: number | null) {
+  if (value == null) return "#334155";
+  if (value >= 6) return "#00a64a";
+  if (value >= 4) return "#09b850";
+  if (value >= 3) return "#18c861";
+  if (value >= 2) return "#2fbd63";
+  if (value >= 1) return "#2f8f59";
+  if (value >= 0.5) return "#376f5d";
+  if (value > 0.15) return "#3d5f5d";
+  if (value <= -6) return "#ff202f";
+  if (value <= -4) return "#f02c37";
+  if (value <= -3) return "#df3542";
+  if (value <= -2) return "#be3e4d";
+  if (value <= -1) return "#8f4555";
+  if (value <= -0.5) return "#6d4655";
+  if (value < -0.15) return "#584856";
+  return "#35495a";
+}
+
 function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, height: number) {
-  const price = tile.priceChangePct;
-  const fill = price == null ? "#334155" : price > 1.5 ? "#047857" : price > 0.15 ? "#15803d" : price < -1.5 ? "#9f1239" : price < -0.15 ? "#be123c" : "#475569";
+  const fill = priceFillHex(tile.priceChangePct);
   const stroke = tile.confirmationDirection === "bullish" ? "#6ee7b7" : tile.confirmationDirection === "bearish" ? "#fda4af" : tile.confirmationDirection === "conflicted" ? "#fde68a" : "#94a3b8";
   const dash = tile.confirmationDirection === "conflicted" || tile.confirmationDirection === "unavailable" ? ` stroke-dasharray="5 3"` : "";
   const marker = tile.divergence === "hidden_accumulation" ? "ACC" : tile.divergence === "fragile_winner" ? "FRG" : "";
   const showPrice = width >= 42 && height >= 32;
   const showScore = width >= 70 && height >= 54;
-  const fontSize = width >= 95 && height >= 54 ? 16 : width >= 48 && height >= 28 ? 12 : 9;
-  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${tile.confirmationStrength === "strong" ? 3 : 1.5}"${dash}/><text x="${x + 6}" y="${y + Math.max(12, fontSize + 4)}" fill="#fff" font-size="${fontSize}" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${x + 6}" y="${y + fontSize + 22}" fill="#e2e8f0" font-size="${Math.max(9, fontSize - 2)}" font-family="Arial">${svgEscape(formatPct(tile.priceChangePct, true))}</text>` : ""}${showScore ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
+  const fontSize = width >= 120 && height >= 72 ? 30 : width >= 90 && height >= 54 ? 22 : width >= 48 && height >= 28 ? 13 : 9;
+  const textAnchor = width >= 90 && height >= 54 ? "middle" : "start";
+  const labelX = textAnchor === "middle" ? x + width / 2 : x + 6;
+  const labelY = textAnchor === "middle" ? y + height / 2 - 2 : y + Math.max(12, fontSize + 4);
+  const priceY = textAnchor === "middle" ? labelY + Math.max(14, fontSize * 0.68) : y + fontSize + 22;
+  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${tile.confirmationStrength === "strong" ? 3 : 1.5}"${dash}/><text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(9, Math.round(fontSize * 0.56))}" font-weight="700" font-family="Arial">${svgEscape(formatPct(tile.priceChangePct, true))}</text>` : ""}${showScore && textAnchor === "start" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
 }
 
 function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState) {
@@ -601,7 +640,7 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
   const mapHeight = 432;
   const universe = marketPressureUniverses.find((item) => item.value === query.universe)?.label ?? "S&P 500";
   const view = marketPressureViewModes.find((item) => item.value === query.viewMode)?.label ?? "Market Pressure";
-  const sectorMarkup = layoutTreemap(sectors.map((sector) => ({ item: sector, weight: Math.max(1, sector.tiles.length) })))
+  const sectorMarkup = layoutTreemap(sectors.map((sector) => ({ item: sector, weight: sectorWeight(sector) })))
     .map(({ item: sector, rect }) => {
       const x = mapX + (rect.x / 100) * mapWidth;
       const y = mapY + (rect.y / 100) * mapHeight;
@@ -610,7 +649,7 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
       const showHeader = sectorWidth >= 70 && sectorHeight >= 40;
       const headerHeight = showHeader ? 18 : 0;
       const tileHeight = Math.max(0, sectorHeight - headerHeight);
-      const tiles = layoutTreemap(sector.tiles.map((tile) => ({ item: tile, weight: 1 })));
+      const tiles = layoutTreemap(sector.tiles.map((tile) => ({ item: tile, weight: tileWeight(tile) })));
       const tileMarkup = tiles
         .map(({ item: tile, rect: tileRect }) => tileSvg(tile, x + (tileRect.x / 100) * sectorWidth, y + headerHeight + (tileRect.y / 100) * tileHeight, (tileRect.width / 100) * sectorWidth, (tileRect.height / 100) * tileHeight))
         .join("");
