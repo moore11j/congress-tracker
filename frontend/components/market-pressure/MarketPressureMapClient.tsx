@@ -52,6 +52,12 @@ type TreemapLayoutItem<T> = TreemapWeightedItem<T> & {
   rect: TreemapRect;
 };
 
+type SectorHoverState = {
+  sector: MarketPressureSector;
+  x: number;
+  y: number;
+};
+
 const TREEMAP_ROOT_RECT: TreemapRect = { x: 0, y: 0, width: 100, height: 100 };
 
 const divergenceLabel: Record<MarketPressureTile["divergence"], string> = {
@@ -178,6 +184,13 @@ function compareTiles(a: MarketPressureTile, b: MarketPressureTile) {
     if (left[index] > right[index]) return 1;
   }
   return 0;
+}
+
+function compareSectorHoverRows(a: MarketPressureTile, b: MarketPressureTile) {
+  const leftCap = a.marketCap ?? 0;
+  const rightCap = b.marketCap ?? 0;
+  if (rightCap !== leftCap) return rightCap - leftCap;
+  return a.symbol.localeCompare(b.symbol);
 }
 
 function tileWeight(tile: MarketPressureTile) {
@@ -443,6 +456,7 @@ function SectorMap({
   period: MarketPressureTimeRange;
   onOpen: (tile: MarketPressureTile) => void;
 }) {
+  const [hoveredSector, setHoveredSector] = useState<SectorHoverState | null>(null);
   const sectorLayouts = useMemo(
     () =>
       layoutTreemap(sectors.map((sectorGroup) => ({ item: sectorGroup, weight: sectorWeight(sectorGroup) }))).map((sectorLayout) => ({
@@ -453,11 +467,24 @@ function SectorMap({
   );
 
   return (
-    <div className="relative min-h-[34rem] overflow-hidden rounded-md border border-slate-950 bg-slate-950 shadow-inner sm:min-h-[42rem] xl:min-h-[48rem]" data-market-pressure-map data-sector-treemap>
+    <div
+      className="relative min-h-[34rem] overflow-hidden rounded-md border border-slate-950 bg-slate-950 shadow-inner sm:min-h-[42rem] xl:min-h-[48rem]"
+      data-market-pressure-map
+      data-sector-treemap
+      onMouseLeave={() => setHoveredSector(null)}
+    >
       {sectorLayouts.map(({ item: sectorGroup, rect, tileLayouts }) => {
         const showHeader = rect.width >= 8 && rect.height >= 7;
         return (
-          <section key={sectorGroup.sector} className="absolute overflow-hidden border border-slate-950 bg-slate-900/50" style={rectStyle(rect)} aria-label={`${sectorGroup.sector} sector pressure`}>
+          <section
+            key={sectorGroup.sector}
+            className="absolute overflow-hidden border border-slate-950 bg-slate-900/50"
+            style={rectStyle(rect)}
+            aria-label={`${sectorGroup.sector} sector pressure`}
+            onMouseEnter={(event) => setHoveredSector({ sector: sectorGroup, x: event.clientX, y: event.clientY })}
+            onMouseMove={(event) => setHoveredSector({ sector: sectorGroup, x: event.clientX, y: event.clientY })}
+            onFocus={() => setHoveredSector(null)}
+          >
             {showHeader ? (
               <div className="absolute inset-x-0 top-0 z-10 flex h-5 min-w-0 items-center justify-between gap-2 border-b border-slate-950 bg-slate-800/85 px-1.5 text-[9px] font-bold uppercase tracking-normal text-slate-100">
                 <span className="truncate">{sectorGroup.sector}</span>
@@ -477,6 +504,53 @@ function SectorMap({
           </section>
         );
       })}
+      <SectorHoverTooltip hover={hoveredSector} period={period} />
+    </div>
+  );
+}
+
+function SectorHoverTooltip({ hover, period }: { hover: SectorHoverState | null; period: MarketPressureTimeRange }) {
+  if (!hover) return null;
+  const rows = [...hover.sector.tiles].sort(compareSectorHoverRows);
+  return (
+    <div
+      className="fixed z-50 w-[27rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-white/10 bg-slate-950/95 px-3 py-3 text-sm shadow-xl backdrop-blur"
+      style={{
+        left: `clamp(0.75rem, ${hover.x + 16}px, calc(100vw - 28rem))`,
+        top: `clamp(0.75rem, ${hover.y + 16}px, calc(100vh - 27rem))`,
+      }}
+      role="tooltip"
+      data-sector-hover-tooltip
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{hover.sector.sector}</div>
+          <div className="mt-1 text-xs text-slate-400">{rows.length} names - avg {formatPct(hover.sector.summary.averagePriceChangePct, true)}</div>
+        </div>
+        <div className="text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{period}</div>
+      </div>
+      <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-white/10">
+        <table className="min-w-full text-xs">
+          <thead className="bg-slate-900/95 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              <th className="px-2 py-2 text-left font-medium">Ticker</th>
+              <th className="px-2 py-2 text-right font-medium">1D</th>
+              <th className="px-2 py-2 text-right font-medium">Score</th>
+              <th className="px-2 py-2 text-left font-medium">Direction</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {rows.map((tile) => (
+              <tr key={`${hover.sector.sector}:hover:${tile.symbol}`} className="text-slate-200">
+                <td className="px-2 py-1.5 font-mono font-semibold text-emerald-100">{tile.symbol}</td>
+                <td className={`px-2 py-1.5 text-right font-semibold tabular-nums ${tile.priceChangePct == null ? "text-slate-500" : tile.priceChangePct >= 0 ? "text-emerald-200" : "text-rose-200"}`}>{formatPct(tile.priceChangePct, true)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-slate-100">{formatScore(tile.confirmationScore)}</td>
+                <td className="px-2 py-1.5 text-slate-300">{statusTitle(tile.confirmationDirection)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -545,23 +619,23 @@ function TickerFlyout({
       description={tile.companyName ?? "Company name unavailable"}
       panelClassName="max-w-2xl"
     >
-      <div className="space-y-5">
-        <div className="grid gap-3 sm:grid-cols-4">
+      <div className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-4">
           <Metric label={`${period} price`} value={formatPct(tile.priceChangePct)} />
           <Metric label="Confirmation" value={tile.confirmationScore == null ? "NA" : `${Math.round(tile.confirmationScore)}/100`} />
           <Metric label="Direction" value={statusTitle(tile.confirmationDirection)} />
           <Metric label="Divergence" value={divergenceLabel[tile.divergence]} />
         </div>
-        <div className="rounded-md border border-white/10 bg-slate-950/45 p-4">
+        <div className="rounded-md border border-white/10 bg-slate-950/45 p-3">
           <h3 className="text-sm font-semibold text-white">Why it stands out</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{explainTile(tile, period)}</p>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-1.5 text-sm leading-5 text-slate-300">{explainTile(tile, period)}</p>
+          <p className="mt-1.5 text-xs text-slate-500">
             Price as of {formatDate(tile.priceEndAt)}. Confirmation as of {formatDate(tile.confirmationAsOf)}. Data state: {statusTitle(tile.dataState)}.
           </p>
         </div>
-        <div className="rounded-md border border-white/10 bg-slate-950/45 p-4">
+        <div className="rounded-md border border-white/10 bg-slate-950/45 p-3">
           <h3 className="text-sm font-semibold text-white">Evidence summary</h3>
-          <div className="mt-2">
+          <div className="mt-2 grid gap-x-3 sm:grid-cols-2">
             {layerOrder.map((key) => (
               <EvidenceRow key={key} label={marketPressureLayerLabels[key]} layer={tile.layers[key]} />
             ))}
@@ -587,7 +661,7 @@ function TickerFlyout({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-white/10 bg-slate-900/55 px-3 py-2">
+    <div className="rounded-md border border-white/10 bg-slate-900/55 px-2.5 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
       <div className="mt-1 truncate text-sm font-semibold text-white">{value}</div>
     </div>

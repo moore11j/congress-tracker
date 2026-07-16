@@ -152,8 +152,15 @@ test("Market Pressure map uses a sector-nested treemap layout", () => {
   assert.match(client, /function layoutTreemap/);
   assert.match(client, /function tileWeight/);
   assert.match(client, /function sectorWeight/);
+  assert.match(client, /function SectorHoverTooltip/);
   assert.match(client, /data-sector-treemap/);
   assert.match(client, /data-treemap-tile/);
+  assert.match(client, /data-sector-hover-tooltip/);
+  assert.match(client, /bg-slate-950\/95 px-3 py-3 text-sm shadow-xl/);
+  assert.match(client, /<th className="px-2 py-2 text-left font-medium">Ticker<\/th>/);
+  assert.match(client, /<th className="px-2 py-2 text-right font-medium">1D<\/th>/);
+  assert.match(client, /<th className="px-2 py-2 text-right font-medium">Score<\/th>/);
+  assert.match(client, /<th className="px-2 py-2 text-left font-medium">Direction<\/th>/);
   assert.match(client, /style=\{rect \? rectStyle\(rect\) : undefined\}/);
   assert.match(client, /rounded-none/);
   assert.match(client, /layoutTreemap\(sectors\.map/);
@@ -165,6 +172,7 @@ test("Market Pressure map uses a sector-nested treemap layout", () => {
 test("Market Pressure tile flyout and share export avoid protected public JSON", () => {
   assert.match(client, /WalnutModal/);
   assert.match(client, /Evidence summary/);
+  assert.match(client, /mt-2 grid gap-x-3 sm:grid-cols-2/);
   assert.match(client, /Open full ticker page/);
   assert.match(client, /AddTickerToWatchlist/);
   assert.match(client, /image\/svg\+xml/);
