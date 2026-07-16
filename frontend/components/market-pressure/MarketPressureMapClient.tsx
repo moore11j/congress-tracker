@@ -414,7 +414,7 @@ function MarketTile({
   const medium = rect ? rect.width < 18 || rect.height < 15 || tileArea < 300 : false;
   const feature = rect ? rect.width >= 18 && rect.height >= 15 && tileArea >= 320 : false;
   const hero = rect ? rect.width >= 25 && rect.height >= 20 && tileArea >= 560 : false;
-  const showDiagnostics = rect ? !hideLabel && !feature && rect.width >= 14 && rect.height >= 12 && tileArea >= 180 : true;
+  const showDiagnostics = rect ? !hideLabel && !feature && rect.width >= 22 && rect.height >= 18 && tileArea >= 420 : true;
   const tileClassName = rect
     ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;

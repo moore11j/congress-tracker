@@ -190,6 +190,44 @@ def test_market_pressure_uses_market_cap_and_live_quote_fallback_for_missing_one
     assert response["priceAsOf"].startswith("2026-07-15")
 
 
+def test_market_pressure_fetches_live_market_cap_for_complete_one_day_price(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["MSFT"])
+    _seed_price(db, "MSFT", start_close=100, end_close=105)
+    fetched_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    monkeypatch.setenv("MARKET_PRESSURE_LIVE_PRICE_LIMIT", "1")
+    requested_symbols: list[str] = []
+
+    def fixture_quotes(_db, symbols, **kwargs):
+        requested_symbols.extend(symbols)
+        assert kwargs["lane"] == "market_pressure_quote"
+        assert kwargs["force_quote_endpoint"] is True
+        assert kwargs["max_network_fetch"] == 1
+        return {
+            "MSFT": {
+                "change_percent": 9.9,
+                "market_cap": 3_600_000_000_000,
+                "asof_ts": fetched_at,
+            }
+        }
+
+    monkeypatch.setattr(market_pressure, "get_current_prices_meta_db", fixture_quotes)
+
+    response = build_market_pressure_response(
+        db,
+        universe="watchlist",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    assert requested_symbols == ["MSFT"]
+    assert tiles["MSFT"]["marketCap"] == 3_600_000_000_000
+    assert tiles["MSFT"]["priceChangePct"] == 3.9604
+
+
 def test_market_pressure_classifies_complete_canonical_confirmation_and_divergence(db):
     user = _seed_watchlist(db, symbols=["HA", "FW", "AB", "AD", "MIX", "NEU", "MISS", "OLD"])
     _seed_price(db, "HA", start_close=100, end_close=98)

@@ -42,7 +42,7 @@ Divergence = Literal[
 
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
 SCORING_VERSION = "confirmation_score_v1"
-MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 180
+MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 503
 MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS: dict[MarketPressureUniverse, set[str]] = {
     "sp500": {"GOOG"},
 }
@@ -261,7 +261,7 @@ def build_market_pressure_response(
         timings["identityDurationMs"] = _elapsed_ms(mark)
         mark = perf_counter()
         prioritized_symbols = _prioritize_symbols_for_market_data(symbols, identities)
-        price_by_symbol = _load_price_performance(db, prioritized_symbols, params.period, generated_at.date())
+        price_by_symbol = _load_price_performance(db, prioritized_symbols, params.period, generated_at.date(), identities)
         timings["priceDurationMs"] = _elapsed_ms(mark)
         loader = confirmation_loader or _default_confirmation_loader
         mark = perf_counter()
@@ -437,6 +437,7 @@ def _load_price_performance(
     symbols: list[str],
     period: MarketPressurePeriod,
     today: date,
+    identities: dict[str, Identity] | None = None,
 ) -> dict[str, PricePerformance]:
     if not symbols:
         return {}
@@ -460,7 +461,26 @@ def _load_price_performance(
         results[symbol] = _price_performance_from_rows(values, period, target)
     if period == "1d":
         missing = [symbol for symbol in symbols if not results.get(symbol, PricePerformance(None, None, None, None, False)).complete]
-        results.update(_load_live_one_day_price_fallback(db, missing))
+        missing_cap = [
+            symbol
+            for symbol in symbols
+            if identities is not None and identities.get(symbol, Identity(symbol=symbol)).market_cap is None
+        ]
+        live_symbols = list(dict.fromkeys([*missing, *missing_cap]))
+        live_results = _load_live_one_day_price_fallback(db, live_symbols)
+        for symbol, live_price in live_results.items():
+            current = results.get(symbol)
+            if current is not None and current.complete:
+                results[symbol] = PricePerformance(
+                    change_pct=current.change_pct,
+                    start_at=current.start_at,
+                    end_at=current.end_at,
+                    as_of=current.as_of,
+                    complete=current.complete,
+                    market_cap=current.market_cap or live_price.market_cap,
+                )
+                continue
+            results[symbol] = live_price
     return results
 
 
@@ -498,16 +518,17 @@ def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[s
     fallback: dict[str, PricePerformance] = {}
     for symbol, meta in quote_meta.items():
         change_pct = _safe_float(meta.get("change_percent"))
-        if change_pct is None:
+        market_cap = _safe_float(meta.get("market_cap"))
+        if change_pct is None and market_cap is None:
             continue
         as_of = _quote_as_of_iso(meta.get("asof_ts")) or _dt_iso(datetime.now(timezone.utc))
         fallback[symbol] = PricePerformance(
-            change_pct=round(change_pct, 4),
+            change_pct=round(change_pct, 4) if change_pct is not None else None,
             start_at=None,
             end_at=as_of,
             as_of=as_of,
-            complete=True,
-            market_cap=_safe_float(meta.get("market_cap")),
+            complete=change_pct is not None,
+            market_cap=market_cap,
         )
     return fallback
 
