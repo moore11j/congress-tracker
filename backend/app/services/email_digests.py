@@ -867,10 +867,11 @@ def _upcoming_calendar_events_for_digest(
             end=anchor + timedelta(days=7),
             scope="watchlist",
             limit=12,
+            kinds=enabled_kinds,
         )
     except Exception:
         return [], _calendar_filter_label(enabled_kinds)
-    return [item for item in result.items if str(item.get("kind") or "") in enabled_kinds], _calendar_filter_label(enabled_kinds)
+    return result.items, _calendar_filter_label(enabled_kinds)
 
 
 def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int, user: UserAccount) -> list[Event]:

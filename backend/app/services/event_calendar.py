@@ -34,6 +34,7 @@ _ENDPOINTS: tuple[tuple[CalendarEventKind, str], ...] = (
 _WATCHLIST_FILTERED_KINDS: set[CalendarEventKind] = {"earnings", "dividend", "split"}
 _WATCHLIST_SYMBOL_ENDPOINTS: tuple[tuple[CalendarEventKind, str], ...] = (
     ("earnings", "earnings"),
+    ("earnings", "earnings-calendar"),
     ("dividend", "dividends"),
     ("split", "splits"),
 )
@@ -158,9 +159,14 @@ def upcoming_event_calendar_items(
     end: date,
     scope: CalendarScope = "watchlist",
     limit: int = 12,
+    kinds: tuple[CalendarEventKind, ...] | None = None,
 ) -> CalendarFetchResult:
     result = fetch_event_calendar(db, user, start=start, end=end, scope=scope, source="scheduled_job", allow_live_fetch=True)
-    return CalendarFetchResult(items=result.items[: max(0, limit)], errors=result.errors)
+    items = result.items
+    if kinds is not None:
+        enabled_kinds = set(kinds)
+        items = [item for item in items if item.get("kind") in enabled_kinds]
+    return CalendarFetchResult(items=items[: max(0, limit)], errors=result.errors)
 
 
 def _rows_from_payload(payload: Any) -> list[dict[str, Any]]:

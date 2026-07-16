@@ -625,8 +625,8 @@ def test_signal_digest_excludes_raw_watchlist_trade_events(monkeypatch):
 def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monkeypatch):
     captured = {}
 
-    def fake_upcoming(db, user, *, start, end, scope, limit):
-        captured.update({"start": start, "end": end, "scope": scope, "limit": limit})
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+        captured.update({"start": start, "end": end, "scope": scope, "limit": limit, "kinds": kinds})
         return CalendarFetchResult(
             items=[
                 {
@@ -657,6 +657,7 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
         assert captured["start"].isoformat() == "2026-07-10"
         assert captured["end"].isoformat() == "2026-07-17"
         assert captured["scope"] == "watchlist"
+        assert captured["kinds"] == ("economic", "earnings", "dividend", "ipo", "split")
         assert "NVDA earnings" in digest.context["upcoming_events_text"]
         assert "NVDA earnings" in digest.context["upcoming_events_html"]
         assert digest.context["calendar_alert_filters_text"] == "Economic, Earnings, Dividends, IPOs, Splits"
@@ -665,12 +666,11 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
 
 
 def test_monitoring_digest_filters_calendar_dates_by_saved_event_kinds(monkeypatch):
-    def fake_upcoming(db, user, *, start, end, scope, limit):
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+        assert kinds == ("earnings",)
         return CalendarFetchResult(
             items=[
-                {"id": "economic:test", "kind": "economic", "date": "2026-07-13", "country": "US", "title": "CPI MoM"},
                 {"id": "earnings:test", "kind": "earnings", "date": "2026-07-14", "symbol": "NVDA", "title": "NVDA earnings"},
-                {"id": "dividend:test", "kind": "dividend", "date": "2026-07-15", "symbol": "SPY", "title": "SPY dividend"},
             ],
             errors=[],
         )

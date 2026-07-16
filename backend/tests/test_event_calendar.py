@@ -11,7 +11,7 @@ from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.models import AppSetting, FeatureGate, PlanLimit, PlanPrice, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.event_calendar import get_monitoring_event_calendar
-from app.services.event_calendar import fetch_event_calendar
+from app.services.event_calendar import fetch_event_calendar, upcoming_event_calendar_items
 
 
 def _session():
@@ -72,7 +72,7 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
                 ]
             if endpoint == "ipos-calendar":
                 return [{"date": "2026-08-20", "symbol": "AAPL", "company": "Apple Inc."}]
-            if endpoint == "earnings":
+            if endpoint == "earnings-calendar":
                 assert kwargs["params"]["symbol"] == "NVDA"
                 return [
                     {"date": "2026-08-14", "symbol": "NVDA", "epsEstimated": "1.02"},
@@ -100,6 +100,67 @@ def test_event_calendar_normalizes_fmp_rows_and_filters_watchlist_symbols(monkey
         assert titles.count("CPI") == 1
         assert "Brazilian IPCA Inflation Index SA MoM" not in titles
         assert result.errors == []
+    finally:
+        db.close()
+
+
+def test_event_calendar_uses_symbol_earnings_sources_for_watchlist_earnings(monkeypatch):
+    db = _session()
+    try:
+        user = _user(db, "tsm-calendar@example.com")
+        _watchlist(db, user, "TSM")
+        requested_endpoints = []
+
+        def fake_request(endpoint, **kwargs):
+            requested_endpoints.append(endpoint)
+            if endpoint == "earnings":
+                assert kwargs["params"]["symbol"] == "TSM"
+                return [{"date": "2026-07-16", "symbol": "TSM", "epsEstimated": "3.82"}]
+            if endpoint == "earnings-calendar":
+                assert kwargs["params"]["symbol"] == "TSM"
+                return []
+            return []
+
+        monkeypatch.setattr("app.services.event_calendar.request_fmp_json", fake_request)
+
+        result = fetch_event_calendar(db, user, start=date(2026, 7, 16), end=date(2026, 7, 23), scope="watchlist")
+
+        assert "earnings" in requested_endpoints
+        assert "earnings-calendar" in requested_endpoints
+        assert [item["title"] for item in result.items] == ["TSM earnings"]
+    finally:
+        db.close()
+
+
+def test_upcoming_calendar_filters_kinds_before_limit(monkeypatch):
+    db = _session()
+    try:
+        user = _user(db, "filtered-calendar@example.com")
+        _watchlist(db, user, "TSM")
+
+        def fake_request(endpoint, **kwargs):
+            if endpoint == "economic-calendar":
+                return [
+                    {"date": "2026-07-16", "event": "Retail Sales", "country": "US"},
+                    {"date": "2026-07-16", "event": "Jobless Claims", "country": "US"},
+                ]
+            if endpoint == "earnings-calendar":
+                return [{"date": "2026-07-16", "symbol": "TSM", "epsEstimated": "2.44"}]
+            return []
+
+        monkeypatch.setattr("app.services.event_calendar.request_fmp_json", fake_request)
+
+        result = upcoming_event_calendar_items(
+            db,
+            user,
+            start=date(2026, 7, 16),
+            end=date(2026, 7, 23),
+            scope="watchlist",
+            limit=1,
+            kinds=("earnings",),
+        )
+
+        assert [item["title"] for item in result.items] == ["TSM earnings"]
     finally:
         db.close()
 
