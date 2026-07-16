@@ -396,11 +396,12 @@ function MarketTile({
   rect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
-  const compact = rect ? rect.width < 15 || rect.height < 18 : false;
-  const micro = rect ? rect.width < 6 || rect.height < 9 : false;
-  const feature = rect ? rect.width >= 30 && rect.height >= 24 : false;
+  const compact = rect ? rect.width < 8 || rect.height < 7 : false;
+  const micro = rect ? rect.width < 4 || rect.height < 5 : false;
+  const feature = rect ? rect.width >= 16 && rect.height >= 14 : false;
+  const hero = rect ? rect.width >= 24 && rect.height >= 20 : false;
   const tileClassName = rect
-    ? `group absolute overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
+    ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -422,10 +423,10 @@ function MarketTile({
       <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
-      <span className={`${micro ? "text-[9px]" : compact ? "text-xs" : feature ? "text-3xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{tile.symbol}</span>
-      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{formatPct(tile.priceChangePct, true)}</span>
+      <span className={`${micro ? "text-[9px]" : compact ? "text-xs" : hero ? "text-4xl" : feature ? "text-3xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{tile.symbol}</span>
+      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : hero ? "mt-1 text-xl" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{formatPct(tile.priceChangePct, true)}</span>
       <span className={`${compact || feature ? "hidden" : "mt-1 block text-[10px]"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
-      <span className={`${compact ? "hidden" : "mt-1 flex"} min-h-5 flex-wrap gap-1`}>
+      <span className={`${compact || feature ? "hidden" : "mt-1 flex"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
         {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
       </span>
