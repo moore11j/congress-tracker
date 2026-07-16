@@ -379,8 +379,8 @@ function MarketTile({
   rect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
-  const compact = rect ? rect.width < 12 || rect.height < 14 : false;
-  const micro = rect ? rect.width < 5.5 || rect.height < 7 : false;
+  const compact = rect ? rect.width < 96 || rect.height < 58 : false;
+  const micro = rect ? rect.width < 44 || rect.height < 30 : false;
   const tileClassName = rect
     ? `group absolute overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
