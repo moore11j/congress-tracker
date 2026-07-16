@@ -137,6 +137,17 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.doesNotMatch(client, /confirmationScore\s*[+\-*/]/);
 });
 
+test("Market Pressure map uses a sector-nested treemap layout", () => {
+  assert.match(client, /type TreemapRect/);
+  assert.match(client, /function layoutTreemap/);
+  assert.match(client, /data-sector-treemap/);
+  assert.match(client, /data-treemap-tile/);
+  assert.match(client, /style=\{rect \? rectStyle\(rect\) : undefined\}/);
+  assert.match(client, /rounded-none/);
+  assert.match(client, /layoutTreemap\(sectors\.map/);
+  assert.doesNotMatch(client, /grid grid-cols-\[repeat\(auto-fill,minmax\(7\.6rem,1fr\)\)\]/);
+});
+
 test("Market Pressure tile flyout and share export avoid protected public JSON", () => {
   assert.match(client, /WalnutModal/);
   assert.match(client, /Evidence summary/);

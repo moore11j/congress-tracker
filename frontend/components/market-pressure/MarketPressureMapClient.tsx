@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { WalnutModal } from "@/components/ui/WalnutModal";
 import { recordProductEvent } from "@/lib/api";
@@ -35,6 +35,24 @@ type QueryState = {
   universe: MarketPressureUniverse;
   viewMode: MarketPressureViewMode;
 };
+
+type TreemapRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type TreemapWeightedItem<T> = {
+  item: T;
+  weight: number;
+};
+
+type TreemapLayoutItem<T> = TreemapWeightedItem<T> & {
+  rect: TreemapRect;
+};
+
+const TREEMAP_ROOT_RECT: TreemapRect = { x: 0, y: 0, width: 100, height: 100 };
 
 const divergenceLabel: Record<MarketPressureTile["divergence"], string> = {
   hidden_accumulation: "Accumulation",
@@ -165,6 +183,59 @@ function sortSectors(sectors: MarketPressureSector[]) {
       if (balanceB !== balanceA) return balanceB - balanceA;
       return a.sector.localeCompare(b.sector);
     });
+}
+
+function sumTreemapWeight<T>(items: TreemapWeightedItem<T>[]) {
+  return items.reduce((total, item) => total + Math.max(0, item.weight), 0);
+}
+
+function layoutTreemap<T>(items: TreemapWeightedItem<T>[], rect: TreemapRect = TREEMAP_ROOT_RECT): TreemapLayoutItem<T>[] {
+  const validItems = items.filter((item) => item.weight > 0);
+  if (validItems.length === 0) return [];
+  if (validItems.length === 1) return [{ ...validItems[0], rect }];
+
+  const totalWeight = sumTreemapWeight(validItems);
+  if (totalWeight <= 0) return [];
+
+  let runningWeight = 0;
+  let splitIndex = 1;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < validItems.length; index += 1) {
+    runningWeight += validItems[index - 1].weight;
+    const delta = Math.abs(totalWeight / 2 - runningWeight);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      splitIndex = index;
+    }
+  }
+
+  const firstItems = validItems.slice(0, splitIndex);
+  const secondItems = validItems.slice(splitIndex);
+  const firstWeight = sumTreemapWeight(firstItems);
+  const firstRatio = firstWeight / totalWeight;
+
+  if (rect.width >= rect.height) {
+    const firstWidth = rect.width * firstRatio;
+    return [
+      ...layoutTreemap(firstItems, { x: rect.x, y: rect.y, width: firstWidth, height: rect.height }),
+      ...layoutTreemap(secondItems, { x: rect.x + firstWidth, y: rect.y, width: rect.width - firstWidth, height: rect.height }),
+    ];
+  }
+
+  const firstHeight = rect.height * firstRatio;
+  return [
+    ...layoutTreemap(firstItems, { x: rect.x, y: rect.y, width: rect.width, height: firstHeight }),
+    ...layoutTreemap(secondItems, { x: rect.x, y: rect.y + firstHeight, width: rect.width, height: rect.height - firstHeight }),
+  ];
+}
+
+function rectStyle(rect: TreemapRect): CSSProperties {
+  return {
+    left: `${rect.x}%`,
+    top: `${rect.y}%`,
+    width: `${rect.width}%`,
+    height: `${rect.height}%`,
+  };
 }
 
 function tickerHref(symbol: string) {
@@ -300,12 +371,19 @@ function MarketTile({
   tile,
   period,
   onOpen,
+  rect,
 }: {
   tile: MarketPressureTile;
   period: MarketPressureTimeRange;
   onOpen: (tile: MarketPressureTile) => void;
+  rect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
+  const compact = rect ? rect.width < 12 || rect.height < 14 : false;
+  const micro = rect ? rect.width < 5.5 || rect.height < 7 : false;
+  const tileClassName = rect
+    ? `group absolute overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
+    : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -315,19 +393,21 @@ function MarketTile({
   return (
     <button
       type="button"
-      className={`group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`}
+      className={tileClassName}
+      style={rect ? rectStyle(rect) : undefined}
+      data-treemap-tile={rect ? "true" : undefined}
       aria-label={label}
       title={`${label} ${explainTile(tile, period)}`}
       onClick={() => onOpen(tile)}
       onKeyDown={handleKeyDown}
     >
-      <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85">
+      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
-      <span className="block max-w-[70%] truncate font-mono text-sm font-black tracking-normal">{tile.symbol}</span>
-      <span className="mt-1 block text-sm font-bold">{formatPct(tile.priceChangePct, true)}</span>
-      <span className="mt-1 block text-[10px] font-semibold text-white/80">CS {formatScore(tile.confirmationScore)}</span>
-      <span className="mt-1 flex min-h-5 flex-wrap gap-1">
+      <span className={`${micro ? "text-[8px]" : compact ? "text-[10px]" : "text-sm"} block max-w-full truncate font-mono font-black tracking-normal`}>{tile.symbol}</span>
+      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : "mt-1 text-sm"} block font-bold`}>{formatPct(tile.priceChangePct, true)}</span>
+      <span className={`${compact ? "hidden" : "mt-1 block text-[10px]"} font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
+      <span className={`${compact ? "hidden" : "mt-1 flex"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
         {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
       </span>
@@ -344,28 +424,40 @@ function SectorMap({
   period: MarketPressureTimeRange;
   onOpen: (tile: MarketPressureTile) => void;
 }) {
+  const sectorLayouts = useMemo(
+    () =>
+      layoutTreemap(sectors.map((sectorGroup) => ({ item: sectorGroup, weight: Math.max(1, sectorGroup.tiles.length) }))).map((sectorLayout) => ({
+        ...sectorLayout,
+        tileLayouts: layoutTreemap(sectorLayout.item.tiles.map((tile) => ({ item: tile, weight: 1 }))),
+      })),
+    [sectors],
+  );
+
   return (
-    <div className="space-y-4" data-market-pressure-map>
-      {sectors.map((sectorGroup) => (
-        <section key={sectorGroup.sector} className="rounded-md border border-white/10 bg-slate-950/30 p-3" aria-label={`${sectorGroup.sector} sector pressure`}>
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-200">{sectorGroup.sector}</h2>
-              <p className="mt-1 text-xs text-slate-500">{sectorGroup.summary.symbolCount} tickers - Avg {formatPct(sectorGroup.summary.averagePriceChangePct, true)}</p>
+    <div className="relative min-h-[34rem] overflow-hidden rounded-md border border-slate-950 bg-slate-950 shadow-inner sm:min-h-[42rem] xl:min-h-[48rem]" data-market-pressure-map data-sector-treemap>
+      {sectorLayouts.map(({ item: sectorGroup, rect, tileLayouts }) => {
+        const showHeader = rect.width >= 8 && rect.height >= 7;
+        return (
+          <section key={sectorGroup.sector} className="absolute overflow-hidden border border-slate-950 bg-slate-900/50" style={rectStyle(rect)} aria-label={`${sectorGroup.sector} sector pressure`}>
+            {showHeader ? (
+              <div className="absolute inset-x-0 top-0 z-10 flex h-5 min-w-0 items-center justify-between gap-2 border-b border-slate-950 bg-slate-800/85 px-1.5 text-[9px] font-bold uppercase tracking-normal text-slate-100">
+                <span className="truncate">{sectorGroup.sector}</span>
+                <span className="shrink-0 text-slate-300">{formatPct(sectorGroup.summary.averagePriceChangePct, true)}</span>
+              </div>
+            ) : null}
+            <div className={showHeader ? "absolute inset-x-0 bottom-0 top-5" : "absolute inset-0"}>
+              {tileLayouts.map(({ item: tile, rect: tileRect }) => (
+                <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} onOpen={onOpen} rect={tileRect} />
+              ))}
             </div>
-            <div className="flex gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
-              <span>Bull {sectorGroup.summary.bullishCount}</span>
-              <span>Bear {sectorGroup.summary.bearishCount}</span>
-              <span>Mix {sectorGroup.summary.conflictedCount}</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(7.6rem,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,minmax(8.3rem,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(7.8rem,1fr))]">
-            {sectorGroup.tiles.map((tile) => (
-              <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} onOpen={onOpen} />
-            ))}
-          </div>
-        </section>
-      ))}
+            {showHeader ? (
+              <div className="pointer-events-none absolute bottom-1 left-1 z-10 hidden rounded-sm bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-semibold text-slate-200 sm:block">
+                {sectorGroup.summary.symbolCount} names
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -493,26 +585,41 @@ function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, 
   const stroke = tile.confirmationDirection === "bullish" ? "#6ee7b7" : tile.confirmationDirection === "bearish" ? "#fda4af" : tile.confirmationDirection === "conflicted" ? "#fde68a" : "#94a3b8";
   const dash = tile.confirmationDirection === "conflicted" || tile.confirmationDirection === "unavailable" ? ` stroke-dasharray="5 3"` : "";
   const marker = tile.divergence === "hidden_accumulation" ? "ACC" : tile.divergence === "fragile_winner" ? "FRG" : "";
-  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="${tile.confirmationStrength === "strong" ? 4 : 2}"${dash}/><text x="${x + 10}" y="${y + 22}" fill="#fff" font-size="16" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo">${svgEscape(tile.symbol)}</text><text x="${x + 10}" y="${y + 44}" fill="#e2e8f0" font-size="14" font-family="Arial">${svgEscape(formatPct(tile.priceChangePct, true))}</text><text x="${x + 10}" y="${y + 64}" fill="#cbd5e1" font-size="12" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>${marker ? `<text x="${x + width - 42}" y="${y + 22}" fill="#fff7ed" font-size="11" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
+  const showPrice = width >= 42 && height >= 32;
+  const showScore = width >= 70 && height >= 54;
+  const fontSize = width >= 95 && height >= 54 ? 16 : width >= 48 && height >= 28 ? 12 : 9;
+  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${tile.confirmationStrength === "strong" ? 3 : 1.5}"${dash}/><text x="${x + 6}" y="${y + Math.max(12, fontSize + 4)}" fill="#fff" font-size="${fontSize}" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${x + 6}" y="${y + fontSize + 22}" fill="#e2e8f0" font-size="${Math.max(9, fontSize - 2)}" font-family="Arial">${svgEscape(formatPct(tile.priceChangePct, true))}</text>` : ""}${showScore ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
 }
 
 function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState) {
   const width = 1200;
   const height = 675;
-  const sectorLimit = sectors.slice(0, 8);
-  const tiles = sectorLimit.flatMap((sector) => sector.tiles.slice(0, 12));
-  const cols = 10;
-  const tileW = 104;
-  const tileH = 72;
-  const startX = 44;
-  const startY = 168;
-  const gap = 8;
+  const mapX = 44;
+  const mapY = 150;
+  const mapWidth = 1112;
+  const mapHeight = 432;
   const universe = marketPressureUniverses.find((item) => item.value === query.universe)?.label ?? "S&P 500";
   const view = marketPressureViewModes.find((item) => item.value === query.viewMode)?.label ?? "Market Pressure";
-  const tileMarkup = tiles
-    .map((tile, index) => tileSvg(tile, startX + (index % cols) * (tileW + gap), startY + Math.floor(index / cols) * (tileH + gap), tileW, tileH))
+  const sectorMarkup = layoutTreemap(sectors.map((sector) => ({ item: sector, weight: Math.max(1, sector.tiles.length) })))
+    .map(({ item: sector, rect }) => {
+      const x = mapX + (rect.x / 100) * mapWidth;
+      const y = mapY + (rect.y / 100) * mapHeight;
+      const sectorWidth = (rect.width / 100) * mapWidth;
+      const sectorHeight = (rect.height / 100) * mapHeight;
+      const showHeader = sectorWidth >= 70 && sectorHeight >= 40;
+      const headerHeight = showHeader ? 18 : 0;
+      const tileHeight = Math.max(0, sectorHeight - headerHeight);
+      const tiles = layoutTreemap(sector.tiles.map((tile) => ({ item: tile, weight: 1 })));
+      const tileMarkup = tiles
+        .map(({ item: tile, rect: tileRect }) => tileSvg(tile, x + (tileRect.x / 100) * sectorWidth, y + headerHeight + (tileRect.y / 100) * tileHeight, (tileRect.width / 100) * sectorWidth, (tileRect.height / 100) * tileHeight))
+        .join("");
+      const headerMarkup = showHeader
+        ? `<rect x="${x}" y="${y}" width="${sectorWidth}" height="${headerHeight}" fill="#1e293b"/><text x="${x + 6}" y="${y + 13}" fill="#e2e8f0" font-size="10" font-weight="700" font-family="Arial">${svgEscape(sector.sector)} ${svgEscape(formatPct(sector.summary.averagePriceChangePct, true))}</text>`
+        : "";
+      return `<g><rect x="${x}" y="${y}" width="${sectorWidth}" height="${sectorHeight}" fill="#020617" stroke="#020617" stroke-width="2"/>${headerMarkup}${tileMarkup}</g>`;
+    })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="800" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="700" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${tileMarkup}</g><rect x="44" y="604" width="1112" height="1" fill="#1e293b"/><text x="44" y="636" fill="#cbd5e1" font-size="14" font-family="Arial">Tile colour = price performance. Border = Walnut confirmation direction and strength. ACC = hidden accumulation. FRG = fragile winner.</text><text x="1018" y="636" fill="#34d399" font-size="16" font-weight="800" font-family="Arial">walnutmarkets.com</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="800" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="700" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="604" width="1112" height="1" fill="#1e293b"/><text x="44" y="636" fill="#cbd5e1" font-size="14" font-family="Arial">Tile colour = price performance. Border = Walnut confirmation direction and strength. ACC = hidden accumulation. FRG = fragile winner.</text><text x="1018" y="636" fill="#34d399" font-size="16" font-weight="800" font-family="Arial">walnutmarkets.com</text></svg>`;
 }
 
 function xShareText(data: MarketPressureMapResult, query: QueryState) {
