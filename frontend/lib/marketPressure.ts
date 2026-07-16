@@ -123,6 +123,8 @@ export type MarketPressureMapResult = {
   layerAccess: Record<MarketPressureLayerKey, MarketPressureLayerAccess>;
 };
 
+export type MarketPressureCapabilities = MarketPressureMapResult["capabilities"];
+
 export type MarketPressureQuery = {
   timeRange: MarketPressureTimeRange;
   period?: MarketPressurePeriod;
@@ -215,6 +217,8 @@ export const defaultMarketPressureCapabilities: MarketPressureMapResult["capabil
   pressureTrendAvailable: false,
 };
 
+const preferredUniverseOrder: MarketPressureUniverse[] = ["sp500", "nasdaq100", "watchlist"];
+
 export function timeRangeToPeriod(value: MarketPressureTimeRange): MarketPressurePeriod {
   return value.toLowerCase() as MarketPressurePeriod;
 }
@@ -234,6 +238,21 @@ export function normalizeMarketPressureUniverse(value: string | string[] | undef
   const normalized = (raw ?? "").trim().toLowerCase().replaceAll("-", "_");
   if (normalized === "nasdaq100" || normalized === "all_us" || normalized === "watchlist") return normalized;
   return "sp500";
+}
+
+export function selectMarketPressureUniverse(
+  capabilities: MarketPressureCapabilities,
+  requested?: MarketPressureUniverse | null,
+): MarketPressureUniverse {
+  if (requested && capabilities.universes[requested]) return requested;
+  for (const universe of preferredUniverseOrder) {
+    if (capabilities.universes[universe]) return universe;
+  }
+  return "watchlist";
+}
+
+export function marketPressureUnavailableUniverseWarning(requested: MarketPressureUniverse, selected: MarketPressureUniverse) {
+  return requested === selected ? null : `requested_universe_unavailable:${requested}`;
 }
 
 export function normalizeMarketPressureView(value: string | string[] | undefined): MarketPressureViewMode {
@@ -334,6 +353,11 @@ function marketPressureApiUrl(query: MarketPressureQuery) {
   return new URL(`/api/market-pressure?${marketPressureQueryString(query)}`, base).toString();
 }
 
+function marketPressureCapabilitiesApiUrl() {
+  const base = typeof window === "undefined" ? API_BASE : window.location.origin;
+  return new URL("/api/market-pressure/capabilities", base).toString();
+}
+
 function responseStatus(data: MarketPressureMapResult): MarketPressureMapResult["status"] {
   if (data.warnings.some((warning) => warning.startsWith("unsupported_universe") || warning.startsWith("unsupported_view"))) {
     return "unsupported";
@@ -377,4 +401,18 @@ export async function getMarketPressureMap(query: MarketPressureQuery): Promise<
   }
   const data = (await response.json()) as MarketPressureMapResult;
   return normalizeMarketPressureResponse(data);
+}
+
+export async function getMarketPressureCapabilities(authToken?: string | null): Promise<MarketPressureCapabilities> {
+  const headers: Record<string, string> = {};
+  if (authToken && typeof window === "undefined") {
+    headers.cookie = `${backendSessionCookieName}=${encodeURIComponent(authToken)}`;
+  }
+  const response = await fetch(marketPressureCapabilitiesApiUrl(), {
+    cache: "no-store",
+    credentials: "include",
+    headers,
+  });
+  if (!response.ok) return defaultMarketPressureCapabilities;
+  return (await response.json()) as MarketPressureCapabilities;
 }

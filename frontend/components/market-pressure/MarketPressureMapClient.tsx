@@ -191,7 +191,7 @@ function capabilityReason(data: MarketPressureMapResult) {
   const details = data.capabilities.universeDetails?.[data.universe];
   if (!details) return data.providerMessage;
   if (details.status === "stale") return `${marketPressureUniverses.find((item) => item.value === data.universe)?.label ?? "Universe"} membership is stale. Source as of ${details.sourceAsOf ?? "unknown"}.`;
-  if (details.status === "unavailable") return `${marketPressureUniverses.find((item) => item.value === data.universe)?.label ?? "Universe"} membership is unavailable: ${statusTitle(details.reason ?? "membership not loaded")}.`;
+  if (details.status === "unavailable") return `${marketPressureUniverses.find((item) => item.value === data.universe)?.label ?? "Universe"} membership is unavailable.`;
   return data.providerMessage;
 }
 
@@ -201,9 +201,26 @@ function statusCopy(data: MarketPressureMapResult) {
   if (data.status === "unsupported") return { title: "Canonical universe unavailable", body: capabilityReason(data) ?? "This request needs data that is not available yet." };
   if (data.status === "error") return { title: "Market Pressure could not load", body: data.providerMessage ?? "The backend request failed. No synthetic tiles were substituted." };
   if (data.status === "loading") return { title: "Loading market pressure", body: "Fetching the latest authorized Market Pressure payload." };
+  if (data.universe === "watchlist" && data.summary.symbolCount === 0) return { title: "No watchlist tickers yet", body: "Add tickers to a watchlist to render your personal Market Pressure map." };
   if (data.view === "hidden_accumulation") return { title: "No Hidden Accumulation names", body: "No backend-classified Hidden Accumulation names qualified for this universe and period." };
   if (data.view === "fragile_winners") return { title: "No Fragile Winners", body: "No backend-classified Fragile Winner names qualified for this universe and period." };
   return { title: "No Market Pressure data", body: capabilityReason(data) ?? "The map returned no tiles. Partial and unavailable symbols are not hidden when they exist." };
+}
+
+function unavailableUniverseNotice(data: MarketPressureMapResult) {
+  const warning = data.warnings.find((item) => item.startsWith("requested_universe_unavailable:"));
+  if (!warning) return null;
+  const requested = warning.split(":")[1] as MarketPressureUniverse | undefined;
+  const requestedLabel = marketPressureUniverses.find((item) => item.value === requested)?.label ?? "Requested universe";
+  const selectedLabel = marketPressureUniverses.find((item) => item.value === data.universe)?.label ?? "Watchlist";
+  return `${requestedLabel} is unavailable, so Walnut opened ${selectedLabel}. Index membership data is temporarily unavailable.`;
+}
+
+function disabledUniverseTitle(option: MarketPressureUniverse, data: MarketPressureMapResult) {
+  if (option === "all_us") return "The complete US equity universe is not available yet.";
+  const details = data.capabilities.universeDetails?.[option];
+  if (details?.status === "unavailable") return "Index membership data is temporarily unavailable.";
+  return "This universe is unavailable.";
 }
 
 function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) {
@@ -217,6 +234,11 @@ function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) 
         {data.status === "entitlement" ? (
           <Link href="/pricing" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-md px-4`}>
             Upgrade to Pro
+          </Link>
+        ) : null}
+        {data.universe === "watchlist" && data.summary.symbolCount === 0 && data.status === "no-data" ? (
+          <Link href="/watchlists" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-md px-4`}>
+            Manage Watchlists
           </Link>
         ) : null}
         {data.status === "auth-required" ? (
@@ -623,6 +645,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
   const sectors = useMemo(() => sortSectors(initialData.sectors), [initialData.sectors]);
   const selectedUniverseLabel = marketPressureUniverses.find((option) => option.value === universe)?.label ?? "S&P 500";
   const selectedViewLabel = marketPressureViewModes.find((option) => option.value === viewMode)?.label ?? "Market Pressure";
+  const fallbackNotice = unavailableUniverseNotice(initialData);
   const shareBaseUrl = typeof window !== "undefined" ? `${window.location.origin}/market-pressure` : canonicalUrl;
   const currentShareUrl = `${shareBaseUrl}?${marketPressureQueryString(query)}`;
 
@@ -676,6 +699,12 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
         <ShareMapButton data={initialData} sectors={sectors} shareUrl={currentShareUrl} query={query} />
       </section>
 
+      {fallbackNotice ? (
+        <div className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-medium text-amber-100">
+          {fallbackNotice}
+        </div>
+      ) : null}
+
       <section className="rounded-md border border-white/10 bg-slate-900/55 p-3 shadow-card">
         <div className="grid gap-3 xl:grid-cols-[auto_auto_minmax(18rem,1fr)] xl:items-start">
           <div>
@@ -687,7 +716,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
                   active={universe === option.value}
                   ariaLabel={`Set universe to ${option.label}`}
                   disabled={!initialData.capabilities.universes[option.value]}
-                  title={!initialData.capabilities.universes[option.value] ? initialData.capabilities.universeDetails?.[option.value]?.reason ?? "Canonical universe data is unavailable." : undefined}
+                  title={!initialData.capabilities.universes[option.value] ? disabledUniverseTitle(option.value, initialData) : undefined}
                   onClick={() => {
                     updateQuery({ universe: option.value });
                     recordProductEvent({ event_name: "market_pressure_universe_changed", properties: { universe: option.value } });

@@ -88,6 +88,19 @@ test("Market Pressure universe controls are driven by backend capability metadat
   assert.match(client, /initialData\.capabilities\.universes\[option\.value\]/);
 });
 
+test("Market Pressure defaults and falls back from backend capabilities", () => {
+  assert.match(contract, /getMarketPressureCapabilities/);
+  assert.match(contract, /\/api\/market-pressure\/capabilities/);
+  assert.match(contract, /function selectMarketPressureUniverse/);
+  assert.match(contract, /preferredUniverseOrder: MarketPressureUniverse\[\] = \["sp500", "nasdaq100", "watchlist"\]/);
+  assert.match(page, /selectMarketPressureUniverse\(capabilities, requestedQuery\.universe\)/);
+  assert.match(page, /marketPressureUnavailableUniverseWarning\(requestedQuery\.universe, selectedUniverse\)/);
+  assert.match(page, /\.\.\.data\.warnings, fallbackWarning/);
+  assert.match(client, /requested_universe_unavailable:/);
+  assert.match(client, /Index membership data is temporarily unavailable/);
+  assert.match(client, /Manage Watchlists/);
+});
+
 test("Market Pressure typed adapter isolates the future backend endpoint", () => {
   assert.match(contract, /export type MarketPressureTile = \{/);
   assert.match(contract, /confirmationDirection: "bullish" \| "bearish" \| "neutral" \| "conflicted" \| "unavailable"/);

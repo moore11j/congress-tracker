@@ -12,7 +12,11 @@ from app.entitlements import ENTITLEMENTS
 from app.models import FundamentalsCache, IndexMembership, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
 from app.services.index_memberships import refresh_index_memberships
-from app.services.market_pressure import build_market_pressure_response, resolve_market_pressure_params
+from app.services.market_pressure import (
+    build_market_pressure_capabilities_response,
+    build_market_pressure_response,
+    resolve_market_pressure_params,
+)
 
 
 def _session_factory():
@@ -281,6 +285,36 @@ def test_market_pressure_rejects_unauthorized_before_protected_batch_work(db, mo
         assert exc.value.status_code == expected_status
 
     assert calls == {"membership": 0, "price": 0, "confirmation": 0}
+
+
+def test_market_pressure_capabilities_are_gated_and_do_not_load_request_work(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["LOCK"])
+    calls = {"price": 0, "confirmation": 0}
+
+    def forbidden_price(*_args, **_kwargs):
+        calls["price"] += 1
+        raise AssertionError("price history should not be loaded for capabilities")
+
+    def forbidden_confirmation(*_args, **_kwargs):
+        calls["confirmation"] += 1
+        raise AssertionError("confirmation should not be loaded for capabilities")
+
+    import app.services.market_pressure as market_pressure
+
+    monkeypatch.setattr(market_pressure, "_load_price_performance", forbidden_price)
+
+    capabilities = build_market_pressure_capabilities_response(
+        db,
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+    )
+    assert capabilities["universes"]["watchlist"] is True
+    assert capabilities["universes"]["sp500"] is False
+
+    with pytest.raises(HTTPException) as exc:
+        build_market_pressure_capabilities_response(db, entitlements=ENTITLEMENTS["free"], user=user)
+    assert exc.value.status_code == 403
+    assert calls == {"price": 0, "confirmation": 0}
 
 
 def test_market_pressure_pro_and_admin_can_access_supported_index_universes(db):

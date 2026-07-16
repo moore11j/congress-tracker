@@ -4,11 +4,14 @@ import { getEntitlements } from "@/lib/api";
 import { defaultEntitlements, entitlementsFromTierHint, type Entitlements } from "@/lib/entitlements";
 import {
   emptyMarketPressureMap,
+  getMarketPressureCapabilities,
   getMarketPressureMap,
+  marketPressureUnavailableUniverseWarning,
   normalizeMarketPressurePeriod,
   normalizeMarketPressureUniverse,
   normalizeMarketPressureView,
   periodToTimeRange,
+  selectMarketPressureUniverse,
 } from "@/lib/marketPressure";
 import { WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
 import { optionalPageAuthState } from "@/lib/serverAuth";
@@ -52,7 +55,7 @@ export default async function MarketPressurePage({
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const authState = await optionalPageAuthState();
-  const query = {
+  const requestedQuery = {
     period: normalizeMarketPressurePeriod(resolvedSearchParams.period),
     timeRange: periodToTimeRange(Array.isArray(resolvedSearchParams.period) ? resolvedSearchParams.period[0] : resolvedSearchParams.period),
     universe: normalizeMarketPressureUniverse(resolvedSearchParams.universe),
@@ -62,12 +65,26 @@ export default async function MarketPressurePage({
   const entitlements = authState.token
     ? await getEntitlements(authState.token, { source: "MarketPressurePage" }).catch(() => defaultEntitlements)
     : entitlementsFromTierHint(authState.entitlementHint);
-  const initialData = canUseMarketPressure(entitlements, Boolean(authState.token))
-    ? await getMarketPressureMap(query).catch(() =>
-      emptyMarketPressureMap(query, "error", "Walnut could not load the Market Pressure endpoint."),
-    )
+  const authorized = canUseMarketPressure(entitlements, Boolean(authState.token));
+  const capabilities = authorized ? await getMarketPressureCapabilities(authState.token) : null;
+  const selectedUniverse = capabilities
+    ? selectMarketPressureUniverse(capabilities, requestedQuery.universe)
+    : requestedQuery.universe;
+  const fallbackWarning = marketPressureUnavailableUniverseWarning(requestedQuery.universe, selectedUniverse);
+  const query = { ...requestedQuery, universe: selectedUniverse };
+  const initialData = authorized
+    ? await getMarketPressureMap(query)
+      .then((data) => (fallbackWarning ? { ...data, warnings: [...data.warnings, fallbackWarning] } : data))
+      .catch(() =>
+        emptyMarketPressureMap(
+          query,
+          "error",
+          "Walnut could not load the Market Pressure endpoint.",
+          fallbackWarning ? [fallbackWarning] : [],
+        ),
+      )
     : emptyMarketPressureMap(
-      query,
+      requestedQuery,
       authState.token ? "entitlement" : "auth-required",
       authState.token
         ? "Market Pressure is available with Pro."

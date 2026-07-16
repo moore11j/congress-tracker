@@ -163,6 +163,16 @@ def market_pressure_capabilities(db: Session | None = None) -> dict[str, Any]:
     }
 
 
+def build_market_pressure_capabilities_response(
+    db: Session,
+    *,
+    entitlements: dict[str, Any],
+    user: UserAccount | None,
+) -> dict[str, Any]:
+    require_market_pressure_access(entitlements, user)
+    return market_pressure_capabilities(db)
+
+
 def build_market_pressure_response(
     db: Session,
     *,
