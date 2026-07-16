@@ -678,11 +678,13 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       universe: next.universe ?? universe,
       viewMode: next.viewMode ?? viewMode,
     };
+    const nextUrl = `/market-pressure?${marketPressureQueryString(nextQuery)}`;
     renderStartRef.current = typeof performance !== "undefined" ? performance.now() : 0;
-    setTimeRange(nextQuery.timeRange);
-    setUniverse(nextQuery.universe);
-    setViewMode(nextQuery.viewMode);
-    router.push(`/market-pressure?${marketPressureQueryString(nextQuery)}`);
+    if (typeof window !== "undefined") {
+      window.location.assign(nextUrl);
+      return;
+    }
+    router.push(nextUrl);
   }
 
   function openTile(tile: MarketPressureTile) {
