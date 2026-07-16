@@ -38,7 +38,6 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     signals: 50,
     ticker_confirmation: 60,
     leaderboards: 70,
-    options_flow_filters: 80,
   },
   "Watchlists & monitoring": {
     inbox_alerts: 10,
@@ -56,14 +55,16 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     institutional_feed: 10,
     institutional_filters: 20,
     macro_positioning: 25,
+    market_pressure: 28,
     options_flow_feed: 30,
+    options_flow_filters: 35,
     api_webhooks: 40,
   },
 };
 
 function categoryFor(featureKey: string) {
   if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters", "premium_feed_metrics"].includes(featureKey)) return "Market feeds";
-  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "ticker_confirmation", "leaderboards", "options_flow_filters"].includes(featureKey)) return "Screener & signals";
+  if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "ticker_confirmation", "leaderboards"].includes(featureKey)) return "Screener & signals";
   if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "event_calendar", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
   return "Advanced / Coming Soon";
@@ -129,7 +130,7 @@ function featureIncluded(feature: PlanConfigFeature, tier: PlanTier) {
 function featureCell(feature: PlanConfigFeature, tier: PlanTier) {
   if (feature.kind === "limit") return formatLimit(feature, feature.limits[tier] ?? 0);
   if (featureIncluded(feature, tier)) {
-    if (["options_flow_feed", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
+    if (["options_flow_feed", "options_flow_filters", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
     return (
       <span aria-label="Included" title="Included" className="inline-flex text-lg font-semibold leading-none text-emerald-300">
         ✓

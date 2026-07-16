@@ -48,6 +48,7 @@ FeatureKey = Literal[
     "institutional_feed",
     "institutional_filters",
     "macro_positioning",
+    "market_pressure",
     "api_webhooks",
 ]
 
@@ -59,6 +60,7 @@ HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
     "institutional_feed": "pro",
     "institutional_filters": "pro",
     "macro_positioning": "pro",
+    "market_pressure": "pro",
 }
 
 
@@ -110,6 +112,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_feed": 0,
             "institutional_filters": 0,
             "macro_positioning": 0,
+            "market_pressure": 0,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -161,6 +164,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_feed": 0,
             "institutional_filters": 0,
             "macro_positioning": 0,
+            "market_pressure": 0,
             "api_webhooks": 0,
         },
         features=frozenset(
@@ -223,6 +227,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "institutional_feed": 1,
             "institutional_filters": 1,
             "macro_positioning": 1,
+            "market_pressure": 1,
             "api_webhooks": 1,
         },
         features=frozenset(
@@ -255,6 +260,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "institutional_feed",
                 "institutional_filters",
                 "macro_positioning",
+                "market_pressure",
                 "api_webhooks",
             }
         ),
@@ -377,6 +383,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "macro_positioning": {
         "required_tier": "pro",
         "description": "Institutional macro positioning intelligence for ticker confirmation.",
+    },
+    "market_pressure": {
+        "required_tier": "pro",
+        "description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
     },
     "api_webhooks": {
         "required_tier": "pro",
@@ -623,6 +633,14 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "unit_plural": "",
         "sort_order": 114,
         "pricing_description": "Institutional Macro Positioning for ticker confirmation.",
+    },
+    "market_pressure": {
+        "label": "Pressure Map",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 116,
+        "pricing_description": "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
     },
     "api_webhooks": {
         "label": "API and webhooks",

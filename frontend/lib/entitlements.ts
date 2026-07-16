@@ -30,6 +30,7 @@ export type EntitlementFeature =
   | "institutional_feed"
   | "institutional_filters"
   | "macro_positioning"
+  | "market_pressure"
   | "api_webhooks";
 
 export type Entitlements = {
@@ -87,6 +88,7 @@ export const defaultEntitlements: Entitlements = {
     institutional_feed: 0,
     institutional_filters: 0,
     macro_positioning: 0,
+    market_pressure: 0,
     api_webhooks: 0,
   },
   features: ["screener", "screener_saved_screens", "screener_results", "watchlists", "watchlist_tickers", "saved_views", "monitoring_sources", "inbox_alerts", "government_contracts_feed", "insider_feed", "congress_feed"],
@@ -125,6 +127,7 @@ export const premiumEntitlements: Entitlements = {
     institutional_feed: 0,
     institutional_filters: 0,
     macro_positioning: 0,
+    market_pressure: 0,
     api_webhooks: 0,
   },
   features: [
@@ -186,6 +189,7 @@ export const proEntitlements: Entitlements = {
     institutional_feed: 1,
     institutional_filters: 1,
     macro_positioning: 1,
+    market_pressure: 1,
     api_webhooks: 1,
   },
   features: [
@@ -217,6 +221,7 @@ export const proEntitlements: Entitlements = {
     "institutional_feed",
     "institutional_filters",
     "macro_positioning",
+    "market_pressure",
     "api_webhooks",
   ],
   upgrade_url: "/pricing",

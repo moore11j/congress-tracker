@@ -32,6 +32,7 @@ type FeatureKey =
   | "institutional_feed"
   | "institutional_filters"
   | "macro_positioning"
+  | "market_pressure"
   | "api_webhooks";
 
 type FeatureDefinition = Omit<PlanConfigFeature, "limits"> & {
@@ -72,6 +73,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_feed: 0,
     institutional_filters: 0,
     macro_positioning: 0,
+    market_pressure: 0,
     api_webhooks: 0,
   },
   premium: {
@@ -104,6 +106,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_feed: 0,
     institutional_filters: 0,
     macro_positioning: 0,
+    market_pressure: 0,
     api_webhooks: 0,
   },
   pro: {
@@ -136,6 +139,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     institutional_feed: 1,
     institutional_filters: 1,
     macro_positioning: 1,
+    market_pressure: 1,
     api_webhooks: 1,
   },
 };
@@ -430,6 +434,16 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "",
     unit_plural: "",
     sort_order: 114,
+  },
+  {
+    feature_key: "market_pressure",
+    label: "Pressure Map",
+    kind: "feature",
+    description: "Sector-organized pressure maps for price movement and Walnut confirmation alignment.",
+    required_tier: "pro",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 116,
   },
   {
     feature_key: "api_webhooks",

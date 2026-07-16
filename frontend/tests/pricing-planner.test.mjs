@@ -65,7 +65,6 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     "signals:",
     "ticker_confirmation:",
     "leaderboards:",
-    "options_flow_filters:",
   ];
   const screenerPositions = screenerMarkers.map((marker) => screenerOrderSource.indexOf(marker));
   screenerPositions.forEach((position, index) => assert.notEqual(position, -1, `missing screener marker ${screenerMarkers[index]}`));
@@ -98,7 +97,7 @@ test("advanced coming soon rows only include unavailable future surfaces", () =>
   const advancedOrderStart = source.indexOf('"Advanced / Coming Soon": {');
   const advancedOrderEnd = source.indexOf("},", advancedOrderStart);
   const advancedOrderSource = source.slice(advancedOrderStart, advancedOrderEnd);
-  const advancedMarkers = ["institutional_feed:", "institutional_filters:", "options_flow_feed:", "api_webhooks:"];
+  const advancedMarkers = ["institutional_feed:", "institutional_filters:", "macro_positioning:", "market_pressure:", "options_flow_feed:", "options_flow_filters:", "api_webhooks:"];
   const advancedPositions = advancedMarkers.map((marker) => advancedOrderSource.indexOf(marker));
   advancedPositions.forEach((position, index) => assert.notEqual(position, -1, `missing advanced marker ${advancedMarkers[index]}`));
   for (let index = 1; index < advancedPositions.length; index += 1) {
@@ -112,20 +111,23 @@ test("advanced coming soon rows only include unavailable future surfaces", () =>
   );
   assert.match(source, /"premium_feed_metrics"[\s\S]*?return "Market feeds";/);
   assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
-  assert.match(source, /if \(\["options_flow_feed", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
+  assert.match(source, /if \(\["options_flow_feed", "options_flow_filters", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
 });
 
-test("options flow and institutional activity are Pro-only in frontend fallback config", () => {
+test("advanced intelligence rows are Pro-only in frontend fallback config", () => {
   assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_feed"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"options_flow_filters"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_feed"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_filters"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"macro_positioning"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"market_pressure"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /label:\s*"Pressure Map"/);
   assert.match(entitlementConfig, /export const proEntitlements/);
   const premiumBlock = entitlementConfig.slice(
     entitlementConfig.indexOf("export const premiumEntitlements"),
     entitlementConfig.indexOf("export const proEntitlements"),
   );
-  assert.doesNotMatch(premiumBlock, /"options_flow_feed"|"options_flow_filters"|"institutional_feed"|"institutional_filters"/);
+  assert.doesNotMatch(premiumBlock, /"options_flow_feed"|"options_flow_filters"|"institutional_feed"|"institutional_filters"|"macro_positioning"|"market_pressure"/);
 });
 
 test("pricing actions render current plan states from fresh account entitlements", () => {

@@ -100,12 +100,14 @@ def _seed_watchlist_with_tickers(db, ticker_count: int, owner_user_id: int) -> i
     return watchlist.id
 
 
-def test_options_flow_and_institutional_activity_are_pro_only_even_if_gates_drift():
+def test_advanced_intelligence_features_are_pro_only_even_if_gates_drift():
     assert ENTITLEMENTS["premium"].limit("options_flow_feed") == 0
     assert ENTITLEMENTS["premium"].limit("options_flow_filters") == 0
     assert ENTITLEMENTS["premium"].limit("institutional_feed") == 0
     assert ENTITLEMENTS["premium"].limit("institutional_filters") == 0
-    for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+    assert ENTITLEMENTS["premium"].limit("macro_positioning") == 0
+    assert ENTITLEMENTS["premium"].limit("market_pressure") == 0
+    for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
         assert feature not in ENTITLEMENTS["premium"].features
         assert feature in ENTITLEMENTS["pro"].features
         assert DEFAULT_FEATURE_GATES[feature]["required_tier"] == "pro"
@@ -118,6 +120,8 @@ def test_options_flow_and_institutional_activity_are_pro_only_even_if_gates_drif
                 FeatureGate(feature_key="options_flow_filters", required_tier="premium", description="stale"),
                 FeatureGate(feature_key="institutional_feed", required_tier="premium", description="stale"),
                 FeatureGate(feature_key="institutional_filters", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="macro_positioning", required_tier="premium", description="stale"),
+                FeatureGate(feature_key="market_pressure", required_tier="premium", description="stale"),
             ]
         )
         db.commit()
@@ -126,13 +130,13 @@ def test_options_flow_and_institutional_activity_are_pro_only_even_if_gates_drif
 
         premium = entitlements_for_user(db, premium_user)
         pro = entitlements_for_user(db, pro_user)
-        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
             assert premium.has_feature(feature) is False
             assert pro.has_feature(feature) is True
 
         gates = {row["feature_key"]: row["required_tier"] for row in feature_gate_payloads(db)}
         config = {row["feature_key"]: row["required_tier"] for row in plan_config_payload(db)["features"]}
-        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters"):
+        for feature in ("options_flow_feed", "options_flow_filters", "institutional_feed", "institutional_filters", "macro_positioning", "market_pressure"):
             assert gates[feature] == "pro"
             assert config[feature] == "pro"
     finally:
@@ -161,6 +165,8 @@ def test_admin_entitlements_include_all_paid_feature_sources():
             "options_flow_filters",
             "institutional_feed",
             "institutional_filters",
+            "macro_positioning",
+            "market_pressure",
             "screener_monitoring",
             "event_calendar",
         ):
