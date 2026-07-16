@@ -220,6 +220,16 @@ def _network_fetch_cap() -> int:
     return max(cap, 1)
 
 
+def _bounded_network_fetch_cap(value: int | None) -> int:
+    if value is None:
+        return _network_fetch_cap()
+    try:
+        cap = int(value)
+    except (TypeError, ValueError):
+        return _network_fetch_cap()
+    return max(cap, 1)
+
+
 def _log_capped_fetch(
     *,
     requested: int,
@@ -547,6 +557,7 @@ def get_current_prices_meta_db(
     force_quote_endpoint: bool = False,
     cache_only: bool = False,
     skip_db_sanity: bool = False,
+    max_network_fetch: int | None = None,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -689,7 +700,7 @@ def get_current_prices_meta_db(
         if release_connection_before_fetch and db is not None:
             db.close()
 
-        fetch_cap = _network_fetch_cap()
+        fetch_cap = _bounded_network_fetch_cap(max_network_fetch)
         if len(need_fetch) > fetch_cap:
             dropped_symbols = need_fetch[fetch_cap:]
             if any(symbol in missing_symbols for symbol in dropped_symbols):

@@ -160,6 +160,7 @@ def test_market_pressure_uses_market_cap_and_live_quote_fallback_for_missing_one
         assert kwargs["lane"] == "market_pressure_quote"
         assert kwargs["allow_live_user_fetch"] is True
         assert kwargs["force_quote_endpoint"] is True
+        assert kwargs["max_network_fetch"] == 2
         return {
             "MEGA": {"change_percent": 2.5, "asof_ts": fetched_at},
             "MID": {"change_percent": -1.25, "asof_ts": fetched_at},

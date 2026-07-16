@@ -478,6 +478,7 @@ def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[s
             stale_while_revalidate=True,
             force_quote_endpoint=True,
             skip_db_sanity=True,
+            max_network_fetch=limit,
         )
     except Exception:
         logger.exception("market_pressure_live_price_fallback_failed symbols=%s", len(requested))
