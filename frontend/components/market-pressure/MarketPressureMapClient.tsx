@@ -36,6 +36,8 @@ type QueryState = {
   viewMode: MarketPressureViewMode;
 };
 
+type MarketPressureColorMode = "price" | "confirmation";
+
 type TreemapRect = {
   x: number;
   y: number;
@@ -151,13 +153,39 @@ function priceFillClass(value: number | null) {
   return "bg-[#35495a] text-slate-100";
 }
 
+function confirmationFillClass(tile: MarketPressureTile) {
+  const score = tile.confirmationScore;
+  if (score == null || !Number.isFinite(score) || tile.confirmationDirection === "unavailable") {
+    return "bg-[repeating-linear-gradient(135deg,rgba(51,65,85,0.82)_0,rgba(51,65,85,0.82)_6px,rgba(15,23,42,0.92)_6px,rgba(15,23,42,0.92)_12px)] text-slate-100";
+  }
+  if (tile.confirmationDirection === "bullish") {
+    if (score >= 80) return "bg-[#0b63ce] text-white";
+    if (score >= 65) return "bg-[#1d7fe5] text-white";
+    if (score >= 50) return "bg-[#3b9af3] text-white";
+    return "bg-[#5eb2ff] text-slate-950";
+  }
+  if (tile.confirmationDirection === "bearish") {
+    if (score >= 80) return "bg-[#c2410c] text-white";
+    if (score >= 65) return "bg-[#ea580c] text-white";
+    if (score >= 50) return "bg-[#f97316] text-white";
+    return "bg-[#fb923c] text-slate-950";
+  }
+  if (tile.confirmationDirection === "conflicted") {
+    if (score >= 80) return "bg-[#8b5a2b] text-white";
+    if (score >= 65) return "bg-[#a86a32] text-white";
+    if (score >= 50) return "bg-[#c2823d] text-white";
+    return "bg-[#d49b5a] text-slate-950";
+  }
+  return "bg-[#3f4b5d] text-slate-100";
+}
+
+function tileFillClass(tile: MarketPressureTile, colorMode: MarketPressureColorMode) {
+  return colorMode === "confirmation" ? confirmationFillClass(tile) : priceFillClass(tile.priceChangePct);
+}
+
 function confirmationFrameClass(tile: MarketPressureTile) {
-  const width = tile.confirmationStrength === "strong" ? "border-[3px]" : tile.confirmationStrength === "moderate" ? "border-2" : "border";
-  if (tile.confirmationDirection === "bullish") return `${width} border-emerald-200 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.26)]`;
-  if (tile.confirmationDirection === "bearish") return `${width} border-rose-200 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.22)]`;
-  if (tile.confirmationDirection === "conflicted") return `${width} border-dashed border-amber-200 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.20)]`;
-  if (tile.confirmationDirection === "unavailable") return `${width} border-dotted border-slate-500`;
-  return `${width} border-slate-300/65`;
+  void tile;
+  return "border border-slate-950";
 }
 
 function divergenceRank(tile: MarketPressureTile) {
@@ -287,6 +315,10 @@ function accessibleTileLabel(tile: MarketPressureTile, period: MarketPressureTim
   return `${tile.symbol}, ${tile.sector}, ${priceDirection}, ${tile.confirmationDirection} confirmation, ${score}, ${divergenceLabel[tile.divergence]}.`;
 }
 
+function tileMetricLabel(tile: MarketPressureTile, colorMode: MarketPressureColorMode) {
+  return colorMode === "confirmation" ? `CS ${formatScore(tile.confirmationScore)}` : formatPct(tile.priceChangePct, true);
+}
+
 function capabilityReason(data: MarketPressureMapResult) {
   const details = data.capabilities.universeDetails?.[data.universe];
   if (!details) return data.providerMessage;
@@ -398,11 +430,13 @@ function TileMarkers({ tile }: { tile: MarketPressureTile }) {
 function MarketTile({
   tile,
   period,
+  colorMode,
   onOpen,
   rect,
 }: {
   tile: MarketPressureTile;
   period: MarketPressureTimeRange;
+  colorMode: MarketPressureColorMode;
   onOpen: (tile: MarketPressureTile) => void;
   rect?: TreemapRect;
 }) {
@@ -416,8 +450,8 @@ function MarketTile({
   const hero = rect ? rect.width >= 25 && rect.height >= 20 && tileArea >= 560 : false;
   const showDiagnostics = rect ? !hideLabel && !feature && rect.width >= 22 && rect.height >= 18 && tileArea >= 420 : true;
   const tileClassName = rect
-    ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
-    : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
+    ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`
+    : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`;
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -446,7 +480,7 @@ function MarketTile({
       ) : null}
       {showPrice ? (
         <span className={`${compact ? "mt-0.5 text-[9px]" : medium ? "mt-0.5 text-xs" : hero ? "mt-1 text-xl" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
-          {formatPct(tile.priceChangePct, true)}
+          {tileMetricLabel(tile, colorMode)}
         </span>
       ) : null}
       <span className={`${showDiagnostics ? "mt-1 block text-[10px]" : "hidden"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
@@ -461,10 +495,12 @@ function MarketTile({
 function SectorMap({
   sectors,
   period,
+  colorMode,
   onOpen,
 }: {
   sectors: MarketPressureSector[];
   period: MarketPressureTimeRange;
+  colorMode: MarketPressureColorMode;
   onOpen: (tile: MarketPressureTile) => void;
 }) {
   const [hoveredSector, setHoveredSector] = useState<SectorHoverState | null>(null);
@@ -504,7 +540,7 @@ function SectorMap({
             ) : null}
             <div className={showHeader ? "absolute inset-x-0 bottom-0 top-5" : "absolute inset-0"}>
               {tileLayouts.map(({ item: tile, rect: tileRect }) => (
-                <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} onOpen={onOpen} rect={tileRect} />
+                <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} colorMode={colorMode} onOpen={onOpen} rect={tileRect} />
               ))}
             </div>
             {showHeader ? (
@@ -566,21 +602,42 @@ function SectorHoverTooltip({ hover, period }: { hover: SectorHoverState | null;
   );
 }
 
-function MarketPressureLegend() {
-  const legendItems = [
-    ["Tile colour", "Selected-period price performance"],
-    ["Tile border", "Confirmation direction"],
-    ["Border weight", "Weak, moderate, or strong confirmation"],
-    ["Dashed border", "Conflicted evidence"],
-    ["Accumulation", "Price weak, confirmation bullish"],
-    ["Fragile", "Price strong, confirmation bearish or conflicted"],
-  ];
+function InfoHelp({ label }: { label: string }) {
   return (
-    <div className="grid gap-2 text-xs text-slate-300 md:grid-cols-3 xl:grid-cols-6">
-      {legendItems.map(([label, body]) => (
-        <div key={label} className="rounded-md border border-white/10 bg-slate-950/40 px-3 py-2">
-          <div className="font-semibold text-white">{label}</div>
-          <p className="mt-1 leading-5">{body}</p>
+    <span className="group relative inline-flex">
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-slate-950/70 text-[10px] font-bold text-slate-300">?</span>
+      <span className="pointer-events-none absolute left-1/2 top-6 z-50 hidden w-56 -translate-x-1/2 rounded-md border border-white/10 bg-slate-950 px-2.5 py-2 text-xs font-normal leading-5 text-slate-200 shadow-xl group-hover:block group-focus-within:block">
+        {label}
+      </span>
+    </span>
+  );
+}
+
+function ColorLegend({ colorMode }: { colorMode: MarketPressureColorMode }) {
+  const priceItems = [
+    ["-3%", "#df3542"],
+    ["-2%", "#be3e4d"],
+    ["-1%", "#8f4555"],
+    ["0%", "#35495a"],
+    ["+1%", "#2f8f59"],
+    ["+2%", "#2fbd63"],
+    ["+3%", "#18c861"],
+  ];
+  const confirmationItems = [
+    ["Bear 80+", "#c2410c"],
+    ["Bear 65", "#ea580c"],
+    ["Bear 50", "#f97316"],
+    ["Neutral", "#3f4b5d"],
+    ["Bull 50", "#3b9af3"],
+    ["Bull 65", "#1d7fe5"],
+    ["Bull 80+", "#0b63ce"],
+  ];
+  const items = colorMode === "confirmation" ? confirmationItems : priceItems;
+  return (
+    <div className="flex flex-wrap items-center gap-1" aria-label={`${colorMode} color legend`} data-market-pressure-color-legend>
+      {items.map(([label, color]) => (
+        <div key={label} className="min-w-14 px-2 py-1 text-center text-xs font-bold text-white shadow-sm" style={{ backgroundColor: color }}>
+          {label}
         </div>
       ))}
     </div>
@@ -702,10 +759,36 @@ function priceFillHex(value: number | null) {
   return "#35495a";
 }
 
-function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, height: number) {
-  const fill = priceFillHex(tile.priceChangePct);
-  const stroke = tile.confirmationDirection === "bullish" ? "#6ee7b7" : tile.confirmationDirection === "bearish" ? "#fda4af" : tile.confirmationDirection === "conflicted" ? "#fde68a" : "#94a3b8";
-  const dash = tile.confirmationDirection === "conflicted" || tile.confirmationDirection === "unavailable" ? ` stroke-dasharray="5 3"` : "";
+function confirmationFillHex(tile: MarketPressureTile) {
+  const score = tile.confirmationScore;
+  if (score == null || !Number.isFinite(score) || tile.confirmationDirection === "unavailable") return "#334155";
+  if (tile.confirmationDirection === "bullish") {
+    if (score >= 80) return "#0b63ce";
+    if (score >= 65) return "#1d7fe5";
+    if (score >= 50) return "#3b9af3";
+    return "#5eb2ff";
+  }
+  if (tile.confirmationDirection === "bearish") {
+    if (score >= 80) return "#c2410c";
+    if (score >= 65) return "#ea580c";
+    if (score >= 50) return "#f97316";
+    return "#fb923c";
+  }
+  if (tile.confirmationDirection === "conflicted") {
+    if (score >= 80) return "#8b5a2b";
+    if (score >= 65) return "#a86a32";
+    if (score >= 50) return "#c2823d";
+    return "#d49b5a";
+  }
+  return "#3f4b5d";
+}
+
+function tileFillHex(tile: MarketPressureTile, colorMode: MarketPressureColorMode) {
+  return colorMode === "confirmation" ? confirmationFillHex(tile) : priceFillHex(tile.priceChangePct);
+}
+
+function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, height: number, colorMode: MarketPressureColorMode) {
+  const fill = tileFillHex(tile, colorMode);
   const marker = tile.divergence === "hidden_accumulation" ? "ACC" : tile.divergence === "fragile_winner" ? "FRG" : "";
   const showPrice = width >= 42 && height >= 32;
   const showScore = width >= 70 && height >= 54;
@@ -714,10 +797,10 @@ function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, 
   const labelX = textAnchor === "middle" ? x + width / 2 : x + 6;
   const labelY = textAnchor === "middle" ? y + height / 2 - 2 : y + Math.max(12, fontSize + 4);
   const priceY = textAnchor === "middle" ? labelY + Math.max(14, fontSize * 0.68) : y + fontSize + 22;
-  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="${stroke}" stroke-width="${tile.confirmationStrength === "strong" ? 3 : 1.5}"${dash}/><text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(9, Math.round(fontSize * 0.56))}" font-weight="700" font-family="Arial">${svgEscape(formatPct(tile.priceChangePct, true))}</text>` : ""}${showScore && textAnchor === "start" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
+  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="#020617" stroke-width="1.5"/><text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(9, Math.round(fontSize * 0.56))}" font-weight="700" font-family="Arial">${svgEscape(tileMetricLabel(tile, colorMode))}</text>` : ""}${showScore && textAnchor === "start" && colorMode === "price" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
 }
 
-function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState) {
+function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState, colorMode: MarketPressureColorMode) {
   const width = 1200;
   const height = 675;
   const mapX = 44;
@@ -737,7 +820,7 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
       const tileHeight = Math.max(0, sectorHeight - headerHeight);
       const tiles = layoutTreemap(sector.tiles.map((tile) => ({ item: tile, weight: tileWeight(tile) })));
       const tileMarkup = tiles
-        .map(({ item: tile, rect: tileRect }) => tileSvg(tile, x + (tileRect.x / 100) * sectorWidth, y + headerHeight + (tileRect.y / 100) * tileHeight, (tileRect.width / 100) * sectorWidth, (tileRect.height / 100) * tileHeight))
+        .map(({ item: tile, rect: tileRect }) => tileSvg(tile, x + (tileRect.x / 100) * sectorWidth, y + headerHeight + (tileRect.y / 100) * tileHeight, (tileRect.width / 100) * sectorWidth, (tileRect.height / 100) * tileHeight, colorMode))
         .join("");
       const headerMarkup = showHeader
         ? `<rect x="${x}" y="${y}" width="${sectorWidth}" height="${headerHeight}" fill="#1e293b"/><text x="${x + 6}" y="${y + 13}" fill="#e2e8f0" font-size="10" font-weight="700" font-family="Arial">${svgEscape(sector.sector)} ${svgEscape(formatPct(sector.summary.averagePriceChangePct, true))}</text>`
@@ -745,7 +828,7 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
       return `<g><rect x="${x}" y="${y}" width="${sectorWidth}" height="${sectorHeight}" fill="#020617" stroke="#020617" stroke-width="2"/>${headerMarkup}${tileMarkup}</g>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="800" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="700" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="604" width="1112" height="1" fill="#1e293b"/><text x="44" y="636" fill="#cbd5e1" font-size="14" font-family="Arial">Tile colour = price performance. Border = Walnut confirmation direction and strength. ACC = hidden accumulation. FRG = fragile winner.</text><text x="1018" y="636" fill="#34d399" font-size="16" font-weight="800" font-family="Arial">walnutmarkets.com</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="800" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - ${svgEscape(colorMode === "confirmation" ? "Confirmation colour" : "Price colour")} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="700" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="604" width="1112" height="1" fill="#1e293b"/><text x="44" y="636" fill="#cbd5e1" font-size="14" font-family="Arial">Colour = ${svgEscape(colorMode === "confirmation" ? "confirmation score and direction" : "price performance")}. Borders are traditional black separators.</text><text x="1018" y="636" fill="#34d399" font-size="16" font-weight="800" font-family="Arial">walnutmarkets.com</text></svg>`;
 }
 
 function xShareText(data: MarketPressureMapResult, query: QueryState) {
@@ -760,11 +843,13 @@ function ShareMapButton({
   sectors,
   shareUrl,
   query,
+  colorMode,
 }: {
   data: MarketPressureMapResult;
   sectors: MarketPressureSector[];
   shareUrl: string;
   query: QueryState;
+  colorMode: MarketPressureColorMode;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -808,7 +893,7 @@ function ShareMapButton({
   const downloadImage = useCallback(() => {
     setError(null);
     try {
-      const svg = renderShareSvg(data, sectors, query);
+      const svg = renderShareSvg(data, sectors, query, colorMode);
       const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -822,7 +907,7 @@ function ShareMapButton({
     } catch {
       setError("Share export failed.");
     }
-  }, [data, query, sectors]);
+  }, [colorMode, data, query, sectors]);
 
   const shareToX = useCallback(() => {
     const intent = new URL("https://twitter.com/intent/tweet");
@@ -872,6 +957,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
   const [timeRange, setTimeRange] = useState<MarketPressureTimeRange>(periodToTimeRange(initialData.period));
   const [universe, setUniverse] = useState<MarketPressureUniverse>(initialData.universe);
   const [viewMode, setViewMode] = useState<MarketPressureViewMode>(initialData.view);
+  const [colorMode, setColorMode] = useState<MarketPressureColorMode>("price");
   const [selectedTile, setSelectedTile] = useState<MarketPressureTile | null>(null);
   const renderStartRef = useRef<number>(typeof performance !== "undefined" ? performance.now() : 0);
 
@@ -932,7 +1018,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">See where price movement and Walnut&apos;s complete confirmation stack are aligning-or diverging-across the market.</p>
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200/80">Most heatmaps show where the market has been. Walnut shows where pressure is building.</p>
         </div>
-        <ShareMapButton data={initialData} sectors={sectors} shareUrl={currentShareUrl} query={query} />
+        <ShareMapButton data={initialData} sectors={sectors} shareUrl={currentShareUrl} query={query} colorMode={colorMode} />
       </section>
 
       {fallbackNotice ? (
@@ -942,7 +1028,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       ) : null}
 
       <section className="rounded-md border border-white/10 bg-slate-900/55 p-3 shadow-card">
-        <div className="grid gap-3 xl:grid-cols-[auto_auto_minmax(18rem,1fr)] xl:items-start">
+        <div className="grid gap-3 xl:grid-cols-[auto_auto_auto_minmax(18rem,1fr)] xl:items-start">
           <div>
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Universe</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure universe">
@@ -982,6 +1068,24 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             </div>
           </div>
           <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Colour</div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure colour mode">
+              {(["price", "confirmation"] as const).map((option) => (
+                <AnalyticsButton
+                  key={option}
+                  active={colorMode === option}
+                  ariaLabel={`Colour map by ${option}`}
+                  onClick={() => {
+                    setColorMode(option);
+                    recordProductEvent({ event_name: "market_pressure_colour_mode_changed", properties: { colour_mode: option } });
+                  }}
+                >
+                  {option === "price" ? "Price" : "Confirmation"}
+                </AnalyticsButton>
+              ))}
+            </div>
+          </div>
+          <div>
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">View</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure view mode">
               {marketPressureViewModes.map((option) => (
@@ -996,7 +1100,11 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
                     recordProductEvent({ event_name: "market_pressure_view_changed", properties: { view_mode: option.value } });
                   }}
                 >
-                  {option.label}
+                  <span className="inline-flex items-center gap-1.5">
+                    {option.label}
+                    {option.value === "hidden_accumulation" ? <InfoHelp label="Price is weak while Walnut confirmation remains bullish." /> : null}
+                    {option.value === "fragile_winners" ? <InfoHelp label="Price is strong while Walnut confirmation is bearish or conflicted." /> : null}
+                  </span>
                 </AnalyticsButton>
               ))}
             </div>
@@ -1012,15 +1120,15 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             <h2 className="text-lg font-semibold text-white">{selectedViewLabel}</h2>
             <p className="mt-1 text-xs text-slate-400">{selectedUniverseLabel} - {timeRange} - {initialData.summary.symbolCount} symbols</p>
           </div>
+          <ColorLegend colorMode={colorMode} />
         </div>
         {initialData.status === "ready" && initialData.tiles.length > 0 ? (
-          <SectorMap sectors={sectors} period={timeRange} onOpen={openTile} />
+          <SectorMap sectors={sectors} period={timeRange} colorMode={colorMode} onOpen={openTile} />
         ) : (
           <MarketPressureStatusState data={initialData.status === "ready" ? { ...initialData, status: "no-data" } : initialData} />
         )}
       </section>
 
-      <MarketPressureLegend />
       <TickerFlyout tile={selectedTile} period={timeRange} onClose={() => setSelectedTile(null)} />
     </div>
   );

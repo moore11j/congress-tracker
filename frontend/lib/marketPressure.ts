@@ -152,8 +152,8 @@ export const marketPressureUniverses: Array<{ value: MarketPressureUniverse; lab
 
 export const marketPressureViewModes: Array<{ value: MarketPressureViewMode; label: string }> = [
   { value: "market_pressure", label: "Market Pressure" },
-  { value: "hidden_accumulation", label: "Hidden Accumulation" },
-  { value: "fragile_winners", label: "Fragile Winners" },
+  { value: "hidden_accumulation", label: "Accumulation" },
+  { value: "fragile_winners", label: "Fragile" },
   { value: "crowded_trades", label: "Crowded Trades" },
   { value: "rotation", label: "Rotation" },
 ];
