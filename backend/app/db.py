@@ -512,6 +512,53 @@ def ensure_quote_cache_market_cap_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN IF NOT EXISTS market_cap DOUBLE PRECISION"))
 
 
+def ensure_market_pressure_snapshot_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+        id_type = "INTEGER PRIMARY KEY AUTOINCREMENT" if dialect_name == "sqlite" else "BIGSERIAL PRIMARY KEY"
+        now_default = "CURRENT_TIMESTAMP" if dialect_name == "sqlite" else "now()"
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS market_pressure_snapshots (
+                    id {id_type},
+                    universe TEXT NOT NULL,
+                    period TEXT NOT NULL DEFAULT '1d',
+                    symbol TEXT NOT NULL,
+                    company_name TEXT,
+                    sector TEXT,
+                    exchange TEXT,
+                    price FLOAT,
+                    price_change_pct FLOAT,
+                    market_cap FLOAT,
+                    confirmation_score INTEGER,
+                    confirmation_direction TEXT,
+                    data_state TEXT,
+                    price_as_of {timestamp_type},
+                    confirmation_as_of {timestamp_type},
+                    generated_at {timestamp_type} NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'market_pressure_ingest',
+                    tile_json TEXT NOT NULL,
+                    created_at {timestamp_type} DEFAULT {now_default},
+                    updated_at {timestamp_type} DEFAULT {now_default},
+                    CONSTRAINT uq_market_pressure_snapshot_universe_period_symbol UNIQUE (universe, period, symbol)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_market_pressure_snapshots_universe_period "
+                "ON market_pressure_snapshots (universe, period, generated_at)"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_market_pressure_snapshots_symbol ON market_pressure_snapshots (symbol)")
+        )
+
+
 def ensure_fundamentals_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

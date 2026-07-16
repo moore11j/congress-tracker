@@ -1484,6 +1484,43 @@ class PriceCache(Base):
     )
 
 
+class MarketPressureSnapshot(Base):
+    __tablename__ = "market_pressure_snapshots"
+    __table_args__ = (
+        UniqueConstraint("universe", "period", "symbol", name="uq_market_pressure_snapshot_universe_period_symbol"),
+        Index("ix_market_pressure_snapshots_universe_period", "universe", "period", "generated_at"),
+        Index("ix_market_pressure_snapshots_symbol", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    universe: Mapped[str] = mapped_column(Text, nullable=False)
+    period: Mapped[str] = mapped_column(Text, nullable=False, default="1d", server_default="1d")
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    company_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sector: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    exchange: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_change_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    market_cap: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    confirmation_score: Mapped[Optional[int]] = mapped_column(nullable=True)
+    confirmation_direction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    data_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_as_of: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmation_as_of: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="market_pressure_ingest", server_default="market_pressure_ingest", nullable=False)
+    tile_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class TickerMeta(Base):
     __tablename__ = "ticker_meta"
 

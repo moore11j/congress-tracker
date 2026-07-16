@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import FundamentalsCache, IndexMembership, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, IndexMembership, MarketPressureSnapshot, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 import app.services.market_pressure as market_pressure
 from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
 from app.services.index_memberships import refresh_index_memberships
@@ -30,6 +30,7 @@ def _session_factory():
             WatchlistItem.__table__,
             Security.__table__,
             IndexMembership.__table__,
+            MarketPressureSnapshot.__table__,
             PriceCache.__table__,
             QuoteCache.__table__,
             TickerMeta.__table__,

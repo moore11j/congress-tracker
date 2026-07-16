@@ -13,7 +13,7 @@ from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import TierEntitlements
-from app.models import FundamentalsCache, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, MarketPressureSnapshot, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import (
     SOURCE_ORDER,
     confirmation_active_source_count,
@@ -62,6 +62,8 @@ MARKET_PRESSURE_LIVE_QUOTE_PRIORITY: tuple[str, ...] = (
     "JPM",
     "XOM",
 )
+MARKET_PRESSURE_SNAPSHOT_FRESH_MINUTES = 75
+MARKET_PRESSURE_SNAPSHOT_MIN_COVERAGE = 0.8
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
 SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "etf", "all_us", "watchlist")
 SUPPORTED_VIEWS: tuple[MarketPressureView, ...] = (
@@ -273,6 +275,30 @@ def build_market_pressure_response(
             return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
         mark = perf_counter()
+        snapshot_response = _snapshot_response(
+            db,
+            params=params,
+            symbols=symbols,
+            generated_at=generated_at,
+            entitlements=entitlements,
+            capabilities=capabilities,
+            warnings=warnings,
+        )
+        timings["snapshotDurationMs"] = _elapsed_ms(mark)
+        if snapshot_response is not None:
+            logger.info(
+                "market_pressure_request universe=%s period=%s view=%s tier=%s symbol_count=%s cache_hit=%s warning_count=%s",
+                params.universe,
+                params.period,
+                params.view,
+                entitlements.tier,
+                len(symbols),
+                True,
+                len(warnings),
+            )
+            return _attach_metadata(snapshot_response, started=started, sql_query_count=sql_query_count, timings=timings)
+
+        mark = perf_counter()
         identities = _load_identities(db, symbols)
         timings["identityDurationMs"] = _elapsed_ms(mark)
         mark = perf_counter()
@@ -348,6 +374,85 @@ def _default_confirmation_loader(db: Session, symbols: list[str]) -> dict[str, d
         symbols,
         lookback_days=CONFIRMATION_FRESHNESS_WINDOW_DAYS,
     )
+
+
+def _snapshot_fresh_minutes() -> int:
+    raw = os.getenv("MARKET_PRESSURE_SNAPSHOT_FRESH_MINUTES", "").strip()
+    if not raw:
+        return MARKET_PRESSURE_SNAPSHOT_FRESH_MINUTES
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return MARKET_PRESSURE_SNAPSHOT_FRESH_MINUTES
+
+
+def _snapshot_min_coverage() -> float:
+    raw = os.getenv("MARKET_PRESSURE_SNAPSHOT_MIN_COVERAGE", "").strip()
+    if not raw:
+        return MARKET_PRESSURE_SNAPSHOT_MIN_COVERAGE
+    try:
+        return min(1.0, max(0.0, float(raw)))
+    except ValueError:
+        return MARKET_PRESSURE_SNAPSHOT_MIN_COVERAGE
+
+
+def _snapshot_response(
+    db: Session,
+    *,
+    params: MarketPressureParams,
+    symbols: list[str],
+    generated_at: datetime,
+    entitlements: TierEntitlements,
+    capabilities: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    if params.universe == "watchlist" or params.period != "1d":
+        return None
+    cutoff = generated_at - timedelta(minutes=_snapshot_fresh_minutes())
+    rows = db.execute(
+        select(MarketPressureSnapshot)
+        .where(
+            MarketPressureSnapshot.universe == params.universe,
+            MarketPressureSnapshot.period == params.period,
+            MarketPressureSnapshot.generated_at >= cutoff,
+            MarketPressureSnapshot.symbol.in_(symbols),
+        )
+        .order_by(MarketPressureSnapshot.symbol.asc())
+    ).scalars().all()
+    required = max(1, int(len(symbols) * _snapshot_min_coverage()))
+    if len(rows) < required:
+        return None
+    tiles: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            tile = json.loads(row.tile_json)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(tile, dict) and _tile_matches_view(tile, params.view):
+            tiles.append(tile)
+    sectors = _group_tiles_by_sector(tiles)
+    summary = _summary_for_tiles(tiles, len(symbols))
+    return {
+        "universe": params.universe,
+        "period": params.period,
+        "view": params.view,
+        "generatedAt": _dt_iso(max((row.generated_at for row in rows), default=generated_at)),
+        "priceAsOf": _latest_iso([tile.get("priceEndAt") for tile in tiles]),
+        "confirmationAsOf": _latest_iso([tile.get("confirmationAsOf") for tile in tiles]),
+        "confirmationFreshnessWindowDays": CONFIRMATION_FRESHNESS_WINDOW_DAYS,
+        "scoringVersion": SCORING_VERSION,
+        "capabilities": capabilities,
+        "entitlement": _entitlement_payload(entitlements),
+        "summary": summary,
+        "sectors": sectors,
+        "warnings": warnings,
+        "metadata": {
+            "cacheHit": True,
+            "cacheScope": "market_pressure_snapshots",
+            "responseTimeMs": 0,
+            "priceCloseBasis": "market_pressure_snapshots",
+        },
+    }
 
 
 def require_market_pressure_access(entitlements: TierEntitlements, user: UserAccount | None) -> None:
