@@ -8,7 +8,7 @@ from time import perf_counter
 from typing import Any, Callable, Literal
 
 from fastapi import HTTPException
-from sqlalchemy import event, select
+from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import TierEntitlements
@@ -25,7 +25,7 @@ from app.utils.symbols import normalize_symbol
 logger = logging.getLogger(__name__)
 
 MarketPressurePeriod = Literal["1d", "5d", "1m", "3m", "ytd", "1y"]
-MarketPressureUniverse = Literal["sp500", "nasdaq100", "all_us", "watchlist"]
+MarketPressureUniverse = Literal["sp500", "nasdaq100", "etf", "all_us", "watchlist"]
 MarketPressureView = Literal["market_pressure", "hidden_accumulation", "fragile_winners", "crowded_trades", "rotation"]
 MarketPressureDirection = Literal["bullish", "bearish", "neutral", "conflicted", "unavailable"]
 Divergence = Literal[
@@ -41,7 +41,7 @@ Divergence = Literal[
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
 SCORING_VERSION = "confirmation_score_v1"
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
-SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "all_us", "watchlist")
+SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "etf", "all_us", "watchlist")
 SUPPORTED_VIEWS: tuple[MarketPressureView, ...] = (
     "market_pressure",
     "hidden_accumulation",
@@ -60,6 +60,17 @@ SOURCE_LAYER_KEYS = {
     "institutional_activity": "institutions",
     "options_flow": "optionsFlow",
     "macro_positioning": "macroPositioning",
+}
+
+ETF_ASSET_CLASS_VALUES = {
+    "etf",
+    "etfs",
+    "etf_fund",
+    "etf fund",
+    "fund",
+    "mutual fund",
+    "exchange traded fund",
+    "exchange-traded fund",
 }
 
 @dataclass(frozen=True)
@@ -100,6 +111,8 @@ def resolve_market_pressure_params(
     normalized_universe = (universe or "sp500").strip().lower().replace("-", "_")
     normalized_period = (period or "1d").strip().lower()
     normalized_view = (view or "market_pressure").strip().lower().replace("-", "_")
+    if normalized_universe in {"etfs", "etf_fund", "funds"}:
+        normalized_universe = "etf"
 
     if normalized_universe not in SUPPORTED_UNIVERSES:
         warnings.append(f"invalid_universe:{normalized_universe or 'blank'}")
@@ -123,16 +136,30 @@ def market_pressure_capabilities(db: Session | None = None) -> dict[str, Any]:
     index_capabilities = index_universe_capabilities(db) if db is not None else {}
     sp500 = index_capabilities.get("sp500", {"supported": False, "status": "unavailable", "reason": "membership_not_loaded"})
     nasdaq100 = index_capabilities.get("nasdaq100", {"supported": False, "status": "unavailable", "reason": "membership_not_loaded"})
+    etf_symbols = _resolve_etf_universe_symbols(db) if db is not None else []
+    etf_capability = {
+        "supported": bool(etf_symbols),
+        "membershipCount": len(etf_symbols),
+        "source": "security_master",
+        "sourceKind": "security_asset_class",
+        "sourceAsOf": None,
+        "refreshedAt": None,
+        "status": "available" if etf_symbols else "unavailable",
+        "reason": None if etf_symbols else "etf_universe_not_loaded",
+        "sourceLabel": "Walnut ETF securities",
+    }
     return {
         "universes": {
             "sp500": bool(sp500.get("supported")),
             "nasdaq100": bool(nasdaq100.get("supported")),
+            "etf": bool(etf_capability["supported"]),
             "all_us": False,
             "watchlist": True,
         },
         "universeDetails": {
             "sp500": sp500,
             "nasdaq100": nasdaq100,
+            "etf": etf_capability,
             "all_us": {
                 "supported": False,
                 "membershipCount": 0,
@@ -317,6 +344,8 @@ def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, use
     if universe in {"sp500", "nasdaq100"}:
         snapshot = active_index_membership_snapshot(db, universe)
         return snapshot.symbols if snapshot.supported else []
+    if universe == "etf":
+        return _resolve_etf_universe_symbols(db)
     if universe != "watchlist":
         return []
     if user is None:
@@ -335,6 +364,25 @@ def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, use
         select(Security.symbol)
         .join(WatchlistItem, WatchlistItem.security_id == Security.id)
         .where(WatchlistItem.watchlist_id == watchlist.id)
+        .order_by(Security.symbol.asc())
+    ).scalars()
+    return sorted({normalized for symbol in rows if (normalized := normalize_symbol(symbol))})
+
+
+def _resolve_etf_universe_symbols(db: Session) -> list[str]:
+    asset_class = func.lower(func.coalesce(Security.asset_class, ""))
+    security_name = func.lower(func.coalesce(Security.name, ""))
+    rows = db.execute(
+        select(Security.symbol)
+        .where(
+            Security.symbol.is_not(None),
+            or_(
+                asset_class.in_(ETF_ASSET_CLASS_VALUES),
+                security_name.like("% etf%"),
+                security_name.like("% exchange traded fund%"),
+                security_name.like("% exchange-traded fund%"),
+            ),
+        )
         .order_by(Security.symbol.asc())
     ).scalars()
     return sorted({normalized for symbol in rows if (normalized := normalize_symbol(symbol))})

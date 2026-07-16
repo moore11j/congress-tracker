@@ -363,7 +363,51 @@ def test_market_pressure_pro_and_admin_can_access_supported_index_universes(db):
     assert admin_nasdaq["capabilities"]["universeDetails"]["all_us"]["reason"] == "complete_us_equity_universe_not_available"
 
 
+def test_market_pressure_etf_universe_uses_security_master_asset_classes(db):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    db.add_all(
+        [
+            Security(symbol="SPY", name="SPDR S&P 500 ETF Trust", asset_class="etf_fund", sector="US Large Cap"),
+            Security(symbol="QQQ", name="Invesco QQQ Trust ETF", asset_class="ETF", sector="US Large Cap"),
+            Security(symbol="TLT", name="iShares 20+ Year Treasury Bond ETF", asset_class="fund", sector="Fixed Income"),
+            Security(symbol="AAPL", name="Apple Inc.", asset_class="equity", sector="Technology"),
+        ]
+    )
+    db.add_all(
+        [
+            TickerMeta(symbol="SPY", company_name="SPDR S&P 500 ETF Trust", exchange="NYSEARCA", sector="US Large Cap"),
+            TickerMeta(symbol="QQQ", company_name="Invesco QQQ Trust ETF", exchange="NASDAQ", sector="US Large Cap"),
+            TickerMeta(symbol="TLT", company_name="iShares 20+ Year Treasury Bond ETF", exchange="NASDAQ", sector="Fixed Income"),
+        ]
+    )
+    db.commit()
+    for symbol in ["SPY", "QQQ", "TLT", "AAPL"]:
+        _seed_price(db, symbol, start_close=100, end_close=103)
+
+    response = build_market_pressure_response(
+        db,
+        universe="etfs",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {
+            symbol: _bundle(symbol, {"price_volume": _source("bullish"), "signals": _source("bullish")})
+            for symbol in symbols
+        },
+    )
+
+    assert response["universe"] == "etf"
+    assert response["capabilities"]["universes"]["etf"] is True
+    assert response["capabilities"]["universeDetails"]["etf"]["membershipCount"] == 3
+    assert response["capabilities"]["universeDetails"]["etf"]["sourceLabel"] == "Walnut ETF securities"
+    assert response["summary"]["symbolCount"] == 3
+    assert set(_tiles_by_symbol(response)) == {"SPY", "QQQ", "TLT"}
+    assert "AAPL" not in _tiles_by_symbol(response)
+
+
 def test_market_pressure_unsupported_invalid_and_auth_states(db):
+    assert resolve_market_pressure_params(universe="etfs", period="1d", view="market-pressure").universe == "etf"
     params = resolve_market_pressure_params(universe="all-us", period="bad", view="crowded-trades")
     assert params.universe == "all_us"
     assert params.period == "1d"

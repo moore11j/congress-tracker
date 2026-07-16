@@ -82,11 +82,15 @@ test("Market Pressure visualization includes loading, no-data, error, and entitl
 });
 
 test("Market Pressure universe controls are driven by backend capability metadata", () => {
+  assert.match(contract, /export type MarketPressureUniverse = "sp500" \| "nasdaq100" \| "etf" \| "all_us" \| "watchlist"/);
+  assert.match(contract, /\{ value: "etf", label: "ETFs" \}/);
   assert.match(contract, /universeDetails\?: Record<MarketPressureUniverse, MarketPressureUniverseCapability>/);
   assert.match(contract, /membershipCount: number \| null/);
   assert.match(contract, /sourceLabel\?: string \| null/);
+  assert.match(contract, /source: "security_master"/);
   assert.match(contract, /complete_us_equity_universe_not_available/);
   assert.match(client, /initialData\.capabilities\.universes\[option\.value\]/);
+  assert.match(client, /ETF universe data is temporarily unavailable/);
   assert.match(client, /Source: \{universeDetails\.sourceLabel\}/);
 });
 
@@ -94,7 +98,8 @@ test("Market Pressure defaults and falls back from backend capabilities", () => 
   assert.match(contract, /getMarketPressureCapabilities/);
   assert.match(contract, /\/api\/market-pressure\/capabilities/);
   assert.match(contract, /function selectMarketPressureUniverse/);
-  assert.match(contract, /preferredUniverseOrder: MarketPressureUniverse\[\] = \["sp500", "nasdaq100", "watchlist"\]/);
+  assert.match(contract, /preferredUniverseOrder: MarketPressureUniverse\[\] = \["sp500", "nasdaq100", "etf", "watchlist"\]/);
+  assert.match(contract, /normalized === "etf" \|\| normalized === "etfs" \|\| normalized === "etf_fund"/);
   assert.match(page, /selectMarketPressureUniverse\(capabilities, requestedQuery\.universe\)/);
   assert.match(page, /marketPressureUnavailableUniverseWarning\(requestedQuery\.universe, selectedUniverse\)/);
   assert.match(page, /\.\.\.data\.warnings, fallbackWarning/);

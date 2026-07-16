@@ -2,7 +2,7 @@ import { API_BASE, backendSessionCookieName } from "@/lib/api";
 
 export type MarketPressurePeriod = "1d" | "5d" | "1m" | "3m" | "ytd" | "1y";
 export type MarketPressureTimeRange = "1D" | "5D" | "1M" | "3M" | "YTD" | "1Y";
-export type MarketPressureUniverse = "sp500" | "nasdaq100" | "all_us" | "watchlist";
+export type MarketPressureUniverse = "sp500" | "nasdaq100" | "etf" | "all_us" | "watchlist";
 export type MarketPressureViewMode =
   | "market_pressure"
   | "hidden_accumulation"
@@ -144,6 +144,7 @@ export const marketPressureTimeRanges: MarketPressureTimeRange[] = ["1D", "5D", 
 export const marketPressureUniverses: Array<{ value: MarketPressureUniverse; label: string }> = [
   { value: "sp500", label: "S&P 500" },
   { value: "nasdaq100", label: "Nasdaq 100" },
+  { value: "etf", label: "ETFs" },
   { value: "all_us", label: "All US" },
   { value: "watchlist", label: "Watchlist" },
 ];
@@ -172,6 +173,7 @@ export const defaultMarketPressureCapabilities: MarketPressureMapResult["capabil
   universes: {
     sp500: false,
     nasdaq100: false,
+    etf: false,
     all_us: false,
     watchlist: true,
   },
@@ -193,6 +195,16 @@ export const defaultMarketPressureCapabilities: MarketPressureMapResult["capabil
       refreshedAt: null,
       status: "unavailable",
       reason: "membership_not_loaded",
+    },
+    etf: {
+      supported: false,
+      membershipCount: 0,
+      source: "security_master",
+      sourceKind: "security_asset_class",
+      sourceAsOf: null,
+      refreshedAt: null,
+      status: "unavailable",
+      reason: "etf_universe_not_loaded",
     },
     all_us: {
       supported: false,
@@ -223,7 +235,7 @@ export const defaultMarketPressureCapabilities: MarketPressureMapResult["capabil
   pressureTrendAvailable: false,
 };
 
-const preferredUniverseOrder: MarketPressureUniverse[] = ["sp500", "nasdaq100", "watchlist"];
+const preferredUniverseOrder: MarketPressureUniverse[] = ["sp500", "nasdaq100", "etf", "watchlist"];
 
 export function timeRangeToPeriod(value: MarketPressureTimeRange): MarketPressurePeriod {
   return value.toLowerCase() as MarketPressurePeriod;
@@ -243,6 +255,7 @@ export function normalizeMarketPressureUniverse(value: string | string[] | undef
   const raw = Array.isArray(value) ? value[0] : value;
   const normalized = (raw ?? "").trim().toLowerCase().replaceAll("-", "_");
   if (normalized === "nasdaq100" || normalized === "all_us" || normalized === "watchlist") return normalized;
+  if (normalized === "etf" || normalized === "etfs" || normalized === "etf_fund") return "etf";
   return "sp500";
 }
 

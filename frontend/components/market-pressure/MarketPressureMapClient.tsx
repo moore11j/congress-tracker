@@ -289,6 +289,7 @@ function unavailableUniverseNotice(data: MarketPressureMapResult) {
 
 function disabledUniverseTitle(option: MarketPressureUniverse, data: MarketPressureMapResult) {
   if (option === "all_us") return "The complete US equity universe is not available yet.";
+  if (option === "etf") return "ETF universe data is temporarily unavailable.";
   const details = data.capabilities.universeDetails?.[option];
   if (details?.status === "unavailable") return "Index membership data is temporarily unavailable.";
   return "This universe is unavailable.";
