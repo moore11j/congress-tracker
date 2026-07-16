@@ -1,5 +1,6 @@
 import json
 import logging
+import pytest
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -11,6 +12,8 @@ from app.ingest_run import (
     _payload_json,
     _run_enrichment_queue_job,
     _run_institutional_ingest,
+    _run_portfolio_methodology_guard_job,
+    _run_portfolio_simulation_refresh_job,
     _run_priority_ticker_prewarm_job,
     _run_recent_congress_job,
 )
@@ -122,6 +125,18 @@ def test_market_data_refresh_job_is_accepted_by_parser() -> None:
     assert args.job == "market-data-refresh-daily"
 
 
+def test_portfolio_simulation_refresh_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "portfolio-simulation-refresh"])
+
+    assert args.job == "portfolio-simulation-refresh"
+
+
+def test_portfolio_methodology_guard_job_is_accepted_by_parser() -> None:
+    args = _build_parser().parse_args(["--job", "portfolio-methodology-guard"])
+
+    assert args.job == "portfolio-methodology-guard"
+
+
 def test_institutional_latest_daily_job_is_accepted_by_parser() -> None:
     args = _build_parser().parse_args(["--job", "institutional-latest-daily"])
 
@@ -138,12 +153,78 @@ def test_scheduled_ingest_workflow_includes_market_data_refresh() -> None:
     assert "market-data-refresh-daily" in crontab.read_text()
 
 
+def test_scheduled_ingest_workflow_includes_portfolio_refresh() -> None:
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "daily_ingest.yml"
+    contents = workflow.read_text()
+    crontab = Path(__file__).resolve().parents[1] / "crontab"
+
+    assert "portfolio-simulation-refresh" in contents
+    assert 'JOB_MODE="portfolio-simulation-refresh"' in contents
+    assert "portfolio-methodology-guard" in contents
+    assert "portfolio-simulation-refresh" in crontab.read_text()
+
+
 def test_crontab_runs_institutional_latest_through_ingest_dispatcher() -> None:
     crontab = Path(__file__).resolve().parents[1] / "crontab"
     contents = crontab.read_text()
 
     assert "python -m app.ingest_run --job institutional-latest-daily" in contents
     assert "scripts/run_institutional_latest_job.sh" not in contents
+
+
+def test_portfolio_simulation_refresh_runs_standard_backfill_commands(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, *, check, capture_output, text):
+        calls.append(command)
+        assert check is True
+        assert capture_output is True
+        assert text is True
+        return SimpleNamespace(stdout=json.dumps({"summary": {"created": 2, "failed": 0}}))
+
+    monkeypatch.setenv("PORTFOLIO_REFRESH_LOOKBACKS", "365,30")
+    monkeypatch.setenv("PORTFOLIO_REFRESH_BENCHMARK", "SPY")
+    monkeypatch.setenv("PORTFOLIO_REFRESH_BATCH_SIZE", "25")
+    monkeypatch.setenv("PORTFOLIO_REFRESH_REPLACE_EXISTING", "1")
+    monkeypatch.setattr(
+        "app.ingest_run.check_background_job_guard",
+        lambda job: SimpleNamespace(proceed=True, reason="ok", to_dict=lambda: {"job": job}),
+    )
+    monkeypatch.setattr("app.ingest_run.subprocess.run", fake_run)
+    monkeypatch.setattr("app.ingest_run._portfolio_current_methodology_counts", lambda **_kwargs: {365: 2, 30: 2})
+
+    result = _run_portfolio_simulation_refresh_job()
+
+    assert result["job"] == "portfolio-simulation-refresh"
+    assert result["lookbacks"] == [365, 30]
+    assert result["counts"] == {365: 2, 30: 2}
+    assert len(calls) == 2
+    assert all("--replace-existing" in command for command in calls)
+    assert calls[0][calls[0].index("--lookback-days") + 1] == "365"
+    assert calls[1][calls[1].index("--lookback-days") + 1] == "30"
+    assert calls[0][calls[0].index("--benchmark") + 1] == "SPY"
+    assert calls[0][calls[0].index("--batch-size") + 1] == "25"
+
+
+def test_portfolio_methodology_guard_fails_without_current_runs_or_scheduled_backfill(monkeypatch) -> None:
+    monkeypatch.setenv("PORTFOLIO_REFRESH_LOOKBACKS", "365,30")
+    monkeypatch.delenv("PORTFOLIO_METHODOLOGY_BACKFILL_SCHEDULED", raising=False)
+    monkeypatch.setattr("app.ingest_run._portfolio_current_methodology_counts", lambda **_kwargs: {365: 0, 30: 2})
+
+    with pytest.raises(RuntimeError, match="Current portfolio methodology has no persisted runs"):
+        _run_portfolio_methodology_guard_job()
+
+
+def test_portfolio_methodology_guard_allows_explicit_scheduled_backfill(monkeypatch) -> None:
+    monkeypatch.setenv("PORTFOLIO_REFRESH_LOOKBACKS", "365,30")
+    monkeypatch.setenv("PORTFOLIO_METHODOLOGY_BACKFILL_SCHEDULED", "1")
+    monkeypatch.setattr("app.ingest_run._portfolio_current_methodology_counts", lambda **_kwargs: {365: 0, 30: 2})
+
+    result = _run_portfolio_methodology_guard_job()
+
+    assert result["status"] == "scheduled"
+    assert result["missing_lookbacks"] == [365]
+    assert result["backfill_scheduled"] is True
 
 
 def test_enrichment_queue_job_uses_bounded_env(monkeypatch) -> None:

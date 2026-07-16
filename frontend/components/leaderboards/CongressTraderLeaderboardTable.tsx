@@ -133,7 +133,7 @@ export function CongressTraderLeaderboardEmptyState({
   return (
     <div className="p-8 text-center text-sm text-slate-300">
       {performanceModel === "portfolio"
-        ? "No portfolio simulations meet the data-quality threshold for this view yet."
+        ? "Portfolio simulations are being recomputed following a methodology update."
         : "No members matched your current filters."}
     </div>
   );

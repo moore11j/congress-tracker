@@ -21,7 +21,7 @@ from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.populate_fundamentals_cache import populate_fundamentals_cache
 from app.ingest_senate import ingest_senate
-from app.models import Event, PriceCache, SavedScreenSnapshot, Security, TradeOutcome, WatchlistItem
+from app.models import Event, PriceCache, ReplicatedPortfolioRun, SavedScreenSnapshot, Security, TradeOutcome, WatchlistItem
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import (
     ensure_fresh_price_history,
@@ -33,6 +33,7 @@ from app.services.data_enrichment_queue import enqueue_priority_ticker_prewarm_j
 from app.services.saved_screen_monitoring import refresh_due_saved_screen_monitoring
 from app.services.confirmation_monitoring import refresh_all_monitored_watchlist_confirmation_monitoring
 from app.services.institutional_ingest_job import run_scheduled_latest_once
+from app.services.replicated_portfolios import PORTFOLIO_METHODOLOGY_VERSION
 from app.utils.symbols import normalize_symbol
 from app.background_job_guard import background_job_skip_payload, check_background_job_guard
 
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 SAFE_OUTCOME_RETRY_STATUSES = "no_data,no_current_price,provider_429,provider_budget_exceeded,retry_later,no_entry_price,no_execution_price"
 UNRESOLVED_SYMBOL_LABEL = "<unresolved>"
+PORTFOLIO_REFRESH_DEFAULT_LOOKBACKS = [365, 30, 90, 180, 1095]
 
 
 def json_default(value: object) -> object:
@@ -73,6 +75,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "institutional-latest-daily",
             "enrichment-queue",
             "priority-ticker-prewarm",
+            "portfolio-simulation-refresh",
+            "portfolio-methodology-guard",
             "all",
         ],
         help="Which scheduled ingest job to run.",
@@ -828,6 +832,137 @@ def _run_government_contracts_job(*, lookback_days: int) -> dict[str, object]:
     return result
 
 
+def _portfolio_refresh_lookbacks() -> list[int]:
+    raw = os.getenv("PORTFOLIO_REFRESH_LOOKBACKS", "")
+    if not raw.strip():
+        return list(PORTFOLIO_REFRESH_DEFAULT_LOOKBACKS)
+    lookbacks: list[int] = []
+    for value in raw.split(","):
+        value = value.strip()
+        if not value:
+            continue
+        lookbacks.append(int(value))
+    return lookbacks or list(PORTFOLIO_REFRESH_DEFAULT_LOOKBACKS)
+
+
+def _portfolio_current_methodology_counts(*, benchmark: str, lookbacks: list[int]) -> dict[int, int]:
+    normalized_benchmark = normalize_symbol(benchmark) or "SPY"
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(ReplicatedPortfolioRun.lookback_days, func.count(ReplicatedPortfolioRun.id))
+            .where(ReplicatedPortfolioRun.entity_type == "congress_member")
+            .where(ReplicatedPortfolioRun.methodology_version == PORTFOLIO_METHODOLOGY_VERSION)
+            .where(ReplicatedPortfolioRun.mode == "realistic_disclosure_lag")
+            .where(ReplicatedPortfolioRun.benchmark_symbol == normalized_benchmark)
+            .where(ReplicatedPortfolioRun.status == "ok")
+            .where(ReplicatedPortfolioRun.lookback_days.in_(lookbacks))
+            .group_by(ReplicatedPortfolioRun.lookback_days)
+        ).all()
+    counts = {int(lookback): 0 for lookback in lookbacks}
+    for lookback_days, count in rows:
+        counts[int(lookback_days)] = int(count or 0)
+    return counts
+
+
+def _run_portfolio_methodology_guard_job() -> dict[str, object]:
+    lookbacks = _portfolio_refresh_lookbacks()
+    benchmark = normalize_symbol(os.getenv("PORTFOLIO_REFRESH_BENCHMARK", "SPY")) or "SPY"
+    counts = _portfolio_current_methodology_counts(benchmark=benchmark, lookbacks=lookbacks)
+    missing = [lookback for lookback, count in counts.items() if count <= 0]
+    backfill_scheduled = _is_truthy(os.getenv("PORTFOLIO_METHODOLOGY_BACKFILL_SCHEDULED"))
+    payload: dict[str, object] = {
+        "job": "portfolio-methodology-guard",
+        "methodology_version": PORTFOLIO_METHODOLOGY_VERSION,
+        "benchmark_symbol": benchmark,
+        "lookbacks": lookbacks,
+        "counts": counts,
+        "missing_lookbacks": missing,
+        "backfill_scheduled": backfill_scheduled,
+        "status": "ok" if not missing else "scheduled" if backfill_scheduled else "failed",
+    }
+    if missing and not backfill_scheduled:
+        raise RuntimeError(
+            "Current portfolio methodology has no persisted runs for "
+            f"lookbacks={missing}; run portfolio-simulation-refresh or set "
+            "PORTFOLIO_METHODOLOGY_BACKFILL_SCHEDULED=1 for an explicit backfill deployment."
+        )
+    logger.info("Portfolio methodology guard finished: %s", payload)
+    return payload
+
+
+def _run_portfolio_simulation_refresh_job() -> dict[str, object]:
+    guard = check_background_job_guard("portfolio-simulation-refresh")
+    if not guard.proceed:
+        logger.info("portfolio_simulation_refresh_skipped reason=%s guard=%s", guard.reason, guard.to_dict())
+        return {
+            **background_job_skip_payload("portfolio-simulation-refresh", guard),
+            "methodology_version": PORTFOLIO_METHODOLOGY_VERSION,
+            "lookbacks": [],
+            "results": [],
+        }
+
+    lookbacks = _portfolio_refresh_lookbacks()
+    benchmark = normalize_symbol(os.getenv("PORTFOLIO_REFRESH_BENCHMARK", "SPY")) or "SPY"
+    batch_size = int(os.getenv("PORTFOLIO_REFRESH_BATCH_SIZE", "400") or 400)
+    batch_offset = int(os.getenv("PORTFOLIO_REFRESH_BATCH_OFFSET", "0") or 0)
+    max_batches = int(os.getenv("PORTFOLIO_REFRESH_MAX_BATCHES", "1") or 1)
+    replace_existing = _is_truthy(os.getenv("PORTFOLIO_REFRESH_REPLACE_EXISTING", "1"))
+    results: list[dict[str, object]] = []
+
+    for lookback_days in lookbacks:
+        command = [
+            sys.executable,
+            "-m",
+            "app.compute_replicated_portfolios",
+            "--all-entities",
+            "--lookback-days",
+            str(lookback_days),
+            "--benchmark",
+            benchmark,
+            "--apply",
+            "--batch-size",
+            str(max(1, batch_size)),
+            "--batch-offset",
+            str(max(0, batch_offset)),
+            "--max-batches",
+            str(max(1, max_batches)),
+        ]
+        command.append("--replace-existing" if replace_existing else "--resume")
+        logger.info(
+            "Starting portfolio simulation refresh lookback_days=%s benchmark=%s replace_existing=%s batch_size=%s batch_offset=%s max_batches=%s",
+            lookback_days,
+            benchmark,
+            replace_existing,
+            batch_size,
+            batch_offset,
+            max_batches,
+        )
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        try:
+            report = json.loads(completed.stdout or "{}")
+        except json.JSONDecodeError:
+            report = {"status": "unparseable", "stdout_tail": (completed.stdout or "")[-2000:]}
+        results.append(
+            {
+                "lookback_days": lookback_days,
+                "benchmark_symbol": benchmark,
+                "summary": report.get("summary") if isinstance(report, dict) else None,
+            }
+        )
+
+    payload = {
+        "job": "portfolio-simulation-refresh",
+        "methodology_version": PORTFOLIO_METHODOLOGY_VERSION,
+        "benchmark_symbol": benchmark,
+        "replace_existing": replace_existing,
+        "lookbacks": lookbacks,
+        "results": results,
+        "counts": _portfolio_current_methodology_counts(benchmark=benchmark, lookbacks=lookbacks),
+    }
+    logger.info("Portfolio simulation refresh finished: %s", payload)
+    return payload
+
+
 def _run_enrichment_queue_job() -> dict[str, object]:
     if os.getenv("ENRICHMENT_QUEUE_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
         logger.info("data_enrichment_queue_skipped reason=enrichment_queue_disabled")
@@ -955,12 +1090,17 @@ def _run_job_payload(job: str) -> dict[str, object]:
         return _run_enrichment_queue_job()
     if job == "priority-ticker-prewarm":
         return _run_priority_ticker_prewarm_job()
+    if job == "portfolio-simulation-refresh":
+        return _run_portfolio_simulation_refresh_job()
+    if job == "portfolio-methodology-guard":
+        return _run_portfolio_methodology_guard_job()
     return {
         "job": "all",
         "core": _run_core_job(),
         "government_contracts_daily": _run_government_contracts_job(lookback_days=30),
         "daily_repair": _run_daily_outcome_repair(),
         "market_data_refresh_daily": _run_market_data_refresh_job(),
+        "portfolio_simulation_refresh": _run_portfolio_simulation_refresh_job(),
     }
 
 
