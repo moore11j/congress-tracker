@@ -13,7 +13,7 @@ from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import TierEntitlements
-from app.models import FundamentalsCache, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import (
     SOURCE_ORDER,
     confirmation_active_source_count,
@@ -43,6 +43,9 @@ Divergence = Literal[
 CONFIRMATION_FRESHNESS_WINDOW_DAYS = 30
 SCORING_VERSION = "confirmation_score_v1"
 MARKET_PRESSURE_LIVE_PRICE_DEFAULT_LIMIT = 180
+MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS: dict[MarketPressureUniverse, set[str]] = {
+    "sp500": {"GOOG"},
+}
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
 SUPPORTED_UNIVERSES: tuple[MarketPressureUniverse, ...] = ("sp500", "nasdaq100", "etf", "all_us", "watchlist")
 SUPPORTED_VIEWS: tuple[MarketPressureView, ...] = (
@@ -100,6 +103,7 @@ class PricePerformance:
     end_at: str | None
     as_of: str | None
     complete: bool
+    market_cap: float | None = None
 
 
 ConfirmationLoader = Callable[[Session, list[str]], dict[str, dict]]
@@ -348,7 +352,7 @@ def require_market_pressure_access(entitlements: TierEntitlements, user: UserAcc
 def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, user: UserAccount | None) -> list[str]:
     if universe in {"sp500", "nasdaq100"}:
         snapshot = active_index_membership_snapshot(db, universe)
-        return snapshot.symbols if snapshot.supported else []
+        return _apply_universe_symbol_policy(universe, snapshot.symbols) if snapshot.supported else []
     if universe == "etf":
         return _resolve_etf_universe_symbols(db)
     if universe != "watchlist":
@@ -372,6 +376,13 @@ def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, use
         .order_by(Security.symbol.asc())
     ).scalars()
     return sorted({normalized for symbol in rows if (normalized := normalize_symbol(symbol))})
+
+
+def _apply_universe_symbol_policy(universe: MarketPressureUniverse, symbols: list[str]) -> list[str]:
+    excluded = MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS.get(universe, set())
+    if not excluded:
+        return symbols
+    return [symbol for symbol in symbols if symbol not in excluded]
 
 
 def _resolve_etf_universe_symbols(db: Session) -> list[str]:
@@ -496,6 +507,7 @@ def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[s
             end_at=as_of,
             as_of=as_of,
             complete=True,
+            market_cap=_safe_float(meta.get("market_cap")),
         )
     return fallback
 
@@ -565,6 +577,22 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             exchange=current.exchange or row.exchange,
             market_cap=_safe_float(row.market_cap) or current.market_cap,
         )
+    for row in db.execute(
+        select(QuoteCache.symbol, QuoteCache.market_cap)
+        .where(QuoteCache.symbol.in_(symbols), QuoteCache.market_cap.is_not(None))
+    ).all():
+        symbol = normalize_symbol(row.symbol)
+        market_cap = _safe_float(row.market_cap)
+        if not symbol or market_cap is None:
+            continue
+        current = identities.get(symbol, Identity(symbol=symbol))
+        identities[symbol] = Identity(
+            symbol=symbol,
+            company_name=current.company_name,
+            sector=current.sector,
+            exchange=current.exchange,
+            market_cap=current.market_cap or market_cap,
+        )
     return identities
 
 
@@ -604,12 +632,13 @@ def _build_tile(
     divergence = _divergence(price.change_pct, direction, strength, directional_sources, stale)
     data_state = _data_state(price, direction, stale, layers)
     confirmation_as_of = _latest_iso([layer.get("asOf") for layer in layers.values() if isinstance(layer, dict)])
+    market_cap = identity.market_cap or price.market_cap
     return {
         "symbol": symbol,
         "companyName": identity.company_name,
         "sector": identity.sector or "Unclassified",
         "exchange": identity.exchange,
-        "marketCap": identity.market_cap,
+        "marketCap": market_cap,
         "priceChangePct": price.change_pct,
         "priceStartAt": price.start_at,
         "priceEndAt": price.end_at,

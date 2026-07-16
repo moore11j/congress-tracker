@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import FundamentalsCache, IndexMembership, PriceCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
+from app.models import FundamentalsCache, IndexMembership, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 import app.services.market_pressure as market_pressure
 from app.services.confirmation_score import confirmation_score_bundle_from_source_payloads
 from app.services.index_memberships import refresh_index_memberships
@@ -31,6 +31,7 @@ def _session_factory():
             Security.__table__,
             IndexMembership.__table__,
             PriceCache.__table__,
+            QuoteCache.__table__,
             TickerMeta.__table__,
             FundamentalsCache.__table__,
         ],
@@ -437,6 +438,38 @@ def test_market_pressure_pro_and_admin_can_access_supported_index_universes(db):
     assert admin_nasdaq["summary"]["symbolCount"] == 101
     assert admin_nasdaq["capabilities"]["universes"]["all_us"] is False
     assert admin_nasdaq["capabilities"]["universeDetails"]["all_us"]["reason"] == "complete_us_equity_universe_not_available"
+
+
+def test_market_pressure_sp500_excludes_duplicate_alphabet_share_class(db):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    symbols = [f"SP{idx:03d}" for idx in range(1, 502)] + ["GOOG", "GOOGL"]
+    result = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[{"symbol": symbol} for symbol in symbols],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 14),
+        refreshed_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert result.status == "ok"
+    db.add(TickerMeta(symbol="GOOGL", company_name="Alphabet Inc", exchange="NASDAQ", sector="Communication Services"))
+    db.commit()
+
+    response = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    assert response["capabilities"]["universeDetails"]["sp500"]["membershipCount"] == 503
+    assert response["summary"]["symbolCount"] == 502
+    assert "GOOG" not in tiles
+    assert "GOOGL" in tiles
 
 
 def test_market_pressure_etf_universe_uses_security_master_asset_classes(db):

@@ -1466,6 +1466,7 @@ class QuoteCache(Base):
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
     price: Mapped[float]
     asof_ts: Mapped[datetime] = mapped_column(DateTime(timezone=False))
+    market_cap: Mapped[Optional[float]] = mapped_column(nullable=True)
 
 
 class PriceCache(Base):

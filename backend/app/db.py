@@ -486,6 +486,32 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
                 logger.warning("price_cache_volume_schema_update_skipped reason=%s", exc.__class__.__name__)
 
 
+def ensure_quote_cache_market_cap_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn, statement_timeout="5s")
+        if dialect_name == "sqlite":
+            table_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='quotes_cache'")
+            ).fetchone()
+            if not table_exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(quotes_cache)")).fetchall()
+                if len(row) > 1
+            }
+            if "market_cap" not in existing:
+                conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN market_cap FLOAT"))
+            return
+
+        if dialect_name == "postgresql":
+            table_exists = conn.execute(text("SELECT to_regclass('public.quotes_cache')")).scalar()
+            if table_exists is None:
+                return
+            conn.execute(text("ALTER TABLE quotes_cache ADD COLUMN IF NOT EXISTS market_cap DOUBLE PRECISION"))
+
+
 def ensure_fundamentals_cache_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name

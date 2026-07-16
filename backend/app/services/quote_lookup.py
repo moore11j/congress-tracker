@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import requests
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -347,19 +347,23 @@ def quote_cache_get_many_with_age(db: Session, symbols: list[str]) -> dict[str, 
     return result
 
 
-def quote_cache_upsert_many(db: Session, prices: dict[str, float]) -> None:
+def quote_cache_upsert_many(db: Session, prices: dict[str, float], market_caps: dict[str, float | None] | None = None) -> None:
     if not prices:
         return
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     rows = [
-        {"symbol": sym, "price": float(price), "asof_ts": now}
+        {"symbol": sym, "price": float(price), "asof_ts": now, "market_cap": market_caps.get(sym) if market_caps else None}
         for sym, price in prices.items()
     ]
     insert_fn = postgres_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
     stmt = insert_fn(QuoteCache.__table__).values(rows)
     stmt = stmt.on_conflict_do_update(
         index_elements=["symbol"],
-        set_={"price": stmt.excluded.price, "asof_ts": stmt.excluded.asof_ts},
+        set_={
+            "price": stmt.excluded.price,
+            "asof_ts": stmt.excluded.asof_ts,
+            "market_cap": func.coalesce(stmt.excluded.market_cap, QuoteCache.market_cap),
+        },
     )
     try:
         if db.bind and db.bind.dialect.name == "sqlite":
@@ -1082,7 +1086,12 @@ def get_current_prices_meta_db(
             logger.info("quote_live_fetch lane=%s symbol=%s", lane, symbol)
 
         if allow_cache_write and db is not None:
-            quote_cache_upsert_many(db, new_prices)
+            new_market_caps = {
+                symbol: float(meta["market_cap"])
+                for symbol, meta in quote_meta.items()
+                if symbol in new_prices and meta.get("market_cap") is not None
+            }
+            quote_cache_upsert_many(db, new_prices, market_caps=new_market_caps)
 
         if attempted_symbols and not disable_triggered:
             returned_symbols = set(new_prices.keys())

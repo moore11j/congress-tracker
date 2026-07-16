@@ -407,10 +407,14 @@ function MarketTile({
   rect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
-  const compact = rect ? rect.width < 8 || rect.height < 7 : false;
-  const micro = rect ? rect.width < 4 || rect.height < 5 : false;
-  const feature = rect ? rect.width >= 16 && rect.height >= 14 : false;
-  const hero = rect ? rect.width >= 24 && rect.height >= 20 : false;
+  const tileArea = rect ? rect.width * rect.height : 1000;
+  const hideLabel = rect ? rect.width < 7 || rect.height < 6 || tileArea < 44 : false;
+  const showPrice = rect ? !hideLabel && rect.width >= 10 && rect.height >= 8 && tileArea >= 90 : true;
+  const compact = rect ? rect.width < 13 || rect.height < 10 || tileArea < 150 : false;
+  const medium = rect ? rect.width < 18 || rect.height < 15 || tileArea < 300 : false;
+  const feature = rect ? rect.width >= 18 && rect.height >= 15 && tileArea >= 320 : false;
+  const hero = rect ? rect.width >= 25 && rect.height >= 20 && tileArea >= 560 : false;
+  const showDiagnostics = rect ? !hideLabel && !feature && rect.width >= 14 && rect.height >= 12 && tileArea >= 180 : true;
   const tileClassName = rect
     ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${priceFillClass(tile.priceChangePct)} ${confirmationFrameClass(tile)}`;
@@ -426,18 +430,27 @@ function MarketTile({
       className={tileClassName}
       style={rect ? rectStyle(rect) : undefined}
       data-treemap-tile={rect ? "true" : undefined}
+      data-symbol={tile.symbol}
       aria-label={label}
       title={`${label} ${explainTile(tile, period)}`}
       onClick={() => onOpen(tile)}
       onKeyDown={handleKeyDown}
     >
-      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${compact ? "hidden" : ""}`}>
+      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${hideLabel || compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
-      <span className={`${micro ? "text-[9px]" : compact ? "text-xs" : hero ? "text-4xl" : feature ? "text-3xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{tile.symbol}</span>
-      <span className={`${micro ? "hidden" : compact ? "mt-0.5 text-[10px]" : hero ? "mt-1 text-xl" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>{formatPct(tile.priceChangePct, true)}</span>
-      <span className={`${compact || feature ? "hidden" : "mt-1 block text-[10px]"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
-      <span className={`${compact || feature ? "hidden" : "mt-1 flex"} min-h-5 flex-wrap gap-1`}>
+      {!hideLabel ? (
+        <span className={`${compact ? "text-[10px]" : medium ? "text-sm" : hero ? "text-4xl" : feature ? "text-3xl" : "text-lg"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+          {tile.symbol}
+        </span>
+      ) : null}
+      {showPrice ? (
+        <span className={`${compact ? "mt-0.5 text-[9px]" : medium ? "mt-0.5 text-xs" : hero ? "mt-1 text-xl" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+          {formatPct(tile.priceChangePct, true)}
+        </span>
+      ) : null}
+      <span className={`${showDiagnostics ? "mt-1 block text-[10px]" : "hidden"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
+      <span className={`${showDiagnostics ? "mt-1 flex" : "hidden"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
         {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
       </span>
