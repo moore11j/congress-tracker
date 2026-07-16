@@ -321,9 +321,7 @@ def test_market_pressure_pro_and_admin_can_access_supported_index_universes(db):
     assert pro_sp500["capabilities"]["universeDetails"]["sp500"]["membershipCount"] == 503
     assert pro_sp500["summary"]["symbolCount"] == 503
     assert pro_sp500["summary"]["unavailableCount"] == 502
-    assert pro_sp500["metadata"]["sqlQueryCount"] >= 1
-    assert pro_sp500["metadata"]["payloadBytes"] > 0
-    assert pro_sp500["metadata"]["confirmationDurationMs"] >= 0
+    assert "metadata" not in pro_sp500
     assert admin_nasdaq["capabilities"]["universes"]["nasdaq100"] is True
     assert admin_nasdaq["capabilities"]["universeDetails"]["nasdaq100"]["membershipCount"] == 101
     assert admin_nasdaq["summary"]["symbolCount"] == 101

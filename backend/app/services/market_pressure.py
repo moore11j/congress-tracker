@@ -718,11 +718,16 @@ def _attach_metadata(
     sql_query_count: int,
     timings: dict[str, float],
 ) -> dict[str, Any]:
-    metadata = response.setdefault("metadata", {})
-    metadata.update(timings)
-    metadata["sqlQueryCount"] = sql_query_count
-    metadata["responseTimeMs"] = round((perf_counter() - started) * 1000, 1)
-    metadata["payloadBytes"] = len(json.dumps(response, separators=(",", ":"), default=str).encode("utf-8"))
+    duration_ms = round((perf_counter() - started) * 1000, 1)
+    response.pop("metadata", None)
+    payload_bytes = len(json.dumps(response, separators=(",", ":"), default=str).encode("utf-8"))
+    logger.info(
+        "market_pressure_internal_metrics sql_query_count=%s response_time_ms=%.1f payload_bytes=%s timings=%s",
+        sql_query_count,
+        duration_ms,
+        payload_bytes,
+        timings,
+    )
     return response
 
 

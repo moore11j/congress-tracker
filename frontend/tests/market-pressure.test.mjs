@@ -71,13 +71,14 @@ test("Market Pressure renders no mock ticker data in production", () => {
 });
 
 test("Market Pressure visualization includes loading, no-data, error, and entitlement states", () => {
-  assert.match(client, /loading: \{/);
-  assert.match(client, /"no-data": \{/);
-  assert.match(client, /error: \{/);
-  assert.match(client, /entitlement: \{/);
-  assert.match(client, /unsupported: \{/);
-  assert.match(client, /"auth-required": \{/);
-  assert.match(client, /aria-busy=\{state === "loading"\}/);
+  assert.match(client, /function statusCopy/);
+  assert.match(client, /data\.status === "loading"/);
+  assert.match(client, /status: "no-data"/);
+  assert.match(client, /data\.status === "error"/);
+  assert.match(client, /data\.status === "entitlement"/);
+  assert.match(client, /data\.status === "unsupported"/);
+  assert.match(client, /data\.status === "auth-required"/);
+  assert.match(client, /aria-busy=\{data\.status === "loading"\}/);
 });
 
 test("Market Pressure universe controls are driven by backend capability metadata", () => {
@@ -104,6 +105,28 @@ test("Market Pressure share and analytics events are wired through first-party h
   assert.match(client, /market_pressure_view_changed/);
   assert.match(client, /market_pressure_share_opened/);
   assert.match(client, /market_pressure_ticker_opened/);
-  assert.match(client, /Download image will be enabled when the map renderer supports export\./);
-  assert.match(client, /Share to X will be enabled after public map snapshots are implemented\./);
+  assert.match(client, /market_pressure_image_downloaded/);
+  assert.match(client, /market_pressure_x_share_opened/);
+  assert.match(client, /renderShareSvg/);
+  assert.match(client, /twitter\.com\/intent\/tweet/);
+});
+
+test("Market Pressure Phase 3 visual semantics are source-driven", () => {
+  assert.match(client, /function priceFillClass/);
+  assert.match(client, /function confirmationFrameClass/);
+  assert.match(client, /border-dashed border-amber-200/);
+  assert.match(client, /hidden_accumulation: "Accumulation"/);
+  assert.match(client, /fragile_winner: "Fragile"/);
+  assert.match(client, /tile\.divergence/);
+  assert.doesNotMatch(client, /pressureScore/);
+  assert.doesNotMatch(client, /confirmationScore\s*[+\-*/]/);
+});
+
+test("Market Pressure tile flyout and share export avoid protected public JSON", () => {
+  assert.match(client, /WalnutModal/);
+  assert.match(client, /Evidence summary/);
+  assert.match(client, /Open full ticker page/);
+  assert.match(client, /AddTickerToWatchlist/);
+  assert.match(client, /image\/svg\+xml/);
+  assert.doesNotMatch(client, /public.*JSON/i);
 });
