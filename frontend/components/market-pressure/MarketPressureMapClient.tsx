@@ -171,10 +171,10 @@ function confirmationFillClass(tile: MarketPressureTile) {
     return "bg-[#fb923c] text-slate-950";
   }
   if (tile.confirmationDirection === "conflicted") {
-    if (score >= 80) return "bg-[#8b5a2b] text-white";
-    if (score >= 65) return "bg-[#a86a32] text-white";
-    if (score >= 50) return "bg-[#c2823d] text-white";
-    return "bg-[#d49b5a] text-slate-950";
+    if (score >= 80) return "bg-[#5b21b6] text-white";
+    if (score >= 65) return "bg-[#6d28d9] text-white";
+    if (score >= 50) return "bg-[#7c3aed] text-white";
+    return "bg-[#8b5cf6] text-white";
   }
   return "bg-[#3f4b5d] text-slate-100";
 }
@@ -442,13 +442,13 @@ function MarketTile({
 }) {
   const label = accessibleTileLabel(tile, period);
   const tileArea = rect ? rect.width * rect.height : 1000;
-  const hideLabel = rect ? rect.width < 7 || rect.height < 6 || tileArea < 44 : false;
-  const showPrice = rect ? !hideLabel && rect.width >= 10 && rect.height >= 8 && tileArea >= 90 : true;
-  const compact = rect ? rect.width < 13 || rect.height < 10 || tileArea < 150 : false;
-  const medium = rect ? rect.width < 18 || rect.height < 15 || tileArea < 300 : false;
-  const feature = rect ? rect.width >= 18 && rect.height >= 15 && tileArea >= 320 : false;
-  const hero = rect ? rect.width >= 25 && rect.height >= 20 && tileArea >= 560 : false;
-  const showDiagnostics = rect ? !hideLabel && !feature && rect.width >= 22 && rect.height >= 18 && tileArea >= 420 : true;
+  const hideLabel = rect ? rect.width < 10 || rect.height < 8 || tileArea < 80 : false;
+  const showPrice = rect ? !hideLabel && rect.width >= 14 && rect.height >= 11 && tileArea >= 155 : true;
+  const compact = rect ? rect.width < 16 || rect.height < 13 || tileArea < 220 : false;
+  const medium = rect ? rect.width < 23 || rect.height < 18 || tileArea < 430 : false;
+  const feature = rect ? rect.width >= 24 && rect.height >= 18 && tileArea >= 520 : false;
+  const hero = rect ? rect.width >= 36 && rect.height >= 28 && tileArea >= 980 : false;
+  const showDiagnostics = rect ? colorMode === "price" && !hideLabel && !feature && rect.width >= 30 && rect.height >= 22 && tileArea >= 650 : colorMode === "price";
   const tileClassName = rect
     ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`;
@@ -474,12 +474,12 @@ function MarketTile({
         {directionGlyph[tile.confirmationDirection]}
       </span>
       {!hideLabel ? (
-        <span className={`${compact ? "text-[10px]" : medium ? "text-sm" : hero ? "text-4xl" : feature ? "text-3xl" : "text-lg"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "text-[9px]" : medium ? "text-xs" : hero ? "text-3xl" : feature ? "text-2xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tile.symbol}
         </span>
       ) : null}
       {showPrice ? (
-        <span className={`${compact ? "mt-0.5 text-[9px]" : medium ? "mt-0.5 text-xs" : hero ? "mt-1 text-xl" : feature ? "mt-1 text-lg" : "mt-0.5 text-sm"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "mt-0.5 text-[8px]" : medium ? "mt-0.5 text-[10px]" : hero ? "mt-1 text-lg" : feature ? "mt-1 text-base" : "mt-0.5 text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tileMetricLabel(tile, colorMode)}
         </span>
       ) : null}
@@ -627,6 +627,9 @@ function ColorLegend({ colorMode }: { colorMode: MarketPressureColorMode }) {
     ["Bear 80+", "#c2410c"],
     ["Bear 65", "#ea580c"],
     ["Bear 50", "#f97316"],
+    ["Mix 50", "#7c3aed"],
+    ["Mix 65", "#6d28d9"],
+    ["Mix 80+", "#5b21b6"],
     ["Neutral", "#3f4b5d"],
     ["Bull 50", "#3b9af3"],
     ["Bull 65", "#1d7fe5"],
@@ -775,10 +778,10 @@ function confirmationFillHex(tile: MarketPressureTile) {
     return "#fb923c";
   }
   if (tile.confirmationDirection === "conflicted") {
-    if (score >= 80) return "#8b5a2b";
-    if (score >= 65) return "#a86a32";
-    if (score >= 50) return "#c2823d";
-    return "#d49b5a";
+    if (score >= 80) return "#5b21b6";
+    if (score >= 65) return "#6d28d9";
+    if (score >= 50) return "#7c3aed";
+    return "#8b5cf6";
   }
   return "#3f4b5d";
 }
@@ -790,14 +793,15 @@ function tileFillHex(tile: MarketPressureTile, colorMode: MarketPressureColorMod
 function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, height: number, colorMode: MarketPressureColorMode) {
   const fill = tileFillHex(tile, colorMode);
   const marker = tile.divergence === "hidden_accumulation" ? "ACC" : tile.divergence === "fragile_winner" ? "FRG" : "";
-  const showPrice = width >= 42 && height >= 32;
-  const showScore = width >= 70 && height >= 54;
-  const fontSize = width >= 120 && height >= 72 ? 30 : width >= 90 && height >= 54 ? 22 : width >= 48 && height >= 28 ? 13 : 9;
-  const textAnchor = width >= 90 && height >= 54 ? "middle" : "start";
+  const showLabel = width >= 48 && height >= 26;
+  const showPrice = showLabel && width >= 64 && height >= 38;
+  const showScore = colorMode === "price" && width >= 92 && height >= 66;
+  const fontSize = width >= 150 && height >= 96 ? 28 : width >= 110 && height >= 68 ? 20 : width >= 70 && height >= 42 ? 12 : 9;
+  const textAnchor = width >= 110 && height >= 68 ? "middle" : "start";
   const labelX = textAnchor === "middle" ? x + width / 2 : x + 6;
   const labelY = textAnchor === "middle" ? y + height / 2 - 2 : y + Math.max(12, fontSize + 4);
   const priceY = textAnchor === "middle" ? labelY + Math.max(14, fontSize * 0.68) : y + fontSize + 22;
-  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="#020617" stroke-width="1.5"/><text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(9, Math.round(fontSize * 0.56))}" font-weight="700" font-family="Arial">${svgEscape(tileMetricLabel(tile, colorMode))}</text>` : ""}${showScore && textAnchor === "start" && colorMode === "price" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="11" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 58 && height >= 28 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
+  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="#020617" stroke-width="1.5"/>${showLabel ? `<text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>` : ""}${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(8, Math.round(fontSize * 0.55))}" font-weight="700" font-family="Arial">${svgEscape(tileMetricLabel(tile, colorMode))}</text>` : ""}${showScore && textAnchor === "start" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="10" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 68 && height >= 34 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
 }
 
 function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState, colorMode: MarketPressureColorMode) {

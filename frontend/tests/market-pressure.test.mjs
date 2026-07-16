@@ -143,6 +143,8 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.match(client, /function confirmationFillHex/);
   assert.match(client, /#0b63ce/);
   assert.match(client, /#c2410c/);
+  assert.match(client, /#7c3aed/);
+  assert.match(client, /Mix 65/);
   assert.match(client, /type MarketPressureColorMode = "price" \| "confirmation"/);
   assert.match(client, /function tileMetricLabel/);
   assert.match(client, /CS \$\{formatScore\(tile\.confirmationScore\)\}/);
