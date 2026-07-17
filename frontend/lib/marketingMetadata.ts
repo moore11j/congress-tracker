@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
-export const WALNUT_MARKETING_TITLE = "Walnut Markets | Confirmation-Stack Market Intelligence";
+export const WALNUT_MARKETING_TITLE = "Walnut Markets | Congress Trades & Insider Activity Research";
 export const WALNUT_MARKETING_DESCRIPTION =
   "Walnut Markets connects Congress trades, insider activity, government contracts, technicals, fundamentals, institutional filings, and ticker context into confirmation stacks for serious investors.";
 export const WALNUT_OG_DESCRIPTION =
