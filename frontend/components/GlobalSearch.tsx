@@ -245,9 +245,8 @@ export function GlobalSearch() {
     return (
       <div className="absolute left-0 right-0 top-full z-[1300] mt-2 overflow-hidden rounded-lg border border-white/15 bg-slate-950/95 shadow-2xl shadow-black/45 backdrop-blur">
         {suggest.loading && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">Searching...</div> : null}
-        {!suggest.loading && suggest.error ? <div className="px-3 py-3 text-sm text-rose-200">Search is busy, try again.</div> : null}
-        {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">No matches found</div> : null}
-        {!suggest.error && groups.length > 0 ? (
+        {!suggest.loading && suggest.settled && results.length === 0 ? <div className="px-3 py-3 text-sm text-slate-400">Press enter to search</div> : null}
+        {groups.length > 0 ? (
           <div className="max-h-[26rem] overflow-y-auto py-2">
             {groups.map((group) => (
               <div key={group.kind} className="py-1">

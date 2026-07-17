@@ -273,8 +273,7 @@ export function normalizeEventType(uiValue: string | null | undefined): Normaliz
   return undefined;
 }
 
-function buildApiUrl(path: string, params?: QueryParams) {
-  const base = typeof window === "undefined" ? API_BASE : window.location.origin;
+function buildUrl(path: string, base: string, params?: QueryParams) {
   const url = new URL(path, base);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -285,6 +284,15 @@ function buildApiUrl(path: string, params?: QueryParams) {
     });
   }
   return url.toString();
+}
+
+function buildApiUrl(path: string, params?: QueryParams) {
+  const base = typeof window === "undefined" ? API_BASE : window.location.origin;
+  return buildUrl(path, base, params);
+}
+
+function buildBackendApiUrl(path: string, params?: QueryParams) {
+  return buildUrl(path, API_BASE, params);
 }
 
 function tickerPathSymbol(symbol: string) {
@@ -4446,7 +4454,7 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
     if (pending) return raceWithAbort(pending, options?.signal);
   }
 
-  const request = fetchJson<SearchSuggestResponse>(buildApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
+  const request = fetchJson<SearchSuggestResponse>(buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
     cache: "no-store",
     signal: options?.signal,
     source: options?.source ?? "FastSearchSuggest",

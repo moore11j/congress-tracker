@@ -267,6 +267,8 @@ test("global search UI advertises insider search and renders insider grouping", 
   assert.match(search, /insider: "Insiders"/);
   assert.match(search, /insider: "Insider"/);
   assert.match(search, /members, insiders/);
+  assert.doesNotMatch(search, /Search is busy/);
+  assert.match(search, /Press enter to search/);
 });
 
 test("global and landing search submit unknown text to results instead of raw ticker routes", () => {
@@ -283,6 +285,7 @@ test("global and landing search submit unknown text to results instead of raw ti
   assert.match(landingSearch, /isHighConfidenceSearchResult/);
   assert.doesNotMatch(landingSearch, /\/ticker\/\$\{/);
   assert.doesNotMatch(landingSearch, /isTickerLikeQuery/);
+  assert.doesNotMatch(landingSearch, /Search is busy/);
 
   assert.match(navigation, /export function searchResultsHref/);
   assert.match(navigation, /export function isHighConfidenceSearchResult/);

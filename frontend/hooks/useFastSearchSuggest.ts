@@ -61,7 +61,7 @@ export function useFastSearchSuggest(query: string, options?: { limit?: number; 
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         if (requestIdRef.current !== requestId) return;
-        setState({ results: [], loading: false, error: true, settled: true });
+        setState((current) => ({ results: current.results, loading: false, error: true, settled: true }));
       }
     }, debounceMs);
 
