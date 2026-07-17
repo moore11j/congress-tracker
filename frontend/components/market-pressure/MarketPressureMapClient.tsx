@@ -470,20 +470,20 @@ function MarketTile({
       onClick={() => onOpen(tile)}
       onKeyDown={handleKeyDown}
     >
-      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/85 ${hideLabel || compact ? "hidden" : ""}`}>
+      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white/85 sm:text-[8px] ${hideLabel || compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
       {!hideLabel ? (
-        <span className={`${compact ? "text-[9px]" : medium ? "text-xs" : hero ? "text-3xl" : feature ? "text-2xl" : "text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "text-[7px] sm:text-[9px]" : medium ? "text-[8px] sm:text-xs" : hero ? "text-lg sm:text-3xl" : feature ? "text-sm sm:text-2xl" : "text-[10px] sm:text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tile.symbol}
         </span>
       ) : null}
       {showPrice ? (
-        <span className={`${compact ? "mt-0.5 text-[8px]" : medium ? "mt-0.5 text-[10px]" : hero ? "mt-1 text-lg" : feature ? "mt-1 text-base" : "mt-0.5 text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "mt-0.5 text-[7px] sm:text-[8px]" : medium ? "mt-0.5 text-[8px] sm:text-[10px]" : hero ? "mt-1 text-sm sm:text-lg" : feature ? "mt-0.5 text-xs sm:mt-1 sm:text-base" : "mt-0.5 text-[9px] sm:text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tileMetricLabel(tile, colorMode)}
         </span>
       ) : null}
-      <span className={`${showDiagnostics ? "mt-1 block text-[10px]" : "hidden"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
+      <span className={`${showDiagnostics ? "mt-0.5 block text-[8px] sm:mt-1 sm:text-[10px]" : "hidden"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
       <span className={`${showDiagnostics ? "mt-1 flex" : "hidden"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
         {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
