@@ -123,6 +123,17 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
         "Brand idea: The market has tells. We help find them.",
     ]
 )
+AI_GROWTH_SEO_KEYWORD_GUIDANCE = " ".join(
+    [
+        "Use search-led Walnut language consistently across AI Growth emails, X campaigns, X replies, Reddit drafts, and social cards.",
+        "Prioritize phrases people already search for: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, options flow, institutional activity, government contracts, fundamentals, technicals, and signal stack.",
+        "Use confirmation stack as supporting product language, not as the primary headline, title, or search hook.",
+        "Avoid the headline phrase 'Confirmation-Stack Market Intelligence' and the stale phrase 'Market Intelligence from Political Trades and Insider Activity'.",
+        "Prefer title and hook patterns like 'Congress Trades & Insider Activity Research', 'Congressional Stock Trades and Insider Signals', and 'Stock Research from Congress Trades, Insider Activity, and Market Signals'.",
+        "For X campaigns, use the same keyword language naturally in the post, card headline, card chips, and visual_brief when relevant.",
+        "Options Flow is still coming soon; do not describe it as an available Walnut feature unless a future context explicitly says it is live.",
+    ]
+)
 DEFAULT_OPENAI_CREDITS_LEDGER_START_USD = 9.91
 OPENAI_CREDITS_LEDGER_START_USD = "OPENAI_CREDITS_LEDGER_START_USD"
 OPENAI_CREDITS_LEDGER_SPENT_USD = "OPENAI_CREDITS_LEDGER_SPENT_USD"
@@ -5987,6 +5998,7 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "You draft human-reviewed AI Growth Engine assets for Walnut Market Terminal. "
         f"Default email and campaign tone: {configured_tone}. "
         f"Saved Walnut voice characteristics to apply consistently: {characteristics}. "
+        f"Saved SEO/search keyword guidance to apply consistently: {AI_GROWTH_SEO_KEYWORD_GUIDANCE}. "
         "Return only JSON matching the supplied schema. First decide whether the thread deserves a reply at all. "
         "Use recommended_action='skip' when the source is not clearly about investing, markets, public companies, trading, finance, or research tools. "
         "Use recommended_action='skip' or 'monitor' when Walnut cannot add a meaningful, specific angle. "

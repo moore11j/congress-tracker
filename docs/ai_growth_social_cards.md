@@ -6,6 +6,8 @@ The ChatGPT API generates concise JSON: card type, ticker context, headline, sub
 
 This is better than raw image generation for X and approval emails because layout, contrast, text wrapping, brand treatment, and attachment format are predictable. The model supplies judgment and copy, while code owns pixels, spacing, safe margins, and fallbacks.
 
+Social cards should use the shared SEO language in `docs/seo_keyword_language.md`: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, institutional activity, government contracts, fundamentals, technicals, and signal stack. Keep `confirmation stack` as supporting language, not the primary headline. Options Flow is still coming soon and should not be described as available.
+
 Implemented templates:
 
 - `article_reactive`: fast news and article reaction cards.

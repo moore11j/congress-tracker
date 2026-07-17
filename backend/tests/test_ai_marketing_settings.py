@@ -212,6 +212,10 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         assert "Lead with the ticker." in prompt
         assert "use 'we', 'our', and 'we are seeing'" in prompt
         assert "State what the signal/data says" in prompt
+        assert "Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research" in prompt
+        assert "Use confirmation stack as supporting product language, not as the primary headline" in prompt
+        assert "Options Flow is still coming soon" in prompt
+        assert "For X campaigns, use the same keyword language naturally" in prompt
     finally:
         db.close()
 
