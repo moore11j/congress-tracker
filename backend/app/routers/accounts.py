@@ -706,6 +706,20 @@ def _clear_paid_entitlement(user: UserAccount, *, status: str = "free", clear_ac
     user.updated_at = datetime.now(timezone.utc)
 
 
+def _apply_paid_admin_grant(user: UserAccount, tier: str | None = None) -> bool:
+    resolved_tier = normalize_tier(tier or user.manual_tier_override)
+    if resolved_tier not in ADMIN_BILLING_PAID_TIERS:
+        return False
+    user.manual_tier_override = resolved_tier
+    user.entitlement_tier = resolved_tier
+    user.subscription_plan = resolved_tier
+    user.subscription_status = "active"
+    user.subscription_cancel_at_period_end = False
+    user.access_expires_at = None
+    user.updated_at = datetime.now(timezone.utc)
+    return True
+
+
 def _email_domain(email: str | None) -> str:
     value = normalize_email(email)
     if "@" not in value:
@@ -5948,6 +5962,9 @@ def _reconcile_user_subscription_from_stripe(db: Session, user: UserAccount) -> 
         return {"synced": False, "reason": "stripe_lookup_failed"}
     if not subscription:
         if has_stripe_link:
+            if _apply_paid_admin_grant(user):
+                db.flush()
+                return {"synced": True, "status": user.subscription_status, "plan": user.subscription_plan, "reason": "admin_grant_no_subscription"}
             _clear_paid_entitlement(user, status="free")
             db.flush()
             return {"synced": True, "status": "free", "reason": "no_subscription"}
@@ -6938,7 +6955,9 @@ def admin_set_premium(user_id: int, payload: ManualPremiumPayload, request: Requ
     )
     _apply_admin_billing_stripe_links(user, sync_result)
     user.manual_tier_override = payload.tier
-    if payload.tier:
+    if payload.tier and _admin_plan_price_mode(payload.price_mode) == "free_admin_grant" and normalize_tier(payload.tier) in ADMIN_BILLING_PAID_TIERS:
+        _apply_paid_admin_grant(user, payload.tier)
+    elif payload.tier:
         user.entitlement_tier = payload.tier
     else:
         user.entitlement_tier = subscription_policy_tier(user)
@@ -7030,7 +7049,10 @@ def admin_batch_update_users(payload: AdminBatchUsersPayload, request: Request, 
         _apply_admin_billing_stripe_links(user, sync_result)
         if payload.tier is not None:
             user.manual_tier_override = payload.tier
-            user.entitlement_tier = payload.tier
+            if _admin_plan_price_mode(payload.price_mode) == "free_admin_grant" and normalize_tier(payload.tier) in ADMIN_BILLING_PAID_TIERS:
+                _apply_paid_admin_grant(user, payload.tier)
+            else:
+                user.entitlement_tier = payload.tier
         if payload.suspended is not None:
             user.is_suspended = payload.suspended
         if payload.clear_price_override:

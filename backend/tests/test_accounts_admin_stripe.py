@@ -4844,6 +4844,8 @@ def test_admin_plan_override_syncs_to_stripe_before_local_state_changes(monkeypa
         assert reader.stripe_price_id == "price_admin_premium_free"
         assert reader.subscription_plan == "premium"
         assert reader.subscription_status == "active"
+        assert reader.subscription_cancel_at_period_end is False
+        assert reader.access_expires_at is None
         customer_call = next(call for call in calls if call[0] == "POST" and call[1] == "customers")
         subscription_call = next(call for call in calls if call[0] == "POST" and call[1] == "subscriptions")
         assert customer_call[2]["metadata[walnut_admin_plan_override]"] == "premium"
@@ -5219,14 +5221,18 @@ def test_billing_refresh_preserves_admin_created_zero_dollar_subscription(monkey
         db.close()
 
 
-def test_billing_refresh_clears_legacy_paid_override_when_no_subscription(monkeypatch):
+def test_billing_refresh_preserves_paid_admin_override_when_no_subscription(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
     db = _session()
     try:
-        reader = _user(db, "refresh-no-sub@example.com")
+        reader = _user(db, "refresh-admin-grant-no-sub@example.com")
         reader.stripe_customer_id = "cus_no_sub"
         reader.manual_tier_override = "premium"
         reader.entitlement_tier = "premium"
+        reader.subscription_plan = "premium"
+        reader.subscription_status = "active"
+        reader.subscription_cancel_at_period_end = True
+        reader.access_expires_at = datetime.now(timezone.utc) - timedelta(days=1)
         db.commit()
 
         def fake_stripe_get(path, params=None):
@@ -5239,10 +5245,15 @@ def test_billing_refresh_clears_legacy_paid_override_when_no_subscription(monkey
         refreshed = refresh_subscription_from_stripe(_request_for_user(reader), db)
         db.refresh(reader)
 
-        assert refreshed["user"]["entitlement_tier"] == "free"
-        assert reader.manual_tier_override is None
-        assert reader.subscription_plan == "free"
-        assert current_entitlements(_request_for_user(reader), db).tier == "free"
+        assert refreshed["status"] == "refreshed"
+        assert refreshed["user"]["entitlement_tier"] == "premium"
+        assert refreshed["user"]["current_plan"] == "premium"
+        assert reader.manual_tier_override == "premium"
+        assert reader.subscription_plan == "premium"
+        assert reader.subscription_status == "active"
+        assert reader.subscription_cancel_at_period_end is False
+        assert reader.access_expires_at is None
+        assert current_entitlements(_request_for_user(reader), db).tier == "premium"
     finally:
         db.close()
 
