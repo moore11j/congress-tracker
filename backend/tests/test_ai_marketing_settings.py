@@ -210,7 +210,7 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         prompt = _suggestion_system_prompt(db)
         assert "Default email and campaign tone: sharp." in prompt
         assert "Lead with the ticker." in prompt
-        assert "use 'we', 'our', and 'we are seeing'" in prompt
+        assert "Do not force first-person plural" in prompt
         assert "State what the signal/data says" in prompt
         assert "Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research" in prompt
         assert "Use confirmation stack as supporting product language, not as the primary headline" in prompt
@@ -447,7 +447,7 @@ def test_model_uses_default_when_env_missing_and_db_ignored(monkeypatch):
         payload = admin_ai_marketing_settings(_request_for_user(admin), db)
         item = _items_by_key(payload)[AI_MARKETING_MODEL]
 
-        assert resolved_setting_value(db, AI_MARKETING_MODEL) == "gpt-5.4-mini"
+        assert resolved_setting_value(db, AI_MARKETING_MODEL) == "gpt-5.6"
         assert item["configured"] is True
         assert item["source"] == "default"
         assert item["source_label"] == "Default"

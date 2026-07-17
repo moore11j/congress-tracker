@@ -1,20 +1,27 @@
-# AI Growth Social Cards
+# AI Growth Thumbnails
 
-AI Growth social cards use structured LLM output plus deterministic rendering.
+AI Growth X and Reddit drafts should use real AI-generated thumbnails, not deterministic SVG cards.
 
-The ChatGPT API generates concise JSON: card type, ticker context, headline, subheadline, bullets, key stats, chips, CTA, source label, tone, and visual emphasis. The backend validates and normalizes that object, then renders a branded 1600x900 Walnut Markets SVG card. Existing asset download logic converts SVG data URIs to PNG for email attachments.
+The ChatGPT API still returns concise JSON for `social_card` and `visual_brief`, but that data is now treated as art direction: ticker, source, visual emphasis, and the market story. When `AI_MARKETING_IMAGE_GENERATION_ENABLED=true`, the backend sends that art direction to the image generation endpoint and attaches a Walnut-branded JPEG thumbnail.
 
-This is better than raw image generation for X and approval emails because layout, contrast, text wrapping, brand treatment, and attachment format are predictable. The model supplies judgment and copy, while code owns pixels, spacing, safe margins, and fallbacks.
+The target look is a premium 16:9 finance-media visual: dark studio background, teal/emerald Walnut glow, clean Walnut Markets lockup, a primary ticker, and one large market metaphor such as a chip stack, filings stack, bank tower, terminal glow, disclosure folder, or market infrastructure object. Keep text minimal so it stays legible on X and Reddit.
 
-Social cards should use the shared SEO language in `docs/seo_keyword_language.md`: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, institutional activity, government contracts, fundamentals, technicals, and signal stack. Keep `confirmation stack` as supporting language, not the primary headline. Options Flow is still coming soon and should not be described as available.
+Do not attach deterministic SVG cards as a fallback for generated X/Reddit drafts. If image generation fails, the draft should surface without the old card rather than posting a cramped dashboard-style graphic.
 
-Implemented templates:
+Social thumbnail art direction should use the shared SEO language in `docs/seo_keyword_language.md`: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, institutional activity, government contracts, fundamentals, technicals, and signal stack. Keep `confirmation stack` as supporting language, not the primary headline. Options Flow is still coming soon and should not be described as available.
 
-- `article_reactive`: fast news and article reaction cards.
-- `ticker_signal`: confirmation score and ticker signal cards.
-- `congress_insider_activity`: Congress and insider disclosure cards.
-- `research_cover`: Reddit/DD cover cards.
+Implemented art-direction types:
 
-To extend templates later, add the new `card_type` or `template` option to `SOCIAL_CARD_TYPES` / `SOCIAL_CARD_TEMPLATES`, update `_social_card_json_schema`, add a branch in `_social_card_type_for_context` if needed, and adjust `_social_card_data_uri` or split it into a dedicated renderer function. Keep LLM output as JSON only; do not ask the model to generate the final image.
+- `article_reactive`: fast news and article reaction thumbnails.
+- `ticker_signal`: confirmation score and ticker signal thumbnails.
+- `congress_insider_activity`: Congress and insider disclosure thumbnails.
+- `research_cover`: Reddit/DD cover thumbnails.
 
-The internal demo set is available from `ai_growth_social_card_demo_assets()` and the admin endpoint `/api/admin/ai-growth/card-demo`.
+Environment controls:
+
+- `AI_MARKETING_IMAGE_GENERATION_ENABLED`: set to `true` to attach generated thumbnails.
+- `AI_MARKETING_IMAGE_MODEL`: defaults to `gpt-image-2`.
+- `AI_MARKETING_IMAGE_SIZE`: defaults to `1536x1024`.
+- `AI_MARKETING_IMAGE_QUALITY`: defaults to `high`.
+
+The legacy internal demo set remains available from `ai_growth_social_card_demo_assets()` and `/api/admin/ai-growth/card-demo`, but those SVG demos are not the publishing path for generated X/Reddit drafts.

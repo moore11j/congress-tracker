@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import unquote
@@ -64,6 +65,8 @@ from app.services.ai_marketing import (
     X_POST_CHARACTER_LIMIT,
     X_REFRESH_TOKEN,
     _normalize_social_card_spec,
+    _ensure_x_hashtags,
+    _generated_thumbnail_asset,
     _social_card_asset,
     create_email_action_token,
     fetch_fmp_articles,
@@ -1685,15 +1688,13 @@ def test_x_chart_drop_creates_compliant_growth_draft(monkeypatch):
         assert "reported congress" in draft_text
         assert "bias disclosed" not in draft_text
         assert "building walnut" not in draft_text
-        assert "#nvda" in draft_text
+        assert "$nvda" in draft_text
+        assert "#nvda" not in draft_text
+        assert "#markets" not in draft_text
         assert "buy" not in draft_text
         assert "sell" not in draft_text
         assert "about to explode" not in draft_text
-        assert result["opportunity"]["assets"][0]["asset_type"] == "image"
-        assert result["opportunity"]["assets"][0]["card_type"] == "ticker_signal"
-        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut ticker signal card:")
-        assert result["opportunity"]["assets"][0]["url"].startswith("data:image/svg+xml")
-        assert result["opportunity"]["assets"][0]["download_url"].endswith("/assets/0/download")
+        assert result["opportunity"]["assets"] == []
     finally:
         db.close()
 
@@ -1746,6 +1747,63 @@ def test_social_card_renderer_keeps_story_and_evidence_zones_separate():
     assert "Reported accumulation" in svg
 
 
+def test_generated_thumbnail_asset_uses_image_model_when_enabled(monkeypatch):
+    monkeypatch.setenv("AI_MARKETING_IMAGE_GENERATION_ENABLED", "true")
+    monkeypatch.setenv("AI_MARKETING_IMAGE_MODEL", "gpt-image-test")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "b64_json": base64.b64encode(b"fake-jpeg").decode("ascii"),
+                        "revised_prompt": "revised premium thumbnail prompt",
+                    }
+                ]
+            }
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", fake_post)
+
+    asset = _generated_thumbnail_asset(
+        api_key="test-key",
+        card_spec={
+            "card_type": "ticker_signal",
+            "ticker": "JPM",
+            "headline": "JPM leads the institutional accumulation stack",
+            "visual_emphasis": "large glowing bank filings stack",
+            "source_label": "Reported 13F filings",
+        },
+        suggested_post="$JPM reported 13F activity shows broad holder increases, per filings.",
+        visual_brief={"rows": [{"label": "Confirmation", "value": "9.0/10"}]},
+    )
+
+    assert captured["url"] == "https://api.openai.com/v1/images/generations"
+    assert captured["json"]["model"] == "gpt-image-test"
+    assert captured["json"]["output_format"] == "jpeg"
+    assert asset is not None
+    assert asset["template"] == "generated_thumbnail"
+    assert asset["url"].startswith("data:image/jpeg;base64,")
+    assert asset["image_model"] == "gpt-image-test"
+    assert "Avoid: dashboard cards" in asset["image_prompt"]
+
+
+def test_x_copy_normalizer_strips_hashtags_and_adds_cashtags():
+    text = _ensure_x_hashtags("TSM margin context is cleaner. #TSM #Markets", ["TSM"])
+
+    assert text == "TSM margin context is cleaner. $TSM"
+    assert "#TSM" not in text
+    assert "#Markets" not in text
+
+
 def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     long_post = (
@@ -1792,10 +1850,10 @@ def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):
         assert len(suggestion["alternate_hooks"][0]) <= X_POST_CHARACTER_LIMIT
         assert "bias disclosed" not in draft_text.lower()
         assert "building walnut" not in draft_text.lower()
-        assert "#TSM" in draft_text
-        assert len(result["opportunity"]["assets"]) == 1
-        assert result["opportunity"]["assets"][0]["title"].startswith("Walnut ticker signal card:")
-        assert "TSM" in result["opportunity"]["assets"][0]["url"]
+        assert "$TSM" in draft_text
+        assert "#TSM" not in draft_text
+        assert "#Markets" not in draft_text
+        assert result["opportunity"]["assets"] == []
     finally:
         db.close()
 
@@ -1914,10 +1972,10 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert "TSM margin context" in updated["generated_content"]
         assert "bias disclosed" not in updated["generated_content"].lower()
         assert "building walnut" not in updated["generated_content"].lower()
-        assert "#TSM" in updated["generated_content"]
-        assert updated["assets"][0]["card_type"] == "ticker_signal"
-        assert updated["assets"][0]["template"] == "ticker_signal"
-        assert updated["assets"][0]["url"].startswith("data:image/svg+xml")
+        assert "$TSM" in updated["generated_content"]
+        assert "#TSM" not in updated["generated_content"]
+        assert "#Markets" not in updated["generated_content"]
+        assert updated["assets"] == []
     finally:
         db.close()
 
@@ -1979,7 +2037,7 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
         assert result["opportunity"]["quality_scores"]["research_depth_score"] >= 75
         assert result["opportunity"]["status"] == "new"
         assert result["opportunity"]["full_markdown"] == generated
-        assert result["opportunity"]["assets"][0]["card_type"] == "research_cover"
+        assert result["opportunity"]["assets"][0]["template"] != "research_cover"
         assert any(asset["title"] == "NVDA disclosure stack card" for asset in result["opportunity"]["assets"])
     finally:
         db.close()

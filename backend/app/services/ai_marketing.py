@@ -56,7 +56,10 @@ AI_GROWTH_DIGEST_RECIPIENT = "AI_GROWTH_DIGEST_RECIPIENT"
 AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
 AI_MARKETING_PROMPT_VERSION = "ai_growth_v2"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
-DEFAULT_AI_MARKETING_MODEL = "gpt-5.4-mini"
+DEFAULT_AI_MARKETING_MODEL = "gpt-5.6"
+DEFAULT_AI_MARKETING_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_AI_MARKETING_IMAGE_SIZE = "1536x1024"
+DEFAULT_AI_MARKETING_IMAGE_QUALITY = "high"
 X_POST_CHARACTER_LIMIT = 280
 SOCIAL_CARD_WIDTH = 1600
 SOCIAL_CARD_HEIGHT = 900
@@ -77,6 +80,10 @@ SOCIAL_CARD_TONES = {"sharp", "market-native", "neutral", "educational"}
 SOCIAL_CARD_SENTIMENTS = {"bullish", "bearish", "neutral", "notable", "active"}
 OPENAI_API_KEY = "OPENAI_API_KEY"
 AI_MARKETING_MODEL = "AI_MARKETING_MODEL"
+AI_MARKETING_IMAGE_MODEL = "AI_MARKETING_IMAGE_MODEL"
+AI_MARKETING_IMAGE_GENERATION_ENABLED = "AI_MARKETING_IMAGE_GENERATION_ENABLED"
+AI_MARKETING_IMAGE_SIZE = "AI_MARKETING_IMAGE_SIZE"
+AI_MARKETING_IMAGE_QUALITY = "AI_MARKETING_IMAGE_QUALITY"
 OPENAI_WEB_SEARCH_ENABLED = "OPENAI_WEB_SEARCH_ENABLED"
 AI_GROWTH_EMAIL_TONE = "AI_GROWTH_EMAIL_TONE"
 AI_GROWTH_VOICE_CHARACTERISTICS = "AI_GROWTH_VOICE_CHARACTERISTICS"
@@ -385,6 +392,14 @@ def ai_growth_recipient() -> str:
 
 def marketing_model(db: Session | None = None) -> str:
     return resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL
+
+
+def marketing_image_model() -> str:
+    return os.getenv(AI_MARKETING_IMAGE_MODEL, "").strip() or DEFAULT_AI_MARKETING_IMAGE_MODEL
+
+
+def marketing_image_generation_enabled() -> bool:
+    return _env_flag_enabled(AI_MARKETING_IMAGE_GENERATION_ENABLED)
 
 
 def ai_growth_email_tone(db: Session | None = None) -> str:
@@ -2154,6 +2169,98 @@ def _social_card_asset(spec: dict[str, Any], *, source_note: str | None = None) 
         "width": SOCIAL_CARD_WIDTH,
         "height": SOCIAL_CARD_HEIGHT,
     }
+
+
+def _generated_thumbnail_asset(
+    *,
+    api_key: str,
+    card_spec: dict[str, Any],
+    suggested_post: str,
+    visual_brief: Any,
+) -> dict[str, Any] | None:
+    if not marketing_image_generation_enabled():
+        return None
+    prompt = _generated_thumbnail_prompt(card_spec=card_spec, suggested_post=suggested_post, visual_brief=visual_brief)
+    model = marketing_image_model()
+    size = os.getenv(AI_MARKETING_IMAGE_SIZE, "").strip() or DEFAULT_AI_MARKETING_IMAGE_SIZE
+    quality = os.getenv(AI_MARKETING_IMAGE_QUALITY, "").strip() or DEFAULT_AI_MARKETING_IMAGE_QUALITY
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "size": size,
+        "quality": quality,
+        "output_format": "jpeg",
+        "output_compression": 86,
+        "moderation": "auto",
+    }
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=130,
+        )
+    except requests.RequestException:
+        logger.exception("ai_growth_image_generation_request_failed")
+        return None
+    if response.status_code >= 400:
+        logger.warning("ai_growth_image_generation_failed status=%s body=%s", response.status_code, response.text[:500])
+        return None
+    data = response.json()
+    image_data = (data.get("data") or [{}])[0] if isinstance(data, dict) else {}
+    b64_image = str(image_data.get("b64_json") or "").strip()
+    if not b64_image:
+        logger.warning("ai_growth_image_generation_missing_b64")
+        return None
+    ticker = str(card_spec.get("ticker") or "").upper()
+    headline = str(card_spec.get("headline") or "Walnut Markets").strip()
+    title = _truncate(f"Walnut generated thumbnail: {headline}", 120) or "Walnut generated thumbnail"
+    revised_prompt = _truncate(str(image_data.get("revised_prompt") or "").strip(), 2000) or ""
+    data_uri = f"data:image/jpeg;base64,{b64_image}"
+    return {
+        "title": title,
+        "asset_type": "image",
+        "url": data_uri,
+        "thumbnail_url": data_uri,
+        "suggested_caption": _truncate(headline, 180) or title,
+        "source_data_notes": f"Generated 16:9 Walnut Markets thumbnail with {model}.",
+        "template": "generated_thumbnail",
+        "card_type": str(card_spec.get("card_type") or "ticker_signal"),
+        "tone": str(card_spec.get("tone") or "market-native"),
+        "image_prompt": prompt,
+        "image_revised_prompt": revised_prompt,
+        "image_model": model,
+        "ticker": ticker,
+        "width": SOCIAL_CARD_WIDTH,
+        "height": SOCIAL_CARD_HEIGHT,
+    }
+
+
+def _generated_thumbnail_prompt(*, card_spec: dict[str, Any], suggested_post: str, visual_brief: Any) -> str:
+    ticker = str(card_spec.get("ticker") or "").upper()
+    headline = _truncate(str(card_spec.get("headline") or "").strip(), 96) or (f"${ticker} market setup" if ticker else "Walnut Markets")
+    visual = _truncate(str(card_spec.get("visual_emphasis") or "").strip(), 120) or "market signal"
+    source = _truncate(str(card_spec.get("source_label") or "").strip(), 80) or "Walnut Markets"
+    rows = []
+    if isinstance(visual_brief, dict):
+        for row in _coerce_json_list(visual_brief.get("rows"))[:4]:
+            if isinstance(row, dict):
+                label = str(row.get("label") or "").strip()
+                value = str(row.get("value") or "").strip()
+                if label or value:
+                    rows.append(f"{label}: {value}".strip(": "))
+    context = "; ".join(rows) if rows else _truncate(suggested_post, 220) or headline
+    ticker_text = f"${ticker}" if ticker else "Market signal"
+    return (
+        "Create a polished 16:9 finance-media thumbnail for Walnut Markets, in the same quality tier as a premium ChatGPT-generated market visual. "
+        "Style: cinematic dark navy/black studio background, teal/emerald glow, realistic 3D product-render lighting, high contrast, crisp depth of field, premium fintech editorial look. "
+        f"Core idea: {visual}. Context: {context}. "
+        "Composition: left third has a clean Walnut Markets lockup and generous negative space; right two-thirds has one large striking visual metaphor tied to the market story, such as a chip stack, filings stack, bank tower, trading terminal glow, disclosure folder, or market infrastructure object. "
+        f"Text to render, if any: 'Walnut Markets' and '{ticker_text}'. Optional tiny source line: 'Source: {source}'. "
+        f"Use this headline only for art direction, not as a paragraph: '{headline}'. "
+        "Avoid: dashboard cards, evidence panels, bullet lists, tiny text, clipped text, charts as the main design, crowded UI, generic stock photos, watermarks, fake news branding, fake official company logos, and imitation third-party trademarks. "
+        "If company names are needed, render them as simple clean text labels, not official logos. The final image should be post-worthy at X/Reddit thumbnail size."
+    )
 
 
 def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
@@ -4393,6 +4500,7 @@ def generate_suggestion(
         platform,
         campaign.id if campaign else 0,
         opportunity=opportunity,
+        openai_api_key=api_key,
     )
     suggestion = AiMarketingSuggestion(
         opportunity_id=opportunity.id,
@@ -6006,26 +6114,26 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "For monitor, explain what would make the thread worth replying to later. "
         "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
         "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
-        "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics exactly. "
-        "Draft a market-native X post with a news hook, why it matters, Walnut-native context from opportunity.metadata.walnut_context, "
-        "and no or soft CTA depending on campaign preferences. Prefer cashtags over hashtags and use no more than two hashtags. "
-        "High-quality X output should pair concise analysis with a visual: ranked metric breakdowns, comparison buckets, signal stacks, "
-        "or a clean chart/card that could stand alone in the feed. Use the style of a market analyst, not a generic article summary. "
-        "For x_post and reddit_thread, always fill social_card as a deterministic render spec, not prose and not an image prompt. "
-        "The social_card must create one scroll-stopping finance-media idea with a short hook, readable subheadline, 2-4 bullets, bounded key stats, category chips, CTA, source label, and Walnut URL when allowed. "
+        "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics while staying market-native and terse. "
+        "Draft X posts like high-signal market tape: one factual hook, one sourced stat or event, and Walnut-native context only when it adds something concrete. "
+        "Prefer this shape: '[Ticker/company/stat/event], per [source].' Add a second sentence only for Walnut signal context, a material caveat, or a data-backed why-it-matters line. "
+        "Use BREAKING only when the source event is truly breaking. Prefer cashtags over hashtags and avoid hashtags by default. "
+        "Do not force first-person plural; use 'we' or 'our' only when describing Walnut's own signal process. Do not add promotional CTA language to X posts. "
+        "High-quality X output should pair concise analysis with a real Walnut-generated thumbnail: a premium finance-media visual, not a dashboard screenshot or generic chart card. "
+        "For x_post and reddit_thread, fill social_card as compact art direction for a generated thumbnail, not final post copy and not a text-heavy layout. "
+        "The social_card should describe one scroll-stopping finance-media visual idea with a short hook, source label, primary ticker, tone, and visual emphasis. Avoid bullets, evidence panels, cramped UI, charts as the main design, and long copy. "
         "Use card_type='article_reactive' for news/article reactions, 'ticker_signal' for ticker confirmation or signal stacks, 'congress_insider_activity' for Congress or insider transactions, and 'research_cover' for Reddit/DD covers. "
-        "Keep social_card copy concise enough for a 1600x900 card: no long sentences, no walls of text, no generic hype, and no invented numbers. "
+        "Keep thumbnail art direction simple enough for a 16:9 image: Walnut Markets lockup, ticker, one large visual metaphor, generous negative space, no generic hype, and no invented numbers. "
         "Respect opportunity.metadata.social_card_preferences for template, tone, chart, CTA, source tag, and Walnut URL inclusion. "
         "For x_post, always fill visual_brief with a chart-ready concept: title, chart_type, metric_label, 3-8 rows, and source_note. "
         "Only use numeric values when they are present in the provided context; otherwise use qualitative buckets and say what data is missing. "
-        "For x_post from @WalnutMarkets, write in first-person plural when referring to the product or signal process: use 'we', 'our', and 'we are seeing' rather than third-person phrasing like 'Walnut shows', 'Walnut flags', or 'Walnut finds'. "
         "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the signal/data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
         "For bullish/bearish confirmation X posts, use opportunity.metadata.walnut_context.source_stack when present. Name the active sources directly, especially Price / Volume, Institutional Activity, and Macro Positioning, and include the confirmation score when supplied. "
         "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
-        "Do not reuse article thumbnails; any image/card should be Walnut-branded original card metadata with source attribution. "
-        f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and hashtags. "
+        "Do not reuse article thumbnails; any image should be a Walnut-branded original generated thumbnail with source attribution. "
+        f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and cashtags. "
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
-        "For x_post, include 1-3 relevant hashtags such as the ticker and market topic within the character cap. "
+        "For x_post, include relevant cashtags such as $NVDA or $JPM when useful. Do not append generic hashtags like #Markets. "
         "For x_reply, produce suggested_reply as a concise reply to the source post, not a standalone post. Mimic the strongest Walnut replies: one or two lines, direct market judgment, anchored to the original author's point, and no generic product pitch. "
         "For x_reply, do not add self-disclosure, do not say 'cross-check this on Walnut', and do not force a Walnut link unless the reply names a specific ticker where the link adds useful context. "
         "For x_reply, if the original post invites a one-word answer, one word is acceptable; otherwise avoid generic one-word replies. "
@@ -6258,6 +6366,7 @@ def _normalize_suggestion_payload(
     campaign_id: int,
     *,
     opportunity: AiMarketingOpportunity | None = None,
+    openai_api_key: str | None = None,
 ) -> dict[str, Any]:
     detected_tickers = _normalized_tickers(payload.get("detected_tickers"))
     intent = str(payload.get("intent") or "other").strip().lower()
@@ -6348,8 +6457,18 @@ def _normalize_suggestion_payload(
             preferences=preferences,
             visual_brief=payload.get("visual_brief"),
         )
-        social_asset = _social_card_asset(card_spec)
-        assets = _normalize_assets([social_asset, *assets])
+        generated_asset = (
+            _generated_thumbnail_asset(
+                api_key=openai_api_key,
+                card_spec=card_spec,
+                suggested_post=suggested_post,
+                visual_brief=payload.get("visual_brief"),
+            )
+            if openai_api_key
+            else None
+        )
+        generated_assets = [generated_asset] if generated_asset else []
+        assets = _normalize_assets([*generated_assets, *assets])
     generated_content = _generated_content_from_structured(
         content_type=content_type,
         suggested_reply=suggested_reply,
@@ -6877,8 +6996,8 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
             continue
         raw_asset_url = str(raw.get("url") or raw.get("path") or raw.get("reference") or "").strip()
         raw_thumbnail_url = str(raw.get("thumbnail_url") or "").strip()
-        asset_url = _truncate(raw_asset_url, 250000 if raw_asset_url.startswith("data:image/") else 1200) or ""
-        thumbnail_url = _truncate(raw_thumbnail_url, 250000 if raw_thumbnail_url.startswith("data:image/") else 1200) or ""
+        asset_url = _truncate(raw_asset_url, 8_000_000 if raw_asset_url.startswith("data:image/") else 1200) or ""
+        thumbnail_url = _truncate(raw_thumbnail_url, 8_000_000 if raw_thumbnail_url.startswith("data:image/") else 1200) or ""
         asset_type = str(raw.get("asset_type") or "image").strip().lower()
         if asset_type not in allowed_types:
             asset_type = "image"
@@ -6906,6 +7025,9 @@ def _normalize_assets(value: Any) -> list[dict[str, Any]]:
                 "card_type": _truncate(str(raw.get("card_type") or "").strip(), 80) or "",
                 "tone": _truncate(str(raw.get("tone") or "").strip(), 80) or "",
                 "card_spec": raw.get("card_spec") if isinstance(raw.get("card_spec"), dict) else {},
+                "image_prompt": _truncate(str(raw.get("image_prompt") or "").strip(), 4000) or "",
+                "image_revised_prompt": _truncate(str(raw.get("image_revised_prompt") or "").strip(), 4000) or "",
+                "image_model": _truncate(str(raw.get("image_model") or "").strip(), 80) or "",
                 "width": _clamp_int(raw.get("width") or 0, 0, 4000),
                 "height": _clamp_int(raw.get("height") or 0, 0, 4000),
             }
@@ -7269,13 +7391,19 @@ def _strip_x_self_disclosure(value: str | None) -> str:
 
 def _ensure_x_hashtags(value: str | None, tickers: list[str]) -> str:
     cleaned = re.sub(r"\s+", " ", str(value or "").strip())
-    if not cleaned or re.search(r"#[A-Za-z0-9_]+", cleaned):
+    cleaned = re.sub(r"(?<!\w)#[A-Za-z0-9_]+\b", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
         return cleaned
-    tags = [f"#{ticker.upper()}" for ticker in tickers[:2] if ticker]
-    tags.append("#Markets")
-    tags = _dedupe_strings(tags)
-    for count in range(len(tags), 0, -1):
-        suffix = " " + " ".join(tags[:count])
+    existing_cashtags = {match.upper() for match in re.findall(r"\$([A-Za-z][A-Za-z0-9.\-]{0,9})", cleaned)}
+    missing: list[str] = []
+    for ticker in tickers[:2]:
+        symbol = re.sub(r"[^A-Za-z0-9.\-]", "", str(ticker or "").upper())
+        if not symbol or symbol in existing_cashtags:
+            continue
+        missing.append(symbol)
+    for count in range(len(missing), 0, -1):
+        suffix = " " + " ".join(f"${symbol}" for symbol in missing[:count])
         body_limit = max(40, X_POST_CHARACTER_LIMIT - len(suffix))
         candidate = f"{_fit_x_post_text(cleaned, limit=body_limit)}{suffix}"
         if len(candidate) <= X_POST_CHARACTER_LIMIT:

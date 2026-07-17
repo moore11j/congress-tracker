@@ -40,7 +40,11 @@ Required for production runtime:
 | `EMAIL_DIGEST_SCHEDULE_ENABLED` | Enables scheduled digest cron sends | Required only if scheduled sends should run. |
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
-| `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.4-mini`; do not store in admin DB settings. |
+| `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6`; do not store in admin DB settings. |
+| `AI_MARKETING_IMAGE_GENERATION_ENABLED` | Enables real AI-generated AI Growth thumbnails | Optional; set `true` in production when generated X/Reddit thumbnails should be attached. Configured in `backend/fly.toml`. |
+| `AI_MARKETING_IMAGE_MODEL` | AI Growth thumbnail model override | Optional; defaults to `gpt-image-2`. Configured in `backend/fly.toml`. |
+| `AI_MARKETING_IMAGE_SIZE` | AI Growth thumbnail size | Optional; defaults to `1536x1024`. Configured in `backend/fly.toml`. |
+| `AI_MARKETING_IMAGE_QUALITY` | AI Growth thumbnail quality | Optional; defaults to `high`. Configured in `backend/fly.toml`. |
 | `AI_GROWTH_DIGEST_RECIPIENT` | AI Growth draft approval recipient | Defaults to `jarod@walnutmarkets.com`; set explicitly for production article-reactive approvals. |
 | `AI_GROWTH_ARTICLE_AUTOMATION_ENABLED` | Enables scheduled Article-Reactive X cron runs | Optional; set `true` only after reviewing dry-runs/manual runs. |
 | `AI_GROWTH_ARTICLE_MAX_DAILY_DRAFTS` | Optional global article draft cap hint | Optional; campaign settings still clamp article drafts to max 2 per day. |

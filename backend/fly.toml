@@ -38,6 +38,10 @@ destination = "/data"
   CRON_DB_POOL_SIZE = "2"
   CRON_DB_MAX_OVERFLOW = "0"
   CRON_DB_POOL_TIMEOUT = "3"
+  AI_MARKETING_IMAGE_GENERATION_ENABLED = "true"
+  AI_MARKETING_IMAGE_MODEL = "gpt-image-2"
+  AI_MARKETING_IMAGE_SIZE = "1536x1024"
+  AI_MARKETING_IMAGE_QUALITY = "high"
 
 [processes]
   app = "uvicorn app.main:app --host 0.0.0.0 --port 8080"
