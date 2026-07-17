@@ -24,6 +24,9 @@ test("global search only requests suggestions while focused and aborts stale fet
   assert.match(api, /searchSuggestPromises/);
   assert.match(api, /buildBackendApiUrl\("\/api\/search\/suggest"/);
   assert.doesNotMatch(api, /buildApiUrl\("\/api\/search\/suggest"/);
+  assert.match(api, /function fetchSearchSuggestJson/);
+  assert.match(api, /fetch\(url, \{ cache: "no-store", signal \}\)/);
+  assert.doesNotMatch(api, /fetchJson<SearchSuggestResponse>\(buildBackendApiUrl\("\/api\/search\/suggest"/);
   assert.match(hook, /setState\(\(current\) => \(\{ results: current\.results, loading: false, error: true, settled: true \}\)\)/);
 });
 

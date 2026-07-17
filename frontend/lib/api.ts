@@ -571,6 +571,26 @@ async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T
   return (await response.json()) as T;
 }
 
+async function fetchSearchSuggestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: "no-store", signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Fetch failed for ${url}: ${message}`);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new ApiError({ status: response.status, statusText: response.statusText, url, body: text });
+  }
+
+  return (await response.json()) as T;
+}
+
 async function fetchNoContent(url: string, init?: ApiRequestInit): Promise<void> {
   let response: Response;
   traceApiFetch(url, init);
@@ -4454,11 +4474,10 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
     if (pending) return raceWithAbort(pending, options?.signal);
   }
 
-  const request = fetchJson<SearchSuggestResponse>(buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit }), {
-    cache: "no-store",
-    signal: options?.signal,
-    source: options?.source ?? "FastSearchSuggest",
-  }).then((response) => {
+  const request = fetchSearchSuggestJson<SearchSuggestResponse>(
+    buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit }),
+    options?.signal,
+  ).then((response) => {
     const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
     const normalizedResponse = { ...response, items };
     if (typeof window !== "undefined") {

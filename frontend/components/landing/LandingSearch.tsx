@@ -103,7 +103,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
       {open ? (
         <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-lg border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
           {suggest.loading && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Searching...</p> : null}
-          {!suggest.loading && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Press enter to search the terminal.</p> : null}
+          {!suggest.loading && !suggest.error && suggest.settled && results.length === 0 ? <p className="px-4 py-3 text-sm text-slate-400">No matches found</p> : null}
           {!suggest.loading && results.length > 0 ? (
             <div className="divide-y divide-white/10">
               {results.map((result) => (
