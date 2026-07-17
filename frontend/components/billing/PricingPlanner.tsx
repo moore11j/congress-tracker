@@ -20,7 +20,7 @@ const headlineLimitKeys = [
   "monitoring_sources",
 ] as const;
 
-const categoryOrder = ["Market feeds", "Screener & signals", "Watchlists & monitoring", "Data export & workflow", "Advanced / Coming Soon"] as const;
+const categoryOrder = ["Market feeds", "Screener & signals", "Watchlists & monitoring", "Data export & workflow", "Advanced workflows"] as const;
 
 const featureOrderByCategory: Record<string, Record<string, number>> = {
   "Market feeds": {
@@ -51,7 +51,7 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     screener_monitoring: 80,
     notification_digests: 90,
   },
-  "Advanced / Coming Soon": {
+  "Advanced workflows": {
     institutional_feed: 10,
     institutional_filters: 20,
     macro_positioning: 25,
@@ -67,7 +67,7 @@ function categoryFor(featureKey: string) {
   if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "ticker_confirmation", "leaderboards"].includes(featureKey)) return "Screener & signals";
   if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "event_calendar", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
-  return "Advanced / Coming Soon";
+  return "Advanced workflows";
 }
 
 function sortFeaturesForCategory(category: string, features: PlanConfigFeature[]) {

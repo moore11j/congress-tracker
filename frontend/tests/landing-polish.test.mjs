@@ -75,6 +75,7 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
   assert.match(legalShell, /if \(chrome === "embedded"\)/);
   assert.match(legalPageChrome, /publicLandingHosts\.has\(host\) \? "public" : "embedded"/);
+  assert.match(legalPageChrome, /new Set\(\["walnutmarkets\.com"\]\)/);
   assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
   assert.match(faqPage, /chrome=\{chrome\}/);
   assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
@@ -82,8 +83,10 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(middleware, /const isMarketingStaticPage = publicStaticPaths\.has\(pathname\) && publicLandingHosts\.has\(host\)/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
+  assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
+  assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
-  assert.match(middleware, /matcher: \["\/", "\/robots\.txt", "\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq", "\/ticker\/:path\*", "\/insider\/:path\*"/);
+  assert.match(middleware, /matcher: \["\/\(\(\?!_next\/static\|_next\/image\|favicon\.ico\|apple-icon\.png\|icon\.png\)\.\*\)"\]/);
   assert.match(faqPage, /title: "Frequently Asked Questions \| Walnut Markets"/);
   assert.match(faqPage, /Answers about data sources, disclosures, billing, privacy, and how Walnut Market Terminal works\./);
   assert.match(faqPage, /Data & Disclosures/);
@@ -100,7 +103,7 @@ test("terminal app routes log request intent and bypass anonymous bot prefetch S
   assert.match(middleware, /referer: safeRefererPath\(referer, request\)/);
   assert.match(middleware, /user_agent: userAgent\.slice\(0, 180\)/);
   assert.match(middleware, /authenticated: hasBackendSession \|\| hasAuthHint/);
-  assert.match(middleware, /isTerminalRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicTickerRoute\(pathname\) && !hasBackendSession && !hasAuthHint && \(prefetch \|\| bot \|\| !isInteractiveBrowserUserAgent\(userAgent\)\)/);
   assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : bot \? "bot" : "inactive"\)/);
   assert.match(middleware, /reason === "prefetch"\s+\?\s+null/);
   assert.match(middleware, /"x-walnut-terminal-shell": reason/);

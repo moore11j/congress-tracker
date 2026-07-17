@@ -2,6 +2,7 @@
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
+import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/format";
 import { memberHref } from "@/lib/memberSlug";
 import { tickerHref } from "@/lib/ticker";
+import { formatCompanyName } from "@/lib/companyName";
 import { departmentHref } from "@/lib/departments";
 import { getInsiderDisplayName, insiderHref } from "@/lib/insider";
 import { insiderRoleBadgeTone, resolveInsiderRoleBadge } from "@/lib/insiderRole";
@@ -50,6 +52,7 @@ import {
 import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
+import { WALNUT_MARKETING_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -63,11 +66,8 @@ const SIGNAL_WINDOW_DAYS = 30;
 const ACTIVITY_PAGE_SIZE = 20;
 const ACTIVITY_FETCH_SIZE = ACTIVITY_PAGE_SIZE + 1;
 const GOVERNMENT_CONTRACTS_PAGE_SIZE = ACTIVITY_PAGE_SIZE;
-const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
-
-function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
-}
+const TICKER_METADATA_DESCRIPTION =
+  "Research public ticker context, Congress trades, insider activity, government contracts, technicals, fundamentals, and confirmation-stack signals in Walnut Markets.";
 
 function contextWindowLabel(days: number): string {
   return `${days} Day`;
@@ -233,6 +233,86 @@ function fallbackTickerProfile(symbol: string): TickerProfileResponse {
     why_now: null,
     signal_freshness: null,
     technical_indicators: null,
+  };
+}
+
+function normalizedTickerSymbolForRoute(symbol: string): string {
+  return symbol.trim().toUpperCase();
+}
+
+function canonicalTickerPathForSymbol(symbol: string): string {
+  return tickerHref(symbol) ?? `/ticker/${encodeURIComponent(symbol)}`;
+}
+
+function canonicalTickerUrlForSymbol(symbol: string): string {
+  return new URL(canonicalTickerPathForSymbol(symbol), WALNUT_MARKETING_URL).toString();
+}
+
+function publicTickerMetadataTitle(symbol: string, companyName?: string | null): string {
+  const cleanedCompanyName = formatCompanyName(companyName);
+  const hasDistinctName = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase();
+  return hasDistinctName
+    ? `${symbol} ${cleanedCompanyName} | Walnut Markets Ticker Intelligence`
+    : `${symbol} | Walnut Markets Ticker Intelligence`;
+}
+
+function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
+  const cleanedCompanyName = formatCompanyName(companyName);
+  const identity = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase()
+    ? `${cleanedCompanyName} (${symbol})`
+    : symbol;
+  return `${TICKER_METADATA_DESCRIPTION} Current page: ${identity}. Built for research, not investment advice.`;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { symbol } = await params;
+  const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
+  const canonicalUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
+  let companyName: string | null = null;
+
+  try {
+    const profile = await getTickerProfile(normalizedSymbol, { source: "TickerPublicMetadata" });
+    companyName = profile.ticker.name;
+  } catch {
+    companyName = null;
+  }
+
+  const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
+  const description = publicTickerMetadataDescription(normalizedSymbol, companyName);
+
+  return {
+    metadataBase: new URL(WALNUT_MARKETING_URL),
+    title,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      type: "website",
+      title,
+      description,
+      url: canonicalUrl,
+      siteName: "Walnut Markets",
+      images: [
+        {
+          url: WALNUT_SOCIAL_IMAGE_URL,
+          width: 1200,
+          height: 630,
+          alt: WALNUT_SOCIAL_IMAGE_ALT,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [
+        {
+          url: WALNUT_SOCIAL_IMAGE_URL,
+          alt: WALNUT_SOCIAL_IMAGE_ALT,
+        },
+      ],
+    },
   };
 }
 
@@ -3691,9 +3771,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const insiderPage = clampPage(one(sp, "insider_page"));
   const institutionalPage = clampPage(one(sp, "institutional_page"));
   const contractsPage = clampPage(one(sp, "contracts_page"));
-  const normalizedSymbol = symbol.trim().toUpperCase();
-  const canonicalTickerPath = tickerHref(normalizedSymbol) ?? `/ticker/${encodeURIComponent(normalizedSymbol)}`;
-  const canonicalTickerUrl = new URL(canonicalTickerPath, getSiteUrl()).toString();
+  const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
+  const canonicalTickerUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
   const activityDetailsRequested = one(sp, "activity_details") === "1";
   const lookbackDays = Number(lookback);
   const authState = await optionalPageAuthState();

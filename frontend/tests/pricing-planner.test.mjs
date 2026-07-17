@@ -93,8 +93,8 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
   }
 });
 
-test("advanced coming soon rows only include unavailable future surfaces", () => {
-  const advancedOrderStart = source.indexOf('"Advanced / Coming Soon": {');
+test("advanced workflow rows mark future options flow without hiding active institutional surfaces", () => {
+  const advancedOrderStart = source.indexOf('"Advanced workflows": {');
   const advancedOrderEnd = source.indexOf("},", advancedOrderStart);
   const advancedOrderSource = source.slice(advancedOrderStart, advancedOrderEnd);
   const advancedMarkers = ["institutional_feed:", "institutional_filters:", "macro_positioning:", "market_pressure:", "options_flow_feed:", "options_flow_filters:", "api_webhooks:"];
@@ -112,6 +112,7 @@ test("advanced coming soon rows only include unavailable future surfaces", () =>
   assert.match(source, /"premium_feed_metrics"[\s\S]*?return "Market feeds";/);
   assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
   assert.match(source, /if \(\["options_flow_feed", "options_flow_filters", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
+  assert.doesNotMatch(source, /institutional_feed"[\s\S]*?return "Coming soon"/);
 });
 
 test("advanced intelligence rows are Pro-only in frontend fallback config", () => {
@@ -128,6 +129,8 @@ test("advanced intelligence rows are Pro-only in frontend fallback config", () =
     entitlementConfig.indexOf("export const proEntitlements"),
   );
   assert.doesNotMatch(premiumBlock, /"options_flow_feed"|"options_flow_filters"|"institutional_feed"|"institutional_filters"|"macro_positioning"|"market_pressure"/);
+  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?options_flow_feed:\s*0[\s\S]*?options_flow_filters:\s*0/);
+  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?options_flow_feed:\s*0[\s\S]*?options_flow_filters:\s*0/);
 });
 
 test("pricing actions render current plan states from fresh account entitlements", () => {

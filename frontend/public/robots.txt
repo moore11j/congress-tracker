@@ -5,8 +5,8 @@ Allow: /pricing
 Allow: /faq
 Allow: /terms
 Allow: /privacy
+Allow: /ticker/
 
-Disallow: /ticker/
 Disallow: /insider/
 Disallow: /member/
 Disallow: /institution/

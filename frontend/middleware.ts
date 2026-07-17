@@ -13,11 +13,13 @@ const API_BASE =
   process.env.API_BASE_URL ??
   process.env.API_BASE ??
   "https://congress-tracker-api.fly.dev";
-const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
+const canonicalMarketingHost = "walnutmarkets.com";
+const canonicalMarketingHosts = new Set([canonicalMarketingHost]);
+const legacyMarketingHosts = new Set(["walnut-intel.com", "www.walnut-intel.com", "www.walnutmarkets.com"]);
+const publicLandingHosts = new Set([canonicalMarketingHost]);
 const appHost = "app.walnutmarkets.com";
 const terminalRouteFamilies = ["ticker", "insider", "member", "institution"] as const;
 const robotsDisallowPaths = [
-  "/ticker/",
   "/insider/",
   "/member/",
   "/institution/",
@@ -58,6 +60,20 @@ function isTerminalRoute(pathname: string): boolean {
   return (terminalRouteFamilies as readonly string[]).some((family) => pathname === `/${family}` || pathname.startsWith(`/${family}/`));
 }
 
+function isPublicTickerRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase();
+  return normalized === "/ticker" || normalized.startsWith("/ticker/");
+}
+
+function isPublicMarketingAsset(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase();
+  return normalized === "/sitemap.xml"
+    || normalized.startsWith("/og/")
+    || normalized === "/walnut-intel-logo-mark.png"
+    || normalized === "/walnut-intel-logo-mark.svg"
+    || normalized === "/apple-touch-icon.png";
+}
+
 function isNoindexAppRoute(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return noindexAppRoutePrefixes.some((prefix) => {
@@ -74,7 +90,7 @@ function withNoindex(response: NextResponse): NextResponse {
 function robotsTxtResponse(host: string): NextResponse {
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const marketingAllow = publicLandingHosts.has(host)
-    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\n"
+    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /ticker/\n"
     : "\n";
   const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
   return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {
@@ -173,6 +189,14 @@ export async function middleware(request: NextRequest) {
   const family = routeFamily(pathname);
   const shouldNoindex = host === appHost && isNoindexAppRoute(pathname);
 
+  if (legacyMarketingHosts.has(host)) {
+    const canonicalUrl = request.nextUrl.clone();
+    canonicalUrl.protocol = "https:";
+    canonicalUrl.hostname = canonicalMarketingHost;
+    canonicalUrl.port = "";
+    return NextResponse.redirect(canonicalUrl, 301);
+  }
+
   if (pathname === "/robots.txt") {
     return robotsTxtResponse(host);
   }
@@ -215,6 +239,14 @@ export async function middleware(request: NextRequest) {
     });
   }
 
+  if (canonicalMarketingHosts.has(host) && isPublicMarketingAsset(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (canonicalMarketingHosts.has(host) && isPublicTickerRoute(pathname)) {
+    return NextResponse.next();
+  }
+
   if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !publicAccountPaths.has(pathname)) {
     const appUrl = request.nextUrl.clone();
     appUrl.protocol = "https:";
@@ -222,7 +254,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(appUrl, 307);
   }
 
-  if (isTerminalRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
+  if (isTerminalRoute(pathname) && !isPublicTickerRoute(pathname) && !hasBackendSession && !hasAuthHint && (prefetch || bot || !isInteractiveBrowserUserAgent(userAgent))) {
     return terminalShellResponse(pathname, host, prefetch ? "prefetch" : bot ? "bot" : "inactive");
   }
 
@@ -253,5 +285,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/robots.txt", "/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/ticker/:path*", "/insider/:path*", "/member/:path*", "/institution/:path*", "/admin/:path*", "/account/:path*", "/billing/:path*", "/feed", "/screener", "/backtesting", "/watchlists/:path*", "/monitoring/:path*", "/signals/:path*", "/leaderboards/:path*"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|apple-icon.png|icon.png).*)"],
 };

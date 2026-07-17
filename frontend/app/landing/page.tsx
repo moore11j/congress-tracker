@@ -89,8 +89,8 @@ const signalCards = [
   },
   {
     title: "Options Flow",
-    body: "Add premium options activity to the confirmation stack when flow supports or contradicts the setup.",
-    label: "Pro layer",
+    body: "Options activity will add another confirmation layer when flow supports or contradicts the setup.",
+    label: "Coming soon",
   },
   {
     title: "Macro Positioning",
@@ -125,11 +125,12 @@ const whyWalnut = [
 const availableNowColumns = [
   ["Congress trades", "Insider trades", "Ticker intelligence", "Signal scores"],
   ["Government contracts", "Watchlists", "Screener", "Member/insider performance"],
-  ["Institutional Activity", "Options Flow", "Macro Positioning"],
+  ["Institutional Activity", "Macro Positioning", "Market pressure"],
   ["Portfolio backtesting", "Congress leaderboards", "Earnings and event calendar overlays"],
 ] as const;
 
 const comingSoon = [
+  "Options Flow",
   "AI analyst briefs",
   "Social Sentiment",
   "API and webhooks",

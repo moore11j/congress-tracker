@@ -2,11 +2,11 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://walnutmarkets.com/</loc>
-    <lastmod>2026-06-13</lastmod>
+    <lastmod>2026-07-17</lastmod>
   </url>
   <url>
     <loc>https://walnutmarkets.com/pricing</loc>
-    <lastmod>2026-06-13</lastmod>
+    <lastmod>2026-07-17</lastmod>
   </url>
   <url>
     <loc>https://walnutmarkets.com/about</loc>
@@ -14,14 +14,38 @@
   </url>
   <url>
     <loc>https://walnutmarkets.com/faq</loc>
-    <lastmod>2026-06-13</lastmod>
+    <lastmod>2026-07-17</lastmod>
   </url>
   <url>
     <loc>https://walnutmarkets.com/terms</loc>
-    <lastmod>2026-06-13</lastmod>
+    <lastmod>2026-07-17</lastmod>
   </url>
   <url>
     <loc>https://walnutmarkets.com/privacy</loc>
-    <lastmod>2026-06-13</lastmod>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/NVDA</loc>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/AAPL</loc>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/MSFT</loc>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/TSLA</loc>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/PLTR</loc>
+    <lastmod>2026-07-17</lastmod>
+  </url>
+  <url>
+    <loc>https://walnutmarkets.com/ticker/LMT</loc>
+    <lastmod>2026-07-17</lastmod>
   </url>
 </urlset>

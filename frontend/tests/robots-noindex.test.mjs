@@ -8,7 +8,6 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 
 const disallowedRoutes = [
-  "/ticker/",
   "/insider/",
   "/member/",
   "/institution/",
@@ -22,7 +21,7 @@ const disallowedRoutes = [
   "/admin",
 ];
 
-test("app and marketing robots disallow terminal app routes", () => {
+test("app and marketing robots disallow private terminal app routes", () => {
   assert.match(middleware, /function robotsTxtResponse\(host: string\)/);
   assert.match(middleware, /pathname === "\/robots\.txt"/);
   assert.match(middleware, /publicLandingHosts\.has\(host\)/);
@@ -33,16 +32,19 @@ test("app and marketing robots disallow terminal app routes", () => {
   }
 });
 
-test("marketing robots keep marketing pages indexable", () => {
+test("marketing robots keep marketing and public ticker pages indexable", () => {
   assert.match(middleware, /Allow: \//);
   assert.match(middleware, /Allow: \/pricing/);
   assert.match(middleware, /Allow: \/faq/);
   assert.match(middleware, /Allow: \/terms/);
   assert.match(middleware, /Allow: \/privacy/);
+  assert.match(middleware, /Allow: \/ticker\//);
   assert.match(middleware, /Sitemap: https:\/\/walnutmarkets\.com\/sitemap\.xml/);
   assert.match(robots, /Allow: \/pricing/);
   assert.match(robots, /Allow: \/terms/);
   assert.match(robots, /Allow: \/privacy/);
+  assert.match(robots, /Allow: \/ticker\//);
+  assert.doesNotMatch(robots, /Disallow: \/ticker\//);
 });
 
 test("app terminal routes receive noindex without blocking real users", () => {
@@ -54,10 +56,20 @@ test("app terminal routes receive noindex without blocking real users", () => {
   assert.match(middleware, /if \(!protectedRoute \|\| hasBackendSession \|\| hasAuthHint\)/);
 });
 
-test("marketing pages are not accidentally noindexed and public ticker redirects remain", () => {
-  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+test("legacy marketing domains redirect permanently and public ticker pages remain crawlable", () => {
+  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+  assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
+  assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
+  assert.match(middleware, /canonicalUrl\.hostname = canonicalMarketingHost/);
+  assert.match(middleware, /canonicalUrl\.port = ""/);
+  assert.match(middleware, /matcher: \["\/\(\(\?!_next\/static\|_next\/image\|favicon\.ico\|apple-icon\.png\|icon\.png\)\.\*\)"\]/);
+  assert.match(middleware, /function isPublicTickerRoute\(pathname: string\): boolean/);
+  assert.match(middleware, /function isPublicMarketingAsset\(pathname: string\): boolean/);
+  assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
+  assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicTickerRoute\(pathname\)/);
   assert.match(middleware, /const shouldNoindex = host === appHost && isNoindexAppRoute\(pathname\)/);
   assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 307\)/);
+  assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicTickerRoute\(pathname\) && !hasBackendSession/);
 });

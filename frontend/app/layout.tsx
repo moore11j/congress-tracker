@@ -8,16 +8,15 @@ import { AppTopNav } from "@/components/AppTopNav";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { PageAnalyticsTracker } from "@/components/PageAnalyticsTracker";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
-import { WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
+import { WALNUT_MARKETING_DESCRIPTION, WALNUT_MARKETING_TITLE, WALNUT_MARKETING_URL } from "@/lib/marketingMetadata";
 import "./globals.css";
 
 const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
 
 export const metadata: Metadata = {
   metadataBase: new URL(WALNUT_MARKETING_URL),
-  title: "Walnut Market Terminal",
-  description:
-    "Walnut Intelligence Inc. operates Walnut Market Terminal for disclosure intelligence, market signals, and cross-source conviction for public-market investors.",
+  title: WALNUT_MARKETING_TITLE,
+  description: WALNUT_MARKETING_DESCRIPTION,
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",

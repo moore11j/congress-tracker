@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 
-const publicLandingHosts = new Set(["walnutmarkets.com", "www.walnutmarkets.com", "walnut-intel.com", "www.walnut-intel.com"]);
+const publicLandingHosts = new Set(["walnutmarkets.com"]);
 
 export async function legalPageChrome(): Promise<"public" | "embedded"> {
   const requestHeaders = await headers();
