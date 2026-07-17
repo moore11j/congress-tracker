@@ -15,20 +15,22 @@ Primary search language:
 - Government contracts
 - Fundamentals
 - Technicals
-- Signal stack
+- Confirmation score
+- Underlying data
 
 Secondary/contextual language:
 
-- Confirmation stack
 - Confirmation signals
 - Evidence trail
 - Market tells
 - Price/volume confirmation
 - Reported holdings/activity
+- Data sources
 
 Rules:
 
-- Lead with search phrases people already use; keep `confirmation stack` as supporting product language.
+- Lead with search phrases people already use; use `data`, `underlying data`, or `data sources` instead of `stack`.
+- Keep the distinction clear: `confirmation score` is Walnut's proprietary score; underlying data means price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, and other evidence.
 - Do not use `Confirmation-Stack Market Intelligence` as a homepage title, campaign headline, or primary hook.
 - Do not use stale positioning such as `Market Intelligence from Political Trades and Insider Activity`.
 - Use consistent X campaign language across post copy, card headlines, card chips, and visual briefs.

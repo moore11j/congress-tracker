@@ -119,11 +119,13 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
     [
         "Professional-grade market intelligence for sophisticated retail investors.",
         "Sharp market participant voice: useful, concrete, concise, and non-spammy.",
-        "Lead with ticker-specific evidence, then explain why we flagged it.",
+        "Lead with ticker-specific data, then explain why it matters.",
         "For X replies, mimic the strongest Walnut reply behavior: concise market judgment under high-reach posts.",
         "Prefer a one-line or two-line take that names the actual market tell instead of explaining the product.",
-        "Use phrases like market tell, signal stack, confirmation, accumulation, fundamentals, and technicals when the data supports them.",
-        "Do not say cross-check this on Walnut pages; state what we see, then provide the ticker link only when it adds useful context.",
+        "Use data, not stack, as the public-facing language: price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
+        "Keep the distinction clear: confirmation score is Walnut's proprietary score; underlying data is the evidence behind the situation.",
+        "Posting formula: assess the situation, identify the issues, analyze the data, then conclude.",
+        "Do not say cross-check this on Walnut pages; state what the data says, then provide the ticker link only when it adds useful context.",
         "Avoid generic one-word replies unless the prompt explicitly calls for a one-word answer.",
         "Use reported/disclosed/filed language for Congress, insider, and institutional data.",
         "No hype, guarantees, buy/sell/short instructions, or spammy CTA language.",
@@ -133,8 +135,9 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
 AI_GROWTH_SEO_KEYWORD_GUIDANCE = " ".join(
     [
         "Use search-led Walnut language consistently across AI Growth emails, X campaigns, X replies, Reddit drafts, and social cards.",
-        "Prioritize phrases people already search for: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, options flow, institutional activity, government contracts, fundamentals, technicals, and signal stack.",
-        "Use confirmation stack as supporting product language, not as the primary headline, title, or search hook.",
+        "Prioritize phrases people already search for: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, options flow, institutional activity, government contracts, fundamentals, technicals, confirmation score, and underlying data.",
+        "Use confirmation score only for Walnut's proprietary score; use underlying data for price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
+        "Do not use stack as public-facing campaign language when data, underlying data, or data sources is clearer.",
         "Avoid the headline phrase 'Confirmation-Stack Market Intelligence' and the stale phrase 'Market Intelligence from Political Trades and Insider Activity'.",
         "Prefer title and hook patterns like 'Congress Trades & Insider Activity Research', 'Congressional Stock Trades and Insider Signals', and 'Stock Research from Congress Trades, Insider Activity, and Market Signals'.",
         "For X campaigns, use the same keyword language naturally in the post, card headline, card chips, and visual_brief when relevant.",
@@ -328,7 +331,7 @@ REDDIT_RESEARCH_SECTIONS = [
     "TL;DR",
     "Why this name came up",
     "Company snapshot",
-    "Walnut disclosure stack",
+    "Walnut disclosure data",
     "Technical picture",
     "Fundamental picture",
     "Recent news / filings / press releases",
@@ -1893,7 +1896,7 @@ def _article_card_asset(candidate: AiMarketingArticleCandidate, scoring: dict[st
                 {"label": "Signal", "value": "Review"},
             ],
             "chips": [*(themes[:2]), "Article", "Signals"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com",
             "visual_emphasis": "mini chart",
             "source_label": str(candidate.site or "FMP / linked article"),
@@ -2052,12 +2055,12 @@ def _normalize_social_card_spec(
     if sentiment not in SOCIAL_CARD_SENTIMENTS:
         sentiment = "notable"
     headline = _truncate(str(raw.get("headline") or "").strip(), 120) or _fallback_social_card_headline(card_type, ticker)
-    subheadline = _truncate(str(raw.get("subheadline") or "").strip(), 180) or "A Walnut signal stack worth reviewing before the market narrative gets too clean."
+    subheadline = _truncate(str(raw.get("subheadline") or "").strip(), 180) or "Walnut data worth reviewing before the market narrative gets too clean."
     bullets = [_truncate(str(item or "").strip(), 110) or "" for item in _coerce_json_list(raw.get("bullets"))]
     bullets = [item for item in bullets if item][:5]
     if not bullets:
         bullets = _social_card_bullets_from_visual_brief(visual_brief) or [
-            "One signal is noise. A stack is intelligence.",
+            "One signal is noise. Data is intelligence.",
             "Watch price, disclosure, and confirmation data together.",
             "Human review required before posting.",
         ]
@@ -2087,9 +2090,9 @@ def _normalize_social_card_spec(
         "bullets": bullets[:5],
         "key_stats": key_stats[:4],
         "chips": chips[:5],
-        "cta": _truncate(str(raw.get("cta") or "Track the stack on Walnut").strip(), 80) or "Track the stack on Walnut",
+        "cta": _truncate(str(raw.get("cta") or "View the data on Walnut").strip(), 80) or "View the data on Walnut",
         "url": url,
-        "visual_emphasis": _truncate(str(raw.get("visual_emphasis") or "signal stack").strip(), 80) or "signal stack",
+        "visual_emphasis": _truncate(str(raw.get("visual_emphasis") or "underlying data").strip(), 80) or "underlying data",
         "source_label": _truncate(str(raw.get("source_label") or "Walnut intelligence").strip(), 48) or "Walnut intelligence",
         "tone": tone,
         "include_chart": bool(raw.get("include_chart", prefs.get("include_chart", True))),
@@ -2103,10 +2106,10 @@ def _fallback_social_card_headline(card_type: str, ticker: str) -> str:
     if card_type == "article_reactive":
         return f"{ticker or 'This headline'} needs a signal check"
     if card_type == "congress_insider_activity":
-        return f"{ticker or 'Disclosure'} activity just hit the stack"
+        return f"{ticker or 'Disclosure'} activity just hit the data"
     if card_type == "research_cover":
-        return f"{ticker or 'Market'} research stack"
-    return f"{ticker or 'Ticker'} signal stack is active"
+        return f"{ticker or 'Market'} research data"
+    return f"{ticker or 'Ticker'} data is active"
 
 
 def _default_social_card_chips(card_type: str) -> list[str]:
@@ -2255,7 +2258,7 @@ def _generated_thumbnail_prompt(*, card_spec: dict[str, Any], suggested_post: st
         "Create a polished 16:9 finance-media thumbnail for Walnut Markets, in the same quality tier as a premium ChatGPT-generated market visual. "
         "Style: cinematic dark navy/black studio background, teal/emerald glow, realistic 3D product-render lighting, high contrast, crisp depth of field, premium fintech editorial look. "
         f"Core idea: {visual}. Context: {context}. "
-        "Composition: left third has a clean Walnut Markets lockup and generous negative space; right two-thirds has one large striking visual metaphor tied to the market story, such as a chip stack, filings stack, bank tower, trading terminal glow, disclosure folder, or market infrastructure object. "
+        "Composition: left third has a clean Walnut Markets lockup and generous negative space; right two-thirds has one large striking visual metaphor tied to the market story, such as a semiconductor package, filing archive, bank tower, trading terminal glow, disclosure folder, or market infrastructure object. "
         f"Text to render, if any: 'Walnut Markets' and '{ticker_text}'. Optional tiny source line: 'Source: {source}'. "
         f"Use this headline only for art direction, not as a paragraph: '{headline}'. "
         "Avoid: dashboard cards, evidence panels, bullet lists, tiny text, clipped text, charts as the main design, crowded UI, generic stock photos, watermarks, fake news branding, fake official company logos, and imitation third-party trademarks. "
@@ -2271,14 +2274,14 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "ticker": "NVDA",
             "tickers": ["NVDA"],
             "sentiment": "bullish",
-            "headline": "NVDA's signal stack is still leading",
+            "headline": "NVDA's data is still leading",
             "subheadline": "The tell is not one data point. It is confirmation across price, filings, and disclosure context.",
-            "bullets": ["Price/volume remains the first confirmation layer.", "Disclosure and filing context keep the move on watch.", "We are watching whether the stack broadens or fades."],
+            "bullets": ["Price/volume remains the first confirmation layer.", "Disclosure and filing context keep the move on watch.", "We are watching whether the data broadens or fades."],
             "key_stats": [{"label": "Confirm", "value": "82/100"}, {"label": "RSI", "value": "Active"}, {"label": "Flow", "value": "Watch"}],
             "chips": ["Signals", "Price/Volume", "Filings"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/NVDA",
-            "visual_emphasis": "confirmation stack",
+            "visual_emphasis": "confirmation score and underlying data",
             "source_label": "Demo signal",
             "tone": "sharp",
             "include_chart": True,
@@ -2293,11 +2296,11 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "tickers": ["SPY"],
             "sentiment": "bullish",
             "headline": "SPY breadth needs confirmation, not vibes",
-            "subheadline": "A bullish read gets stronger when macro, price, and source-stack context move together.",
+            "subheadline": "A bullish read gets stronger when macro, price, and underlying data move together.",
             "bullets": ["Confirmation score is the first read, not the final answer.", "Price and macro context should validate the move.", "Watch whether the signal survives the next risk window."],
             "key_stats": [{"label": "Confirm", "value": "76/100"}, {"label": "Mode", "value": "Bullish"}, {"label": "Stack", "value": "3 layers"}],
             "chips": ["Macro", "Signals", "Confirmation"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/SPY",
             "visual_emphasis": "bullish confirmation",
             "source_label": "Demo confirmation",
@@ -2314,13 +2317,13 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "tickers": ["IBM"],
             "sentiment": "bearish",
             "headline": "IBM's AI story just got a harder read",
-            "subheadline": "The market is repricing where AI spend concentrates and which stacks can defend demand.",
+            "subheadline": "The market is repricing where AI spend concentrates and which data points can defend demand.",
             "bullets": ["Software and infrastructure durability need validation.", "AI capex can grow while spend concentrates elsewhere.", "Watch institutional and confirmation data for follow-through."],
             "key_stats": [{"label": "Move", "value": "Down"}, {"label": "Signal", "value": "Watch"}],
             "chips": ["Article", "Financials", "Institutional"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/IBM",
-            "visual_emphasis": "reaction stack",
+            "visual_emphasis": "reaction data",
             "source_label": "Demo article",
             "tone": "sharp",
             "include_chart": True,
@@ -2335,13 +2338,13 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "tickers": ["NBIS"],
             "sentiment": "active",
             "headline": "AI infrastructure is turning into a capacity trade",
-            "subheadline": "Nebius-style compute headlines need a demand, margin, and funding stack before the story is clean.",
+            "subheadline": "Nebius-style compute headlines need demand, margin, and funding data before the story is clean.",
             "bullets": ["Compute deals can be catalysts and capital-intensity warnings.", "Contract quality matters more than headline size.", "Price/volume tells whether the market believes the ramp."],
             "key_stats": [{"label": "Theme", "value": "AI infra"}, {"label": "Mode", "value": "Active"}],
             "chips": ["AI Infra", "Contracts", "Why now"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/NBIS",
-            "visual_emphasis": "capacity stack",
+            "visual_emphasis": "capacity data",
             "source_label": "Demo article",
             "tone": "market-native",
             "include_chart": True,
@@ -2360,7 +2363,7 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "bullets": ["Reported activity needs trade date and disclosure date together.", "Filing lag changes how fresh the signal really is.", "Ticker confirmation decides whether it matters now."],
             "key_stats": [{"label": "Type", "value": "Buy"}, {"label": "Lag", "value": "Review"}],
             "chips": ["Congress", "Disclosure", "Why it matters"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/feed?event_type=congress_trade",
             "visual_emphasis": "disclosure timeline",
             "source_label": "Demo disclosure",
@@ -2381,9 +2384,9 @@ def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
             "bullets": ["Role and transaction type change the interpretation.", "Reported date is not the same thing as market confirmation.", "Watch whether price/volume validates the disclosure."],
             "key_stats": [{"label": "Type", "value": "Sell"}, {"label": "Signal", "value": "Context"}],
             "chips": ["Insider", "Form 4", "Signals"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/feed?event_type=insider_trade",
-            "visual_emphasis": "activity stack",
+            "visual_emphasis": "activity data",
             "source_label": "Demo insider",
             "tone": "educational",
             "include_chart": True,
@@ -2403,13 +2406,13 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
     stats = [item for item in spec.get("key_stats", []) if isinstance(item, dict)][:3]
     bullets = [str(item) for item in spec.get("bullets", []) if str(item).strip()][:3]
     source_label = str(spec.get("source_label") or "Walnut intelligence")
-    cta = str(spec.get("cta") or "Track the stack on Walnut")
+    cta = str(spec.get("cta") or "View the data on Walnut")
     url = str(spec.get("url") or DEFAULT_DESTINATION_URL)
     include_chart = bool(spec.get("include_chart", True))
     include_cta = bool(spec.get("include_cta", True))
     include_source_tag = bool(spec.get("include_source_tag", True))
     include_url = bool(spec.get("include_walnut_url", True))
-    visual_label = str(spec.get("visual_emphasis") or "signal stack")
+    visual_label = str(spec.get("visual_emphasis") or "underlying data")
     headline_lines = _svg_line_tspans(spec.get("headline"), max_chars=23 if card_type == "research_cover" else 24, max_lines=3, x=92, y=274, font_size=52, line_height=59)
     subheadline_lines = _svg_line_tspans(spec.get("subheadline"), max_chars=47, max_lines=2, x=94, y=485, font_size=25, line_height=34, fill="#b8cbd0", weight="600")
     bullet_markup = _social_card_bullet_markup(bullets, x=102, y=600, max_chars=43)
@@ -2431,7 +2434,7 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
     if include_cta:
         cta_markup = (
             f"<rect x=\"72\" y=\"770\" width=\"1456\" height=\"74\" rx=\"18\" fill=\"#071e21\" stroke=\"{accent}\" stroke-width=\"2\" opacity=\"0.96\"/>"
-            f"<text x=\"104\" y=\"817\" fill=\"#f8fafc\" font-size=\"29\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(cta, 40) or 'Track the stack on Walnut')}</text>"
+            f"<text x=\"104\" y=\"817\" fill=\"#f8fafc\" font-size=\"29\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(cta, 40) or 'View the data on Walnut')}</text>"
             f"<text x=\"1102\" y=\"817\" fill=\"#8ff5c6\" font-size=\"23\" font-family=\"Arial\" font-weight=\"600\">{html.escape(_short_card_url(url) if include_url else 'walnutmarkets.com')}</text>"
         )
     footer = f"{card_type.replace('_', ' ').title()} / Walnut Markets"
@@ -2562,7 +2565,7 @@ def _social_card_stat_markup(stats: list[dict[str, Any]], *, x: int, y: int, acc
 def _social_card_chart_markup(stats: list[dict[str, Any]], *, x: int, y: int, accent: str, label: str) -> str:
     markup = [
         f"<rect x=\"{x}\" y=\"{y}\" width=\"354\" height=\"132\" rx=\"18\" fill=\"#08181c\" stroke=\"#1d3d43\" stroke-width=\"1\"/>",
-        f"<text x=\"{x + 22}\" y=\"{y + 34}\" fill=\"#f8fafc\" font-size=\"20\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(label, 25) or 'Signal stack')}</text>",
+        f"<text x=\"{x + 22}\" y=\"{y + 34}\" fill=\"#f8fafc\" font-size=\"20\" font-family=\"Arial\" font-weight=\"700\">{html.escape(_truncate(label, 25) or 'Data sources')}</text>",
     ]
     values = [_numeric_value_from_label(str(stat.get("value") or "")) for stat in stats[:4]]
     max_value = max([value for value in values if value is not None] or [100])
@@ -2574,7 +2577,7 @@ def _social_card_chart_markup(stats: list[dict[str, Any]], *, x: int, y: int, ac
         bar_y = y + 104 - height
         opacity = "0.95" if index < len(stats) else "0.28"
         markup.append(f"<rect x=\"{bar_x}\" y=\"{bar_y}\" width=\"32\" height=\"{height}\" rx=\"8\" fill=\"{accent}\" opacity=\"{opacity}\"/>")
-    markup.append(f"<text x=\"{x + 22}\" y=\"{y + 120}\" fill=\"#6e858a\" font-size=\"15\" font-family=\"Arial\">Signal stack</text>")
+    markup.append(f"<text x=\"{x + 22}\" y=\"{y + 120}\" fill=\"#6e858a\" font-size=\"15\" font-family=\"Arial\">Data sources</text>")
     return "".join(markup)
 
 
@@ -2671,7 +2674,7 @@ def _x_visual_brief_data_uri(
                 f"<text x=\"{min(1380, 450 + bar_width)}\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text}</text>"
             )
         else:
-            bucket_width = 650 if chart_type in {"bucket_breakdown", "signal_stack", "comparison_card"} else 520
+            bucket_width = 650 if chart_type in {"bucket_breakdown", "data_sources", "comparison_card"} else 520
             bar = (
                 f"<rect x=\"430\" y=\"{y - 28}\" width=\"{bucket_width}\" height=\"34\" rx=\"8\" fill=\"#1f6f55\" opacity=\"0.72\"/>"
                 f"<text x=\"452\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text or 'Review'}</text>"
@@ -3261,7 +3264,7 @@ def _trigger_line(trigger: dict[str, Any]) -> str:
             elif label:
                 stack_lines.append(label)
         if stack_lines:
-            parts.append(f"Source stack: {'; '.join(stack_lines)}")
+            parts.append(f"Underlying data: {'; '.join(stack_lines)}")
     if trigger.get("actor"):
         parts.append(f"Actor: {trigger['actor']}")
     if trigger.get("amount"):
@@ -6114,6 +6117,10 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "For monitor, explain what would make the thread worth replying to later. "
         "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
         "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
+        "Use this posting formula for article-reactive X: assess the situation, identify the issues, analyze the data, then conclude. "
+        "Use data, underlying data, or data sources as the public-facing language; do not use stack as shorthand in public X copy. "
+        "Keep this distinction clear: confirmation score is Walnut's proprietary score, while underlying data means price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, and other cited evidence. "
+        "Double-check numbers and dates against the provided context before using them; do not use stale figures, and say what freshness is missing when the context does not establish recency. "
         "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics while staying market-native and terse. "
         "Draft X posts like high-signal market tape: one factual hook, one sourced stat or event, and Walnut-native context only when it adds something concrete. "
         "Prefer this shape: '[Ticker/company/stat/event], per [source].' Add a second sentence only for Walnut signal context, a material caveat, or a data-backed why-it-matters line. "
@@ -6122,13 +6129,13 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "High-quality X output should pair concise analysis with a real Walnut-generated thumbnail: a premium finance-media visual, not a dashboard screenshot or generic chart card. "
         "For x_post and reddit_thread, fill social_card as compact art direction for a generated thumbnail, not final post copy and not a text-heavy layout. "
         "The social_card should describe one scroll-stopping finance-media visual idea with a short hook, source label, primary ticker, tone, and visual emphasis. Avoid bullets, evidence panels, cramped UI, charts as the main design, and long copy. "
-        "Use card_type='article_reactive' for news/article reactions, 'ticker_signal' for ticker confirmation or signal stacks, 'congress_insider_activity' for Congress or insider transactions, and 'research_cover' for Reddit/DD covers. "
+        "Use card_type='article_reactive' for news/article reactions, 'ticker_signal' for ticker confirmation or data-source views, 'congress_insider_activity' for Congress or insider transactions, and 'research_cover' for Reddit/DD covers. "
         "Keep thumbnail art direction simple enough for a 16:9 image: Walnut Markets lockup, ticker, one large visual metaphor, generous negative space, no generic hype, and no invented numbers. "
         "Respect opportunity.metadata.social_card_preferences for template, tone, chart, CTA, source tag, and Walnut URL inclusion. "
         "For x_post, always fill visual_brief with a chart-ready concept: title, chart_type, metric_label, 3-8 rows, and source_note. "
         "Only use numeric values when they are present in the provided context; otherwise use qualitative buckets and say what data is missing. "
-        "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the signal/data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
-        "For bullish/bearish confirmation X posts, use opportunity.metadata.walnut_context.source_stack when present. Name the active sources directly, especially Price / Volume, Institutional Activity, and Macro Positioning, and include the confirmation score when supplied. "
+        "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
+        "For bullish/bearish confirmation X posts, use opportunity.metadata.walnut_context.source_stack as underlying data when present. Name the active data sources directly, especially Price / Volume, Fundamentals, reported Institutional Activity, Congress/Insider Activity, Contracts, Technicals, and Macro Positioning, and include the confirmation score when supplied. "
         "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
         "Do not reuse article thumbnails; any image should be a Walnut-branded original generated thumbnail with source attribution. "
         f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and cashtags. "
@@ -6145,7 +6152,7 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "institutional reported activity, government contracts, watchlists, saved screens, and ticker metadata. "
         "Include concrete tickers and Walnut ticker links when available. "
         "If a section lacks enough evidence, say what is missing in missing_data_notes rather than inventing details. "
-        "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure stack, "
+        "A Reddit research thread must include: Title, TL;DR, Why this name came up, Company snapshot, Walnut disclosure data, "
         "Technical picture, Fundamental picture, Recent news / filings / press releases, Catalysts, Bull case, Bear case / risks, "
         "What would confirm the setup, What would weaken the setup, Bottom line, and Suggested Reddit disclosure. "
         "For reddit_thread, fill the dedicated structured fields and full_reddit_post_markdown; include source_notes, missing_data_notes, "
@@ -6205,7 +6212,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "chart_type": {"type": "string", "enum": ["ranked_bars", "bucket_breakdown", "signal_stack", "comparison_card"]},
+                    "chart_type": {"type": "string", "enum": ["ranked_bars", "bucket_breakdown", "data_sources", "comparison_card"]},
                     "metric_label": {"type": "string"},
                     "rows": {
                         "type": "array",
@@ -6655,7 +6662,7 @@ def _build_reddit_research_markdown(*, tldr_bullets: list[str], **sections: str)
     section_map = [
         ("Why this name came up", "why_selected"),
         ("Company snapshot", "company_snapshot"),
-        ("Walnut disclosure stack", "walnut_disclosure_stack"),
+        ("Walnut disclosure data", "walnut_disclosure_stack"),
         ("Technical picture", "technical_picture"),
         ("Fundamental picture", "fundamental_picture"),
         ("Recent news / filings / press releases", "recent_news_and_filings"),

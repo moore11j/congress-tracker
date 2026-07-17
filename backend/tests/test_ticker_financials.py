@@ -305,6 +305,70 @@ def test_ticker_financials_normalizes_statement_earnings_and_summary(monkeypatch
     assert response["forecasts"]["nextFiscalYear"]["epsHigh"] == 7.1
 
 
+def test_ticker_financials_uses_statement_eps_when_earnings_feed_is_stale(monkeypatch):
+    clear_financials_cache()
+    monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)
+
+    def fake_get(url, params=None, timeout=30):
+        assert params["symbol"] == "MU"
+        if url.endswith("/stable/income-statement") and params["period"] == "annual":
+            return _FakeResponse(
+                200,
+                [
+                    {
+                        "date": "2025-08-28",
+                        "calendarYear": "2025",
+                        "period": "FY",
+                        "revenue": 37_380_000_000,
+                        "netIncome": 8_500_000_000,
+                        "eps": 7.42,
+                        "companyName": "Micron Technology, Inc.",
+                    }
+                ],
+            )
+        if url.endswith("/stable/income-statement") and params["period"] == "quarter":
+            return _FakeResponse(
+                200,
+                [
+                    {"date": "2026-05-28", "calendarYear": "2026", "period": "Q3", "revenue": 12_600_000_000, "netIncome": 2_870_000_000, "eps": 2.59},
+                    {"date": "2026-02-26", "calendarYear": "2026", "period": "Q2", "revenue": 8_050_000_000, "netIncome": 1_640_000_000, "eps": 1.56},
+                    {"date": "2025-11-27", "calendarYear": "2026", "period": "Q1", "revenue": 7_650_000_000, "netIncome": 1_620_000_000, "eps": 1.48},
+                    {"date": "2025-08-28", "calendarYear": "2025", "period": "Q4", "revenue": 11_300_000_000, "netIncome": 2_700_000_000, "eps": 2.42},
+                ],
+            )
+        if url.endswith("/stable/earnings"):
+            return _FakeResponse(
+                200,
+                [
+                    {"date": "2023-06-28", "period": "Q2", "fiscalYear": "2023", "epsActual": -1.43, "epsEstimate": -1.60},
+                ],
+            )
+        if url.endswith("/stable/earnings-calendar"):
+            return _FakeResponse(
+                200,
+                [
+                    {"date": "2026-06-25", "period": "Q3", "fiscalYear": "2026", "epsEstimated": 2.47},
+                ],
+            )
+        if url.endswith("/stable/analyst-estimates"):
+            return _FakeResponse(200, [])
+        if url.endswith("/stable/historical-price-eod/light"):
+            return _FakeResponse(200, [{"date": "2026-06-30", "close": 130.0}])
+        return _FakeResponse(200, [])
+
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.ticker_financials.requests.get", fake_get)
+
+    response = ticker_financials("MU")
+
+    assert response["summary"]["latestQuarter"] == "Q3 2026"
+    assert response["earnings"][-1]["period"] == "Q3 2026"
+    assert response["earnings"][-1]["date"] == "2026-05-28"
+    assert response["earnings"][-1]["epsActual"] == 2.59
+    assert response["earnings"][-1]["epsEstimate"] == 2.47
+    assert response["earnings"][-1]["result"] == "beat"
+
+
 def test_ticker_financials_estimates_402_returns_partial_statements_and_caches(monkeypatch):
     clear_financials_cache()
     monkeypatch.setattr(financials_module, "_quote_cache_price", lambda _symbol: None)

@@ -483,8 +483,48 @@ def _normalize_result(actual: float | None, estimate: float | None, surprise: fl
     return "beat" if delta > 0 else "miss"
 
 
-def _normalize_earnings(rows: list[dict[str, Any]], supplemental_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def _earnings_period_label(row: dict[str, Any], row_date: str | None) -> str | None:
+    period = _trimmed(row.get("period"))
+    if period and period.upper().startswith("Q") and len(period.split()) == 2:
+        return period
+    return _quarter_label(row, row_date) or row_date
+
+
+def _normalize_earnings(
+    rows: list[dict[str, Any]],
+    supplemental_rows: list[dict[str, Any]] | None = None,
+    statement_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
+    by_period: dict[str, dict[str, Any]] = {}
+
+    def index_item(item: dict[str, Any]) -> None:
+        period = _trimmed(item.get("period"))
+        if period:
+            by_period[period] = item
+
+    def item_for(row: dict[str, Any], row_date: str | None) -> dict[str, Any] | None:
+        period = _earnings_period_label(row, row_date)
+        item = merged.get(row_date or "") or by_period.get(period or "")
+        if item is not None:
+            index_item(item)
+            return item
+        key = row_date or period
+        if not key:
+            return None
+        item = {
+            "date": row_date,
+            "period": period or row_date,
+            "epsActual": None,
+            "epsEstimate": None,
+            "surprise": None,
+            "surprisePct": None,
+            "result": "unknown",
+        }
+        merged[key] = item
+        index_item(item)
+        return item
+
     for row in rows:
         row_date = _date_key(row)
         if not row_date:
@@ -493,32 +533,39 @@ def _normalize_earnings(rows: list[dict[str, Any]], supplemental_rows: list[dict
         estimate = _numeric(row, "epsEstimate", "epsEstimated", "estimatedEarning", "estimatedEPS", "estimatedEps", "estimate")
         surprise = _numeric(row, "surprise", "epsSurprise")
         surprise_pct = _numeric(row, "surprisePct", "surprisePercentage", "surprisePercent")
-        item = merged.setdefault(
-            row_date,
-            {
-                "date": row_date,
-                "period": _quarter_label(row, row_date) or row_date,
-                "epsActual": None,
-                "epsEstimate": None,
-                "surprise": None,
-                "surprisePct": None,
-                "result": "unknown",
-            },
-        )
+        item = item_for(row, row_date)
+        if item is None:
+            continue
         item["epsActual"] = item["epsActual"] if item["epsActual"] is not None else actual
         item["epsEstimate"] = item["epsEstimate"] if item["epsEstimate"] is not None else estimate
         item["surprise"] = item["surprise"] if item["surprise"] is not None else surprise
         item["surprisePct"] = item["surprisePct"] if item["surprisePct"] is not None else surprise_pct
+        index_item(item)
+
+    if rows or supplemental_rows:
+        for row in statement_rows or []:
+            row_date = _date_key(row)
+            actual = _numeric(row, "eps", "epsActual", "reportedEPS", "reportedEps")
+            if actual is None:
+                continue
+            item = item_for(row, row_date)
+            if item is None:
+                continue
+            item["epsActual"] = item["epsActual"] if item["epsActual"] is not None else actual
+            index_item(item)
 
     for row in supplemental_rows or []:
         row_date = _date_key(row)
-        if not row_date or row_date not in merged:
+        if not row_date:
             continue
-        item = merged[row_date]
+        item = merged.get(row_date) or by_period.get(_earnings_period_label(row, row_date) or "")
+        if item is None:
+            continue
         actual = _numeric(row, "epsActual", "actualEarningResult", "actual", "reportedEPS", "reportedEps", "eps")
-        estimate = _numeric(row, "epsEstimate", "epsEstimated", "estimatedEarning", "estimatedEPS", "estimatedEps", "estimate")
+        estimate = _numeric(row, *EPS_ESTIMATE_KEYS)
         item["epsActual"] = item["epsActual"] if item["epsActual"] is not None else actual
         item["epsEstimate"] = item["epsEstimate"] if item["epsEstimate"] is not None else estimate
+        index_item(item)
 
     items = list(merged.values())
     for item in items:
@@ -1183,7 +1230,7 @@ def get_ticker_financials(symbol: str) -> dict[str, Any]:
     ]
     annual = _latest_rows(annual, 5)
     quarterly = _latest_rows(quarterly, 8)
-    earnings = _normalize_earnings(earnings_rows, earnings_calendar_rows)
+    earnings = _normalize_earnings(earnings_rows, earnings_calendar_rows + quarterly_estimates, quarterly)
     forecasts = {
         "nextQuarter": _next_estimate(quarterly_estimates, period_type="quarterly"),
         "nextFiscalYear": _next_estimate(annual_estimates, period_type="annual"),

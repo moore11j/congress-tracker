@@ -143,7 +143,7 @@ def _growth_openai_payload(**overrides):
         "suggested_post": "I am building Walnut, so bias disclosed: NVDA has a cleaner read when reported Congress activity is checked against price/volume and filings context.",
         "suggested_ad_variants": [],
         "visual_brief": {
-            "title": "NVDA disclosure stack",
+            "title": "NVDA underlying data",
             "chart_type": "ranked_bars",
             "metric_label": "Confirmation strength",
             "rows": [
@@ -160,10 +160,10 @@ def _growth_openai_payload(**overrides):
             "ticker": "NVDA",
             "tickers": ["NVDA"],
             "sentiment": "bullish",
-            "headline": "NVDA signal stack is active",
+            "headline": "NVDA data is active",
             "subheadline": "Price, filings, and disclosed activity are cleaner together than alone.",
             "bullets": [
-                "Price and volume confirmation leads the stack.",
+                "Price and volume confirmation leads the data.",
                 "Filings context adds the evidence layer.",
                 "Disclosed activity needs human review before posting.",
             ],
@@ -172,9 +172,9 @@ def _growth_openai_payload(**overrides):
                 {"label": "Signal", "value": "Bullish"},
             ],
             "chips": ["Signals", "Filings", "Disclosures"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/NVDA",
-            "visual_emphasis": "confirmation stack",
+            "visual_emphasis": "confirmation score and underlying data",
             "source_label": "Walnut context",
             "tone": "market-native",
             "include_chart": True,
@@ -197,21 +197,21 @@ def _growth_openai_payload(**overrides):
 
 
 def _reddit_dd_payload(**overrides):
-    markdown = """# $NVDA DD: reported disclosure stack plus technical and fundamental context
+    markdown = """# $NVDA DD: reported disclosure data plus technical and fundamental context
 
 ## TL;DR
-- NVDA surfaced because Walnut reported/disclosed signal context showed cross-source activity worth reviewing.
+- NVDA surfaced because Walnut reported/disclosed data showed cross-source activity worth reviewing.
 - The setup has constructive fundamentals, but valuation and execution risk matter.
 - 13F institutional context reflects quarter-end reported holdings and filing date context, not live buying.
 - This is research, not investment advice.
 
 ## Why this name came up
-NVDA came up from a saved screen combining reported Congress activity, insider filings, institutional reported holdings/activity, and confirmation signals. It was selected today because the disclosure stack had fresh filing-date context and the technical picture was still constructive.
+NVDA came up from a saved screen combining reported Congress activity, insider filings, institutional reported holdings/activity, and confirmation signals. It was selected today because the disclosure data had fresh filing-date context and the technical picture was still constructive.
 
 ## Company snapshot
 NVIDIA designs accelerated computing hardware and software for data centers, gaming, visualization, and automotive markets. The business model is tied to GPU/platform sales and ecosystem software, with market cap and exact valuation requiring live verification.
 
-## Walnut disclosure stack
+## Walnut disclosure data
 Congress activity is described as reported/disclosed activity with filing dates. Insider activity is based on filed Form 4 context. Institutional activity is reported holdings/activity from 13F filings, reflecting quarter-end holdings and filing date context rather than live trades. Government contracts and options flow should be verified where available.
 
 ## Technical picture
@@ -233,13 +233,13 @@ The strongest constructive argument is that reported/disclosed activity and fund
 Risks include valuation risk, execution risk, earnings risk, technical breakdown risk, liquidity/debt surprises, macro/sector risk, and disclosure interpretation risk.
 
 ## What would confirm the setup
-Confirmation would include continued revenue and margin execution, clean earnings commentary, resilient moving-average support, volume confirmation, and fresh reported/disclosed activity across the stack.
+Confirmation would include continued revenue and margin execution, clean earnings commentary, resilient moving-average support, volume confirmation, and fresh reported/disclosed activity across the data sources.
 
 ## What would weaken the setup
 Weakening signals would include earnings misses, margin pressure, technical breakdown below key levels, stale disclosure data, or 13F/institutional activity being misread as live trading.
 
 ## Bottom line
-NVDA is worth watching because multiple reported/disclosed data streams can be cross-checked against technical and fundamental context. This is not investment advice or a buy/sell recommendation.
+NVDA is worth watching because multiple reported/disclosed data streams can be assessed against technical and fundamental context. This is not investment advice or a buy/sell recommendation.
 
 ## Suggested Reddit disclosure
 I'm building Walnut Markets, a market intelligence terminal that tracks public disclosures, ticker context, and signal confirmation. Sharing this as research, not investment advice."""
@@ -254,7 +254,7 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
             "ticker": "NVDA",
             "tickers": ["NVDA"],
             "sentiment": "notable",
-            "headline": "$NVDA DD: disclosure stack plus confirmation",
+            "headline": "$NVDA DD: disclosure data plus confirmation",
             "subheadline": "A research cover for technicals, fundamentals, catalysts, alternative data, and risks.",
             "bullets": [
                 "Technical picture needs confirmation.",
@@ -266,7 +266,7 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
                 {"label": "Risk", "value": "Balanced"},
             ],
             "chips": ["Research", "DD", "Evidence"],
-            "cta": "Track the stack on Walnut",
+            "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com/ticker/NVDA",
             "visual_emphasis": "research pillars",
             "source_label": "Walnut DD",
@@ -276,7 +276,7 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
             "include_source_tag": True,
             "include_walnut_url": True,
         },
-        title="$NVDA DD: reported disclosure stack plus technical and fundamental context",
+        title="$NVDA DD: reported disclosure data plus technical and fundamental context",
         tldr_bullets=[
             "NVDA surfaced from reported/disclosed cross-source activity.",
             "The thesis needs technical, fundamental, catalyst, and risk confirmation.",
@@ -293,10 +293,10 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
         bear_case_and_risks="Valuation, execution, earnings, technical breakdown, macro/sector, and disclosure interpretation risks.",
         what_would_confirm="Revenue/margin execution, volume confirmation, resilient moving averages, and fresh reported/disclosed activity.",
         what_would_weaken="Earnings miss, margin pressure, technical breakdown, stale data, or 13F data misread as live trades.",
-        bottom_line="Worth watching, not investment advice, because disclosure stack signals can be cross-checked against fundamentals and technicals.",
+        bottom_line="Worth watching, not investment advice, because disclosure data can be assessed against fundamentals and technicals.",
         reddit_disclosure="I'm building Walnut Markets, a market intelligence terminal that tracks public disclosures, ticker context, and signal confirmation. Sharing this as research, not investment advice.",
         full_reddit_post_markdown=markdown,
-        source_notes=["Internal Walnut disclosure stack and public market context."],
+        source_notes=["Internal Walnut disclosure data and public market context."],
         missing_data_notes=["Market cap, live technical levels, and latest filings should be verified before posting."],
         quality_scores={
             "research_depth_score": 88,
@@ -308,19 +308,19 @@ I'm building Walnut Markets, a market intelligence terminal that tracks public d
             "compliance_risk_score": 14,
         },
         suggested_image_asset={
-            "title": "NVDA disclosure stack card",
+            "title": "NVDA disclosure data card",
             "asset_type": "image",
             "url": "https://walnutmarkets.com/admin/assets/nvda-dd.png",
             "thumbnail_url": "https://walnutmarkets.com/admin/assets/nvda-dd-thumb.png",
             "suggested_caption": "Reported disclosures plus technical/fundamental context.",
-            "source_data_notes": "Walnut disclosure stack snapshot.",
+            "source_data_notes": "Walnut disclosure data snapshot.",
         },
         suggested_flair="DD",
         suggested_subreddits=["stocks", "SecurityAnalysis"],
         suggested_post=markdown,
-        title_options=["$NVDA DD: reported disclosure stack plus technical and fundamental context"],
+        title_options=["$NVDA DD: reported disclosure data plus technical and fundamental context"],
         disclosure_text="I'm building Walnut Markets. Sharing this as research, not investment advice.",
-        short_reason="Comprehensive Reddit DD draft with disclosure-stack, technical, fundamental, catalyst, and risk context.",
+        short_reason="Comprehensive Reddit DD draft with disclosure data, technical, fundamental, catalyst, and risk context.",
     )
     payload.update(overrides)
     return payload
@@ -414,7 +414,7 @@ def test_scheduled_x_campaign_lifecycle_run_email_and_delete(monkeypatch):
             campaign_type="scheduled_x_campaign",
             content_type="x_post",
             platform="x",
-            suggested_post="Daily watchlist opportunity: NVDA has a cleaner signal stack today. Cross-check price, filings, and disclosure context in Walnut. $NVDA #Markets",
+            suggested_post="Daily watchlist opportunity: NVDA has cleaner underlying data today. Price, filings, and disclosure context are active. $NVDA #Markets",
         ),
     )
     sent = []
@@ -1708,7 +1708,7 @@ def test_social_card_renderer_keeps_story_and_evidence_zones_separate():
             "tickers": ["SPCX", "NBIS"],
             "sentiment": "bearish",
             "headline": "Bearish confirmation is cleaner in $SPCX than $NBIS",
-            "subheadline": "One name has a tight bearish stack. The other is mixed: weak tape, but reported accumulation and fundamental context.",
+            "subheadline": "One name has tight bearish data. The other is mixed: weak tape, but reported accumulation and fundamental context.",
             "bullets": [
                 "$SPCX: 76/100 confirmation score",
                 "$NBIS: 59/100, mixed stack",
@@ -1720,9 +1720,9 @@ def test_social_card_renderer_keeps_story_and_evidence_zones_separate():
                 {"label": "NBIS 13F", "value": "Reported accumulation"},
             ],
             "chips": ["Price / Volume", "Macro Positioning", "Institutional Activity", "Insiders"],
-            "cta": "View the signal stack",
+            "cta": "View the underlying data",
             "url": "https://walnutmarkets.com/ticker/SPCX",
-            "visual_emphasis": "Split-screen comparison of a clean bearish stack",
+            "visual_emphasis": "Split-screen comparison of clean bearish data",
             "source_label": "Walnut confirmation monitoring",
             "tone": "market-native",
             "include_chart": True,
@@ -1779,7 +1779,7 @@ def test_generated_thumbnail_asset_uses_image_model_when_enabled(monkeypatch):
             "card_type": "ticker_signal",
             "ticker": "JPM",
             "headline": "JPM leads the institutional accumulation stack",
-            "visual_emphasis": "large glowing bank filings stack",
+            "visual_emphasis": "large glowing bank filing archive",
             "source_label": "Reported 13F filings",
         },
         suggested_post="$JPM reported 13F activity shows broad holder increases, per filings.",
@@ -1963,7 +1963,7 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
         assert schema["properties"]["visual_brief"]["properties"]["chart_type"]["enum"] == [
             "ranked_bars",
             "bucket_breakdown",
-            "signal_stack",
+            "data_sources",
             "comparison_card",
         ]
         assert schema["properties"]["suggested_post"]["maxLength"] == X_POST_CHARACTER_LIMIT
@@ -2024,7 +2024,7 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
         )
 
         generated = result["opportunity"]["generated_content"]
-        assert "## Walnut disclosure stack" in generated
+        assert "## Walnut disclosure data" in generated
         assert "## Technical picture" in generated
         assert "## Fundamental picture" in generated
         assert "## Catalysts" in generated
@@ -2038,7 +2038,7 @@ def test_reddit_research_thread_discloses_walnut_affiliation(monkeypatch):
         assert result["opportunity"]["status"] == "new"
         assert result["opportunity"]["full_markdown"] == generated
         assert result["opportunity"]["assets"][0]["template"] != "research_cover"
-        assert any(asset["title"] == "NVDA disclosure stack card" for asset in result["opportunity"]["assets"])
+        assert any(asset["title"] == "NVDA disclosure data card" for asset in result["opportunity"]["assets"])
     finally:
         db.close()
 
@@ -2359,7 +2359,7 @@ def test_email_approve_posts_multi_symbol_x_draft_with_one_api_cashtag(monkeypat
     db = _session()
     try:
         admin = _user(db, "admin-email-multi-symbol@example.com", role="admin")
-        post_text = "$TSM $NVDA $AMD confirmation stack is bearish across price, volume, and macro pressure."
+        post_text = "$TSM $NVDA $AMD confirmation score is bearish across price, volume, and macro pressure data."
         result = admin_ai_growth_create_draft(
             GrowthDraftPayload(
                 campaign_type="x_chart_drop",
@@ -2386,7 +2386,7 @@ def test_email_approve_posts_multi_symbol_x_draft_with_one_api_cashtag(monkeypat
         assert response.status_code == 200
         assert "Posted to X" in body
         assert captured["url"] == "https://api.x.com/2/tweets"
-        assert captured["json"]["text"] == "$TSM NVDA AMD confirmation stack is bearish across price, volume, and macro pressure."
+        assert captured["json"]["text"] == "$TSM NVDA AMD confirmation score is bearish across price, volume, and macro pressure data."
         assert opportunity.status == "posted"
     finally:
         db.close()
