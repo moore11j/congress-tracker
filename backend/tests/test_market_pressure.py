@@ -250,6 +250,55 @@ def test_market_pressure_fetches_live_market_cap_for_complete_one_day_price(db, 
     assert tiles["MSFT"]["priceChangePct"] == 3.9604
 
 
+def test_market_pressure_repairs_implausibly_low_important_market_cap(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["NVDA"])
+    _seed_price(db, "NVDA", start_close=100, end_close=105)
+    fetched_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    db.add(
+        FundamentalsCache(
+            symbol="NVDA",
+            provider="fixture",
+            fetched_at=fetched_at,
+            status="ok",
+            company_name="Nvidia Corp",
+            sector="Technology",
+            exchange="NASDAQ",
+            market_cap=4_000_000,
+        )
+    )
+    db.commit()
+    monkeypatch.setenv("MARKET_PRESSURE_LIVE_PRICE_LIMIT", "1")
+    requested_symbols: list[str] = []
+
+    def fixture_quotes(_db, symbols, **kwargs):
+        requested_symbols.extend(symbols)
+        assert kwargs["lane"] == "market_pressure_quote"
+        return {
+            "NVDA": {
+                "change_percent": -2.2,
+                "market_cap": 4_200_000_000_000,
+                "asof_ts": fetched_at,
+            }
+        }
+
+    monkeypatch.setattr(market_pressure, "get_current_prices_meta_db", fixture_quotes)
+
+    response = build_market_pressure_response(
+        db,
+        universe="watchlist",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    assert requested_symbols == ["NVDA"]
+    assert tiles["NVDA"]["marketCap"] == 4_200_000_000_000
+    assert response["audit"]["status"] == "ok"
+
+
 def test_market_pressure_classifies_complete_canonical_confirmation_and_divergence(db):
     user = _seed_watchlist(db, symbols=["HA", "FW", "AB", "AD", "MIX", "NEU", "MISS", "OLD"])
     _seed_price(db, "HA", start_close=100, end_close=98)
@@ -578,9 +627,12 @@ def test_market_pressure_audit_flags_cached_sp500_missing_important_symbols(db):
         confirmation_loader=lambda _db, symbols: {},
     )
 
+    tiles = _tiles_by_symbol(response)
+    assert "market_pressure_snapshot_rejected_by_audit" in response["warnings"]
+    assert "NVDA" in tiles
     assert response["audit"]["status"] == "fail"
-    assert "NVDA" in response["audit"]["importantMissingSymbols"]
-    assert "market_pressure_audit:important_missing:NVDA" in response["warnings"]
+    assert "NVDA" in response["audit"]["importantMissingMarketCapSymbols"]
+    assert any(warning.startswith("market_pressure_audit:important_market_cap_missing:") for warning in response["warnings"])
 
 
 def test_market_pressure_audit_flags_important_symbols_without_market_cap(db, monkeypatch):

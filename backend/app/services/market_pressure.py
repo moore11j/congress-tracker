@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -450,6 +451,19 @@ def _snapshot_response(
     sectors = _group_tiles_by_sector(tiles)
     summary = _summary_for_tiles(tiles, len(symbols))
     audit = _audit_market_pressure_map(params, symbols, tiles, warnings)
+    if audit["status"] == "fail":
+        warnings[:] = [warning for warning in warnings if not warning.startswith("market_pressure_audit:")]
+        warnings.append("market_pressure_snapshot_rejected_by_audit")
+        logger.warning(
+            "market_pressure_snapshot_rejected_by_audit universe=%s period=%s view=%s important_missing=%s important_market_cap_missing=%s important_market_cap_low=%s",
+            params.universe,
+            params.period,
+            params.view,
+            audit.get("importantMissingSymbols"),
+            audit.get("importantMissingMarketCapSymbols"),
+            audit.get("importantLowMarketCapSymbols"),
+        )
+        return None
     return {
         "universe": params.universe,
         "period": params.period,
@@ -673,7 +687,7 @@ def _load_price_performance(
         missing_cap = [
             symbol
             for symbol in symbols
-            if identities is not None and identities.get(symbol, Identity(symbol=symbol)).market_cap is None
+            if identities is not None and _market_cap_needs_live_refresh(symbol, identities.get(symbol, Identity(symbol=symbol)).market_cap)
         ]
         live_symbols = _prioritize_live_quote_symbols(list(dict.fromkeys([*missing_cap, *missing])))
         live_results = _load_live_one_day_price_fallback(db, live_symbols)
@@ -686,7 +700,7 @@ def _load_price_performance(
                     end_at=current.end_at,
                     as_of=current.as_of,
                     complete=current.complete,
-                    market_cap=current.market_cap or live_price.market_cap,
+                    market_cap=_best_market_cap(current.market_cap, live_price.market_cap),
                 )
                 continue
             results[symbol] = live_price
@@ -707,6 +721,19 @@ def _market_pressure_live_price_limit() -> int:
 def _prioritize_live_quote_symbols(symbols: list[str]) -> list[str]:
     priority = {symbol: index for index, symbol in enumerate(MARKET_PRESSURE_LIVE_QUOTE_PRIORITY)}
     return sorted(symbols, key=lambda symbol: (priority.get(symbol, len(priority)), symbol))
+
+
+def _best_market_cap(*values: float | None) -> float | None:
+    valid = [float(value) for value in values if value is not None and math.isfinite(float(value)) and value > 0]
+    return max(valid) if valid else None
+
+
+def _market_cap_needs_live_refresh(symbol: str, market_cap: float | None) -> bool:
+    parsed = _safe_float(market_cap)
+    if parsed is None or parsed <= 0:
+        return True
+    floor = MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS.get(symbol)
+    return floor is not None and parsed < floor
 
 
 def _load_live_one_day_price_fallback(db: Session, symbols: list[str]) -> dict[str, PricePerformance]:
@@ -810,7 +837,7 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             company_name=current.company_name or row.company_name,
             sector=current.sector or row.sector,
             exchange=current.exchange or row.exchange,
-            market_cap=_safe_float(row.market_cap) or current.market_cap,
+            market_cap=_best_market_cap(current.market_cap, _safe_float(row.market_cap)),
         )
     for row in db.execute(
         select(QuoteCache.symbol, QuoteCache.market_cap)
@@ -826,7 +853,7 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             company_name=current.company_name,
             sector=current.sector,
             exchange=current.exchange,
-            market_cap=current.market_cap or market_cap,
+            market_cap=_best_market_cap(current.market_cap, market_cap),
         )
     return identities
 
@@ -867,7 +894,7 @@ def _build_tile(
     divergence = _divergence(price.change_pct, direction, strength, directional_sources, stale)
     data_state = _data_state(price, direction, stale, layers)
     confirmation_as_of = _latest_iso([layer.get("asOf") for layer in layers.values() if isinstance(layer, dict)])
-    market_cap = identity.market_cap or price.market_cap
+    market_cap = _best_market_cap(identity.market_cap, price.market_cap)
     return {
         "symbol": symbol,
         "companyName": identity.company_name,
