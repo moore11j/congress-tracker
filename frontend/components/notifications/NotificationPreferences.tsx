@@ -89,7 +89,8 @@ export function NotificationPreferences({
 }: NotificationPreferencesProps) {
   const [email, setEmail] = useState("");
   const [onlyIfNew, setOnlyIfNew] = useState(true);
-  const [active, setActive] = useState(true);
+  const [dailyDigestEnabled, setDailyDigestEnabled] = useState(true);
+  const [intradayAlertsEnabled, setIntradayAlertsEnabled] = useState(true);
   const [triggers, setTriggers] = useState<AlertTriggerType[]>([
     "cross_source_confirmation",
     "smart_score_threshold",
@@ -112,6 +113,7 @@ export function NotificationPreferences({
   const panelClassName = compact
     ? "min-w-[20rem] space-y-4 font-sans"
     : "min-h-[13.5rem] rounded-lg border border-white/10 bg-slate-950/45 p-5 font-sans shadow-[0_18px_42px_-32px_rgba(15,23,42,0.95)]";
+  const active = dailyDigestEnabled || intradayAlertsEnabled;
   const alertState = subscription ? (active ? "Active" : "Paused") : "Not subscribed";
   const alertStateClassName = subscription
     ? active
@@ -148,7 +150,9 @@ export function NotificationPreferences({
         if (match) {
           if (!accountEmailDestination) setEmail(match.email);
           setOnlyIfNew(match.only_if_new);
-          setActive(match.active);
+          const payload = match.source_payload ?? {};
+          setDailyDigestEnabled(typeof payload.daily_digest_enabled === "boolean" ? payload.daily_digest_enabled : match.active);
+          setIntradayAlertsEnabled(typeof payload.intraday_alerts_enabled === "boolean" ? payload.intraday_alerts_enabled : match.active);
           setTriggers(match.alert_triggers.length ? match.alert_triggers : []);
           if (!accountEmailDestination) window.localStorage.setItem(emailStorageKey, match.email);
         }
@@ -183,7 +187,11 @@ export function NotificationPreferences({
         source_type: sourceType,
         source_id: sourceId,
         source_name: sourceName,
-        source_payload: sourcePayload,
+        source_payload: {
+          ...(sourcePayload ?? {}),
+          daily_digest_enabled: dailyDigestEnabled,
+          intraday_alerts_enabled: intradayAlertsEnabled,
+        },
         only_if_new: onlyIfNew,
         active,
         alert_triggers: triggers,
@@ -262,16 +270,24 @@ export function NotificationPreferences({
           ) : null}
 
           <DigestSwitch
-            checked={active}
+            checked={dailyDigestEnabled}
             disabled={!canUseDigests}
-            label="Monitoring emails"
-            description="Allow this source to send its monitoring digest and eligible intraday alerts."
-            onCheckedChange={setActive}
+            label="Daily Monitoring Digests"
+            description="Send a summary of the prior day's monitoring alerts."
+            onCheckedChange={setDailyDigestEnabled}
+          />
+
+          <DigestSwitch
+            checked={intradayAlertsEnabled}
+            disabled={!canUseDigests}
+            label="Intraday Monitoring Alerts"
+            description="Send alerts as soon as eligible monitoring events happen."
+            onCheckedChange={setIntradayAlertsEnabled}
           />
 
           <DigestSwitch
             checked={onlyIfNew}
-            disabled={!canUseDigests}
+            disabled={!canUseDigests || !dailyDigestEnabled}
             label="Daily monitoring digest only when new"
             description="Skip the daily digest unless this source has fresh activity."
             onCheckedChange={setOnlyIfNew}
@@ -279,9 +295,9 @@ export function NotificationPreferences({
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Intraday Monitoring Alerts</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Monitoring Alerts</div>
           <p className="text-xs leading-5 text-slate-500">
-            Choose which qualified monitoring changes can send during the day.
+            Choose which qualified monitoring changes can send during the day and roll into daily summaries.
           </p>
           <div className="flex flex-wrap gap-2">
             {triggerOptions.map((option) => (
@@ -304,7 +320,7 @@ export function NotificationPreferences({
       </div>
 
       <p className="text-xs leading-5 text-slate-500">
-        Watchlist-level settings control this watchlist's monitoring emails. Trigger chips are enforced by the intraday sweep.
+        Watchlist-level settings control this watchlist's monitoring emails. Trigger chips are enforced by the intraday sweep and daily alert summary.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">

@@ -122,6 +122,17 @@ export type MarketPressureMapResult = {
     hiddenAccumulationCount: number;
     fragileWinnerCount: number;
   };
+  audit?: {
+    status: "ok" | "warn" | "fail";
+    expectedSymbolCount: number;
+    renderedSymbolCount: number;
+    missingSymbolCount: number;
+    missingSymbols: string[];
+    importantSymbols: string[];
+    importantMissingSymbols: string[];
+    importantMissingMarketCapSymbols: string[];
+    importantLowMarketCapSymbols: string[];
+  };
   sectors: MarketPressureSector[];
   tiles: MarketPressureTile[];
   warnings: string[];

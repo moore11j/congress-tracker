@@ -62,6 +62,21 @@ MARKET_PRESSURE_LIVE_QUOTE_PRIORITY: tuple[str, ...] = (
     "JPM",
     "XOM",
 )
+MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS: dict[str, float] = {
+    "NVDA": 500_000_000_000,
+    "AAPL": 500_000_000_000,
+    "MSFT": 500_000_000_000,
+    "GOOGL": 300_000_000_000,
+    "AMZN": 300_000_000_000,
+    "META": 300_000_000_000,
+    "AVGO": 150_000_000_000,
+    "ORCL": 100_000_000_000,
+    "TSLA": 100_000_000_000,
+    "JPM": 100_000_000_000,
+    "XOM": 100_000_000_000,
+    "MU": 25_000_000_000,
+    "INTC": 20_000_000_000,
+}
 MARKET_PRESSURE_SNAPSHOT_FRESH_MINUTES = 75
 MARKET_PRESSURE_SNAPSHOT_MIN_COVERAGE = 0.8
 SUPPORTED_PERIODS: tuple[MarketPressurePeriod, ...] = ("1d", "5d", "1m", "3m", "ytd", "1y")
@@ -322,6 +337,7 @@ def build_market_pressure_response(
 
         sectors = _group_tiles_by_sector(tiles)
         summary = _summary_for_tiles(tiles, len(symbols))
+        audit = _audit_market_pressure_map(params, symbols, tiles, warnings)
         price_as_of = _latest_iso([tile.get("priceEndAt") for tile in tiles])
         confirmation_as_of = _latest_iso([tile.get("confirmationAsOf") for tile in tiles])
         timings["serializationDurationMs"] = _elapsed_ms(mark)
@@ -354,6 +370,7 @@ def build_market_pressure_response(
             "capabilities": capabilities,
             "entitlement": _entitlement_payload(entitlements),
             "summary": summary,
+            "audit": audit,
             "sectors": sectors,
             "warnings": warnings,
             "metadata": {
@@ -432,6 +449,7 @@ def _snapshot_response(
             tiles.append(tile)
     sectors = _group_tiles_by_sector(tiles)
     summary = _summary_for_tiles(tiles, len(symbols))
+    audit = _audit_market_pressure_map(params, symbols, tiles, warnings)
     return {
         "universe": params.universe,
         "period": params.period,
@@ -444,6 +462,7 @@ def _snapshot_response(
         "capabilities": capabilities,
         "entitlement": _entitlement_payload(entitlements),
         "summary": summary,
+        "audit": audit,
         "sectors": sectors,
         "warnings": warnings,
         "metadata": {
@@ -452,6 +471,75 @@ def _snapshot_response(
             "responseTimeMs": 0,
             "priceCloseBasis": "market_pressure_snapshots",
         },
+    }
+
+
+def _audit_market_pressure_map(
+    params: MarketPressureParams,
+    symbols: list[str],
+    tiles: list[dict[str, Any]],
+    warnings: list[str],
+) -> dict[str, Any]:
+    expected_symbols = set(symbols)
+    rendered_symbols = {normalize_symbol(str(tile.get("symbol") or "")) for tile in tiles}
+    rendered_symbols.discard("")
+    full_universe_view = params.view == "market_pressure"
+    missing_symbols = sorted(expected_symbols - rendered_symbols) if full_universe_view else []
+    important_symbols = [symbol for symbol in MARKET_PRESSURE_LIVE_QUOTE_PRIORITY if symbol in expected_symbols] if full_universe_view else []
+    tiles_by_symbol = {normalize_symbol(str(tile.get("symbol") or "")): tile for tile in tiles}
+    missing_important = [symbol for symbol in important_symbols if symbol not in rendered_symbols]
+    missing_market_cap: list[str] = []
+    low_market_cap: list[str] = []
+    for symbol in important_symbols:
+        tile = tiles_by_symbol.get(symbol)
+        if not tile:
+            continue
+        market_cap = _safe_float(tile.get("marketCap"))
+        if market_cap is None:
+            missing_market_cap.append(symbol)
+            continue
+        floor = MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS.get(symbol)
+        if floor is not None and market_cap < floor:
+            low_market_cap.append(symbol)
+
+    status = "ok"
+    if missing_important or missing_market_cap or low_market_cap:
+        status = "fail"
+    elif missing_symbols:
+        status = "warn"
+
+    if missing_symbols:
+        warnings.append(f"market_pressure_audit:missing_symbols:{len(missing_symbols)}")
+    if missing_important:
+        warnings.append(f"market_pressure_audit:important_missing:{','.join(missing_important)}")
+    if missing_market_cap:
+        warnings.append(f"market_pressure_audit:important_market_cap_missing:{','.join(missing_market_cap)}")
+    if low_market_cap:
+        warnings.append(f"market_pressure_audit:important_market_cap_low:{','.join(low_market_cap)}")
+
+    if status != "ok":
+        logger.warning(
+            "market_pressure_audit_failed universe=%s period=%s view=%s status=%s missing_symbols=%s important_missing=%s important_market_cap_missing=%s important_market_cap_low=%s",
+            params.universe,
+            params.period,
+            params.view,
+            status,
+            len(missing_symbols),
+            missing_important,
+            missing_market_cap,
+            low_market_cap,
+        )
+
+    return {
+        "status": status,
+        "expectedSymbolCount": len(expected_symbols),
+        "renderedSymbolCount": len(rendered_symbols),
+        "missingSymbolCount": len(missing_symbols),
+        "missingSymbols": missing_symbols[:50],
+        "importantSymbols": important_symbols,
+        "importantMissingSymbols": missing_important,
+        "importantMissingMarketCapSymbols": missing_market_cap,
+        "importantLowMarketCapSymbols": low_market_cap,
     }
 
 

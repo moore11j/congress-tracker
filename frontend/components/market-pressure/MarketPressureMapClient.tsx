@@ -374,6 +374,23 @@ function unavailableUniverseNotice(data: MarketPressureMapResult) {
   return `${requestedLabel} is unavailable, so Walnut opened ${selectedLabel}. Index membership data is temporarily unavailable.`;
 }
 
+function marketPressureAuditNotice(data: MarketPressureMapResult) {
+  const audit = data.audit;
+  if (!audit || audit.status === "ok") return null;
+  const issues: string[] = [];
+  if (audit.importantMissingSymbols.length > 0) {
+    issues.push(`missing key names: ${audit.importantMissingSymbols.join(", ")}`);
+  }
+  const marketCapSymbols = [...audit.importantMissingMarketCapSymbols, ...audit.importantLowMarketCapSymbols];
+  if (marketCapSymbols.length > 0) {
+    issues.push(`bad market-cap weights: ${Array.from(new Set(marketCapSymbols)).join(", ")}`);
+  }
+  if (audit.missingSymbolCount > 0 && issues.length === 0) {
+    issues.push(`${audit.missingSymbolCount} universe names missing`);
+  }
+  return `Map audit ${audit.status}: ${issues.join("; ")}.`;
+}
+
 function disabledUniverseTitle(option: MarketPressureUniverse, data: MarketPressureMapResult) {
   if (option === "all_us") return "The complete US equity universe is not available yet.";
   if (option === "etf") return "ETF universe data is temporarily unavailable.";
@@ -1005,6 +1022,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
   const selectedUniverseLabel = marketPressureUniverses.find((option) => option.value === universe)?.label ?? "S&P 500";
   const selectedViewLabel = marketPressureViewModes.find((option) => option.value === viewMode)?.label ?? "Market Pressure";
   const fallbackNotice = unavailableUniverseNotice(initialData);
+  const auditNotice = marketPressureAuditNotice(initialData);
   const shareBaseUrl = typeof window !== "undefined" ? `${window.location.origin}/market-pressure` : canonicalUrl;
   const currentShareUrl = `${shareBaseUrl}?${marketPressureQueryString(query)}`;
 
@@ -1063,6 +1081,12 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       {fallbackNotice ? (
         <div className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-medium text-amber-100">
           {fallbackNotice}
+        </div>
+      ) : null}
+
+      {auditNotice ? (
+        <div className="rounded-md border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">
+          {auditNotice}
         </div>
       ) : null}
 

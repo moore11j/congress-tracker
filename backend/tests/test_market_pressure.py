@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -114,6 +115,26 @@ def _seed_index_membership(db, index_code: str, *, count: int) -> list[str]:
 
 def _tiles_by_symbol(response: dict) -> dict[str, dict]:
     return {tile["symbol"]: tile for sector in response["sectors"] for tile in sector["tiles"]}
+
+
+def _minimal_market_pressure_tile(symbol: str, *, market_cap: float | None = 100_000_000_000) -> dict:
+    return {
+        "symbol": symbol,
+        "companyName": f"{symbol} Corp",
+        "sector": "Technology" if symbol not in {"JPM", "XOM"} else "Financial Services",
+        "exchange": "NASDAQ",
+        "marketCap": market_cap,
+        "priceChangePct": -1.0,
+        "priceStartAt": None,
+        "priceEndAt": None,
+        "confirmationScore": None,
+        "confirmationDirection": "unavailable",
+        "confirmationStrength": None,
+        "divergence": "unavailable",
+        "dataState": "unavailable",
+        "layers": {},
+        "confirmationAsOf": None,
+    }
 
 
 def test_market_pressure_uses_market_cap_and_live_quote_fallback_for_missing_one_day_prices(db, monkeypatch):
@@ -492,6 +513,7 @@ def test_market_pressure_sp500_excludes_duplicate_alphabet_share_class(db):
     )
     assert result.status == "ok"
     db.add(TickerMeta(symbol="GOOGL", company_name="Alphabet Inc", exchange="NASDAQ", sector="Communication Services"))
+    db.add(FundamentalsCache(symbol="GOOGL", provider="fixture", fetched_at=datetime.now(timezone.utc), status="ok", market_cap=2_000_000_000_000, sector="Communication Services"))
     db.commit()
 
     response = build_market_pressure_response(
@@ -509,6 +531,89 @@ def test_market_pressure_sp500_excludes_duplicate_alphabet_share_class(db):
     assert response["summary"]["symbolCount"] == 502
     assert "GOOG" not in tiles
     assert "GOOGL" in tiles
+
+
+def test_market_pressure_audit_flags_cached_sp500_missing_important_symbols(db):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    symbols = ["NVDA", "AAPL", "MSFT", "AMZN", "TSLA", "JPM"] + [f"SP{idx:03d}" for idx in range(1, 498)]
+    result = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[{"symbol": symbol} for symbol in symbols],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 14),
+        refreshed_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert result.status == "ok"
+    generated_at = datetime.now(timezone.utc)
+    for symbol in symbols:
+        if symbol == "NVDA":
+            continue
+        tile = _minimal_market_pressure_tile(symbol, market_cap=500_000_000_000 if symbol in {"AAPL", "MSFT", "AMZN"} else 100_000_000_000)
+        db.add(
+            MarketPressureSnapshot(
+                universe="sp500",
+                period="1d",
+                symbol=symbol,
+                company_name=tile["companyName"],
+                sector=tile["sector"],
+                exchange=tile["exchange"],
+                price_change_pct=tile["priceChangePct"],
+                market_cap=tile["marketCap"],
+                confirmation_direction=tile["confirmationDirection"],
+                data_state=tile["dataState"],
+                generated_at=generated_at,
+                tile_json=json.dumps(tile),
+            )
+        )
+    db.commit()
+
+    response = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    assert response["audit"]["status"] == "fail"
+    assert "NVDA" in response["audit"]["importantMissingSymbols"]
+    assert "market_pressure_audit:important_missing:NVDA" in response["warnings"]
+
+
+def test_market_pressure_audit_flags_important_symbols_without_market_cap(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    symbols = ["NVDA", "AAPL", "MSFT", "AMZN", "TSLA", "JPM"] + [f"SP{idx:03d}" for idx in range(1, 498)]
+    result = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[{"symbol": symbol} for symbol in symbols],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 14),
+        refreshed_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert result.status == "ok"
+    monkeypatch.setattr(market_pressure, "_load_live_one_day_price_fallback", lambda *_args, **_kwargs: {})
+    for symbol in symbols:
+        db.add(TickerMeta(symbol=symbol, company_name=f"{symbol} Corp", exchange="NASDAQ", sector="Technology"))
+    db.commit()
+
+    response = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    assert response["summary"]["symbolCount"] == 503
+    assert response["audit"]["status"] == "fail"
+    assert {"NVDA", "AAPL", "AMZN", "TSLA", "JPM"}.issubset(set(response["audit"]["importantMissingMarketCapSymbols"]))
+    assert any(warning.startswith("market_pressure_audit:important_market_cap_missing:") for warning in response["warnings"])
 
 
 def test_market_pressure_etf_universe_uses_security_master_asset_classes(db):

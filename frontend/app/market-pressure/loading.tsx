@@ -1,53 +1,30 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
 const loadingMessages = [
-  "Loading components",
-  "Analyzing data sets",
+  "Loading market components",
+  "Loading index universe",
+  "Auditing index names",
+  "Checking symbol coverage",
+  "Loading market weights",
   "Ranking sector pressure",
-  "Building ticker weights",
-  "Calibrating confirmation layers",
-  "Rendering market map",
+  "Building sector layout",
+  "Rendering pressure map",
 ];
 
 export default function MarketPressureLoading() {
-  const [messageIndex, setMessageIndex] = useState(0);
-  const [progress, setProgress] = useState(8);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setMessageIndex((index) => (index + 1) % loadingMessages.length);
-    }, 420);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setProgress((value) => {
-        if (value >= 96) return 96;
-        const remaining = 96 - value;
-        const step = Math.max(0.25, remaining * 0.08);
-        return Math.min(96, value + step);
-      });
-    }, 260);
-    return () => window.clearInterval(interval);
-  }, []);
-
   return (
-    <div className="space-y-5" aria-busy="true" aria-live="polite">
+    <div className="space-y-5" aria-busy="true">
       <section className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Loading</p>
         <div className="max-w-lg overflow-hidden rounded-md border border-emerald-300/20 bg-slate-950/80 p-1 shadow-inner shadow-black/30">
-          <div
-            className="h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)] transition-[width] duration-300 ease-out"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="market-pressure-progress-fill h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)]" />
         </div>
-        <p key={messageIndex} className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/85 motion-safe:animate-[market-pressure-status_420ms_ease-out]">
-          {loadingMessages[messageIndex]}
-        </p>
+        <p className="sr-only" aria-live="polite">Loading market pressure map.</p>
+        <div className="market-pressure-loading-message text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/85" aria-hidden="true">
+          {loadingMessages.map((message) => (
+            <span key={message}>{message}</span>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-md border border-white/10 bg-slate-900/45 p-3 shadow-card sm:p-4">

@@ -208,6 +208,8 @@ def _watchlist_intraday_candidates(db: Session, *, since: datetime, limit: int) 
     )
     candidates: list[IntradayAlertCandidate] = []
     for subscription in subscriptions:
+        if not _subscription_intraday_alerts_enabled(subscription):
+            continue
         user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == normalize_email(subscription.email))).scalar_one_or_none()
         watchlist_id = _int_value(subscription.source_id)
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
@@ -596,6 +598,8 @@ def _with_subscription_trigger_skip(
     candidate: IntradayAlertCandidate,
     subscription: NotificationSubscription,
 ) -> IntradayAlertCandidate:
+    if not _subscription_intraday_alerts_enabled(subscription):
+        return _replace_skip_reason(candidate, "intraday_alerts_disabled")
     if candidate.skip_reason is None and not _subscription_allows_trigger(subscription, candidate.trigger, candidate.event_type):
         return _replace_skip_reason(candidate, "trigger_disabled")
     return candidate
@@ -636,6 +640,12 @@ def _active_subscriptions_for_user(db: Session, user: UserAccount) -> list[Notif
         .scalars()
         .all()
     )
+
+
+def _subscription_intraday_alerts_enabled(subscription: NotificationSubscription) -> bool:
+    payload = _loads_dict(subscription.source_payload_json)
+    value = payload.get("intraday_alerts_enabled")
+    return bool(subscription.active) if value is None else bool(value)
 
 
 def _replace_skip_reason(candidate: IntradayAlertCandidate, reason: str) -> IntradayAlertCandidate:

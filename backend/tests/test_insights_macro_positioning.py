@@ -21,6 +21,8 @@ from app.services.macro_positioning import (
     refresh_macro_positioning_feed_events,
 )
 
+FAKE_CFTC_REPORT_DATE = datetime.now(timezone.utc).date() - timedelta(days=3)
+
 
 def _db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -72,7 +74,7 @@ def _cftc_csv_row(market: str, *, source: str, long_contracts: int, short_contra
     size = 191 if source == "disaggregated" else 87
     row = [""] * size
     row[0] = market
-    row[2] = "2026-07-07"
+    row[2] = FAKE_CFTC_REPORT_DATE.isoformat()
     if source == "disaggregated":
         row[14] = str(long_contracts)
         row[15] = str(short_contracts)
@@ -268,7 +270,7 @@ def test_macro_positioning_ingest_populates_supported_assets(monkeypatch):
         assert len(assets) == len(_CFTC_MARKET_SPECS)
         by_key = {asset.asset_key: asset for asset in assets}
         assert by_key["sp_futures"].bias == "bullish"
-        assert by_key["gold_futures"].positioning_date == date(2026, 7, 7)
+        assert by_key["gold_futures"].positioning_date == FAKE_CFTC_REPORT_DATE
 
         payload = get_insights_macro_positioning(db)
         assert payload["status"] == "available"
@@ -351,7 +353,7 @@ def test_macro_positioning_feed_pro_receives_dedicated_rows(monkeypatch):
         assert payload["page_size_options"] == [25, 50, 100]
         assert payload["summary"]
         assert payload["items"]
-        assert payload["items"][0]["report_date"] == "2026-07-07"
+        assert payload["items"][0]["report_date"] == FAKE_CFTC_REPORT_DATE.isoformat()
         serialized = json.dumps(payload).lower()
         for forbidden in ("cot", "commitment of traders", "cftc", "fmp", "endpoint"):
             assert forbidden not in serialized

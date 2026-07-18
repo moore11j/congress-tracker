@@ -22,7 +22,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
-from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
 from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
 from app.services.event_calendar import CalendarFetchResult
@@ -665,6 +665,43 @@ def test_monitoring_digest_includes_next_week_calendar_dates_for_paid_users(monk
         db.close()
 
 
+def test_monitoring_digest_ipo_calendar_detail_prefers_company_name(monkeypatch):
+    def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
+        return CalendarFetchResult(
+            items=[
+                {
+                    "id": "ipo:goro",
+                    "kind": "ipo",
+                    "date": "2026-07-20",
+                    "symbol": "GORO",
+                    "company": "Gold Resource Corporation",
+                    "title": "GORO IPO",
+                    "subtitle": "Expected",
+                },
+            ],
+            errors=[],
+        )
+
+    monkeypatch.setattr("app.services.email_digests.upcoming_event_calendar_items", fake_upcoming)
+    db = _session()
+    try:
+        user = _user(db, "calendar-ipo-detail@example.com", tier="premium")
+        _watchlist(db, user)
+
+        digest = build_signal_alert_digest(
+            db,
+            user,
+            datetime(2026, 7, 19, 7, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 7, 20, 7, 0, tzinfo=timezone.utc),
+        )
+
+        assert "Gold Resource Corporation" in digest.context["upcoming_events_text"]
+        assert "Gold Resource Corporation" in digest.context["upcoming_events_html"]
+        assert ">Expected<" not in digest.context["upcoming_events_html"]
+    finally:
+        db.close()
+
+
 def test_monitoring_digest_filters_calendar_dates_by_saved_event_kinds(monkeypatch):
     def fake_upcoming(db, user, *, start, end, scope, limit, kinds=None):
         assert kinds == ("earnings",)
@@ -827,6 +864,31 @@ def test_signal_digest_includes_resolved_scored_signal_with_source_and_link():
         assert item["href"].endswith("/ticker/NBIS")
         assert "NBIS" in digest.context["signals_text"]
         assert "Insiders + price/volume" in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_signal_digest_includes_source_monitoring_alert_without_score():
+    db = _session()
+    try:
+        user = _user(db, "signal-price-volume-source@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            alert_type="price_volume_flip",
+            symbol="NVDA",
+            title="NVDA price/volume flipped from Mixed to Bearish",
+            payload={"direction": "bearish", "source_stack": "Price/volume"},
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["alert_type"] == "price_volume_flip"
+        assert digest.items[0]["source_stack"] == "Price/volume"
+        assert "price/volume flipped" in digest.context["signals_text"]
     finally:
         db.close()
 
@@ -1031,6 +1093,41 @@ def test_intraday_watchlist_trigger_preferences_are_enforced():
         assert summary["skipped_count"] == 1
         assert results[0]["trigger"] == "smart_score_threshold"
         assert results[0]["skip_reason"] == "trigger_disabled"
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_job_respects_daily_digest_subscription_flag():
+    db = _session()
+    try:
+        user = _user(db, "daily-disabled@example.com")
+        watchlist = _watchlist(db, user)
+        subscription = db.execute(select(NotificationSubscription).where(NotificationSubscription.source_id == str(watchlist.id))).scalar_one()
+        subscription.source_payload_json = json.dumps({"daily_digest_enabled": False, "intraday_alerts_enabled": True})
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        db.commit()
+
+        results = run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True)
+
+        assert results == []
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_respects_intraday_subscription_flag():
+    db = _session()
+    try:
+        user = _user(db, "intraday-disabled@example.com")
+        watchlist = _watchlist(db, user)
+        subscription = db.execute(select(NotificationSubscription).where(NotificationSubscription.source_id == str(watchlist.id))).scalar_one()
+        subscription.source_payload_json = json.dumps({"daily_digest_enabled": True, "intraday_alerts_enabled": False})
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+        db.commit()
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results == []
     finally:
         db.close()
 

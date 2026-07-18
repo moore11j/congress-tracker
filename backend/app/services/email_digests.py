@@ -48,9 +48,56 @@ ALERT_EVENT_TYPES = (
     "institutional_activity_change",
     "government_contract",
     "government_contract_new",
+    "government_contract_award",
+    "contract_award",
+    "government_exposure",
+    "price_volume_change",
+    "price_volume_signal",
+    "unusual_price_volume",
+    "volume_surge",
+    "technical_breakout",
+    "technical_breakdown",
+    "price_volume_flip",
+    "fundamental_change",
+    "fundamentals_change",
+    "fundamentals_flip",
     "signal",
 )
 INSTITUTIONAL_ALERT_TYPES = (*INSTITUTIONAL_EVENT_TYPES, "institutional_activity")
+GOVERNMENT_CONTRACT_ALERT_TYPES = (
+    "government_contract",
+    "government_contract_new",
+    "government_contract_award",
+    "contract_award",
+    "government_exposure",
+)
+PRICE_VOLUME_ALERT_TYPES = (
+    "price_volume_change",
+    "price_volume_signal",
+    "unusual_price_volume",
+    "volume_surge",
+    "technical_breakout",
+    "technical_breakdown",
+    "price_volume_flip",
+)
+FUNDAMENTAL_ALERT_TYPES = (
+    "fundamental_change",
+    "fundamentals_change",
+    "fundamentals_flip",
+)
+SOURCE_MONITORING_ALERT_TYPES = (
+    "congress_trade",
+    "congress_trade_new",
+    "insider_trade",
+    "insider_trade_new",
+    *GOVERNMENT_CONTRACT_ALERT_TYPES,
+    "institutional_buy",
+    *INSTITUTIONAL_EVENT_TYPES,
+    "institutional_activity",
+    "institutional_activity_change",
+    *PRICE_VOLUME_ALERT_TYPES,
+    *FUNDAMENTAL_ALERT_TYPES,
+)
 SUPPORT_EMAIL = "support@walnutmarkets.com"
 DEFAULT_DIGEST_TIMEZONE = "America/Los_Angeles"
 SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
@@ -119,6 +166,8 @@ def send_watchlist_activity_digest(
         skip = "watchlist_digest_inactive"
     if skip is None and subscription is not None and not subscription.active and not force:
         skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not _subscription_daily_digest_enabled(subscription) and not force:
+        skip = "watchlist_daily_digest_disabled"
 
     digest = build_watchlist_activity_digest(db, user, watchlist, since)
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
@@ -249,6 +298,7 @@ def build_signal_alert_digest(
     signal_intro = f"Your ranked monitoring candidates for {_format_window_label(since, window_end or datetime.now(timezone.utc))}."
     summary = _count_summary(len(items), "monitoring candidate", "monitoring candidates")
     upcoming_events, calendar_filters_text = _upcoming_calendar_events_for_digest(db, user, window_end=window_end)
+    _attach_calendar_company_names(db, upcoming_events)
     return DigestBuild(
         template_key="alerts.signal_alert",
         items_count=len(items),
@@ -351,7 +401,7 @@ def run_digest_job(
     since, window_end = daily_digest_window(lookback_days=lookback_days, now=now)
     results: list[dict[str, Any]] = []
     if kind in {"monitoring", "signals"}:
-        users = _eligible_users(db, limit=limit)
+        users = _eligible_monitoring_digest_users(db, limit=limit)
         if dry_run:
             return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
         return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
@@ -802,6 +852,35 @@ def _watchlist_subscription(db: Session, user: UserAccount, watchlist: Watchlist
     )
 
 
+def _subscription_payload(subscription: NotificationSubscription) -> dict[str, Any]:
+    return _loads_dict(subscription.source_payload_json)
+
+
+def _subscription_daily_digest_enabled(subscription: NotificationSubscription) -> bool:
+    payload = _subscription_payload(subscription)
+    value = payload.get("daily_digest_enabled")
+    return bool(subscription.active) if value is None else bool(value)
+
+
+def _eligible_monitoring_digest_users(db: Session, *, limit: int) -> list[UserAccount]:
+    users = _eligible_users(db, limit=limit)
+    eligible: list[UserAccount] = []
+    for user in users:
+        subscriptions = (
+            db.execute(
+                select(NotificationSubscription)
+                .where(func.lower(NotificationSubscription.email) == normalize_email(user.email))
+                .where(NotificationSubscription.source_type == "watchlist")
+                .order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc())
+            )
+            .scalars()
+            .all()
+        )
+        if not subscriptions or any(_subscription_daily_digest_enabled(subscription) for subscription in subscriptions):
+            eligible.append(user)
+    return eligible
+
+
 def _event_calendar_subscription(db: Session, user: UserAccount) -> NotificationSubscription | None:
     return (
         db.execute(
@@ -1088,6 +1167,7 @@ def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime
         "new_multi_source_confirmation",
         "confirmation_upgraded",
         "direction_flipped",
+        *SOURCE_MONITORING_ALERT_TYPES,
         "smart_score_threshold",
         "cross_source_confirmation",
     )
@@ -1154,6 +1234,7 @@ def _is_signal_monitoring_alert(alert: MonitoringAlert, payload: dict[str, Any])
         "new_multi_source_confirmation",
         "confirmation_upgraded",
         "direction_flipped",
+        *SOURCE_MONITORING_ALERT_TYPES,
         "smart_score_threshold",
         "cross_source_confirmation",
     }:
@@ -1192,7 +1273,7 @@ def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
         return "missing_ticker"
     if _is_internal_refresh_signal(item):
         return "internal_refresh_event"
-    if _numeric_score(item.get("signal_score")) is None:
+    if _numeric_score(item.get("signal_score")) is None and not _is_source_monitoring_item(item):
         return "missing_score"
     if str(item.get("direction") or "").lower() not in SIGNAL_ALLOWED_DIRECTIONS:
         return "missing_direction"
@@ -1203,6 +1284,10 @@ def _signal_exclusion_reason(item: dict[str, Any]) -> str | None:
     if not _clean_text(item.get("href")):
         return "unresolved_security"
     return None
+
+
+def _is_source_monitoring_item(item: dict[str, Any]) -> bool:
+    return str(item.get("alert_type") or "").strip().lower() in SOURCE_MONITORING_ALERT_TYPES
 
 
 def _is_internal_refresh_signal(item: dict[str, Any]) -> bool:
@@ -1232,6 +1317,24 @@ def _attach_company_names(db: Session, items: list[dict[str, Any]]) -> None:
     for item in items:
         ticker = str(item.get("ticker") or "").upper()
         item["company_name"] = item.get("company_name") or names.get(ticker)
+
+
+def _attach_calendar_company_names(db: Session, items: list[dict[str, Any]]) -> None:
+    missing = sorted(
+        {
+            str(item.get("symbol") or "").upper()
+            for item in items
+            if str(item.get("kind") or "").lower() == "ipo" and item.get("symbol") and not _clean_text(item.get("company"))
+        }
+    )
+    if not missing:
+        return
+    securities = db.execute(select(Security).where(func.upper(Security.symbol).in_(missing))).scalars().all()
+    names = {security.symbol.upper(): security.name for security in securities if security.symbol and security.name}
+    for item in items:
+        ticker = str(item.get("symbol") or "").upper()
+        if str(item.get("kind") or "").lower() == "ipo" and ticker:
+            item["company"] = item.get("company") or names.get(ticker)
 
 
 def _qualify_monitoring_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1350,7 +1453,7 @@ def _calendar_items_text(items: list[dict[str, Any]]) -> str:
     for item in items[:12]:
         symbol = str(item.get("symbol") or item.get("country") or "Market")
         title = str(item.get("title") or item.get("kind") or "Calendar event")
-        subtitle = str(item.get("subtitle") or "").strip()
+        subtitle = _calendar_detail(item)
         suffix = f" | {subtitle}" if subtitle else ""
         lines.append(f"- {item.get('date')}: {symbol} | {title}{suffix}")
     return "\n".join(lines)
@@ -1364,11 +1467,17 @@ def _calendar_items_html(items: list[dict[str, Any]]) -> str:
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item.get('date') or ''))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item.get('symbol') or item.get('country') or 'Market'))}</td>"
         f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('title') or item.get('kind') or 'Calendar event'))}</td>"
-        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item.get('subtitle') or ''))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(_calendar_detail(item))}</td>"
         "</tr>"
         for item in items[:12]
     )
     return _table(["Date", "Ticker", "Event", "Detail"], rows)
+
+
+def _calendar_detail(item: dict[str, Any]) -> str:
+    if str(item.get("kind") or "").lower() == "ipo":
+        return _clean_text(item.get("company")) or _clean_text((item.get("payload") or {}).get("companyName") if isinstance(item.get("payload"), dict) else None) or _clean_text(item.get("subtitle")) or ""
+    return _clean_text(item.get("subtitle")) or ""
 
 
 def _table(headers: list[str], rows: str) -> str:
