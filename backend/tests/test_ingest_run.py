@@ -175,7 +175,7 @@ def test_market_data_refresh_symbols_skips_old_cache_only_symbols_but_keeps_acti
 
         symbols = _market_data_refresh_symbols(db, expected_date=date(2026, 7, 17), limit=20)
 
-    assert symbols[:2] == ["NVDA", "SPY"]
+    assert symbols[:2] == ["SPY", "NVDA"]
     assert {"EVENT", "WATCH", "SNAP", "INDEX", "RECENT"}.issubset(symbols)
     assert "TWTR" not in symbols
     assert "XLNX" not in symbols
