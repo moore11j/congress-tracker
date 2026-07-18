@@ -21,7 +21,16 @@ from app.ingest_house import ingest_house
 from app.ingest_insider_trades import insider_ingest_run
 from app.populate_fundamentals_cache import populate_fundamentals_cache
 from app.ingest_senate import ingest_senate
-from app.models import Event, PriceCache, ReplicatedPortfolioRun, SavedScreenSnapshot, Security, TradeOutcome, WatchlistItem
+from app.models import (
+    Event,
+    IndexMembership,
+    PriceCache,
+    ReplicatedPortfolioRun,
+    SavedScreenSnapshot,
+    Security,
+    TradeOutcome,
+    WatchlistItem,
+)
 from app.security.redaction import safe_config_for_log
 from app.services.price_lookup import (
     ensure_fresh_price_history,
@@ -251,6 +260,8 @@ def _add_unique_symbol(symbols: list[str], seen: set[str], raw_symbol: object, *
 
 def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list[str]:
     expected_key = expected_date.isoformat()
+    stale_cache_max_age_days = max(1, int(os.getenv("MARKET_DATA_REFRESH_STALE_CACHE_MAX_AGE_DAYS", "730") or 730))
+    stale_cache_cutoff_key = (expected_date - timedelta(days=stale_cache_max_age_days)).isoformat()
     symbols: list[str] = []
     seen: set[str] = set()
     benchmark_symbol = os.getenv("INGEST_SIGNALS_BENCHMARK", "SPY")
@@ -260,16 +271,6 @@ def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list
         if symbol.strip()
     ]
     for symbol in [*priority_symbols, benchmark_symbol]:
-        _add_unique_symbol(symbols, seen, symbol, limit=limit)
-
-    stale_cache_rows = db.execute(
-        select(PriceCache.symbol, func.max(PriceCache.date).label("latest_date"))
-        .group_by(PriceCache.symbol)
-        .having(func.max(PriceCache.date) < expected_key)
-        .order_by(func.max(PriceCache.date).asc(), PriceCache.symbol.asc())
-        .limit(max(1, limit))
-    ).all()
-    for symbol, _latest_date in stale_cache_rows:
         _add_unique_symbol(symbols, seen, symbol, limit=limit)
 
     since = datetime.now(timezone.utc) - timedelta(
@@ -304,6 +305,27 @@ def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list
         .limit(max(1, limit))
     ).scalars().all()
     for symbol in saved_screen_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    active_index_rows = db.execute(
+        select(func.upper(IndexMembership.symbol))
+        .where(IndexMembership.is_active.is_(True))
+        .group_by(func.upper(IndexMembership.symbol))
+        .limit(max(1, limit))
+    ).scalars().all()
+    for symbol in active_index_rows:
+        _add_unique_symbol(symbols, seen, symbol, limit=limit)
+
+    latest_price_date = func.max(PriceCache.date)
+    stale_cache_rows = db.execute(
+        select(PriceCache.symbol, latest_price_date.label("latest_date"))
+        .group_by(PriceCache.symbol)
+        .having(latest_price_date < expected_key)
+        .having(latest_price_date >= stale_cache_cutoff_key)
+        .order_by(latest_price_date.asc(), PriceCache.symbol.asc())
+        .limit(max(1, limit))
+    ).all()
+    for symbol, _latest_date in stale_cache_rows:
         _add_unique_symbol(symbols, seen, symbol, limit=limit)
 
     return symbols

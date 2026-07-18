@@ -174,7 +174,8 @@ test("Market Pressure map uses a sector-nested treemap layout", () => {
   assert.match(client, /data-sector-treemap/);
   assert.match(client, /data-treemap-tile/);
   assert.match(client, /data-symbol=\{tile\.symbol\}/);
-  assert.match(client, /const hideLabel = rect \?/);
+  assert.match(client, /const labelRect = displayRect \?\? rect/);
+  assert.match(client, /displayRect=\{displayRect\}/);
   assert.match(client, /\{!hideLabel \? \(/);
   assert.match(client, /\{showPrice \? \(/);
   assert.match(client, /data-sector-hover-tooltip/);

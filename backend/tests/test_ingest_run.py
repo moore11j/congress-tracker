@@ -6,8 +6,12 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from app.ingest_run import (
     _build_parser,
+    _market_data_refresh_symbols,
     _payload_exit_code,
     _payload_json,
     _run_enrichment_queue_job,
@@ -17,6 +21,7 @@ from app.ingest_run import (
     _run_priority_ticker_prewarm_job,
     _run_recent_congress_job,
 )
+from app.models import Base, Event, IndexMembership, PriceCache, SavedScreenSnapshot, Security, WatchlistItem
 
 
 def test_institutional_ingest_provider_error_is_non_fatal(monkeypatch, caplog) -> None:
@@ -105,6 +110,75 @@ def test_recent_congress_job_uses_small_recent_window(monkeypatch) -> None:
     assert result["job"] == "recent-congress"
     assert result["congress_recent"]["events_inserted"] == 3
     assert seen == {"days": 7, "pages": 12, "limit": 50, "sleep_s": 0.0}
+
+
+def test_market_data_refresh_symbols_skips_old_cache_only_symbols_but_keeps_active_sources(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            Event.__table__,
+            IndexMembership.__table__,
+            PriceCache.__table__,
+            SavedScreenSnapshot.__table__,
+            Security.__table__,
+            WatchlistItem.__table__,
+        ],
+    )
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    monkeypatch.setenv("INGEST_SIGNALS_BENCHMARK", "SPY")
+    monkeypatch.setenv("MARKET_DATA_REFRESH_PRIORITY_SYMBOLS", "NVDA")
+    monkeypatch.setenv("MARKET_DATA_REFRESH_STALE_CACHE_MAX_AGE_DAYS", "730")
+
+    with Session() as db:
+        db.add_all(
+            [
+                PriceCache(symbol="TWTR", date="2021-01-04", close=40.0),
+                PriceCache(symbol="XLNX", date="2021-01-04", close=140.0),
+                PriceCache(symbol="WATCH", date="2021-01-04", close=10.0),
+                PriceCache(symbol="SNAP", date="2021-01-04", close=12.0),
+                PriceCache(symbol="INDEX", date="2021-01-04", close=14.0),
+                PriceCache(symbol="EVENT", date="2021-01-04", close=16.0),
+                PriceCache(symbol="RECENT", date="2026-06-01", close=18.0),
+                Event(
+                    event_type="insider_trade",
+                    ts=datetime.now(timezone.utc),
+                    event_date=datetime.now(timezone.utc),
+                    symbol="EVENT",
+                    source="test",
+                    payload_json="{}",
+                ),
+                SavedScreenSnapshot(
+                    user_id=1,
+                    saved_screen_id=1,
+                    ticker="SNAP",
+                    observed_at=datetime.now(timezone.utc),
+                ),
+                IndexMembership(
+                    index_code="sp500",
+                    symbol="INDEX",
+                    effective_from=date(2026, 1, 1),
+                    effective_to=None,
+                    source="test",
+                    source_as_of=date(2026, 7, 17),
+                    refreshed_at=datetime.now(timezone.utc),
+                    is_active=True,
+                ),
+            ]
+        )
+        watch_security = Security(symbol="WATCH", name="Watchlist Inc.", asset_class="stock", sector=None)
+        db.add(watch_security)
+        db.flush()
+        db.add(WatchlistItem(watchlist_id=1, security_id=watch_security.id))
+        db.commit()
+
+        symbols = _market_data_refresh_symbols(db, expected_date=date(2026, 7, 17), limit=20)
+
+    assert symbols[:2] == ["NVDA", "SPY"]
+    assert {"EVENT", "WATCH", "SNAP", "INDEX", "RECENT"}.issubset(symbols)
+    assert "TWTR" not in symbols
+    assert "XLNX" not in symbols
 
 
 def test_enrichment_queue_job_is_accepted_by_parser() -> None:

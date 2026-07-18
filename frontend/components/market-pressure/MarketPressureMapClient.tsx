@@ -273,26 +273,26 @@ function layoutTreemap<T>(items: TreemapWeightedItem<T>[], rect: TreemapRect = T
   function layoutRow(row: typeof pending, remaining: TreemapRect): TreemapRect {
     const rowArea = row.reduce((total, item) => total + item.area, 0);
     if (remaining.width >= remaining.height) {
-      const rowHeight = Math.min(remaining.height, rowArea / remaining.width);
-      let x = remaining.x;
+      const rowWidth = Math.min(remaining.width, rowArea / remaining.height);
+      let y = remaining.y;
       row.forEach((item, index) => {
         const isLast = index === row.length - 1;
-        const width = isLast ? remaining.x + remaining.width - x : item.area / rowHeight;
-        layouts.push({ item: item.item, weight: item.weight, rect: { x, y: remaining.y, width, height: rowHeight } });
-        x += width;
+        const height = isLast ? remaining.y + remaining.height - y : item.area / rowWidth;
+        layouts.push({ item: item.item, weight: item.weight, rect: { x: remaining.x, y, width: rowWidth, height } });
+        y += height;
       });
-      return { x: remaining.x, y: remaining.y + rowHeight, width: remaining.width, height: remaining.height - rowHeight };
+      return { x: remaining.x + rowWidth, y: remaining.y, width: remaining.width - rowWidth, height: remaining.height };
     }
 
-    const rowWidth = Math.min(remaining.width, rowArea / remaining.height);
-    let y = remaining.y;
+    const rowHeight = Math.min(remaining.height, rowArea / remaining.width);
+    let x = remaining.x;
     row.forEach((item, index) => {
       const isLast = index === row.length - 1;
-      const height = isLast ? remaining.y + remaining.height - y : item.area / rowWidth;
-      layouts.push({ item: item.item, weight: item.weight, rect: { x: remaining.x, y, width: rowWidth, height } });
-      y += height;
+      const width = isLast ? remaining.x + remaining.width - x : item.area / rowHeight;
+      layouts.push({ item: item.item, weight: item.weight, rect: { x, y: remaining.y, width, height: rowHeight } });
+      x += width;
     });
-    return { x: remaining.x + rowWidth, y: remaining.y, width: remaining.width - rowWidth, height: remaining.height };
+    return { x: remaining.x, y: remaining.y + rowHeight, width: remaining.width, height: remaining.height - rowHeight };
   }
 
   let remaining = { ...rect };
@@ -459,22 +459,25 @@ function MarketTile({
   colorMode,
   onOpen,
   rect,
+  displayRect,
 }: {
   tile: MarketPressureTile;
   period: MarketPressureTimeRange;
   colorMode: MarketPressureColorMode;
   onOpen: (tile: MarketPressureTile) => void;
   rect?: TreemapRect;
+  displayRect?: TreemapRect;
 }) {
   const label = accessibleTileLabel(tile, period);
-  const tileArea = rect ? rect.width * rect.height : 1000;
-  const hideLabel = rect ? rect.width < 4.8 || rect.height < 4.2 || tileArea < 22 : false;
-  const showPrice = rect ? !hideLabel && rect.width >= 6.4 && rect.height >= 6.2 && tileArea >= 42 : true;
-  const compact = rect ? rect.width < 8.5 || rect.height < 7.5 || tileArea < 72 : false;
-  const medium = rect ? rect.width < 13 || rect.height < 10.5 || tileArea < 140 : false;
-  const feature = rect ? rect.width >= 15 && rect.height >= 12 && tileArea >= 190 : false;
-  const hero = rect ? rect.width >= 22 && rect.height >= 18 && tileArea >= 430 : false;
-  const showDiagnostics = rect ? colorMode === "price" && !hideLabel && !feature && rect.width >= 18 && rect.height >= 14 && tileArea >= 240 : colorMode === "price";
+  const labelRect = displayRect ?? rect;
+  const tileArea = labelRect ? labelRect.width * labelRect.height : 1000;
+  const hideLabel = labelRect ? labelRect.width < 2.4 || labelRect.height < 2.5 || tileArea < 10 : false;
+  const showPrice = labelRect ? !hideLabel && labelRect.width >= 3.2 && labelRect.height >= 3.8 && tileArea >= 18 : true;
+  const compact = labelRect ? labelRect.width < 4.4 || labelRect.height < 5 || tileArea < 32 : false;
+  const medium = labelRect ? labelRect.width < 7 || labelRect.height < 7 || tileArea < 70 : false;
+  const feature = labelRect ? labelRect.width >= 8.5 && labelRect.height >= 8.5 && tileArea >= 110 : false;
+  const hero = labelRect ? labelRect.width >= 13 && labelRect.height >= 13 && tileArea >= 210 : false;
+  const showDiagnostics = labelRect ? colorMode === "price" && !hideLabel && !feature && labelRect.width >= 10 && labelRect.height >= 10 && tileArea >= 130 : colorMode === "price";
   const tileClassName = rect
     ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`;
@@ -565,9 +568,15 @@ function SectorMap({
               </div>
             ) : null}
             <div className={showHeader ? "absolute inset-x-0 bottom-0 top-5" : "absolute inset-0"}>
-              {tileLayouts.map(({ item: tile, rect: tileRect }) => (
-                <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} colorMode={colorMode} onOpen={onOpen} rect={tileRect} />
-              ))}
+              {tileLayouts.map(({ item: tile, rect: tileRect }) => {
+                const displayRect = {
+                  x: rect.x + (rect.width * tileRect.x) / 100,
+                  y: rect.y + (rect.height * tileRect.y) / 100,
+                  width: (rect.width * tileRect.width) / 100,
+                  height: (rect.height * tileRect.height) / 100,
+                };
+                return <MarketTile key={`${tile.sector}:${tile.symbol}`} tile={tile} period={period} colorMode={colorMode} onOpen={onOpen} rect={tileRect} displayRect={displayRect} />;
+              })}
             </div>
             {showHeader ? (
               <div className="pointer-events-none absolute bottom-1 left-1 z-10 hidden rounded-sm bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-semibold text-slate-200 sm:block">
