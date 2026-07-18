@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.clients.fmp import FMPClientError, fetch_market_capitalization
 from app.entitlements import TierEntitlements
 from app.models import FundamentalsCache, MarketPressureSnapshot, PriceCache, QuoteCache, Security, TickerMeta, UserAccount, Watchlist, WatchlistItem
 from app.services.confirmation_score import (
@@ -63,6 +64,12 @@ MARKET_PRESSURE_LIVE_QUOTE_PRIORITY: tuple[str, ...] = (
     "JPM",
     "XOM",
 )
+MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS: tuple[str, ...] = tuple(
+    symbol
+    for symbol in MARKET_PRESSURE_LIVE_QUOTE_PRIORITY
+    if symbol not in MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS["sp500"]
+)
+MARKET_PRESSURE_REQUIRED_CAP_REPAIR_PROVIDER = "market_pressure_profile"
 MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS: dict[str, float] = {
     "NVDA": 500_000_000_000,
     "AAPL": 500_000_000_000,
@@ -75,6 +82,7 @@ MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS: dict[str, float] = {
     "TSLA": 100_000_000_000,
     "JPM": 100_000_000_000,
     "XOM": 100_000_000_000,
+    "PLTR": 50_000_000_000,
     "MU": 25_000_000_000,
     "INTC": 20_000_000_000,
 }
@@ -283,7 +291,7 @@ def build_market_pressure_response(
             return _attach_metadata(response, started=started, sql_query_count=sql_query_count, timings=timings)
 
         mark = perf_counter()
-        symbols = _resolve_universe_symbols(db, params.universe, user)
+        symbols = _resolve_universe_symbols(db, params.universe, user, warnings=warnings)
         timings["membershipDurationMs"] = _elapsed_ms(mark)
         if not symbols:
             warnings.append("empty_universe")
@@ -316,6 +324,8 @@ def build_market_pressure_response(
 
         mark = perf_counter()
         identities = _load_identities(db, symbols)
+        if params.universe == "sp500":
+            identities = _repair_required_sp500_market_caps(db, symbols, identities, warnings)
         timings["identityDurationMs"] = _elapsed_ms(mark)
         mark = perf_counter()
         prioritized_symbols = _prioritize_symbols_for_market_data(symbols, identities)
@@ -572,10 +582,21 @@ def require_market_pressure_access(entitlements: TierEntitlements, user: UserAcc
         )
 
 
-def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, user: UserAccount | None) -> list[str]:
+def _resolve_universe_symbols(
+    db: Session,
+    universe: MarketPressureUniverse,
+    user: UserAccount | None,
+    *,
+    warnings: list[str] | None = None,
+) -> list[str]:
     if universe in {"sp500", "nasdaq100"}:
         snapshot = active_index_membership_snapshot(db, universe)
-        return _apply_universe_symbol_policy(universe, snapshot.symbols) if snapshot.supported else []
+        if not snapshot.supported:
+            return []
+        symbols = _apply_universe_symbol_policy(universe, snapshot.symbols)
+        if universe == "sp500":
+            symbols = _ensure_required_sp500_symbols(symbols, warnings=warnings)
+        return symbols
     if universe == "etf":
         return _resolve_etf_universe_symbols(db)
     if universe != "watchlist":
@@ -603,9 +624,42 @@ def _resolve_universe_symbols(db: Session, universe: MarketPressureUniverse, use
 
 def _apply_universe_symbol_policy(universe: MarketPressureUniverse, symbols: list[str]) -> list[str]:
     excluded = MARKET_PRESSURE_UNIVERSE_SYMBOL_EXCLUSIONS.get(universe, set())
-    if not excluded:
+    normalized_symbols: list[str] = []
+    seen: set[str] = set()
+    for raw_symbol in symbols:
+        symbol = normalize_symbol(raw_symbol)
+        if not symbol or symbol in excluded or symbol in seen:
+            continue
+        normalized_symbols.append(symbol)
+        seen.add(symbol)
+    return normalized_symbols
+
+
+def _ensure_required_sp500_symbols(symbols: list[str], *, warnings: list[str] | None = None) -> list[str]:
+    target_count = len(symbols)
+    if target_count == 0:
         return symbols
-    return [symbol for symbol in symbols if symbol not in excluded]
+    existing = set(symbols)
+    missing = [symbol for symbol in MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS if symbol not in existing]
+    if not missing:
+        return symbols
+
+    protected = set(MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS)
+    repaired = [*symbols, *missing]
+    excess = max(0, len(repaired) - target_count)
+    if excess:
+        kept_reversed: list[str] = []
+        for symbol in reversed(repaired):
+            if excess and symbol not in protected:
+                excess -= 1
+                continue
+            kept_reversed.append(symbol)
+        repaired = list(reversed(kept_reversed))
+
+    if warnings is not None:
+        warnings.append(f"market_pressure_audit:sp500_required_symbols_repaired:{','.join(missing)}")
+    logger.warning("market_pressure_sp500_required_symbols_repaired missing=%s final_count=%s", missing, len(repaired))
+    return repaired
 
 
 def _resolve_etf_universe_symbols(db: Session) -> list[str]:
@@ -856,6 +910,104 @@ def _load_identities(db: Session, symbols: list[str]) -> dict[str, Identity]:
             market_cap=_best_market_cap(current.market_cap, market_cap),
         )
     return identities
+
+
+def _repair_required_sp500_market_caps(
+    db: Session,
+    symbols: list[str],
+    identities: dict[str, Identity],
+    warnings: list[str],
+) -> dict[str, Identity]:
+    targets = [
+        symbol
+        for symbol in MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS
+        if symbol in symbols and _market_cap_needs_live_refresh(symbol, identities.get(symbol, Identity(symbol=symbol)).market_cap)
+    ]
+    if not targets:
+        return identities
+
+    repaired_symbols: list[str] = []
+    for symbol in targets:
+        profile = _fetch_required_sp500_profile(symbol)
+        market_cap = _safe_float(profile.get("market_cap"))
+        if market_cap is None:
+            continue
+        current = identities.get(symbol, Identity(symbol=symbol))
+        repaired = Identity(
+            symbol=symbol,
+            company_name=current.company_name or _safe_text(profile.get("company_name")) or symbol,
+            sector=current.sector or _safe_text(profile.get("sector")),
+            exchange=current.exchange or _safe_text(profile.get("exchange")),
+            market_cap=_best_market_cap(current.market_cap, market_cap),
+        )
+        identities[symbol] = repaired
+        _cache_required_sp500_profile(db, repaired)
+        repaired_symbols.append(symbol)
+
+    if repaired_symbols:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("market_pressure_required_cap_cache_commit_failed count=%s", len(repaired_symbols))
+        warnings.append(f"market_pressure_audit:important_market_cap_repaired:{','.join(repaired_symbols)}")
+        logger.warning("market_pressure_required_market_caps_repaired symbols=%s", repaired_symbols)
+    return identities
+
+
+def _fetch_required_sp500_profile(symbol: str) -> dict[str, Any]:
+    try:
+        rows = fetch_market_capitalization(symbol=symbol, timeout_s=8, allow_user_request=True)
+    except FMPClientError as exc:
+        logger.warning("market_pressure_required_market_cap_fetch_failed symbol=%s error=%s", symbol, exc.__class__.__name__)
+        return {}
+    except Exception:
+        logger.exception("market_pressure_required_market_cap_fetch_failed symbol=%s", symbol)
+        return {}
+
+    for row in rows:
+        if normalize_symbol(row.get("symbol")) != symbol:
+            continue
+        return {
+            "market_cap": _safe_float(row.get("marketCap")),
+        }
+    return {}
+
+
+def _cache_required_sp500_profile(db: Session, identity: Identity) -> None:
+    if identity.market_cap is None:
+        return
+    row = db.execute(
+        select(FundamentalsCache)
+        .where(FundamentalsCache.symbol == identity.symbol, FundamentalsCache.provider == MARKET_PRESSURE_REQUIRED_CAP_REPAIR_PROVIDER)
+        .limit(1)
+    ).scalar_one_or_none()
+    payload = {
+        "fetched_at": datetime.now(timezone.utc),
+        "status": "ok",
+        "error": None,
+        "company_name": identity.company_name,
+        "sector": identity.sector,
+        "exchange": identity.exchange,
+        "market_cap": identity.market_cap,
+    }
+    if row is None:
+        db.add(
+            FundamentalsCache(
+                symbol=identity.symbol,
+                provider=MARKET_PRESSURE_REQUIRED_CAP_REPAIR_PROVIDER,
+                **payload,
+            )
+        )
+        return
+    for key, value in payload.items():
+        if value is not None or key in {"fetched_at", "status", "error"}:
+            setattr(row, key, value)
+
+
+def _safe_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _prioritize_symbols_for_market_data(symbols: list[str], identities: dict[str, Identity]) -> list[str]:

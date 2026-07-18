@@ -582,6 +582,102 @@ def test_market_pressure_sp500_excludes_duplicate_alphabet_share_class(db):
     assert "GOOGL" in tiles
 
 
+def test_market_pressure_repairs_stale_sp500_membership_missing_big_names(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    stale_symbols = _seed_index_membership(db, "sp500", count=503)
+    monkeypatch.setattr(market_pressure, "_load_live_one_day_price_fallback", lambda *_args, **_kwargs: {})
+    fetched_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
+    for symbol in market_pressure.MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS:
+        floor = market_pressure.MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS.get(symbol, 75_000_000_000)
+        db.add(TickerMeta(symbol=symbol, company_name=f"{symbol} Corp", exchange="NASDAQ", sector="Technology"))
+        db.add(
+            FundamentalsCache(
+                symbol=symbol,
+                provider="fixture",
+                fetched_at=fetched_at,
+                status="ok",
+                company_name=f"{symbol} Corp",
+                sector="Technology",
+                exchange="NASDAQ",
+                market_cap=floor * 2,
+            )
+        )
+    db.commit()
+
+    response = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    required_symbols = set(market_pressure.MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS)
+    assert response["summary"]["symbolCount"] == len(stale_symbols)
+    assert required_symbols.issubset(set(tiles))
+    assert len([symbol for symbol in tiles if symbol.startswith("SP")]) == len(stale_symbols) - len(required_symbols)
+    assert response["audit"]["status"] == "ok"
+    assert response["audit"]["importantMissingSymbols"] == []
+    assert response["audit"]["importantMissingMarketCapSymbols"] == []
+    assert response["audit"]["importantLowMarketCapSymbols"] == []
+    assert any(warning.startswith("market_pressure_audit:sp500_required_symbols_repaired:") for warning in response["warnings"])
+
+
+def test_market_pressure_repairs_required_market_caps_from_market_cap_endpoint(db, monkeypatch):
+    user = _seed_watchlist(db, symbols=["WATCH"])
+    required_symbols = list(market_pressure.MARKET_PRESSURE_REQUIRED_SP500_SYMBOLS)
+    symbols = required_symbols + [f"SP{idx:03d}" for idx in range(1, 503 - len(required_symbols) + 1)]
+    result = refresh_index_memberships(
+        db,
+        index_code="sp500",
+        rows=[{"symbol": symbol} for symbol in symbols],
+        source="fixture:index-memberships",
+        source_as_of=date(2026, 7, 14),
+        refreshed_at=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert result.status == "ok"
+    monkeypatch.setattr(market_pressure, "_load_live_one_day_price_fallback", lambda *_args, **_kwargs: {})
+    requested_symbols: list[str] = []
+
+    def fixture_market_capitalization(*, symbol, timeout_s=30, allow_user_request=False):
+        symbol = market_pressure.normalize_symbol(symbol)
+        requested_symbols.append(symbol)
+        assert allow_user_request is True
+        floor = market_pressure.MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS.get(symbol, 75_000_000_000)
+        return [
+            {
+                "symbol": symbol,
+                "marketCap": floor * 2,
+            }
+        ]
+
+    monkeypatch.setattr(market_pressure, "fetch_market_capitalization", fixture_market_capitalization)
+
+    response = build_market_pressure_response(
+        db,
+        universe="sp500",
+        period="1d",
+        view="market_pressure",
+        entitlements=ENTITLEMENTS["pro"],
+        user=user,
+        confirmation_loader=lambda _db, symbols: {},
+    )
+
+    tiles = _tiles_by_symbol(response)
+    assert set(required_symbols).issubset(set(tiles))
+    assert set(requested_symbols) == set(required_symbols)
+    assert response["audit"]["status"] == "ok"
+    assert response["audit"]["importantMissingMarketCapSymbols"] == []
+    assert response["audit"]["importantLowMarketCapSymbols"] == []
+    assert tiles["NVDA"]["marketCap"] >= market_pressure.MARKET_PRESSURE_IMPORTANT_MARKET_CAP_FLOORS["NVDA"]
+    assert any(warning.startswith("market_pressure_audit:important_market_cap_repaired:") for warning in response["warnings"])
+    cached = db.query(FundamentalsCache).filter_by(symbol="NVDA", provider=market_pressure.MARKET_PRESSURE_REQUIRED_CAP_REPAIR_PROVIDER).one()
+    assert cached.market_cap == tiles["NVDA"]["marketCap"]
+
+
 def test_market_pressure_audit_flags_cached_sp500_missing_important_symbols(db):
     user = _seed_watchlist(db, symbols=["WATCH"])
     symbols = ["NVDA", "AAPL", "MSFT", "AMZN", "TSLA", "JPM"] + [f"SP{idx:03d}" for idx in range(1, 498)]

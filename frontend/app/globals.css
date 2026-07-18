@@ -39,6 +39,11 @@ body {
   animation: market-pressure-progress-fill 22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+.market-pressure-progress-percent::after {
+  content: "8%";
+  animation: market-pressure-progress-percent 22s linear forwards;
+}
+
 .market-pressure-loading-message {
   position: relative;
   min-height: 1rem;
@@ -103,6 +108,30 @@ body {
   }
 }
 
+@keyframes market-pressure-progress-percent {
+  0% {
+    content: "8%";
+  }
+  10% {
+    content: "22%";
+  }
+  24% {
+    content: "43%";
+  }
+  42% {
+    content: "64%";
+  }
+  63% {
+    content: "80%";
+  }
+  82% {
+    content: "91%";
+  }
+  100% {
+    content: "96%";
+  }
+}
+
 @keyframes market-pressure-loading-message {
   0% {
     opacity: 0;
@@ -124,6 +153,11 @@ body {
   .market-pressure-progress-fill {
     animation: none;
     width: 72%;
+  }
+
+  .market-pressure-progress-percent::after {
+    animation: none;
+    content: "72%";
   }
 
   .market-pressure-loading-message span {

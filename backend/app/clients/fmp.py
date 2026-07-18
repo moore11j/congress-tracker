@@ -412,6 +412,26 @@ def fetch_company_screener(
     return []
 
 
+def fetch_market_capitalization(
+    *,
+    symbol: str,
+    timeout_s: int = 30,
+    allow_user_request: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch current market-cap rows from FMP's stable market-capitalization endpoint."""
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return []
+    return _request_stable_rows(
+        "market-capitalization",
+        params={"symbol": normalized},
+        category="market-capitalization",
+        symbol=normalized,
+        timeout_s=timeout_s,
+        allow_user_request=allow_user_request,
+    )
+
+
 def fetch_index_constituents(index_code: str, *, timeout_s: int = 30) -> list[dict[str, Any]]:
     """Fetch index constituent rows from FMP's stable API for background refresh jobs."""
     normalized = (index_code or "").strip().lower().replace("-", "").replace("_", "")

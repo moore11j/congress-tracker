@@ -16,8 +16,11 @@ export default function MarketPressureLoading() {
     <div className="space-y-5" aria-busy="true">
       <section className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Loading</p>
-        <div className="max-w-lg overflow-hidden rounded-md border border-emerald-300/20 bg-slate-950/80 p-1 shadow-inner shadow-black/30">
-          <div className="market-pressure-progress-fill h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)]" />
+        <div className="flex max-w-lg items-center gap-3">
+          <div className="min-w-0 flex-1 overflow-hidden rounded-md border border-emerald-300/20 bg-slate-950/80 p-1 shadow-inner shadow-black/30">
+            <div className="market-pressure-progress-fill h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)]" />
+          </div>
+          <span className="market-pressure-progress-percent w-11 shrink-0 text-right text-xs font-semibold tabular-nums text-emerald-100" aria-hidden="true" />
         </div>
         <p className="sr-only" aria-live="polite">Loading market pressure map.</p>
         <div className="market-pressure-loading-message text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/85" aria-hidden="true">
