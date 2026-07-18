@@ -268,14 +268,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
   const canonicalUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
-  let companyName: string | null = null;
-
-  try {
-    const profile = await getTickerProfile(normalizedSymbol, { source: "TickerPublicMetadata" });
-    companyName = profile.ticker.name;
-  } catch {
-    companyName = null;
-  }
+  const companyName: string | null = null;
 
   const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
   const description = publicTickerMetadataDescription(normalizedSymbol, companyName);

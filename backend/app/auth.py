@@ -20,6 +20,7 @@ SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _NONPRODUCTION_ENVS = {"local", "dev", "development", "test", "testing", "ci"}
+_CURRENT_USER_CACHE_ATTR = "_walnut_current_user"
 
 
 def normalize_email(value: str | None) -> str:
@@ -242,6 +243,19 @@ def request_session_token(request: Request) -> str | None:
     return None
 
 
+def _request_cached_user(request: Request) -> tuple[bool, UserAccount | None]:
+    state = getattr(request, "state", None)
+    if state is None or not hasattr(state, _CURRENT_USER_CACHE_ATTR):
+        return False, None
+    return True, getattr(state, _CURRENT_USER_CACHE_ATTR)
+
+
+def _set_request_cached_user(request: Request, user: UserAccount | None) -> None:
+    state = getattr(request, "state", None)
+    if state is not None:
+        setattr(state, _CURRENT_USER_CACHE_ATTR, user)
+
+
 def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> UserAccount:
     normalized = normalize_email(email)
     if not normalized or "@" not in normalized:
@@ -272,8 +286,15 @@ def get_or_create_user(db: Session, *, email: str, name: str | None = None) -> U
 
 
 def current_user(db: Session, request: Request, *, required: bool = False) -> UserAccount | None:
+    cached, cached_user = _request_cached_user(request)
+    if cached:
+        if cached_user is None and required:
+            raise HTTPException(status_code=401, detail="Sign in required.")
+        return cached_user
+
     parsed = verify_session_token(request_session_token(request))
     if not parsed:
+        _set_request_cached_user(request, None)
         if required:
             raise HTTPException(status_code=401, detail="Sign in required.")
         return None
@@ -287,6 +308,7 @@ def current_user(db: Session, request: Request, *, required: bool = False) -> Us
         user = db.execute(select(UserAccount).where(func.lower(UserAccount.email) == email)).scalar_one_or_none()
 
     if not user:
+        _set_request_cached_user(request, None)
         if required:
             raise HTTPException(status_code=401, detail="Account not found.")
         return None
@@ -295,6 +317,7 @@ def current_user(db: Session, request: Request, *, required: bool = False) -> Us
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended.")
 
+    _set_request_cached_user(request, user)
     return user
 
 

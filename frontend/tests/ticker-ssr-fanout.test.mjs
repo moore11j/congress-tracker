@@ -13,6 +13,7 @@ test("anonymous ticker SSR keeps public context bundle complete and defers detai
   const page = read("app/ticker/[symbol]/page.tsx");
 
   assert.match(page, /import \{ headers \} from "next\/headers"/);
+  assert.doesNotMatch(page, /TickerPublicMetadata/);
   assert.match(page, /getTickerContextBundle\(normalizedSymbol/);
   assert.match(page, /source: "TickerContextBundle"/);
   assert.match(page, /function shouldUseAnonymousTickerSsrShell/);

@@ -270,7 +270,7 @@ def _market_data_refresh_symbols(db, *, expected_date: date, limit: int) -> list
         for symbol in os.getenv("MARKET_DATA_REFRESH_PRIORITY_SYMBOLS", "").split(",")
         if symbol.strip()
     ]
-    for symbol in [*priority_symbols, benchmark_symbol]:
+    for symbol in [benchmark_symbol, *priority_symbols]:
         _add_unique_symbol(symbols, seen, symbol, limit=limit)
 
     since = datetime.now(timezone.utc) - timedelta(

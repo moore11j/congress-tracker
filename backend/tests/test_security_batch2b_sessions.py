@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 from starlette.responses import Response
 
+import app.auth as auth_module
 from app.auth import (
     SESSION_COOKIE_NAME,
     current_user,
@@ -164,6 +165,31 @@ def test_bearer_session_auth_requires_nonproduction_opt_in(monkeypatch):
         bearer_request = _request([(b"authorization", f"Bearer {bearer_token}".encode())])
 
         assert current_user(db, bearer_request, required=True).email == bearer_user.email
+    finally:
+        db.close()
+
+
+def test_current_user_reuses_request_local_resolution(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    db = _session()
+    try:
+        user = _user(db, "request-cache@example.com")
+        request = _request([(b"cookie", f"{SESSION_COOKIE_NAME}=signed-token".encode())])
+        calls = {"verify": 0}
+
+        def fake_verify(token: str | None):
+            calls["verify"] += 1
+            assert token == "signed-token"
+            return {"uid": user.id, "email": user.email}
+
+        monkeypatch.setattr(auth_module, "verify_session_token", fake_verify)
+
+        first = current_user(db, request, required=True)
+        second = current_user(db, request, required=True)
+
+        assert first is second
+        assert first.email == user.email
+        assert calls["verify"] == 1
     finally:
         db.close()
 
