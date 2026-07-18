@@ -2398,6 +2398,118 @@ def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(mon
             assert summary["macd"]["signal"] in {"bullish", "bearish", "neutral"}
 
 
+def test_ticker_price_volume_summary_uses_fundamentals_volume_when_latest_daily_row_is_close_only(monkeypatch):
+    monkeypatch.setattr(main_module, "_is_public_api_request_context", lambda: False)
+    engine = _engine()
+    today = date.today()
+    with Session(engine) as db:
+        for offset in range(70):
+            day = today - timedelta(days=69 - offset)
+            db.add(
+                PriceCache(
+                    symbol="NVDA",
+                    date=day.isoformat(),
+                    close=150 + offset,
+                    volume=None if offset == 69 else 100_000_000 + offset,
+                    day_volume=None if offset == 69 else 100_000_000 + offset,
+                )
+            )
+        db.add(
+            FundamentalsCache(
+                symbol="NVDA",
+                provider="fmp",
+                fetched_at=datetime.now(timezone.utc),
+                status="ok",
+                volume=164_369_080,
+                avg_volume=151_121_552,
+            )
+        )
+        db.commit()
+
+        summary = main_module._ticker_price_volume_summary(db, "NVDA")
+
+    assert summary["status"] == "active"
+    assert summary["title"] != "Limited price/volume history"
+    assert summary["latest_volume"] == 164_369_080
+    assert summary["avg_volume_20d"] is not None
+    assert summary["volume_vs_avg"] is not None
+
+
+def test_ticker_price_volume_summary_uses_intraday_one_minute_snapshot_for_live_requests(monkeypatch):
+    today = date.today()
+    monkeypatch.setattr(main_module, "_is_public_api_request_context", lambda: True)
+    monkeypatch.setattr(
+        main_module,
+        "_ticker_intraday_price_volume_snapshot",
+        lambda symbol: {
+            "price": 225.5,
+            "date": today.isoformat(),
+            "day_volume": 12_500_000,
+            "source": "historical-chart/1min",
+        },
+    )
+
+    engine = _engine()
+    with Session(engine) as db:
+        for offset in range(70):
+            day = today - timedelta(days=70 - offset)
+            db.add(
+                PriceCache(
+                    symbol="NVDA",
+                    date=day.isoformat(),
+                    close=150 + offset,
+                    volume=100_000_000 + offset,
+                    day_volume=100_000_000 + offset,
+                )
+            )
+        db.commit()
+
+        summary = main_module._ticker_price_volume_summary(db, "NVDA")
+
+    assert summary["status"] == "active"
+    assert summary["latest_close"] == 225.5
+    assert summary["latest_date"] == today.isoformat()
+    assert summary["latest_source"] == "historical-chart/1min"
+    assert summary["latest_volume"] == 12_500_000
+    assert any(line.startswith("Latest price: 225.50") for line in summary["lines"])
+    assert summary["title"] != "Limited price/volume history"
+
+
+def test_ticker_intraday_price_volume_snapshot_uses_stable_one_minute_chart(monkeypatch):
+    main_module._TICKER_INTRADAY_PRICE_VOLUME_CACHE.clear()
+    calls: list[tuple[str, dict]] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [
+                {"date": "2026-07-17 15:59:00", "close": 225.5, "volume": 200},
+                {"date": "2026-07-17 15:58:00", "close": 224.9, "volume": 300},
+                {"date": "2026-07-16 15:59:00", "close": 220.0, "volume": 10_000},
+            ]
+
+    def fake_get(url, params=None, timeout=3):
+        calls.append((url, dict(params or {})))
+        return FakeResponse()
+
+    monkeypatch.setenv("FMP_API_KEY", "secret-key")
+    monkeypatch.setenv("FMP_PERSIST_USAGE_EVENTS", "0")
+    monkeypatch.setattr(main_module.requests, "get", fake_get)
+
+    snapshot = main_module._ticker_intraday_price_volume_snapshot("NVDA")
+
+    assert calls
+    assert calls[0][0].endswith("/stable/historical-chart/1min")
+    assert calls[0][1]["symbol"] == "NVDA"
+    assert calls[0][1]["from"]
+    assert calls[0][1]["to"]
+    assert snapshot["price"] == 225.5
+    assert snapshot["date"] == "2026-07-17"
+    assert snapshot["day_volume"] == 500
+    assert snapshot["source"] == "historical-chart/1min"
+
+
 def test_ticker_price_volume_summary_loading_only_when_hydration_pending(monkeypatch):
     monkeypatch.setattr(
         main_module,

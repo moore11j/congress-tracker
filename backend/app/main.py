@@ -286,6 +286,7 @@ logger = logging.getLogger(__name__)
 
 _CONGRESS_IDENTITY_CACHE: dict[tuple, dict] = {}
 _TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_INTRADAY_PRICE_VOLUME_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "SPY"
@@ -8192,12 +8193,45 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
     latest_close = _parse_numeric(latest_point.get("close")) if latest_point else None
     previous_close = _parse_numeric(previous_point.get("close")) if previous_point else None
     latest_volume = _parse_numeric(latest_point.get("volume")) if latest_point else None
+    latest_date = latest_point.get("date") if latest_point else None
     recent_volumes = [
         float(point["volume"])
         for point in points[-20:]
         if _parse_numeric(point.get("volume")) is not None and _parse_numeric(point.get("volume")) > 0
     ]
     average_volume_20d = sum(recent_volumes) / len(recent_volumes) if recent_volumes else None
+    fundamentals_volume = None
+    fundamentals_avg_volume = None
+    try:
+        fundamentals = _latest_fundamentals_row(db, normalized)
+        if fundamentals is not None:
+            fundamentals_volume = _parse_numeric(fundamentals.volume)
+            fundamentals_avg_volume = _parse_numeric(fundamentals.avg_volume)
+    except Exception:
+        logger.info("ticker price-volume fundamentals fallback failed symbol=%s", normalized, exc_info=True)
+    intraday = _ticker_intraday_price_volume_snapshot(normalized) if _is_public_api_request_context() else {}
+    intraday_price = _parse_numeric(intraday.get("price")) if isinstance(intraday, dict) else None
+    intraday_volume = _parse_numeric(intraday.get("day_volume")) if isinstance(intraday, dict) else None
+    intraday_date = str(intraday.get("date") or "")[:10] if isinstance(intraday, dict) and intraday.get("date") else None
+    intraday_replaced_latest = False
+    if intraday_price is not None:
+        if latest_date and intraday_date and str(latest_date)[:10] > intraday_date:
+            pass
+        elif latest_date and intraday_date and str(latest_date)[:10] < intraday_date:
+            previous_close = latest_close
+            latest_close = intraday_price
+            latest_date = intraday_date
+            intraday_replaced_latest = True
+        else:
+            latest_close = intraday_price
+            latest_date = intraday_date or latest_date
+            intraday_replaced_latest = intraday_volume is not None and intraday_volume > 0
+    if (latest_volume is None or intraday_replaced_latest) and intraday_volume is not None and intraday_volume > 0:
+        latest_volume = intraday_volume
+    if latest_volume is None and fundamentals_volume is not None and fundamentals_volume > 0:
+        latest_volume = fundamentals_volume
+    if average_volume_20d is None and fundamentals_avg_volume is not None and fundamentals_avg_volume > 0:
+        average_volume_20d = fundamentals_avg_volume
     change_pct_1d = (
         round(((latest_close - previous_close) / previous_close) * 100, 4)
         if latest_close is not None and previous_close is not None and previous_close > 0
@@ -8215,14 +8249,15 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
         "point_count": len(closes),
         "volume_points": len(volumes),
         "has_price_series": bool(closes),
-        "has_volume": bool(volumes),
+        "has_volume": bool(volumes or latest_volume is not None or average_volume_20d is not None),
         "latest_close": latest_close,
         "previous_close": previous_close,
         "change_pct_1d": change_pct_1d,
         "latest_volume": latest_volume,
         "avg_volume_20d": average_volume_20d,
         "volume_vs_avg": volume_vs_avg,
-        "latest_date": latest_point.get("date") if latest_point else None,
+        "latest_date": latest_date,
+        "latest_source": intraday.get("source") if isinstance(intraday, dict) and intraday else "daily_cache",
         "last_volume": latest_volume,
         "average_volume": average_volume_20d,
     }
@@ -8368,6 +8403,7 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
     avg_volume_20d = _parse_numeric(cached_inputs.get("avg_volume_20d"))
     volume_vs_avg = _parse_numeric(cached_inputs.get("volume_vs_avg"))
     latest_date = cached_inputs.get("latest_date") if isinstance(cached_inputs.get("latest_date"), str) else None
+    latest_source = str(cached_inputs.get("latest_source") or "daily_cache")
     market_fields = {
         "latest_close": latest_close,
         "previous_close": previous_close,
@@ -8376,12 +8412,14 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         "avg_volume_20d": avg_volume_20d,
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
+        "latest_source": latest_source,
         "rsi": technicals.get("rsi") or {},
         "macd": technicals.get("macd") or {},
     }
     market_lines: list[str] = []
     if latest_close is not None:
-        market_lines.append(f"Latest close: {latest_close:.2f}")
+        latest_price_label = "Latest price" if latest_source == "historical-chart/1min" else "Latest close"
+        market_lines.append(f"{latest_price_label}: {latest_close:.2f}")
     if change_pct_1d is not None:
         market_lines.append(f"1D change: {change_pct_1d:+.2f}%")
     if latest_volume is not None and avg_volume_20d is not None and avg_volume_20d > 0:
@@ -8433,19 +8471,20 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
             **market_fields,
         }
     if latest_volume is None or avg_volume_20d is None:
+        missing_volume_reason = "missing_volume" if latest_volume is None else "missing_average_volume"
         _log_ticker_price_volume_summary(
             symbol=normalized,
-            status="limited",
+            status="active",
             direction=direction,
             has_price_series=has_price_series,
             has_volume=has_volume,
             has_technicals=has_technicals,
             point_count=price_points,
-            reason="missing_volume" if latest_volume is None else "missing_average_volume",
+            reason=missing_volume_reason,
         )
-        title = "Limited price/volume history"
+        title = f"{direction.title()} tape confirmation" if directional else "Price available"
         return {
-            "status": "limited",
+            "status": "active",
             "direction": direction,
             "title": title,
             "summary": title,
@@ -9432,6 +9471,110 @@ def _first_payload_row(payload) -> dict:
             return data[0]
         return payload
     return {}
+
+
+def _ticker_intraday_row_datetime(row: dict[str, Any]) -> datetime | None:
+    raw = row.get("date") or row.get("datetime") or row.get("timestamp")
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    text_value = str(raw).strip()
+    if not text_value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text_value[:19] if " " in text_value else text_value[:10], fmt)
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _ticker_intraday_price_volume_snapshot(symbol: str) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        return {}
+    cached = _TICKER_INTRADAY_PRICE_VOLUME_CACHE.get(normalized)
+    if cached and time.time() < cached[0]:
+        record_cache_hit(category="ticker:intraday-price-volume", symbol=normalized)
+        return dict(cached[1])
+
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        record_fallback(category="ticker:intraday-price-volume", symbol=normalized, reason="provider_disabled")
+        return {}
+
+    try:
+        ttl_seconds = max(15, min(int(os.getenv("TICKER_INTRADAY_PRICE_VOLUME_TTL_SECONDS", "60") or 60), 900))
+    except ValueError:
+        ttl_seconds = 60
+    try:
+        lookback_days = max(1, min(int(os.getenv("TICKER_INTRADAY_PRICE_VOLUME_LOOKBACK_DAYS", "7") or 7), 14))
+    except ValueError:
+        lookback_days = 7
+    today = datetime.now(timezone.utc).date()
+    params = {
+        "symbol": normalized,
+        "from": (today - timedelta(days=lookback_days)).isoformat(),
+        "to": today.isoformat(),
+        "apikey": api_key,
+    }
+    try:
+        ensure_fmp_live_allowed(category="ticker:intraday-price-volume", symbol=normalized, allow_user_request=True)
+        response = requests.get(
+            f"{FMP_BASE_URL}/historical-chart/1min",
+            params=params,
+            timeout=float(os.getenv("FMP_SNAPSHOT_TIMEOUT_SECONDS", "3") or 3),
+        )
+        record_provider_response(category="ticker:intraday-price-volume", symbol=normalized, status_code=response.status_code)
+        if response.status_code != 200:
+            return {}
+        payload = response.json()
+    except ProviderUnavailable as exc:
+        record_fallback(category="ticker:intraday-price-volume", symbol=normalized, reason=reason_from_exception(exc))
+        return {}
+    except Exception:
+        logger.info("ticker intraday price-volume snapshot failed symbol=%s", normalized, exc_info=True)
+        record_fallback(category="ticker:intraday-price-volume", symbol=normalized, reason="provider_unavailable")
+        return {}
+
+    rows = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return {}
+    valid_rows: list[tuple[datetime, dict[str, Any]]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        price = _parse_numeric(row.get("close")) or _parse_numeric(row.get("price"))
+        row_dt = _ticker_intraday_row_datetime(row)
+        if price is not None and price > 0 and row_dt is not None:
+            valid_rows.append((row_dt, row))
+    if not valid_rows:
+        return {}
+
+    latest_dt, latest_row = max(valid_rows, key=lambda item: item[0])
+    latest_price = _parse_numeric(latest_row.get("close")) or _parse_numeric(latest_row.get("price"))
+    latest_day = latest_dt.date()
+    session_volume = 0.0
+    for row_dt, row in valid_rows:
+        if row_dt.date() != latest_day:
+            continue
+        volume = _parse_numeric(row.get("volume"))
+        if volume is not None and volume > 0:
+            session_volume += volume
+    snapshot = {
+        "price": latest_price,
+        "date": latest_dt.strftime("%Y-%m-%d"),
+        "asof_ts": latest_dt.isoformat(),
+        "day_volume": session_volume if session_volume > 0 else None,
+        "source": "historical-chart/1min",
+    }
+    _TICKER_INTRADAY_PRICE_VOLUME_CACHE[normalized] = (time.time() + ttl_seconds, dict(snapshot))
+    return snapshot
 
 
 def _is_public_api_request_context() -> bool:

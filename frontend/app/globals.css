@@ -34,27 +34,6 @@ body {
   }
 }
 
-@keyframes market-pressure-progress {
-  0% {
-    transform: scaleX(0.04);
-    opacity: 0.72;
-  }
-  28% {
-    transform: scaleX(0.36);
-    opacity: 1;
-  }
-  62% {
-    transform: scaleX(0.72);
-  }
-  84% {
-    transform: scaleX(0.9);
-  }
-  96%,
-  100% {
-    transform: scaleX(1);
-  }
-}
-
 @keyframes market-pressure-status {
   0% {
     opacity: 0;

@@ -14,6 +14,7 @@ const loadingMessages = [
 
 export default function MarketPressureLoading() {
   const [messageIndex, setMessageIndex] = useState(0);
+  const [progress, setProgress] = useState(8);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -22,14 +23,29 @@ export default function MarketPressureLoading() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setProgress((value) => {
+        if (value >= 96) return 96;
+        const remaining = 96 - value;
+        const step = Math.max(0.25, remaining * 0.08);
+        return Math.min(96, value + step);
+      });
+    }, 260);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return (
     <div className="space-y-5" aria-busy="true" aria-live="polite">
       <section className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Loading</p>
         <div className="max-w-lg overflow-hidden rounded-md border border-emerald-300/20 bg-slate-950/80 p-1 shadow-inner shadow-black/30">
-          <div className="h-3 origin-left rounded-sm bg-gradient-to-r from-emerald-400 via-cyan-300 to-white shadow-[0_0_18px_rgba(52,211,153,0.45)] motion-safe:animate-[market-pressure-progress_3.2s_cubic-bezier(0.3,0,0.05,1)_infinite]" />
+          <div
+            className="h-3 rounded-sm bg-gradient-to-r from-emerald-500 via-emerald-300 to-lime-100 shadow-[0_0_18px_rgba(52,211,153,0.5)] transition-[width] duration-300 ease-out"
+            style={{ width: `${progress}%` }}
+          />
         </div>
-        <p key={messageIndex} className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100/85 motion-safe:animate-[market-pressure-status_420ms_ease-out]">
+        <p key={messageIndex} className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/85 motion-safe:animate-[market-pressure-status_420ms_ease-out]">
           {loadingMessages[messageIndex]}
         </p>
       </section>

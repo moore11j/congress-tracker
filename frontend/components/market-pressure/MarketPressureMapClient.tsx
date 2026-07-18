@@ -247,43 +247,69 @@ function sumTreemapWeight<T>(items: TreemapWeightedItem<T>[]) {
 }
 
 function layoutTreemap<T>(items: TreemapWeightedItem<T>[], rect: TreemapRect = TREEMAP_ROOT_RECT): TreemapLayoutItem<T>[] {
-  const validItems = items.filter((item) => item.weight > 0);
+  const validItems = items.filter((item) => item.weight > 0).sort((a, b) => b.weight - a.weight);
   if (validItems.length === 0) return [];
   if (validItems.length === 1) return [{ ...validItems[0], rect }];
 
   const totalWeight = sumTreemapWeight(validItems);
   if (totalWeight <= 0) return [];
 
-  let runningWeight = 0;
-  let splitIndex = 1;
-  let bestDelta = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < validItems.length; index += 1) {
-    runningWeight += validItems[index - 1].weight;
-    const delta = Math.abs(totalWeight / 2 - runningWeight);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      splitIndex = index;
+  const areaScale = (rect.width * rect.height) / totalWeight;
+  const pending = validItems.map((item) => ({ ...item, area: Math.max(0, item.weight * areaScale) }));
+  const layouts: TreemapLayoutItem<T>[] = [];
+
+  function worstRatio(row: typeof pending, side: number) {
+    if (row.length === 0 || side <= 0) return Number.POSITIVE_INFINITY;
+    const areas = row.map((item) => item.area).filter((area) => area > 0);
+    if (areas.length === 0) return Number.POSITIVE_INFINITY;
+    const sum = areas.reduce((total, area) => total + area, 0);
+    const max = Math.max(...areas);
+    const min = Math.min(...areas);
+    const sideSquared = side * side;
+    const sumSquared = sum * sum;
+    return Math.max((sideSquared * max) / sumSquared, sumSquared / (sideSquared * min));
+  }
+
+  function layoutRow(row: typeof pending, remaining: TreemapRect): TreemapRect {
+    const rowArea = row.reduce((total, item) => total + item.area, 0);
+    if (remaining.width >= remaining.height) {
+      const rowHeight = Math.min(remaining.height, rowArea / remaining.width);
+      let x = remaining.x;
+      row.forEach((item, index) => {
+        const isLast = index === row.length - 1;
+        const width = isLast ? remaining.x + remaining.width - x : item.area / rowHeight;
+        layouts.push({ item: item.item, weight: item.weight, rect: { x, y: remaining.y, width, height: rowHeight } });
+        x += width;
+      });
+      return { x: remaining.x, y: remaining.y + rowHeight, width: remaining.width, height: remaining.height - rowHeight };
+    }
+
+    const rowWidth = Math.min(remaining.width, rowArea / remaining.height);
+    let y = remaining.y;
+    row.forEach((item, index) => {
+      const isLast = index === row.length - 1;
+      const height = isLast ? remaining.y + remaining.height - y : item.area / rowWidth;
+      layouts.push({ item: item.item, weight: item.weight, rect: { x: remaining.x, y, width: rowWidth, height } });
+      y += height;
+    });
+    return { x: remaining.x + rowWidth, y: remaining.y, width: remaining.width - rowWidth, height: remaining.height };
+  }
+
+  let remaining = { ...rect };
+  let row: typeof pending = [];
+  while (pending.length > 0) {
+    const next = pending[0];
+    const side = Math.min(remaining.width, remaining.height);
+    if (row.length === 0 || worstRatio([...row, next], side) <= worstRatio(row, side)) {
+      row.push(next);
+      pending.shift();
+    } else {
+      remaining = layoutRow(row, remaining);
+      row = [];
     }
   }
-
-  const firstItems = validItems.slice(0, splitIndex);
-  const secondItems = validItems.slice(splitIndex);
-  const firstWeight = sumTreemapWeight(firstItems);
-  const firstRatio = firstWeight / totalWeight;
-
-  if (rect.width >= rect.height) {
-    const firstWidth = rect.width * firstRatio;
-    return [
-      ...layoutTreemap(firstItems, { x: rect.x, y: rect.y, width: firstWidth, height: rect.height }),
-      ...layoutTreemap(secondItems, { x: rect.x + firstWidth, y: rect.y, width: rect.width - firstWidth, height: rect.height }),
-    ];
-  }
-
-  const firstHeight = rect.height * firstRatio;
-  return [
-    ...layoutTreemap(firstItems, { x: rect.x, y: rect.y, width: rect.width, height: firstHeight }),
-    ...layoutTreemap(secondItems, { x: rect.x, y: rect.y + firstHeight, width: rect.width, height: rect.height - firstHeight }),
-  ];
+  if (row.length > 0) layoutRow(row, remaining);
+  return layouts.filter((layout) => layout.rect.width > 0 && layout.rect.height > 0);
 }
 
 function rectStyle(rect: TreemapRect): CSSProperties {
@@ -442,13 +468,13 @@ function MarketTile({
 }) {
   const label = accessibleTileLabel(tile, period);
   const tileArea = rect ? rect.width * rect.height : 1000;
-  const hideLabel = rect ? rect.width < 10 || rect.height < 8 || tileArea < 80 : false;
-  const showPrice = rect ? !hideLabel && rect.width >= 14 && rect.height >= 11 && tileArea >= 155 : true;
-  const compact = rect ? rect.width < 16 || rect.height < 13 || tileArea < 220 : false;
-  const medium = rect ? rect.width < 23 || rect.height < 18 || tileArea < 430 : false;
-  const feature = rect ? rect.width >= 24 && rect.height >= 18 && tileArea >= 520 : false;
-  const hero = rect ? rect.width >= 36 && rect.height >= 28 && tileArea >= 980 : false;
-  const showDiagnostics = rect ? colorMode === "price" && !hideLabel && !feature && rect.width >= 30 && rect.height >= 22 && tileArea >= 650 : colorMode === "price";
+  const hideLabel = rect ? rect.width < 4.8 || rect.height < 4.2 || tileArea < 22 : false;
+  const showPrice = rect ? !hideLabel && rect.width >= 6.4 && rect.height >= 6.2 && tileArea >= 42 : true;
+  const compact = rect ? rect.width < 8.5 || rect.height < 7.5 || tileArea < 72 : false;
+  const medium = rect ? rect.width < 13 || rect.height < 10.5 || tileArea < 140 : false;
+  const feature = rect ? rect.width >= 15 && rect.height >= 12 && tileArea >= 190 : false;
+  const hero = rect ? rect.width >= 22 && rect.height >= 18 && tileArea >= 430 : false;
+  const showDiagnostics = rect ? colorMode === "price" && !hideLabel && !feature && rect.width >= 18 && rect.height >= 14 && tileArea >= 240 : colorMode === "price";
   const tileClassName = rect
     ? `group absolute flex flex-col overflow-hidden rounded-none px-1.5 py-1 text-left shadow-none transition hover:z-20 hover:brightness-110 focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 focus-visible:ring-offset-0 ${feature ? "justify-center" : "justify-start"} ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`
     : `group relative min-h-[5.7rem] overflow-hidden rounded-md p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${tileFillClass(tile, colorMode)} ${confirmationFrameClass(tile)}`;
@@ -474,12 +500,12 @@ function MarketTile({
         {directionGlyph[tile.confirmationDirection]}
       </span>
       {!hideLabel ? (
-        <span className={`${compact ? "text-[7px] sm:text-[9px]" : medium ? "text-[8px] sm:text-xs" : hero ? "text-lg sm:text-3xl" : feature ? "text-sm sm:text-2xl" : "text-[10px] sm:text-base"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "text-[7px] sm:text-[9px]" : medium ? "text-[8px] sm:text-[11px]" : hero ? "text-lg sm:text-2xl" : feature ? "text-sm sm:text-xl" : "text-[10px] sm:text-sm"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tile.symbol}
         </span>
       ) : null}
       {showPrice ? (
-        <span className={`${compact ? "mt-0.5 text-[7px] sm:text-[8px]" : medium ? "mt-0.5 text-[8px] sm:text-[10px]" : hero ? "mt-1 text-sm sm:text-lg" : feature ? "mt-0.5 text-xs sm:mt-1 sm:text-base" : "mt-0.5 text-[9px] sm:text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "mt-0.5 text-[7px] sm:text-[8px]" : medium ? "mt-0.5 text-[8px] sm:text-[10px]" : hero ? "mt-1 text-sm sm:text-lg" : feature ? "mt-0.5 text-xs sm:mt-1 sm:text-sm" : "mt-0.5 text-[9px] sm:text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tileMetricLabel(tile, colorMode)}
         </span>
       ) : null}
