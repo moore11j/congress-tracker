@@ -1170,11 +1170,12 @@ def _data_state(
     stale: bool,
     layers: dict[str, dict[str, Any]],
 ) -> str:
+    _ = layers
     if stale:
         return "stale"
-    if not price.complete and direction == "unavailable":
+    if direction == "unavailable":
         return "unavailable"
-    if not price.complete or any(layer.get("status") == "unavailable" for layer in layers.values()):
+    if not price.complete:
         return "partial"
     return "complete"
 

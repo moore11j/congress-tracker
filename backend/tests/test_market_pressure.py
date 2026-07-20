@@ -333,6 +333,7 @@ def test_market_pressure_classifies_complete_canonical_confirmation_and_divergen
 
     tiles = _tiles_by_symbol(response)
     assert tiles["HA"]["confirmationDirection"] == "bullish"
+    assert tiles["HA"]["dataState"] == "complete"
     assert tiles["HA"]["divergence"] == "hidden_accumulation"
     assert tiles["FW"]["confirmationDirection"] == "bearish"
     assert tiles["FW"]["divergence"] == "fragile_winner"
@@ -347,6 +348,8 @@ def test_market_pressure_classifies_complete_canonical_confirmation_and_divergen
     assert response["period"] == "5d"
     assert response["summary"]["hiddenAccumulationCount"] == 1
     assert response["summary"]["fragileWinnerCount"] == 1
+    assert response["summary"]["partialCount"] == 0
+    assert response["summary"]["unavailableCount"] == 1
     assert response["sectors"][0]["summary"]["averagePriceChangePct"] is not None
     assert tiles["HA"]["confirmationScore"] == bundles["HA"]["score"]
 

@@ -163,7 +163,7 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.doesNotMatch(client, /font-bold/);
   assert.doesNotMatch(client, /font-weight="800"/);
   assert.doesNotMatch(client, /font-weight="700"/);
-  assert.match(client, /aria-label="Market Pressure colour mode"/);
+  assert.match(client, /aria-label="Market Pressure data mode"/);
   assert.doesNotMatch(client, /function MarketPressureLegend/);
   assert.doesNotMatch(client, /Tile colour/);
   assert.doesNotMatch(client, /Dashed border/);

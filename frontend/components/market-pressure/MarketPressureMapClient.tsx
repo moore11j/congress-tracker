@@ -450,7 +450,6 @@ function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) 
 }
 
 function MarketSummaryStrip({ data }: { data: MarketPressureMapResult }) {
-  const partialUnavailable = data.summary.partialCount + data.summary.unavailableCount;
   const universeDetails = data.capabilities.universeDetails?.[data.universe];
   const items = [
     ["Bullish", data.summary.bullishCount],
@@ -458,11 +457,10 @@ function MarketSummaryStrip({ data }: { data: MarketPressureMapResult }) {
     ["Conflicted", data.summary.conflictedCount],
     ["Hidden Accumulation", data.summary.hiddenAccumulationCount],
     ["Fragile Winners", data.summary.fragileWinnerCount],
-    ["Partial / Unavailable", partialUnavailable],
   ] as const;
   return (
     <section className="grid gap-2 border-y border-white/10 bg-slate-950/35 px-1 py-3 md:grid-cols-[1fr_auto] md:items-center">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
         {items.map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-md border border-white/10 bg-slate-900/55 px-3 py-2">
             <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{label}</div>
@@ -890,7 +888,7 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
       return `<g><rect x="${x}" y="${y}" width="${sectorWidth}" height="${sectorHeight}" fill="#020617" stroke="#020617" stroke-width="2"/>${headerMarkup}${tileMarkup}</g>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="600" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - ${svgEscape(colorMode === "confirmation" ? "Confirmation colour" : "Price colour")} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="600" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="596" width="1112" height="1" fill="#1e293b"/><g>${legendMarkup}</g><text x="44" y="652" fill="#cbd5e1" font-size="13" font-family="Arial">${svgEscape(colorMode === "confirmation" ? "Direction uses the canonical confirmation classification. Conflicted is one state." : "Colour uses price performance.")}</text><text x="1018" y="652" fill="#34d399" font-size="16" font-weight="600" font-family="Arial">walnutmarkets.com</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="600" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - ${svgEscape(colorMode === "confirmation" ? "Confirmation mode" : "Price mode")} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="600" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="596" width="1112" height="1" fill="#1e293b"/><g>${legendMarkup}</g><text x="44" y="652" fill="#cbd5e1" font-size="13" font-family="Arial">${svgEscape(colorMode === "confirmation" ? "Mode uses the canonical confirmation classification. Conflicted is one state." : "Mode uses price performance.")}</text><text x="1018" y="652" fill="#34d399" font-size="16" font-weight="600" font-family="Arial">walnutmarkets.com</text></svg>`;
 }
 
 function xShareText(data: MarketPressureMapResult, query: QueryState) {
@@ -1137,13 +1135,13 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Colour</div>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure colour mode">
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Mode</div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure data mode">
               {(["price", "confirmation"] as const).map((option) => (
                 <AnalyticsButton
                   key={option}
                   active={colorMode === option}
-                  ariaLabel={`Colour map by ${option}`}
+                  ariaLabel={`Set data mode to ${option}`}
                   onClick={() => {
                     setColorMode(option);
                     recordProductEvent({ event_name: "market_pressure_colour_mode_changed", properties: { colour_mode: option } });
