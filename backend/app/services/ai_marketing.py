@@ -293,6 +293,9 @@ OPENAI_RATE_LIMIT_MESSAGE = "OpenAI API rate limit reached. Wait a moment, then 
 OPENAI_GENERIC_SUGGESTION_MESSAGE = "OpenAI suggestion request failed. Check OpenAI status and the configured model, then regenerate."
 
 _TICKER_PATTERN = re.compile(r"(?<![A-Za-z0-9])\$?([A-Z]{1,5})(?![A-Za-z0-9])")
+_CASHTAG_TICKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])\$([A-Za-z][A-Za-z0-9]{0,4}(?:\.[A-Za-z]{1,2})?)(?![A-Za-z0-9])"
+)
 _COMMON_FALSE_TICKERS = {
     "A",
     "AI",
@@ -3795,7 +3798,7 @@ def _x_tweet_to_source_item(
     username = str(author.get("username") or "").strip()
     name = str(author.get("name") or username or "X user").strip()
     source_url = _x_author_public_url(username, tweet_id)
-    tickers = _matched_tickers(text, _load_list(campaign.tickers_json))
+    tickers = _matched_tickers(text, _load_list(campaign.tickers_json), require_cashtag=True)
     walnut_context = _walnut_context_for_research_tickers(db, tickers[:3], title=text[:140], excerpt=text) if tickers else {}
     metrics = tweet.get("public_metrics") if isinstance(tweet.get("public_metrics"), dict) else {}
     score = _x_reply_candidate_score(tweet, author, matched_tickers=tickers, target_handles=target_handles)
@@ -3889,7 +3892,7 @@ def _x_reply_candidate_items(db: Session, campaign: AiMarketingCampaign) -> list
             if username.lower() in ignore_handles:
                 continue
             text = str(tweet.get("text") or "")
-            if require_ticker and not _matched_tickers(text, _load_list(campaign.tickers_json)):
+            if require_ticker and not _matched_tickers(text, _load_list(campaign.tickers_json), require_cashtag=True):
                 continue
             item = _x_tweet_to_source_item(db, campaign, tweet, author, source_mode=mode, target_handles=target_handles)
             if not item or int(item.source_score or 0) < min_score:
@@ -4137,7 +4140,11 @@ def upsert_source_item(
     campaign_keywords = _load_list(campaign.keywords_json) if campaign else []
     campaign_tickers = _load_list(campaign.tickers_json) if campaign else []
     matched_keywords = _matched_keywords(text_for_matching, campaign_keywords)
-    matched_tickers = _matched_tickers(text_for_matching, campaign_tickers)
+    matched_tickers = _matched_tickers(
+        text_for_matching,
+        campaign_tickers,
+        require_cashtag=item.source_provider == X_REPLY_PROVIDER,
+    )
     metadata_tickers = _normalized_tickers((item.metadata or {}).get("article_tickers") if item.metadata else [])
     matched_tickers = _dedupe_strings([*matched_tickers, *metadata_tickers])
     item_metadata = dict(item.metadata or {})
@@ -7034,18 +7041,19 @@ def _matched_keywords(text: str, keywords: list[str]) -> list[str]:
     return [keyword for keyword in keywords if keyword.lower() in folded]
 
 
-def _matched_tickers(text: str, campaign_tickers: list[str]) -> list[str]:
+def _matched_tickers(text: str, campaign_tickers: list[str], *, require_cashtag: bool = False) -> list[str]:
     detected = set()
-    for match in _TICKER_PATTERN.finditer(text):
+    pattern = _CASHTAG_TICKER_PATTERN if require_cashtag else _TICKER_PATTERN
+    for match in pattern.finditer(text):
         raw = match.group(0)
         ticker = match.group(1).upper()
         if ticker in _COMMON_FALSE_TICKERS:
             continue
-        if raw.startswith("$") or match.group(1).isupper():
+        if require_cashtag or raw.startswith("$") or match.group(1).isupper():
             detected.add(ticker)
     campaign = set(_normalized_tickers(campaign_tickers))
     upper_text = text.upper()
-    if campaign:
+    if campaign and not require_cashtag:
         detected |= {ticker for ticker in campaign if ticker in upper_text or f"${ticker}" in upper_text}
     return sorted(detected)
 

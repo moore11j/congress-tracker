@@ -1999,6 +1999,89 @@ def _build_member_profile(db: Session, member: Member) -> dict:
     }
 
 
+_NON_SECTOR_MEMBER_TRADE_LABELS = {
+    "crypto",
+    "equity",
+    "etf",
+    "etf_fund",
+    "fund",
+    "mutual fund",
+    "other",
+    "security",
+    "securities",
+    "stock",
+    "stocks",
+    "treasury",
+}
+
+
+def _clean_member_trade_sector(value: object | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    normalized = cleaned.lower().replace("-", "_")
+    if normalized in _NON_SECTOR_MEMBER_TRADE_LABELS:
+        return None
+    if normalized in {"n/a", "na", "none", "null", "unknown"}:
+        return None
+    return cleaned
+
+
+def _member_trade_sector_map(db: Session, symbols: list[str]) -> dict[str, str]:
+    normalized_symbols = sorted({symbol for raw in symbols for symbol in [normalize_symbol(raw)] if symbol})
+    if not normalized_symbols:
+        return {}
+
+    sector_by_symbol: dict[str, str] = {}
+    try:
+        security_rows = db.execute(
+            select(Security.symbol, Security.sector)
+            .where(Security.symbol.in_(normalized_symbols))
+        ).all()
+        for symbol, sector in security_rows:
+            normalized_symbol = normalize_symbol(symbol)
+            cleaned_sector = _clean_member_trade_sector(sector)
+            if normalized_symbol and cleaned_sector:
+                sector_by_symbol[normalized_symbol] = cleaned_sector
+    except OperationalError:
+        pass
+
+    missing_symbols = [symbol for symbol in normalized_symbols if symbol not in sector_by_symbol]
+    if missing_symbols:
+        try:
+            metadata = get_ticker_meta(db, missing_symbols, allow_refresh=False, enqueue_refresh=True)
+        except Exception:
+            logger.exception("member_trades_sector_meta_lookup_failed symbols=%s", len(missing_symbols))
+            metadata = {}
+        for symbol in missing_symbols:
+            cleaned_sector = _clean_member_trade_sector((metadata.get(symbol) or {}).get("sector"))
+            if cleaned_sector:
+                sector_by_symbol[symbol] = cleaned_sector
+
+    missing_symbols = [symbol for symbol in normalized_symbols if symbol not in sector_by_symbol]
+    if missing_symbols:
+        try:
+            fundamentals_rows = db.execute(
+                select(FundamentalsCache.symbol, FundamentalsCache.sector)
+                .where(FundamentalsCache.symbol.in_(missing_symbols))
+                .where(FundamentalsCache.status == "ok")
+                .order_by(FundamentalsCache.symbol, FundamentalsCache.fetched_at.desc())
+            ).all()
+        except OperationalError:
+            fundamentals_rows = []
+        for symbol, sector in fundamentals_rows:
+            normalized_symbol = normalize_symbol(symbol)
+            if not normalized_symbol or normalized_symbol in sector_by_symbol:
+                continue
+            cleaned_sector = _clean_member_trade_sector(sector)
+            if cleaned_sector:
+                sector_by_symbol[normalized_symbol] = cleaned_sector
+
+    return sector_by_symbol
+
+
 def _member_recent_trades(
     db: Session,
     member_pk: int,
@@ -2053,6 +2136,7 @@ def _member_recent_trades(
             ]
             baseline_map = _congress_baseline_map_for_symbols(db, event_symbols) if event_symbols else {}
             confirmation_metrics_map = get_confirmation_metrics_for_symbols(db, event_symbols) if event_symbols else {}
+            sector_map = _member_trade_sector_map(db, event_symbols)
             quote_symbols = _cap_feed_quote_symbols(event_symbols)
             try:
                 current_quote_meta = (
@@ -2105,6 +2189,10 @@ def _member_recent_trades(
                     payload.get("securityDescription"),
                     payload.get("description"),
                 ) or "Unresolved security"
+                sector = (
+                    _clean_member_trade_sector(_payload_text(payload, "sector", "gics_sector", "gicsSector"))
+                    or (sector_map.get(symbol) if symbol else None)
+                )
                 asset_class = canonical_asset_class_value(
                     event_type=event.event_type,
                     asset_class=_payload_text(payload, "asset_class", "assetClass")
@@ -2174,6 +2262,7 @@ def _member_recent_trades(
                     "event_id": event.id,
                     "symbol": symbol,
                     "security_name": security_name,
+                    "sector": sector,
                     "asset_class": asset_class,
                     "instrument_type": _payload_text(payload, "instrument_type", "instrumentType"),
                     "maturity_date": _payload_text(payload, "maturity_date", "maturityDate"),
@@ -2302,6 +2391,12 @@ def _member_recent_trades(
 
     trades = []
     seen_keys: set[tuple] = set()
+    tx_symbols = [
+        normalize_symbol(s.symbol)
+        for _, s in rows
+        if s is not None and normalize_symbol(s.symbol)
+    ]
+    tx_sector_map = _member_trade_sector_map(db, tx_symbols)
 
     for tx, s in rows:
         # Keep a defensive trade-date gate in Python so this section always
@@ -2370,6 +2465,11 @@ def _member_recent_trades(
             or display_symbol
             or "Security"
         )
+        sector = (
+            _clean_member_trade_sector(s.sector if s is not None else None)
+            or _clean_member_trade_sector(_payload_text(outcome_payload, "sector", "gics_sector", "gicsSector"))
+            or (tx_sector_map.get(display_symbol) if display_symbol else None)
+        )
         smart_score = outcome_payload.get("smart_score")
         if not isinstance(smart_score, (int, float)):
             smart_score = outcome_payload.get("smartScore")
@@ -2423,6 +2523,7 @@ def _member_recent_trades(
             "event_id": matched_outcome.event_id if matched_outcome else None,
             "symbol": display_symbol if s is not None else (classification.symbol if classification and classification.asset_class == "crypto" else None),
             "security_name": security_name,
+            "sector": sector,
             "asset_class": s.asset_class if s is not None else (classification.asset_class if classification else "other"),
             "instrument_type": classification.instrument_type if classification else None,
             "maturity_date": classification.maturity_date if classification else None,

@@ -67,6 +67,7 @@ from app.services.ai_marketing import (
     X_REFRESH_TOKEN,
     _normalize_social_card_spec,
     _ensure_x_hashtags,
+    _matched_tickers,
     _generated_thumbnail_asset,
     _thumbnail_headline,
     _social_card_asset,
@@ -74,6 +75,8 @@ from app.services.ai_marketing import (
     fetch_fmp_articles,
     score_article_candidate,
     recommended_destination_url,
+    upsert_source_item,
+    X_REPLY_PROVIDER,
 )
 from app.services.email_templates import seed_default_email_templates
 
@@ -1812,6 +1815,43 @@ def test_x_copy_normalizer_strips_hashtags_and_adds_cashtags():
     assert text == "TSM margin context is cleaner. $TSM"
     assert "#TSM" not in text
     assert "#Markets" not in text
+
+
+def test_x_reply_ticker_matching_requires_cashtags():
+    text = (
+        "RT @ginamilan_: Oil prices were mixed after the U.S. could be pursued "
+        "based on national interests. $SS and $U are moving."
+    )
+
+    assert _matched_tickers(text, ["RT", "U", "S"], require_cashtag=True) == ["SS", "U"]
+
+
+def test_x_reply_opportunity_does_not_store_bare_retweet_or_us_tokens():
+    db = _session()
+    try:
+        opportunity, created = upsert_source_item(
+            db,
+            None,
+            SourceItem(
+                platform="x",
+                source_id="x-reply:test-retweet-us",
+                source_url="https://x.com/CNBC/status/test-retweet-us",
+                source_provider=X_REPLY_PROVIDER,
+                campaign_type="x_reply_campaign",
+                content_type="x_reply",
+                source_platform="x",
+                title="Reply candidate: @CNBC",
+                excerpt=(
+                    "RT @ginamilan_: Oil prices were mixed on Monday after Iran's Foreign Ministry "
+                    "said negotiations with the U.S. could be pursued based on national interests."
+                ),
+            ),
+        )
+
+        assert created is True
+        assert json.loads(opportunity.matched_tickers_json) == []
+    finally:
+        db.close()
 
 
 def test_thumbnail_headline_rejects_vague_bearish_confirmation_phrase():

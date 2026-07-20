@@ -4088,17 +4088,20 @@ export default async function TickerPage({ params, searchParams }: Props) {
         <div className="grid w-[calc(100vw-2rem)] flex-none grid-cols-2 gap-2 [&>*]:w-full [&>*>button]:w-full [&>a]:justify-center [&>button]:justify-center sm:flex sm:w-auto sm:flex-initial sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:w-auto sm:[&>*>button]:w-auto">
           <AddTickerToWatchlist symbol={normalizedSymbol} />
           <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
-          <ResearchActions
-            subject={{
-              kind: "ticker",
-              symbol: normalizedSymbol,
-              companyName: tickerName,
-              canonicalUrl: canonicalTickerUrl,
-              quote: contextBundle?.quote ?? null,
-              decisionLayer: contextBundle?.decision_layer ?? null,
-              signalsSummary: contextBundle?.signals_summary ?? null,
-            }}
-          />
+          {canViewProContext ? (
+            <ResearchActions
+              canCreateResearch={canViewProContext}
+              subject={{
+                kind: "ticker",
+                symbol: normalizedSymbol,
+                companyName: tickerName,
+                canonicalUrl: canonicalTickerUrl,
+                quote: contextBundle?.quote ?? null,
+                decisionLayer: contextBundle?.decision_layer ?? null,
+                signalsSummary: contextBundle?.signals_summary ?? null,
+              }}
+            />
+          ) : null}
           <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>

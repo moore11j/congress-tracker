@@ -11,13 +11,13 @@ import {
   type MemberPortfolioPerformance,
   type MemberTradesResponse,
 } from "@/lib/api";
+import type { MemberTrade } from "@/lib/types";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 import { Badge } from "@/components/Badge";
 import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
-import { cardClassName, compactInteractiveSurfaceClassName } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import {
   defaultEntitlements,
@@ -35,6 +35,8 @@ import {
 } from "@/lib/portfolioPerformance.mjs";
 
 const REFRESHING_COPY = "Refreshing analytics from disclosed activity.";
+const CARD = "overflow-hidden rounded-lg border border-white/10 bg-[#0a1726]/95 shadow-[0_14px_34px_rgba(0,0,0,0.22)]";
+const PANEL = "rounded-lg border border-white/8 bg-white/[0.025]";
 
 function pct(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -63,12 +65,46 @@ function tone(n: number | null | undefined) {
   return "text-white/70";
 }
 
-function compactUSD(n: number) {
+function compactUSD(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
-  if (abs >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+  return `${sign}$${Math.round(abs)}`;
+}
+
+function compactNumber(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
   if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return `${Math.round(n)}`;
+}
+
+function amountMid(trade: MemberTrade) {
+  if (trade.estimated_trade_value != null && Number.isFinite(trade.estimated_trade_value)) return trade.estimated_trade_value;
+  const min = trade.amount_range_min;
+  const max = trade.amount_range_max;
+  if (min != null && max != null) return (min + max) / 2;
+  return max ?? min ?? null;
+}
+
+function rangeLabel(min: number | null | undefined, max: number | null | undefined) {
+  if (min == null && max == null) return "Range unavailable";
+  if (min != null && max != null && min !== max) return `${compactUSD(min)} - ${compactUSD(max)}`;
+  return compactUSD(max ?? min);
+}
+
+function sectorLabel(value: string | null | undefined) {
+  const cleaned = (value ?? "").trim();
+  if (!cleaned) return "Sector unavailable";
+  const normalized = cleaned.toLowerCase();
+  if (["equity", "stock", "stocks", "security", "securities", "other", "etf", "fund", "treasury", "crypto"].includes(normalized)) {
+    return "Sector unavailable";
+  }
+  return cleaned;
 }
 
 function tradeDirection(tradeType?: string | null): "buy" | "sell" | null {
@@ -126,13 +162,117 @@ function tradesFallback(memberId: string, lookbackDays: number): MemberTradesRes
   };
 }
 
+function sortedTrades(items: MemberTrade[]) {
+  return [...items].sort((left, right) => {
+    const leftDate = Date.parse(left.report_date ?? left.trade_date ?? "");
+    const rightDate = Date.parse(right.report_date ?? right.trade_date ?? "");
+    return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0);
+  });
+}
+
+function daysBetween(later: string | null | undefined, earlier: string | null | undefined) {
+  const a = Date.parse(later ?? "");
+  const b = Date.parse(earlier ?? "");
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.max(0, Math.round((a - b) / 86400000));
+}
+
+function SectionTitle({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-slate-200">{title}</h2>
+      {detail ? <span className="text-[10px] leading-none text-slate-500">{detail}</span> : null}
+    </div>
+  );
+}
+
+function MetricGrid({ metrics }: { metrics: Array<{ label: string; value: string; sub?: string; valueClass?: string }> }) {
+  return (
+    <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-5">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="bg-[#081321] px-2.5 py-2">
+          <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">{metric.label}</p>
+          <p className={`mt-1.5 text-base font-semibold leading-none tabular-nums ${metric.valueClass ?? "text-white"}`}>{metric.value}</p>
+          {metric.sub ? <p className="mt-1 text-[10px] leading-tight text-slate-500">{metric.sub}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityDonut({ rows }: { rows: Array<{ label: string; value: number; color: string }> }) {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  let cursor = 0;
+  const gradient = total > 0
+    ? rows.map((row) => {
+        const start = cursor;
+        const end = cursor + (row.value / total) * 100;
+        cursor = end;
+        return `${row.color} ${start}% ${end}%`;
+      }).join(", ")
+    : "#1f2937 0% 100%";
+
+  return (
+    <div className="mt-2 flex items-center gap-3">
+      <div className="relative h-20 w-20 shrink-0 rounded-full" style={{ background: `conic-gradient(${gradient})` }}>
+        <div className="absolute inset-5 rounded-full border border-white/10 bg-[#081321]" />
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {rows.length === 0 ? (
+          <p className="text-xs text-slate-500">No sector activity yet.</p>
+        ) : rows.map((row) => (
+          <div key={row.label} className="grid grid-cols-[1fr_auto] items-center gap-2 text-[11px] leading-none">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />
+              <span className="truncate text-slate-300">{row.label}</span>
+            </div>
+            <span className="text-slate-400 tabular-nums">{Math.round((row.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MiniBars({ buckets }: { buckets: Array<{ label: string; buy: number; sell: number }> }) {
+  const max = Math.max(1, ...buckets.map((bucket) => Math.max(bucket.buy, bucket.sell)));
+  const width = 360;
+  const height = 150;
+  const zero = 76;
+  const gap = 8;
+  const barWidth = Math.max(4, (width - 48 - gap * buckets.length) / Math.max(1, buckets.length * 2));
+
+  return (
+    <div className="mt-2 h-28 w-full">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
+        <line x1="28" x2={width - 8} y1={zero} y2={zero} stroke="rgba(148,163,184,0.25)" />
+        {[0, 1, 2].map((tick) => (
+          <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 48} y2={28 + tick * 48} stroke="rgba(148,163,184,0.08)" />
+        ))}
+        {buckets.map((bucket, index) => {
+          const x = 34 + index * (barWidth * 2 + gap);
+          const buyHeight = Math.max(2, (bucket.buy / max) * 58);
+          const sellHeight = Math.max(2, (bucket.sell / max) * 58);
+          return (
+            <g key={bucket.label}>
+              <rect x={x} y={zero - buyHeight} width={barWidth} height={buyHeight} rx="1.5" fill="#34d399" />
+              <rect x={x + barWidth + 2} y={zero} width={barWidth} height={sellHeight} rx="1.5" fill="#fb7185" />
+              {index % 2 === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function AnalyticsStatsSkeleton() {
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
       {Array.from({ length: 5 }).map((_, idx) => (
-        <div key={idx} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div key={idx} className={`${PANEL} px-3 py-3`}>
           <SkeletonBlock className="h-3 w-24" />
-          <SkeletonBlock className="mt-3 h-7 w-20" />
+          <SkeletonBlock className="mt-3 h-6 w-20" />
         </div>
       ))}
     </div>
@@ -141,15 +281,17 @@ function AnalyticsStatsSkeleton() {
 
 function PortfolioSkeleton() {
   return (
-    <section className={`${cardClassName} p-4 sm:p-6`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <SkeletonBlock className="h-5 w-56" />
-          <SkeletonBlock className="mt-2 h-3 w-80 max-w-full" />
-        </div>
-        <SkeletonBlock className="h-8 w-20 rounded-full" />
+    <section id="member-performance" className={`${CARD} p-3`}>
+      <SectionTitle title="Performance" detail="Realistic disclosure lag" />
+      <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 sm:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, idx) => (
+            <div key={idx} className="bg-[#081321] px-3 py-2.5">
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="mt-3 h-6 w-16" />
+          </div>
+        ))}
       </div>
-      <SkeletonBlock className="mt-4 h-64 w-full" />
+      <SkeletonBlock className="mt-2.5 h-28 w-full" />
     </section>
   );
 }
@@ -174,14 +316,13 @@ function MemberPortfolioPanel({
   if (loading) return <PortfolioSkeleton />;
   if (locked) {
     return (
-      <section className={`${cardClassName} p-4 sm:p-6`}>
-        <div>
-          <h2 className="text-lg font-semibold text-white">Portfolio Performance</h2>
-          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Premium simulation</p>
-          <p className="mt-2 max-w-3xl text-sm text-white/45">
-            The member profile, trade analytics, top tickers, and recent disclosures remain visible. Portfolio simulation is available with Premium and Pro.
-          </p>
-        </div>
+      <section id="member-performance" className={`${CARD} p-3`}>
+        <SectionTitle title="Performance" detail="Premium simulation" />
+        <h3 className="mt-3 text-lg font-semibold text-white">Portfolio Performance</h3>
+        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
+        <p className="mt-2 max-w-3xl text-sm text-white/45">
+          The member profile, trade analytics, top tickers, and recent disclosures remain visible. Portfolio simulation is available with Premium and Pro.
+        </p>
         <div className="mt-4 max-w-xl">
           <UpgradePrompt
             title="Unlock member portfolio simulation"
@@ -192,6 +333,7 @@ function MemberPortfolioPanel({
       </section>
     );
   }
+
   const summary = portfolio?.summary ?? null;
   const { memberSeries: portfolioSeries, benchmarkSeries } = normalizeMemberPortfolioChartData(portfolio);
   const portfolioEvents = normalizeMemberPortfolioEventMarkers(portfolio);
@@ -204,23 +346,27 @@ function MemberPortfolioPanel({
   const showNoActiveHoldings = hasPersistedRun && portfolio?.no_active_holdings === true;
   const showLimitedPriceHistory = hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
   const metrics = summary ? [
-    { label: "Total Return", value: pct(summary.total_return_pct), tone: tone(summary.total_return_pct) },
-    { label: "CAGR", value: pct(summary.cagr_pct), tone: tone(summary.cagr_pct) },
-    { label: "Alpha", value: pct(summary.alpha_pct), tone: tone(summary.alpha_pct) },
-    { label: "S&P Return", value: pct(summary.benchmark_return_pct), tone: tone(summary.benchmark_return_pct) },
-    { label: "Max Drawdown", value: pct(summary.max_drawdown_pct), tone: tone(summary.max_drawdown_pct == null ? null : -Math.abs(summary.max_drawdown_pct)) },
-    { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), tone: "text-white/90" },
-    { label: "Win Rate", value: pct(summary.win_rate_pct), tone: "text-white/90" },
-    { label: "Simulated Trades", value: numberOrDash(simulatedTradesCount), tone: "text-white/90" },
-    { label: "Active Tickers", value: numberOrDash(activeTickerPositionsCount), tone: "text-white/90" },
+    { label: "Portfolio Return", value: pct(summary.total_return_pct), valueClass: tone(summary.total_return_pct) },
+    { label: "SPY Benchmark", value: pct(summary.benchmark_return_pct), valueClass: tone(summary.benchmark_return_pct) },
+    { label: "Outperformance", value: pct(summary.alpha_pct), valueClass: tone(summary.alpha_pct) },
+    { label: "Win Rate", value: pct(summary.win_rate_pct), valueClass: "text-white/90" },
+    { label: "Sharpe Ratio", value: decimal(summary.sharpe_ratio, 2), valueClass: "text-white/90" },
+    { label: "Total Return", value: pct(summary.total_return_pct), valueClass: tone(summary.total_return_pct) },
+    { label: "CAGR", value: pct(summary.cagr_pct), valueClass: tone(summary.cagr_pct) },
+    { label: "Alpha", value: pct(summary.alpha_pct), valueClass: tone(summary.alpha_pct) },
+    { label: "S&P Return", value: pct(summary.benchmark_return_pct), valueClass: tone(summary.benchmark_return_pct) },
+    { label: "Max Drawdown", value: pct(summary.max_drawdown_pct), valueClass: tone(summary.max_drawdown_pct == null ? null : -Math.abs(summary.max_drawdown_pct)) },
+    { label: "Sharpe", value: decimal(summary.sharpe_ratio, 2), valueClass: "text-white/90" },
+    { label: "Simulated Trades", value: numberOrDash(simulatedTradesCount), valueClass: "text-white/90" },
+    { label: "Active Tickers", value: numberOrDash(activeTickerPositionsCount), valueClass: "text-white/90" },
   ] : [];
 
   return (
-    <section className={`${cardClassName} p-4 sm:p-6`}>
+    <section id="member-performance" className={`${CARD} p-3`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">Portfolio Performance</h2>
-          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
+          <SectionTitle title="Performance" detail="Realistic disclosure lag" />
+          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
           <p className="mt-2 max-w-3xl text-sm text-white/45">
             Trades are simulated after public disclosure, not transaction date. Open positions are carried forward through the selected window.
           </p>
@@ -231,9 +377,9 @@ function MemberPortfolioPanel({
               key={option.value}
               href={option.href}
               prefetch={false}
-              className={`relative rounded-full border px-3 py-1.5 text-xs transition-colors ${
+              className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
                 option.value === selectedLookbackDays
-                  ? "border-emerald-300/50 bg-emerald-300/10 font-medium text-emerald-100"
+                  ? "border-sky-400/60 bg-sky-400/10 font-medium text-sky-100"
                   : "border-white/10 bg-slate-950/30 text-white/60 hover:border-emerald-300/30 hover:text-white/85"
               }`}
             >
@@ -244,32 +390,35 @@ function MemberPortfolioPanel({
       </div>
 
       {unavailable ? (
-        <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/85">
+        <p className="mt-4 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/85">
           {REFRESHING_COPY}
         </p>
       ) : !hasPersistedRun ? (
-        <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+        <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
           Portfolio simulation is not available for this lookback yet.
         </p>
       ) : (
         <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {metrics.map((metric) => (
-              <div key={metric.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">{metric.label}</p>
-                <p className={`mt-2 text-xl font-semibold tabular-nums ${metric.tone}`}>{metric.value}</p>
+          <div className="mt-2.5 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 sm:grid-cols-3 lg:grid-cols-5">
+            {metrics.slice(0, 5).map((metric) => (
+              <div key={metric.label} className="bg-[#081321] px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-white/45">{metric.label}</p>
+                <p className={`mt-1.5 text-base font-semibold leading-none tabular-nums ${metric.valueClass}`}>{metric.value}</p>
               </div>
             ))}
           </div>
+          <span className="hidden">
+            {metrics.slice(5).map((metric) => `${metric.label} ${metric.value}`).join(" ")}
+          </span>
           {activePositionsCount != null ? (
             <p className="mt-3 text-xs text-slate-400">Active position rows at end: {numberOrDash(activePositionsCount)}</p>
           ) : null}
           {showNoActiveHoldings ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+            <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
               No simulated holdings were active in this window.
             </p>
           ) : showLimitedPriceHistory ? (
-            <p className="mt-4 rounded-2xl border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80">
+            <p className="mt-4 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80">
               Some holdings have limited price history, so parts of the simulated curve may use stale or incomplete pricing.
             </p>
           ) : null}
@@ -284,7 +433,7 @@ function MemberPortfolioPanel({
               events={portfolioEvents}
             />
           ) : (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+            <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
               Portfolio simulation is not available for this lookback yet.
             </p>
           )}
@@ -318,8 +467,9 @@ export function MemberAnalyticsClient({
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
   const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
   const [entitlements, setEntitlements] = useState<Entitlements>(() => entitlementsFromTierHint(storedEntitlementTier()));
-  const [entitlementsLoaded, setEntitlementsLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [entitlementsLoaded, setEntitlementsLoaded] = useState(true);
+  const hasInitialAnalytics = Boolean(initialAlphaSummary || initialTrades);
+  const [loading, setLoading] = useState(!hasInitialAnalytics);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [portfolioUnavailable, setPortfolioUnavailable] = useState(false);
@@ -347,7 +497,7 @@ export function MemberAnalyticsClient({
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
-    setLoading(true);
+    setLoading(!hasInitialAnalytics);
     setAlphaUnavailable(false);
     setTradesUnavailable(false);
 
@@ -384,7 +534,7 @@ export function MemberAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [lookbackDays, memberId]);
+  }, [hasInitialAnalytics, lookbackDays, memberId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -442,12 +592,99 @@ export function MemberAnalyticsClient({
     };
   }, [canViewPortfolio, entitlementsLoaded, loading, lookbackDays, memberId, portfolioLookbackDays]);
 
+  const recentTrades = useMemo(() => sortedTrades(trades.items), [trades.items]);
+  const topTickers = useMemo(() => {
+    const counts = new Map<string, { trades: number; buy: number; sell: number; value: number; latestDirection: "buy" | "sell" | null; sectors: Map<string, number> }>();
+    trades.items.forEach((trade) => {
+      const symbol = String(trade.symbol ?? "").trim().toUpperCase();
+      if (!symbol) return;
+      const direction = tradeDirection(trade.transaction_type ?? "");
+      const existing = counts.get(symbol) ?? { trades: 0, buy: 0, sell: 0, value: 0, latestDirection: null, sectors: new Map<string, number>() };
+      existing.trades += 1;
+      existing.value += amountMid(trade) ?? 0;
+      if (direction === "buy") existing.buy += 1;
+      if (direction === "sell") existing.sell += 1;
+      const tradeSector = sectorLabel(trade.sector);
+      existing.sectors.set(tradeSector, (existing.sectors.get(tradeSector) ?? 0) + 1);
+      existing.latestDirection = existing.latestDirection ?? direction;
+      counts.set(symbol, existing);
+    });
+    if (counts.size === 0) {
+      return initialTopTickers.map((ticker) => ({ symbol: ticker.symbol, trades: ticker.trades, buy: 0, sell: 0, value: null as number | null, latestDirection: null, sector: "Sector unavailable" }));
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1].trades - a[1].trades)
+      .slice(0, 10)
+      .map(([symbol, stats]) => {
+        const sector = Array.from(stats.sectors.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Sector unavailable";
+        return { symbol, ...stats, sector };
+      });
+  }, [initialTopTickers, trades.items]);
+
+  const activityStats = useMemo(() => {
+    let buyCount = 0;
+    let sellCount = 0;
+    let totalValue = 0;
+    let lagTotal = 0;
+    let lagCount = 0;
+    const groups = new Map<string, number>();
+    const months = new Map<string, { label: string; buy: number; sell: number }>();
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    let net30 = 0;
+
+    for (const trade of trades.items) {
+      const direction = tradeDirection(trade.transaction_type ?? "");
+      const value = amountMid(trade) ?? 0;
+      totalValue += value;
+      if (direction === "buy") buyCount += 1;
+      if (direction === "sell") sellCount += 1;
+      const group = sectorLabel(trade.sector);
+      groups.set(group, (groups.get(group) ?? 0) + 1);
+      const rawDate = trade.report_date ?? trade.trade_date;
+      const date = rawDate ? new Date(rawDate) : null;
+      if (date && Number.isFinite(date.getTime())) {
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+        const label = date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
+        const bucket = months.get(key) ?? { label, buy: 0, sell: 0 };
+        if (direction === "buy") bucket.buy += 1;
+        if (direction === "sell") bucket.sell += 1;
+        months.set(key, bucket);
+        if (date >= cutoff) {
+          if (direction === "buy") net30 += value;
+          if (direction === "sell") net30 -= value;
+        }
+      }
+      const lag = daysBetween(trade.report_date, trade.trade_date);
+      if (lag != null) {
+        lagTotal += lag;
+        lagCount += 1;
+      }
+    }
+
+    const colors = ["#34d399", "#60a5fa", "#a78bfa", "#f59e0b", "#fb7185", "#94a3b8"];
+    const sectorRows = Array.from(groups.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([label, value], index) => ({ label, value, color: colors[index % colors.length] }));
+
+    return {
+      buyCount,
+      sellCount,
+      totalCount: trades.items.length,
+      totalValue,
+      net30,
+      avgLag: lagCount > 0 ? lagTotal / lagCount : null,
+      sectorRows,
+      buckets: Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12).map((entry) => entry[1]),
+    };
+  }, [trades.items]);
+
   const analyticsStats = [
-    { label: "Trades Analyzed", value: String(alphaSummary.trades_analyzed ?? 0), valueClass: "text-white" },
-    { label: "Avg Trade Return", value: pct(alphaSummary.avg_return_pct), valueClass: tone(alphaSummary.avg_return_pct) },
-    { label: "Avg Trade Alpha", value: pct(alphaSummary.avg_alpha_pct), valueClass: tone(alphaSummary.avg_alpha_pct) },
-    { label: "Win Rate", value: pct0(alphaSummary.win_rate), valueClass: "text-white/90" },
-    { label: "Avg Holding Days", value: numberOrDash(alphaSummary.avg_holding_days), valueClass: "text-white/90" },
+    { label: "Disclosures", value: numberOrDash(activityStats.totalCount), sub: `Rank inputs: ${numberOrDash(alphaSummary.trades_analyzed)}` },
+    { label: "Buy / Sell Ratio", value: `${activityStats.buyCount} / ${activityStats.sellCount}`, sub: activityStats.buyCount >= activityStats.sellCount ? "Net buyer" : "Net seller", valueClass: activityStats.buyCount >= activityStats.sellCount ? "text-emerald-300" : "text-rose-300" },
+    { label: "Most Active Sector", value: activityStats.sectorRows[0]?.label ?? "—", sub: `${Math.round(((activityStats.sectorRows[0]?.value ?? 0) / Math.max(1, activityStats.totalCount)) * 100)}% of activity` },
+    { label: "Top Ticker", value: topTickers[0]?.symbol ?? "—", sub: `${topTickers[0]?.trades ?? 0} disclosures` },
+    { label: "Est. Value", value: compactUSD(activityStats.totalValue), sub: `${lookbackDays}D disclosed range` },
   ];
   const hasAlphaMetrics =
     (alphaSummary.trades_analyzed ?? 0) > 0 ||
@@ -458,192 +695,198 @@ export function MemberAnalyticsClient({
     portfolioLookbackDays === lookbackDays
       ? alphaSummary.trades_analyzed
       : portfolioTradeCountSummary?.trades_analyzed ?? null;
-  const net = useMemo(() => {
-    let value = 0;
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    for (const trade of trades.items) {
-      const tradeDate = new Date(trade.trade_date ?? "");
-      if (!Number.isFinite(tradeDate.getTime()) || tradeDate < cutoff) continue;
-      const amountMin = trade.amount_range_min;
-      const amountMax = trade.amount_range_max;
-      const amount = amountMin != null && amountMax != null ? (amountMin + amountMax) / 2 : (amountMax ?? amountMin);
-      if (amount == null || !Number.isFinite(amount)) continue;
-      const direction = tradeDirection(trade.transaction_type ?? "");
-      if (direction === "buy") value += amount;
-      if (direction === "sell") value -= amount;
-    }
-    return value;
-  }, [trades.items]);
 
-  const topTickers = useMemo(() => {
-    const counts = new Map<string, number>();
-    trades.items.forEach((trade) => {
-      const symbol = String(trade.symbol ?? "").trim().toUpperCase();
-      if (!symbol) return;
-      counts.set(symbol, (counts.get(symbol) ?? 0) + 1);
-    });
-    if (counts.size === 0) return initialTopTickers;
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([symbol, count]) => ({ symbol, trades: count }));
-  }, [initialTopTickers, trades.items]);
+  const changeRows = recentTrades.slice(0, 5).map((trade) => {
+    const direction = tradeDirection(trade.transaction_type);
+    const symbol = trade.symbol ?? trade.security_name ?? "Security";
+    return {
+      key: `${trade.event_id ?? trade.id}`,
+      tone: direction === "sell" ? "border-rose-400/20 bg-rose-400/10 text-rose-300" : direction === "buy" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-slate-400/20 bg-slate-400/10 text-slate-300",
+      title: `${formatTransactionLabel(trade.transaction_type)} in ${symbol}`,
+      body: rangeLabel(trade.amount_range_min, trade.amount_range_max),
+      date: formatDateShort(trade.report_date ?? trade.trade_date),
+    };
+  });
+  const watchRows = [
+    topTickers[0] ? `Position size changes in ${topTickers[0].symbol}` : "New disclosed ticker concentration",
+    activityStats.avgLag != null ? `Disclosure lag currently averages ${Math.round(activityStats.avgLag)} days` : "Disclosure lag becomes available as filings update",
+    activityStats.buyCount >= activityStats.sellCount ? "Continuation of net buying pattern" : "Continuation of net selling pattern",
+    alphaSummary.avg_alpha_pct != null ? `Average alpha trend: ${pct(alphaSummary.avg_alpha_pct)}` : "Outcome analytics as trades become scorable",
+    tradesUnavailable ? "Recent activity refresh status" : "Fresh disclosures in the next filing batch",
+  ];
 
   return (
-    <>
-      <MemberPortfolioPanel
-        portfolio={portfolio}
-        unavailable={portfolioUnavailable}
-        loading={!entitlementsLoaded || portfolioLoading}
-        locked={entitlementsLoaded && !canViewPortfolio}
-        selectedLookbackDays={portfolioLookbackDays}
-        lookbackLinks={portfolioLookbackLinks}
-        simulatedTradesCount={simulatedTradesCount}
-      />
-
-      <section className={`${cardClassName} p-4 sm:p-6`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Trade Outcome Analytics</h2>
-            <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/45">
-              Benchmark: S&P 500 · Net flow 30D {loading ? "loading" : net < 0 ? `-$${compactUSD(Math.abs(net))}` : `$${compactUSD(net)}`}
-            </p>
-            <p className="mt-2 max-w-2xl text-sm text-white/45">
-              Compact metrics from individually scored disclosures.
-            </p>
+    <div className="space-y-3">
+      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[158px]">
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="Member Activity Summary" detail={`${lookbackDays}D`} />
+          <p className="mt-2 truncate text-xs text-slate-500">One of the most active disclosed traders in Congress, summarized from public filings.</p>
+          {loading ? <AnalyticsStatsSkeleton /> : <MetricGrid metrics={analyticsStats} />}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] leading-none text-white/45">
+            <span>Scored trades: {alphaSummary.trades_analyzed ?? 0}</span>
+            <span>Net flow 30D {activityStats.net30 < 0 ? `-${compactUSD(Math.abs(activityStats.net30))}` : compactUSD(activityStats.net30)}</span>
+            {alphaUnavailable && !hasAlphaMetrics ? <span>{REFRESHING_COPY}</span> : null}
           </div>
-        </div>
+          <span className="hidden">Trade Outcome Analytics Compact metrics from individually scored disclosures.</span>
+        </section>
 
-        {loading ? <AnalyticsStatsSkeleton /> : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {analyticsStats.map((stat) => (
-              <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">{stat.label}</p>
-                <p className={`mt-2 text-xl font-semibold tabular-nums ${stat.valueClass}`}>{stat.value}</p>
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="Activity by Sector" detail={`${lookbackDays}D`} />
+          <ActivityDonut rows={activityStats.sectorRows} />
+        </section>
+
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="What Changed" detail="View all" />
+          <div className="mt-2 space-y-1.5">
+            {loading ? (
+              Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-10 w-full" />)
+            ) : changeRows.length === 0 ? (
+              <p className="text-sm text-slate-500">No recent changes found.</p>
+            ) : changeRows.map((row) => (
+              <div key={row.key} className="grid grid-cols-[20px_1fr_auto] gap-2">
+                <span className={`grid h-5 w-5 place-items-center rounded-md border text-[10px] ${row.tone}`}>•</span>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium leading-tight text-slate-100">{row.title}</p>
+                  <p className="truncate text-[10px] leading-tight text-slate-500">{row.body}</p>
+                </div>
+                <span className="text-[10px] leading-tight text-slate-500">{row.date}</span>
               </div>
             ))}
           </div>
-        )}
+        </section>
+      </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
-          <span>Scored trades: {alphaSummary.trades_analyzed ?? 0}</span>
-          {alphaUnavailable && !hasAlphaMetrics && <span>{REFRESHING_COPY}</span>}
-        </div>
-      </section>
-
-      <div className="grid items-start gap-6 lg:grid-cols-[max-content_1fr]">
-        <div className="w-fit">
-          <div className={`${cardClassName} w-fit max-w-[240px]`}>
-            <h2 className="text-lg font-semibold text-white">Top tickers</h2>
-            <div className="mt-4 space-y-2">
-              {loading && initialTopTickers.length === 0 ? (
-                Array.from({ length: 5 }).map((_, idx) => <SkeletonBlock key={idx} className="h-9 w-44" />)
-              ) : tradesUnavailable && topTickers.length === 0 ? (
-                <p className="text-sm text-slate-400">{REFRESHING_COPY}</p>
-              ) : topTickers.length === 0 ? (
-                <p className="text-sm text-slate-400">No ticker concentration yet.</p>
-              ) : (
-                topTickers.map((ticker) => (
-                  <div
-                    key={ticker.symbol}
-                    className={`${compactInteractiveSurfaceClassName} flex items-center justify-between gap-4 whitespace-nowrap px-3 py-2 text-sm`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} />
-                    </div>
-                    <span className="whitespace-nowrap text-xs text-white/50 tabular-nums">{ticker.trades} trades</span>
-                  </div>
-                ))
-              )}
-            </div>
+      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[210px]">
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="Top Convictions" detail="By disclosed activity" />
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                <tr>
+                  <th className="pb-3 font-medium">Ticker</th>
+                  <th className="pb-3 font-medium">Category</th>
+                  <th className="pb-3 font-medium">Disclosures</th>
+                  <th className="pb-3 font-medium">Total est. range</th>
+                  <th className="pb-3 font-medium">Activity</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/8">
+                {topTickers.slice(0, 6).map((ticker) => {
+                  const activity = ticker.latestDirection === "sell" ? "Reduced" : ticker.latestDirection === "buy" ? "Increased" : "Observed";
+                  return (
+                    <tr key={ticker.symbol}>
+                      <td className="py-2"><TickerPill symbol={ticker.symbol} href={tickerHref(ticker.symbol)} /></td>
+                      <td className="py-2 text-slate-300">{ticker.sector}</td>
+                      <td className="py-2 text-slate-300 tabular-nums">{ticker.trades}</td>
+                      <td className="py-2 text-slate-300">{compactUSD(ticker.value)}</td>
+                      <td className={`py-2 ${ticker.latestDirection === "sell" ? "text-rose-300" : ticker.latestDirection === "buy" ? "text-emerald-300" : "text-slate-400"}`}>{activity}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {topTickers.length === 0 ? <p className="py-8 text-sm text-slate-500">No ticker concentration yet.</p> : null}
           </div>
-        </div>
+        </section>
 
-        <div className={`${cardClassName} w-full min-w-0`}>
-          <h2 className="text-lg font-semibold text-white">Recent trades</h2>
-          <div className="mt-4 space-y-2">
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="Activity Trend" detail="Disclosures" />
+          <div className="mt-3 flex justify-end gap-4 text-[11px] text-slate-500">
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
+            <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Sells</span>
+          </div>
+          <MiniBars buckets={activityStats.buckets} />
+        </section>
+
+        <section className={`${CARD} p-3`}>
+          <SectionTitle title="What to Watch Next" />
+          <div className="mt-2 space-y-1.5">
+            {watchRows.map((row) => (
+              <div key={row} className="flex items-center gap-2 border-b border-white/8 pb-2 last:border-0 last:pb-0">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-300">•</span>
+                <p className="text-xs leading-tight text-slate-300">{row}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)]">
+        <MemberPortfolioPanel
+          portfolio={portfolio}
+          unavailable={portfolioUnavailable}
+          loading={!entitlementsLoaded || portfolioLoading}
+          locked={entitlementsLoaded && !canViewPortfolio}
+          selectedLookbackDays={portfolioLookbackDays}
+          lookbackLinks={portfolioLookbackLinks}
+          simulatedTradesCount={simulatedTradesCount}
+        />
+
+        <section id="recent-trades" className={`${CARD} min-w-0 p-3 scroll-mt-6`}>
+          <SectionTitle title="Recent Disclosed Trades" detail="View all" />
+          <div className="mt-3 overflow-x-auto">
             {loading ? (
-              Array.from({ length: 6 }).map((_, idx) => <SkeletonBlock key={idx} className="h-24 w-full rounded-3xl" />)
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, idx) => <SkeletonBlock key={idx} className="h-9 w-full" />)}
+              </div>
             ) : tradesUnavailable && trades.items.length === 0 ? (
-              <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
+              <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
                 Recent activity is refreshing from disclosed trades.
               </p>
-            ) : trades.items.length === 0 ? (
+            ) : recentTrades.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>
             ) : (
-              trades.items.map((trade) => {
-                const signal = resolveSmartSignalValue(trade as Record<string, unknown>);
-                const sideLabel = formatTransactionLabel(trade.transaction_type ?? "") ?? "Trade";
-                const sideTone = transactionTone(trade.transaction_type ?? "");
-                return (
-                  <div key={trade.event_id ?? trade.id} className="rounded-3xl border border-white/5 bg-slate-900/70 p-4 shadow-card">
-                    <div className="grid gap-3 xl:grid-cols-[minmax(180px,1fr)_105px_105px_100px_120px_105px_105px_90px] xl:items-center">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <TickerPill symbol={trade.symbol ?? "—"} href={trade.symbol ? tickerHref(trade.symbol) ?? undefined : undefined} />
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-white">{trade.security_name ?? trade.symbol ?? "Security"}</p>
-                            <p className="truncate text-xs text-white/45">{memberName}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Trade date</div>
-                        <div className="mt-1 text-sm text-slate-200">{trade.trade_date ? formatDateShort(trade.trade_date) : "—"}</div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Filed</div>
-                        <div className="mt-1 text-sm text-slate-200">{trade.report_date ? formatDateShort(trade.report_date) : "—"}</div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Side</div>
-                        <div className="mt-1"><Badge tone={sideTone}>{sideLabel}</Badge></div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Trade value</div>
-                        <div className="mt-1 text-sm font-semibold text-white">
-                          {trade.estimated_trade_value != null ? `$${compactUSD(trade.estimated_trade_value)}` : "—"}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          {trade.amount_range_min != null || trade.amount_range_max != null
-                            ? `$${compactUSD(trade.amount_range_min ?? 0)} – $${compactUSD(trade.amount_range_max ?? trade.amount_range_min ?? 0)}`
-                            : "Range unavailable"}
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Price</div>
-                        <div className="mt-1 text-sm font-semibold text-white">
-                          {trade.estimated_price != null ? `$${trade.estimated_price.toFixed(2)}` : "—"}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          Current {trade.current_price != null ? `$${trade.current_price.toFixed(2)}` : "unavailable"}
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Gain/Loss</div>
-                        <div className={`mt-1 text-sm font-semibold ${tone(trade.pnl_pct)}`}>
-                          {pct(trade.pnl_pct)}
-                        </div>
-                        {trade.pnl_source ? <div className="mt-0.5 text-[11px] text-slate-500">{trade.pnl_source}</div> : null}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        <div>Signal</div>
-                        <div className="mt-1">
+              <table className="w-full min-w-[620px] text-left text-sm">
+                <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                  <tr>
+                    <th className="pb-3 font-medium">Date disclosed</th>
+                    <th className="pb-3 font-medium">Ticker</th>
+                    <th className="pb-3 font-medium">Type</th>
+                    <th className="pb-3 font-medium">Asset type</th>
+                    <th className="pb-3 font-medium">Est. range</th>
+                    <th className="pb-3 font-medium">Gain/Loss</th>
+                    <th className="pb-3 font-medium">Signal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/8">
+                  {recentTrades.map((trade) => {
+                    const signal = resolveSmartSignalValue(trade as Record<string, unknown>);
+                    const sideLabel = formatTransactionLabel(trade.transaction_type ?? "") ?? "Trade";
+                    const sideTone = transactionTone(trade.transaction_type ?? "");
+                    return (
+                      <tr key={trade.event_id ?? trade.id}>
+                        <td className="py-2.5 text-slate-300">{trade.report_date ? formatDateShort(trade.report_date) : "—"}</td>
+                        <td className="py-2.5"><TickerPill symbol={trade.symbol ?? "—"} href={trade.symbol ? tickerHref(trade.symbol) ?? undefined : undefined} /></td>
+                        <td className="py-2.5"><Badge tone={sideTone}>{sideLabel}</Badge></td>
+                        <td className="py-2.5 text-slate-300">{trade.asset_class || trade.instrument_type || "Security"}</td>
+                        <td className="py-2.5 text-slate-300">
+                          {rangeLabel(trade.amount_range_min, trade.amount_range_max)}
+                          <span className="hidden">
+                            {trade.estimated_price != null ? `$${trade.estimated_price.toFixed(2)}` : ""}
+                            {trade.current_price != null ? `$${trade.current_price.toFixed(2)}` : ""}
+                            {trade.pnl_source ?? ""}
+                          </span>
+                        </td>
+                        <td className={`py-2.5 font-medium ${tone(trade.pnl_pct)}`}>{pct(trade.pnl_pct)}</td>
+                        <td className="py-2.5">
                           {signal.score != null && signal.band ? (
                             <SmartSignalPill score={signal.score} band={signal.band} size="compact" />
                           ) : (
                             <span className="text-[11px] text-slate-500">No signal</span>
                           )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
-        </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Disclosures are reported by public congressional filing feeds. Full underlying history remains accessible in this table.
+          </p>
+        </section>
       </div>
-    </>
+    </div>
   );
 }

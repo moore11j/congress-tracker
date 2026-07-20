@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ApiError, getPeerCompare, type PeerCompareCategory, type PeerCompareMetric, type PeerCompareResponse } from "@/lib/api";
+import { ApiError, getEntitlements, getPeerCompare, type PeerCompareCategory, type PeerCompareMetric, type PeerCompareResponse } from "@/lib/api";
 import { ResearchActions } from "@/components/research/ResearchActions";
 import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
 import { optionalPageAuthState } from "@/lib/serverAuth";
+import { hasEntitlement } from "@/lib/entitlements";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -188,6 +189,10 @@ export default async function PeerComparePage({ params }: PageProps) {
   const left = cleanSymbol(routeParams.left);
   const right = cleanSymbol(routeParams.right);
   const authState = await optionalPageAuthState();
+  const entitlements = authState.token
+    ? await getEntitlements(authState.token, { source: "PeerCompareResearchGate" }).catch(() => null)
+    : null;
+  const canCreateResearch = entitlements ? hasEntitlement(entitlements, "institutional_feed") : false;
   let data: PeerCompareResponse | null = null;
   let errorMessage = "This comparison could not be loaded.";
 
@@ -214,7 +219,9 @@ export default async function PeerComparePage({ params }: PageProps) {
           <Link href={tickerHref(left) || "/"} className={ghostButtonClassName}>
             Back to ticker
           </Link>
-          {data ? <ResearchActions subject={{ kind: "compare", data }} /> : null}
+          {data && canCreateResearch ? (
+            <ResearchActions canCreateResearch={canCreateResearch} subject={{ kind: "compare", data }} />
+          ) : null}
         </div>
         <PeerCompareSelector leftSymbol={left} rightSymbol={right} />
         {data ? <CompareReport data={data} /> : <CompareError message={errorMessage} />}

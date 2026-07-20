@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getInsiderSummary, getInsiderTrades } from "@/lib/api";
+import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
-import { cardClassName, ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles";
 import {
   getInsiderDisplayName,
   insiderDisplayNameFromSlug,
@@ -12,6 +11,7 @@ import {
   reportingCikFromInsiderSlug,
   shouldRedirectToCanonicalInsiderSlug,
 } from "@/lib/insider";
+import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -158,6 +158,23 @@ function buildInsiderSharePath(
   return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
 }
 
+function initialsForName(name: string) {
+  const parts = name.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "I";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] : parts[0]?.[1];
+  return `${first}${last ?? ""}`.toUpperCase();
+}
+
+function VerifiedBadge() {
+  return (
+    <span className="grid h-4 w-4 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_12px_rgba(14,165,233,0.35)]">
+      <svg viewBox="0 0 12 12" aria-hidden="true" className="h-2.5 w-2.5" fill="none">
+        <path d="M3 6.2 5 8l4-4.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+      </svg>
+    </span>
+  );
+}
+
 export default async function InsiderPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const reportingCik = reportingCikFromInsiderSlug(slug);
@@ -210,45 +227,126 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const companyText =
     firstText(summary.primary_company_name, headerTrade?.company_name, headerTrade?.companyName, headerTrade?.security_name, headerTrade?.securityName) ??
     "Company unavailable";
+  const [initialAlphaSummaryResult, initialTradesResult, headshotResult] = await Promise.allSettled([
+    getInsiderAlphaSummary(reportingCik, {
+      lookback_days: lookbackDays,
+      issuer: normalizedIssuer,
+      source: "InsiderProfileInitialAlpha",
+    }),
+    getInsiderTrades(reportingCik, lookbackDays, 20, normalizedIssuer, {
+      page: recentTradesPage,
+      source: "InsiderProfileInitialTrades",
+    }),
+    resolveWikipediaHeadshot(insiderName, {
+      kind: "insider",
+      company: companyText,
+      role: roleText,
+      symbol: stockSymbol,
+    }),
+  ]);
+  const initialAlphaSummary =
+    initialAlphaSummaryResult.status === "fulfilled" ? initialAlphaSummaryResult.value : undefined;
+  const initialTrades =
+    initialTradesResult.status === "fulfilled" ? initialTradesResult.value : undefined;
+  const headshot = headshotResult.status === "fulfilled" ? headshotResult.value : null;
+  const initialBuyCount = initialTrades?.items.filter((trade) => {
+    const value = (trade.trade_type ?? trade.tradeType ?? "").toLowerCase();
+    return value === "p" || value.includes("buy") || value.includes("purchase") || value.includes("acquire");
+  }).length ?? summary.buy_count;
+  const initialSellCount = initialTrades?.items.filter((trade) => {
+    const value = (trade.trade_type ?? trade.tradeType ?? "").toLowerCase();
+    return value === "s" || value.includes("sale") || value.includes("sell") || value.includes("dispose");
+  }).length ?? summary.sell_count;
+  const ownershipContext =
+    initialSellCount > initialBuyCount
+      ? "Net seller"
+      : initialBuyCount > initialSellCount
+        ? "Net buyer"
+        : summary.total_trades > 0
+          ? "Insider activity"
+          : "Ownership context";
+  const actionClassName =
+    "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 px-4 text-xs font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.04] sm:text-sm";
+  const primaryActionClassName =
+    "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-4 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/18 sm:text-sm";
 
   return (
-    <div className="space-y-6">
-      <section className={cardClassName}>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Insider profile</p>
-            <h1 className="mt-1 text-3xl font-semibold text-white">
-              {issuer && companyText !== "Company unavailable" ? `${insiderName} / ${companyText}` : insiderName}
-            </h1>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-              <span className="rounded-full border border-white/10 bg-slate-900/60 px-2.5 py-1">{companyText}</span>
-              <Badge tone="neutral">{roleText}</Badge>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={subtlePrimaryButtonClassName}>
-              Backtest following this insider
+    <div className="space-y-3">
+      <section className="relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(135deg,rgba(9,20,35,0.98),rgba(4,10,20,0.98))] px-4 pt-3 shadow-[0_18px_48px_rgba(0,0,0,0.32)] sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <Link href="/?mode=insider" className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-300/80 hover:text-emerald-200">
+            Insider profile
+          </Link>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end lg:absolute lg:right-5 lg:top-3">
+            <Link href="/?mode=insider" className={actionClassName}>
+              Follow Insider
             </Link>
-            <ShareLinks canonicalUrl={canonicalInsiderUrl} />
-            <Link href="/" className={ghostButtonClassName}>Back to feed</Link>
+            <ShareLinks canonicalUrl={canonicalInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
+            <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={primaryActionClassName}>
+              Create Research
+            </Link>
           </div>
         </div>
+        <div className="mt-3 flex min-w-0 gap-4 pb-2 lg:pr-[28rem]">
+            {headshot ? (
+              <img
+                src={headshot.src}
+                alt={`${insiderName} headshot from Wikipedia`}
+                className="h-20 w-20 shrink-0 rounded-full border border-white/15 bg-slate-950/70 object-cover shadow-inner"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full border border-white/15 bg-slate-950/70 text-2xl font-semibold text-emerald-100 shadow-inner">
+                {initialsForName(insiderName)}
+              </div>
+            )}
+            <div className="min-w-0 pt-0.5">
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName}</h1>
+                <VerifiedBadge />
+              </div>
+              <p className="mt-2 truncate text-sm text-slate-300">
+                {roleText} - {companyText}{stockSymbol ? ` (${stockSymbol})` : ""}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 font-medium text-emerald-200">{ownershipContext}</span>
+                {stockSymbol ? <span className="rounded-full border border-white/10 bg-slate-950/50 px-2.5 py-1 text-slate-300">{stockSymbol}</span> : null}
+                <span className="rounded-full border border-white/10 bg-slate-950/50 px-2.5 py-1 text-slate-400">CIK {reportingCik}</span>
+              </div>
+            </div>
+        </div>
         {summaryResult.unavailable ? (
-          <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+          <p className="mt-4 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
             Insider profile details are loading from the latest available disclosures.
           </p>
         ) : null}
+        <nav className="flex gap-7 overflow-x-auto border-t border-white/10 pt-2 text-sm font-medium text-slate-400">
+          {["Overview", "Transactions", "Ownership", "Performance", "Filings", "About"].map((item) => (
+            <a
+              key={item}
+              href={item === "Overview" ? "#overview" : item === "Filings" || item === "Transactions" ? "#recent-filings" : "#insider-performance"}
+              className={`shrink-0 border-b-2 pb-2 ${item === "Overview" ? "border-amber-300 text-amber-200" : "border-transparent hover:text-white"}`}
+            >
+              {item}
+            </a>
+          ))}
+        </nav>
       </section>
 
-      <InsiderAnalyticsClient
-        reportingCik={reportingCik}
-        insiderName={insiderName}
-        lookback={lookback}
-        lookbackDays={lookbackDays}
-        issuer={normalizedIssuer}
-        stockSymbol={stockSymbol}
-        recentTradesPage={recentTradesPage}
-      />
+      <div id="overview">
+        <InsiderAnalyticsClient
+          reportingCik={reportingCik}
+          insiderName={insiderName}
+          lookback={lookback}
+          lookbackDays={lookbackDays}
+          issuer={normalizedIssuer}
+          stockSymbol={stockSymbol}
+          recentTradesPage={recentTradesPage}
+          summary={summary}
+          initialAlphaSummary={initialAlphaSummary}
+          initialTrades={initialTrades}
+        />
+      </div>
     </div>
   );
 }

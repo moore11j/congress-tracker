@@ -6,9 +6,11 @@ import { ghostButtonClassName, subtlePrimaryButtonClassName } from "@/lib/styles
 
 type Props = {
   canonicalUrl: string;
+  showCopyButton?: boolean;
+  buttonClassName?: string;
 };
 
-export function ShareLinks({ canonicalUrl }: Props) {
+export function ShareLinks({ canonicalUrl, showCopyButton = true, buttonClassName }: Props) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);
@@ -83,7 +85,7 @@ export function ShareLinks({ canonicalUrl }: Props) {
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          className={`${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
+          className={buttonClassName ?? `${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
           aria-expanded={open}
           aria-controls={open ? popoverId : undefined}
         >
@@ -150,20 +152,22 @@ export function ShareLinks({ canonicalUrl }: Props) {
           </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        onClick={copyLink}
-        className={`${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
-      >
-        {copied ? (
-          "Copied"
-        ) : (
-          <>
-            <span className="sm:hidden">Copy</span>
-            <span className="hidden sm:inline">Copy Link</span>
-          </>
-        )}
-      </button>
+      {showCopyButton ? (
+        <button
+          type="button"
+          onClick={copyLink}
+          className={buttonClassName ?? `${ghostButtonClassName} min-w-0 whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:text-sm`}
+        >
+          {copied ? (
+            "Copied"
+          ) : (
+            <>
+              <span className="sm:hidden">Copy</span>
+              <span className="hidden sm:inline">Copy Link</span>
+            </>
+          )}
+        </button>
+      ) : null}
     </>
   );
 }

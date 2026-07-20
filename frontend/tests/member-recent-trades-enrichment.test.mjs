@@ -21,7 +21,7 @@ const typesSource = fs.readFileSync(
 );
 
 test("member recent trades pass outcome enrichment through to feed cards", () => {
-  assert.doesNotMatch(memberPageSource, /initialTrades=\{initialTrades\}/);
+  assert.match(memberPageSource, /initialTrades=\{initialTrades\}/);
   assert.match(memberAnalyticsSource, /getMemberTrades\(memberId/);
   assert.match(memberAnalyticsSource, /useState<MemberTradesResponse>\(\(\) => initialTrades \?\? tradesFallback/);
   assert.match(memberAnalyticsSource, /trade\.estimated_price != null/);
@@ -41,6 +41,14 @@ test("feed cards render compact estimated shares and explicit missing pnl state"
 test("member trade types include enriched outcome display fields", () => {
   assert.match(typesSource, /estimated_trade_value\?: number \| null/);
   assert.match(typesSource, /estimated_shares\?: number \| null/);
+  assert.match(typesSource, /sector\?: string \| null/);
   assert.match(typesSource, /outcome_methodology\?: string \| null/);
   assert.match(typesSource, /price_basis\?: string \| null/);
+});
+
+test("member activity sector view uses sectors, not security types", () => {
+  assert.match(memberAnalyticsSource, /function sectorLabel/);
+  assert.match(memberAnalyticsSource, /sectorLabel\(trade\.sector\)/);
+  assert.doesNotMatch(memberAnalyticsSource, /const group = trade\.asset_class \|\| trade\.instrument_type/);
+  assert.match(memberAnalyticsSource, /Sector unavailable/);
 });

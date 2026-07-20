@@ -11,7 +11,17 @@ const comparePage = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/
 test("ticker and compare pages expose Create Research actions", () => {
   assert.match(tickerPage, /<ResearchActions/);
   assert.match(tickerPage, /kind: "ticker"/);
-  assert.match(comparePage, /<ResearchActions subject=\{\{ kind: "compare", data \}\}/);
+  assert.match(tickerPage, /canCreateResearch=\{canViewProContext\}/);
+  assert.match(comparePage, /canCreateResearch/);
+  assert.match(comparePage, /<ResearchActions canCreateResearch=\{canCreateResearch\} subject=\{\{ kind: "compare", data \}\}/);
+});
+
+test("Create Research is gated behind Pro entitlement checks", () => {
+  assert.match(componentSource, /canCreateResearch: boolean/);
+  assert.match(componentSource, /if \(!canCreateResearch\) return null/);
+  assert.match(tickerPage, /\{canViewProContext \? \(/);
+  assert.match(comparePage, /getEntitlements\(authState\.token/);
+  assert.match(comparePage, /hasEntitlement\(entitlements, "institutional_feed"\)/);
 });
 
 test("research actions include the required Phase 4 outputs", () => {

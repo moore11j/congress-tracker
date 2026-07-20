@@ -161,6 +161,7 @@ def test_member_recent_trades_enriches_with_outcome_pnl_and_signal_fields(monkey
         assert items[0]["outcome_methodology"] == "congress_v1"
         assert items[0]["smart_score"] == 84
         assert items[0]["smart_band"] == "strong"
+        assert items[0]["sector"] == "Tech"
     finally:
         db.close()
 
@@ -208,6 +209,7 @@ def test_member_recent_trades_marks_missing_outcome_explicitly():
         assert items[0]["outcome_skip_reason"] == "no_trade_outcomes_row"
         assert items[0]["estimated_price"] is None
         assert items[0]["estimated_shares"] is None
+        assert items[0]["sector"] == "Financials"
     finally:
         db.close()
 

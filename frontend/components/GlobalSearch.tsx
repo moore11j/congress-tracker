@@ -300,7 +300,7 @@ export function GlobalSearch() {
         }}
         onKeyDown={handleKeyDown}
         placeholder="Search tickers, departments, members, insiders..."
-        className="h-9 w-full rounded-lg border border-white/10 bg-slate-950/70 pl-9 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-500/40 focus:border-emerald-300/55 focus:bg-slate-950 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.22)]"
+        className="h-8 w-full rounded-lg border border-white/10 bg-slate-950/70 pl-9 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-500/40 focus:border-emerald-300/55 focus:bg-slate-950 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.22)]"
         autoComplete="off"
         role="combobox"
         aria-expanded={showPanel}
@@ -318,7 +318,7 @@ export function GlobalSearch() {
       <div className="hidden w-64 lg:block xl:w-80">{input}</div>
       <button
         type="button"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-slate-950/70 text-slate-300 transition hover:border-emerald-300/40 hover:text-emerald-100 lg:hidden"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-slate-950/70 text-slate-300 transition hover:border-emerald-300/40 hover:text-emerald-100 lg:hidden"
         onClick={() => {
           setMobileOpen(true);
           setOpen(true);

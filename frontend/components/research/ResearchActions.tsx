@@ -21,10 +21,12 @@ type CompareResearchSubject = {
 
 type ResearchSubject = TickerResearchSubject | CompareResearchSubject;
 
-export function ResearchActions({ subject }: { subject: ResearchSubject }) {
+export function ResearchActions({ subject, canCreateResearch }: { subject: ResearchSubject; canCreateResearch: boolean }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const outputs = useMemo(() => buildResearchOutputs(subject), [subject]);
+
+  if (!canCreateResearch) return null;
 
   const run = async (action: () => Promise<string> | string) => {
     try {

@@ -232,8 +232,8 @@ test("member page action buttons use compact mobile labels", () => {
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {
-  assert.doesNotMatch(memberPage, /getMemberTrades\(/);
-  assert.doesNotMatch(memberPage, /initialTrades=\{initialTrades\}/);
+  assert.match(memberPage, /getMemberTrades\(canonicalMemberId/);
+  assert.match(memberPage, /initialTrades=\{initialTrades\}/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
   assert.match(memberAnalyticsClient, /initialTrades\?: MemberTradesResponse/);
   assert.match(memberAnalyticsClient, /setTradesUnavailable\(true\)/);
@@ -243,8 +243,8 @@ test("member trades feed failure renders section fallback instead of crashing pa
 });
 
 test("member analytics lazy-load alpha and trades without replacing visible data", () => {
-  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
-  assert.doesNotMatch(memberPage, /initialAlphaSummary=\{initialAlphaSummary\}/);
+  assert.match(memberPage, /getMemberAlphaSummary\(canonicalMemberId/);
+  assert.match(memberPage, /initialAlphaSummary=\{initialAlphaSummary\}/);
   assert.doesNotMatch(memberPage, /loadMemberPageSection/);
   assert.match(memberAnalyticsClient, /initialAlphaSummary\?: MemberAlphaSummary/);
   assert.match(memberAnalyticsClient, /useState<MemberAlphaSummary>\(\(\) => initialAlphaSummary \?\? alphaFallback/);
@@ -437,8 +437,8 @@ test("member page has one primary performance chart and compact secondary analyt
   assert.doesNotMatch(memberPage, /Performance Curve/);
   assert.match(memberAnalyticsClient, /Trade Outcome Analytics/);
   assert.match(memberAnalyticsClient, /Compact metrics from individually scored disclosures\./);
-  assert.doesNotMatch(memberPage, /getMemberAlphaSummary/);
-  assert.doesNotMatch(memberPage, /getMemberTrades/);
+  assert.match(memberPage, /getMemberAlphaSummary\(canonicalMemberId/);
+  assert.match(memberPage, /getMemberTrades\(canonicalMemberId/);
   assert.match(memberAnalyticsClient, /getMemberAlphaSummary\(memberId/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
   assert.doesNotMatch(memberPage, /getMemberPortfolioPerformance/);

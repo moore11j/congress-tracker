@@ -119,6 +119,7 @@ export type MemberTrade = {
   event_id?: number | null;
   symbol: string | null;
   security_name: string;
+  sector?: string | null;
   asset_class?: string | null;
   instrument_type?: string | null;
   maturity_date?: string | null;

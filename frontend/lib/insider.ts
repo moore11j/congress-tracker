@@ -103,6 +103,7 @@ const commonGivenNames = new Set([
   "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen",
   "Nancy", "Lisa", "Margaret", "Betty", "Sandra", "Ashley", "Kimberly", "Emily", "Donna", "Michelle",
   "Meredith", "Peter", "Scott", "Kevin", "Brian", "Timothy", "Jason", "Jeffrey", "Ryan", "Jacob",
+  "Elon",
 ]);
 
 function isLikelyGivenName(token: string): boolean {

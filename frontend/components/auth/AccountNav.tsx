@@ -136,7 +136,7 @@ export function AccountNav() {
       <Link
         href="/login"
         prefetch={false}
-        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
+        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
       >
         {label}
       </Link>
@@ -148,7 +148,7 @@ export function AccountNav() {
       <Link
         href="/login"
         prefetch={false}
-        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
+        className="whitespace-nowrap rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/15"
       >
         {label}
       </Link>
@@ -161,7 +161,7 @@ export function AccountNav() {
   return (
     <div
       ref={menuRef}
-      className="relative z-[1100] shrink-0 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-sm font-medium"
+      className="relative z-[1100] shrink-0 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.04] px-2 py-0.5 text-sm font-medium"
       onMouseEnter={() => setMenuOpen(true)}
       onMouseLeave={() => setMenuOpen(false)}
       onBlur={(event) => {
