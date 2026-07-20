@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getInsiderSummary, type InsiderSummary } from "@/lib/api";
+import { insiderSlug } from "@/lib/insider";
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
 
@@ -75,6 +76,7 @@ export function InsiderProfileHeaderClient({
     [summary.role_contexts],
   );
   const activeSymbol = (issuer || stockSymbol || summary.primary_symbol || roleContexts[0]?.symbol || "").toUpperCase();
+  const liveCanonicalSlug = insiderSlug(firstText(summary.insider_name), reportingCik) ?? canonicalSlug;
   const roleText = firstText(summary.primary_role, initialRoleText) ?? "Role unavailable";
   const companyText = firstText(summary.primary_company_name, initialCompanyText) ?? "Company unavailable";
   const displaySymbol = activeSymbol || stockSymbol;
@@ -105,7 +107,7 @@ export function InsiderProfileHeaderClient({
             return (
               <Link
                 key={context.symbol}
-                href={buildRoleHref(canonicalSlug, lookback, context.symbol, recentTradesPage)}
+                href={buildRoleHref(liveCanonicalSlug, lookback, context.symbol, recentTradesPage)}
                 prefetch={false}
                 className={`shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition ${
                   selected
