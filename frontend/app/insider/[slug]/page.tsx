@@ -13,6 +13,9 @@ import {
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Props = {
   params: Promise<{ slug: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
