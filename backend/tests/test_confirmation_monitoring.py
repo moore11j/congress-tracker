@@ -12,6 +12,7 @@ from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapsh
 from app.services.confirmation_monitoring import (
     ConfirmationMonitoringState,
     decide_confirmation_monitoring_event,
+    decide_monitor_transition_events,
     decide_source_flip_events,
     refresh_all_monitored_watchlist_confirmation_monitoring,
     refresh_watchlist_confirmation_monitoring,
@@ -67,6 +68,25 @@ def test_confirmation_monitoring_detects_direction_flip():
     assert decision is not None
     assert decision.event_type == "direction_flipped"
     assert decision.title == "AAPL flipped from bullish to bearish confirmation"
+
+
+def test_monitor_transition_enters_bullish_monitor_only_when_strong_multi_source():
+    before = _state(score=58, band="moderate", direction="bullish", source_count=2, status="2-source bullish confirmation")
+    after = _state(score=64, band="strong", direction="bullish", source_count=2, status="2-source bullish confirmation")
+
+    decisions = decide_monitor_transition_events(before, after)
+
+    assert [decision.event_type for decision in decisions] == ["entered_bullish_monitor"]
+    assert decisions[0].payload["monitor_score_threshold"] == 60
+
+
+def test_monitor_transition_exits_and_enters_on_bearish_flip():
+    before = _state(score=70, band="strong", direction="bullish", source_count=2, status="2-source bullish confirmation")
+    after = _state(score=68, band="strong", direction="bearish", source_count=2, status="2-source bearish confirmation")
+
+    decisions = decide_monitor_transition_events(before, after)
+
+    assert [decision.event_type for decision in decisions] == ["exited_bullish_monitor", "entered_bearish_monitor"]
 
 
 def test_fundamentals_flippage_creates_source_monitoring_event():
@@ -163,11 +183,11 @@ def test_refresh_emits_once_for_same_after_state_inside_dedupe_window(monkeypatc
         second = refresh_watchlist_confirmation_monitoring(db, user_id=1, watchlist_id=7, tickers=["AAPL"], now=now + timedelta(minutes=5))
         db.commit()
 
-        assert first["generated"] == 1
+        assert first["generated"] == 2
         assert isinstance(first["items"][0]["created_at"], str)
         json.dumps(first)
         assert second["generated"] == 0
-        assert db.query(ConfirmationMonitoringEvent).count() == 1
+        assert db.query(ConfirmationMonitoringEvent).count() == 2
 
 
 def test_scheduled_refresh_checks_monitored_watchlists_with_per_watchlist_commits(monkeypatch, caplog):
@@ -226,12 +246,12 @@ def test_scheduled_refresh_checks_monitored_watchlists_with_per_watchlist_commit
         second = refresh_all_monitored_watchlist_confirmation_monitoring(SessionLocal, now=now + timedelta(minutes=5))
 
     with SessionLocal() as db:
-        assert db.query(ConfirmationMonitoringEvent).count() == 1
+        assert db.query(ConfirmationMonitoringEvent).count() == 2
 
     assert first["watchlists_checked"] == 1
-    assert first["changes_created"] == 1
+    assert first["changes_created"] == 2
     assert second["watchlists_checked"] == 1
     assert second["changes_created"] == 0
     assert "scheduled_monitor_refresh_started" in caplog.text
     assert "watchlists_checked=1" in caplog.text
-    assert "changes_created=1" in caplog.text
+    assert "changes_created=2" in caplog.text

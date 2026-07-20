@@ -65,6 +65,12 @@ FUNDAMENTAL_EVENT_TYPES = (
     "fundamentals_change",
     "fundamentals_flip",
 )
+MONITOR_STATE_EVENT_TYPES = (
+    "entered_bullish_monitor",
+    "entered_bearish_monitor",
+    "exited_bullish_monitor",
+    "exited_bearish_monitor",
+)
 INTRADAY_EVENT_TYPES = (
     "congress_trade",
     "congress_trade_new",
@@ -85,6 +91,7 @@ SIGNAL_ALERT_TYPES = (
     "new_multi_source_confirmation",
     "confirmation_upgraded",
     "direction_flipped",
+    *MONITOR_STATE_EVENT_TYPES,
     "price_volume_flip",
     "fundamentals_flip",
     "smart_score_threshold",
@@ -562,6 +569,8 @@ def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None,
 def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None, on_watchlist: bool, *, source_type: str | None = None) -> str | None:
     if source_type == "saved_screen" and alert_type == "entered_screen":
         return SAVED_SCREEN_ENTRY_TRIGGER
+    if alert_type in MONITOR_STATE_EVENT_TYPES:
+        return "monitor_state"
     if alert_type in PRICE_VOLUME_EVENT_TYPES:
         return "price_volume"
     if alert_type in FUNDAMENTAL_EVENT_TYPES:
@@ -578,6 +587,8 @@ def _signal_trigger(alert_type: str, payload: dict[str, Any], score: int | None,
 
 
 def _confirmation_trigger(event: ConfirmationMonitoringEvent, on_watchlist: bool) -> str | None:
+    if event.event_type in MONITOR_STATE_EVENT_TYPES:
+        return "monitor_state"
     if event.event_type in PRICE_VOLUME_EVENT_TYPES:
         return "price_volume"
     if event.event_type in FUNDAMENTAL_EVENT_TYPES:

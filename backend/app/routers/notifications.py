@@ -44,6 +44,8 @@ class NotificationSubscriptionPayload(BaseModel):
             "price_volume",
             "fundamentals",
             "event_calendar",
+            "saved_screen_entry",
+            "monitor_state",
         ]
     ] = []
     min_smart_score: int | None = Field(default=None, ge=0, le=100)

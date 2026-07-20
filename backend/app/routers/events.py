@@ -21,7 +21,7 @@ from app.auth import SESSION_COOKIE_NAME, current_user, is_admin_user
 from app.db import get_db
 from app.entitlements import entitlements_for_user
 from app.rate_limit import rate_limit_provider_backed
-from app.models import Event, GovernmentContractAction, InstitutionalActivityEvent, InstitutionalHolder, InstitutionalPositionChange, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
+from app.models import Event, GovernmentContractAction, InsiderTransactionNormalized, InstitutionalActivityEvent, InstitutionalHolder, InstitutionalPositionChange, Member, MonitoringAlert, Security, TickerMeta, TradeOutcome, Watchlist, WatchlistItem
 from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.schemas import EventOut, EventsDebug, EventsPage, EventsPageDebug
 from app.services.price_lookup import get_close_for_date_or_prior, get_eod_close, get_eod_close_series
@@ -2385,6 +2385,173 @@ def _empty_insider_summary_payload(
     return payload
 
 
+def _insider_normalized_cik_variants(reporting_cik: str | None) -> list[str]:
+    normalized = normalize_cik(reporting_cik)
+    if not normalized:
+        return []
+    variants = {normalized}
+    stripped = normalized.lstrip("0")
+    if stripped:
+        variants.add(stripped)
+    return sorted(variants)
+
+
+def _date_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text_value = str(value).strip()
+    return text_value[:10] if text_value else None
+
+
+def _normalized_insider_role(row: InsiderTransactionNormalized) -> str | None:
+    return _first_non_empty_text(
+        row.officer_title,
+        "Director" if row.is_director else None,
+        "Officer" if row.is_officer else None,
+        "10% Owner" if row.is_ten_percent_owner else None,
+    )
+
+
+def _normalized_insider_role_priority(row: InsiderTransactionNormalized) -> int:
+    role = (_normalized_insider_role(row) or "").casefold()
+    if "chief executive" in role or "ceo" in role:
+        return 100
+    if row.is_officer or "officer" in role:
+        return 80
+    if row.is_director or "director" in role:
+        return 60
+    if row.is_ten_percent_owner or "10%" in role or "10 percent" in role:
+        return 40
+    return 0
+
+
+def _insider_identity_summary_from_normalized_transactions(
+    db: Session,
+    reporting_cik: str,
+    lookback_days: int,
+    *,
+    issuer: str | None = None,
+) -> dict | None:
+    normalized_cik = normalize_cik(reporting_cik)
+    cik_variants = _insider_normalized_cik_variants(reporting_cik)
+    if not normalized_cik or not cik_variants:
+        return None
+
+    issuer_symbol = normalize_symbol(issuer)
+    issuer_cik = normalize_cik(issuer)
+    query = (
+        select(InsiderTransactionNormalized)
+        .where(InsiderTransactionNormalized.reporting_owner_cik.in_(cik_variants))
+        .where(InsiderTransactionNormalized.is_duplicate.is_(False))
+        .order_by(
+            func.coalesce(
+                InsiderTransactionNormalized.filing_date,
+                InsiderTransactionNormalized.transaction_date,
+            ).desc(),
+            InsiderTransactionNormalized.id.desc(),
+        )
+        .limit(25)
+    )
+    if issuer_symbol:
+        query = query.where(func.upper(InsiderTransactionNormalized.ticker_normalized) == issuer_symbol)
+    if issuer_cik:
+        query = query.where(InsiderTransactionNormalized.issuer_cik.in_(_insider_normalized_cik_variants(issuer)))
+
+    rows = db.execute(query).scalars().all()
+    if not rows:
+        return None
+
+    symbol_counts: dict[str, int] = {}
+    name_counts: dict[str, int] = {}
+    role_counts: dict[str, int] = {}
+    issuer_name_counts: dict[str, int] = {}
+    symbol_role_priority: dict[str, int] = {}
+    symbol_latest_date: dict[str, str] = {}
+    latest_filing_date: str | None = None
+    latest_transaction_date: str | None = None
+
+    for row in rows:
+        symbol = normalize_symbol(row.ticker_normalized)
+        filing_date = _date_text(row.filing_date)
+        transaction_date = _date_text(row.transaction_date)
+        row_latest_date = max((value for value in (filing_date, transaction_date) if value), default="")
+        if symbol:
+            symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+            symbol_role_priority[symbol] = max(symbol_role_priority.get(symbol, 0), _normalized_insider_role_priority(row))
+            if row_latest_date:
+                symbol_latest_date[symbol] = max(symbol_latest_date.get(symbol, ""), row_latest_date)
+        name = _first_non_empty_text(row.reporting_owner_name)
+        if name:
+            name_counts[name] = name_counts.get(name, 0) + 1
+        role = _normalized_insider_role(row)
+        if role:
+            role_counts[role] = role_counts.get(role, 0) + 1
+        issuer_name = safe_company_identity_candidate(row.issuer_name, symbol)
+        if issuer_name:
+            issuer_name_counts[issuer_name] = issuer_name_counts.get(issuer_name, 0) + 1
+
+        if filing_date and (latest_filing_date is None or filing_date > latest_filing_date):
+            latest_filing_date = filing_date
+        if transaction_date and (latest_transaction_date is None or transaction_date > latest_transaction_date):
+            latest_transaction_date = transaction_date
+
+    primary_symbol = (
+        max(
+            symbol_counts,
+            key=lambda symbol: (
+                symbol_role_priority.get(symbol, 0),
+                symbol_counts.get(symbol, 0),
+                symbol_latest_date.get(symbol, ""),
+                symbol,
+            ),
+        )
+        if symbol_counts
+        else None
+    )
+    primary_role = None
+    if primary_symbol:
+        primary_role_row = max(
+            (row for row in rows if normalize_symbol(row.ticker_normalized) == primary_symbol),
+            key=lambda row: (
+                _normalized_insider_role_priority(row),
+                max(
+                    (
+                        value
+                        for value in (
+                            _date_text(row.filing_date),
+                            _date_text(row.transaction_date),
+                        )
+                        if value
+                    ),
+                    default="",
+                ),
+            ),
+            default=None,
+        )
+        if primary_role_row is not None:
+            primary_role = _normalized_insider_role(primary_role_row)
+    metadata_company_name = None
+    if primary_symbol:
+        ticker_meta = _ticker_meta_with_security_names(db, [primary_symbol], enqueue_refresh=True)
+        metadata_company_name = _first_non_empty_text((ticker_meta.get(primary_symbol) or {}).get("company_name"))
+    fallback_company_name = max(issuer_name_counts.items(), key=lambda item: item[1])[0] if issuer_name_counts else None
+
+    return {
+        **_empty_insider_summary_payload(normalized_cik, lookback_days, status="identity_only"),
+        "insider_name": max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else None,
+        "primary_company_name": metadata_company_name or fallback_company_name,
+        "primary_role": primary_role or (max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None),
+        "primary_symbol": primary_symbol,
+        "unique_tickers": len(symbol_counts),
+        "latest_filing_date": latest_filing_date,
+        "latest_transaction_date": latest_transaction_date,
+    }
+
+
 def _insider_identity_summary_from_recent_events(
     db: Session,
     reporting_cik: str,
@@ -2402,7 +2569,12 @@ def _insider_identity_summary_from_recent_events(
         max_events=25,
     )
     if not matched:
-        return _empty_insider_summary_payload(normalized_cik, lookback_days, status="identity_unavailable")
+        return _insider_identity_summary_from_normalized_transactions(
+            db,
+            reporting_cik,
+            lookback_days,
+            issuer=issuer,
+        ) or _empty_insider_summary_payload(normalized_cik, lookback_days, status="identity_unavailable")
 
     symbols = sorted(
         {
@@ -4167,6 +4339,63 @@ def _global_insider_results(db: Session, query: str, limit: int) -> list[dict[st
         if len(results_by_key) >= limit:
             break
 
+    if len(results_by_key) < limit:
+        normalized_blob = (
+            func.coalesce(InsiderTransactionNormalized.reporting_owner_name, "")
+            + " "
+            + func.coalesce(InsiderTransactionNormalized.ticker_normalized, "")
+            + " "
+            + func.coalesce(InsiderTransactionNormalized.issuer_name, "")
+            + " "
+            + func.coalesce(InsiderTransactionNormalized.officer_title, "")
+        )
+        normalized_rows = db.execute(
+            select(InsiderTransactionNormalized)
+            .where(InsiderTransactionNormalized.is_duplicate.is_(False))
+            .where(InsiderTransactionNormalized.reporting_owner_name.is_not(None))
+            .where(and_(*_token_match_clauses(normalized_blob, tokens)))
+            .order_by(
+                func.coalesce(
+                    InsiderTransactionNormalized.filing_date,
+                    InsiderTransactionNormalized.transaction_date,
+                ).desc(),
+                InsiderTransactionNormalized.id.desc(),
+            )
+            .limit(limit * 12)
+        ).scalars().all()
+
+        for row in normalized_rows:
+            reporting_cik = normalize_cik(row.reporting_owner_cik)
+            if reporting_cik is None:
+                continue
+            name = _format_insider_name(row.reporting_owner_name)
+            if name is None:
+                continue
+            symbol = normalize_symbol(row.ticker_normalized)
+            company_name = safe_company_identity_candidate(row.issuer_name, symbol)
+            role = _normalized_insider_role(row)
+            subtitle_parts = ["Insider", company_name, symbol, role]
+            subtitle = " - ".join(part for part in subtitle_parts if part)
+            score = _global_score(query, name, symbol, company_name, role, reporting_cik, exact_bonus=90.0, prefix_bonus=60.0)
+            issuer_key = symbol or normalize_cik(row.issuer_cik) or "unknown"
+            result_key = f"{reporting_cik}:{issuer_key}"
+            existing = results_by_key.get(result_key)
+            if existing is None or float(existing.get("score") or 0) < score:
+                route = f"/insider/{_insider_slug(name, reporting_cik)}"
+                if symbol:
+                    route = f"{route}?issuer={symbol}"
+                results_by_key[result_key] = {
+                    "type": "insider",
+                    "id": result_key,
+                    "label": name,
+                    "subtitle": subtitle,
+                    "symbol": symbol,
+                    "route": route,
+                    "score": score,
+                }
+            if len(results_by_key) >= limit:
+                break
+
     return sorted(results_by_key.values(), key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
 
 
@@ -4436,6 +4665,59 @@ def suggest_member_insider(
         )
         if len(items) >= limit:
             break
+
+    if len(items) < limit:
+        try:
+            normalized_rows = db.execute(
+                select(InsiderTransactionNormalized)
+                .where(InsiderTransactionNormalized.is_duplicate.is_(False))
+                .where(
+                    or_(
+                        func.lower(func.coalesce(InsiderTransactionNormalized.reporting_owner_name, "")).like(pattern),
+                        func.lower(func.coalesce(InsiderTransactionNormalized.reporting_owner_cik, "")).like(pattern),
+                    )
+                )
+                .order_by(
+                    func.coalesce(
+                        InsiderTransactionNormalized.filing_date,
+                        InsiderTransactionNormalized.transaction_date,
+                    ).desc(),
+                    InsiderTransactionNormalized.id.desc(),
+                )
+                .limit(limit * 4)
+            ).scalars().all()
+        except Exception:
+            logger.exception("member_insider_suggest_normalized_insider_query_failed query=%s", prefix)
+            normalized_rows = []
+
+        for row in normalized_rows:
+            reporting_cik = normalize_cik(row.reporting_owner_cik)
+            cleaned_name = _clean_suggestion(row.reporting_owner_name)
+            if cleaned_name is None:
+                continue
+            symbol = normalize_symbol(row.ticker_normalized)
+            company_name = safe_company_identity_candidate(row.issuer_name, symbol)
+            role = _normalized_insider_role(row)
+            label_parts = [cleaned_name, company_name, symbol, role]
+            label = " - ".join(part for part in label_parts if part)
+
+            key = (cleaned_name.casefold(), symbol or reporting_cik or "", "insider")
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "label": label,
+                    "value": cleaned_name,
+                    "category": "insider",
+                    "reporting_cik": reporting_cik,
+                    "symbol": symbol,
+                    "company_name": company_name,
+                    "role": role,
+                }
+            )
+            if len(items) >= limit:
+                break
 
     return {"items": items}
 
@@ -5765,6 +6047,12 @@ def insider_summary(
                 return copy.deepcopy(result)
     matched = _load_insider_events_for_cik(db, reporting_cik, lookback_days, include_non_market_activity=True, issuer=issuer)
     if not matched:
+        normalized_identity = _insider_identity_summary_from_normalized_transactions(
+            db,
+            reporting_cik,
+            lookback_days,
+            issuer=issuer,
+        )
         logger.info(
             "insider_analytics_panel panel=summary reporting_cik=%s lookback_days=%s rows=0 cache=miss duration_ms=%.1f",
             normalized_cik,
@@ -5775,7 +6063,7 @@ def insider_summary(
             cache_key,
             inflight_state,
             inflight_leader,
-            _empty_insider_summary_payload(normalized_cik, lookback_days),
+            normalized_identity or _empty_insider_summary_payload(normalized_cik, lookback_days),
         )
 
     buy_count = 0

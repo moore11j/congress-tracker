@@ -27,6 +27,7 @@ const emailStorageKey = "ct:notificationEmail";
 const triggerOptions: { value: AlertTriggerType; label: string }[] = [
   { value: "cross_source_confirmation", label: "Cross-source" },
   { value: "smart_score_threshold", label: "Conviction threshold" },
+  { value: "monitor_state", label: "Bullish/bearish monitor" },
   { value: "large_trade_threshold", label: "Large trade / contract" },
   { value: "congress_activity", label: "Congress" },
   { value: "insider_activity", label: "Insiders" },
@@ -94,6 +95,7 @@ export function NotificationPreferences({
   const [triggers, setTriggers] = useState<AlertTriggerType[]>([
     "cross_source_confirmation",
     "smart_score_threshold",
+    "monitor_state",
     "large_trade_threshold",
     "government_contract",
     "institutional_activity",
@@ -109,6 +111,16 @@ export function NotificationPreferences({
   const minSmartScore = useMemo(() => (triggers.includes("smart_score_threshold") ? 80 : null), [triggers]);
   const largeTradeAmount = useMemo(() => (triggers.includes("large_trade_threshold") ? 250000 : null), [triggers]);
   const canUseDigests = entitlementsLoaded && hasEntitlement(entitlements, "notification_digests");
+  const visibleTriggerOptions = useMemo(
+    () =>
+      triggerOptions.filter((option) => {
+        if (option.value === "institutional_activity") {
+          return hasEntitlement(entitlements, "institutional_feed");
+        }
+        return true;
+      }),
+    [entitlements],
+  );
   const accountEmailDestination = sourceType === "watchlist" && useAccountEmailDestination;
   const panelClassName = compact
     ? "min-w-[20rem] space-y-4 font-sans"
@@ -164,6 +176,11 @@ export function NotificationPreferences({
       cancelled = true;
     };
   }, [accountEmailDestination, sourceId, sourceType]);
+
+  useEffect(() => {
+    if (!entitlementsLoaded || hasEntitlement(entitlements, "institutional_feed")) return;
+    setTriggers((current) => current.filter((trigger) => trigger !== "institutional_activity"));
+  }, [entitlements, entitlementsLoaded]);
 
   const toggleTrigger = (trigger: AlertTriggerType) => {
     setTriggers((current) => (current.includes(trigger) ? current.filter((item) => item !== trigger) : [...current, trigger]));
@@ -300,7 +317,7 @@ export function NotificationPreferences({
             Choose which qualified monitoring changes can send during the day and roll into daily summaries.
           </p>
           <div className="flex flex-wrap gap-2">
-            {triggerOptions.map((option) => (
+            {visibleTriggerOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"

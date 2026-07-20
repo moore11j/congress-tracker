@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import Event, NotificationDelivery, NotificationSubscription, Security, UserAccount, Watchlist, WatchlistItem
+from app.models import ConfirmationMonitoringEvent, Event, NotificationDelivery, NotificationSubscription, Security, UserAccount, Watchlist, WatchlistItem
 from app.routers.notifications import (
     NotificationSubscriptionPayload,
     delete_notification_subscription,
@@ -19,7 +19,8 @@ from app.routers.notifications import (
     put_notification_subscription,
     run_notification_digests,
 )
-from app.services.notifications import build_digest_for_subscription, create_digest_delivery, upsert_subscription
+from app.services.notifications import build_digest_for_subscription, create_digest_delivery, normalize_alert_triggers, upsert_subscription
+from app.services.email_intraday import _confirmation_trigger
 
 
 def _session():
@@ -60,6 +61,98 @@ def _event(symbol: str, ts: datetime, amount_max: int, event_type: str = "congre
         amount_min=amount_max // 2,
         amount_max=amount_max,
     )
+
+
+def test_notification_trigger_normalization_accepts_monitor_state_and_saved_screen_entry():
+    assert normalize_alert_triggers(["monitor_state", "saved_screen_entry", "monitor_state", "unknown"]) == [
+        "monitor_state",
+        "saved_screen_entry",
+    ]
+    payload = NotificationSubscriptionPayload(
+        source_type="saved_view",
+        source_id="view-1",
+        source_name="View",
+        only_if_new=True,
+        active=True,
+        alert_triggers=["monitor_state", "saved_screen_entry"],
+    )
+
+    assert payload.alert_triggers == ["monitor_state", "saved_screen_entry"]
+
+
+def test_monitor_state_confirmation_event_maps_to_intraday_trigger():
+    event = ConfirmationMonitoringEvent(
+        user_id=1,
+        watchlist_id=42,
+        ticker="NVDA",
+        event_type="entered_bullish_monitor",
+        title="NVDA entered bullish monitor",
+        body="NVDA entered Walnut's bullish monitor.",
+        score_before=58,
+        score_after=64,
+        band_before="moderate",
+        band_after="strong",
+        direction_before="bullish",
+        direction_after="bullish",
+        source_count_before=2,
+        source_count_after=2,
+    )
+
+    assert _confirmation_trigger(event, on_watchlist=True) == "monitor_state"
+
+
+def test_upsert_subscription_collapses_existing_duplicates():
+    db = _session()
+    try:
+        now = datetime.now(timezone.utc)
+        older = NotificationSubscription(
+            email="USER@example.com",
+            source_type="watchlist",
+            source_id="42",
+            source_name="Old",
+            source_payload_json="{}",
+            frequency="daily",
+            only_if_new=True,
+            active=True,
+            alert_triggers_json="[]",
+            updated_at=now - timedelta(hours=1),
+        )
+        newer = NotificationSubscription(
+            email="user@example.com",
+            source_type="watchlist",
+            source_id="42",
+            source_name="Newer",
+            source_payload_json="{}",
+            frequency="daily",
+            only_if_new=True,
+            active=True,
+            alert_triggers_json="[]",
+            updated_at=now,
+        )
+        db.add_all([older, newer])
+        db.commit()
+
+        subscription = upsert_subscription(
+            db,
+            email="user@example.com",
+            source_type="watchlist",
+            source_id="42",
+            source_name="Updated",
+            source_payload={"intraday_alerts_enabled": True},
+            frequency="daily",
+            only_if_new=False,
+            active=True,
+            alert_triggers=["monitor_state"],
+            min_smart_score=None,
+            large_trade_amount=None,
+        )
+
+        rows = db.query(NotificationSubscription).all()
+        assert [row.id for row in rows] == [subscription.id]
+        assert subscription.source_name == "Updated"
+        assert json.loads(subscription.alert_triggers_json) == ["monitor_state"]
+    finally:
+        db.close()
 
 
 def test_watchlist_digest_uses_unseen_since_and_only_sends_new_items():

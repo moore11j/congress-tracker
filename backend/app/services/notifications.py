@@ -30,6 +30,14 @@ SUPPORTED_ALERT_TRIGGERS = {
     "fundamentals",
     "event_calendar",
     "saved_screen_entry",
+    "monitor_state",
+}
+
+MONITOR_STATE_EVENT_TYPES = {
+    "entered_bullish_monitor",
+    "entered_bearish_monitor",
+    "exited_bullish_monitor",
+    "exited_bearish_monitor",
 }
 
 
@@ -122,8 +130,14 @@ def upsert_subscription(
     )
     if match_email:
         existing_query = existing_query.where(func.lower(NotificationSubscription.email) == normalized_email.lower())
-    existing_query = existing_query.order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc()).limit(1)
-    existing = db.execute(existing_query).scalar_one_or_none()
+    existing_rows = (
+        db.execute(existing_query.order_by(NotificationSubscription.updated_at.desc(), NotificationSubscription.id.desc()))
+        .scalars()
+        .all()
+    )
+    existing = existing_rows[0] if existing_rows else None
+    for duplicate in existing_rows[1:]:
+        db.delete(duplicate)
 
     subscription = existing or NotificationSubscription(
         email=normalized_email,
@@ -413,6 +427,8 @@ def _matching_alerts(
             elif trigger == "price_volume" and item.event_type in {"price_volume_change", "price_volume_signal", "unusual_price_volume", "volume_surge", "technical_breakout", "technical_breakdown", "price_volume_flip"}:
                 matches.append((trigger, item))
             elif trigger == "fundamentals" and item.event_type in {"fundamental_change", "fundamentals_change", "fundamentals_flip"}:
+                matches.append((trigger, item))
+            elif trigger == "monitor_state" and item.event_type in MONITOR_STATE_EVENT_TYPES:
                 matches.append((trigger, item))
     return matches
 

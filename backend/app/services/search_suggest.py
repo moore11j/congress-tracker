@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Event,
     InsiderTransaction,
+    InsiderTransactionNormalized,
     Member,
     PageViewEvent,
     SavedScreenEvent,
@@ -574,12 +575,12 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
     q_lower = query.casefold()
     pattern = f"{q_lower}%" if len(query) <= 1 else f"%{q_lower}%"
     fuzzy_contains = f"%{q_lower[:2]}%" if len(query) >= 3 else pattern
-    rows = db.execute(
+    legacy_rows = db.execute(
         select(
-            InsiderTransaction.insider_name,
-            InsiderTransaction.symbol,
-            InsiderTransaction.reporting_cik,
-            InsiderTransaction.role,
+            InsiderTransaction.insider_name.label("insider_name"),
+            InsiderTransaction.symbol.label("symbol"),
+            InsiderTransaction.reporting_cik.label("reporting_cik"),
+            InsiderTransaction.role.label("role"),
             func.max(InsiderTransaction.filing_date).label("latest_date"),
         )
         .where(InsiderTransaction.insider_name.is_not(None))
@@ -589,6 +590,37 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
         .order_by(func.max(InsiderTransaction.filing_date).desc())
         .limit(max(limit * 6, 36))
     ).all()
+    normalized_rows = db.execute(
+        select(
+            InsiderTransactionNormalized.reporting_owner_name.label("insider_name"),
+            InsiderTransactionNormalized.ticker_normalized.label("symbol"),
+            InsiderTransactionNormalized.reporting_owner_cik.label("reporting_cik"),
+            InsiderTransactionNormalized.officer_title.label("role"),
+            func.max(
+                func.coalesce(InsiderTransactionNormalized.filing_date, InsiderTransactionNormalized.transaction_date)
+            ).label("latest_date"),
+        )
+        .where(InsiderTransactionNormalized.reporting_owner_name.is_not(None))
+        .where(func.length(func.trim(InsiderTransactionNormalized.reporting_owner_name)) > 0)
+        .where(InsiderTransactionNormalized.is_duplicate.is_(False))
+        .where(
+            (func.lower(InsiderTransactionNormalized.reporting_owner_name).like(pattern))
+            | (func.lower(InsiderTransactionNormalized.reporting_owner_name).like(fuzzy_contains))
+        )
+        .group_by(
+            InsiderTransactionNormalized.reporting_owner_name,
+            InsiderTransactionNormalized.ticker_normalized,
+            InsiderTransactionNormalized.reporting_owner_cik,
+            InsiderTransactionNormalized.officer_title,
+        )
+        .order_by(func.max(func.coalesce(InsiderTransactionNormalized.filing_date, InsiderTransactionNormalized.transaction_date)).desc())
+        .limit(max(limit * 6, 36))
+    ).all()
+    rows = sorted(
+        [*legacy_rows, *normalized_rows],
+        key=lambda row: str(row.latest_date or ""),
+        reverse=True,
+    )
     items: list[SearchSuggestItem] = []
     seen: set[str] = set()
     for row in rows:

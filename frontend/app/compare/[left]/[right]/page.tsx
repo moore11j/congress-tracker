@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ApiError, getPeerCompare, type PeerCompareCategory, type PeerCompareMetric, type PeerCompareResponse } from "@/lib/api";
+import { ResearchActions } from "@/components/research/ResearchActions";
 import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
@@ -213,6 +214,7 @@ export default async function PeerComparePage({ params }: PageProps) {
           <Link href={tickerHref(left) || "/"} className={ghostButtonClassName}>
             Back to ticker
           </Link>
+          {data ? <ResearchActions subject={{ kind: "compare", data }} /> : null}
         </div>
         <PeerCompareSelector leftSymbol={left} rightSymbol={right} />
         {data ? <CompareReport data={data} /> : <CompareError message={errorMessage} />}

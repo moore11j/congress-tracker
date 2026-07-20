@@ -21,6 +21,9 @@ from app.services.confirmation_score import (
 
 MATERIAL_SCORE_DELTA = 15
 DEDUPE_WINDOW = timedelta(hours=24)
+MONITOR_SCORE_THRESHOLD = 60
+MONITOR_MIN_SOURCE_COUNT = 2
+MONITOR_MIN_BAND_RANK = 3
 
 BAND_RANK = {
     "inactive": 0,
@@ -40,6 +43,10 @@ EVENT_LABELS = {
     "confirmation_quality_downgraded": "Quality downgraded",
     "price_volume_flip": "Price / Volume flipped",
     "fundamentals_flip": "Fundamentals flipped",
+    "entered_bullish_monitor": "Entered bullish monitor",
+    "entered_bearish_monitor": "Entered bearish monitor",
+    "exited_bullish_monitor": "Exited bullish monitor",
+    "exited_bearish_monitor": "Exited bearish monitor",
 }
 SOURCE_FLIP_EVENT_TYPES = {
     "price_volume": "price_volume_flip",
@@ -240,6 +247,57 @@ def decide_source_flip_events(
     return decisions
 
 
+def decide_monitor_transition_events(
+    before: ConfirmationMonitoringState,
+    after: ConfirmationMonitoringState,
+) -> list[ConfirmationMonitoringDecision]:
+    before_side = _monitor_side(before)
+    after_side = _monitor_side(after)
+    if before_side == after_side:
+        return []
+
+    payload = {
+        "ticker": after.ticker,
+        "monitor_before": before_side,
+        "monitor_after": after_side,
+        "monitor_score_threshold": MONITOR_SCORE_THRESHOLD,
+        "monitor_min_source_count": MONITOR_MIN_SOURCE_COUNT,
+        "monitor_min_band": "strong",
+        "score_before": before.score,
+        "score_after": after.score,
+        "band_before": before.band,
+        "band_after": after.band,
+        "direction_before": before.direction,
+        "direction_after": after.direction,
+        "source_count_before": before.source_count,
+        "source_count_after": after.source_count,
+        "classification_version_before": before.classification_version,
+        "classification_version_after": after.classification_version,
+        "observed_at": after.observed_at.isoformat(),
+    }
+
+    decisions: list[ConfirmationMonitoringDecision] = []
+    if before_side:
+        decisions.append(
+            _decision(
+                f"exited_{before_side}_monitor",
+                f"{after.ticker} exited {before_side} monitor",
+                _monitor_transition_body("exited", before_side, after),
+                payload,
+            )
+        )
+    if after_side:
+        decisions.append(
+            _decision(
+                f"entered_{after_side}_monitor",
+                f"{after.ticker} entered {after_side} monitor",
+                _monitor_transition_body("entered", after_side, after),
+                payload,
+            )
+        )
+    return decisions
+
+
 def refresh_watchlist_confirmation_monitoring(
     db: Session,
     *,
@@ -281,6 +339,17 @@ def refresh_watchlist_confirmation_monitoring(
                 db.flush()
                 generated += 1
                 items.append(event_to_dict(event))
+
+        monitor_decisions = decide_monitor_transition_events(before, after)
+        for monitor_decision in monitor_decisions:
+            if _recent_duplicate_exists(db, user_id=user_id, watchlist_id=watchlist_id, ticker=symbol, decision=monitor_decision, now=observed_at):
+                deduped += 1
+                continue
+            event = _event_from_decision(user_id=user_id, watchlist_id=watchlist_id, before=before, after=after, decision=monitor_decision)
+            db.add(event)
+            db.flush()
+            generated += 1
+            items.append(event_to_dict(event))
 
         source_decisions = decide_source_flip_events(before, after)
         for source_decision in source_decisions:
@@ -481,6 +550,25 @@ def _source_flip_body(ticker: str, source_key: str, before: dict[str, Any], afte
 
 def _source_state_hash(source_key: str, state: dict[str, Any]) -> str:
     return f"{source_key}:{state.get('status')}:{state.get('direction')}:{bool(state.get('present'))}"
+
+
+def _monitor_side(state: ConfirmationMonitoringState) -> str | None:
+    if state.direction not in {"bullish", "bearish"}:
+        return None
+    if state.score < MONITOR_SCORE_THRESHOLD:
+        return None
+    if state.source_count < MONITOR_MIN_SOURCE_COUNT:
+        return None
+    if BAND_RANK.get(state.band, 0) < MONITOR_MIN_BAND_RANK:
+        return None
+    return state.direction
+
+
+def _monitor_transition_body(action: str, side: str, state: ConfirmationMonitoringState) -> str:
+    return (
+        f"{state.ticker} {action} Walnut's {side} monitor with "
+        f"{state.band} {state.source_count}-source {state.direction} confirmation and a {state.score} score."
+    )
 
 
 def _snapshot_map(

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Event, InsiderTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
+from app.models import Event, InsiderTransaction, InsiderTransactionNormalized, Member, Security, TickerMeta, Watchlist, WatchlistItem
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 
@@ -263,6 +263,36 @@ def test_search_suggest_includes_members_after_tickers():
         assert "ticker" in kinds
         assert "member" in kinds
     finally:
+        db.close()
+
+
+def test_search_suggest_finds_normalized_form4_insider():
+    db = _db()
+    try:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.add(
+            InsiderTransactionNormalized(
+                accession_number="0000320193-26-000001",
+                issuer_name="Apple Inc.",
+                ticker_normalized="AAPL",
+                reporting_owner_cik="0001214156",
+                reporting_owner_name="Tim Cook",
+                officer_title="Chief Executive Officer",
+                transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+                filing_date=datetime(2026, 4, 2, tzinfo=timezone.utc).date(),
+                normalized_hash="tim-cook-aapl-1",
+            )
+        )
+        db.commit()
+
+        items = search_suggestions(db, "tim cook", limit=8)["items"]
+
+        insider = next(item for item in items if item["kind"] == "insider")
+        assert insider["label"] == "Tim Cook"
+        assert insider["symbol"] == "AAPL"
+        assert insider["href"] == "/insider/tim-cook-0001214156?issuer=AAPL"
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()
 
 

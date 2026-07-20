@@ -792,7 +792,9 @@ export type AlertTriggerType =
   | "institutional_activity"
   | "price_volume"
   | "fundamentals"
-  | "event_calendar";
+  | "event_calendar"
+  | "saved_screen_entry"
+  | "monitor_state";
 
 export type EventCalendarScope = "watchlist";
 export type EventCalendarKind = "economic" | "earnings" | "dividend" | "ipo" | "split";
