@@ -5,12 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   getEvents,
   getTickerFinancials,
+  getTickerMacroPositioning,
   getTickerNews,
   getTickerOwnership,
   getTickerPressReleases,
   getTickerSecFilings,
   type EventItem,
   type InsightsNewsResponse,
+  type MacroPositioningResponse,
   type NewsItem,
   type PressReleasesResponse,
   type SecFilingsResponse,
@@ -33,9 +35,9 @@ type Props = {
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "ownership" | "events";
+type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro";
 
-const TAB_CLASS = "rounded-lg px-3 py-1.5 text-xs font-semibold transition";
+const TAB_CLASS = "relative flex h-12 shrink-0 items-center px-5 text-sm font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
 const PRESS_UNAVAILABLE_MESSAGE = "Press releases are temporarily unavailable.";
 const FILINGS_UNAVAILABLE_MESSAGE = "Filings are temporarily unavailable.";
@@ -71,6 +73,7 @@ const PRESS_REQUEST_TIMEOUT_MS = 12000;
 const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
 const OWNERSHIP_REQUEST_TIMEOUT_MS = 12000;
 const SEC_REQUEST_TIMEOUT_MS = 12000;
+const MACRO_REQUEST_TIMEOUT_MS = 12000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
   "4": "Statement of Changes in Beneficial Ownership",
@@ -446,6 +449,8 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const [loadingFinancials, setLoadingFinancials] = useState(false);
   const [ownership, setOwnership] = useState<TickerOwnershipResponse | null>(null);
   const [loadingOwnership, setLoadingOwnership] = useState(false);
+  const [macroPositioning, setMacroPositioning] = useState<MacroPositioningResponse | null>(null);
+  const [loadingMacroPositioning, setLoadingMacroPositioning] = useState(false);
 
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
@@ -453,6 +458,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const eventsAbortRef = useRef<AbortController | null>(null);
   const financialsAbortRef = useRef<AbortController | null>(null);
   const ownershipAbortRef = useRef<AbortController | null>(null);
+  const macroAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
@@ -461,6 +467,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     abortRequest(eventsAbortRef);
     abortRequest(financialsAbortRef);
     abortRequest(ownershipAbortRef);
+    abortRequest(macroAbortRef);
     setNewsPages([]);
     setPressPages([]);
     setSecPages([]);
@@ -468,12 +475,14 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     setEventsStatus(null);
     setFinancials(null);
     setOwnership(null);
+    setMacroPositioning(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
     setLoadingEvents(false);
     setLoadingFinancials(false);
     setLoadingOwnership(false);
+    setLoadingMacroPositioning(false);
   }, [symbol]);
 
   useEffect(() => {
@@ -602,6 +611,53 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
       if (ownershipAbortRef.current === controller) ownershipAbortRef.current = null;
     };
   }, [activeTab, canViewOwnership, ownership, symbol]);
+
+  useEffect(() => {
+    if (activeTab !== "macro") {
+      abortRequest(macroAbortRef);
+      setLoadingMacroPositioning(false);
+      return;
+    }
+    if (macroPositioning || macroAbortRef.current) return;
+
+    const controller = new AbortController();
+    abortRequest(macroAbortRef);
+    macroAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, MACRO_REQUEST_TIMEOUT_MS);
+    setLoadingMacroPositioning(true);
+
+    getTickerMacroPositioning(symbol, { signal: controller.signal, source: "TickerMacroPositioningTab" })
+      .then((response) => {
+        if (!controller.signal.aborted) setMacroPositioning(response);
+      })
+      .catch((error) => {
+        if (timeoutGuard.timedOut || !isAbortError(error)) {
+          setMacroPositioning({
+            symbol,
+            status: "unavailable",
+            active: false,
+            overall: "neutral",
+            rating: 0,
+            summary: "Macro positioning is unavailable for this ticker.",
+            drivers: [],
+            updated: null,
+          });
+        }
+      })
+      .finally(() => {
+        timeoutGuard.clear();
+        if (macroAbortRef.current === controller) {
+          macroAbortRef.current = null;
+          setLoadingMacroPositioning(false);
+        }
+      });
+
+    return () => {
+      timeoutGuard.clear();
+      controller.abort();
+      if (macroAbortRef.current === controller) macroAbortRef.current = null;
+    };
+  }, [activeTab, macroPositioning, symbol]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -865,52 +921,56 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   };
 
   return (
-    <section className={`${cardClassName} ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Ticker Context</h2>
-          <p className="mt-2 text-sm text-slate-400">News, intelligence, and market context for {symbol}.</p>
-        </div>
-        <div className="flex flex-wrap rounded-xl border border-white/10 bg-slate-950/80 p-1">
+    <section className={`${cardClassName} min-w-0 max-w-full overflow-hidden !rounded-lg !p-0 ${className ?? ""} xl:flex xl:min-h-0 xl:flex-col`}>
+      <div className="overflow-x-auto border-b border-white/10 bg-slate-950/55 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-max">
           <button
             type="button"
             onClick={() => setActiveTab("overview")}
-            className={`${TAB_CLASS} ${activeTab === "overview" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+            className={`${TAB_CLASS} ${activeTab === "overview" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             Overview
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("news")}
-            className={`${TAB_CLASS} ${activeTab === "news" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+            className={`${TAB_CLASS} ${activeTab === "news" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             News
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("financials")}
-            className={`${TAB_CLASS} ${activeTab === "financials" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+            className={`${TAB_CLASS} ${activeTab === "financials" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             Financials
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("ownership")}
-            className={`${TAB_CLASS} ${activeTab === "ownership" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+            className={`${TAB_CLASS} ${activeTab === "ownership" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             Ownership
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("events")}
-            className={`${TAB_CLASS} ${activeTab === "events" ? "bg-emerald-400/15 text-emerald-200" : "text-slate-300 hover:bg-white/5"}`}
+            className={`${TAB_CLASS} ${activeTab === "events" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             Events / Filings
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("macro")}
+            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "macro" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+          >
+            <span>Macro Positioning</span>
+            <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
         </div>
       </div>
 
-      <div className="relative mt-6 xl:flex-1 xl:min-h-0">
+      <div className="relative p-4 xl:flex-1 xl:min-h-0">
         <div
           className={`${
             activeTab === "overview" ? "relative" : "invisible pointer-events-none select-none"
@@ -988,6 +1048,65 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                 <TickerOwnershipSkeleton />
               ) : (
                 <TickerOwnershipPanel data={ownership} locked={!canViewOwnership} />
+              )}
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "macro" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Macro Positioning</p>
+                <p className="mt-2 text-sm text-slate-400">Institutional macro positioning mapped to {symbol}.</p>
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Pro</span>
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {loadingMacroPositioning || !macroPositioning ? (
+                <TabSkeleton rows={3} />
+              ) : macroPositioning.locked || macroPositioning.status === "locked" ? (
+                <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                  <p className="text-sm font-semibold text-white">Macro Positioning requires Pro</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    {macroPositioning.subtitle ?? macroPositioning.summary ?? "Upgrade to access institutional macro positioning for this ticker."}
+                  </p>
+                </section>
+              ) : macroPositioning.status === "unavailable" || macroPositioning.active === false ? (
+                <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                  <p className="text-sm font-semibold text-white">Macro positioning unavailable</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    {macroPositioning.summary ?? "Macro positioning is not available for this ticker yet."}
+                  </p>
+                </section>
+              ) : (
+                <section className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold text-white">{macroPositioning.title ?? "Macro Positioning"}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{macroPositioning.summary ?? "Macro positioning is active for this ticker."}</p>
+                    </div>
+                    <span className={`rounded-lg border px-3 py-1 text-xs font-semibold uppercase ${
+                      macroPositioning.overall === "bullish"
+                        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+                        : macroPositioning.overall === "bearish"
+                          ? "border-rose-300/30 bg-rose-300/10 text-rose-100"
+                          : "border-slate-300/20 bg-slate-300/10 text-slate-200"
+                    }`}>
+                      {macroPositioning.overall ?? "Neutral"}
+                    </span>
+                  </div>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {(macroPositioning.drivers ?? []).map((driver) => (
+                      <div key={`${driver.name}-${driver.bias}`} className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                        <p className="text-sm font-semibold text-slate-100">{driver.name}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{driver.bias}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {macroPositioning.updated ? (
+                    <p className="mt-5 text-xs text-slate-500">Updated {formatDateShort(macroPositioning.updated)}</p>
+                  ) : null}
+                </section>
               )}
             </div>
           </div>

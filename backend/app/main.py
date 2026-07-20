@@ -211,6 +211,7 @@ from app.services.confirmation_score import (
     redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
 )
+from app.services.ticker_decision_layer import build_ticker_decision_layer
 from app.services.options_flow import unavailable_options_flow_summary
 from app.services.confirmation_context import build_confirmation_score_context
 from app.services.macro_positioning import (
@@ -6159,6 +6160,12 @@ def _ticker_context_bundle_bot_payload(symbol: str) -> dict[str, Any]:
         "technical_indicators": None,
         "source_entitlements": source_entitlements,
         "source_cards": {},
+        "decision_layer": build_ticker_decision_layer(
+            normalized_symbol,
+            confirmation_bundle=None,
+            source_contexts={},
+            generated_at=now,
+        ),
         "signals_summary": signals_summary,
     }
 
@@ -6421,11 +6428,27 @@ def _build_ticker_context_bundle(
             "rows": rows,
             "items": rows,
         }
+        generated_at = _dt_iso(datetime.now(timezone.utc))
+        decision_layer = build_ticker_decision_layer(
+            normalized_symbol,
+            confirmation_bundle=confirmation_score_bundle,
+            source_contexts={
+                "price_volume": source_contexts["price_volume"],
+                "fundamentals": source_contexts["fundamentals"],
+                "insiders": source_contexts["insiders"],
+                "congress": source_contexts["congress"],
+                "signals": source_contexts["signals"],
+                "government_contracts": source_contexts["government_contracts"],
+                "macro_positioning": source_contexts["macro_positioning"],
+            },
+            generated_at=generated_at,
+            freshness_window=f"{effective_window_days}d",
+        )
         payload = {
             "symbol": normalized_symbol,
             "status": profile_payload.get("status") or signals_summary["status"],
             "bundle_version": _TICKER_CONTEXT_BUNDLE_VERSION,
-            "generated_at": _dt_iso(datetime.now(timezone.utc)),
+            "generated_at": generated_at,
             "ticker": profile_ticker,
             "identity": {
                 "symbol": normalized_symbol,
@@ -6458,6 +6481,7 @@ def _build_ticker_context_bundle(
                 else None,
                 "options_flow": confirmation_context.get("options_flow_summary"),
             },
+            "decision_layer": decision_layer,
             "signals_summary": signals_summary,
         }
         payload = _ticker_context_bundle_public_payload(payload)

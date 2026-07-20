@@ -84,7 +84,7 @@ test("ticker signal activity uses the Signals page endpoint scoped to the ticker
   assert.match(tickerPage, /initialTotal=\{null\}/);
   assert.match(tickerPage, /initialState=\{null\}/);
   assert.match(tickerPage, /activityConfirmationScoreBundle \?\? confirmationScoreBundle/);
-  assert.match(tickerPage, /activitySignalFreshness \?\? signalFreshness/);
+  assert.match(tickerPage, /decisionLayer=\{contextBundle\?\.decision_layer \?\? null\}/);
   assert.match(tickerPage, /const signalActivityRows = \(signalsRes\.items \?\? \[\]\)\.filter\(\(signal\) => isTickerSignalKind\(signal\.kind\)\)/);
   assert.match(tickerPage, /const showInstitutional = source === "all" \|\| source === "institutional"/);
   assert.match(tickerPage, /id="institutional-activity"/);
@@ -248,8 +248,8 @@ test("logged out ticker context keeps public sources visible and paid sources lo
   assert.match(tickerPage, /signals: meta\("signals", "premium", true, "premium_locked"\)/);
   assert.match(tickerPage, /institutional_activity: meta\("institutional_activity", "pro", true, "pro_locked"\)/);
   assert.match(tickerPage, /options_flow: meta\("options_flow", "pro", true, "pro_locked"\)/);
-  assert.match(tickerPage, /Locked source context/);
-  assert.match(tickerPage, /Additional Premium\/Pro context is available for this ticker\./);
+  assert.match(tickerPage, /Premium confirmation/);
+  assert.match(tickerPage, /30-DAY CONFIRMATION/);
   assert.doesNotMatch(tickerPage, /function RequiresLoginSourceCard/);
   assert.doesNotMatch(tickerPage, /Sign in to view 30D confirmation/);
   assert.match(tickerPage, /lock_state: locked \? lockState/);

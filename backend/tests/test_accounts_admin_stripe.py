@@ -1927,7 +1927,7 @@ def test_admin_reports_summary_returns_expected_metrics_and_keys(monkeypatch):
         }
         assert summary["active_free_users"] == 1
         assert summary["active_premium_users"] == 2
-        assert summary["monthly_recurring_revenue"] == 36.61
+        assert summary["monthly_recurring_revenue"] == 45.74
         assert summary["revenue_ytd"] == 219.9
         assert summary["new_users_last_30_days"] >= 4
         assert summary["total_users"] == 4
@@ -1935,6 +1935,29 @@ def test_admin_reports_summary_returns_expected_metrics_and_keys(monkeypatch):
 
         generated_at = datetime.fromisoformat(summary["generated_at"])
         assert generated_at.tzinfo is not None
+    finally:
+        db.close()
+
+
+def test_admin_reports_summary_excludes_free_admin_grants_from_mrr(monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    monkeypatch.setenv("STRIPE_PREMIUM_ADMIN_FREE_PRICE_ID", "price_admin_premium_free")
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        granted_user = _user(db, "granted@example.com", tier="premium")
+        granted_user.manual_tier_override = "premium"
+        granted_user.subscription_status = "active"
+        granted_user.subscription_plan = "premium"
+        granted_user.stripe_subscription_id = "sub_admin_free"
+        granted_user.stripe_price_id = "price_admin_premium_free"
+        granted_user.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+
+        summary = admin_reports_summary(_request_for_user(admin), db)
+
+        assert summary["active_premium_users"] == 1
+        assert summary["monthly_recurring_revenue"] == 0
     finally:
         db.close()
 

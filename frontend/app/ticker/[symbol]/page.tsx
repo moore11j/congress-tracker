@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
-import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
+import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
 import { ConfirmationSourcesFlyout } from "@/components/ticker/ConfirmationSourcesFlyout";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
@@ -585,7 +585,7 @@ function normalizedAmountLabel(min?: number | null, max?: number | null): string
 }
 
 function tickerHeaderMetadata(ticker: Awaited<ReturnType<typeof getTickerProfile>>["ticker"]): string[] {
-  return [ticker.sector, ticker.industry, ticker.country, ticker.exchange_short_name ?? ticker.exchange]
+  return [ticker.sector, ticker.industry]
     .map(cleanTickerHeaderMetadata)
     .filter((value): value is string => Boolean(value));
 }
@@ -1158,108 +1158,223 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
   };
 }
 
+function fallbackDecisionLayer(bundle: ConfirmationScoreBundle): TickerDecisionLayer {
+  const directionLabel = bundle.direction === "mixed" ? "Conflicted" : capitalizeWord(bundle.direction);
+  const label = bundle.band === "inactive" && bundle.direction === "neutral"
+    ? "Inactive"
+    : `${capitalizeWord(bundle.band)} ${directionLabel}`;
+  const activeItems = confirmationSourceOrder
+    .filter((key) => bundle.sources[key].present)
+    .map((key) => ({
+      category: key,
+      title: confirmationSourceLabels[key],
+      description: bundle.sources[key].detail ?? bundle.sources[key].summary ?? bundle.sources[key].label,
+      freshness: typeof bundle.sources[key].freshness_days === "number" ? `${bundle.sources[key].freshness_days}d ago` : null,
+    }));
+  return {
+    symbol: bundle.ticker,
+    freshness_window: `${bundle.lookback_days}d`,
+    confirmation: {
+      score: bundle.score,
+      label,
+      direction: bundle.direction,
+      band: bundle.band,
+      history: [],
+    },
+    summary: bundle.explanation,
+    what_changed: [],
+    catalysts: activeItems.filter((item) => bundle.sources[item.category as ConfirmationSourceKey]?.direction === "bullish").slice(0, 4),
+    risks: activeItems.filter((item) => bundle.sources[item.category as ConfirmationSourceKey]?.direction === "bearish").slice(0, 4),
+    watch_items: [
+      { category: "price_volume", title: "Tape confirmation", description: "Watch whether price and volume confirm or fade." },
+      { category: "fundamentals", title: "Fundamental update", description: "Watch the next reported fundamental refresh." },
+    ],
+    missing_data_notes: [],
+  };
+}
+
+function decisionToneClass(direction?: string | null): string {
+  if (direction === "bullish") return "text-emerald-300";
+  if (direction === "bearish") return "text-rose-300";
+  if (direction === "mixed") return "text-amber-300";
+  return "text-slate-400";
+}
+
+function decisionDotClass(category: string): string {
+  if (category === "fundamentals" || category === "government_contracts") return "bg-emerald-300";
+  if (category === "price_volume" || category === "signals") return "bg-sky-300";
+  if (category === "insiders" || category === "congress") return "bg-violet-300";
+  if (category === "institutional_activity" || category === "options_flow") return "bg-indigo-300";
+  if (category === "macro_positioning") return "bg-amber-300";
+  return "bg-slate-400";
+}
+
+function decisionDateLabel(item: TickerDecisionItem): string | null {
+  if (item.date) return formatDateShort(item.date);
+  return item.freshness ?? null;
+}
+
+function DecisionTrendChart({ history, direction }: { history?: { date: string; score: number }[]; direction?: string | null }) {
+  const points = Array.isArray(history) ? history.filter((point) => Number.isFinite(point.score)).slice(-30) : [];
+  if (points.length < 2) {
+    return (
+      <div className="flex h-24 items-center justify-center rounded-md border border-white/10 bg-slate-950/35 px-3 text-xs font-medium text-slate-500">
+        Score history unavailable
+      </div>
+    );
+  }
+  const width = 220;
+  const height = 72;
+  const step = width / Math.max(points.length - 1, 1);
+  const path = points.map((point, index) => {
+    const x = Math.round(index * step);
+    const y = Math.round(height - (Math.max(0, Math.min(100, point.score)) / 100) * height);
+    return `${x},${y}`;
+  }).join(" ");
+  const stroke = direction === "bearish" ? "stroke-rose-400" : direction === "mixed" ? "stroke-amber-300" : "stroke-emerald-300";
+  return (
+    <svg className="h-24 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Confirmation score history">
+      <line x1="0" y1={height} x2={width} y2={height} className="stroke-white/10" />
+      <line x1="0" y1={Math.round(height / 2)} x2={width} y2={Math.round(height / 2)} className="stroke-white/10" />
+      <polyline points={path} fill="none" className={stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DecisionItemList({ items, empty }: { items?: TickerDecisionItem[]; empty: string }) {
+  const visible = (items ?? []).slice(0, 5);
+  if (visible.length === 0) return <p className="text-sm leading-6 text-slate-500">{empty}</p>;
+  return (
+    <div className="space-y-4">
+      {visible.map((item, index) => {
+        const date = decisionDateLabel(item);
+        return (
+          <div key={`${item.category}-${item.title}-${index}`} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-slate-900/70">
+              <span className={`h-2 w-2 rounded-full ${decisionDotClass(item.category)}`} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-5 text-slate-100">{item.title}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
+            </div>
+            {date ? <span className="text-xs font-medium text-slate-500">{date}</span> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DecisionPanel({ title, items, empty }: { title: string; items?: TickerDecisionItem[]; empty: string }) {
+  const hasMore = (items?.length ?? 0) > 5;
+  return (
+    <section className="min-h-[21.25rem] rounded-lg border border-white/10 bg-slate-950/40 p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">{title}</h3>
+        {hasMore ? <button type="button" className="text-sm font-medium text-sky-300">View all</button> : null}
+      </div>
+      <DecisionItemList items={items} empty={empty} />
+      {hasMore ? <button type="button" className="mt-5 text-sm font-medium text-sky-300">View all {title.toLowerCase().replace(" (30d)", "")}</button> : null}
+    </section>
+  );
+}
+
 function TickerOverviewPanel({
   confirmationBundle,
   sourceDisplayBundle = confirmationBundle,
-  freshnessBundle,
   alignedSources,
-  intelligenceBullets,
+  decisionLayer,
   confirmationGate,
   sourceEntitlements,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
-  freshnessBundle: SignalFreshnessBundle;
   alignedSources: ConfirmationSourceKey[];
-  intelligenceBullets: string[];
+  decisionLayer?: TickerDecisionLayer | null;
   confirmationGate?: TickerConfirmationGate | null;
   sourceEntitlements?: TickerSourceEntitlements | null;
 }) {
   const displayBundle = sourceDisplayBundle;
-  const lookbackDays = displayBundle.lookback_days;
-  const lockedOnly = displayBundle.status === "Locked source context";
-  const hasHiddenLockedContext = lockedOnly || displayBundle.status === "Visible context";
-  const mutedLine = hasHiddenLockedContext ? null : overviewMutedLine(sourceDisplayBundle);
   const confirmationLocked = Boolean(confirmationGate?.locked);
+  const layer = decisionLayer ?? fallbackDecisionLayer(displayBundle);
+  const confirmation = layer.confirmation ?? {};
+  const score = typeof confirmation.score === "number" ? Math.round(confirmation.score) : null;
+  const direction = confirmation.direction ?? displayBundle.direction;
+  const label = confirmation.label ?? overviewScoreLine(displayBundle).split(" / 100 · ").pop() ?? "Unavailable";
+  const updated = confirmation.updated_at ? `Last updated ${formatDateShort(confirmation.updated_at)}` : "Last updated unavailable";
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Overview</p>
-          <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-slate-600">{contextWindowLabel(lookbackDays)} confirmation</p>
-        </div>
-        <span className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{overviewTimestamp(freshnessBundle)}</span>
-      </div>
-
-      <div className="relative mt-7">
-        <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
+    <div className="relative">
+      <div className={confirmationLocked ? "pointer-events-none select-none opacity-70 blur-[2.5px]" : ""} aria-hidden={confirmationLocked ? "true" : undefined}>
+        <section className="grid gap-5 rounded-lg border border-white/10 bg-slate-950/30 px-6 py-5 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,0.9fr)_minmax(14rem,1.05fr)_minmax(16rem,1fr)] lg:items-center">
           <div>
-            <p className="max-w-3xl text-2xl font-semibold leading-tight text-white md:text-3xl">
-              {overviewHeadline(displayBundle)}
-            </p>
-            <p className="mt-3 text-sm text-slate-300">
-              {lockedOnly ? "Additional Premium/Pro context is available for this ticker." : "Sources currently supporting the ticker intelligence view."}
-            </p>
-            {lockedOnly ? null : (
-              <p className={`mt-4 text-base font-semibold ${sourceStateClass(displayBundle.direction)}`}>{overviewScoreLine(displayBundle)}</p>
-            )}
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">30-DAY CONFIRMATION</p>
+            <p className="mt-3 text-xs text-slate-500">{updated}</p>
           </div>
+          <div>
+            <p className={`text-5xl font-semibold tabular-nums ${decisionToneClass(direction)}`}>
+              {score === null ? "--" : score} <span className="text-2xl text-slate-500">/ 100</span>
+            </p>
+            <p className={`mt-2 text-2xl font-semibold ${decisionToneClass(direction)}`}>{label}</p>
+          </div>
+          <div>
+            <p className="text-base leading-7 text-slate-100">{layer.summary ?? displayBundle.explanation}</p>
+          </div>
+          <div>
+            <DecisionTrendChart history={confirmation.history} direction={direction} />
+          </div>
+        </section>
 
-          {lockedOnly ? null : (
-            <ConfirmationSourcesFlyout
-              symbol={confirmationBundle.ticker}
-              alignedSources={alignedSources}
-              sources={confirmationBundle.sources}
-              sourceEntitlements={sourceEntitlements}
-            />
-          )}
-
-          {lockedOnly ? (
-            <div className="mt-7 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-              <p className="text-sm font-semibold text-slate-200">Locked source context</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Upgrade to inspect Premium and Pro-only context for this ticker.</p>
-            </div>
-          ) : (
-            <div className="mt-7 grid gap-3 text-sm text-slate-300">
-              {intelligenceBullets.map((bullet) => (
-                <div key={bullet} className="flex gap-3">
-                  <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${displayBundle.direction === "bearish" ? "bg-rose-300" : displayBundle.direction === "bullish" ? "bg-emerald-300" : "bg-slate-500"}`} />
-                  <p className="leading-relaxed">{bullet}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {lockedOnly ? null : (
-            <div className="mt-6 rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-200">{setupTimingLabel(freshnessBundle)} · {Math.round(freshnessBundle.freshness_score)}/100</p>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Freshness</p>
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{timingDetailLine(freshnessBundle)}</p>
-            </div>
-          )}
-
-          {!lockedOnly && mutedLine ? <p className="mt-6 text-sm text-slate-500">{mutedLine}</p> : null}
-          {lockedOnly ? null : <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-500">{overviewCaveat(sourceDisplayBundle)}</p>}
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <DecisionPanel title="WHAT CHANGED (30D)" items={layer.what_changed} empty="No meaningful dated changes are available for this window." />
+          <DecisionPanel title="CATALYSTS" items={layer.catalysts} empty="No positive catalyst is active in the available data." />
+          <DecisionPanel title="RISKS" items={layer.risks} empty="No decision-relevant risk is active in the available data." />
         </div>
 
-        {confirmationLocked && confirmationGate ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-slate-950/35 p-4 backdrop-blur-[1px]">
-            <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
-              <p className="text-sm font-semibold text-white">Premium confirmation</p>
-              <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
-              <Link
-                href={confirmationGate.href}
-                className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
-              >
-                {confirmationGate.label}
-              </Link>
-            </div>
+        <section className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 px-5 py-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">
+              <span className="text-slate-400"><IntelligenceIcon kind="eye" /></span>
+              WHAT TO WATCH NEXT
+            </h3>
           </div>
-        ) : null}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {(layer.watch_items ?? []).slice(0, 5).map((item, index) => (
+              <div key={`${item.category}-${item.title}-${index}`} className="border-l border-white/10 pl-3">
+                <p className="text-sm font-semibold leading-5 text-slate-100">{item.title}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
+              </div>
+            ))}
+          </div>
+          {(!layer.watch_items || layer.watch_items.length === 0) ? (
+            <p className="text-sm leading-6 text-slate-500">No specific watch items are available yet.</p>
+          ) : null}
+        </section>
+
+        <div className="mt-5">
+          <ConfirmationSourcesFlyout
+            symbol={confirmationBundle.ticker}
+            alignedSources={alignedSources}
+            sources={confirmationBundle.sources}
+            sourceEntitlements={sourceEntitlements}
+          />
+        </div>
       </div>
+
+      {confirmationLocked && confirmationGate ? (
+        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-slate-950/35 p-4 pt-16 backdrop-blur-[1px]">
+          <div className="max-w-sm rounded-lg border border-emerald-300/20 bg-slate-950/90 p-4 text-center shadow-2xl shadow-black/40">
+            <p className="text-sm font-semibold text-white">Premium confirmation</p>
+            <p className="mt-2 text-xs leading-5 text-slate-400">{confirmationGate.message}</p>
+            <Link
+              href={confirmationGate.href}
+              className="mt-4 inline-flex items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
+            >
+              {confirmationGate.label}
+            </Link>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1732,8 +1847,8 @@ function overviewCaveat(bundle: ConfirmationScoreBundle): string {
   if (bundle.direction === "bearish" && bundle.sources.government_contracts.present) {
     return "Government contracts add bullish support, but broader sources still lean bearish.";
   }
-  if (!bundle.sources.signals.present) return "No signal conviction is reinforcing this move.";
-  return "Signal conviction is reinforcing this move.";
+  if (!bundle.sources.signals.present) return "Signal activity is not active in this window.";
+  return "Signal activity is active in this window.";
 }
 
 function priceVolumeSummary(
@@ -1952,7 +2067,7 @@ function FundamentalsCard({ summary }: { summary: TickerFundamentalsSummary }) {
   const status = typeof summary?.status === "string" ? summary.status.toLowerCase() : "unavailable";
   const metrics = summary?.metrics ?? {};
   return (
-    <div className={`${cardClassName} h-full p-4`}>
+    <div className={`${cardClassName} h-full !rounded-lg p-4`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className={fundamentalsToneClass(status)}>
@@ -2074,9 +2189,18 @@ type IntelligenceIconKind =
   | "price-volume"
   | "fundamentals"
   | "flow"
-  | "people";
+  | "people"
+  | "eye";
 
 function IntelligenceIcon({ kind, className = "h-4 w-4" }: { kind: IntelligenceIconKind; className?: string }) {
+  if (kind === "eye") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+        <circle cx="12" cy="12" r="2.5" />
+      </svg>
+    );
+  }
   if (kind === "congress") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -2173,7 +2297,7 @@ function SourceEvidenceCard({
   support: string;
 }) {
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${sourceCardBorderClass(source)}`}>
+    <div className={`rounded-lg border px-4 py-4 ${sourceCardBorderClass(source)}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${sourceCardToneClass(source)}`}>
@@ -2202,7 +2326,7 @@ function LockedSourceEvidenceCard({
 }) {
   const label = lockFeatureLabel(requiredPlan);
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] px-4 py-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-slate-500">
@@ -2230,7 +2354,7 @@ function OptionsFlowCard({ summary }: { summary: OptionsFlowSummary }) {
       ? "Flow unavailable"
       : `${contractCount > 0 ? `${contractCount} contracts` : "Recent flow"} · ${freshnessDays === null ? contextWindowLabel(summary.lookback_days) : `${freshnessDays}d fresh`}`;
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${optionsFlowBorderClass(summary)}`}>
+    <div className={`rounded-lg border px-4 py-4 ${optionsFlowBorderClass(summary)}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${optionsFlowToneClass(summary.state)}`}>
@@ -2262,7 +2386,7 @@ function GovernmentContractsCard({
     : `No qualifying contracts found in the ${lastContextWindowLabel(lookbackDays)}.`;
 
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
+    <div className={`rounded-lg border px-4 py-4 ${isActive ? "border-sky-400/20 bg-sky-400/[0.045]" : "border-white/10 bg-white/[0.025]"}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`shrink-0 ${isActive ? "text-sky-300" : "text-slate-500"}`}>
@@ -2819,6 +2943,7 @@ async function resolveTickerActivityData({
 async function DeferredTickerContent({
   activityPromise,
   normalizedSymbol,
+  decisionLayer,
   lookback,
   source,
   side,
@@ -2827,7 +2952,6 @@ async function DeferredTickerContent({
   topMembers,
   confirmationScoreBundle,
   optionsFlowSummary,
-  signalFreshness,
   technicalIndicators,
   fallbackSourceEntitlements,
   allowAuthHintEntitlementOverride,
@@ -2838,6 +2962,7 @@ async function DeferredTickerContent({
 }: {
   activityPromise: Promise<TickerActivityData>;
   normalizedSymbol: string;
+  decisionLayer?: TickerDecisionLayer | null;
   lookback: Lookback;
   source: SourceFilter;
   side: SideFilter;
@@ -2846,7 +2971,6 @@ async function DeferredTickerContent({
   topMembers: NonNullable<Awaited<ReturnType<typeof getTickerProfile>>["top_members"]>;
   confirmationScoreBundle: ConfirmationScoreBundle | null | undefined;
   optionsFlowSummary: OptionsFlowSummary | null | undefined;
-  signalFreshness: SignalFreshnessBundle | null | undefined;
   technicalIndicators: TechnicalIndicators | null | undefined;
   fallbackSourceEntitlements: TickerSourceEntitlements;
   allowAuthHintEntitlementOverride: boolean;
@@ -2891,7 +3015,6 @@ async function DeferredTickerContent({
     fundamentalsContext,
     sourceEntitlements: activitySourceEntitlements,
     confirmationScoreBundle: activityConfirmationScoreBundle,
-    signalFreshness: activitySignalFreshness,
     signalSummaryResolved,
     effectiveWindowDays,
     summaryInsiders,
@@ -2915,11 +3038,6 @@ async function DeferredTickerContent({
   if (optionsFlow.lookback_days !== effectiveLookbackDays) {
     optionsFlow = { ...optionsFlow, lookback_days: effectiveLookbackDays };
   }
-  const freshnessBundle = normalizeSignalFreshness(
-    activitySignalFreshness ?? signalFreshness,
-    normalizedSymbol,
-    confirmationBundle.lookback_days || effectiveLookbackDays,
-  );
   const normalizedTechnicals = normalizeTechnicalIndicators(technicalIndicators);
   const sourceEntitlements = displaySourceEntitlementsForTickerContext(
     activitySourceEntitlements,
@@ -2957,6 +3075,14 @@ async function DeferredTickerContent({
   const confirmationLookbackDays = confirmationBundle.lookback_days;
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
+  const priceVolumeChange = typeof priceVolumeContext?.change_pct_1d === "number" ? priceVolumeContext.change_pct_1d : null;
+  const priceVolumeChangeTone = priceVolumeChange === null
+    ? "text-slate-500"
+    : priceVolumeChange < 0
+      ? "text-rose-300"
+      : priceVolumeChange > 0
+        ? "text-emerald-300"
+        : "text-slate-400";
   const insiderCardSource = confirmationBundle.sources.insiders;
   const congressCardSource = confirmationBundle.sources.congress;
   const signalsCardSource = sourceFromTopSignal(confirmationBundle.sources.signals, topSignal);
@@ -2964,24 +3090,22 @@ async function DeferredTickerContent({
   const summaryInsiderSells = summaryCount(summaryInsiders, "sell_count");
   const summaryCongressBuys = summaryCount(summaryCongress, "buy_count");
   const summaryCongressSells = summaryCount(summaryCongress, "sell_count");
-  const intelligenceBullets = overviewBullets({ confirmationBundle: visibleConfirmationBundle, alignedSources });
 
   return (
     <>
-      <section className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12 xl:items-stretch">
-        <div className="xl:col-span-7 xl:flex xl:min-h-0 xl:h-full">
+      <section className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,366px)] xl:items-stretch">
+        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
           <TickerContextCard
             key={normalizedSymbol}
             symbol={normalizedSymbol}
             canViewOwnership={canViewProTickerContext}
-            className="xl:h-full xl:w-full"
+            className="min-w-0 xl:h-full xl:w-full"
             overview={
               <TickerOverviewPanel
                 confirmationBundle={confirmationBundle}
                 sourceDisplayBundle={visibleConfirmationBundle}
-                freshnessBundle={freshnessBundle}
                 alignedSources={alignedSources}
-                intelligenceBullets={intelligenceBullets}
+                decisionLayer={decisionLayer}
                 confirmationGate={tickerConfirmationGate}
                 sourceEntitlements={sourceEntitlements}
               />
@@ -2989,10 +3113,10 @@ async function DeferredTickerContent({
           />
         </div>
 
-        <div className="xl:col-span-5 xl:flex xl:min-h-0 xl:h-full">
-          <div className="grid gap-3 xl:h-full xl:w-full xl:grid-rows-[auto_1fr]">
-            <div className="grid items-stretch gap-3 lg:grid-cols-2">
-              <div className={`${cardClassName} h-full p-4`}>
+        <div className="min-w-0 xl:flex xl:min-h-0 xl:h-full">
+          <div className="grid gap-3 xl:h-full xl:w-full xl:auto-rows-min">
+            <div className="grid items-stretch gap-3">
+              <div className={`${cardClassName} h-full !rounded-lg p-5`}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className={technicalToneClass(priceVolume.tone)}>
@@ -3004,9 +3128,13 @@ async function DeferredTickerContent({
                     {priceVolume.state}
                   </p>
                 </div>
+                <div className="mt-3 flex items-end gap-3">
+                  <p className="text-3xl font-semibold tabular-nums text-white">{formatUpperCardPrice(priceVolumeContext?.latest_close)}</p>
+                  <p className={`pb-1 text-sm font-semibold tabular-nums ${priceVolumeChangeTone}`}>{formatUpperCardSignedPercent(priceVolumeChange)}</p>
+                </div>
                 <p className="mt-3 text-sm font-semibold text-slate-100">{priceVolume.summary}</p>
                 <div className="mt-3 grid gap-1.5">
-                  {priceVolume.diagnostics.map((diagnostic) => (
+                  {priceVolume.diagnostics.slice(2).map((diagnostic) => (
                     <p key={diagnostic} className="text-xs text-slate-400">{diagnostic}</p>
                   ))}
                 </div>
@@ -3014,7 +3142,7 @@ async function DeferredTickerContent({
               <FundamentalsCard summary={fundamentalsContext} />
             </div>
 
-            <div className="grid gap-2 xl:h-full xl:auto-rows-fr xl:grid-cols-2">
+            <div className="grid gap-3 xl:h-full xl:auto-rows-min">
               <SourceEvidenceCard
                 title="Insiders"
                 icon={insiderCardSource.direction === "bearish" ? "insider-sell" : "insider-buy"}
@@ -3870,6 +3998,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
     throw error;
   });
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
+  const headerExchange = cleanTickerHeaderMetadata(profile.ticker.exchange_short_name ?? profile.ticker.exchange);
+  const headerCurrency = cleanTickerHeaderMetadata(contextBundle?.identity?.currency);
   const tickerName = profile.ticker.name?.trim();
   const showTickerName = Boolean(tickerName && tickerName.toUpperCase() !== profile.ticker.symbol.toUpperCase());
   const limitedDataMessage = profile.ticker.limited_data_state ? profile.ticker.limited_data_message ?? "Limited price history available" : null;
@@ -4005,25 +4135,27 @@ export default async function TickerPage({ params, searchParams }: Props) {
     <div className="space-y-6">
       <EntitlementHintRefresh enabled={!authToken && authState.hasAuthHint} renderedTier={entitlements?.tier ?? null} />
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 basis-full max-w-[calc(100vw-2rem)] lg:basis-auto lg:max-w-full">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Ticker intelligence</p>
-          <h1 className="text-3xl font-semibold text-white">
-            {profile.ticker.symbol}
+          <h1 className="max-w-full break-words text-2xl font-semibold text-white [overflow-wrap:anywhere] sm:text-3xl">
+            <span>{profile.ticker.symbol}</span>
             {showTickerName ? <span className="text-slate-400"> / {tickerName}</span> : null}
+            <span className="ml-2 align-middle text-xl font-normal text-slate-500">☆</span>
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className={pillClassName}>{profile.ticker.asset_class ?? "Equity"}</span>
+            {headerExchange ? <span className={pillClassName}>{headerExchange}</span> : null}
             {headerMetadata.length ? (
-              <p className="min-w-0 text-[11px] font-medium tracking-[0.02em] text-slate-400 sm:max-w-[44rem] sm:truncate">
+              <p className="min-w-0 rounded-md bg-slate-900/45 px-3 py-1 text-[11px] font-medium tracking-[0.02em] text-slate-400 sm:max-w-[44rem] sm:truncate">
                 {headerMetadata.join(" / ")}
               </p>
             ) : null}
+            {headerCurrency ? <span className={pillClassName}>{headerCurrency}</span> : null}
           </div>
           {limitedDataMessage ? (
             <p className="mt-3 text-sm font-medium text-amber-200">{limitedDataMessage}</p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="grid w-[calc(100vw-2rem)] flex-none grid-cols-2 gap-2 [&>*]:w-full [&>*>button]:w-full [&>a]:justify-center [&>button]:justify-center sm:flex sm:w-auto sm:flex-initial sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:w-auto sm:[&>*>button]:w-auto">
           <AddTickerToWatchlist symbol={normalizedSymbol} />
           <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
@@ -4038,6 +4170,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         <DeferredTickerContent
           activityPromise={activityPromise}
           normalizedSymbol={normalizedSymbol}
+          decisionLayer={contextBundle?.decision_layer ?? null}
           lookback={lookback}
           source={source}
           side={side}
@@ -4046,7 +4179,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
           topMembers={profile.top_members ?? []}
           confirmationScoreBundle={profile.confirmation_score_bundle}
           optionsFlowSummary={profile.options_flow_summary}
-          signalFreshness={profile.signal_freshness}
           technicalIndicators={profile.technical_indicators}
           fallbackSourceEntitlements={fallbackSourceEntitlements}
           allowAuthHintEntitlementOverride={authState.hasAuthHint}

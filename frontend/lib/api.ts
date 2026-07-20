@@ -4026,6 +4026,36 @@ export type TickerSourceEntitlement = {
 
 export type TickerSourceEntitlements = Record<string, TickerSourceEntitlement>;
 
+export type TickerDecisionItem = {
+  category: string;
+  title: string;
+  description: string;
+  value?: number | string | null;
+  date?: string | null;
+  freshness?: string | null;
+  confidence?: string | null;
+};
+
+export type TickerDecisionLayer = {
+  symbol: string;
+  generated_at?: string | null;
+  freshness_window?: string | null;
+  confirmation: {
+    score?: number | null;
+    label?: string | null;
+    direction?: string | null;
+    band?: string | null;
+    updated_at?: string | null;
+    history?: { date: string; score: number }[];
+  };
+  summary?: string | null;
+  what_changed?: TickerDecisionItem[];
+  catalysts?: TickerDecisionItem[];
+  risks?: TickerDecisionItem[];
+  watch_items?: TickerDecisionItem[];
+  missing_data_notes?: string[];
+};
+
 export type MacroPositioningDriver = {
   name: string;
   bias: "bullish" | "bearish" | "neutral" | string;
@@ -4237,6 +4267,7 @@ export type TickerContextBundleResponse = TickerProfile & {
     sector?: string | null;
     industry?: string | null;
     country?: string | null;
+    currency?: string | null;
     market_cap?: number | null;
   } | null;
   quote?: {
@@ -4251,6 +4282,7 @@ export type TickerContextBundleResponse = TickerProfile & {
   } | null;
   source_entitlements?: TickerSourceEntitlements | null;
   source_cards?: Record<string, unknown> | null;
+  decision_layer?: TickerDecisionLayer | null;
   signals_summary: TickerSignalsSummaryResponse;
 };
 

@@ -3908,6 +3908,13 @@ def _fallback_paid_tier(user: UserAccount) -> str | None:
     return None
 
 
+def _has_comped_subscription_price(user: UserAccount) -> bool:
+    if user.current_plan_amount_cents == 0:
+        return True
+    price_mapping = _stripe_price_mapping_result(user.stripe_price_id)
+    return price_mapping.get("price_mode") == "free_admin_grant"
+
+
 def _reports_summary(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=30)
@@ -3950,7 +3957,9 @@ def _reports_summary(db: Session) -> dict[str, Any]:
                 else:
                     active_premium_users += 1
 
-            if actual_paid or (fallback_tier and recent_activity and not is_admin_user(user)):
+            if not _has_comped_subscription_price(user) and (
+                actual_paid or (fallback_tier and recent_activity and not is_admin_user(user))
+            ):
                 interval = latest_intervals_by_user.get(user.id) or _normalize_subscription_interval(user.subscription_plan) or "monthly"
                 if user.id not in latest_intervals_by_user:
                     used_premium_fallback = True

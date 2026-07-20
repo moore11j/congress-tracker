@@ -37,6 +37,11 @@ test("ticker context starts on overview and loads heavy tabs only after tab acti
   assert.ok(ownershipEffect.indexOf('if (activeTab !== "ownership")') < ownershipEffect.indexOf("getTickerOwnership(symbol"));
   assert.ok(ownershipEffect.indexOf("if (!canViewOwnership)") < ownershipEffect.indexOf("getTickerOwnership(symbol"));
 
+  const macroEffect = effectBlockStartingWith('if (activeTab !== "macro")');
+  assert.match(macroEffect, /return;/);
+  assert.match(macroEffect, /getTickerMacroPositioning\(symbol/);
+  assert.ok(macroEffect.indexOf('if (activeTab !== "macro")') < macroEffect.indexOf("getTickerMacroPositioning(symbol"));
+
   const pressEffect = effectBlockStartingWith('getTickerPressReleases(symbol');
   assert.match(pressEffect, /if \(activeTab !== "events"\)/);
   assert.ok(pressEffect.indexOf('if (activeTab !== "events")') < pressEffect.indexOf("getTickerPressReleases(symbol"));
@@ -61,6 +66,7 @@ test("ticker lazy tab requests have panel-specific attribution", () => {
   assert.match(card, /getTickerNews\(symbol, \{[^}]*source: TICKER_NEWS_PANEL_SOURCE/s);
   assert.match(card, /getTickerFinancials\(symbol, \{[^}]*source: TICKER_FINANCIALS_PANEL_SOURCE/s);
   assert.match(card, /getTickerOwnership\(symbol, \{[^}]*source: TICKER_OWNERSHIP_PANEL_SOURCE/s);
+  assert.match(card, /getTickerMacroPositioning\(symbol, \{[^}]*source: "TickerMacroPositioningTab"/s);
   assert.match(card, /getTickerPressReleases\(symbol, \{[^}]*source: TICKER_PRESS_PANEL_SOURCE/s);
   assert.match(card, /getTickerSecFilings\(symbol, \{[^}]*source: TICKER_FILINGS_PANEL_SOURCE/s);
   assert.match(card, /getEvents\(\{[^}]*requestSource: "client"[^}]*routeFamily: "ticker"[^}]*source: TICKER_DISCLOSURE_PANEL_SOURCE/s);
@@ -89,7 +95,7 @@ test("ownership tab is a pro lazy tab", () => {
   const api = read("lib/api.ts");
   const panel = read("components/ticker/TickerOwnershipPanel.tsx");
 
-  assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events"/);
+  assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro"/);
   assert.match(card, /canViewOwnership\?: boolean/);
   assert.match(card, /<TickerOwnershipPanel data=\{ownership\} locked=\{!canViewOwnership\} \/>/);
   assert.match(page, /canViewOwnership=\{canViewProTickerContext\}/);
