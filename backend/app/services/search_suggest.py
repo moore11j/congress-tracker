@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import func, literal, or_, select
+from sqlalchemy import and_, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -652,7 +652,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
                 func.coalesce(InsiderTransaction.filing_date, InsiderTransaction.transaction_date).label("latest_date"),
             )
             .where(InsiderTransaction.payload_json.is_not(None))
-            .where(or_(*payload_filters))
+            .where(and_(*payload_filters))
             .order_by(func.coalesce(InsiderTransaction.filing_date, InsiderTransaction.transaction_date).desc())
             .limit(max(limit * 16, 120))
         ).all()
