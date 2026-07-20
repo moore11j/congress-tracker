@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from urllib.parse import unquote
 
 import pytest
@@ -67,6 +68,7 @@ from app.services.ai_marketing import (
     _normalize_social_card_spec,
     _ensure_x_hashtags,
     _generated_thumbnail_asset,
+    _thumbnail_headline,
     _social_card_asset,
     create_email_action_token,
     fetch_fmp_articles,
@@ -1757,10 +1759,14 @@ def test_generated_thumbnail_asset_uses_image_model_when_enabled(monkeypatch):
         text = ""
 
         def json(self):
+            image = BytesIO()
+            from PIL import Image
+
+            Image.new("RGB", (1536, 1024), (3, 10, 16)).save(image, format="JPEG", quality=90)
             return {
                 "data": [
                     {
-                        "b64_json": base64.b64encode(b"fake-jpeg").decode("ascii"),
+                        "b64_json": base64.b64encode(image.getvalue()).decode("ascii"),
                         "revised_prompt": "revised premium thumbnail prompt",
                     }
                 ]
@@ -1793,6 +1799,10 @@ def test_generated_thumbnail_asset_uses_image_model_when_enabled(monkeypatch):
     assert asset["template"] == "generated_thumbnail"
     assert asset["url"].startswith("data:image/jpeg;base64,")
     assert asset["image_model"] == "gpt-image-test"
+    assert asset["brand_overlay"] == "walnut_markets_logo_lockup"
+    assert "official Walnut logo will be overlaid" in asset["image_prompt"]
+    assert "Do not render a source line" in asset["image_prompt"]
+    assert "bearish confirmation is leading" in asset["image_prompt"]
     assert "Avoid: dashboard cards" in asset["image_prompt"]
 
 
@@ -1802,6 +1812,15 @@ def test_x_copy_normalizer_strips_hashtags_and_adds_cashtags():
     assert text == "TSM margin context is cleaner. $TSM"
     assert "#TSM" not in text
     assert "#Markets" not in text
+
+
+def test_thumbnail_headline_rejects_vague_bearish_confirmation_phrase():
+    headline = _thumbnail_headline(
+        {"headline": "SPCX: bearish confirmation is leading", "sentiment": "bearish"},
+        ticker="SPCX",
+    )
+
+    assert headline == "Bearish signal identified"
 
 
 def test_x_chart_drop_caps_generated_post_to_x_character_limit(monkeypatch):

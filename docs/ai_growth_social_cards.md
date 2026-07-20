@@ -2,9 +2,15 @@
 
 AI Growth X and Reddit drafts should use real AI-generated thumbnails, not deterministic SVG cards.
 
-The ChatGPT API still returns concise JSON for `social_card` and `visual_brief`, but that data is now treated as art direction: ticker, source, visual emphasis, and the market story. When `AI_MARKETING_IMAGE_GENERATION_ENABLED=true`, the backend sends that art direction to the image generation endpoint and attaches a Walnut-branded JPEG thumbnail.
+The ChatGPT API still returns concise JSON for `social_card` and `visual_brief`, but that data is now treated as art direction: ticker, visual emphasis, and the market story. When `AI_MARKETING_IMAGE_GENERATION_ENABLED=true`, the backend sends that art direction to the image generation endpoint, then overlays the official Walnut Markets logo lockup before attaching the JPEG thumbnail.
 
-The target look is a premium 16:9 finance-media visual: dark studio background, teal/emerald Walnut glow, clean Walnut Markets lockup, a primary ticker, and one large market metaphor such as a semiconductor package, filing archive, bank tower, terminal glow, disclosure folder, or market infrastructure object. Keep text minimal so it stays legible on X and Reddit.
+The target look is a premium 16:9 finance-media visual: dark studio background, teal/emerald Walnut glow, official Walnut Markets logo lockup in the reserved upper-left area, a primary ticker, and one large market metaphor such as a semiconductor package, filing archive, bank tower, terminal glow, disclosure folder, or market infrastructure object. Keep text minimal so it stays legible on X and Reddit.
+
+Do not ask the model to invent or render a Walnut logo, icon, tree, brain, or wordmark. The backend owns logo consistency by compositing `backend/app/assets/walnut-markets-logo-lockup.png` after image generation.
+
+Do not render visible source/footer text in thumbnails. Source context belongs in metadata, captions, post copy, or review notes, not in the image.
+
+Thumbnail headlines must be complete market statements. Avoid vague fragments like `bearish confirmation is leading`; use clear claims such as `Bearish trend confirmed` or `Bearish signal identified`, then name the underlying data that supports the claim.
 
 Do not attach deterministic SVG cards as a fallback for generated X/Reddit drafts. If image generation fails, the draft should surface without the old card rather than posting a cramped dashboard-style graphic.
 

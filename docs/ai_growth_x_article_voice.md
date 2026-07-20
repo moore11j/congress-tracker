@@ -73,11 +73,16 @@ Optional second sentence only for:
 - Pair X posts with a real Walnut-generated thumbnail.
 - Use premium finance-media visuals, not dashboard screenshots.
 - Thumbnail should include:
-  - Walnut Markets lockup
+  - official Walnut Markets logo lockup
   - primary ticker
   - one large visual metaphor
-  - source label when useful
   - generous negative space
+- Do not ask the image model to invent or render the Walnut logo.
+- The backend overlays the official Walnut Markets logo lockup after generation.
+- Do not render visible source/footer text in thumbnails.
+- Thumbnail headlines must be complete market statements, not fragments.
+- Do not write vague lines like `bearish confirmation is leading`.
+- For bearish setups, use clear phrasing like `Bearish trend confirmed` or `Bearish signal identified`, then name the underlying data that confirms it.
 - Avoid:
   - SVG dashboard cards
   - evidence panels

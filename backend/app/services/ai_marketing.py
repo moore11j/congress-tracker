@@ -60,6 +60,11 @@ DEFAULT_AI_MARKETING_MODEL = "gpt-5.6"
 DEFAULT_AI_MARKETING_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_AI_MARKETING_IMAGE_SIZE = "1536x1024"
 DEFAULT_AI_MARKETING_IMAGE_QUALITY = "high"
+WALNUT_THUMBNAIL_LOGO_LOCKUP_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "assets",
+    "walnut-markets-logo-lockup.png",
+)
 X_POST_CHARACTER_LIMIT = 280
 SOCIAL_CARD_WIDTH = 1600
 SOCIAL_CARD_HEIGHT = 900
@@ -2215,11 +2220,12 @@ def _generated_thumbnail_asset(
     if not b64_image:
         logger.warning("ai_growth_image_generation_missing_b64")
         return None
+    branded_b64_image, branded = _apply_walnut_thumbnail_branding(b64_image)
     ticker = str(card_spec.get("ticker") or "").upper()
     headline = str(card_spec.get("headline") or "Walnut Markets").strip()
     title = _truncate(f"Walnut generated thumbnail: {headline}", 120) or "Walnut generated thumbnail"
     revised_prompt = _truncate(str(image_data.get("revised_prompt") or "").strip(), 2000) or ""
-    data_uri = f"data:image/jpeg;base64,{b64_image}"
+    data_uri = f"data:image/jpeg;base64,{branded_b64_image}"
     return {
         "title": title,
         "asset_type": "image",
@@ -2233,17 +2239,62 @@ def _generated_thumbnail_asset(
         "image_prompt": prompt,
         "image_revised_prompt": revised_prompt,
         "image_model": model,
+        "brand_overlay": "walnut_markets_logo_lockup" if branded else "",
         "ticker": ticker,
         "width": SOCIAL_CARD_WIDTH,
         "height": SOCIAL_CARD_HEIGHT,
     }
 
 
+def _apply_walnut_thumbnail_branding(b64_image: str) -> tuple[str, bool]:
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        logger.warning("Pillow is unavailable; AI Growth thumbnail logo overlay skipped.")
+        return b64_image, False
+    if not os.path.exists(WALNUT_THUMBNAIL_LOGO_LOCKUP_PATH):
+        logger.warning("Walnut thumbnail logo lockup asset is missing: %s", WALNUT_THUMBNAIL_LOGO_LOCKUP_PATH)
+        return b64_image, False
+    try:
+        image_bytes = base64.b64decode(b64_image, validate=True)
+        base_image = Image.open(BytesIO(image_bytes)).convert("RGBA")
+        logo = Image.open(WALNUT_THUMBNAIL_LOGO_LOCKUP_PATH).convert("RGBA")
+    except Exception:
+        logger.exception("ai_growth_thumbnail_logo_overlay_decode_failed")
+        return b64_image, False
+
+    width, height = base_image.size
+    if width < 600 or height < 320:
+        return b64_image, False
+    logo_target_width = max(320, min(int(width * 0.34), 540))
+    logo_target_height = max(1, int(logo.height * (logo_target_width / logo.width)))
+    try:
+        resampling = Image.Resampling.LANCZOS
+    except AttributeError:
+        resampling = Image.LANCZOS
+    logo = logo.resize((logo_target_width, logo_target_height), resampling)
+
+    x = max(48, int(width * 0.055))
+    y = max(46, int(height * 0.065))
+    pad_x = max(22, int(width * 0.018))
+    pad_y = max(18, int(height * 0.016))
+    panel_box = (x - pad_x, y - pad_y, x + logo.width + pad_x, y + logo.height + pad_y)
+    overlay = Image.new("RGBA", base_image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rounded_rectangle(panel_box, radius=max(14, int(height * 0.018)), fill=(2, 9, 14, 218))
+    base_image = Image.alpha_composite(base_image, overlay)
+    base_image.paste(logo, (x, y), logo)
+
+    output = BytesIO()
+    base_image.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
+    return base64.b64encode(output.getvalue()).decode("ascii"), True
+
+
 def _generated_thumbnail_prompt(*, card_spec: dict[str, Any], suggested_post: str, visual_brief: Any) -> str:
     ticker = str(card_spec.get("ticker") or "").upper()
-    headline = _truncate(str(card_spec.get("headline") or "").strip(), 96) or (f"${ticker} market setup" if ticker else "Walnut Markets")
+    headline = _thumbnail_headline(card_spec, ticker=ticker)
+    reason_line = _thumbnail_reason_line(card_spec, visual_brief=visual_brief)
     visual = _truncate(str(card_spec.get("visual_emphasis") or "").strip(), 120) or "market signal"
-    source = _truncate(str(card_spec.get("source_label") or "").strip(), 80) or "Walnut Markets"
     rows = []
     if isinstance(visual_brief, dict):
         for row in _coerce_json_list(visual_brief.get("rows"))[:4]:
@@ -2258,12 +2309,50 @@ def _generated_thumbnail_prompt(*, card_spec: dict[str, Any], suggested_post: st
         "Create a polished 16:9 finance-media thumbnail for Walnut Markets, in the same quality tier as a premium ChatGPT-generated market visual. "
         "Style: cinematic dark navy/black studio background, teal/emerald glow, realistic 3D product-render lighting, high contrast, crisp depth of field, premium fintech editorial look. "
         f"Core idea: {visual}. Context: {context}. "
-        "Composition: left third has a clean Walnut Markets lockup and generous negative space; right two-thirds has one large striking visual metaphor tied to the market story, such as a semiconductor package, filing archive, bank tower, trading terminal glow, disclosure folder, or market infrastructure object. "
-        f"Text to render, if any: 'Walnut Markets' and '{ticker_text}'. Optional tiny source line: 'Source: {source}'. "
-        f"Use this headline only for art direction, not as a paragraph: '{headline}'. "
-        "Avoid: dashboard cards, evidence panels, bullet lists, tiny text, clipped text, charts as the main design, crowded UI, generic stock photos, watermarks, fake news branding, fake official company logos, and imitation third-party trademarks. "
+        "Composition: reserve the upper-left 35% as a clean dark logo-safe area; do not draw any logo, icon, tree, brain, mark, or Walnut Markets wordmark yourself because the official Walnut logo will be overlaid after generation. "
+        "Use the remaining canvas for one large striking visual metaphor tied to the market story, such as a semiconductor package, filing archive, bank tower, trading terminal glow, disclosure folder, or market infrastructure object. "
+        f"Text to render, if any: '{ticker_text}', the headline '{headline}', and one short reason line: '{reason_line}'. "
+        "The headline must be a complete, grammatical market statement. Never write vague fragments like 'bearish confirmation is leading'. For bearish setups, use phrasing like 'Bearish trend confirmed' or 'Bearish signal identified' and name the underlying data that confirms it. "
+        "Do not render a source line, footer, citation strip, watermark, or any text beginning with 'Source:'. "
+        "Avoid: dashboard cards, evidence panels, bullet lists, tiny text, clipped text, charts as the main design, crowded UI, generic stock photos, fake news branding, fake official company logos, fake Walnut logos, and imitation third-party trademarks. "
         "If company names are needed, render them as simple clean text labels, not official logos. The final image should be post-worthy at X/Reddit thumbnail size."
     )
+
+
+def _thumbnail_headline(card_spec: dict[str, Any], *, ticker: str) -> str:
+    raw = _truncate(str(card_spec.get("headline") or "").strip(), 96) or ""
+    sentiment = str(card_spec.get("sentiment") or "").strip().lower()
+    if re.search(r"\b(bearish|bullish)\s+confirmation\s+(?:is\s+)?leading\b", raw, flags=re.IGNORECASE):
+        raw = ""
+    if not raw and sentiment == "bearish":
+        raw = "Bearish signal identified"
+    elif not raw and sentiment == "bullish":
+        raw = "Bullish signal identified"
+    elif not raw:
+        raw = f"${ticker} market data" if ticker else "Market data identified"
+    return raw
+
+
+def _thumbnail_reason_line(card_spec: dict[str, Any], *, visual_brief: Any) -> str:
+    candidates = [
+        str(card_spec.get("subheadline") or "").strip(),
+        *[str(item or "").strip() for item in _coerce_json_list(card_spec.get("bullets"))[:3]],
+    ]
+    if isinstance(visual_brief, dict):
+        rows = []
+        for row in _coerce_json_list(visual_brief.get("rows"))[:4]:
+            if isinstance(row, dict):
+                label = str(row.get("label") or "").strip()
+                note = str(row.get("note") or "").strip()
+                if label:
+                    rows.append(label if not note else f"{label}: {note}")
+        if rows:
+            candidates.append("; ".join(rows))
+    for candidate in candidates:
+        candidate = _truncate(candidate, 118) or ""
+        if candidate:
+            return candidate
+    return "Underlying data should explain the move."
 
 
 def ai_growth_social_card_demo_assets() -> list[dict[str, Any]]:
@@ -2410,7 +2499,7 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
     url = str(spec.get("url") or DEFAULT_DESTINATION_URL)
     include_chart = bool(spec.get("include_chart", True))
     include_cta = bool(spec.get("include_cta", True))
-    include_source_tag = bool(spec.get("include_source_tag", True))
+    include_source_tag = False
     include_url = bool(spec.get("include_walnut_url", True))
     visual_label = str(spec.get("visual_emphasis") or "underlying data")
     headline_lines = _svg_line_tspans(spec.get("headline"), max_chars=23 if card_type == "research_cover" else 24, max_lines=3, x=92, y=274, font_size=52, line_height=59)
@@ -2425,11 +2514,7 @@ def _social_card_data_uri(spec: dict[str, Any]) -> str:
         if ticker
         else ""
     )
-    source_markup = (
-        f"<text x=\"1088\" y=\"167\" fill=\"#88a1a6\" font-size=\"19\" font-family=\"Arial\" font-weight=\"600\">Source: {html.escape(_truncate(source_label, 30) or 'Walnut')}</text>"
-        if include_source_tag
-        else ""
-    )
+    source_markup = ""
     cta_markup = ""
     if include_cta:
         cta_markup = (
@@ -6128,16 +6213,18 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "Do not force first-person plural; use 'we' or 'our' only when describing Walnut's own signal process. Do not add promotional CTA language to X posts. "
         "High-quality X output should pair concise analysis with a real Walnut-generated thumbnail: a premium finance-media visual, not a dashboard screenshot or generic chart card. "
         "For x_post and reddit_thread, fill social_card as compact art direction for a generated thumbnail, not final post copy and not a text-heavy layout. "
-        "The social_card should describe one scroll-stopping finance-media visual idea with a short hook, source label, primary ticker, tone, and visual emphasis. Avoid bullets, evidence panels, cramped UI, charts as the main design, and long copy. "
+        "The social_card should describe one scroll-stopping finance-media visual idea with a short hook, primary ticker, tone, and visual emphasis. Avoid source/footer text, bullets, evidence panels, cramped UI, charts as the main design, and long copy. "
+        "Thumbnail headlines must be complete market statements, not fragments. For example, use 'Bearish trend confirmed' or 'Bearish signal identified' rather than vague lines like 'bearish confirmation is leading'. "
+        "Every bullish or bearish thumbnail claim must name the underlying data behind it: price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, macro, or other cited evidence. "
         "Use card_type='article_reactive' for news/article reactions, 'ticker_signal' for ticker confirmation or data-source views, 'congress_insider_activity' for Congress or insider transactions, and 'research_cover' for Reddit/DD covers. "
-        "Keep thumbnail art direction simple enough for a 16:9 image: Walnut Markets lockup, ticker, one large visual metaphor, generous negative space, no generic hype, and no invented numbers. "
+        "Keep thumbnail art direction simple enough for a 16:9 image: official Walnut logo area, ticker, one large visual metaphor, generous negative space, no source line, no generic hype, and no invented numbers. "
         "Respect opportunity.metadata.social_card_preferences for template, tone, chart, CTA, source tag, and Walnut URL inclusion. "
         "For x_post, always fill visual_brief with a chart-ready concept: title, chart_type, metric_label, 3-8 rows, and source_note. "
         "Only use numeric values when they are present in the provided context; otherwise use qualitative buckets and say what data is missing. "
         "For x_post, do not tell readers to 'cross-check', 'review', or 'check' ticker pages. State what the data says, explain the takeaway or limitation, then provide the relevant ticker link for more info. "
         "For bullish/bearish confirmation X posts, use opportunity.metadata.walnut_context.source_stack as underlying data when present. Name the active data sources directly, especially Price / Volume, Fundamentals, reported Institutional Activity, Congress/Insider Activity, Contracts, Technicals, and Macro Positioning, and include the confirmation score when supplied. "
         "Do not make buy/sell recommendations, price targets unless clearly sourced and framed, or unsupported factual claims. "
-        "Do not reuse article thumbnails; any image should be a Walnut-branded original generated thumbnail with source attribution. "
+        "Do not reuse article thumbnails; any image should be a Walnut-branded original generated thumbnail. Keep source attribution in metadata/copy, not as visible thumbnail text. "
         f"For x_post, write suggested_post plus alternate_hooks and make value_added_insight explain the analysis behind the visual. Keep suggested_post at or under {X_POST_CHARACTER_LIMIT} characters, including links and cashtags. "
         "For x_post published from @WalnutMarkets, do not include self-disclosure like 'bias disclosed' or 'I'm building Walnut'; the account identity is already clear. "
         "For x_post, include relevant cashtags such as $NVDA or $JPM when useful. Do not append generic hashtags like #Markets. "
