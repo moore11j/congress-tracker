@@ -63,6 +63,12 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v2"
+MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 55.0
+DEFENSIBLE_DIRECTIONAL_MARGIN = 35.0
+CONFLICT_DIRECTIONAL_MARGIN = 25.0
+CONFLICT_DIRECTIONAL_EDGE_RATIO = 0.20
+MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS = 90
 
 BUY_TRADE_TYPES = {"purchase", "buy", "p-purchase"}
 SELL_TRADE_TYPES = {"sale", "sell", "s-sale"}
@@ -121,6 +127,7 @@ class ConfirmationScoreBundle:
     drivers: list[str]
     active_sources: list[ConfirmationSourceKey]
     source_details: dict[ConfirmationSourceKey, str]
+    classification_version: str = CONFIRMATION_CLASSIFICATION_VERSION
 
     def as_dict(self) -> dict:
         return {
@@ -135,7 +142,19 @@ class ConfirmationScoreBundle:
             "drivers": list(self.drivers),
             "active_sources": list(self.active_sources),
             "source_details": dict(self.source_details),
+            "classification_version": self.classification_version,
         }
+
+
+@dataclass(frozen=True)
+class ConfirmationClassification:
+    direction: ConfirmationDirection
+    strength: Literal["weak", "moderate", "strong"] | None
+    bullish_evidence: float
+    bearish_evidence: float
+    bullish_layers: int
+    bearish_layers: int
+    classification_version: str = CONFIRMATION_CLASSIFICATION_VERSION
 
 
 @dataclass(frozen=True)
@@ -423,6 +442,11 @@ def slim_confirmation_score_bundle(bundle: dict) -> dict:
         "confirmation_score": score_int,
         "confirmation_band": band,
         "confirmation_direction": direction,
+        "confirmation_classification_version": (
+            bundle.get("classification_version")
+            if isinstance(bundle, dict) and isinstance(bundle.get("classification_version"), str)
+            else CONFIRMATION_CLASSIFICATION_VERSION
+        ),
         "confirmation_status": bundle.get("status") if isinstance(bundle, dict) and isinstance(bundle.get("status"), str) else "Inactive",
         "confirmation_normalized_status": normalize_confirmation_state(
             {
@@ -1642,6 +1666,94 @@ def _combined_direction(directions: list[str]) -> ConfirmationDirection:
     return "neutral"
 
 
+def classify_confirmation_direction(
+    sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary],
+) -> ConfirmationClassification:
+    side_scores = {"bullish": 0.0, "bearish": 0.0}
+    side_layers = {"bullish": 0, "bearish": 0}
+    material_layers = {"bullish": 0, "bearish": 0}
+    ambiguous_score = 0.0
+
+    for key in SOURCE_ORDER:
+        source = sources[key]
+        if not source.present or key in SUPPORT_ONLY_SOURCE_KEYS:
+            continue
+        evidence = _directional_evidence_weight(source)
+        if source.direction in {"bullish", "bearish"}:
+            side_scores[source.direction] += evidence
+            side_layers[source.direction] += 1
+            if _is_material_directional_evidence(source, evidence):
+                material_layers[source.direction] += 1
+        elif source.direction == "mixed":
+            ambiguous_score += evidence
+
+    total_directional = side_scores["bullish"] + side_scores["bearish"]
+    if total_directional <= 0:
+        return ConfirmationClassification(
+            direction="neutral",
+            strength=None if ambiguous_score <= 0 else "weak",
+            bullish_evidence=0.0,
+            bearish_evidence=0.0,
+            bullish_layers=0,
+            bearish_layers=0,
+        )
+
+    leader: ConfirmationDirection = "bullish" if side_scores["bullish"] >= side_scores["bearish"] else "bearish"
+    follower: ConfirmationDirection = "bearish" if leader == "bullish" else "bullish"
+    leader_score = side_scores[leader]
+    follower_score = side_scores[follower]
+    edge = leader_score - follower_score
+    edge_ratio = edge / max(leader_score + follower_score, 1.0)
+    both_sides_material = material_layers["bullish"] > 0 and material_layers["bearish"] > 0
+
+    if both_sides_material and edge < CONFLICT_DIRECTIONAL_MARGIN and edge_ratio < CONFLICT_DIRECTIONAL_EDGE_RATIO:
+        direction: ConfirmationDirection = "mixed"
+    elif leader_score >= MATERIAL_DIRECTIONAL_EVIDENCE_MIN and (
+        edge >= DEFENSIBLE_DIRECTIONAL_MARGIN
+        or edge_ratio >= CONFLICT_DIRECTIONAL_EDGE_RATIO
+        or material_layers[follower] == 0
+    ):
+        direction = leader
+    elif leader_score >= MATERIAL_DIRECTIONAL_EVIDENCE_MIN and follower_score < MATERIAL_DIRECTIONAL_EVIDENCE_MIN:
+        direction = leader
+    else:
+        direction = "neutral"
+
+    strength = _classification_strength(max(leader_score, follower_score), edge if direction in {"bullish", "bearish"} else 0.0)
+    return ConfirmationClassification(
+        direction=direction,
+        strength=strength,
+        bullish_evidence=round(side_scores["bullish"], 2),
+        bearish_evidence=round(side_scores["bearish"], 2),
+        bullish_layers=side_layers["bullish"],
+        bearish_layers=side_layers["bearish"],
+    )
+
+
+def _directional_evidence_weight(source: ConfirmationSourceSummary) -> float:
+    freshness = _freshness_score(source.freshness_days)
+    weight = source.strength * 0.50 + source.quality * 0.35 + freshness * 0.15 + source.score_contribution * 2.0
+    if source.freshness_days is not None and source.freshness_days > MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS:
+        weight *= 0.45
+    return max(0.0, weight)
+
+
+def _is_material_directional_evidence(source: ConfirmationSourceSummary, evidence: float) -> bool:
+    if evidence < MATERIAL_DIRECTIONAL_EVIDENCE_MIN:
+        return False
+    return source.freshness_days is None or source.freshness_days <= MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS
+
+
+def _classification_strength(evidence: float, edge: float) -> Literal["weak", "moderate", "strong"] | None:
+    if evidence <= 0:
+        return None
+    if evidence >= 95 and edge >= DEFENSIBLE_DIRECTIONAL_MARGIN:
+        return "strong"
+    if evidence >= MATERIAL_DIRECTIONAL_EVIDENCE_MIN:
+        return "moderate"
+    return "weak"
+
+
 def _score_bundle(
     ticker: str,
     lookback_days: int,
@@ -1754,7 +1866,7 @@ def _status_text(active_count: int, direction: ConfirmationDirection) -> str:
     if active_count == 1:
         return f"Single-source {direction}"
     if direction == "mixed":
-        return "Mixed multi-source setup"
+        return "Conflicted multi-source setup"
     return f"{active_count}-source {direction} confirmation"
 
 
@@ -1909,10 +2021,13 @@ def _explanation(
     support_clause = _support_clause(sources, direction)
 
     if direction == "mixed" and active_drivers:
-        suffix = f", while {inactive_clause} remain inactive" if inactive_clause else ""
-        if support_clause:
-            suffix = f"{suffix}; {support_clause}" if suffix else f", {support_clause}"
-        return f"Active sources are mixed: {_join_compact([_lower_first(item) for item in active_drivers[:3]])}{suffix}."
+        return "Material bullish and bearish evidence are both present, with no clear directional edge."
+    if direction == "bullish":
+        return "Bullish evidence outweighs bearish evidence across the current confirmation set."
+    if direction == "bearish":
+        return "Bearish evidence outweighs bullish evidence across the current confirmation set."
+    if direction == "neutral":
+        return "Current evidence does not provide a meaningful bullish or bearish edge."
     if len(active_drivers) >= 2:
         suffix = f", while {inactive_clause} remain inactive" if inactive_clause else ""
         if support_clause:
@@ -1929,14 +2044,7 @@ def _explanation(
 
 
 def _bundle_direction(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> ConfirmationDirection:
-    directional_items = [
-        (key, source.direction)
-        for key, source in sources.items()
-        if source.present and source.direction != "neutral" and key not in SUPPORT_ONLY_SOURCE_KEYS
-    ]
-    if _has_only_mixed_price_volume_against_bullish_stack(directional_items):
-        return "bullish"
-    return _combined_direction([direction for _key, direction in directional_items])
+    return classify_confirmation_direction(sources).direction
 
 
 def _has_only_mixed_price_volume_against_bullish_stack(

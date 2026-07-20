@@ -1078,14 +1078,14 @@ def _present_source_count(bundle: dict[str, Any]) -> int:
 
 
 def _market_direction(bundle: dict[str, Any], score: int | None, present_sources: int) -> MarketPressureDirection:
-    if not bundle or present_sources <= 0 or score is None or score <= 19:
+    if not bundle or present_sources <= 0 or score is None:
         return "unavailable"
     raw_direction = bundle.get("direction")
     if raw_direction == "mixed":
         return "conflicted"
-    if raw_direction in {"bullish", "bearish"} and score >= 40:
+    if raw_direction in {"bullish", "bearish"}:
         return raw_direction
-    if raw_direction == "neutral" or score < 40:
+    if raw_direction == "neutral":
         return "neutral"
     return "unavailable"
 

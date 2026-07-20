@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.db import Base
 from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
+    CONFIRMATION_CLASSIFICATION_VERSION,
     confirmation_score_bundle_from_source_contexts,
+    confirmation_score_bundle_from_source_payloads,
     confirmation_band_for_score,
     get_slim_confirmation_score_bundles_for_tickers,
     slim_confirmation_score_bundle,
@@ -371,11 +373,114 @@ def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack(
 
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] > 59
-    assert bundle["band"] in {"strong", "exceptional"}
+    assert bundle["score"] == 58
+    assert bundle["band"] == "moderate"
 
 
-def test_bearish_source_conflict_still_caps_mixed_confirmation_score():
+def _payload_source(direction: str, *, strength: int = 92, quality: int = 92, freshness_days: int | None = 3) -> dict:
+    return {
+        "present": True,
+        "direction": direction,
+        "strength": strength,
+        "quality": quality,
+        "freshness_days": freshness_days,
+        "label": f"{direction} fixture",
+        "score_contribution": 10,
+    }
+
+
+def test_canonical_classifier_returns_bullish_with_clear_edge():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "BULL",
+        sources_payload={
+            "signals": _payload_source("bullish"),
+            "price_volume": _payload_source("bullish"),
+            "institutional_activity": _payload_source("bullish"),
+            "options_flow": _payload_source("bearish", strength=35, quality=35),
+        },
+    )
+
+    assert bundle["direction"] == "bullish"
+    assert bundle["classification_version"] == CONFIRMATION_CLASSIFICATION_VERSION
+
+
+def test_canonical_classifier_returns_bearish_with_clear_edge():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "BEAR",
+        sources_payload={
+            "signals": _payload_source("bearish"),
+            "price_volume": _payload_source("bearish"),
+            "institutional_activity": _payload_source("bearish"),
+            "options_flow": _payload_source("bullish", strength=35, quality=35),
+        },
+    )
+
+    assert bundle["direction"] == "bearish"
+
+
+def test_one_opposing_layer_does_not_force_conflicted():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "EDGE",
+        sources_payload={
+            "signals": _payload_source("bullish"),
+            "price_volume": _payload_source("bullish"),
+            "options_flow": _payload_source("bearish"),
+        },
+    )
+
+    assert bundle["direction"] == "bullish"
+    assert bundle["score"] > 39
+
+
+def test_material_near_balanced_opposition_returns_conflicted():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "TIE",
+        sources_payload={
+            "signals": _payload_source("bullish"),
+            "price_volume": _payload_source("bearish"),
+        },
+    )
+
+    assert bundle["direction"] == "mixed"
+    assert bundle["score"] <= 59
+    assert "no clear directional edge" in bundle["explanation"]
+
+
+def test_weak_and_stale_evidence_do_not_create_conflict():
+    weak = confirmation_score_bundle_from_source_payloads(
+        "WEAK",
+        sources_payload={
+            "signals": _payload_source("bullish", strength=20, quality=20),
+            "options_flow": _payload_source("bearish", strength=20, quality=20),
+        },
+    )
+    stale = confirmation_score_bundle_from_source_payloads(
+        "STALE",
+        sources_payload={
+            "signals": _payload_source("bullish", freshness_days=3),
+            "price_volume": _payload_source("bearish", freshness_days=160),
+        },
+    )
+    missing = confirmation_score_bundle_from_source_payloads("MISS", sources_payload={})
+
+    assert weak["direction"] == "neutral"
+    assert stale["direction"] == "bullish"
+    assert missing["direction"] == "neutral"
+    assert missing["score"] == 0
+
+
+def test_slim_confirmation_bundle_exposes_classification_version():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "VERS",
+        sources_payload={"signals": _payload_source("bullish")},
+    )
+    slim = slim_confirmation_score_bundle(bundle)
+
+    assert slim["confirmation_direction"] == bundle["direction"]
+    assert slim["confirmation_classification_version"] == CONFIRMATION_CLASSIFICATION_VERSION
+
+
+def test_bearish_source_conflict_no_longer_caps_clear_bullish_edge():
     bundle = confirmation_score_bundle_from_source_contexts(
         "CLSH",
         source_contexts={
@@ -397,5 +502,5 @@ def test_bearish_source_conflict_still_caps_mixed_confirmation_score():
         },
     )
 
-    assert bundle["direction"] == "mixed"
-    assert bundle["score"] <= 59
+    assert bundle["direction"] == "bullish"
+    assert bundle["score"] > 39

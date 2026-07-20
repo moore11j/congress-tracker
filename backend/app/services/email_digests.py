@@ -37,6 +37,7 @@ from app.services.email_templates import reset_email_template_to_default, seed_d
 from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import resolve_insider_name
+from app.services.price_lookup import is_market_trading_day
 
 ALERT_EVENT_TYPES = (
     "congress_trade",
@@ -399,6 +400,8 @@ def run_digest_job(
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     since, window_end = daily_digest_window(lookback_days=lookback_days, now=now)
+    if not force and not monitoring_email_send_day(now=now):
+        return []
     results: list[dict[str, Any]] = []
     if kind in {"monitoring", "signals"}:
         users = _eligible_monitoring_digest_users(db, limit=limit)
@@ -483,6 +486,13 @@ def daily_digest_window(
     days = max(int(lookback_days or 1), 1)
     local_start = local_end - timedelta(days=days)
     return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
+
+
+def monitoring_email_send_day(*, now: datetime | None = None, timezone_name: str = DEFAULT_DIGEST_TIMEZONE) -> bool:
+    tz = ZoneInfo(timezone_name)
+    current = now or datetime.now(timezone.utc)
+    current = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
+    return is_market_trading_day(current.astimezone(tz).date())
 
 
 def _build_billing_statement(db: Session, user: UserAccount, start: datetime, end: datetime) -> DigestBuild:

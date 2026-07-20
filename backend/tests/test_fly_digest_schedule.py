@@ -47,9 +47,9 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     crontab = (BACKEND_ROOT / "crontab").read_text()
 
     assert "CRON_TZ=America/Los_Angeles" in crontab
-    assert "0 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
-    assert "5 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh watchlist_activity" in crontab
-    assert "10 7 * * * cd /app && sh /app/scripts/run_email_digest_schedule.sh signals" in crontab
+    assert "0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
+    assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
+    assert "run_email_digest_schedule.sh signals" not in crontab
     assert "*/15 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
@@ -73,7 +73,9 @@ def test_digest_schedule_wrapper_is_gated_and_bounded():
     assert 'EMAIL_DIGEST_SCHEDULE_DRY_RUN:-0' in script
     assert "--dry-run" in script
     assert 'set -- python -m app.jobs.send_email_digests --kind "$kind"' in script
-    assert "monitoring|watchlist_activity|signals" in script
+    assert "monitoring) ;;" in script
+    assert "watchlist_activity" not in script
+    assert "signals" not in script
     assert "billing" not in script.lower()
     assert "monthly" not in script.lower()
 

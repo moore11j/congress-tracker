@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.entitlements import entitlements_for_user, monitored_source_ids
 from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Security, UserAccount, WatchlistItem
 from app.services.confirmation_score import (
+    CONFIRMATION_CLASSIFICATION_VERSION,
     confirmation_active_source_count,
     confirmation_band_for_score,
     get_confirmation_score_bundles_for_tickers,
@@ -66,6 +67,7 @@ class ConfirmationMonitoringState:
     status: str
     observed_at: datetime
     source_states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    classification_version: str = CONFIRMATION_CLASSIFICATION_VERSION
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,11 @@ def monitoring_state_from_bundle(
         status=status.strip(),
         source_states=_source_states_from_bundle(bundle),
         observed_at=observed_at or datetime.now(timezone.utc),
+        classification_version=(
+            bundle.get("classification_version")
+            if isinstance(bundle, dict) and isinstance(bundle.get("classification_version"), str)
+            else CONFIRMATION_CLASSIFICATION_VERSION
+        ),
     )
 
 
@@ -130,6 +137,8 @@ def decide_confirmation_monitoring_event(
         "source_count_after": after.source_count,
         "status_before": before.status,
         "status_after": after.status,
+        "classification_version_before": before.classification_version,
+        "classification_version_after": after.classification_version,
         "observed_at": after.observed_at.isoformat(),
     }
 

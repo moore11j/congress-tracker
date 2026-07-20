@@ -39,6 +39,7 @@ from app.services.email_digests import (
 )
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.notifications import normalize_alert_triggers
+from app.services.price_lookup import is_market_trading_day
 
 INTRADAY_MONITORING_TEMPLATE = "alerts.signal_intraday"
 INTRADAY_WATCHLIST_TEMPLATE = INTRADAY_MONITORING_TEMPLATE
@@ -179,7 +180,7 @@ def summarize_intraday_alert_results(results: list[dict[str, Any]]) -> dict[str,
 
 def is_market_hours(value: datetime | None = None, *, timezone_name: str = DEFAULT_DIGEST_TIMEZONE) -> bool:
     current = _coerce_aware(value or datetime.now(timezone.utc)).astimezone(ZoneInfo(timezone_name))
-    if current.weekday() >= 5:
+    if not is_market_trading_day(current.date()):
         return False
     local_time = current.time()
     return time(6, 30) <= local_time <= time(13, 0)

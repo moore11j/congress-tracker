@@ -143,8 +143,11 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.match(client, /function confirmationFillHex/);
   assert.match(client, /#0b63ce/);
   assert.match(client, /#c2410c/);
-  assert.match(client, /#7c3aed/);
-  assert.match(client, /Mix 65/);
+  assert.match(client, /#6d28d9/);
+  assert.match(client, /Conflicted/);
+  assert.match(client, /legendItemsForColorMode/);
+  assert.doesNotMatch(client, /Mix 50|Mix 65|Mix 80\+/);
+  assert.doesNotMatch(client, /Bear 80\+|Bear 65|Bear 50|Bull 50|Bull 65|Bull 80\+/);
   assert.match(client, /type MarketPressureColorMode = "price" \| "confirmation"/);
   assert.match(client, /function tileMetricLabel/);
   assert.match(client, /CS \$\{formatScore\(tile\.confirmationScore\)\}/);
@@ -155,6 +158,11 @@ test("Market Pressure Phase 3 visual semantics are source-driven", () => {
   assert.match(client, /hidden_accumulation: "Accumulation"/);
   assert.match(client, /fragile_winner: "Fragile"/);
   assert.match(client, /data-market-pressure-color-legend/);
+  assert.match(client, /font-mono font-semibold/);
+  assert.doesNotMatch(client, /font-black/);
+  assert.doesNotMatch(client, /font-bold/);
+  assert.doesNotMatch(client, /font-weight="800"/);
+  assert.doesNotMatch(client, /font-weight="700"/);
   assert.match(client, /aria-label="Market Pressure colour mode"/);
   assert.doesNotMatch(client, /function MarketPressureLegend/);
   assert.doesNotMatch(client, /Tile colour/);

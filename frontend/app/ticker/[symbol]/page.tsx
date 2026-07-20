@@ -1628,7 +1628,7 @@ function overviewTimestamp(freshness: SignalFreshnessBundle): string {
 function overviewHeadline(bundle: ConfirmationScoreBundle): string {
   if (bundle.direction === "bearish") return "Bearish confirmation";
   if (bundle.direction === "bullish") return "Bullish confirmation";
-  if (bundle.direction === "mixed") return "Mixed confirmation";
+  if (bundle.direction === "mixed") return "Conflicted confirmation";
   if (bundle.sources.government_contracts.present) return "Positive support building";
   return "No active confirmation";
 }
@@ -1643,11 +1643,15 @@ function capitalizeWord(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
+function confirmationDirectionDisplay(value: string): string {
+  return value === "mixed" ? "Conflicted" : capitalizeWord(value);
+}
+
 function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
   if (bundle.band === "inactive" && bundle.direction === "neutral") {
     return `${Math.round(bundle.score)} / 100 · Inactive`;
   }
-  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${bundle.direction}`;
+  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${confirmationDirectionDisplay(bundle.direction)}`;
 }
 
 function overviewBullets({

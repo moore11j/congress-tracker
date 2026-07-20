@@ -22,8 +22,8 @@ from app.models import (
     WatchlistItem,
 )
 from app.routers.accounts import AdminDigestRunNowPayload, AdminDigestSendTestPayload, admin_run_email_digest_now, admin_send_monitoring_digest_test
-from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
-from app.services.email_intraday import run_intraday_alert_sweep, summarize_intraday_alert_results
+from app.services.email_digests import build_monitoring_digest, build_signal_alert_digest, build_watchlist_activity_digest, monitoring_email_send_day, run_digest_job, send_monitoring_digest, send_signal_alert_digest, send_watchlist_activity_digest
+from app.services.email_intraday import is_market_hours, run_intraday_alert_sweep, summarize_intraday_alert_results
 from app.services.email_templates import seed_default_email_templates
 from app.services.event_calendar import CalendarFetchResult
 
@@ -1317,3 +1317,47 @@ def test_admin_monitoring_digest_endpoint_targets_ranked_digest(monkeypatch):
         assert calls[0][2] is True
     finally:
         db.close()
+
+
+def test_monitoring_digest_job_skips_weekends_and_market_holidays():
+    db = _session()
+    try:
+        user = _user(db, "weekend-digest@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        saturday = datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc)
+        observed_july_fourth = datetime(2026, 7, 3, 14, 0, tzinfo=timezone.utc)
+
+        assert monitoring_email_send_day(now=saturday) is False
+        assert monitoring_email_send_day(now=observed_july_fourth) is False
+        assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=saturday) == []
+        assert run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True, now=observed_july_fourth) == []
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_force_can_preview_on_non_trading_day():
+    db = _session()
+    try:
+        user = _user(db, "force-weekend-digest@example.com")
+        watchlist = _watchlist(db, user)
+        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+
+        results = run_digest_job(
+            db,
+            kind="monitoring",
+            lookback_days=1,
+            dry_run=True,
+            force=True,
+            now=datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc),
+        )
+
+        assert len(results) == 1
+        assert results[0]["status"] == "would_send"
+    finally:
+        db.close()
+
+
+def test_intraday_market_hours_excludes_market_holidays():
+    assert is_market_hours(datetime(2026, 7, 3, 17, 0, tzinfo=timezone.utc)) is False
+    assert is_market_hours(datetime(2026, 7, 6, 17, 0, tzinfo=timezone.utc)) is True

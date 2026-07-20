@@ -297,7 +297,7 @@ const CONFIRMATION_SCORE_OPTIONS = [
 const CONFIRMATION_DIRECTION_OPTIONS = [
   ["bullish", "Bullish"],
   ["bearish", "Bearish"],
-  ["mixed", "Mixed"],
+  ["mixed", "Conflicted"],
 ] as const;
 const CONFIRMATION_BAND_OPTIONS = [
   ["moderate_plus", "Moderate+"],
@@ -732,7 +732,7 @@ function overlayAvailabilityDefaults(): ScreenerResponse["overlay_availability"]
 function confirmationDirectionLabel(direction: string): string {
   if (direction === "bullish") return "BULLISH";
   if (direction === "bearish") return "BEARISH";
-  if (direction === "mixed") return "MIXED";
+  if (direction === "mixed") return "CONFLICTED";
   return "NEUTRAL";
 }
 
@@ -740,7 +740,7 @@ function confirmationMeta(status: string, direction: string): string {
   const cleaned = status.trim();
   if (!cleaned || cleaned.toLowerCase() === "inactive") return "No active confirmation";
   const withoutDirection = cleaned
-    .replace(/\b(bullish|bearish|mixed|neutral)\b\s*/gi, "")
+    .replace(/\b(bullish|bearish|mixed|conflicted|neutral)\b\s*/gi, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!withoutDirection) return "Confirmation";

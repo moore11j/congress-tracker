@@ -26,7 +26,39 @@ Canonical score bands are:
 - `strong`: 60-79
 - `exceptional`: 80-100
 
-The existing bundle direction values are `bullish`, `bearish`, `neutral`, and `mixed`. Market Pressure renders `mixed` as `conflicted`.
+The existing bundle direction values are `bullish`, `bearish`, `neutral`, and `mixed`. `mixed` is the backward-compatible wire value for the canonical conflicted state. User-facing surfaces should render it as `Conflicted`, not as `Mixed 50`, `Mix 65`, or any other score bucket.
+
+## Canonical Confirmation Direction Classification
+
+Canonical classification lives only in `backend/app/services/confirmation_score.py`:
+
+- `classify_confirmation_direction(...)`
+- `_bundle_direction(...)`
+- `CONFIRMATION_CLASSIFICATION_VERSION`
+
+Ticker Context, Screener, Signals, monitoring, and Market Pressure consume the canonical confirmation bundle through `get_confirmation_score_bundles_for_tickers(...)`, `get_confirmation_score_bundle_for_ticker(...)`, or `slim_confirmation_score_bundle(...)`. Frontend components may style and label the returned direction, but must not recalculate direction from score bands or source disagreements.
+
+Previous rule:
+
+- Any active non-neutral `mixed` source, or any active bullish source combined with any active bearish source, made the bundle direction `mixed`.
+
+New rule:
+
+- Bullish and bearish source evidence is weighted centrally from strength, quality, freshness, and existing source contribution.
+- `mixed`/conflicted is returned only when material bullish and bearish evidence are both present and the directional edge is narrow.
+- One weaker opposing layer no longer forces conflict when the other side has a defensible evidence edge.
+- Weak or non-directional evidence resolves `neutral`.
+- Missing evidence is ignored and never counted as neutral or opposing evidence.
+
+Central constants:
+
+- `MATERIAL_DIRECTIONAL_EVIDENCE_MIN`
+- `DEFENSIBLE_DIRECTIONAL_MARGIN`
+- `CONFLICT_DIRECTIONAL_MARGIN`
+- `CONFLICT_DIRECTIONAL_EDGE_RATIO`
+- `MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS`
+
+Score weights were not changed. The numeric Confirmation Score remains the public strength/quality score, and direction remains the canonical qualitative classification. Classification version `confirmation_direction_v2` is included in newly generated bundles and slim summaries. Historical monitoring and saved-screen rows without this metadata should be treated as legacy snapshots rather than silently equivalent classifications.
 
 ## Endpoint
 
@@ -48,7 +80,7 @@ Confirmation evidence comes from the existing confirmation score service. Price 
 
 Company identity and sector hydration use cached `ticker_meta`, `securities`, and `fundamentals_cache` rows. Sector summaries are equal-weight averages of the returned tiles' price change percentages. They are not index returns.
 
-## Classification Rules
+## Market Pressure Classification Rules
 
 Each ticker resolves to:
 

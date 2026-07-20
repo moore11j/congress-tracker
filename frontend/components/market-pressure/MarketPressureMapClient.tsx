@@ -76,15 +76,40 @@ const directionGlyph: Record<MarketPressureTile["confirmationDirection"], string
   bullish: "UP",
   bearish: "DN",
   neutral: "NEU",
-  conflicted: "MIX",
+  conflicted: "CNF",
   unavailable: "NA",
 };
+
+const priceLegendItems = [
+  ["-3%", "#df3542"],
+  ["-2%", "#be3e4d"],
+  ["-1%", "#8f4555"],
+  ["0%", "#35495a"],
+  ["+1%", "#2f8f59"],
+  ["+2%", "#2fbd63"],
+  ["+3%", "#18c861"],
+] as const;
+
+const confirmationLegendItems = [
+  ["Strong Bearish", "#c2410c"],
+  ["Bearish", "#ea580c"],
+  ["Weak Bearish", "#f97316"],
+  ["Neutral", "#3f4b5d"],
+  ["Weak Bullish", "#3b9af3"],
+  ["Bullish", "#1d7fe5"],
+  ["Strong Bullish", "#0b63ce"],
+  ["Conflicted", "#6d28d9"],
+] as const;
+
+function legendItemsForColorMode(colorMode: MarketPressureColorMode) {
+  return colorMode === "confirmation" ? confirmationLegendItems : priceLegendItems;
+}
 
 const layerOrder = Object.keys(marketPressureLayerLabels) as MarketPressureLayerKey[];
 
 function segmentedButtonClass(active: boolean) {
   return [
-    "min-h-9 rounded-md border px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45",
+    "min-h-9 rounded-md border px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45",
     active
       ? "border-emerald-300/55 bg-emerald-300/15 text-emerald-100"
       : "border-white/10 bg-slate-950/45 text-slate-300 hover:border-white/20 hover:text-white",
@@ -171,10 +196,7 @@ function confirmationFillClass(tile: MarketPressureTile) {
     return "bg-[#fb923c] text-slate-950";
   }
   if (tile.confirmationDirection === "conflicted") {
-    if (score >= 80) return "bg-[#5b21b6] text-white";
-    if (score >= 65) return "bg-[#6d28d9] text-white";
-    if (score >= 50) return "bg-[#7c3aed] text-white";
-    return "bg-[#8b5cf6] text-white";
+    return "bg-[#6d28d9] text-white";
   }
   return "bg-[#3f4b5d] text-slate-100";
 }
@@ -331,7 +353,7 @@ function explainTile(tile: MarketPressureTile, period: MarketPressureTimeRange) 
   const scoreText = tile.confirmationScore == null ? "with unavailable confirmation" : `with Walnut confirmation at ${Math.round(tile.confirmationScore)}/100`;
   if (tile.divergence === "hidden_accumulation") return `${tile.symbol} ${priceText} while Walnut's complete confirmation stack remains bullish ${tile.confirmationScore == null ? "" : `at ${Math.round(tile.confirmationScore)}/100`}.`;
   if (tile.divergence === "fragile_winner") return `${tile.symbol} ${priceText}, but confirmation is ${tile.confirmationDirection}, marking a fragile winner.`;
-  if (tile.confirmationDirection === "conflicted") return `${tile.symbol} ${priceText} with mixed evidence across the confirmation stack.`;
+  if (tile.confirmationDirection === "conflicted") return `${tile.symbol} ${priceText} with conflicted evidence across the confirmation stack.`;
   return `${tile.symbol} ${priceText} ${scoreText} and ${tile.confirmationDirection} direction.`;
 }
 
@@ -404,8 +426,8 @@ function MarketPressureStatusState({ data }: { data: MarketPressureMapResult }) 
   return (
     <div className="flex min-h-[21rem] items-center justify-center rounded-md border border-dashed border-white/15 bg-slate-950/45 px-4 py-10 text-center" aria-live="polite" aria-busy={data.status === "loading"}>
       <div className="max-w-xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200/80">{data.status.replace("-", " ")}</p>
-        <h2 className="mt-3 text-xl font-semibold text-white">{copy.title}</h2>
+        <p className="text-xs font-medium uppercase tracking-[0.22em] text-emerald-200/80">{data.status.replace("-", " ")}</p>
+        <h2 className="mt-3 text-xl font-medium text-white">{copy.title}</h2>
         <p className="mt-3 text-sm leading-6 text-slate-300">{copy.body}</p>
         {data.status === "entitlement" ? (
           <Link href="/pricing" prefetch={false} className={`${subtlePrimaryButtonClassName} mt-5 inline-flex h-10 rounded-md px-4`}>
@@ -443,15 +465,15 @@ function MarketSummaryStrip({ data }: { data: MarketPressureMapResult }) {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         {items.map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-md border border-white/10 bg-slate-900/55 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</div>
-            <div className="mt-1 text-lg font-semibold text-white">{value}</div>
+            <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{label}</div>
+            <div className="mt-1 text-lg font-medium text-white">{value}</div>
           </div>
         ))}
       </div>
       <div className="text-xs leading-5 text-slate-400 md:max-w-xs md:text-right">
         <div>Price as of {formatDate(data.priceAsOf)}</div>
         <div>Confirmation as of {formatDate(data.confirmationAsOf)}</div>
-        {universeDetails?.status === "stale" ? <div className="font-semibold text-amber-200">Membership data is stale</div> : null}
+        {universeDetails?.status === "stale" ? <div className="font-medium text-amber-200">Membership data is stale</div> : null}
       </div>
     </section>
   );
@@ -459,13 +481,13 @@ function MarketSummaryStrip({ data }: { data: MarketPressureMapResult }) {
 
 function TileMarkers({ tile }: { tile: MarketPressureTile }) {
   if (tile.divergence === "hidden_accumulation") {
-    return <span className="rounded-sm border border-emerald-100/70 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-100">Accumulation</span>;
+    return <span className="rounded-sm border border-emerald-100/70 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-100">Accumulation</span>;
   }
   if (tile.divergence === "fragile_winner") {
-    return <span className="rounded-sm border border-amber-100/70 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100">Fragile</span>;
+    return <span className="rounded-sm border border-amber-100/70 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-100">Fragile</span>;
   }
   if (tile.divergence === "conflicted") {
-    return <span className="rounded-sm border border-amber-100/50 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100">Mixed</span>;
+    return <span className="rounded-sm border border-violet-100/50 bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-violet-100">Conflicted</span>;
   }
   return null;
 }
@@ -516,23 +538,23 @@ function MarketTile({
       onClick={() => onOpen(tile)}
       onKeyDown={handleKeyDown}
     >
-      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white/85 sm:text-[8px] ${hideLabel || compact ? "hidden" : ""}`}>
+      <span className={`pointer-events-none absolute right-1 top-1 rounded-sm bg-slate-950/55 px-1 py-0.5 text-[7px] font-medium uppercase tracking-wide text-white/85 sm:text-[8px] ${hideLabel || compact ? "hidden" : ""}`}>
         {directionGlyph[tile.confirmationDirection]}
       </span>
       {!hideLabel ? (
-        <span className={`${compact ? "text-[7px] sm:text-[9px]" : medium ? "text-[8px] sm:text-[11px]" : hero ? "text-lg sm:text-2xl" : feature ? "text-sm sm:text-xl" : "text-[10px] sm:text-sm"} block max-w-full truncate text-center font-mono font-black leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "text-[7px] sm:text-[9px]" : medium ? "text-[8px] sm:text-[11px]" : hero ? "text-lg sm:text-2xl" : feature ? "text-sm sm:text-xl" : "text-[10px] sm:text-sm"} block max-w-full truncate text-center font-mono font-semibold leading-tight tracking-normal drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tile.symbol}
         </span>
       ) : null}
       {showPrice ? (
-        <span className={`${compact ? "mt-0.5 text-[7px] sm:text-[8px]" : medium ? "mt-0.5 text-[8px] sm:text-[10px]" : hero ? "mt-1 text-sm sm:text-lg" : feature ? "mt-0.5 text-xs sm:mt-1 sm:text-sm" : "mt-0.5 text-[9px] sm:text-xs"} block text-center font-black leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
+        <span className={`${compact ? "mt-0.5 text-[7px] sm:text-[8px]" : medium ? "mt-0.5 text-[8px] sm:text-[10px]" : hero ? "mt-1 text-sm sm:text-lg" : feature ? "mt-0.5 text-xs sm:mt-1 sm:text-sm" : "mt-0.5 text-[9px] sm:text-xs"} block text-center font-medium leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]`}>
           {tileMetricLabel(tile, colorMode)}
         </span>
       ) : null}
-      <span className={`${showDiagnostics ? "mt-0.5 block text-[8px] sm:mt-1 sm:text-[10px]" : "hidden"} text-center font-semibold text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
+      <span className={`${showDiagnostics ? "mt-0.5 block text-[8px] sm:mt-1 sm:text-[10px]" : "hidden"} text-center font-normal text-white/80`}>CS {formatScore(tile.confirmationScore)}</span>
       <span className={`${showDiagnostics ? "mt-1 flex" : "hidden"} min-h-5 flex-wrap gap-1`}>
         <TileMarkers tile={tile} />
-        {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-200">{tile.dataState}</span>}
+        {tile.dataState === "complete" ? null : <span className="rounded-sm bg-slate-950/65 px-1.5 py-0.5 text-[9px] font-medium uppercase text-slate-200">{tile.dataState}</span>}
       </span>
     </button>
   );
@@ -579,7 +601,7 @@ function SectorMap({
             onFocus={() => setHoveredSector(null)}
           >
             {showHeader ? (
-              <div className="absolute inset-x-0 top-0 z-10 flex h-5 min-w-0 items-center justify-between gap-2 border-b border-slate-950 bg-slate-800/85 px-1.5 text-[9px] font-bold uppercase tracking-normal text-slate-100">
+              <div className="absolute inset-x-0 top-0 z-10 flex h-5 min-w-0 items-center justify-between gap-2 border-b border-slate-950 bg-slate-800/85 px-1.5 text-[9px] font-medium uppercase tracking-normal text-slate-100">
                 <span className="truncate">{sectorGroup.sector}</span>
                 <span className="shrink-0 text-slate-300">{formatPct(sectorGroup.summary.averagePriceChangePct, true)}</span>
               </div>
@@ -596,7 +618,7 @@ function SectorMap({
               })}
             </div>
             {showHeader ? (
-              <div className="pointer-events-none absolute bottom-1 left-1 z-10 hidden rounded-sm bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-semibold text-slate-200 sm:block">
+              <div className="pointer-events-none absolute bottom-1 left-1 z-10 hidden rounded-sm bg-slate-950/70 px-1.5 py-0.5 text-[9px] font-medium text-slate-200 sm:block">
                 {sectorGroup.summary.symbolCount} names
               </div>
             ) : null}
@@ -626,7 +648,7 @@ function SectorHoverTooltip({ hover, period }: { hover: SectorHoverState | null;
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{hover.sector.sector}</div>
           <div className="mt-1 text-xs text-slate-400">{rows.length} names - avg {formatPct(hover.sector.summary.averagePriceChangePct, true)}</div>
         </div>
-        <div className="text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{period}</div>
+        <div className="text-right text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{period}</div>
       </div>
       <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-white/10">
         <table className="min-w-full text-xs">
@@ -641,8 +663,8 @@ function SectorHoverTooltip({ hover, period }: { hover: SectorHoverState | null;
           <tbody className="divide-y divide-white/5">
             {rows.map((tile) => (
               <tr key={`${hover.sector.sector}:hover:${tile.symbol}`} className="text-slate-200">
-                <td className="px-2 py-1.5 font-mono font-semibold text-emerald-100">{tile.symbol}</td>
-                <td className={`px-2 py-1.5 text-right font-semibold tabular-nums ${tile.priceChangePct == null ? "text-slate-500" : tile.priceChangePct >= 0 ? "text-emerald-200" : "text-rose-200"}`}>{formatPct(tile.priceChangePct, true)}</td>
+                <td className="px-2 py-1.5 font-mono font-medium text-emerald-100">{tile.symbol}</td>
+                <td className={`px-2 py-1.5 text-right font-medium tabular-nums ${tile.priceChangePct == null ? "text-slate-500" : tile.priceChangePct >= 0 ? "text-emerald-200" : "text-rose-200"}`}>{formatPct(tile.priceChangePct, true)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-slate-100">{formatScore(tile.confirmationScore)}</td>
                 <td className="px-2 py-1.5 text-slate-300">{statusTitle(tile.confirmationDirection)}</td>
               </tr>
@@ -657,7 +679,7 @@ function SectorHoverTooltip({ hover, period }: { hover: SectorHoverState | null;
 function InfoHelp({ label }: { label: string }) {
   return (
     <span className="group relative inline-flex">
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-slate-950/70 text-[10px] font-bold text-slate-300">?</span>
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-slate-950/70 text-[10px] font-medium text-slate-300">?</span>
       <span className="pointer-events-none absolute left-1/2 top-6 z-50 hidden w-56 -translate-x-1/2 rounded-md border border-white/10 bg-slate-950 px-2.5 py-2 text-xs font-normal leading-5 text-slate-200 shadow-xl group-hover:block group-focus-within:block">
         {label}
       </span>
@@ -666,32 +688,11 @@ function InfoHelp({ label }: { label: string }) {
 }
 
 function ColorLegend({ colorMode }: { colorMode: MarketPressureColorMode }) {
-  const priceItems = [
-    ["-3%", "#df3542"],
-    ["-2%", "#be3e4d"],
-    ["-1%", "#8f4555"],
-    ["0%", "#35495a"],
-    ["+1%", "#2f8f59"],
-    ["+2%", "#2fbd63"],
-    ["+3%", "#18c861"],
-  ];
-  const confirmationItems = [
-    ["Bear 80+", "#c2410c"],
-    ["Bear 65", "#ea580c"],
-    ["Bear 50", "#f97316"],
-    ["Mix 50", "#7c3aed"],
-    ["Mix 65", "#6d28d9"],
-    ["Mix 80+", "#5b21b6"],
-    ["Neutral", "#3f4b5d"],
-    ["Bull 50", "#3b9af3"],
-    ["Bull 65", "#1d7fe5"],
-    ["Bull 80+", "#0b63ce"],
-  ];
-  const items = colorMode === "confirmation" ? confirmationItems : priceItems;
+  const items = legendItemsForColorMode(colorMode);
   return (
     <div className="flex flex-wrap items-center gap-1" aria-label={`${colorMode} color legend`} data-market-pressure-color-legend>
       {items.map(([label, color]) => (
-        <div key={label} className="min-w-14 px-2 py-1 text-center text-xs font-bold text-white shadow-sm" style={{ backgroundColor: color }}>
+        <div key={label} className="min-w-14 px-2 py-1 text-center text-xs font-medium text-white shadow-sm" style={{ backgroundColor: color }}>
           {label}
         </div>
       ))}
@@ -704,7 +705,7 @@ function EvidenceRow({ label, layer }: { label: string; layer: MarketPressureLay
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 py-2 last:border-b-0">
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-white">{label}</div>
+        <div className="truncate text-sm font-normal text-white">{label}</div>
         <div className={`mt-0.5 text-xs ${tone}`}>{statusTitle(layer.status)}{layer.direction ? ` - ${layer.direction}` : ""}</div>
       </div>
       <div className="text-right text-xs text-slate-400">
@@ -750,14 +751,14 @@ function TickerFlyout({
           <Metric label="Divergence" value={divergenceLabel[tile.divergence]} />
         </div>
         <div className="rounded-md border border-white/10 bg-slate-950/45 p-3">
-          <h3 className="text-sm font-semibold text-white">Why it stands out</h3>
+          <h3 className="text-sm font-medium text-white">Why it stands out</h3>
           <p className="mt-1.5 text-sm leading-5 text-slate-300">{explainTile(tile, period)}</p>
           <p className="mt-1.5 text-xs text-slate-500">
             Price as of {formatDate(tile.priceEndAt)}. Confirmation as of {formatDate(tile.confirmationAsOf)}. Data state: {statusTitle(tile.dataState)}.
           </p>
         </div>
         <div className="rounded-md border border-white/10 bg-slate-950/45 p-3">
-          <h3 className="text-sm font-semibold text-white">Evidence summary</h3>
+          <h3 className="text-sm font-medium text-white">Evidence summary</h3>
           <div className="mt-2 grid gap-x-3 sm:grid-cols-2">
             {layerOrder.map((key) => (
               <EvidenceRow key={key} label={marketPressureLayerLabels[key]} layer={tile.layers[key]} />
@@ -785,8 +786,8 @@ function TickerFlyout({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-white/10 bg-slate-900/55 px-2.5 py-2">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold text-white">{value}</div>
+      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium text-white">{value}</div>
     </div>
   );
 }
@@ -830,10 +831,7 @@ function confirmationFillHex(tile: MarketPressureTile) {
     return "#fb923c";
   }
   if (tile.confirmationDirection === "conflicted") {
-    if (score >= 80) return "#5b21b6";
-    if (score >= 65) return "#6d28d9";
-    if (score >= 50) return "#7c3aed";
-    return "#8b5cf6";
+    return "#6d28d9";
   }
   return "#3f4b5d";
 }
@@ -853,7 +851,7 @@ function tileSvg(tile: MarketPressureTile, x: number, y: number, width: number, 
   const labelX = textAnchor === "middle" ? x + width / 2 : x + 6;
   const labelY = textAnchor === "middle" ? y + height / 2 - 2 : y + Math.max(12, fontSize + 4);
   const priceY = textAnchor === "middle" ? labelY + Math.max(14, fontSize * 0.68) : y + fontSize + 22;
-  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="#020617" stroke-width="1.5"/>${showLabel ? `<text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="800" font-family="Arial">${svgEscape(tile.symbol)}</text>` : ""}${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(8, Math.round(fontSize * 0.55))}" font-weight="700" font-family="Arial">${svgEscape(tileMetricLabel(tile, colorMode))}</text>` : ""}${showScore && textAnchor === "start" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="10" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 68 && height >= 34 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="700" font-family="Arial">${marker}</text>` : ""}</g>`;
+  return `<g><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="0" fill="${fill}" stroke="#020617" stroke-width="1.5"/>${showLabel ? `<text x="${labelX}" y="${labelY}" text-anchor="${textAnchor}" fill="#fff" font-size="${fontSize}" font-weight="600" font-family="Arial">${svgEscape(tile.symbol)}</text>` : ""}${showPrice ? `<text x="${labelX}" y="${priceY}" text-anchor="${textAnchor}" fill="#f8fafc" font-size="${Math.max(8, Math.round(fontSize * 0.55))}" font-weight="500" font-family="Arial">${svgEscape(tileMetricLabel(tile, colorMode))}</text>` : ""}${showScore && textAnchor === "start" ? `<text x="${x + 6}" y="${y + fontSize + 40}" fill="#cbd5e1" font-size="10" font-family="Arial">CS ${svgEscape(formatScore(tile.confirmationScore))}</text>` : ""}${marker && width >= 68 && height >= 34 ? `<text x="${x + width - 30}" y="${y + 15}" fill="#fff7ed" font-size="9" font-weight="600" font-family="Arial">${marker}</text>` : ""}</g>`;
 }
 
 function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSector[], query: QueryState, colorMode: MarketPressureColorMode) {
@@ -865,6 +863,14 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
   const mapHeight = 432;
   const universe = marketPressureUniverses.find((item) => item.value === query.universe)?.label ?? "S&P 500";
   const view = marketPressureViewModes.find((item) => item.value === query.viewMode)?.label ?? "Market Pressure";
+  const legendItems = legendItemsForColorMode(colorMode);
+  const legendChipWidth = colorMode === "confirmation" ? 124 : 66;
+  const legendMarkup = legendItems
+    .map(([label, color], index) => {
+      const x = mapX + index * (legendChipWidth + 6);
+      return `<g><rect x="${x}" y="608" width="${legendChipWidth}" height="24" fill="${color}"/><text x="${x + legendChipWidth / 2}" y="624" text-anchor="middle" fill="#fff" font-size="11" font-weight="500" font-family="Arial">${svgEscape(label)}</text></g>`;
+    })
+    .join("");
   const sectorMarkup = layoutTreemap(sectors.map((sector) => ({ item: sector, weight: sectorWeight(sector) })))
     .map(({ item: sector, rect }) => {
       const x = mapX + (rect.x / 100) * mapWidth;
@@ -879,12 +885,12 @@ function renderShareSvg(data: MarketPressureMapResult, sectors: MarketPressureSe
         .map(({ item: tile, rect: tileRect }) => tileSvg(tile, x + (tileRect.x / 100) * sectorWidth, y + headerHeight + (tileRect.y / 100) * tileHeight, (tileRect.width / 100) * sectorWidth, (tileRect.height / 100) * tileHeight, colorMode))
         .join("");
       const headerMarkup = showHeader
-        ? `<rect x="${x}" y="${y}" width="${sectorWidth}" height="${headerHeight}" fill="#1e293b"/><text x="${x + 6}" y="${y + 13}" fill="#e2e8f0" font-size="10" font-weight="700" font-family="Arial">${svgEscape(sector.sector)} ${svgEscape(formatPct(sector.summary.averagePriceChangePct, true))}</text>`
+        ? `<rect x="${x}" y="${y}" width="${sectorWidth}" height="${headerHeight}" fill="#1e293b"/><text x="${x + 6}" y="${y + 13}" fill="#e2e8f0" font-size="10" font-weight="600" font-family="Arial">${svgEscape(sector.sector)} ${svgEscape(formatPct(sector.summary.averagePriceChangePct, true))}</text>`
         : "";
       return `<g><rect x="${x}" y="${y}" width="${sectorWidth}" height="${sectorHeight}" fill="#020617" stroke="#020617" stroke-width="2"/>${headerMarkup}${tileMarkup}</g>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="800" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - ${svgEscape(colorMode === "confirmation" ? "Confirmation colour" : "Price colour")} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="700" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="604" width="1112" height="1" fill="#1e293b"/><text x="44" y="636" fill="#cbd5e1" font-size="14" font-family="Arial">Colour = ${svgEscape(colorMode === "confirmation" ? "confirmation score and direction" : "price performance")}. Borders are traditional black separators.</text><text x="1018" y="636" fill="#34d399" font-size="16" font-weight="800" font-family="Arial">walnutmarkets.com</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#020617"/><text x="44" y="54" fill="#ecfdf5" font-size="28" font-weight="600" font-family="Arial">Walnut Market Pressure Map</text><text x="44" y="86" fill="#94a3b8" font-size="15" font-family="Arial">${svgEscape(universe)} - ${svgEscape(query.timeRange)} - ${svgEscape(view)} - ${svgEscape(colorMode === "confirmation" ? "Confirmation colour" : "Price colour")} - Generated ${svgEscape(formatDate(data.generatedAt))}</text><text x="44" y="120" fill="#67e8f9" font-size="16" font-weight="600" font-family="Arial">Most heatmaps show where the market has been. Walnut shows where pressure is building.</text><g>${sectorMarkup}</g><rect x="44" y="596" width="1112" height="1" fill="#1e293b"/><g>${legendMarkup}</g><text x="44" y="652" fill="#cbd5e1" font-size="13" font-family="Arial">${svgEscape(colorMode === "confirmation" ? "Direction uses the canonical confirmation classification. Conflicted is one state." : "Colour uses price performance.")}</text><text x="1018" y="652" fill="#34d399" font-size="16" font-weight="600" font-family="Arial">walnutmarkets.com</text></svg>`;
 }
 
 function xShareText(data: MarketPressureMapResult, query: QueryState) {
@@ -1071,9 +1077,9 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
     <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-normal text-white sm:text-3xl">Market Pressure Map</h1>
+          <h1 className="text-2xl font-medium tracking-normal text-white sm:text-3xl">Market Pressure Map</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">See where price movement and Walnut&apos;s complete confirmation stack are aligning-or diverging-across the market.</p>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200/80">Most heatmaps show where the market has been. Walnut shows where pressure is building.</p>
+          <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-cyan-200/80">Most heatmaps show where the market has been. Walnut shows where pressure is building.</p>
         </div>
         <ShareMapButton data={initialData} sectors={sectors} shareUrl={currentShareUrl} query={query} colorMode={colorMode} />
       </section>
@@ -1085,7 +1091,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       ) : null}
 
       {auditNotice ? (
-        <div className="rounded-md border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">
+        <div className="rounded-md border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-100">
           {auditNotice}
         </div>
       ) : null}
@@ -1093,7 +1099,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       <section className="rounded-md border border-white/10 bg-slate-900/55 p-3 shadow-card">
         <div className="grid gap-3 xl:grid-cols-[auto_auto_auto_minmax(18rem,1fr)] xl:items-start">
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Universe</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Universe</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure universe">
               {marketPressureUniverses.map((option) => (
                 <AnalyticsButton
@@ -1113,7 +1119,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Period</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Period</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure time range">
               {marketPressureTimeRanges.map((option) => (
                 <AnalyticsButton
@@ -1131,7 +1137,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Colour</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">Colour</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure colour mode">
               {(["price", "confirmation"] as const).map((option) => (
                 <AnalyticsButton
@@ -1149,7 +1155,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">View</div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">View</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Market Pressure view mode">
               {marketPressureViewModes.map((option) => (
                 <AnalyticsButton
@@ -1180,7 +1186,7 @@ export function MarketPressureMapClient({ initialData, canonicalUrl }: Props) {
       <section className="rounded-md border border-white/10 bg-slate-900/45 p-3 shadow-card sm:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">{selectedViewLabel}</h2>
+            <h2 className="text-lg font-medium text-white">{selectedViewLabel}</h2>
             <p className="mt-1 text-xs text-slate-400">{selectedUniverseLabel} - {timeRange} - {initialData.summary.symbolCount} symbols</p>
           </div>
           <ColorLegend colorMode={colorMode} />
