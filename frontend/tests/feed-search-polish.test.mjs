@@ -309,11 +309,12 @@ test("search results page and invalid ticker fallback provide safe no-error sear
 
 test("insider profile preserves issuer-scoped search context", () => {
   const page = read("app/insider/[slug]/page.tsx");
+  const headerClient = read("components/insider/InsiderProfileHeaderClient.tsx");
   const api = read("lib/api.ts");
 
   assert.match(page, /one\(sp, "issuer"\)/);
-  assert.match(page, /activeRoleSymbol = \(issuer \|\| stockSymbol \|\| summary\.primary_symbol/);
-  assert.match(page, /roleContexts\.length > 1/);
+  assert.match(headerClient, /activeSymbol = \(issuer \|\| stockSymbol \|\| summary\.primary_symbol/);
+  assert.match(headerClient, /roleContexts\.length > 1/);
   assert.match(api, /issuer\?: string/);
   assert.match(api, /issuer: params\?\.issuer/);
 });

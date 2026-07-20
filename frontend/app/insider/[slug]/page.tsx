@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
+import { InsiderProfileHeaderClient } from "@/components/insider/InsiderProfileHeaderClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import {
   getInsiderDisplayName,
@@ -162,21 +163,6 @@ function buildInsiderSharePath(
   return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
 }
 
-function buildInsiderRoleHref(canonicalSlug: string, lookback: Lookback, symbol: string, recentTradesPage: number) {
-  const query = new URLSearchParams();
-  if (lookback !== "90") query.set("lookback", lookback);
-  query.set("issuer", symbol);
-  if (recentTradesPage > 0) query.set("recent_trades_page", String(recentTradesPage));
-  const suffix = query.toString();
-  return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
-}
-
-function roleTabLabel(companyName: string | null | undefined, symbol: string, role: string | null | undefined) {
-  const company = firstText(companyName)?.replace(/\s+(inc\.?|corp\.?|corporation|company)$/i, "") ?? symbol;
-  const roleText = firstText(role);
-  return roleText ? `${company} - ${roleText}` : company;
-}
-
 function initialsForName(name: string) {
   const parts = name.split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "I";
@@ -246,13 +232,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const companyText =
     firstText(summary.primary_company_name, headerTrade?.company_name, headerTrade?.companyName, headerTrade?.security_name, headerTrade?.securityName) ??
     "Company unavailable";
-  const roleContexts = (summary.role_contexts ?? [])
-    .map((context) => ({
-      ...context,
-      symbol: firstText(context.symbol)?.toUpperCase() ?? "",
-    }))
-    .filter((context) => context.symbol);
-  const activeRoleSymbol = (issuer || stockSymbol || summary.primary_symbol || roleContexts[0]?.symbol || "").toUpperCase();
   const [initialAlphaSummaryResult, initialTradesResult, headshotResult] = await Promise.allSettled([
     getInsiderAlphaSummary(reportingCik, {
       lookback_days: lookbackDays,
@@ -331,45 +310,25 @@ export default async function InsiderPage({ params, searchParams }: Props) {
                 <h1 className="truncate text-2xl font-semibold leading-tight text-white sm:text-3xl">{insiderName}</h1>
                 <VerifiedBadge />
               </div>
-              <p className="mt-2 truncate text-sm text-slate-300">
-                {roleText} - {companyText}{stockSymbol ? ` (${stockSymbol})` : ""}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-slate-400">
-                <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 font-medium text-emerald-200">{ownershipContext}</span>
-                {stockSymbol ? <span className="rounded-full border border-white/10 bg-slate-950/50 px-2.5 py-1 text-slate-300">{stockSymbol}</span> : null}
-                <span className="rounded-full border border-white/10 bg-slate-950/50 px-2.5 py-1 text-slate-400">CIK {reportingCik}</span>
-              </div>
+              <InsiderProfileHeaderClient
+                reportingCik={reportingCik}
+                lookback={lookback}
+                lookbackDays={lookbackDays}
+                issuer={normalizedIssuer}
+                stockSymbol={stockSymbol}
+                canonicalSlug={canonicalSlug}
+                recentTradesPage={recentTradesPage}
+                initialSummary={summary}
+                initialRoleText={roleText}
+                initialCompanyText={companyText}
+                initialOwnershipContext={ownershipContext}
+              />
             </div>
         </div>
         {summaryResult.unavailable ? (
           <p className="mt-4 rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
             Insider profile details are loading from the latest available disclosures.
           </p>
-        ) : null}
-        {roleContexts.length > 1 ? (
-          <div className="mt-3 flex gap-2 overflow-x-auto border-t border-white/10 pt-3">
-            {roleContexts.map((context) => {
-              const selected = context.symbol === activeRoleSymbol;
-              return (
-                <Link
-                  key={context.symbol}
-                  href={buildInsiderRoleHref(canonicalSlug, lookback, context.symbol, recentTradesPage)}
-                  prefetch={false}
-                  className={`shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition ${
-                    selected
-                      ? "border-emerald-300/45 bg-emerald-400/12 text-emerald-100"
-                      : "border-white/10 bg-slate-950/30 text-slate-300 hover:border-white/25 hover:text-white"
-                  }`}
-                  aria-current={selected ? "page" : undefined}
-                >
-                  <span className="block font-semibold">{context.symbol}</span>
-                  <span className="mt-0.5 block max-w-[13rem] truncate text-[11px] opacity-80">
-                    {roleTabLabel(context.company_name, context.symbol, context.role)}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
         ) : null}
         <nav className="flex gap-7 overflow-x-auto border-t border-white/10 pt-2 text-sm font-medium text-slate-400">
           {["Overview", "Transactions", "Ownership", "Performance", "Filings", "About"].map((item) => (

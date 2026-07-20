@@ -8,6 +8,7 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 
 const insiderPage = read("app/insider/[slug]/page.tsx");
 const insiderAnalyticsClient = read("components/insider/InsiderAnalyticsClient.tsx");
+const insiderHeaderClient = read("components/insider/InsiderProfileHeaderClient.tsx");
 const insiderErrorBoundary = read("app/insider/[slug]/error.tsx");
 const api = read("lib/api.ts");
 const tradeDisplay = read("lib/tradeDisplay.ts");
@@ -63,11 +64,11 @@ test("insider profile header falls back to recent trade identity", () => {
 
 test("insider profile renders issuer role tabs from summary contexts", () => {
   assert.match(api, /role_contexts\?: Array/);
-  assert.match(insiderPage, /buildInsiderRoleHref/);
-  assert.match(insiderPage, /summary\.role_contexts/);
-  assert.match(insiderPage, /roleContexts\.length > 1/);
-  assert.match(insiderPage, /query\.set\("issuer", symbol\)/);
-  assert.match(insiderPage, /aria-current=\{selected \? "page" : undefined\}/);
+  assert.match(insiderPage, /InsiderProfileHeaderClient/);
+  assert.match(insiderHeaderClient, /summary\.role_contexts/);
+  assert.match(insiderHeaderClient, /roleContexts\.length > 1/);
+  assert.match(insiderHeaderClient, /query\.set\("issuer", symbol\)/);
+  assert.match(insiderHeaderClient, /aria-current=\{selected \? "page" : undefined\}/);
 });
 
 test("insider page offers expanded lookback windows", () => {

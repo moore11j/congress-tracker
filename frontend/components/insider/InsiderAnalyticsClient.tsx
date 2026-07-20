@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   getInsiderAlphaSummary,
+  getInsiderSummary,
   getInsiderStockChart,
   getInsiderTrades,
   type InsiderAlphaSummary,
@@ -269,6 +270,7 @@ export function InsiderAnalyticsClient({
   const [trades, setTrades] = useState<InsiderTradesData>(() =>
     initialTrades ?? fallbackInsiderTrades(reportingCik, lookbackDays, recentTradesPage),
   );
+  const [liveSummary, setLiveSummary] = useState<InsiderSummary>(summary);
   const [stockChart, setStockChart] = useState<InsiderStockChartData | null>(null);
   const hasInitialAnalytics = Boolean(initialAlphaSummary || initialTrades);
   const [loading, setLoading] = useState(!hasInitialAnalytics);
@@ -276,6 +278,24 @@ export function InsiderAnalyticsClient({
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [tradesUnavailable, setTradesUnavailable] = useState(false);
   const [stockChartUnavailable, setStockChartUnavailable] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    setLiveSummary(summary);
+    getInsiderSummary(reportingCik, lookbackDays, issuer, {
+      signal: controller.signal,
+      source: "InsiderAnalyticsSummaryClient",
+    })
+      .then((data) => {
+        if (!cancelled) setLiveSummary(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [issuer, lookbackDays, reportingCik, summary]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -407,16 +427,16 @@ export function InsiderAnalyticsClient({
   }, [trades.items]);
 
   const summaryMetrics = [
-    { label: "Filings", value: numberOrDash(summary.total_trades), sub: `Rank window: ${lookbackDays}D` },
+    { label: "Filings", value: numberOrDash(liveSummary.total_trades), sub: `Rank window: ${lookbackDays}D` },
     {
       label: "Buy / Sell Ratio",
-      value: `${derived.buyCount} / ${derived.saleCount}`,
-      sub: derived.buyCount >= derived.saleCount ? "Net buyer" : "Net seller",
-      valueClass: derived.buyCount >= derived.saleCount ? "text-emerald-300" : "text-rose-300",
+      value: `${liveSummary.buy_count} / ${liveSummary.sell_count}`,
+      sub: liveSummary.net_flow >= 0 ? "Net buyer" : "Net seller",
+      valueClass: liveSummary.net_flow >= 0 ? "text-emerald-300" : "text-rose-300",
     },
-    { label: "Shares Sold", value: numberOrDash(derived.sharesSold), sub: "From visible filings" },
-    { label: "Est. Value Range", value: `${compactMoney(derived.buyValue)} - ${compactMoney(derived.saleValue)}`, sub: "Visible filings" },
-    { label: "Avg. Trade Size", value: compactMoney((derived.buyValue + derived.saleValue) / Math.max(1, derived.buyCount + derived.saleCount)), sub: "Visible filings" },
+    { label: "Shares Sold", value: numberOrDash(liveSummary.sell_count), sub: "From visible filings" },
+    { label: "Est. Value Range", value: `${compactMoney(liveSummary.gross_buy_value)} - ${compactMoney(liveSummary.gross_sell_value)}`, sub: "Visible filings" },
+    { label: "Avg. Trade Size", value: compactMoney((liveSummary.gross_buy_value + liveSummary.gross_sell_value) / Math.max(1, liveSummary.total_trades)), sub: "Visible filings" },
   ];
   const changeRows = derived.sorted.slice(0, 5).map((trade) => {
     const direction = tradeDirection(trade.trade_type ?? trade.tradeType);
@@ -435,7 +455,7 @@ export function InsiderAnalyticsClient({
     ["Net Shares", numberOrDash(derived.sharesBought - derived.sharesSold)],
     ["Avg. Sale Size", compactMoney(derived.avgSale)],
     ["Avg. Buy Size", compactMoney(derived.avgBuy)],
-    ["Most Recent Filing", asDate(summary.latest_filing_date)],
+    ["Most Recent Filing", asDate(liveSummary.latest_filing_date)],
   ];
   const performanceRows = [
     { label: "Avg Return", value: pct(alphaSummary.avg_return_pct), tone: tone(alphaSummary.avg_return_pct) },
@@ -445,10 +465,10 @@ export function InsiderAnalyticsClient({
     { label: "Scored", value: numberOrDash(alphaSummary.trades_analyzed), tone: "text-white/85" },
   ];
   const watchRows = [
-    summary.buy_count > 0 ? "Any open-market purchases" : "No open-market purchases in this window",
+    liveSummary.buy_count > 0 ? "Any open-market purchases" : "No open-market purchases in this window",
     "Change in transaction frequency",
-    summary.latest_filing_date ? `Next Form 4 after ${asDate(summary.latest_filing_date)}` : "Next Form 4 filing",
-    summary.primary_symbol ? `${summary.primary_symbol} ownership changes` : "Issuer ownership changes",
+    liveSummary.latest_filing_date ? `Next Form 4 after ${asDate(liveSummary.latest_filing_date)}` : "Next Form 4 filing",
+    liveSummary.primary_symbol ? `${liveSummary.primary_symbol} ownership changes` : "Issuer ownership changes",
     alphaSummary.avg_alpha_pct != null ? `Post-transaction alpha: ${pct(alphaSummary.avg_alpha_pct)}` : "Performance after future transactions",
   ];
 
