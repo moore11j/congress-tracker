@@ -32,6 +32,7 @@ from app.routers.accounts import (
     NotificationSettingsPayload,
     OAuthSettingsPayload,
     PageViewPayload,
+    ProductEventPayload,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
     PasswordChangePayload,
@@ -79,6 +80,7 @@ from app.routers.accounts import (
     login,
     me,
     process_stripe_event,
+    record_product_event,
     record_page_view,
     public_plan_config,
     refresh_subscription_from_stripe,
@@ -2524,6 +2526,34 @@ def test_page_analytics_strips_tokens_normalizes_and_aggregates(monkeypatch):
         assert pages["/member/[id]"]["unique_users"] == 1
         assert pages["/member/[id]"]["paid_percent"] == 100.0
         assert report["trend_by_day"]
+    finally:
+        db.close()
+
+
+def test_product_analytics_event_endpoint_accepts_market_pressure_events_without_persisting_page_views():
+    db = _session()
+    try:
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/analytics/event",
+                "headers": [(b"user-agent", b"Mozilla/5.0 Chrome/126.0")],
+            }
+        )
+
+        response = record_product_event(
+            ProductEventPayload(
+                event_name="market_pressure_page_view",
+                path="/market-pressure",
+                properties={"universe": "sp500", "period": "1d", "rendered": True},
+            ),
+            request,
+            db,
+        )
+
+        assert response.status_code == 204
+        assert db.execute(select(func.count(PageViewEvent.id))).scalar_one() == 0
     finally:
         db.close()
 

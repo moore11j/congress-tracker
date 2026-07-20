@@ -312,6 +312,12 @@ class PageViewPayload(BaseModel):
     session_id: str | None = Field(default=None, max_length=160)
 
 
+class ProductEventPayload(BaseModel):
+    event_name: str = Field(min_length=1, max_length=120)
+    path: str | None = Field(default=None, max_length=500)
+    properties: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+
 SalesLedgerPeriod = Literal[
     "last_7_days",
     "last_30_days",
@@ -6208,6 +6214,20 @@ def record_page_view(payload: PageViewPayload, request: Request, db: Session = D
     )
     db.add(row)
     db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/analytics/event", status_code=204)
+def record_product_event(payload: ProductEventPayload, request: Request, db: Session = Depends(get_db)):
+    event_name = payload.event_name.strip()
+    if not event_name:
+        return Response(status_code=204)
+    path = _safe_analytics_path(payload.path)
+    if path and path.startswith("/api/"):
+        return Response(status_code=204)
+    # Product events are intentionally accepted without persistence for now. This
+    # keeps first-party UI telemetry from generating backend 404 noise while the
+    # page-view analytics table remains the only stored analytics surface.
     return Response(status_code=204)
 
 
