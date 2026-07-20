@@ -384,6 +384,18 @@ def test_insider_summary_uses_legacy_payload_identity_without_normalized_rows():
         assert contexts_by_symbol["AAPL"]["role"] == "Chief Executive Officer"
         assert contexts_by_symbol["AAPL"]["company_name"] == "Apple Inc."
         assert contexts_by_symbol["NKE"]["role"] == "Director"
+
+        narrow_summary = insider_summary(
+            request=_request(),
+            db=db,
+            reporting_cik="0001214156",
+            lookback_days=30,
+            issuer="NKE",
+        )
+
+        assert narrow_summary["primary_symbol"] == "NKE"
+        assert narrow_summary["total_trades"] == 1
+        assert narrow_summary["unique_tickers"] == 1
     finally:
         events_router._INSIDER_SUMMARY_CACHE.clear()
         db.close()

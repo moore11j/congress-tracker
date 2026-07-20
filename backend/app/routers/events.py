@@ -2698,7 +2698,8 @@ def _insider_identity_summary_from_legacy_transactions(
     if not rows and not all_rows:
         return None
     role_contexts = _role_contexts_from_legacy_rows(db, all_rows)
-    working_rows = rows or all_rows[:25]
+    issuer_fallback_rows = _load_legacy_insider_rows(db, reporting_cik, issuer=issuer, limit=500) if issuer else all_rows
+    working_rows = rows or issuer_fallback_rows[:25]
 
     name_counts: dict[str, int] = {}
     role_counts: dict[str, int] = {}
