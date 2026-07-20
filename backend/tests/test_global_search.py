@@ -220,6 +220,17 @@ def test_insider_summary_uses_normalized_form4_identity_without_event():
         assert summary["primary_company_name"] == "Apple Inc."
         assert summary["primary_role"] == "Chief Executive Officer"
         assert summary["total_trades"] == 0
+        assert summary["role_contexts"] == [
+            {
+                "symbol": "AAPL",
+                "issuer_cik": None,
+                "company_name": "Apple Inc.",
+                "role": "Chief Executive Officer",
+                "filings": 1,
+                "latest_filing_date": "2026-04-02",
+                "latest_transaction_date": "2026-04-01",
+            }
+        ]
     finally:
         events_router._INSIDER_SUMMARY_CACHE.clear()
         db.close()
@@ -264,6 +275,10 @@ def test_insider_summary_prefers_executive_issuer_for_normalized_identity():
         assert summary["primary_symbol"] == "AAPL"
         assert summary["primary_company_name"] == "Apple Inc."
         assert summary["primary_role"] == "Chief Executive Officer"
+        contexts_by_symbol = {context["symbol"]: context for context in summary["role_contexts"]}
+        assert contexts_by_symbol["AAPL"]["role"] == "Chief Executive Officer"
+        assert contexts_by_symbol["NKE"]["role"] == "Director"
+        assert contexts_by_symbol["NKE"]["company_name"] == "Nike Inc."
     finally:
         events_router._INSIDER_SUMMARY_CACHE.clear()
         db.close()

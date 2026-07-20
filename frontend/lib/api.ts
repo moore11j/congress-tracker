@@ -3855,6 +3855,15 @@ export type InsiderSummary = {
   primary_company_name: string | null;
   primary_role: string | null;
   primary_symbol: string | null;
+  role_contexts?: Array<{
+    symbol: string | null;
+    issuer_cik?: string | null;
+    company_name: string | null;
+    role: string | null;
+    filings?: number | null;
+    latest_filing_date?: string | null;
+    latest_transaction_date?: string | null;
+  }>;
   lookback_days: number;
   total_trades: number;
   buy_count: number;

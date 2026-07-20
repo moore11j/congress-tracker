@@ -61,6 +61,15 @@ test("insider profile header falls back to recent trade identity", () => {
   assert.match(insiderPage, /firstText\(summary\.primary_company_name, headerTrade\?\.company_name, headerTrade\?\.companyName/);
 });
 
+test("insider profile renders issuer role tabs from summary contexts", () => {
+  assert.match(api, /role_contexts\?: Array/);
+  assert.match(insiderPage, /buildInsiderRoleHref/);
+  assert.match(insiderPage, /summary\.role_contexts/);
+  assert.match(insiderPage, /roleContexts\.length > 1/);
+  assert.match(insiderPage, /query\.set\("issuer", symbol\)/);
+  assert.match(insiderPage, /aria-current=\{selected \? "page" : undefined\}/);
+});
+
 test("insider page offers expanded lookback windows", () => {
   assert.match(insiderPage, /type Lookback = "30" \| "90" \| "180" \| "365" \| "1095"/);
   assert.match(insiderPage, /\{ label: "30D", value: "30" \}/);

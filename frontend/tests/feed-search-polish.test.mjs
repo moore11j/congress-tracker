@@ -312,7 +312,8 @@ test("insider profile preserves issuer-scoped search context", () => {
   const api = read("lib/api.ts");
 
   assert.match(page, /one\(sp, "issuer"\)/);
-  assert.match(page, /issuer && companyText/);
+  assert.match(page, /activeRoleSymbol = \(issuer \|\| stockSymbol \|\| summary\.primary_symbol/);
+  assert.match(page, /roleContexts\.length > 1/);
   assert.match(api, /issuer\?: string/);
   assert.match(api, /issuer: params\?\.issuer/);
 });

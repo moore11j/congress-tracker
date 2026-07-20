@@ -596,6 +596,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
             InsiderTransactionNormalized.ticker_normalized.label("symbol"),
             InsiderTransactionNormalized.reporting_owner_cik.label("reporting_cik"),
             InsiderTransactionNormalized.officer_title.label("role"),
+            InsiderTransactionNormalized.issuer_name.label("issuer_name"),
             func.max(
                 func.coalesce(InsiderTransactionNormalized.filing_date, InsiderTransactionNormalized.transaction_date)
             ).label("latest_date"),
@@ -612,6 +613,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
             InsiderTransactionNormalized.ticker_normalized,
             InsiderTransactionNormalized.reporting_owner_cik,
             InsiderTransactionNormalized.officer_title,
+            InsiderTransactionNormalized.issuer_name,
         )
         .order_by(func.max(func.coalesce(InsiderTransactionNormalized.filing_date, InsiderTransactionNormalized.transaction_date)).desc())
         .limit(max(limit * 6, 36))
@@ -629,7 +631,8 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
             continue
         symbol = normalize_symbol(row.symbol)
         reporting_cik = _clean(row.reporting_cik)
-        key = f"{name.casefold()}:{reporting_cik or symbol or ''}"
+        issuer_name = _clean(getattr(row, "issuer_name", None))
+        key = f"{name.casefold()}:{reporting_cik or ''}:{symbol or ''}"
         if key in seen:
             continue
         seen.add(key)
@@ -648,7 +651,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
                 "id": key,
                 "symbol": symbol,
                 "label": name,
-                "subtitle": " - ".join(part for part in ["Insider", symbol, _clean(row.role)] if part),
+                "subtitle": " - ".join(part for part in ["Insider", issuer_name, symbol, _clean(row.role)] if part),
                 "href": href,
                 "score": score,
             }

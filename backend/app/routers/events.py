@@ -2369,6 +2369,7 @@ def _empty_insider_summary_payload(
         "primary_company_name": None,
         "primary_role": None,
         "primary_symbol": None,
+        "role_contexts": [],
         "lookback_days": lookback_days,
         "total_trades": 0,
         "buy_count": 0,
@@ -2429,17 +2430,16 @@ def _normalized_insider_role_priority(row: InsiderTransactionNormalized) -> int:
     return 0
 
 
-def _insider_identity_summary_from_normalized_transactions(
+def _load_normalized_insider_rows(
     db: Session,
     reporting_cik: str,
-    lookback_days: int,
     *,
     issuer: str | None = None,
-) -> dict | None:
-    normalized_cik = normalize_cik(reporting_cik)
+    limit: int = 50,
+) -> list[InsiderTransactionNormalized]:
     cik_variants = _insider_normalized_cik_variants(reporting_cik)
-    if not normalized_cik or not cik_variants:
-        return None
+    if not cik_variants:
+        return []
 
     issuer_symbol = normalize_symbol(issuer)
     issuer_cik = normalize_cik(issuer)
@@ -2454,16 +2454,109 @@ def _insider_identity_summary_from_normalized_transactions(
             ).desc(),
             InsiderTransactionNormalized.id.desc(),
         )
-        .limit(25)
+        .limit(max(limit, 1))
     )
     if issuer_symbol:
         query = query.where(func.upper(InsiderTransactionNormalized.ticker_normalized) == issuer_symbol)
     if issuer_cik:
         query = query.where(InsiderTransactionNormalized.issuer_cik.in_(_insider_normalized_cik_variants(issuer)))
+    return db.execute(query).scalars().all()
 
-    rows = db.execute(query).scalars().all()
+
+def _role_contexts_from_normalized_rows(db: Session, rows: list[InsiderTransactionNormalized]) -> list[dict[str, object]]:
+    grouped: dict[str, list[InsiderTransactionNormalized]] = {}
+    for row in rows:
+        symbol = normalize_symbol(row.ticker_normalized)
+        issuer_cik = normalize_cik(row.issuer_cik)
+        key = symbol or issuer_cik
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(row)
+
+    symbols = sorted({normalize_symbol(row.ticker_normalized) for row in rows if normalize_symbol(row.ticker_normalized)})
+    ticker_meta = _ticker_meta_with_security_names(db, symbols, enqueue_refresh=True) if symbols else {}
+    contexts: list[dict[str, object]] = []
+
+    for key, group_rows in grouped.items():
+        symbol = normalize_symbol(group_rows[0].ticker_normalized)
+        best_role_row = max(
+            group_rows,
+            key=lambda row: (
+                _normalized_insider_role_priority(row),
+                max(
+                    (
+                        value
+                        for value in (
+                            _date_text(row.filing_date),
+                            _date_text(row.transaction_date),
+                        )
+                        if value
+                    ),
+                    default="",
+                ),
+            ),
+        )
+        role = _normalized_insider_role(best_role_row)
+        issuer_names: dict[str, int] = {}
+        latest_filing_date: str | None = None
+        latest_transaction_date: str | None = None
+        for row in group_rows:
+            issuer_name = safe_company_identity_candidate(row.issuer_name, symbol)
+            if issuer_name:
+                issuer_names[issuer_name] = issuer_names.get(issuer_name, 0) + 1
+            filing_date = _date_text(row.filing_date)
+            if filing_date and (latest_filing_date is None or filing_date > latest_filing_date):
+                latest_filing_date = filing_date
+            transaction_date = _date_text(row.transaction_date)
+            if transaction_date and (latest_transaction_date is None or transaction_date > latest_transaction_date):
+                latest_transaction_date = transaction_date
+
+        metadata_company_name = _first_non_empty_text((ticker_meta.get(symbol or "") or {}).get("company_name")) if symbol else None
+        fallback_company_name = max(issuer_names.items(), key=lambda item: item[1])[0] if issuer_names else None
+        contexts.append(
+            {
+                "symbol": symbol,
+                "issuer_cik": normalize_cik(best_role_row.issuer_cik),
+                "company_name": metadata_company_name or fallback_company_name,
+                "role": role,
+                "filings": len(group_rows),
+                "latest_filing_date": latest_filing_date,
+                "latest_transaction_date": latest_transaction_date,
+                "priority": _normalized_insider_role_priority(best_role_row),
+            }
+        )
+
+    contexts.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 0),
+            -int(item.get("filings") or 0),
+            str(item.get("latest_filing_date") or ""),
+            str(item.get("symbol") or item.get("issuer_cik") or ""),
+        )
+    )
+    for item in contexts:
+        item.pop("priority", None)
+    return contexts
+
+
+def _insider_identity_summary_from_normalized_transactions(
+    db: Session,
+    reporting_cik: str,
+    lookback_days: int,
+    *,
+    issuer: str | None = None,
+) -> dict | None:
+    normalized_cik = normalize_cik(reporting_cik)
+    if not normalized_cik:
+        return None
+
+    rows = _load_normalized_insider_rows(db, reporting_cik, issuer=issuer, limit=25)
     if not rows:
         return None
+    role_contexts = _role_contexts_from_normalized_rows(
+        db,
+        _load_normalized_insider_rows(db, reporting_cik, limit=100),
+    )
 
     symbol_counts: dict[str, int] = {}
     name_counts: dict[str, int] = {}
@@ -2534,10 +2627,8 @@ def _insider_identity_summary_from_normalized_transactions(
         )
         if primary_role_row is not None:
             primary_role = _normalized_insider_role(primary_role_row)
-    metadata_company_name = None
-    if primary_symbol:
-        ticker_meta = _ticker_meta_with_security_names(db, [primary_symbol], enqueue_refresh=True)
-        metadata_company_name = _first_non_empty_text((ticker_meta.get(primary_symbol) or {}).get("company_name"))
+    primary_context = next((context for context in role_contexts if context.get("symbol") == primary_symbol), None)
+    metadata_company_name = _first_non_empty_text(primary_context.get("company_name")) if primary_context else None
     fallback_company_name = max(issuer_name_counts.items(), key=lambda item: item[1])[0] if issuer_name_counts else None
 
     return {
@@ -2546,6 +2637,7 @@ def _insider_identity_summary_from_normalized_transactions(
         "primary_company_name": metadata_company_name or fallback_company_name,
         "primary_role": primary_role or (max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else None),
         "primary_symbol": primary_symbol,
+        "role_contexts": role_contexts,
         "unique_tickers": len(symbol_counts),
         "latest_filing_date": latest_filing_date,
         "latest_transaction_date": latest_transaction_date,
@@ -6150,12 +6242,22 @@ def insider_summary(
         fallback_name = _insider_display_name(matched[0][0], latest_payload)
         fallback_role = _insider_role(latest_payload)
 
+    role_contexts = _role_contexts_from_normalized_rows(
+        db,
+        _load_normalized_insider_rows(db, reporting_cik, limit=100),
+    )
+    active_context = next((context for context in role_contexts if context.get("symbol") == primary_symbol), None)
+    if active_context:
+        primary_company_name = primary_company_name or _first_non_empty_text(active_context.get("company_name"))
+        fallback_role = fallback_role or _first_non_empty_text(active_context.get("role"))
+
     payload = {
         "reporting_cik": normalized_cik,
         "insider_name": (max(name_counts.items(), key=lambda item: item[1])[0] if name_counts else fallback_name),
         "primary_company_name": primary_company_name,
         "primary_role": (max(role_counts.items(), key=lambda item: item[1])[0] if role_counts else fallback_role),
         "primary_symbol": primary_symbol,
+        "role_contexts": role_contexts,
         "lookback_days": lookback_days,
         "total_trades": len(matched),
         "buy_count": buy_count,

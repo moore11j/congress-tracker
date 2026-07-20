@@ -270,27 +270,42 @@ def test_search_suggest_finds_normalized_form4_insider():
     db = _db()
     try:
         search_suggest_module._anonymous_suggestion_cache.clear()
-        db.add(
-            InsiderTransactionNormalized(
-                accession_number="0000320193-26-000001",
-                issuer_name="Apple Inc.",
-                ticker_normalized="AAPL",
-                reporting_owner_cik="0001214156",
-                reporting_owner_name="Tim Cook",
-                officer_title="Chief Executive Officer",
-                transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
-                filing_date=datetime(2026, 4, 2, tzinfo=timezone.utc).date(),
-                normalized_hash="tim-cook-aapl-1",
-            )
+        db.add_all(
+            [
+                InsiderTransactionNormalized(
+                    accession_number="0000320193-26-000001",
+                    issuer_name="Apple Inc.",
+                    ticker_normalized="AAPL",
+                    reporting_owner_cik="0001214156",
+                    reporting_owner_name="Tim Cook",
+                    officer_title="Chief Executive Officer",
+                    transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 2, tzinfo=timezone.utc).date(),
+                    normalized_hash="tim-cook-aapl-1",
+                ),
+                InsiderTransactionNormalized(
+                    accession_number="0000320187-26-000001",
+                    issuer_name="Nike Inc.",
+                    ticker_normalized="NKE",
+                    reporting_owner_cik="0001214156",
+                    reporting_owner_name="Tim Cook",
+                    is_director=True,
+                    transaction_date=datetime(2026, 4, 3, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 4, tzinfo=timezone.utc).date(),
+                    normalized_hash="tim-cook-nke-1",
+                ),
+            ]
         )
         db.commit()
 
         items = search_suggestions(db, "tim cook", limit=8)["items"]
 
-        insider = next(item for item in items if item["kind"] == "insider")
-        assert insider["label"] == "Tim Cook"
-        assert insider["symbol"] == "AAPL"
-        assert insider["href"] == "/insider/tim-cook-0001214156?issuer=AAPL"
+        insider_items = [item for item in items if item["kind"] == "insider"]
+        insider_hrefs = {item["href"] for item in insider_items}
+        assert "/insider/tim-cook-0001214156?issuer=AAPL" in insider_hrefs
+        assert "/insider/tim-cook-0001214156?issuer=NKE" in insider_hrefs
+        assert any(item["symbol"] == "AAPL" and "Chief Executive Officer" in str(item["subtitle"]) for item in insider_items)
+        assert any(item["symbol"] == "NKE" and "Nike Inc." in str(item["subtitle"]) for item in insider_items)
     finally:
         search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()
