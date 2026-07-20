@@ -214,6 +214,18 @@ def test_request_attribution_classifies_logged_out_direct_api():
     assert fields["accept"] == "application/json"
 
 
+def test_request_source_preserves_load_test_marker():
+    request = _request(
+        "/api/tickers/AAPL/context-bundle",
+        {
+            "user-agent": "k6/0.49.0",
+            "x-walnut-request-source": "load_test",
+        },
+    )
+
+    assert _request_source(request, "unknown") == "load_test"
+
+
 def test_request_attribution_keeps_browser_navigation_out_of_direct_api():
     request = _request(
         "/api/tickers/AAPL/context-bundle",

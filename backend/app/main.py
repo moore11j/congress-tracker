@@ -5711,6 +5711,10 @@ def _ticker_context_bundle_memory_cache_get(
             _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
             return None
         result = copy.deepcopy(payload)
+        if not _ticker_context_bundle_cache_payload_is_complete(result):
+            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
+            logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s source=memory reason=incomplete_payload", symbol, user_segment)
+            return None
 
     logger.info(
         "ticker_bundle_cache_%s symbol=%s user_segment=%s source=memory duration_ms=%.1f",
@@ -5827,6 +5831,9 @@ def _ticker_context_bundle_cache_get(
     if not isinstance(payload, dict):
         logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=non_object_payload", symbol, user_segment)
         return None
+    if not _ticker_context_bundle_cache_payload_is_complete(payload):
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=incomplete_payload", symbol, user_segment)
+        return None
 
     stale_after = row.stale_after
     if stale_after.tzinfo is None:
@@ -5924,6 +5931,9 @@ def _ticker_context_bundle_cache_set(
     user_segment: str,
     payload: dict[str, Any],
 ) -> None:
+    if not _ticker_context_bundle_cache_payload_is_complete(payload):
+        logger.info("ticker_bundle_cache_write_skipped symbol=%s user_segment=%s reason=incomplete_payload", symbol, user_segment)
+        return
     now = datetime.now(timezone.utc)
     ttl = _ticker_context_bundle_cache_ttl_seconds()
     stale_ttl = _ticker_context_bundle_stale_ttl_seconds()
@@ -5972,17 +5982,7 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         has_local_identity = True
     cached_profile_price = _parse_numeric(profile_ticker.get("current_price") or profile_ticker.get("price"))
     if not has_local_identity and cached_profile_price is None:
-        logger.info("ticker_context_bundle_quote_skipped symbol=%s reason=no_local_identity_or_quote", symbol)
-        return {
-            "current_price": None,
-            "change": None,
-            "change_percent": None,
-            "volume": _parse_numeric(profile_ticker.get("volume")),
-            "avg_volume": _parse_numeric(profile_ticker.get("avg_volume")),
-            "market_cap": _parse_numeric(profile_ticker.get("market_cap")),
-            "as_of": _dt_iso(profile_ticker.get("quote_as_of")),
-            "stale": False,
-        }
+        logger.info("ticker_context_bundle_quote_live_fetch_without_identity symbol=%s", symbol)
     quote_rows = get_current_prices_meta_db(
         db,
         [symbol],
@@ -5993,6 +5993,7 @@ def _ticker_context_bundle_quote(db: Session, symbol: str, profile_ticker: dict[
         stale_while_revalidate=True,
         coalesce_wait_seconds=0.5,
         force_quote_endpoint=True,
+        bypass_miss_cache=True,
     )
     quote = quote_rows.get(symbol) if isinstance(quote_rows, dict) else None
     current_price = None
@@ -6044,6 +6045,35 @@ def _ticker_context_bundle_public_payload(value: Any) -> Any:
     if isinstance(value, list):
         return [_ticker_context_bundle_public_payload(item) for item in value]
     return value
+
+
+def _ticker_context_bundle_cache_payload_is_complete(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("status") in {"lightweight", "skipped"}:
+        return False
+    quote = payload.get("quote")
+    if not isinstance(quote, dict) or _parse_numeric(quote.get("current_price")) is None:
+        return False
+    if bool(quote.get("stale")):
+        return False
+    source_cards = payload.get("source_cards")
+    required_cards = {"price_volume", "fundamentals", "insiders", "congress", "government_contracts"}
+    if not isinstance(source_cards, dict) or any(card not in source_cards for card in required_cards):
+        return False
+    return True
+
+
+def _normalize_ticker_source_contexts(symbol: str, source_contexts: dict[str, Any]) -> dict[str, Any]:
+    normalized_symbol = normalize_symbol(symbol) or str(symbol or "").strip().upper()
+    source_contexts.setdefault("price_volume", {"status": "unavailable", "symbol": normalized_symbol})
+    source_contexts.setdefault("fundamentals", unavailable_fundamentals_summary(normalized_symbol))
+    source_contexts.setdefault("insiders", None)
+    source_contexts.setdefault("congress", None)
+    source_contexts.setdefault("government_contracts", None)
+    source_contexts.setdefault("signals", None)
+    source_contexts.setdefault("macro_positioning", unavailable_macro_positioning_summary(normalized_symbol, status="unavailable"))
+    return source_contexts
 
 
 def _ticker_context_bundle_cached_for_segment(
@@ -6155,9 +6185,9 @@ def _is_direct_context_bundle_cached_only_request(request: Request) -> bool:
             return False
         if auth_state == "logged_out" and referer_host == "none":
             return True
-    if source not in {"unknown", "direct_api", "monitor_probe"}:
-        return False
-    return _is_logged_out_direct_api_request(request)
+    if source == "monitor_probe":
+        return _is_logged_out_direct_api_request(request)
+    return False
 
 
 def _ticker_context_bundle_cached_or_lightweight_response(
@@ -6336,6 +6366,7 @@ def _build_ticker_context_bundle(
             signal_rows=rows,
             latest_signal_score=latest_score,
         )
+        source_contexts = _normalize_ticker_source_contexts(normalized_symbol, source_contexts)
         source_context_ms = (perf_counter() - source_context_started_at) * 1000
         if not can_view_signal_details:
             source_contexts["signals"] = {
@@ -7958,6 +7989,11 @@ def build_ticker_signals_summary_contexts_from_cache(
 
     rows = signal_rows if signal_rows is not None else []
     fundamentals_row = _cached_ticker_fundamentals_row(db, normalized_symbol)
+    try:
+        macro_positioning = get_macro_positioning_summary(db, normalized_symbol)
+    except Exception:
+        logger.debug("ticker_macro_positioning_summary_unavailable symbol=%s", normalized_symbol, exc_info=True)
+        macro_positioning = unavailable_macro_positioning_summary(normalized_symbol, status="unavailable")
     return {
         "price_volume": _normalize_price_volume_context(_ticker_price_volume_summary(db, normalized_symbol)),
         "fundamentals": fundamentals_summary_from_cache_row(fundamentals_row),
@@ -7984,7 +8020,7 @@ def build_ticker_signals_summary_contexts_from_cache(
                 min_amount=1_000_000,
             )
         ),
-        "macro_positioning": get_macro_positioning_summary(db, normalized_symbol),
+        "macro_positioning": macro_positioning,
     }
 
 
@@ -8897,6 +8933,7 @@ def ticker_signals_summary(
             signal_rows=rows,
             latest_signal_score=latest_score,
         )
+        source_contexts = _normalize_ticker_source_contexts(normalized_symbol, source_contexts)
         source_context_ms = (perf_counter() - source_context_started_at) * 1000
         if not can_view_signal_details:
             source_contexts["signals"] = {

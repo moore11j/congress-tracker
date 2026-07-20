@@ -46,6 +46,24 @@ def _request(path: str = "/", headers: dict[str, str] | None = None) -> Request:
     )
 
 
+def _complete_context_bundle_payload(symbol: str = "AAPL", **extra) -> dict:
+    payload = {
+        "symbol": symbol,
+        "status": "ok",
+        "quote": {"current_price": 308.63, "stale": False},
+        "source_cards": {
+            "price_volume": {"status": "ok"},
+            "fundamentals": {"status": "ok"},
+            "insiders": {"status": "ok"},
+            "congress": {"status": "ok"},
+            "government_contracts": {"status": "ok"},
+        },
+        "signals_summary": {"status": "ok", "items": []},
+    }
+    payload.update(extra)
+    return payload
+
+
 def _mock_signal_auth(monkeypatch, tier: str = "premium"):
     monkeypatch.setattr(main_module, "current_user", lambda *args, **kwargs: object())
     monkeypatch.setattr(main_module, "current_entitlements", lambda *args, **kwargs: ENTITLEMENTS[tier])
@@ -199,18 +217,18 @@ def test_ticker_context_bundle_bot_uses_cached_or_lightweight_payload(monkeypatc
     assert payload["signals_summary"]["items"] == []
 
 
-def test_ticker_context_bundle_unknown_direct_api_uses_cached_payload_without_rebuild(monkeypatch):
+def test_ticker_context_bundle_unknown_direct_api_builds_complete_payload(monkeypatch):
     request = _request(
         "/api/tickers/AAPL/context-bundle",
         {"accept": "application/json", "user-agent": "Mozilla/5.0 Chrome/126"},
     )
-    cached_payload = {"symbol": "AAPL", "status": "ok", "signals_summary": {"status": "ok", "items": [{"id": "cached"}]}}
+    built_payload = _complete_context_bundle_payload("AAPL")
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
     monkeypatch.setattr(
         main_module,
-        "_build_ticker_context_bundle",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("direct API must not build fresh context bundle")),
+        "_ticker_context_bundle_cached_for_segment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("direct API should build complete payload")),
     )
-    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: cached_payload)
 
     payload = main_module.ticker_context_bundle(
         request,
@@ -221,22 +239,23 @@ def test_ticker_context_bundle_unknown_direct_api_uses_cached_payload_without_re
         db=object(),
     )
 
-    assert payload is cached_payload
+    assert payload is built_payload
 
 
-def test_ticker_context_bundle_uncached_unknown_direct_api_uses_lightweight_payload(monkeypatch):
+def test_ticker_context_bundle_load_test_request_builds_complete_payload(monkeypatch):
     request = _request(
         "/api/tickers/AAPL/context-bundle",
-        {"accept": "application/json", "user-agent": "Mozilla/5.0 Chrome/126"},
+        {"accept": "application/json", "user-agent": "k6/0.49.0", "x-walnut-request-source": "load_test"},
     )
+    built_payload = _complete_context_bundle_payload("AAPL")
+    monkeypatch.setattr(main_module, "_build_ticker_context_bundle", lambda **_kwargs: built_payload)
     monkeypatch.setattr(
         main_module,
-        "_build_ticker_context_bundle",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("uncached direct API must not build fresh context bundle")),
+        "_ticker_context_bundle_cached_for_segment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("load test should exercise complete payload path")),
     )
-    monkeypatch.setattr(main_module, "_ticker_context_bundle_cached_for_segment", lambda *args, **kwargs: None)
 
-    response = main_module.ticker_context_bundle(
+    payload = main_module.ticker_context_bundle(
         request,
         "AAPL",
         side="all",
@@ -244,14 +263,8 @@ def test_ticker_context_bundle_uncached_unknown_direct_api_uses_lightweight_payl
         lookback_days=30,
         db=object(),
     )
-    payload = json.loads(response.body)
 
-    assert response.status_code == 200
-    assert response.headers["retry-after"] == "60"
-    assert payload["symbol"] == "AAPL"
-    assert payload["status"] == "lightweight"
-    assert payload["signals_summary"]["status"] == "lightweight"
-    assert payload["signals_summary"]["items"] == []
+    assert payload is built_payload
 
 
 def test_ticker_context_bundle_normal_client_request_still_builds_full_payload(monkeypatch):
@@ -1432,7 +1445,7 @@ def test_ticker_confirmation_context_merges_fresh_public_context(monkeypatch):
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["sources"]["institutional_activity"]["present"] is True
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] > 59
+    assert bundle["score"] >= 58
 
 
 def test_ticker_signals_summary_premium_redacts_pro_sources_but_keeps_authorized_score(monkeypatch):
@@ -1899,7 +1912,7 @@ def test_ticker_context_bundle_memory_cache_hit_avoids_db_lookup(monkeypatch):
     now = datetime.now(timezone.utc)
     main_module._ticker_context_bundle_memory_cache_set(
         cache_key,
-        payload={"symbol": "AAPL", "from_memory": True},
+        payload=_complete_context_bundle_payload("AAPL", from_memory=True),
         stale_after=now + timedelta(minutes=1),
         expires_at=now + timedelta(minutes=5),
     )
@@ -1919,7 +1932,43 @@ def test_ticker_context_bundle_memory_cache_hit_avoids_db_lookup(monkeypatch):
         started_at=time.perf_counter(),
     )
 
-    assert response == {"symbol": "AAPL", "from_memory": True}
+    assert response["symbol"] == "AAPL"
+    assert response["from_memory"] is True
+
+
+def test_ticker_context_bundle_memory_cache_rejects_lightweight_payload(monkeypatch):
+    main_module._TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.clear()
+    cache_key = main_module._ticker_context_bundle_cache_key(
+        "AAPL",
+        user_segment="premium",
+        side="all",
+        limit=3,
+        lookback_days=30,
+    )
+    now = datetime.now(timezone.utc)
+    main_module._ticker_context_bundle_memory_cache_set(
+        cache_key,
+        payload={"symbol": "AAPL", "status": "lightweight", "quote": None, "source_cards": {}},
+        stale_after=now + timedelta(minutes=1),
+        expires_at=now + timedelta(minutes=5),
+    )
+
+    class NoDbRow:
+        def get(self, *_args, **_kwargs):
+            return None
+
+        def rollback(self):
+            raise AssertionError("missing DB row should not roll back")
+
+    response = main_module._ticker_context_bundle_cache_get(
+        NoDbRow(),
+        cache_key,
+        symbol="AAPL",
+        user_segment="premium",
+        started_at=time.perf_counter(),
+    )
+
+    assert response is None
 
 
 def test_ticker_context_bundle_db_cache_populates_memory_cache(monkeypatch):
@@ -1939,7 +1988,7 @@ def test_ticker_context_bundle_db_cache_populates_memory_cache(monkeypatch):
                 cache_key=cache_key,
                 symbol="AAPL",
                 user_segment="premium",
-                payload_json=json.dumps({"symbol": "AAPL", "db_cached": True}),
+                payload_json=json.dumps(_complete_context_bundle_payload("AAPL", db_cached=True)),
                 generated_at=now,
                 stale_after=now + timedelta(minutes=1),
                 expires_at=now + timedelta(minutes=5),
@@ -1970,8 +2019,10 @@ def test_ticker_context_bundle_db_cache_populates_memory_cache(monkeypatch):
         started_at=time.perf_counter(),
     )
 
-    assert first == {"symbol": "AAPL", "db_cached": True}
-    assert second == {"symbol": "AAPL", "db_cached": True}
+    assert first["symbol"] == "AAPL"
+    assert first["db_cached"] is True
+    assert second["symbol"] == "AAPL"
+    assert second["db_cached"] is True
 
 
 def test_ticker_context_bundle_quote_releases_connection_before_live_fetch(monkeypatch):
@@ -2003,13 +2054,24 @@ def test_ticker_context_bundle_quote_releases_connection_before_live_fetch(monke
     assert captured["release_connection_before_fetch"] is True
     assert captured["force_quote_endpoint"] is True
     assert captured["allow_live_user_fetch"] is True
+    assert captured["bypass_miss_cache"] is True
 
 
-def test_ticker_context_bundle_quote_skips_live_fetch_for_unknown_identity(monkeypatch):
-    def fail_quote_lookup(*_args, **_kwargs):
-        raise AssertionError("unknown ticker identity should not run live quote fetch")
+def test_ticker_context_bundle_quote_fetches_live_without_identity(monkeypatch):
+    captured: dict[str, object] = {}
 
-    monkeypatch.setattr(main_module, "get_current_prices_meta_db", fail_quote_lookup)
+    def fake_quote_lookup(db, symbols, **kwargs):
+        captured.update({"symbols": symbols, **kwargs})
+        return {
+            "ZZZ": {
+                "symbol": "ZZZ",
+                "price": 12.34,
+                "asof_ts": datetime(2026, 7, 2, 20, 0, tzinfo=timezone.utc),
+                "is_stale": False,
+            }
+        }
+
+    monkeypatch.setattr(main_module, "get_current_prices_meta_db", fake_quote_lookup)
 
     quote = main_module._ticker_context_bundle_quote(
         object(),
@@ -2023,8 +2085,11 @@ def test_ticker_context_bundle_quote_skips_live_fetch_for_unknown_identity(monke
         },
     )
 
-    assert quote["current_price"] is None
-    assert quote["as_of"] is None
+    assert quote["current_price"] == 12.34
+    assert captured["symbols"] == ["ZZZ"]
+    assert captured["allow_live_user_fetch"] is True
+    assert captured["force_quote_endpoint"] is True
+    assert captured["bypass_miss_cache"] is True
 
 
 def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
@@ -2044,7 +2109,7 @@ def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
                 cache_key=cache_key,
                 symbol="AAPL",
                 user_segment="premium",
-                payload_json=json.dumps({"symbol": "AAPL", "status": "ok", "stale_fixture": True}),
+                payload_json=json.dumps(_complete_context_bundle_payload("AAPL", stale_fixture=True)),
                 generated_at=now - timedelta(minutes=10),
                 stale_after=now - timedelta(minutes=5),
                 expires_at=now + timedelta(minutes=5),

@@ -562,6 +562,7 @@ def get_current_prices_meta_db(
     cache_only: bool = False,
     skip_db_sanity: bool = False,
     max_network_fetch: int | None = None,
+    bypass_miss_cache: bool = False,
 ) -> dict[str, dict]:
     quote_meta: dict[str, dict] = {}
     try:
@@ -670,7 +671,7 @@ def get_current_prices_meta_db(
 
         need_fetch: list[str] = []
         for symbol in need_fetch_candidates:
-            if _miss_cache_hit(symbol):
+            if not bypass_miss_cache and _miss_cache_hit(symbol):
                 miss_skipped += 1
                 continue
             need_fetch.append(symbol)

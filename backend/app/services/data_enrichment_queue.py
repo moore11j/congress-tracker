@@ -20,7 +20,19 @@ from app.utils.symbols import normalize_symbol
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = {"queued", "running"}
-DEFAULT_PREWARM_SYMBOLS = ("MSTR", "NBIS", "BMNR", "IBIT", "AAPL", "MSFT", "NVDA", "TSLA")
+DEFAULT_PREWARM_SYMBOLS = (
+    "MSTR",
+    "NBIS",
+    "BMNR",
+    "IBIT",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+    "TSM",
+    "PLTR",
+    "LMT",
+)
 DONE_JOB_COOLDOWN_SECONDS = 60 * 60
 DEFAULT_ACTIVE_SYMBOL_LOOKBACK_DAYS = 7
 SYMBOL_REQUIRED_JOB_TYPES = {
@@ -36,6 +48,7 @@ SYMBOL_REQUIRED_JOB_TYPES = {
     "ticker_meta",
     "technical_indicators",
     "profile",
+    "ticker_context_bundle",
 }
 COMPLETE_PREWARM_JOB_TYPES = (
     "quote",
@@ -47,6 +60,7 @@ COMPLETE_PREWARM_JOB_TYPES = (
     "sec_filings",
     "price_series",
     "technical_indicators",
+    "ticker_context_bundle",
 )
 CORE_PREWARM_JOB_TYPES = (
     "quote",
@@ -54,6 +68,7 @@ CORE_PREWARM_JOB_TYPES = (
     "fundamentals",
     "price_series",
     "technical_indicators",
+    "ticker_context_bundle",
 )
 PREWARM_MODE_JOB_TYPES = {
     "complete": COMPLETE_PREWARM_JOB_TYPES,
@@ -511,13 +526,14 @@ def enqueue_priority_ticker_prewarm_jobs(
 
     for symbol in symbols:
         for job_type, priority, payload in (
-            ("quote", 10, None),
-            ("ticker_meta", 15, None),
-            ("fundamentals", 45, None),
-            ("ticker_financials", 50, None),
-            ("news_stock", 65, {"page": 0, "limit": 20}),
-            ("press_releases", 70, {"page": 0, "limit": 20}),
-            ("sec_filings", 75, {"page": 0, "limit": 50}),
+            ("quote", 20, None),
+            ("ticker_meta", 25, None),
+            ("fundamentals", 55, None),
+            ("ticker_financials", 60, None),
+            ("news_stock", 75, {"page": 0, "limit": 20}),
+            ("press_releases", 80, {"page": 0, "limit": 20}),
+            ("sec_filings", 85, {"page": 0, "limit": 50}),
+            ("ticker_context_bundle", 90, {"side": "all", "limit": 3, "lookback_days": 365}),
         ):
             if job_type not in prewarm_job_types:
                 continue
@@ -694,7 +710,7 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
                 token = set_request_context(
                     {
                         "path": "background",
-                        "priority": "normal",
+                        "priority": "background",
                         "job_type": job.job_type,
                         "source": job.source,
                     }
@@ -835,6 +851,37 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
             lookback_days=90,
             release_connection_before_provider=True,
             hydrate_provider=True,
+        )
+        return
+    if job.job_type == "ticker_context_bundle":
+        from starlette.requests import Request
+
+        from app.main import _build_ticker_context_bundle
+
+        payload = _payload_dict(job.payload_json)
+        raw_headers = [
+            (b"x-walnut-request-source", b"cron"),
+            (b"x-walnut-route-family", b"ticker"),
+            (b"x-walnut-component", b"ticker-context-bundle-prewarm"),
+        ]
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "scheme": "https",
+                "server": ("app.walnutmarkets.com", 443),
+                "path": f"/api/tickers/{job.symbol or ''}/context-bundle",
+                "query_string": b"",
+                "headers": raw_headers,
+            }
+        )
+        _build_ticker_context_bundle(
+            request=request,
+            symbol=job.symbol or "",
+            side=_payload_str(payload, "side") or "all",
+            limit=max(1, min(_payload_int(payload, "limit", 3), 3)),
+            lookback_days=max(1, min(_payload_int(payload, "lookback_days", 365), 365)),
+            db=db,
         )
         return
     if job.job_type == "cik_meta":

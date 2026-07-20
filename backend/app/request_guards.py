@@ -84,6 +84,7 @@ def request_source(request: Request, user_agent_class: str) -> str:
         "cron",
         "direct_api",
         "monitor_probe",
+        "load_test",
     }:
         return "client" if raw == "client_fetch" else raw
     if bounded_log_value(request.headers.get("x-walnut-monitor-probe"), max_length=16).lower() in {"1", "true", "yes", "monitor"}:

@@ -15,31 +15,6 @@ const SMOKE_DURATION = __ENV.SMOKE_DURATION || "90s";
 guardProductionTarget(BASE_URL);
 guardProductionTarget(API_BASE_URL);
 
-export const options = {
-  scenarios: {
-    smoke: {
-      executor: "constant-vus",
-      vus: SMOKE_VUS,
-      duration: SMOKE_DURATION,
-      exec: "smoke",
-    },
-    bot_prefetch_guard: {
-      executor: "constant-vus",
-      vus: 1,
-      duration: __ENV.BOT_GUARD_DURATION || "30s",
-      exec: "botPrefetchGuard",
-      startTime: "0s",
-    },
-  },
-  thresholds: {
-    http_req_failed: ["rate<0.01"],
-    "checks{route_priority:core}": ["rate>0.99"],
-    "http_req_duration{route_priority:core}": ["p(95)<1000"],
-    http_req_duration: ["p(95)<1500"],
-    five_xx_rate: ["rate<0.001"],
-  },
-};
-
 const routeDuration = new Trend("walnut_route_duration", true);
 const routeRequests = new Counter("walnut_route_requests");
 const routeFailures = new Counter("walnut_route_failures");
@@ -96,6 +71,34 @@ const diagnosticEndpoints = [
   "government_contracts_prefetch",
 ];
 
+const diagnosticStatuses = ["0", "200", "204", "301", "302", "307", "308", "400", "401", "403", "404", "408", "422", "429", "500", "502", "503", "504"];
+
+export const options = {
+  scenarios: {
+    smoke: {
+      executor: "constant-vus",
+      vus: SMOKE_VUS,
+      duration: SMOKE_DURATION,
+      exec: "smoke",
+    },
+    bot_prefetch_guard: {
+      executor: "constant-vus",
+      vus: 1,
+      duration: __ENV.BOT_GUARD_DURATION || "30s",
+      exec: "botPrefetchGuard",
+      startTime: "0s",
+    },
+  },
+  thresholds: {
+    http_req_failed: ["rate<0.01"],
+    "checks{route_priority:core}": ["rate>0.99"],
+    "http_req_duration{route_priority:core}": ["p(95)<1000"],
+    http_req_duration: ["p(95)<1500"],
+    five_xx_rate: ["rate<0.001"],
+    ...diagnosticThresholds(),
+  },
+};
+
 export function diagnosticThresholds() {
   const thresholds = {};
   for (const family of diagnosticRouteFamilies) {
@@ -109,6 +112,9 @@ export function diagnosticThresholds() {
     thresholds[`walnut_route_requests{endpoint_name:${endpoint}}`] = ["count>=0"];
     thresholds[`walnut_route_failures{endpoint_name:${endpoint}}`] = ["count>=0"];
     thresholds[`walnut_route_5xx{endpoint_name:${endpoint}}`] = ["count>=0"];
+  }
+  for (const status of diagnosticStatuses) {
+    thresholds[`walnut_status_codes{status:${status}}`] = ["count>=0"];
   }
   return thresholds;
 }
@@ -271,6 +277,7 @@ function request(baseUrl, path, endpointName, routeFamily, routePriority, init =
 
 export function handleSummary(data) {
   const routeRows = collectRouteRows(data);
+  const statusRows = collectStatusRows(data);
   const topByP95 = [...routeRows]
     .filter((row) => row.kind === "family")
     .sort((a, b) => (b.p95 || 0) - (a.p95 || 0))
@@ -288,6 +295,9 @@ export function handleSummary(data) {
       "",
       "Walnut endpoint latency attribution",
       formatRouteTable(endpointRows),
+      "",
+      "Walnut status distribution",
+      formatStatusTable(statusRows),
       "",
     ].join("\n"),
   };
@@ -343,18 +353,38 @@ function collectRouteRows(data) {
   });
 }
 
+function collectStatusRows(data) {
+  const rows = [];
+  for (const [metricName, metric] of Object.entries(data.metrics || {})) {
+    const parsed = parseTaggedMetric(metricName);
+    if (!parsed || parsed.baseName !== "walnut_status_codes" || !parsed.tags.status) continue;
+    rows.push({
+      status: parsed.tags.status,
+      count: numericValue((metric.values || {}).count) || 0,
+    });
+  }
+  return rows
+    .filter((row) => row.count > 0)
+    .sort((a, b) => Number(a.status) - Number(b.status));
+}
+
 function parseTaggedMetric(metricName) {
   const match = metricName.match(/^([^{}]+)\{(.+)\}$/);
   if (!match) return null;
   const baseName = match[1];
-  if (!["walnut_route_duration", "walnut_route_requests", "walnut_route_failures", "walnut_route_5xx"].includes(baseName)) {
+  if (!["walnut_route_duration", "walnut_route_requests", "walnut_route_failures", "walnut_route_5xx", "walnut_status_codes"].includes(baseName)) {
     return null;
   }
   const tags = {};
   for (const part of match[2].split(",")) {
-    const [key, ...rest] = part.split(":");
-    if (!key || rest.length === 0) continue;
-    tags[key.trim()] = rest.join(":").trim();
+    const splitIndex = part.indexOf(":");
+    const equalsIndex = part.indexOf("=");
+    const separatorIndex = splitIndex === -1 ? equalsIndex : equalsIndex === -1 ? splitIndex : Math.min(splitIndex, equalsIndex);
+    if (separatorIndex === -1) continue;
+    const key = part.slice(0, separatorIndex).trim();
+    const value = part.slice(separatorIndex + 1).trim();
+    if (!key || !value) continue;
+    tags[key] = value;
   }
   return { baseName, tags };
 }
@@ -378,6 +408,13 @@ function formatRouteTable(rows) {
     formatMs(row.p99),
     formatMs(row.max),
   ]);
+  return renderTextTable(header, tableRows);
+}
+
+function formatStatusTable(rows) {
+  if (!rows.length) return "  no status distribution metrics found";
+  const header = ["status", "requests"];
+  const tableRows = rows.map((row) => [row.status, formatCount(row.count)]);
   return renderTextTable(header, tableRows);
 }
 

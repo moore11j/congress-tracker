@@ -199,15 +199,17 @@ def test_priority_ticker_prewarm_core_mode_prioritizes_hot_ticker_data(monkeypat
         job_types = [row.job_type for row in rows]
         assert result["prewarm_mode"] == "core"
         assert result["symbols"] == ["AAPL"]
-        assert result["attempted"] == 6
+        assert result["attempted"] == 7
         assert set(job_types) == {
             "quote",
             "ticker_meta",
             "fundamentals",
             "price_series",
             "technical_indicators",
+            "ticker_context_bundle",
         }
         assert job_types.count("price_series") == 2
+        assert job_types.count("ticker_context_bundle") == 1
         assert "ticker_financials" not in job_types
         assert "news_stock" not in job_types
         assert "press_releases" not in job_types
@@ -235,6 +237,7 @@ def test_enrichment_queue_yields_when_pressure_guard_trips(monkeypatch):
         )
 
     def fake_process_one(_db, job):
+        assert get_request_context()["priority"] == "background"
         processed_symbols.append(job.symbol)
 
     monkeypatch.setattr(queue_module, "_check_enrichment_queue_pressure", fake_guard)
