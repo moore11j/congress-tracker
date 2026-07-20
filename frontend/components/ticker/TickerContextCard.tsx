@@ -103,6 +103,13 @@ const SCROLL_REGION_CLASS = [
   "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500/45 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400/60]",
 ].join(" ");
 
+function macroBiasTextClass(bias: string | null | undefined) {
+  const normalized = (bias ?? "").toLowerCase();
+  if (normalized === "bullish") return "text-emerald-300";
+  if (normalized === "bearish") return "text-rose-300";
+  return "text-slate-500";
+}
+
 function normalizeSecForm(value: string | null | undefined) {
   return (value ?? "")
     .trim()
@@ -1099,7 +1106,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
                     {(macroPositioning.drivers ?? []).map((driver) => (
                       <div key={`${driver.name}-${driver.bias}`} className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
                         <p className="text-sm font-semibold text-slate-100">{driver.name}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{driver.bias}</p>
+                        <p className={`mt-1 text-xs font-semibold uppercase tracking-[0.14em] ${macroBiasTextClass(driver.bias)}`}>{driver.bias}</p>
                       </div>
                     ))}
                   </div>

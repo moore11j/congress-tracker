@@ -6,7 +6,6 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ApiError, getEntitlements, getEvents, getTickerContextBundle, getTickerGovernmentContracts, getTickerProfile, getTickerSignalsSummary, INSTITUTIONAL_ACTIVITY_EVENT_TYPES, type SignalItem, type TickerContextBundleResponse, type TickerDecisionItem, type TickerDecisionLayer, type TickerFundamentalsSummary, type TickerGovernmentContractItem, type TickerSignalsSummaryResponse, type TickerSourceEntitlement, type TickerSourceEntitlements } from "@/lib/api";
 import { TickerChartLoader } from "@/components/ticker/TickerChartLoader";
-import { ConfirmationSourcesFlyout } from "@/components/ticker/ConfirmationSourcesFlyout";
 import { TickerActivityDetailClient } from "@/components/ticker/TickerActivityDetailClient";
 import { TickerContextCard } from "@/components/ticker/TickerContextCard";
 import { TickerDeferredActivityRefresh } from "@/components/ticker/TickerDeferredActivityRefresh";
@@ -14,7 +13,6 @@ import { EntitlementHintRefresh } from "@/components/auth/EntitlementHintRefresh
 import { ExpandableTickerSection } from "@/components/ticker/ExpandableTickerSection";
 import { TickerActivityPaginationFooter } from "@/components/ticker/TickerActivityPaginationFooter";
 import { TickerInstitutionalSourceCardClient } from "@/components/ticker/TickerInstitutionalSourceCardClient";
-import { TickerKpiNavigation } from "@/components/ticker/TickerKpiNavigation";
 import { TickerSignalActivityClient } from "@/components/ticker/TickerSignalActivityClient";
 import { TickerSignalsSourceCardClient } from "@/components/ticker/TickerSignalsSourceCardClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
@@ -184,8 +182,6 @@ type TickerActivityData = {
   insiderBuys: number;
   insiderSells: number;
   topSignal: SignalItem | undefined;
-  congressParticipantCount: number;
-  insiderParticipantCount: number;
   topCongressParticipants: ParticipantStats[];
   topInsiderParticipants: ParticipantStats[];
 };
@@ -1282,17 +1278,13 @@ function DecisionPanel({ title, items, empty }: { title: string; items?: TickerD
 function TickerOverviewPanel({
   confirmationBundle,
   sourceDisplayBundle = confirmationBundle,
-  alignedSources,
   decisionLayer,
   confirmationGate,
-  sourceEntitlements,
 }: {
   confirmationBundle: ConfirmationScoreBundle;
   sourceDisplayBundle?: ConfirmationScoreBundle;
-  alignedSources: ConfirmationSourceKey[];
   decisionLayer?: TickerDecisionLayer | null;
   confirmationGate?: TickerConfirmationGate | null;
-  sourceEntitlements?: TickerSourceEntitlements | null;
 }) {
   const displayBundle = sourceDisplayBundle;
   const confirmationLocked = Boolean(confirmationGate?.locked);
@@ -1350,15 +1342,6 @@ function TickerOverviewPanel({
             <p className="text-sm leading-6 text-slate-500">No specific watch items are available yet.</p>
           ) : null}
         </section>
-
-        <div className="mt-5">
-          <ConfirmationSourcesFlyout
-            symbol={confirmationBundle.ticker}
-            alignedSources={alignedSources}
-            sources={confirmationBundle.sources}
-            sourceEntitlements={sourceEntitlements}
-          />
-        </div>
       </div>
 
       {confirmationLocked && confirmationGate ? (
@@ -2005,7 +1988,7 @@ function compactPriceVolumeRows(
   return [
     `Latest close ${formatUpperCardPrice(context?.latest_close)}`,
     `1D change ${formatUpperCardSignedPercent(context?.change_pct_1d)}`,
-    `Vol vs 20D ${formatUpperCardMultiple(context?.volume_vs_avg)}`,
+    `Vol vs 30D ${formatUpperCardMultiple(context?.volume_vs_avg)}`,
     `RSI ${formatUpperCardRsi(rsi)}`,
     formatUpperCardMacd(macd),
   ];
@@ -2404,30 +2387,6 @@ function GovernmentContractsCard({
   );
 }
 
-function MetricTile({
-  label,
-  value,
-  toneClass,
-  icon,
-}: {
-  label: string;
-  value: ReactNode;
-  toneClass: string;
-  icon: IntelligenceIconKind;
-}) {
-  return (
-    <div className={`${cardClassName} p-3.5`}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">{label}</p>
-        <span className={`shrink-0 ${toneClass}`}>
-          <IntelligenceIcon kind={icon} className="h-4 w-4" />
-        </span>
-      </div>
-      <div className={`mt-2 text-right text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
-    </div>
-  );
-}
-
 function hrefWithFilters(
   symbol: string,
   lookback: Lookback,
@@ -2481,6 +2440,60 @@ function ActivityScrollRegion({ children }: { children: ReactNode }) {
       ].join(" ")}
     >
       {children}
+    </div>
+  );
+}
+
+function ActivityHeaderStat({
+  href,
+  label,
+  value,
+  toneClass,
+}: {
+  href: string;
+  label: string;
+  value: number;
+  toneClass: string;
+}) {
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className="inline-grid min-w-[4.75rem] grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-1.5 transition hover:border-white/20 hover:bg-slate-900/80"
+    >
+      <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</span>
+      <span className={`text-sm font-semibold tabular-nums ${toneClass}`}>{value}</span>
+    </Link>
+  );
+}
+
+function ActivityHeaderStats({
+  symbol,
+  lookback,
+  source,
+  buys,
+  sells,
+}: {
+  symbol: string;
+  lookback: Lookback;
+  source: Extract<SourceFilter, "congress" | "insider">;
+  buys: number;
+  sells: number;
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-start gap-2 sm:justify-center">
+      <ActivityHeaderStat
+        href={hrefWithFilters(symbol, lookback, source, "buy")}
+        label="Buys"
+        value={buys}
+        toneClass="text-emerald-300"
+      />
+      <ActivityHeaderStat
+        href={hrefWithFilters(symbol, lookback, source, "sell")}
+        label="Sells"
+        value={sells}
+        toneClass="text-rose-300"
+      />
     </div>
   );
 }
@@ -2808,8 +2821,8 @@ async function resolveTickerActivityData({
     ? events
     : events.filter((event) => normalizeTradeSide(event.trade_type) === side);
 
-  const metricCongressEvents = filteredEvents.filter((event) => event.event_type === "congress_trade");
-  const metricInsiderEvents = filteredEvents.filter((event) => event.event_type === "insider_trade");
+  const metricCongressEvents = events.filter((event) => event.event_type === "congress_trade");
+  const metricInsiderEvents = events.filter((event) => event.event_type === "insider_trade");
   const congressEvents = visibleActivityItems(congressEventsRes, ACTIVITY_PAGE_SIZE);
   const insiderEvents = visibleActivityItems(insiderEventsRes, ACTIVITY_PAGE_SIZE);
   const institutionalEvents = visibleActivityItems(institutionalEventsRes, ACTIVITY_PAGE_SIZE)
@@ -2933,8 +2946,6 @@ async function resolveTickerActivityData({
     insiderBuys,
     insiderSells,
     topSignal,
-    congressParticipantCount: congressParticipantMap.size,
-    insiderParticipantCount: insiderParticipantMap.size,
     topCongressParticipants,
     topInsiderParticipants,
   };
@@ -3019,8 +3030,6 @@ async function DeferredTickerContent({
     effectiveWindowDays,
     summaryInsiders,
     summaryCongress,
-    congressParticipantCount,
-    insiderParticipantCount,
     topCongressParticipants,
     topInsiderParticipants,
   } = await activityPromise;
@@ -3071,7 +3080,6 @@ async function DeferredTickerContent({
   const institutionalGateMessage = hasAuthForEntitlementDisplay
     ? "Subscribe to pro to review 13F holder activity for this ticker."
     : "Create an account and subscribe to pro to review 13F holder activity for this ticker.";
-  const alignedSources = alignedConfirmationSources(visibleConfirmationBundle);
   const confirmationLookbackDays = confirmationBundle.lookback_days;
   const canReuseSignalSummary = signalSummaryResolved && !signalsAuthPending;
   const priceVolume = priceVolumeSummary(confirmationBundle.sources.price_volume, normalizedTechnicals, priceVolumeContext, confirmationLookbackDays);
@@ -3104,10 +3112,8 @@ async function DeferredTickerContent({
               <TickerOverviewPanel
                 confirmationBundle={confirmationBundle}
                 sourceDisplayBundle={visibleConfirmationBundle}
-                alignedSources={alignedSources}
                 decisionLayer={decisionLayer}
                 confirmationGate={tickerConfirmationGate}
-                sourceEntitlements={sourceEntitlements}
               />
             }
           />
@@ -3288,97 +3294,6 @@ async function DeferredTickerContent({
         </div>
       </div>
 
-      <TickerKpiNavigation
-        symbol={normalizedSymbol}
-        lookback={lookback}
-        source={source}
-        side={side}
-        tiles={[
-          {
-            key: "congress-buys",
-            label: "Congress buys",
-            value: congressBuys,
-            toneClass: "text-emerald-300",
-            icon: "congress",
-            targetId: "congress-activity",
-            title: "View Congress activity",
-            source: "congress",
-            side: "buy",
-          },
-          {
-            key: "congress-sells",
-            label: "Congress sells",
-            value: congressSells,
-            toneClass: "text-rose-300",
-            icon: "congress",
-            targetId: "congress-activity",
-            title: "View Congress activity",
-            source: "congress",
-            side: "sell",
-          },
-          {
-            key: "insider-buys",
-            label: "Insider buys",
-            value: insiderBuys,
-            toneClass: "text-emerald-300",
-            icon: "insider-buy",
-            targetId: "insider-activity",
-            title: "View Insider activity",
-            source: "insider",
-            side: "buy",
-          },
-          {
-            key: "insider-sells",
-            label: "Insider sells",
-            value: insiderSells,
-            toneClass: "text-rose-300",
-            icon: "insider-sell",
-            targetId: "insider-activity",
-            title: "View Insider activity",
-            source: "insider",
-            side: "sell",
-          },
-          {
-            key: "institutional-activity-count",
-            label: "Institutional activity",
-            value: institutionalEventsTotal ?? institutionalEvents.length,
-            toneClass: institutionalEvents.length ? "text-indigo-200" : "text-slate-400",
-            icon: "people",
-            targetId: "institutional-activity",
-            title: "View institutional activity",
-            source: "institutional",
-          },
-          {
-            key: "unique-congress-traders",
-            label: "Unique Congress traders",
-            value: congressParticipantCount,
-            toneClass: "text-white",
-            icon: "people",
-            targetId: "top-congress-traders",
-            title: "View top Congress traders",
-          },
-          {
-            key: "unique-insiders",
-            label: "Unique insiders",
-            value: insiderParticipantCount,
-            toneClass: "text-white",
-            icon: "people",
-            targetId: "top-insiders",
-            title: "View top insiders",
-          },
-          {
-            key: "latest-signal-conviction-score",
-            label: "Latest Signal Conviction Score",
-            value: topSignal ? topSignal.smart_score ?? "-" : "None",
-            toneClass: topSignal ? "text-white" : "text-slate-400",
-            icon: "signals",
-            targetId: "signals-activity",
-            title: "View signal activity",
-            source: "signals",
-          },
-        ]}
-      />
-
       <TickerChartLoader symbol={normalizedSymbol} days={selectedLookbackDays} />
       <TickerDeferredActivityRefresh enabled={activityDetailsDeferred} symbol={normalizedSymbol} />
 
@@ -3386,8 +3301,15 @@ async function DeferredTickerContent({
         <div className="min-w-0 space-y-6">
           {showCongress ? (
             <section id="congress-activity" className={`${cardClassName} scroll-mt-6`}>
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
                 <h2 className="text-lg font-semibold text-white">Congress activity</h2>
+                <ActivityHeaderStats
+                  symbol={normalizedSymbol}
+                  lookback={lookback}
+                  source="congress"
+                  buys={congressBuys}
+                  sells={congressSells}
+                />
                 <span id="congress-activity-status" className="text-xs text-slate-400">
                   {activityCountLabel(congressEventsTotal, congressEvents.length, "event")}
                 </span>
@@ -3463,13 +3385,20 @@ async function DeferredTickerContent({
 
           {showInsider ? (
             <section id="insider-activity" className={`${cardClassName} scroll-mt-6`}>
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Insider activity</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     Displayed quotes are USD. Current foreign prices use spot FX where applicable; historical foreign filing prices use trade-date FX and ADR ratios when normalized.
                   </p>
                 </div>
+                <ActivityHeaderStats
+                  symbol={normalizedSymbol}
+                  lookback={lookback}
+                  source="insider"
+                  buys={insiderBuys}
+                  sells={insiderSells}
+                />
                 <span id="insider-activity-status" className="text-xs text-slate-400">
                   {activityCountLabel(insiderEventsTotal, insiderEvents.length, "event")}
                 </span>
@@ -4157,6 +4086,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
         </div>
         <div className="grid w-[calc(100vw-2rem)] flex-none grid-cols-2 gap-2 [&>*]:w-full [&>*>button]:w-full [&>a]:justify-center [&>button]:justify-center sm:flex sm:w-auto sm:flex-initial sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:w-auto sm:[&>*>button]:w-auto">
           <AddTickerToWatchlist symbol={normalizedSymbol} />
+          <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
           <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>

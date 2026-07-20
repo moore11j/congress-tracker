@@ -290,6 +290,7 @@ _TICKER_QUOTE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_INTRADAY_PRICE_VOLUME_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_RATIOS_TTM_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_PROFILE_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
+_TICKER_MARKET_CAP_SNAPSHOT_CACHE: dict[str, tuple[float, dict]] = {}
 _TICKER_BENCHMARK_SYMBOL = "SPY"
 _TICKER_BENCHMARK_LABEL = "S&P 500 (SPY)"
 CONFIRMATION_SIGNAL_WINDOW_DAYS = 30
@@ -8256,10 +8257,10 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
     latest_date = latest_point.get("date") if latest_point else None
     recent_volumes = [
         float(point["volume"])
-        for point in points[-20:]
+        for point in points[-30:]
         if _parse_numeric(point.get("volume")) is not None and _parse_numeric(point.get("volume")) > 0
     ]
-    average_volume_20d = sum(recent_volumes) / len(recent_volumes) if recent_volumes else None
+    average_volume_30d = sum(recent_volumes) / len(recent_volumes) if recent_volumes else None
     fundamentals_volume = None
     fundamentals_avg_volume = None
     try:
@@ -8290,16 +8291,16 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
         latest_volume = intraday_volume
     if latest_volume is None and fundamentals_volume is not None and fundamentals_volume > 0:
         latest_volume = fundamentals_volume
-    if average_volume_20d is None and fundamentals_avg_volume is not None and fundamentals_avg_volume > 0:
-        average_volume_20d = fundamentals_avg_volume
+    if average_volume_30d is None and fundamentals_avg_volume is not None and fundamentals_avg_volume > 0:
+        average_volume_30d = fundamentals_avg_volume
     change_pct_1d = (
         round(((latest_close - previous_close) / previous_close) * 100, 4)
         if latest_close is not None and previous_close is not None and previous_close > 0
         else None
     )
     volume_vs_avg = (
-        round(latest_volume / average_volume_20d, 4)
-        if latest_volume is not None and average_volume_20d is not None and average_volume_20d > 0
+        round(latest_volume / average_volume_30d, 4)
+        if latest_volume is not None and average_volume_30d is not None and average_volume_30d > 0
         else None
     )
     return {
@@ -8309,17 +8310,18 @@ def _ticker_cached_price_volume_inputs(db: Session, symbol: str, *, limit: int =
         "point_count": len(closes),
         "volume_points": len(volumes),
         "has_price_series": bool(closes),
-        "has_volume": bool(volumes or latest_volume is not None or average_volume_20d is not None),
+        "has_volume": bool(volumes or latest_volume is not None or average_volume_30d is not None),
         "latest_close": latest_close,
         "previous_close": previous_close,
         "change_pct_1d": change_pct_1d,
         "latest_volume": latest_volume,
-        "avg_volume_20d": average_volume_20d,
+        "avg_volume_20d": average_volume_30d,
+        "avg_volume_30d": average_volume_30d,
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
         "latest_source": intraday.get("source") if isinstance(intraday, dict) and intraday else "daily_cache",
         "last_volume": latest_volume,
-        "average_volume": average_volume_20d,
+        "average_volume": average_volume_30d,
     }
 
 
@@ -8460,7 +8462,7 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
     previous_close = _parse_numeric(cached_inputs.get("previous_close"))
     change_pct_1d = _parse_numeric(cached_inputs.get("change_pct_1d"))
     latest_volume = _parse_numeric(cached_inputs.get("latest_volume"))
-    avg_volume_20d = _parse_numeric(cached_inputs.get("avg_volume_20d"))
+    avg_volume_30d = _parse_numeric(cached_inputs.get("avg_volume_30d")) or _parse_numeric(cached_inputs.get("avg_volume_20d"))
     volume_vs_avg = _parse_numeric(cached_inputs.get("volume_vs_avg"))
     latest_date = cached_inputs.get("latest_date") if isinstance(cached_inputs.get("latest_date"), str) else None
     latest_source = str(cached_inputs.get("latest_source") or "daily_cache")
@@ -8469,7 +8471,8 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         "previous_close": previous_close,
         "change_pct_1d": change_pct_1d,
         "latest_volume": latest_volume,
-        "avg_volume_20d": avg_volume_20d,
+        "avg_volume_20d": avg_volume_30d,
+        "avg_volume_30d": avg_volume_30d,
         "volume_vs_avg": volume_vs_avg,
         "latest_date": latest_date,
         "latest_source": latest_source,
@@ -8482,19 +8485,19 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
         market_lines.append(f"{latest_price_label}: {latest_close:.2f}")
     if change_pct_1d is not None:
         market_lines.append(f"1D change: {change_pct_1d:+.2f}%")
-    if latest_volume is not None and avg_volume_20d is not None and avg_volume_20d > 0:
-        market_lines.append(f"Volume vs 20D avg: {latest_volume / avg_volume_20d:.2f}x")
+    if latest_volume is not None and avg_volume_30d is not None and avg_volume_30d > 0:
+        market_lines.append(f"Volume vs 30D avg: {latest_volume / avg_volume_30d:.2f}x")
     volume_line = None
     last_volume = _parse_numeric(cached_inputs.get("last_volume"))
     average_volume = _parse_numeric(cached_inputs.get("average_volume"))
     if last_volume is not None and average_volume is not None and average_volume > 0:
         volume_ratio = last_volume / average_volume
         if volume_ratio >= 1.2:
-            volume_line = "Volume above 20D average"
+            volume_line = "Volume above 30D average"
         elif volume_ratio <= 0.8:
-            volume_line = "Volume below 20D average"
+            volume_line = "Volume below 30D average"
         else:
-            volume_line = "Volume near 20D average"
+            volume_line = "Volume near 30D average"
     if volume_line:
         lines.append(volume_line)
 
@@ -8530,7 +8533,7 @@ def _ticker_price_volume_summary(db: Session, symbol: str) -> dict[str, Any]:
             "inputs": inputs,
             **market_fields,
         }
-    if latest_volume is None or avg_volume_20d is None:
+    if latest_volume is None or avg_volume_30d is None:
         missing_volume_reason = "missing_volume" if latest_volume is None else "missing_average_volume"
         _log_ticker_price_volume_summary(
             symbol=normalized,
@@ -8623,6 +8626,491 @@ def _ticker_context_source_entitlements(entitlements: Any, *, authenticated: boo
         "options_flow": source_meta("options_flow", "pro", not can_view_pro_context, "pro_locked"),
         "macro_positioning": source_meta("macro_positioning", "pro", not can_view_pro_context, "pro_locked"),
     }
+
+
+_PEER_COMPARE_CATEGORY_WEIGHTS = {
+    "business_quality": 3.0,
+    "valuation": 2.0,
+    "price_volume": 2.0,
+    "congress_activity": 1.25,
+    "insider_activity": 1.25,
+    "government_contracts": 1.0,
+    "institutional_activity": 1.5,
+    "options_flow": 1.5,
+    "confirmation_score": 1.0,
+}
+
+
+def _peer_compare_num(value: Any) -> float | None:
+    parsed = _parse_numeric(value)
+    if parsed is None or not math.isfinite(parsed):
+        return None
+    return float(parsed)
+
+
+def _peer_compare_int(value: Any) -> int:
+    parsed = _peer_compare_num(value)
+    return int(parsed) if parsed is not None else 0
+
+
+def _peer_compare_label(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"bullish", "positive", "accumulation", "active"}:
+        return "bullish"
+    if text in {"bearish", "negative", "distribution"}:
+        return "bearish"
+    if text in {"mixed", "neutral"}:
+        return text
+    return "unavailable" if not text else text
+
+
+def _peer_compare_edge_from_metric(left: float | None, right: float | None, *, higher_better: bool = True, abs_threshold: float | None = None, rel_threshold: float = 0.1) -> str:
+    if left is None or right is None:
+        return "even"
+    diff = left - right
+    if abs_threshold is not None:
+        if abs(diff) < abs_threshold:
+            return "even"
+    else:
+        baseline = max(abs(left), abs(right), 1.0)
+        if abs(diff) / baseline < rel_threshold:
+            return "even"
+    if diff > 0:
+        return "left" if higher_better else "right"
+    return "right" if higher_better else "left"
+
+
+def _peer_compare_edge_from_direction(left: str | None, right: str | None) -> str:
+    score = {"bullish": 1, "positive": 1, "accumulation": 1, "neutral": 0, "mixed": 0, "unavailable": 0, "bearish": -1, "negative": -1, "distribution": -1}
+    left_score = score.get(str(left or "").strip().lower(), 0)
+    right_score = score.get(str(right or "").strip().lower(), 0)
+    if left_score == right_score:
+        return "even"
+    return "left" if left_score > right_score else "right"
+
+
+def _peer_compare_metric(key: str, label: str, left: Any, right: Any, *, unit: str = "number", edge: str = "even") -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "left": left,
+        "right": right,
+        "unit": unit,
+        "edge": edge if edge in {"left", "right", "even"} else "even",
+    }
+
+
+def _latest_compare_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
+    try:
+        return db.execute(
+            select(FundamentalsCache)
+            .where(func.upper(FundamentalsCache.symbol) == symbol)
+            .order_by(FundamentalsCache.fetched_at.desc(), FundamentalsCache.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("peer_compare_fundamentals_lookup_failed symbol=%s", symbol, exc_info=True)
+        return None
+
+
+def _peer_compare_security_row(db: Session, symbol: str) -> Security | None:
+    try:
+        return db.execute(select(Security).where(func.upper(Security.symbol) == symbol).limit(1)).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("peer_compare_security_lookup_failed symbol=%s", symbol, exc_info=True)
+        return None
+
+
+def _peer_compare_ticker_meta_row(db: Session, symbol: str) -> TickerMeta | None:
+    try:
+        return db.execute(select(TickerMeta).where(func.upper(TickerMeta.symbol) == symbol).limit(1)).scalar_one_or_none()
+    except Exception:
+        db.rollback()
+        logger.debug("peer_compare_meta_lookup_failed symbol=%s", symbol, exc_info=True)
+        return None
+
+
+def _peer_compare_identity(db: Session, symbol: str, fundamentals: FundamentalsCache | None) -> dict[str, Any]:
+    meta = _peer_compare_ticker_meta_row(db, symbol)
+    security = _peer_compare_security_row(db, symbol)
+    name = _ticker_shell_company_name(db, symbol, security=security, meta=meta, fundamentals=fundamentals)
+    return {
+        "symbol": symbol,
+        "company_name": name,
+        "sector": _shell_text(meta.sector if meta is not None else None) or _shell_text(fundamentals.sector if fundamentals is not None else None) or _shell_text(security.sector if security is not None else None),
+        "industry": _shell_text(meta.industry if meta is not None else None) or _shell_text(fundamentals.industry if fundamentals is not None else None),
+        "exchange": _shell_text(meta.exchange if meta is not None else None) or _shell_text(fundamentals.exchange if fundamentals is not None else None),
+    }
+
+
+def _peer_compare_symbol_supported(db: Session, symbol: str, fundamentals: FundamentalsCache | None) -> bool:
+    if fundamentals is not None:
+        return True
+    if _peer_compare_ticker_meta_row(db, symbol) is not None:
+        return True
+    if _peer_compare_security_row(db, symbol) is not None:
+        return True
+    try:
+        count = db.execute(select(func.count(PriceCache.symbol)).where(PriceCache.symbol == symbol)).scalar()
+        return bool(count and int(count) > 0)
+    except Exception:
+        db.rollback()
+        return False
+
+
+def _peer_compare_trade_summary(db: Session, symbol: str, event_type: str, *, lookback_days: int = 30) -> dict[str, Any]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, lookback_days))
+    try:
+        rows = (
+            db.execute(
+                select(Event)
+                .where(Event.event_type == event_type)
+                .where(func.upper(func.coalesce(Event.symbol, "")) == symbol)
+                .where(func.coalesce(Event.event_date, Event.ts) >= cutoff)
+                .limit(500)
+            )
+            .scalars()
+            .all()
+        )
+    except Exception:
+        db.rollback()
+        logger.debug("peer_compare_trade_summary_failed symbol=%s event_type=%s", symbol, event_type, exc_info=True)
+        rows = []
+    buy_count = 0
+    sell_count = 0
+    unique_traders: set[str] = set()
+    total_value = 0.0
+    for row in rows:
+        payload: dict[str, Any]
+        try:
+            payload = json.loads(row.payload_json or "{}")
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        side = normalize_trade_side(row.trade_type or row.transaction_type or payload.get("transaction_type") or payload.get("type") or payload.get("side"))
+        if side == "buy":
+            buy_count += 1
+        elif side == "sell":
+            sell_count += 1
+        trader_key = (row.member_bioguide_id or row.member_name or payload.get("reporting_cik") or payload.get("insider_name") or "").strip()
+        if trader_key:
+            unique_traders.add(trader_key)
+        total_value += float(row.amount_max or row.amount_min or 0)
+    direction = "bullish" if buy_count > sell_count else "bearish" if sell_count > buy_count else "neutral"
+    return {
+        "status": "ok",
+        "event_count": len(rows),
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "unique_traders": len(unique_traders),
+        "total_value": total_value,
+        "direction": direction,
+    }
+
+
+def _peer_compare_business_category(left_f: FundamentalsCache | None, right_f: FundamentalsCache | None) -> dict[str, Any]:
+    specs = [
+        ("revenue_growth", "Revenue Growth", "percent", True, 2.0),
+        ("eps_growth", "EPS Growth", "percent", True, 2.0),
+        ("gross_margin", "Gross Margin", "percent", True, 2.0),
+        ("operating_margin", "Operating Margin", "percent", True, 2.0),
+        ("roe", "ROE", "percent", True, 2.0),
+        ("net_debt_to_ebitda", "Net Debt / EBITDA", "multiple", False, 0.25),
+    ]
+    metrics = []
+    score = 0
+    for attr, label, unit, higher_better, threshold in specs:
+        left = _peer_compare_num(getattr(left_f, attr, None))
+        right = _peer_compare_num(getattr(right_f, attr, None))
+        edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, abs_threshold=threshold)
+        score += 1 if edge == "left" else -1 if edge == "right" else 0
+        metrics.append(_peer_compare_metric(attr, label, left, right, unit=unit, edge=edge))
+    return {"key": "business_quality", "label": "Business Quality", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
+
+
+def _peer_compare_valuation_category(left_f: FundamentalsCache | None, right_f: FundamentalsCache | None) -> dict[str, Any]:
+    specs = [
+        ("forward_pe", "Forward P/E", "multiple"),
+        ("trailing_pe", "Trailing P/E", "multiple"),
+        ("ev_to_ebitda", "EV / EBITDA", "multiple"),
+        ("price_to_sales", "Price / Sales", "multiple"),
+        ("fcf_yield", "FCF Yield", "percent_yield"),
+    ]
+    metrics = []
+    score = 0
+    for attr, label, unit in specs:
+        left = _peer_compare_num(getattr(left_f, attr, None))
+        right = _peer_compare_num(getattr(right_f, attr, None))
+        higher_better = attr == "fcf_yield"
+        edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, rel_threshold=0.1)
+        score += 1 if edge == "left" else -1 if edge == "right" else 0
+        metrics.append(_peer_compare_metric(attr, label, left, right, unit=unit, edge=edge))
+    return {"key": "valuation", "label": "Valuation", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
+
+
+def _peer_compare_price_volume_category(left_pv: dict[str, Any], right_pv: dict[str, Any]) -> dict[str, Any]:
+    metrics: list[dict[str, Any]] = []
+    score = 0
+    for key, label, unit, threshold in (
+        ("change_pct_1d", "1D Change", "percent", 0.5),
+        ("volume_vs_avg", "Volume vs 30D", "ratio", 0.15),
+    ):
+        left = _peer_compare_num(left_pv.get(key))
+        right = _peer_compare_num(right_pv.get(key))
+        edge = _peer_compare_edge_from_metric(left, right, higher_better=True, abs_threshold=threshold)
+        score += 1 if edge == "left" else -1 if edge == "right" else 0
+        metrics.append(_peer_compare_metric(key, label, left, right, unit=unit, edge=edge))
+    direction_edge = _peer_compare_edge_from_direction(left_pv.get("direction"), right_pv.get("direction"))
+    score += 1 if direction_edge == "left" else -1 if direction_edge == "right" else 0
+    metrics.append(_peer_compare_metric("tape", "Tape Confirmation", left_pv.get("direction"), right_pv.get("direction"), unit="text", edge=direction_edge))
+    return {"key": "price_volume", "label": "Price / Volume", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
+
+
+def _peer_compare_trade_category(key: str, label: str, left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    left_skew = _peer_compare_int(left.get("buy_count")) - _peer_compare_int(left.get("sell_count"))
+    right_skew = _peer_compare_int(right.get("buy_count")) - _peer_compare_int(right.get("sell_count"))
+    edge = _peer_compare_edge_from_metric(float(left_skew), float(right_skew), higher_better=True, abs_threshold=1.0)
+    metrics = [
+        _peer_compare_metric("buy_count", "Buys", left.get("buy_count"), right.get("buy_count"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("buy_count")), _peer_compare_num(right.get("buy_count")), higher_better=True, abs_threshold=1.0)),
+        _peer_compare_metric("sell_count", "Sells", left.get("sell_count"), right.get("sell_count"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("sell_count")), _peer_compare_num(right.get("sell_count")), higher_better=False, abs_threshold=1.0)),
+        _peer_compare_metric("unique_traders", "Unique Traders", left.get("unique_traders"), right.get("unique_traders"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("unique_traders")), _peer_compare_num(right.get("unique_traders")), higher_better=True, abs_threshold=1.0)),
+        _peer_compare_metric("net_skew", "Buy / Sell Skew", left_skew, right_skew, unit="integer", edge=edge),
+    ]
+    return {"key": key, "label": label, "edge": edge, "score": 1 if edge == "left" else -1 if edge == "right" else 0, "metrics": metrics}
+
+
+def _peer_compare_government_category(left: dict[str, Any] | None, right: dict[str, Any] | None) -> dict[str, Any]:
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    left_count = _peer_compare_num(left.get("contract_count"))
+    right_count = _peer_compare_num(right.get("contract_count"))
+    left_amount = _peer_compare_num(left.get("total_award_amount") or left.get("total_amount"))
+    right_amount = _peer_compare_num(right.get("total_award_amount") or right.get("total_amount"))
+    count_edge = _peer_compare_edge_from_metric(left_count, right_count, higher_better=True, abs_threshold=1.0)
+    amount_edge = _peer_compare_edge_from_metric(left_amount, right_amount, higher_better=True, rel_threshold=0.1)
+    score = (1 if count_edge == "left" else -1 if count_edge == "right" else 0) + (1 if amount_edge == "left" else -1 if amount_edge == "right" else 0)
+    return {
+        "key": "government_contracts",
+        "label": "Government Contracts",
+        "edge": "left" if score > 0 else "right" if score < 0 else "even",
+        "score": score,
+        "metrics": [
+            _peer_compare_metric("contract_count", "Contracts", left_count, right_count, unit="integer", edge=count_edge),
+            _peer_compare_metric("total_award_amount", "Award Value", left_amount, right_amount, unit="currency", edge=amount_edge),
+        ],
+    }
+
+
+def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dict[str, Any] | None, *, locked: bool) -> dict[str, Any]:
+    if locked:
+        return {"key": "institutional_activity", "label": "Reported Institutional Activity", "locked": True, "required_plan": "pro", "edge": "even", "score": 0, "metrics": []}
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    dir_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    net_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), higher_better=True, rel_threshold=0.1)
+    breadth_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("holder_breadth")), _peer_compare_num(right.get("holder_breadth")), higher_better=True, abs_threshold=1.0)
+    score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, net_edge, breadth_edge))
+    return {
+        "key": "institutional_activity",
+        "label": "Reported Institutional Activity",
+        "edge": "left" if score > 0 else "right" if score < 0 else "even",
+        "score": score,
+        "metrics": [
+            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=dir_edge),
+            _peer_compare_metric("net_activity", "Net Activity", _peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), unit="number", edge=net_edge),
+            _peer_compare_metric("holder_breadth", "Holder Breadth", _peer_compare_num(left.get("holder_breadth")), _peer_compare_num(right.get("holder_breadth")), unit="integer", edge=breadth_edge),
+        ],
+    }
+
+
+def _peer_compare_options_category(left: dict[str, Any] | None, right: dict[str, Any] | None, *, locked: bool) -> dict[str, Any]:
+    if locked:
+        return {"key": "options_flow", "label": "Options Flow", "locked": True, "required_plan": "pro", "edge": "even", "score": 0, "metrics": []}
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    dir_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    score_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), higher_better=True, abs_threshold=5.0)
+    premium_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("total_premium")), _peer_compare_num(right.get("total_premium")), higher_better=True, rel_threshold=0.1)
+    score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, score_edge, premium_edge))
+    return {
+        "key": "options_flow",
+        "label": "Options Flow",
+        "edge": "left" if score > 0 else "right" if score < 0 else "even",
+        "score": score,
+        "metrics": [
+            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=dir_edge),
+            _peer_compare_metric("score", "Flow Score", _peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), unit="integer", edge=score_edge),
+            _peer_compare_metric("total_premium", "Premium", _peer_compare_num(left.get("total_premium")), _peer_compare_num(right.get("total_premium")), unit="currency", edge=premium_edge),
+        ],
+    }
+
+
+def _peer_compare_confirmation_category(left: dict[str, Any] | None, right: dict[str, Any] | None, *, locked: bool) -> dict[str, Any]:
+    if locked:
+        return {"key": "confirmation_score", "label": "Confirmation Score", "locked": True, "required_plan": "premium", "edge": "even", "score": 0, "metrics": []}
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    score_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), higher_better=True, abs_threshold=5.0)
+    direction_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    score = (1 if score_edge == "left" else -1 if score_edge == "right" else 0) + (1 if direction_edge == "left" else -1 if direction_edge == "right" else 0)
+    return {
+        "key": "confirmation_score",
+        "label": "Confirmation Score",
+        "edge": "left" if score > 0 else "right" if score < 0 else "even",
+        "score": score,
+        "metrics": [
+            _peer_compare_metric("score", "Score", _peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), unit="score", edge=score_edge),
+            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=direction_edge),
+        ],
+    }
+
+
+def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dict[str, Any]]) -> dict[str, Any]:
+    weighted = 0.0
+    used = []
+    for category in categories:
+        if category.get("locked"):
+            continue
+        edge = category.get("edge")
+        if edge not in {"left", "right"}:
+            continue
+        weight = float(_PEER_COMPARE_CATEGORY_WEIGHTS.get(str(category.get("key")), 1.0))
+        weighted += weight if edge == "left" else -weight
+        used.append(category)
+    if weighted >= 2.0:
+        winner = "left"
+    elif weighted <= -2.0:
+        winner = "right"
+    else:
+        winner = "even"
+    leader = left_symbol if winner == "left" else right_symbol if winner == "right" else None
+    top_edges = [item for item in used if item.get("edge") == winner][:3] if winner in {"left", "right"} else []
+    drivers = [str(item.get("label")) for item in top_edges]
+    if winner == "even":
+        summary = f"{left_symbol} and {right_symbol} are too close to call on the currently visible evidence."
+    else:
+        summary = f"{leader} has the cleaner setup on the currently visible evidence."
+    return {
+        "winner": winner,
+        "symbol": leader,
+        "score": round(weighted, 2),
+        "summary": summary,
+        "drivers": drivers,
+        "methodology": "Weighted category call with materiality thresholds; gated categories are excluded until entitled.",
+    }
+
+
+def _build_peer_compare_payload(
+    db: Session,
+    left_symbol: str,
+    right_symbol: str,
+    *,
+    entitlements: Any = None,
+    authenticated: bool = False,
+) -> dict[str, Any]:
+    left = normalize_symbol(left_symbol)
+    right = normalize_symbol(right_symbol)
+    if not left or not right:
+        raise HTTPException(status_code=422, detail="Both ticker symbols are required.")
+    if left == right:
+        raise HTTPException(status_code=422, detail="Choose two different ticker symbols.")
+
+    source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=authenticated)
+    confirmation_locked = bool((source_entitlements.get("signals") or {}).get("locked"))
+    institutional_locked = bool((source_entitlements.get("institutional_activity") or {}).get("locked"))
+    options_locked = bool((source_entitlements.get("options_flow") or {}).get("locked"))
+
+    left_f = _latest_compare_fundamentals_row(db, left)
+    right_f = _latest_compare_fundamentals_row(db, right)
+    unsupported = [
+        symbol
+        for symbol, fundamentals in ((left, left_f), (right, right_f))
+        if not _peer_compare_symbol_supported(db, symbol, fundamentals)
+    ]
+    if unsupported:
+        raise HTTPException(status_code=404, detail={"message": "Ticker symbol is not supported.", "symbols": unsupported})
+
+    left_identity = _peer_compare_identity(db, left, left_f)
+    right_identity = _peer_compare_identity(db, right, right_f)
+    left_pv = _ticker_price_volume_summary(db, left)
+    right_pv = _ticker_price_volume_summary(db, right)
+    left_congress = _peer_compare_trade_summary(db, left, "congress_trade", lookback_days=30)
+    right_congress = _peer_compare_trade_summary(db, right, "congress_trade", lookback_days=30)
+    left_insiders = _peer_compare_trade_summary(db, left, "insider_trade", lookback_days=30)
+    right_insiders = _peer_compare_trade_summary(db, right, "insider_trade", lookback_days=30)
+    left_gov = get_government_contracts_summary(db, left, lookback_days=30, min_amount=1_000_000)
+    right_gov = get_government_contracts_summary(db, right, lookback_days=30, min_amount=1_000_000)
+
+    left_confirmation = None
+    right_confirmation = None
+    left_institutional = None
+    right_institutional = None
+    left_options = None
+    right_options = None
+    if not (confirmation_locked and institutional_locked and options_locked):
+        left_context = _ticker_confirmation_context(db, left)
+        right_context = _ticker_confirmation_context(db, right)
+        if not confirmation_locked:
+            left_confirmation = _redact_locked_ticker_confirmation_sources(left_context.get("confirmation_score_bundle") or {}, source_entitlements)
+            right_confirmation = _redact_locked_ticker_confirmation_sources(right_context.get("confirmation_score_bundle") or {}, source_entitlements)
+        if not institutional_locked:
+            left_institutional = left_context.get("institutional_activity_summary")
+            right_institutional = right_context.get("institutional_activity_summary")
+        if not options_locked:
+            left_options = left_context.get("options_flow_summary")
+            right_options = right_context.get("options_flow_summary")
+
+    categories = [
+        _peer_compare_business_category(left_f, right_f),
+        _peer_compare_valuation_category(left_f, right_f),
+        _peer_compare_price_volume_category(left_pv, right_pv),
+        _peer_compare_trade_category("congress_activity", "Congress Activity", left_congress, right_congress),
+        _peer_compare_trade_category("insider_activity", "Insider Activity", left_insiders, right_insiders),
+        _peer_compare_government_category(left_gov, right_gov),
+        _peer_compare_institutional_category(left_institutional, right_institutional, locked=institutional_locked),
+        _peer_compare_options_category(left_options, right_options, locked=options_locked),
+        _peer_compare_confirmation_category(left_confirmation, right_confirmation, locked=confirmation_locked),
+    ]
+
+    notes = []
+    for category in categories:
+        if category.get("locked"):
+            notes.append(f"{category.get('label')} is locked for this plan and excluded from the call.")
+            continue
+        if not category.get("metrics"):
+            notes.append(f"{category.get('label')} has limited data for this comparison.")
+    call = _peer_compare_call(left, right, categories)
+    return {
+        "status": "ok",
+        "left": left_identity,
+        "right": right_identity,
+        "lookback_days": 30,
+        "source_entitlements": source_entitlements,
+        "call": call,
+        "categories": categories,
+        "tradeoffs": [
+            category.get("label")
+            for category in categories
+            if not category.get("locked") and category.get("edge") in {"left", "right"} and category.get("edge") != call.get("winner")
+        ][:4],
+        "notes": notes,
+    }
+
+
+@app.get("/api/compare/{left_symbol}/{right_symbol}")
+def peer_compare(left_symbol: str, right_symbol: str, request: Request, db: Session = Depends(get_db)):
+    user = current_user(db, request, required=False)
+    entitlements = current_entitlements(request, db) if user is not None else None
+    return _build_peer_compare_payload(
+        db,
+        left_symbol,
+        right_symbol,
+        entitlements=entitlements,
+        authenticated=user is not None,
+    )
 
 
 def _redact_locked_ticker_confirmation_sources(
@@ -9650,6 +10138,7 @@ def _cached_fmp_symbol_row(
     cache: dict[str, tuple[float, dict]],
     log_name: str,
     ttl_seconds: int = 6 * 60 * 60,
+    allow_user_request: bool = False,
 ) -> dict:
     normalized = normalize_symbol(symbol)
     if not normalized:
@@ -9659,11 +10148,11 @@ def _cached_fmp_symbol_row(
         record_cache_hit(category=f"ticker:{endpoint}", symbol=normalized)
         return dict(cached[1])
     user_api_request = _is_public_api_request_context()
-    if user_api_request:
+    if user_api_request and not allow_user_request:
         record_cache_miss(category=f"ticker:{endpoint}", symbol=normalized)
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason="page_fetch_blocked")
         enqueue_data_enrichment_job(
-            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm", "market-capitalization"} else "profile",
             symbol=normalized,
             source="page_load",
             reason="cache_miss",
@@ -9677,7 +10166,7 @@ def _cached_fmp_symbol_row(
         reason = "provider_disabled" if user_api_request else "background_provider_disabled"
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason)
         enqueue_data_enrichment_job(
-            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm", "market-capitalization"} else "profile",
             symbol=normalized,
             source="page_load" if user_api_request else "background",
             reason="missing_api_key",
@@ -9687,7 +10176,7 @@ def _cached_fmp_symbol_row(
         return {}
 
     try:
-        ensure_fmp_live_allowed(category=f"ticker:{endpoint}", symbol=normalized)
+        ensure_fmp_live_allowed(category=f"ticker:{endpoint}", symbol=normalized, allow_user_request=allow_user_request)
         response = requests.get(
             f"{FMP_BASE_URL}/{endpoint}",
             params={"symbol": normalized, "apikey": api_key},
@@ -9701,7 +10190,7 @@ def _cached_fmp_symbol_row(
         reason = reason_from_exception(exc)
         record_fallback(category=f"ticker:{endpoint}", symbol=normalized, reason=reason)
         enqueue_data_enrichment_job(
-            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm"} else "profile",
+            job_type="fundamentals" if endpoint in {"ratios-ttm", "key-metrics-ttm", "market-capitalization"} else "profile",
             symbol=normalized,
             source="page_load" if user_api_request else "background",
             reason=reason,
@@ -9745,6 +10234,28 @@ def _company_profile_snapshot_from_fmp(symbol: str) -> dict:
     )
 
 
+def _company_profile_snapshot_from_fmp_for_user_request(symbol: str) -> dict:
+    return _cached_fmp_symbol_row(
+        symbol=symbol,
+        endpoint="profile",
+        cache=_TICKER_PROFILE_SNAPSHOT_CACHE,
+        log_name="profile",
+        ttl_seconds=60 * 60,
+        allow_user_request=True,
+    )
+
+
+def _market_cap_snapshot_from_fmp_for_user_request(symbol: str) -> dict:
+    return _cached_fmp_symbol_row(
+        symbol=symbol,
+        endpoint="market-capitalization",
+        cache=_TICKER_MARKET_CAP_SNAPSHOT_CACHE,
+        log_name="market_capitalization",
+        ttl_seconds=60 * 60,
+        allow_user_request=True,
+    )
+
+
 def _quote_float(row: dict, *keys: str) -> float | None:
     for key in keys:
         value = row.get(key)
@@ -9781,6 +10292,53 @@ def _cached_average_volume(db: Session, symbol: str, limit: int = 30) -> float |
         if isinstance(raw, (int, float)) and raw > 0:
             values.append(float(raw))
     return sum(values) / len(values) if values else None
+
+
+def _ticker_chart_volume_and_candles(db: Session, symbol: str, price_points: list[dict]) -> tuple[list[dict], list[dict]]:
+    if not price_points:
+        return [], []
+    dates = [str(point.get("date") or "") for point in price_points if point.get("date")]
+    if not dates:
+        return [], []
+    rows = (
+        db.execute(
+            select(PriceCache.date, PriceCache.volume, PriceCache.day_volume)
+            .where(PriceCache.symbol == symbol)
+            .where(PriceCache.date.in_(dates))
+        )
+        .all()
+    )
+    volume_by_date: dict[str, float] = {}
+    for day, volume, day_volume in rows:
+        raw_volume = volume if volume is not None else day_volume
+        parsed_volume = _parse_numeric(raw_volume)
+        if parsed_volume is not None and parsed_volume >= 0:
+            volume_by_date[str(day)] = parsed_volume
+
+    volumes: list[dict] = []
+    candles: list[dict] = []
+    previous_close: float | None = None
+    for point in price_points:
+        day = str(point.get("date") or "")
+        close = _parse_numeric(point.get("close"))
+        if not day or close is None:
+            continue
+        volume = volume_by_date.get(day)
+        if volume is not None:
+            volumes.append({"date": day, "volume": volume})
+        open_price = previous_close if previous_close is not None and previous_close > 0 else close
+        candles.append(
+            {
+                "date": day,
+                "open": open_price,
+                "high": max(open_price, close),
+                "low": min(open_price, close),
+                "close": close,
+                "volume": volume,
+            }
+        )
+        previous_close = close
+    return volumes, candles
 
 
 def _allow_chart_volume_provider_fallback() -> bool:
@@ -10034,15 +10592,26 @@ def _build_ticker_chart_quote(
     if day_change_pct is None and day_change is not None and previous_close not in (None, 0):
         day_change_pct = (day_change / previous_close) * 100
 
+    market_cap = (
+        _quote_float(row, "marketCap", "market_cap", "mktCap", "marketCapitalization")
+        or quote_market_cap
+        or (fundamentals_row.market_cap if fundamentals_row is not None else None)
+    )
+    beta = _quote_float(profile_row, "beta") or (fundamentals_row.beta if fundamentals_row is not None else None)
+    if market_cap is None and user_api_request:
+        market_cap_row = _market_cap_snapshot_from_fmp_for_user_request(symbol)
+        market_cap = _quote_float(market_cap_row, "marketCap", "market_cap", "mktCap", "marketCapitalization")
+    if beta is None and user_api_request:
+        beta_row = _company_profile_snapshot_from_fmp_for_user_request(symbol)
+        beta = _quote_float(beta_row, "beta")
+
     return {
         "current_price": current_price,
         "latest_close": latest_close,
         "previous_close": previous_close,
         "day_change": day_change,
         "day_change_pct": day_change_pct,
-        "market_cap": _quote_float(row, "marketCap", "market_cap", "mktCap")
-        or quote_market_cap
-        or (fundamentals_row.market_cap if fundamentals_row is not None else None),
+        "market_cap": market_cap,
         "day_volume": latest_series_volume or _quote_float(row, "volume") or quote_volume or (fundamentals_row.volume if fundamentals_row is not None else None),
         "average_volume": _explicit_average_volume_30d(row, profile_row)
         or (fundamentals_row.avg_volume if fundamentals_row is not None else None)
@@ -10058,7 +10627,7 @@ def _build_ticker_chart_quote(
             "trailing_pe",
         )
         or (fundamentals_row.trailing_pe if fundamentals_row is not None else None),
-        "beta": _quote_float(profile_row, "beta") or (fundamentals_row.beta if fundamentals_row is not None else None),
+        "beta": beta,
         "asof": latest_date or _ticker_chart_date_key(
             row.get("timestamp")
             or row.get("date")
@@ -10158,6 +10727,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
         ticker_freshness = is_price_history_stale(db, sym, expected_date=expected_latest_date)
         benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
     price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
+    volume_points, candle_points = _ticker_chart_volume_and_candles(db, sym, price_points)
     benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
@@ -10236,6 +10806,8 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
             "points": benchmark_points,
         },
         "prices": price_points,
+        "volumes": volume_points,
+        "candles": candle_points,
         "markers": markers,
         "quote": quote,
         "freshness": freshness_payload,

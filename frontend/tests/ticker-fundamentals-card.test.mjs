@@ -39,7 +39,8 @@ test("upper price volume card renders five compact rows including MACD", () => {
   assert.match(tickerPage, /function compactPriceVolumeRows/);
   assert.match(tickerPage, /Latest close \$\{formatUpperCardPrice/);
   assert.match(tickerPage, /1D change \$\{formatUpperCardSignedPercent/);
-  assert.match(tickerPage, /Vol vs 20D \$\{formatUpperCardMultiple/);
+  assert.match(tickerPage, /Vol vs 30D \$\{formatUpperCardMultiple/);
+  assert.doesNotMatch(tickerPage, /Vol vs 20D/);
   assert.match(tickerPage, /RSI \$\{formatUpperCardRsi/);
   assert.match(tickerPage, /MACD bullish/);
   assert.match(tickerPage, /MACD bearish/);

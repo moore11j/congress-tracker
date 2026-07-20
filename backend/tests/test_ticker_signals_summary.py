@@ -2422,6 +2422,7 @@ def test_ticker_price_volume_summary_distinguishes_missing_and_inactive(monkeypa
     assert inactive["latest_close"] is not None
     assert inactive["latest_volume"] is not None
     assert inactive["avg_volume_20d"] is not None
+    assert inactive["avg_volume_30d"] == inactive["avg_volume_20d"]
 
 
 def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(monkeypatch):
@@ -2456,11 +2457,39 @@ def test_ticker_price_volume_summary_uses_cached_price_rows_without_provider(mon
             assert summary["latest_close"] is not None
             assert summary["latest_volume"] is not None
             assert summary["avg_volume_20d"] is not None
+            assert summary["avg_volume_30d"] == summary["avg_volume_20d"]
             assert summary["volume_vs_avg"] is not None
             assert summary["rsi"]["status"] == "ok"
             assert summary["rsi"]["value"] is not None
             assert summary["macd"]["status"] == "ok"
             assert summary["macd"]["signal"] in {"bullish", "bearish", "neutral"}
+
+
+def test_ticker_price_volume_summary_computes_volume_ratio_against_30_day_average(monkeypatch):
+    monkeypatch.setattr(main_module, "_is_public_api_request_context", lambda: False)
+    engine = _engine()
+    today = date.today()
+    with Session(engine) as db:
+        for offset in range(40):
+            day = today - timedelta(days=39 - offset)
+            db.add(
+                PriceCache(
+                    symbol="AAPL",
+                    date=day.isoformat(),
+                    close=100 + offset,
+                    volume=1_000_000 + offset,
+                    day_volume=1_000_000 + offset,
+                )
+            )
+        db.commit()
+
+        summary = main_module._ticker_price_volume_summary(db, "AAPL")
+
+    expected_avg = sum(1_000_000 + offset for offset in range(10, 40)) / 30
+    assert summary["avg_volume_30d"] == expected_avg
+    assert summary["avg_volume_20d"] == expected_avg
+    assert summary["volume_vs_avg"] == round((1_000_000 + 39) / expected_avg, 4)
+    assert any("Volume vs 30D avg" in line for line in summary["lines"])
 
 
 def test_ticker_price_volume_summary_uses_fundamentals_volume_when_latest_daily_row_is_close_only(monkeypatch):
@@ -2497,6 +2526,7 @@ def test_ticker_price_volume_summary_uses_fundamentals_volume_when_latest_daily_
     assert summary["title"] != "Limited price/volume history"
     assert summary["latest_volume"] == 164_369_080
     assert summary["avg_volume_20d"] is not None
+    assert summary["avg_volume_30d"] == summary["avg_volume_20d"]
     assert summary["volume_vs_avg"] is not None
 
 

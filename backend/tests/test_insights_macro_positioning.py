@@ -18,6 +18,7 @@ from app.services.macro_positioning import (
     get_insights_macro_positioning,
     get_macro_positioning_feed,
     ingest_macro_positioning_assets,
+    macro_positioning_cache_payload,
     refresh_macro_positioning_feed_events,
 )
 
@@ -471,3 +472,28 @@ def test_ticker_macro_positioning_guest_irrelevant_ticker_does_not_show_locked_f
         assert "rating" not in payload
     finally:
         db.close()
+
+
+def test_ticker_macro_positioning_payload_does_not_show_neutral_when_all_visible_drivers_are_bullish():
+    row = MacroPositioningCache(
+        symbol="MU",
+        status="ok",
+        overall="neutral",
+        rating=3,
+        summary="Institutional positioning is currently neutral for this investment thesis.",
+        drivers_json=json.dumps(
+            [
+                {"name": "Nasdaq Futures", "bias": "bullish"},
+                {"name": "US Dollar", "bias": "bullish"},
+                {"name": "10-Year Treasury", "bias": "bullish"},
+            ]
+        ),
+        mapped_sector="Technology",
+        updated=date(2026, 7, 10),
+        generated_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+    )
+
+    payload = macro_positioning_cache_payload(row)
+
+    assert payload["overall"] == "bullish"
+    assert payload["summary"] == "Institutional positioning currently supports this investment thesis."

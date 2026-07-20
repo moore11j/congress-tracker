@@ -936,29 +936,46 @@ def macro_positioning_cache_payload(row: MacroPositioningCache) -> dict[str, Any
         drivers = []
     if not isinstance(drivers, list):
         drivers = []
-    active = row.status == "ok" and row.overall in {"bullish", "bearish", "neutral"} and bool(drivers)
+    driver_payloads = [
+        {
+            "name": str(driver.get("name") or "").strip(),
+            "bias": _bias_value(driver.get("bias")),
+        }
+        for driver in drivers
+        if isinstance(driver, dict) and str(driver.get("name") or "").strip()
+    ]
+    active = row.status == "ok" and row.overall in {"bullish", "bearish", "neutral"} and bool(driver_payloads)
+    display_overall = _overall_from_visible_drivers(row.overall, driver_payloads) if active else row.overall
+    display_summary = row.summary
+    if active and display_overall != row.overall:
+        display_summary = _summary_for_bias(display_overall, "this investment thesis")
     payload = {
         "symbol": row.symbol,
         "status": row.status,
         "active": active,
-        "summary": row.summary,
-        "drivers": [
-            {
-                "name": str(driver.get("name") or "").strip(),
-                "bias": _bias_value(driver.get("bias")),
-            }
-            for driver in drivers
-            if isinstance(driver, dict) and str(driver.get("name") or "").strip()
-        ],
+        "summary": display_summary,
+        "drivers": driver_payloads,
         "updated": row.updated.isoformat() if row.updated else None,
         "mapped_sector": row.mapped_sector,
         "mapped_asset_class": row.mapped_asset_class,
         "generated_at": row.generated_at.isoformat() if row.generated_at else None,
     }
     if active:
-        payload["overall"] = row.overall
+        payload["overall"] = display_overall
         payload["rating"] = max(1, min(int(row.rating or 3), 5))
     return payload
+
+
+def _overall_from_visible_drivers(overall: str, drivers: list[dict[str, str]]) -> str:
+    normalized_overall = _bias_value(overall)
+    if normalized_overall != "neutral":
+        return normalized_overall
+    biases = [_bias_value(driver.get("bias")) for driver in drivers]
+    if biases and all(bias == "bullish" for bias in biases):
+        return "bullish"
+    if biases and all(bias == "bearish" for bias in biases):
+        return "bearish"
+    return normalized_overall
 
 
 def refresh_macro_positioning_cache(

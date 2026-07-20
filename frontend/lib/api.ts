@@ -3489,6 +3489,20 @@ export type TickerChartQuote = {
   } | null;
 };
 
+export type TickerChartVolumePoint = {
+  date: string;
+  volume: number;
+};
+
+export type TickerChartCandlePoint = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number | null;
+};
+
 export type TickerChartFreshness = {
   status: "ok" | "stale" | "unavailable" | string;
   is_stale: boolean;
@@ -3511,6 +3525,8 @@ export type TickerChartBundle = {
   requested_days?: number;
   updated_at?: string | null;
   prices: TickerPriceHistoryPoint[];
+  volumes?: TickerChartVolumePoint[];
+  candles?: TickerChartCandlePoint[];
   benchmark: {
     symbol: string;
     label: string;
@@ -4187,6 +4203,7 @@ export type TickerSignalsSummaryResponse = {
     change_pct_1d?: number | null;
     latest_volume?: number | null;
     avg_volume_20d?: number | null;
+    avg_volume_30d?: number | null;
     volume_vs_avg?: number | null;
     latest_date?: string | null;
     rsi?: {
@@ -4285,6 +4302,69 @@ export type TickerContextBundleResponse = TickerProfile & {
   decision_layer?: TickerDecisionLayer | null;
   signals_summary: TickerSignalsSummaryResponse;
 };
+
+export type PeerCompareSide = {
+  symbol: string;
+  company_name?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  exchange?: string | null;
+};
+
+export type PeerCompareMetric = {
+  key: string;
+  label: string;
+  left: number | string | boolean | null;
+  right: number | string | boolean | null;
+  unit: "number" | "integer" | "currency" | "percent" | "percent_yield" | "multiple" | "ratio" | "score" | "text" | string;
+  edge: "left" | "right" | "even";
+};
+
+export type PeerCompareCategory = {
+  key: string;
+  label: string;
+  edge: "left" | "right" | "even";
+  score?: number | null;
+  locked?: boolean;
+  required_plan?: string | null;
+  metrics: PeerCompareMetric[];
+};
+
+export type PeerCompareResponse = {
+  status: "ok" | string;
+  left: PeerCompareSide;
+  right: PeerCompareSide;
+  lookback_days: number;
+  source_entitlements?: TickerSourceEntitlements | null;
+  call: {
+    winner: "left" | "right" | "even";
+    symbol?: string | null;
+    score?: number | null;
+    summary: string;
+    drivers: string[];
+    methodology?: string | null;
+  };
+  categories: PeerCompareCategory[];
+  tradeoffs: string[];
+  notes: string[];
+};
+
+export async function getPeerCompare(
+  leftSymbol: string,
+  rightSymbol: string,
+  params?: { authToken?: string; signal?: AbortSignal; source?: string },
+): Promise<PeerCompareResponse> {
+  return fetchJson<PeerCompareResponse>(
+    buildApiUrl(`/api/compare/${tickerPathSymbol(leftSymbol)}/${tickerPathSymbol(rightSymbol)}`),
+    {
+      headers: authHeaders(params?.authToken),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "PeerCompare",
+    },
+  );
+}
 
 export async function getTickerContextBundle(
   symbol: string,

@@ -119,9 +119,7 @@ test("ticker Signal activity renders historical rows and keeps locked states out
 test("ticker institutional holder activity is separate from Signal activity", () => {
   const client = read("components/ticker/TickerSignalActivityClient.tsx");
   const tickerPage = read("app/ticker/[symbol]/page.tsx");
-  const kpi = read("components/ticker/TickerKpiNavigation.tsx");
 
-  assert.match(kpi, /"institutional"/);
   assert.match(tickerPage, /type SourceFilter = "all" \| "congress" \| "insider" \| "signals" \| "institutional" \| "government_contract"/);
   assert.match(tickerPage, /\["institutional", "Institutional"\]/);
   assert.match(tickerPage, /tape: "institutional"/);

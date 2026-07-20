@@ -17,3 +17,18 @@ test("daily price terminal has a development/test consistency guard", () => {
   assert.match(chartSource, /console\.error\(message\)/);
   assert.match(chartSource, /assertDailyPriceTerminalConsistency\(bundle\)/);
 });
+
+test("daily price terminal exposes advanced chart controls", () => {
+  assert.match(apiSource, /export type TickerChartVolumePoint/);
+  assert.match(apiSource, /export type TickerChartCandlePoint/);
+  assert.match(apiSource, /volumes\?: TickerChartVolumePoint\[\]/);
+  assert.match(apiSource, /candles\?: TickerChartCandlePoint\[\]/);
+  assert.match(chartSource, /type ChartMode = "line" \| "candles"/);
+  assert.match(chartSource, /CandlestickSeries/);
+  assert.match(chartSource, /HistogramSeries/);
+  assert.match(chartSource, /volumeProfileBuckets/);
+  assert.match(chartSource, /SMA 20/);
+  assert.match(chartSource, /Bollinger/);
+  assert.match(chartSource, /VWAP/);
+  assert.match(chartSource, /TickerChartCompare/);
+});

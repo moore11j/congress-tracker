@@ -44,6 +44,8 @@ def _dense_provider_rows(base_close: float):
 def _disable_chart_metric_fetches(monkeypatch):
     monkeypatch.setattr("app.main._ratios_ttm_from_fmp", lambda symbol: {})
     monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main._market_cap_snapshot_from_fmp_for_user_request", lambda symbol: {})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp_for_user_request", lambda symbol: {})
     monkeypatch.setattr("app.main.get_daily_volume_series_from_provider", lambda symbol, start_date, end_date: {})
 
 
@@ -392,6 +394,59 @@ def test_ticker_chart_quote_uses_chart_series_as_canonical_daily_price(monkeypat
     assert quote["source_freshness"]["price_source"] == "daily_series"
 
 
+def test_ticker_chart_quote_backfills_market_cap_and_beta_from_stable_fallbacks(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    monkeypatch.setattr("app.main.get_current_prices_meta_db", lambda *args, **kwargs: {})
+    monkeypatch.setattr("app.main._market_cap_snapshot_from_fmp_for_user_request", lambda symbol: {"marketCap": 139_200_000_000})
+    monkeypatch.setattr("app.main._company_profile_snapshot_from_fmp_for_user_request", lambda symbol: {"beta": 1.34})
+
+    token = set_request_context({"path": "/api/tickers/MU/chart-bundle", "priority": "heavy"})
+    try:
+        quote = _build_ticker_chart_quote(
+            db,
+            "MU",
+            [
+                {"date": "2026-07-07", "close": 121.42},
+                {"date": "2026-07-08", "close": 124.36},
+            ],
+        )
+    finally:
+        reset_request_context(token)
+
+    assert quote["market_cap"] == 139_200_000_000
+    assert quote["beta"] == 1.34
+
+
+def test_ticker_chart_bundle_includes_volume_and_candle_series(monkeypatch):
+    db = _session()
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    today = datetime.now(timezone.utc).date()
+    prior = today - timedelta(days=1)
+    db.add(PriceCache(symbol="MU", date=prior.isoformat(), close=120.0, volume=33_000_000))
+    db.add(PriceCache(symbol="MU", date=today.isoformat(), close=124.0, volume=35_000_000))
+    db.add(PriceCache(symbol="SPY", date=prior.isoformat(), close=500.0))
+    db.add(PriceCache(symbol="SPY", date=today.isoformat(), close=505.0))
+    db.commit()
+
+    bundle = _build_ticker_chart_bundle("MU", 30, db)
+
+    assert bundle["volumes"][-1] == {"date": today.isoformat(), "volume": 35_000_000}
+    assert bundle["candles"][-1] == {
+        "date": today.isoformat(),
+        "open": 120.0,
+        "high": 124.0,
+        "low": 120.0,
+        "close": 124.0,
+        "volume": 35_000_000,
+    }
+
+
 def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
@@ -496,7 +551,7 @@ def test_ticker_chart_request_time_uses_alternate_source_when_dense_history_tail
 def test_ticker_chart_marks_stale_when_request_time_refresh_has_no_recent_data(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
-    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    expected = datetime.now(timezone.utc).date()
     stale_day = expected - timedelta(days=6)
     _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)

@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AreaSeries,
+  CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
   createSeriesMarkers,
   type AreaData,
+  type CandlestickData,
+  type HistogramData,
   type LineData,
   type MouseEventParams,
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
-import type { TickerChartBundle, TickerChartMarker } from "@/lib/api";
+import { getTickerChartBundle, type TickerChartBundle, type TickerChartMarker } from "@/lib/api";
 
 type MarkerGroup = {
   id: string;
@@ -43,6 +47,9 @@ type MarkerKindConfig = {
   label: string;
   toggleLabel: string;
 };
+
+type ChartMode = "line" | "candles";
+type IndicatorKey = "sma20" | "sma50" | "bollinger" | "vwap";
 
 const markerConfig: Record<TickerChartMarker["kind"], MarkerKindConfig> = {
   congress: { color: "#38bdf8", label: "Congress", toggleLabel: "Congress" },
@@ -100,6 +107,79 @@ function formatPct(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
+}
+
+function movingAverage(points: { date: string; close: number }[], period: number): LineData[] {
+  const data: LineData[] = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const window = points.slice(Math.max(0, index - period + 1), index + 1);
+    if (window.length < period) continue;
+    const value = window.reduce((sum, point) => sum + point.close, 0) / period;
+    data.push({ time: points[index].date, value });
+  }
+  return data;
+}
+
+function bollingerBands(points: { date: string; close: number }[], period = 20, deviations = 2): { upper: LineData[]; lower: LineData[] } {
+  const upper: LineData[] = [];
+  const lower: LineData[] = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const window = points.slice(Math.max(0, index - period + 1), index + 1);
+    if (window.length < period) continue;
+    const average = window.reduce((sum, point) => sum + point.close, 0) / period;
+    const variance = window.reduce((sum, point) => sum + (point.close - average) ** 2, 0) / period;
+    const bandWidth = Math.sqrt(variance) * deviations;
+    upper.push({ time: points[index].date, value: average + bandWidth });
+    lower.push({ time: points[index].date, value: average - bandWidth });
+  }
+  return { upper, lower };
+}
+
+function vwapLine(points: { date: string; close: number; volume?: number | null }[]): LineData[] {
+  let cumulativeValue = 0;
+  let cumulativeVolume = 0;
+  return points.flatMap((point) => {
+    const volume = typeof point.volume === "number" && Number.isFinite(point.volume) ? point.volume : 0;
+    if (volume <= 0) return [];
+    cumulativeValue += point.close * volume;
+    cumulativeVolume += volume;
+    return [{ time: point.date, value: cumulativeValue / cumulativeVolume }];
+  });
+}
+
+function normalizedCompareData(basePoints: { date: string; close: number }[], comparePoints: { date: string; close: number }[]): LineData[] {
+  const baseByDate = new Map(basePoints.map((point) => [point.date, point.close]));
+  const compareByDate = new Map(comparePoints.map((point) => [point.date, point.close]));
+  const firstMatch = basePoints.find((point) => compareByDate.has(point.date));
+  if (!firstMatch) return [];
+  const firstCompareClose = compareByDate.get(firstMatch.date);
+  if (!firstMatch.close || !firstCompareClose) return [];
+  const data: LineData[] = [];
+  for (const point of comparePoints) {
+    const baseClose = baseByDate.get(point.date);
+    if (baseClose === undefined) continue;
+    data.push({ time: point.date, value: (point.close / firstCompareClose) * firstMatch.close });
+  }
+  return data;
+}
+
+function volumeProfileBuckets(points: { close: number; volume?: number | null }[], bucketCount = 18): { topPct: number; heightPct: number; widthPct: number }[] {
+  const usable = points.filter((point) => Number.isFinite(point.close) && typeof point.volume === "number" && Number.isFinite(point.volume) && point.volume > 0);
+  if (usable.length === 0) return [];
+  const min = Math.min(...usable.map((point) => point.close));
+  const max = Math.max(...usable.map((point) => point.close));
+  if (min === max) return [{ topPct: 46, heightPct: 8, widthPct: 100 }];
+  const buckets = Array.from({ length: bucketCount }, () => 0);
+  for (const point of usable) {
+    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor(((point.close - min) / (max - min)) * bucketCount)));
+    buckets[index] += point.volume ?? 0;
+  }
+  const maxVolume = Math.max(...buckets, 1);
+  return buckets.map((volume, index) => ({
+    topPct: ((bucketCount - index - 1) / bucketCount) * 100,
+    heightPct: 100 / bucketCount,
+    widthPct: (volume / maxVolume) * 100,
+  }));
 }
 
 export function assertDailyPriceTerminalConsistency(bundle: TickerChartBundle | null): void {
@@ -286,7 +366,38 @@ export function PremiumTickerChart({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readout, setReadout] = useState<HoverReadout | null>(null);
   const [markerVisibility, setMarkerVisibility] = useState<Record<TickerChartMarker["kind"], boolean>>(defaultMarkerVisibility);
+  const [chartMode, setChartMode] = useState<ChartMode>("line");
+  const [indicatorVisibility, setIndicatorVisibility] = useState<Record<IndicatorKey, boolean>>({
+    sma20: false,
+    sma50: false,
+    bollinger: false,
+    vwap: false,
+  });
+  const [compareInput, setCompareInput] = useState("");
+  const [compareSymbol, setCompareSymbol] = useState<string | null>(null);
+  const [compareBundle, setCompareBundle] = useState<TickerChartBundle | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
   const visibleMarkerKinds = useMemo(() => allowedMarkerKinds ?? markerKinds, [allowedMarkerKinds]);
+
+  useEffect(() => {
+    if (!compareSymbol || !bundle?.days) {
+      setCompareBundle(null);
+      setCompareLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCompareLoading(true);
+    getTickerChartBundle(compareSymbol, bundle.days, { signal: controller.signal, source: "TickerChartCompare" })
+      .then((response) => setCompareBundle(response))
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setCompareBundle(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCompareLoading(false);
+      });
+    return () => controller.abort();
+  }, [bundle?.days, compareSymbol]);
 
   const normalized = useMemo(() => {
     const prices = [...(bundle?.prices ?? [])]
@@ -300,6 +411,42 @@ export function PremiumTickerChart({
     const priceDates = prices.map((point) => point.date);
     const firstClose = prices[0]?.close ?? null;
     const firstBenchmarkClose = benchmark[0]?.close ?? null;
+    const volumeByDate = new Map((bundle?.volumes ?? []).map((point) => [point.date, point.volume]));
+    const candleSource = bundle?.candles?.length
+      ? [...bundle.candles].sort((a, b) => a.date.localeCompare(b.date))
+      : prices.map((point, index) => {
+          const previousClose = prices[index - 1]?.close ?? point.close;
+          return {
+            date: point.date,
+            open: previousClose,
+            high: Math.max(previousClose, point.close),
+            low: Math.min(previousClose, point.close),
+            close: point.close,
+            volume: volumeByDate.get(point.date) ?? null,
+          };
+        });
+    const closeVolumePoints = prices.map((point) => ({
+      date: point.date,
+      close: point.close,
+      volume: volumeByDate.get(point.date) ?? candleSource.find((candle) => candle.date === point.date)?.volume ?? null,
+    }));
+    const candleData: CandlestickData[] = candleSource.map((point) => ({
+      time: point.date,
+      open: point.open,
+      high: point.high,
+      low: point.low,
+      close: point.close,
+    }));
+    const volumeData: HistogramData[] = closeVolumePoints
+      .filter((point) => typeof point.volume === "number" && Number.isFinite(point.volume))
+      .map((point, index) => {
+        const previous = closeVolumePoints[index - 1]?.close ?? point.close;
+        return {
+          time: point.date,
+          value: point.volume ?? 0,
+          color: point.close >= previous ? "rgba(52,211,153,0.34)" : "rgba(251,113,133,0.34)",
+        };
+      });
 
     const benchmarkData: LineData[] = [];
     if (firstClose && firstBenchmarkClose) {
@@ -339,6 +486,14 @@ export function PremiumTickerChart({
     return {
       prices,
       areaData: prices.map((point): AreaData => ({ time: point.date, value: point.close })),
+      candleData,
+      volumeData,
+      sma20Data: movingAverage(prices, 20),
+      sma50Data: movingAverage(prices, 50),
+      bollingerData: bollingerBands(prices),
+      vwapData: vwapLine(closeVolumePoints),
+      compareData: compareBundle?.prices ? normalizedCompareData(prices, compareBundle.prices) : [],
+      volumeProfile: volumeProfileBuckets(closeVolumePoints),
       benchmarkData,
       priceByDate,
       benchmarkByDate,
@@ -347,7 +502,7 @@ export function PremiumTickerChart({
       firstClose,
       firstBenchmarkClose,
     };
-  }, [bundle, markerVisibility, visibleMarkerKinds]);
+  }, [bundle, compareBundle, markerVisibility, visibleMarkerKinds]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -383,7 +538,7 @@ export function PremiumTickerChart({
       },
       rightPriceScale: {
         borderColor: "rgba(148,163,184,0.18)",
-        scaleMargins: { top: 0.12, bottom: 0.14 },
+        scaleMargins: { top: 0.12, bottom: normalized.volumeData.length > 0 ? 0.28 : 0.14 },
       },
       timeScale: {
         borderColor: "rgba(148,163,184,0.18)",
@@ -403,17 +558,89 @@ export function PremiumTickerChart({
       },
     });
 
-    const priceSeries = chart.addSeries(AreaSeries, {
-      lineColor: "#22d3ee",
-      topColor: "rgba(34,211,238,0.28)",
-      bottomColor: "rgba(34,211,238,0.02)",
-      lineWidth: 2,
-      priceLineColor: "rgba(34,211,238,0.45)",
-      priceLineWidth: 1,
-      lastValueVisible: true,
-      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-    });
-    priceSeries.setData(normalized.areaData);
+    const priceSeries = chartMode === "candles"
+      ? chart.addSeries(CandlestickSeries, {
+          upColor: "#34d399",
+          downColor: "#fb7185",
+          borderUpColor: "#34d399",
+          borderDownColor: "#fb7185",
+          wickUpColor: "rgba(52,211,153,0.9)",
+          wickDownColor: "rgba(251,113,133,0.9)",
+          priceLineColor: "rgba(34,211,238,0.45)",
+          priceLineWidth: 1,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        })
+      : chart.addSeries(AreaSeries, {
+          lineColor: "#22d3ee",
+          topColor: "rgba(34,211,238,0.28)",
+          bottomColor: "rgba(34,211,238,0.02)",
+          lineWidth: 2,
+          priceLineColor: "rgba(34,211,238,0.45)",
+          priceLineWidth: 1,
+          lastValueVisible: true,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        });
+    if (chartMode === "candles") {
+      priceSeries.setData(normalized.candleData);
+    } else {
+      priceSeries.setData(normalized.areaData);
+    }
+
+    if (normalized.volumeData.length > 0) {
+      const volumeSeries = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "volume",
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      volumeSeries.setData(normalized.volumeData);
+      chart.priceScale("volume").applyOptions({
+        scaleMargins: { top: 0.78, bottom: 0 },
+        borderVisible: false,
+      });
+    }
+
+    if (indicatorVisibility.sma20 && normalized.sma20Data.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(96,165,250,0.95)",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }).setData(normalized.sma20Data);
+    }
+    if (indicatorVisibility.sma50 && normalized.sma50Data.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(168,85,247,0.9)",
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }).setData(normalized.sma50Data);
+    }
+    if (indicatorVisibility.bollinger) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(251,191,36,0.75)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }).setData(normalized.bollingerData.upper);
+      chart.addSeries(LineSeries, {
+        color: "rgba(251,191,36,0.75)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }).setData(normalized.bollingerData.lower);
+    }
+    if (indicatorVisibility.vwap && normalized.vwapData.length > 0) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(45,212,191,0.95)",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      }).setData(normalized.vwapData);
+    }
 
     if (normalized.benchmarkData.length >= 2) {
       const benchmarkSeries = chart.addSeries(LineSeries, {
@@ -424,6 +651,16 @@ export function PremiumTickerChart({
         lastValueVisible: false,
       });
       benchmarkSeries.setData(normalized.benchmarkData);
+    }
+
+    if (normalized.compareData.length >= 2 && compareSymbol) {
+      const compareSeries = chart.addSeries(LineSeries, {
+        color: "rgba(244,114,182,0.95)",
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      compareSeries.setData(normalized.compareData);
     }
 
     const seriesMarkers: SeriesMarker<Time>[] = normalized.markerGroups.map((group) => {
@@ -503,7 +740,7 @@ export function PremiumTickerChart({
       chart.unsubscribeClick(handleClick);
       chart.remove();
     };
-  }, [normalized]);
+  }, [chartMode, compareSymbol, indicatorVisibility, normalized]);
 
   const symbol = bundle?.symbol ?? "Ticker";
   const quote = bundle?.quote;
@@ -532,6 +769,20 @@ export function PremiumTickerChart({
   ];
   const toggleMarkerKind = (kind: TickerChartMarker["kind"]) => {
     setMarkerVisibility((current) => ({ ...current, [kind]: !current[kind] }));
+  };
+  const toggleIndicator = (indicator: IndicatorKey) => {
+    setIndicatorVisibility((current) => ({ ...current, [indicator]: !current[indicator] }));
+  };
+  const submitCompare = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextSymbol = compareInput.trim().toUpperCase();
+    setCompareSymbol(nextSymbol || null);
+    if (!nextSymbol) setCompareBundle(null);
+  };
+  const clearCompare = () => {
+    setCompareInput("");
+    setCompareSymbol(null);
+    setCompareBundle(null);
   };
   const markerEventsClassName = [
     "mt-2 max-h-36 space-y-2 overflow-y-auto overscroll-contain pr-1",
@@ -606,6 +857,66 @@ export function PremiumTickerChart({
             </div>
           ))}
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-white/10 bg-slate-950/70 p-1">
+            {(["line", "candles"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setChartMode(mode)}
+                className={`rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition ${
+                  chartMode === mode ? "bg-cyan-300/15 text-cyan-100" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                }`}
+                aria-pressed={chartMode === mode}
+              >
+                {mode === "line" ? "Line" : "Candles"}
+              </button>
+            ))}
+          </div>
+          {([
+            ["sma20", "SMA 20"],
+            ["sma50", "SMA 50"],
+            ["bollinger", "Bollinger"],
+            ["vwap", "VWAP"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleIndicator(key)}
+              className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition ${
+                indicatorVisibility[key]
+                  ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100"
+                  : "border-white/10 bg-white/[0.025] text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
+              }`}
+              aria-pressed={indicatorVisibility[key]}
+            >
+              {label}
+            </button>
+          ))}
+          <form onSubmit={submitCompare} className="flex min-w-[16rem] items-center gap-2 rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1">
+            <input
+              value={compareInput}
+              onChange={(event) => setCompareInput(event.target.value.toUpperCase())}
+              placeholder="Compare ticker"
+              className="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm font-semibold uppercase text-slate-100 outline-none placeholder:text-slate-600"
+              maxLength={12}
+            />
+            {compareSymbol ? (
+              <button type="button" onClick={clearCompare} className="rounded-md px-2 py-1 text-xs font-semibold text-slate-400 hover:bg-white/5 hover:text-slate-100">
+                Clear
+              </button>
+            ) : null}
+            <button type="submit" className="rounded-md bg-cyan-300/15 px-2.5 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-300/20">
+              Compare
+            </button>
+          </form>
+          {compareSymbol ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-pink-300/25 bg-pink-300/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-pink-100">
+              <span className="h-[2px] w-5 rounded bg-pink-300" />
+              {compareLoading ? "Loading" : compareSymbol}
+            </span>
+          ) : null}
+        </div>
         {showMarkerControls ? (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {visibleMarkerKinds.map((kind) => (
@@ -636,6 +947,21 @@ export function PremiumTickerChart({
 
       <div className="relative">
         <div ref={containerRef} className="h-[420px] w-full" />
+        {normalized.volumeProfile.length > 0 ? (
+          <div className="pointer-events-none absolute bottom-12 right-12 top-8 z-10 w-24 opacity-65">
+            {normalized.volumeProfile.map((bucket, index) => (
+              <div
+                key={`${bucket.topPct}-${index}`}
+                className="absolute right-0 rounded-l bg-cyan-300/20"
+                style={{
+                  top: `${bucket.topPct}%`,
+                  height: `${Math.max(bucket.heightPct - 0.8, 1)}%`,
+                  width: `${Math.max(bucket.widthPct, 5)}%`,
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
 
         {readout ? (
           <div
