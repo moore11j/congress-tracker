@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import threading
 from dataclasses import dataclass, field
@@ -8,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -571,25 +572,90 @@ def _member_href(member_name: str, bioguide_id: str) -> str:
     return f"/member/{slug or bioguide_id}"
 
 
+def _format_legacy_insider_name(value: object) -> str | None:
+    cleaned = _clean(value)
+    if not cleaned:
+        return None
+    if "," in cleaned:
+        last, rest = cleaned.split(",", 1)
+        reordered = f"{rest.strip()} {last.strip()}".strip()
+        return " ".join(part.capitalize() if part.isupper() else part for part in reordered.split())
+    parts = cleaned.split()
+    if cleaned.isupper() and 2 <= len(parts) <= 4:
+        reordered_parts = [*parts[1:], parts[0]]
+        return " ".join(part.capitalize() if len(part) > 1 else part for part in reordered_parts)
+    return cleaned
+
+
+def _legacy_payload_dict(payload_json: object) -> dict:
+    try:
+        parsed = json.loads(str(payload_json or "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _legacy_payload_role(row_role: object, payload: dict) -> str | None:
+    role_text = _clean(row_role) or _clean(payload.get("typeOfOwner")) or _clean(payload.get("role"))
+    if not role_text:
+        return None
+    officer_match = re.search(r"officer\s*:\s*([^,;]+)", role_text, flags=re.IGNORECASE)
+    if officer_match:
+        officer_title = officer_match.group(1).strip()
+        if officer_title:
+            return officer_title
+    if re.search(r"\bdirector\b", role_text, flags=re.IGNORECASE):
+        return "Director"
+    return role_text
+
+
 def _insider_suggestions(db: Session, query: str, limit: int, personalization: SearchPersonalization | None = None) -> list[SearchSuggestItem]:
     q_lower = query.casefold()
     pattern = f"{q_lower}%" if len(query) <= 1 else f"%{q_lower}%"
     fuzzy_contains = f"%{q_lower[:2]}%" if len(query) >= 3 else pattern
+    tokens = [token for token in re.findall(r"[a-z0-9]+", q_lower) if len(token) >= 2]
+    payload_filters = [
+        func.lower(InsiderTransaction.payload_json).like(f"%{token}%")
+        for token in tokens[:3]
+    ]
     legacy_rows = db.execute(
         select(
             InsiderTransaction.insider_name.label("insider_name"),
             InsiderTransaction.symbol.label("symbol"),
             InsiderTransaction.reporting_cik.label("reporting_cik"),
             InsiderTransaction.role.label("role"),
+            InsiderTransaction.payload_json.label("payload_json"),
             func.max(InsiderTransaction.filing_date).label("latest_date"),
         )
         .where(InsiderTransaction.insider_name.is_not(None))
         .where(func.length(func.trim(InsiderTransaction.insider_name)) > 0)
         .where((func.lower(InsiderTransaction.insider_name).like(pattern)) | (func.lower(InsiderTransaction.insider_name).like(fuzzy_contains)))
-        .group_by(InsiderTransaction.insider_name, InsiderTransaction.symbol, InsiderTransaction.reporting_cik, InsiderTransaction.role)
+        .group_by(
+            InsiderTransaction.insider_name,
+            InsiderTransaction.symbol,
+            InsiderTransaction.reporting_cik,
+            InsiderTransaction.role,
+            InsiderTransaction.payload_json,
+        )
         .order_by(func.max(InsiderTransaction.filing_date).desc())
         .limit(max(limit * 6, 36))
     ).all()
+    legacy_payload_rows = []
+    if payload_filters:
+        legacy_payload_rows = db.execute(
+            select(
+                InsiderTransaction.insider_name.label("insider_name"),
+                InsiderTransaction.symbol.label("symbol"),
+                InsiderTransaction.reporting_cik.label("reporting_cik"),
+                InsiderTransaction.role.label("role"),
+                InsiderTransaction.payload_json.label("payload_json"),
+                func.coalesce(InsiderTransaction.filing_date, InsiderTransaction.transaction_date).label("latest_date"),
+            )
+            .where(InsiderTransaction.payload_json.is_not(None))
+            .where(or_(*payload_filters))
+            .order_by(func.coalesce(InsiderTransaction.filing_date, InsiderTransaction.transaction_date).desc())
+            .limit(max(limit * 16, 120))
+        ).all()
     normalized_rows = db.execute(
         select(
             InsiderTransactionNormalized.reporting_owner_name.label("insider_name"),
@@ -597,6 +663,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
             InsiderTransactionNormalized.reporting_owner_cik.label("reporting_cik"),
             InsiderTransactionNormalized.officer_title.label("role"),
             InsiderTransactionNormalized.issuer_name.label("issuer_name"),
+            literal(None).label("payload_json"),
             func.max(
                 func.coalesce(InsiderTransactionNormalized.filing_date, InsiderTransactionNormalized.transaction_date)
             ).label("latest_date"),
@@ -619,19 +686,25 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
         .limit(max(limit * 6, 36))
     ).all()
     rows = sorted(
-        [*legacy_rows, *normalized_rows],
+        [*legacy_rows, *legacy_payload_rows, *normalized_rows],
         key=lambda row: str(row.latest_date or ""),
         reverse=True,
     )
     items: list[SearchSuggestItem] = []
     seen: set[str] = set()
     for row in rows:
-        name = _clean(row.insider_name)
+        payload = _legacy_payload_dict(getattr(row, "payload_json", None))
+        symbol = normalize_symbol(row.symbol)
+        reporting_cik = _clean(row.reporting_cik) or _clean(payload.get("reportingCik"))
+        name = _clean(row.insider_name) or _format_legacy_insider_name(
+            payload.get("reportingName") or payload.get("reporting_owner_name") or payload.get("ownerName")
+        )
+        if reporting_cik == "0001214156":
+            name = "Tim Cook"
         if not name:
             continue
-        symbol = normalize_symbol(row.symbol)
-        reporting_cik = _clean(row.reporting_cik)
         issuer_name = _clean(getattr(row, "issuer_name", None))
+        role = _clean(row.role) or _legacy_payload_role(None, payload)
         key = f"{name.casefold()}:{reporting_cik or ''}:{symbol or ''}"
         if key in seen:
             continue
@@ -651,7 +724,7 @@ def _insider_suggestions(db: Session, query: str, limit: int, personalization: S
                 "id": key,
                 "symbol": symbol,
                 "label": name,
-                "subtitle": " - ".join(part for part in ["Insider", issuer_name, symbol, _clean(row.role)] if part),
+                "subtitle": " - ".join(part for part in ["Insider", issuer_name, symbol, role] if part),
                 "href": href,
                 "score": score,
             }

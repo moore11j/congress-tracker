@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
@@ -306,6 +307,71 @@ def test_search_suggest_finds_normalized_form4_insider():
         assert "/insider/tim-cook-0001214156?issuer=NKE" in insider_hrefs
         assert any(item["symbol"] == "AAPL" and "Chief Executive Officer" in str(item["subtitle"]) for item in insider_items)
         assert any(item["symbol"] == "NKE" and "Nike Inc." in str(item["subtitle"]) for item in insider_items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_finds_legacy_payload_insider_with_null_name():
+    db = _db()
+    try:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.add_all(
+            [
+                InsiderTransaction(
+                    source="fmp",
+                    external_id="tim-cook-aapl-payload",
+                    symbol="AAPL",
+                    reporting_cik="0001214156",
+                    insider_name=None,
+                    transaction_type="M-Exempt",
+                    role=None,
+                    transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 3, tzinfo=timezone.utc).date(),
+                    shares=131576,
+                    price=0,
+                    payload_json=json.dumps(
+                        {
+                            "reportingName": "COOK TIMOTHY D",
+                            "reportingCik": "0001214156",
+                            "symbol": "AAPL",
+                            "typeOfOwner": "director, officer: Chief Executive Officer",
+                        }
+                    ),
+                ),
+                InsiderTransaction(
+                    source="fmp",
+                    external_id="tim-cook-nke-payload",
+                    symbol="NKE",
+                    reporting_cik="0001214156",
+                    insider_name=None,
+                    transaction_type="P-Purchase",
+                    role=None,
+                    transaction_date=datetime(2026, 4, 10, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 14, tzinfo=timezone.utc).date(),
+                    shares=25000,
+                    price=42.43,
+                    payload_json=json.dumps(
+                        {
+                            "reportingName": "COOK TIMOTHY D",
+                            "reportingCik": "0001214156",
+                            "symbol": "NKE",
+                            "typeOfOwner": "director",
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "Tim Cook", limit=8)["items"]
+
+        insider_items = [item for item in items if item["kind"] == "insider"]
+        insider_hrefs = {item["href"] for item in insider_items}
+        assert "/insider/tim-cook-0001214156?issuer=AAPL" in insider_hrefs
+        assert "/insider/tim-cook-0001214156?issuer=NKE" in insider_hrefs
+        assert any(item["symbol"] == "AAPL" and "Chief Executive Officer" in str(item["subtitle"]) for item in insider_items)
+        assert any(item["symbol"] == "NKE" and "Director" in str(item["subtitle"]) for item in insider_items)
     finally:
         search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.db import Base
-from app.models import Event, InsiderTransactionNormalized, TickerMeta
+from app.models import Event, InsiderTransaction, InsiderTransactionNormalized, TickerMeta
 import app.routers.events as events_router
 from app.routers.events import global_search, insider_summary, insider_trades, suggest_member_insider
 
@@ -91,6 +91,43 @@ def test_global_search_finds_normalized_form4_insider_without_event():
         db.close()
 
 
+def test_global_search_finds_legacy_payload_insider_without_event_or_normalized_rows():
+    db = _db()
+    try:
+        db.add(
+            InsiderTransaction(
+                source="fmp",
+                external_id="tim-cook-aapl-global-legacy",
+                symbol="AAPL",
+                reporting_cik="0001214156",
+                insider_name=None,
+                transaction_type="M-Exempt",
+                transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+                filing_date=datetime(2026, 4, 3, tzinfo=timezone.utc).date(),
+                shares=131576,
+                price=0,
+                payload_json=json.dumps(
+                    {
+                        "reportingName": "COOK TIMOTHY D",
+                        "reportingCik": "0001214156",
+                        "symbol": "AAPL",
+                        "typeOfOwner": "director, officer: Chief Executive Officer",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        payload = global_search(db=db, q="Tim Cook", limit=8)
+
+        insider = next(item for item in payload["results"] if item["type"] == "insider")
+        assert insider["label"] == "Tim Cook"
+        assert insider["symbol"] == "AAPL"
+        assert insider["route"] == "/insider/tim-cook-0001214156?issuer=AAPL"
+    finally:
+        db.close()
+
+
 def test_member_insider_suggest_finds_normalized_form4_insider_without_event():
     db = _db()
     try:
@@ -116,6 +153,44 @@ def test_member_insider_suggest_finds_normalized_form4_insider_without_event():
         assert insider["reporting_cik"] == "0001214156"
         assert insider["symbol"] == "AAPL"
         assert insider["company_name"] == "Apple Inc."
+    finally:
+        db.close()
+
+
+def test_member_insider_suggest_finds_legacy_payload_insider_without_event_or_normalized_rows():
+    db = _db()
+    try:
+        db.add(
+            InsiderTransaction(
+                source="fmp",
+                external_id="tim-cook-nke-member-insider-legacy",
+                symbol="NKE",
+                reporting_cik="0001214156",
+                insider_name=None,
+                transaction_type="P-Purchase",
+                transaction_date=datetime(2026, 4, 10, tzinfo=timezone.utc).date(),
+                filing_date=datetime(2026, 4, 14, tzinfo=timezone.utc).date(),
+                shares=25000,
+                price=42.43,
+                payload_json=json.dumps(
+                    {
+                        "reportingName": "COOK TIMOTHY D",
+                        "reportingCik": "0001214156",
+                        "symbol": "NKE",
+                        "typeOfOwner": "director",
+                    }
+                ),
+            )
+        )
+        db.commit()
+
+        payload = suggest_member_insider(db=db, q="Tim Cook", limit=8)
+
+        insider = next(item for item in payload["items"] if item["category"] == "insider")
+        assert insider["value"] == "Tim Cook"
+        assert insider["reporting_cik"] == "0001214156"
+        assert insider["symbol"] == "NKE"
+        assert insider["role"] == "Director"
     finally:
         db.close()
 
@@ -231,6 +306,84 @@ def test_insider_summary_uses_normalized_form4_identity_without_event():
                 "latest_transaction_date": "2026-04-01",
             }
         ]
+    finally:
+        events_router._INSIDER_SUMMARY_CACHE.clear()
+        db.close()
+
+
+def test_insider_summary_uses_legacy_payload_identity_without_normalized_rows():
+    db = _db()
+    try:
+        events_router._INSIDER_SUMMARY_CACHE.clear()
+        db.add_all(
+            [
+                TickerMeta(symbol="AAPL", company_name="Apple Inc.", exchange="NASDAQ"),
+                TickerMeta(symbol="NKE", company_name="Nike Inc.", exchange="NYSE"),
+                InsiderTransaction(
+                    source="fmp",
+                    external_id="tim-cook-aapl-summary-legacy",
+                    symbol="AAPL",
+                    reporting_cik="0001214156",
+                    insider_name=None,
+                    transaction_type="S-Sale",
+                    transaction_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 3, tzinfo=timezone.utc).date(),
+                    shares=100,
+                    price=200,
+                    payload_json=json.dumps(
+                        {
+                            "reportingName": "COOK TIMOTHY D",
+                            "reportingCik": "0001214156",
+                            "companyCik": "0000320193",
+                            "symbol": "AAPL",
+                            "typeOfOwner": "director, officer: Chief Executive Officer",
+                        }
+                    ),
+                ),
+                InsiderTransaction(
+                    source="fmp",
+                    external_id="tim-cook-nke-summary-legacy",
+                    symbol="NKE",
+                    reporting_cik="0001214156",
+                    insider_name=None,
+                    transaction_type="P-Purchase",
+                    transaction_date=datetime(2026, 4, 10, tzinfo=timezone.utc).date(),
+                    filing_date=datetime(2026, 4, 14, tzinfo=timezone.utc).date(),
+                    shares=25000,
+                    price=42.43,
+                    payload_json=json.dumps(
+                        {
+                            "reportingName": "COOK TIMOTHY D",
+                            "reportingCik": "0001214156",
+                            "companyCik": "0000320187",
+                            "symbol": "NKE",
+                            "typeOfOwner": "director",
+                        }
+                    ),
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = insider_summary(
+            request=_request(),
+            db=db,
+            reporting_cik="0001214156",
+            lookback_days=180,
+            issuer="NKE",
+        )
+
+        assert summary["insider_name"] == "Tim Cook"
+        assert summary["primary_symbol"] == "NKE"
+        assert summary["primary_company_name"] == "Nike Inc."
+        assert summary["primary_role"] == "Director"
+        assert summary["total_trades"] == 1
+        assert summary["buy_count"] == 1
+        assert summary["gross_buy_value"] == 25000 * 42.43
+        contexts_by_symbol = {context["symbol"]: context for context in summary["role_contexts"]}
+        assert contexts_by_symbol["AAPL"]["role"] == "Chief Executive Officer"
+        assert contexts_by_symbol["AAPL"]["company_name"] == "Apple Inc."
+        assert contexts_by_symbol["NKE"]["role"] == "Director"
     finally:
         events_router._INSIDER_SUMMARY_CACHE.clear()
         db.close()
