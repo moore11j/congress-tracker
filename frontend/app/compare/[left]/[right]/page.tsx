@@ -4,6 +4,7 @@ import { ApiError, getPeerCompare, type PeerCompareCategory, type PeerCompareMet
 import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
+import { optionalPageAuthState } from "@/lib/serverAuth";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -172,14 +173,11 @@ function CompareReport({ data }: { data: PeerCompareResponse }) {
   );
 }
 
-function CompareError({ left, right, message }: { left: string; right: string; message: string }) {
+function CompareError({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-amber-300/20 bg-amber-300/10 p-4">
       <h1 className="text-lg font-semibold text-white">Choose a valid peer</h1>
       <p className="mt-2 text-sm text-amber-100">{message}</p>
-      <div className="mt-4">
-        <PeerCompareSelector leftSymbol={left} rightSymbol={right} />
-      </div>
     </div>
   );
 }
@@ -188,12 +186,13 @@ export default async function PeerComparePage({ params }: PageProps) {
   const routeParams = await params;
   const left = cleanSymbol(routeParams.left);
   const right = cleanSymbol(routeParams.right);
+  const authState = await optionalPageAuthState();
   let data: PeerCompareResponse | null = null;
   let errorMessage = "This comparison could not be loaded.";
 
   try {
     if (right !== "_") {
-      data = await getPeerCompare(left, right, { source: "PeerComparePage" });
+      data = await getPeerCompare(left, right, { authToken: authState.token ?? undefined, source: "PeerComparePage" });
     } else {
       errorMessage = "Search for a second ticker to compare against.";
     }
@@ -216,7 +215,7 @@ export default async function PeerComparePage({ params }: PageProps) {
           </Link>
         </div>
         <PeerCompareSelector leftSymbol={left} rightSymbol={right} />
-        {data ? <CompareReport data={data} /> : <CompareError left={left} right={right} message={errorMessage} />}
+        {data ? <CompareReport data={data} /> : <CompareError message={errorMessage} />}
       </div>
     </main>
   );

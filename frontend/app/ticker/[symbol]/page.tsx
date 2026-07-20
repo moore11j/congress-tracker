@@ -57,7 +57,7 @@ type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type Lookback = "30" | "90" | "180" | "365";
+type Lookback = "1" | "5" | "30" | "90" | "180" | "365";
 type SourceFilter = "all" | "congress" | "insider" | "signals" | "institutional" | "government_contract";
 type SideFilter = "all" | "buy" | "sell";
 const SIGNAL_WINDOW_DAYS = 30;
@@ -367,7 +367,7 @@ function shouldUseAnonymousTickerSsrShell({
 }
 
 function clampLookback(v: string): Lookback {
-  return v === "30" || v === "90" || v === "180" || v === "365" ? v : "365";
+  return v === "1" || v === "5" || v === "30" || v === "90" || v === "180" || v === "365" ? v : "365";
 }
 
 function clampSource(v: string): SourceFilter {
@@ -3224,8 +3224,8 @@ async function DeferredTickerContent({
           </div>
         </div>
       </section>
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className={`${cardClassName} p-4`}>
+      <div className="grid gap-3 lg:grid-cols-[minmax(28rem,1fr)_max-content_max-content]">
+        <div className={`${cardClassName} min-w-0 p-4`}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-widest text-slate-400">Activity view</p>
             <p className="text-xs text-slate-500">All / Congress / Insiders / Signals / Institutional / Gov Contracts</p>
@@ -3254,10 +3254,10 @@ async function DeferredTickerContent({
             ))}
           </div>
         </div>
-        <div className={`${cardClassName} p-4`}>
+        <div className={`${cardClassName} p-4 lg:w-[25rem]`}>
           <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Chart range</p>
           <div className="flex flex-wrap gap-2">
-            {(["30", "90", "180", "365"] as const).map((value) => (
+            {(["1", "5", "30", "90", "180", "365"] as const).map((value) => (
               <Link
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, value, source, side)}
@@ -3273,7 +3273,7 @@ async function DeferredTickerContent({
             ))}
           </div>
         </div>
-        <div className={`${cardClassName} p-4`}>
+        <div className={`${cardClassName} p-4 lg:w-[17rem]`}>
           <p className="mb-2 text-xs uppercase tracking-widest text-slate-400">Trade side</p>
           <div className="flex flex-wrap gap-2">
             {(["all", "buy", "sell"] as const).map((value) => (

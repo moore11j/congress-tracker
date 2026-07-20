@@ -28,20 +28,25 @@ function SuggestInput({
   const [items, setItems] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [active, setActive] = useState(false);
   const requestId = useRef(0);
   const normalized = cleanSymbol(query);
 
   useEffect(() => {
     setQuery(value);
+    setItems([]);
+    setOpen(false);
+    setActive(false);
   }, [value]);
 
   useEffect(() => {
     const trimmed = query.trim();
     requestId.current += 1;
     const currentRequest = requestId.current;
-    if (trimmed.length < 1) {
+    if (!active || trimmed.length < 1) {
       setItems([]);
       setOpen(false);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -49,8 +54,9 @@ function SuggestInput({
     suggestSymbols(trimmed, "all", 8, { signal: controller.signal, source: "PeerCompareSelector" })
       .then((response) => {
         if (requestId.current !== currentRequest) return;
-        setItems((response.items || []).filter((item) => item.type !== "government_agency"));
-        setOpen(true);
+        const nextItems = (response.items || []).filter((item) => item.type !== "government_agency");
+        setItems(nextItems);
+        setOpen(nextItems.length > 0);
       })
       .catch(() => {
         if (requestId.current === currentRequest) setItems([]);
@@ -59,7 +65,7 @@ function SuggestInput({
         if (requestId.current === currentRequest) setLoading(false);
       });
     return () => controller.abort();
-  }, [query]);
+  }, [active, query]);
 
   function commit(symbol: string) {
     const next = cleanSymbol(symbol);
@@ -73,8 +79,14 @@ function SuggestInput({
       {label}
       <input
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setOpen(items.length > 0)}
+        onChange={(event) => {
+          setActive(true);
+          setQuery(event.target.value);
+        }}
+        onFocus={() => {
+          setActive(true);
+          setOpen(items.length > 0);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();

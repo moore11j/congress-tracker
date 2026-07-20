@@ -32,3 +32,12 @@ test("daily price terminal exposes advanced chart controls", () => {
   assert.match(chartSource, /VWAP/);
   assert.match(chartSource, /TickerChartCompare/);
 });
+
+test("ticker chart compare mode uses relative gain loss axis", () => {
+  assert.match(chartSource, /function relativeCompareData/);
+  assert.match(chartSource, /relativeLineData\(comparePoints, firstCompareClose/);
+  assert.match(chartSource, /\(\(point\.close \/ anchor\) - 1\) \* 100/);
+  assert.match(chartSource, /performanceMode = compareData\.length >= 2/);
+  assert.match(chartSource, /formatter: \(value: number\) => `\$\{value >= 0 \? "\+" : ""\}\$\{value\.toFixed\(1\)\}%`/);
+  assert.match(chartSource, /Relative %/);
+});

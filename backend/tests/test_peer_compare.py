@@ -94,3 +94,47 @@ def test_peer_compare_free_tier_excludes_locked_sources(monkeypatch):
     assert by_key["institutional_activity"]["locked"] is True
     assert by_key["options_flow"]["locked"] is True
     assert any("excluded from the call" in note for note in payload["notes"])
+
+
+def test_peer_compare_pro_tier_unlocks_pro_sources(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _fundamentals("AAA", revenue_growth=18, roe=24, forward_pe=20),
+                _fundamentals("BBB", revenue_growth=12, roe=18, forward_pe=24),
+            ]
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda _db, symbol: {"direction": "neutral", "change_pct_1d": 0.0, "volume_vs_avg": 1.0},
+        )
+        monkeypatch.setattr(main_module, "get_government_contracts_summary", lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0})
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_confirmation_context",
+            lambda _db, symbol: {
+                "confirmation_score_bundle": {"score": 72 if symbol == "AAA" else 54, "direction": "bullish" if symbol == "AAA" else "neutral", "sources": {}},
+                "institutional_activity_summary": {"status": "ok", "direction": "bullish" if symbol == "AAA" else "neutral", "net_activity": 10 if symbol == "AAA" else 1, "holder_breadth": 5 if symbol == "AAA" else 1},
+                "options_flow_summary": {"status": "ok", "direction": "bullish" if symbol == "AAA" else "neutral", "score": 70 if symbol == "AAA" else 40, "total_premium": 2_000_000 if symbol == "AAA" else 300_000},
+            },
+        )
+
+        payload = main_module._build_peer_compare_payload(
+            db,
+            "AAA",
+            "BBB",
+            entitlements=ENTITLEMENTS["pro"],
+            authenticated=True,
+        )
+
+    by_key = {category["key"]: category for category in payload["categories"]}
+    assert by_key["confirmation_score"].get("locked") is not True
+    assert by_key["institutional_activity"].get("locked") is not True
+    assert by_key["options_flow"].get("locked") is not True
+    assert by_key["confirmation_score"]["edge"] == "left"
+    assert by_key["institutional_activity"]["edge"] == "left"
+    assert by_key["options_flow"]["edge"] == "left"

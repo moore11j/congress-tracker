@@ -8701,16 +8701,13 @@ def _peer_compare_metric(key: str, label: str, left: Any, right: Any, *, unit: s
 
 
 def _latest_compare_fundamentals_row(db: Session, symbol: str) -> FundamentalsCache | None:
+    row = _cached_ticker_fundamentals_row(db, symbol)
+    if row is not None:
+        return row
     try:
-        return db.execute(
-            select(FundamentalsCache)
-            .where(func.upper(FundamentalsCache.symbol) == symbol)
-            .order_by(FundamentalsCache.fetched_at.desc(), FundamentalsCache.id.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+        return _latest_fundamentals_row(db, symbol)
     except Exception:
-        db.rollback()
-        logger.debug("peer_compare_fundamentals_lookup_failed symbol=%s", symbol, exc_info=True)
+        logger.debug("peer_compare_fundamentals_fallback_failed symbol=%s", symbol, exc_info=True)
         return None
 
 

@@ -147,20 +147,37 @@ function vwapLine(points: { date: string; close: number; volume?: number | null 
   });
 }
 
-function normalizedCompareData(basePoints: { date: string; close: number }[], comparePoints: { date: string; close: number }[]): LineData[] {
-  const baseByDate = new Map(basePoints.map((point) => [point.date, point.close]));
+function relativeLineData(points: { date: string; close: number }[], anchor: number | null | undefined, dates?: Set<string>): LineData[] {
+  if (!anchor || anchor <= 0) return [];
+  return points.flatMap((point) => {
+    if (dates && !dates.has(point.date)) return [];
+    return [{ time: point.date, value: ((point.close / anchor) - 1) * 100 }];
+  });
+}
+
+function relativeCompareData(basePoints: { date: string; close: number }[], comparePoints: { date: string; close: number }[]): LineData[] {
   const compareByDate = new Map(comparePoints.map((point) => [point.date, point.close]));
   const firstMatch = basePoints.find((point) => compareByDate.has(point.date));
   if (!firstMatch) return [];
   const firstCompareClose = compareByDate.get(firstMatch.date);
-  if (!firstMatch.close || !firstCompareClose) return [];
-  const data: LineData[] = [];
-  for (const point of comparePoints) {
-    const baseClose = baseByDate.get(point.date);
-    if (baseClose === undefined) continue;
-    data.push({ time: point.date, value: (point.close / firstCompareClose) * firstMatch.close });
-  }
-  return data;
+  if (!firstCompareClose || firstCompareClose <= 0) return [];
+  return relativeLineData(comparePoints, firstCompareClose, new Set(basePoints.map((point) => point.date)));
+}
+
+function relativeIndicatorData(data: LineData[], anchor: number | null | undefined): LineData[] {
+  if (!anchor || anchor <= 0) return [];
+  return data.map((point) => ({ ...point, value: ((point.value / anchor) - 1) * 100 }));
+}
+
+function relativeCandleData(data: { date: string; open: number; high: number; low: number; close: number }[], anchor: number | null | undefined): CandlestickData[] {
+  if (!anchor || anchor <= 0) return [];
+  return data.map((point) => ({
+    time: point.date,
+    open: ((point.open / anchor) - 1) * 100,
+    high: ((point.high / anchor) - 1) * 100,
+    low: ((point.low / anchor) - 1) * 100,
+    close: ((point.close / anchor) - 1) * 100,
+  }));
 }
 
 function volumeProfileBuckets(points: { close: number; volume?: number | null }[], bucketCount = 18): { topPct: number; heightPct: number; widthPct: number }[] {
@@ -430,13 +447,18 @@ export function PremiumTickerChart({
       close: point.close,
       volume: volumeByDate.get(point.date) ?? candleSource.find((candle) => candle.date === point.date)?.volume ?? null,
     }));
-    const candleData: CandlestickData[] = candleSource.map((point) => ({
-      time: point.date,
-      open: point.open,
-      high: point.high,
-      low: point.low,
-      close: point.close,
-    }));
+    const compareData = compareBundle?.prices ? relativeCompareData(prices, compareBundle.prices) : [];
+    const performanceMode = compareData.length >= 2;
+    const priceDateSet = new Set(priceDates);
+    const candleData: CandlestickData[] = performanceMode
+      ? relativeCandleData(candleSource, firstClose)
+      : candleSource.map((point) => ({
+          time: point.date,
+          open: point.open,
+          high: point.high,
+          low: point.low,
+          close: point.close,
+        }));
     const volumeData: HistogramData[] = closeVolumePoints
       .filter((point) => typeof point.volume === "number" && Number.isFinite(point.volume))
       .map((point, index) => {
@@ -455,10 +477,18 @@ export function PremiumTickerChart({
         if (matchedClose === undefined) continue;
         benchmarkData.push({
           time: point.date,
-          value: (point.close / firstBenchmarkClose) * firstClose,
+          value: performanceMode ? ((point.close / firstBenchmarkClose) - 1) * 100 : (point.close / firstBenchmarkClose) * firstClose,
         });
       }
     }
+    const areaData: AreaData[] = performanceMode
+      ? relativeLineData(prices, firstClose, priceDateSet).map((point): AreaData => ({ time: point.time, value: point.value }))
+      : prices.map((point): AreaData => ({ time: point.date, value: point.close }));
+    const chartValueByDate = new Map(areaData.map((point) => [String(point.time), point.value]));
+    const sma20Data = movingAverage(prices, 20);
+    const sma50Data = movingAverage(prices, 50);
+    const bollingerData = bollingerBands(prices);
+    const vwapData = vwapLine(closeVolumePoints);
 
     const filteredMarkers = applyMarkerDensity(
       (bundle?.markers ?? []).filter((marker) => visibleMarkerKinds.includes(marker.kind) && markerVisibility[marker.kind] !== false),
@@ -477,7 +507,7 @@ export function PremiumTickerChart({
       .map(([chartDate, events]) => ({
         id: `marker-${chartDate}`,
         chartDate,
-        close: priceByDate.get(chartDate) ?? prices[0]?.close ?? 0,
+        close: chartValueByDate.get(chartDate) ?? priceByDate.get(chartDate) ?? prices[0]?.close ?? 0,
         events,
         kinds: new Set(events.map((event) => event.kind)),
       }))
@@ -485,14 +515,20 @@ export function PremiumTickerChart({
 
     return {
       prices,
-      areaData: prices.map((point): AreaData => ({ time: point.date, value: point.close })),
+      areaData,
       candleData,
       volumeData,
-      sma20Data: movingAverage(prices, 20),
-      sma50Data: movingAverage(prices, 50),
-      bollingerData: bollingerBands(prices),
-      vwapData: vwapLine(closeVolumePoints),
-      compareData: compareBundle?.prices ? normalizedCompareData(prices, compareBundle.prices) : [],
+      sma20Data: performanceMode ? relativeIndicatorData(sma20Data, firstClose) : sma20Data,
+      sma50Data: performanceMode ? relativeIndicatorData(sma50Data, firstClose) : sma50Data,
+      bollingerData: performanceMode
+        ? {
+            upper: relativeIndicatorData(bollingerData.upper, firstClose),
+            lower: relativeIndicatorData(bollingerData.lower, firstClose),
+          }
+        : bollingerData,
+      vwapData: performanceMode ? relativeIndicatorData(vwapData, firstClose) : vwapData,
+      compareData,
+      performanceMode,
       volumeProfile: volumeProfileBuckets(closeVolumePoints),
       benchmarkData,
       priceByDate,
@@ -558,6 +594,14 @@ export function PremiumTickerChart({
       },
     });
 
+    const priceFormat = normalized.performanceMode
+      ? {
+          type: "custom" as const,
+          minMove: 0.01,
+          formatter: (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`,
+        }
+      : { type: "price" as const, precision: 2, minMove: 0.01 };
+
     const priceSeries = chartMode === "candles"
       ? chart.addSeries(CandlestickSeries, {
           upColor: "#34d399",
@@ -569,7 +613,7 @@ export function PremiumTickerChart({
           priceLineColor: "rgba(34,211,238,0.45)",
           priceLineWidth: 1,
           lastValueVisible: true,
-          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+          priceFormat,
         })
       : chart.addSeries(AreaSeries, {
           lineColor: "#22d3ee",
@@ -579,7 +623,7 @@ export function PremiumTickerChart({
           priceLineColor: "rgba(34,211,238,0.45)",
           priceLineWidth: 1,
           lastValueVisible: true,
-          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+          priceFormat,
         });
     if (chartMode === "candles") {
       priceSeries.setData(normalized.candleData);
@@ -607,6 +651,7 @@ export function PremiumTickerChart({
         lineWidth: 1,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       }).setData(normalized.sma20Data);
     }
     if (indicatorVisibility.sma50 && normalized.sma50Data.length > 0) {
@@ -615,6 +660,7 @@ export function PremiumTickerChart({
         lineWidth: 1,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       }).setData(normalized.sma50Data);
     }
     if (indicatorVisibility.bollinger) {
@@ -624,6 +670,7 @@ export function PremiumTickerChart({
         lineStyle: LineStyle.Dashed,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       }).setData(normalized.bollingerData.upper);
       chart.addSeries(LineSeries, {
         color: "rgba(251,191,36,0.75)",
@@ -631,6 +678,7 @@ export function PremiumTickerChart({
         lineStyle: LineStyle.Dashed,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       }).setData(normalized.bollingerData.lower);
     }
     if (indicatorVisibility.vwap && normalized.vwapData.length > 0) {
@@ -639,7 +687,19 @@ export function PremiumTickerChart({
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       }).setData(normalized.vwapData);
+    }
+
+    if (normalized.performanceMode) {
+      chart.addSeries(LineSeries, {
+        color: "rgba(148,163,184,0.35)",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      }).setData(normalized.areaData.map((point) => ({ time: point.time, value: 0 })));
     }
 
     if (normalized.benchmarkData.length >= 2) {
@@ -649,6 +709,7 @@ export function PremiumTickerChart({
         lineStyle: LineStyle.Dashed,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       });
       benchmarkSeries.setData(normalized.benchmarkData);
     }
@@ -659,6 +720,7 @@ export function PremiumTickerChart({
         lineWidth: 2,
         priceLineVisible: false,
         lastValueVisible: false,
+        priceFormat,
       });
       compareSeries.setData(normalized.compareData);
     }
@@ -846,6 +908,7 @@ export function PremiumTickerChart({
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 rounded bg-cyan-300" />{symbol}</span>
             <span className="inline-flex items-center gap-1.5"><span className="h-[2px] w-5 border-t border-dashed border-slate-300/70" />{benchmarkLabel}</span>
+            {normalized.performanceMode ? <span className="text-cyan-100">Relative %</span> : null}
             <span>Daily</span>
           </div>
         </div>
