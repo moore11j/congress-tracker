@@ -128,7 +128,7 @@ test("insights market snapshot uses requested global and commodity instruments",
     assert.match(marketSnapshotLib, new RegExp(`symbol: "${symbol}"`));
   }
 
-  assert.doesNotMatch(marketSnapshot, /label: "MSCI ACWI", symbol: "ACWI"/);
+  assert.match(marketSnapshot, /label: "MSCI ACWI", symbol: "ACWI"/);
   assert.match(marketSnapshot, /symbol: "DXY"/);
 
   for (const label of [

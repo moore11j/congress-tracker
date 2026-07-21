@@ -101,6 +101,7 @@ export const MARKET_SNAPSHOT_CATEGORIES: MarketSnapshotCategory[] = [
 ];
 
 export const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
+  { label: "MSCI ACWI", symbol: "ACWI", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "China \u2014 MCHI", symbol: "MCHI", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "Germany \u2014 EWG", symbol: "EWG", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "Japan \u2014 IJP", symbol: "IJP", timeframe_label: "Daily Change", status: "unavailable" },
