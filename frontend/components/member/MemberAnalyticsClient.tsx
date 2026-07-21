@@ -443,6 +443,81 @@ function MemberPortfolioPanel({
   );
 }
 
+function MemberHoldingsPanel({
+  portfolio,
+  loading,
+  locked,
+}: {
+  portfolio: MemberPortfolioPerformance | null;
+  loading: boolean;
+  locked: boolean;
+}) {
+  const diagnostics = portfolio?.warmup_diagnostics ?? null;
+  const annualCount =
+    portfolio?.opening_holdings_from_annual_disclosure ??
+    diagnostics?.opening_holdings_from_annual_disclosure ??
+    0;
+  const annualSymbols =
+    portfolio?.annual_disclosure_opening_positions_symbols ??
+    diagnostics?.annual_disclosure_opening_positions_symbols ??
+    [];
+  const annualValue =
+    portfolio?.annual_disclosure_opening_positions_value ??
+    diagnostics?.annual_disclosure_opening_positions_value ??
+    null;
+  const estimatedSymbols =
+    portfolio?.estimated_opening_positions_symbols ??
+    diagnostics?.estimated_opening_positions_symbols ??
+    [];
+  const symbols = annualSymbols.length > 0 ? annualSymbols : estimatedSymbols;
+
+  return (
+    <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
+      <SectionTitle title="Estimated Holdings" detail="Annual disclosures" />
+      {loading ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-14 w-full" />)}
+        </div>
+      ) : locked ? (
+        <p className="mt-3 text-sm text-slate-400">
+          Holdings estimates use annual financial disclosure baselines when available and are unlocked with portfolio simulation.
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-4">
+            <div className="bg-[#081321] px-3 py-2.5">
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Annual positions</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(annualCount)}</p>
+            </div>
+            <div className="bg-[#081321] px-3 py-2.5">
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Est. value</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(annualValue)}</p>
+            </div>
+            <div className="bg-[#081321] px-3 py-2.5">
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Visible symbols</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(symbols.length)}</p>
+            </div>
+            <div className="bg-[#081321] px-3 py-2.5">
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Basis</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white">Estimated</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            Holdings are estimated from annual disclosure filings and portfolio warmup diagnostics, not live brokerage positions.
+          </p>
+          {symbols.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {symbols.slice(0, 12).map((symbol) => (
+                <TickerPill key={symbol} symbol={symbol} href={tickerHref(symbol)} />
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function MemberAnalyticsClient({
   memberId,
   memberName,
@@ -789,7 +864,7 @@ export function MemberAnalyticsClient({
           </div>
         </section>
 
-        <section className={`${CARD} p-3`}>
+        <section id="member-activity-trend" className={`${CARD} scroll-mt-6 p-3`}>
           <SectionTitle title="Activity Trend" detail="Disclosures" />
           <div className="mt-3 flex justify-end gap-4 text-[11px] text-slate-500">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
@@ -887,6 +962,12 @@ export function MemberAnalyticsClient({
           </p>
         </section>
       </div>
+
+      <MemberHoldingsPanel
+        portfolio={portfolio}
+        loading={!entitlementsLoaded || portfolioLoading}
+        locked={entitlementsLoaded && !canViewPortfolio}
+      />
     </div>
   );
 }

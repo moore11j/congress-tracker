@@ -20,7 +20,6 @@ import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { tickerLinkClassName } from "@/lib/styles";
 import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
-import { insiderSlug } from "@/lib/insider";
 import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { gainLossLabel, gainLossTooltip } from "@/lib/gainLossCopy";
 
@@ -137,22 +136,6 @@ function pnlSourceBadgeLabel(source: string | null | undefined): string | null {
   return null;
 }
 
-function hrefWithParams(
-  name: string | null,
-  reportingCik: string,
-  lookback: Lookback,
-  issuer?: string,
-  chartSymbol?: string,
-): string {
-  const query = new URLSearchParams();
-  query.set("lookback", lookback);
-  query.set("chart", "stock");
-  if (issuer) query.set("issuer", issuer);
-  if (chartSymbol) query.set("symbol", chartSymbol);
-  const slug = insiderSlug(name, reportingCik) ?? reportingCik;
-  return `/insider/${encodeURIComponent(slug)}?${query.toString()}`;
-}
-
 function tradeDirection(value?: string | null): "buy" | "sell" | null {
   const normalized = (value ?? "").toLowerCase();
   if (normalized === "p" || normalized.includes("buy") || normalized.includes("purchase") || normalized.includes("acquire")) return "buy";
@@ -243,7 +226,6 @@ function AnalyticsStatsSkeleton() {
 
 export function InsiderAnalyticsClient({
   reportingCik,
-  insiderName,
   lookback,
   lookbackDays,
   issuer,
@@ -254,7 +236,6 @@ export function InsiderAnalyticsClient({
   initialTrades,
 }: {
   reportingCik: string;
-  insiderName: string;
   lookback: Lookback;
   lookbackDays: number;
   issuer?: string;
@@ -264,6 +245,8 @@ export function InsiderAnalyticsClient({
   initialAlphaSummary?: InsiderAlphaSummary;
   initialTrades?: InsiderTradesData;
 }) {
+  const [selectedLookback, setSelectedLookback] = useState<Lookback>(lookback);
+  const selectedLookbackDays = Number(selectedLookback);
   const [alphaSummary, setAlphaSummary] = useState<InsiderAlphaSummary>(() =>
     initialAlphaSummary ?? fallbackInsiderAlphaSummary(reportingCik, lookbackDays),
   );
@@ -283,7 +266,7 @@ export function InsiderAnalyticsClient({
     const controller = new AbortController();
     let cancelled = false;
     setLiveSummary(summary);
-    getInsiderSummary(reportingCik, lookbackDays, issuer, {
+    getInsiderSummary(reportingCik, selectedLookbackDays, issuer, {
       signal: controller.signal,
       source: "InsiderAnalyticsSummaryClient",
     })
@@ -295,18 +278,18 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [issuer, lookbackDays, reportingCik, summary]);
+  }, [issuer, reportingCik, selectedLookbackDays, summary]);
 
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
-    setLoading(!hasInitialAnalytics);
+    setLoading(!hasInitialAnalytics || selectedLookback !== lookback);
     setAlphaUnavailable(false);
     setTradesUnavailable(false);
 
     Promise.all([
       getInsiderAlphaSummary(reportingCik, {
-        lookback_days: lookbackDays,
+        lookback_days: selectedLookbackDays,
         issuer,
         source: "InsiderAlphaSummary",
         signal: controller.signal,
@@ -317,7 +300,7 @@ export function InsiderAnalyticsClient({
         .catch(() => {
           if (!cancelled) setAlphaUnavailable(true);
         }),
-      getInsiderTrades(reportingCik, lookbackDays, RECENT_TRADES_PAGE_SIZE, issuer, {
+      getInsiderTrades(reportingCik, selectedLookbackDays, RECENT_TRADES_PAGE_SIZE, issuer, {
         page: recentTradesPage,
         source: "InsiderTrades",
         signal: controller.signal,
@@ -336,7 +319,7 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [hasInitialAnalytics, issuer, lookbackDays, recentTradesPage, reportingCik]);
+  }, [hasInitialAnalytics, issuer, lookback, recentTradesPage, reportingCik, selectedLookback, selectedLookbackDays]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -344,7 +327,7 @@ export function InsiderAnalyticsClient({
     setStockChartLoading(true);
     setStockChartUnavailable(false);
     getInsiderStockChart(reportingCik, {
-      lookback_days: lookbackDays,
+      lookback_days: selectedLookbackDays,
       symbol: stockSymbol,
       source: "InsiderStockChart",
       signal: controller.signal,
@@ -362,7 +345,7 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [lookbackDays, reportingCik, stockSymbol]);
+  }, [reportingCik, selectedLookbackDays, stockSymbol]);
 
   const recentTradesLimit = typeof trades.limit === "number" && trades.limit > 0 ? trades.limit : RECENT_TRADES_PAGE_SIZE;
   const recentTradesPageValue = typeof trades.page === "number" && trades.page >= 0 ? trades.page : recentTradesPage;
@@ -427,7 +410,7 @@ export function InsiderAnalyticsClient({
   }, [trades.items]);
 
   const summaryMetrics = [
-    { label: "Filings", value: numberOrDash(liveSummary.total_trades), sub: `Rank window: ${lookbackDays}D` },
+    { label: "Filings", value: numberOrDash(liveSummary.total_trades), sub: `Rank window: ${selectedLookbackDays}D` },
     {
       label: "Buy / Sell Ratio",
       value: `${liveSummary.buy_count} / ${liveSummary.sell_count}`,
@@ -471,12 +454,13 @@ export function InsiderAnalyticsClient({
     liveSummary.primary_symbol ? `${liveSummary.primary_symbol} ownership changes` : "Issuer ownership changes",
     alphaSummary.avg_alpha_pct != null ? `Post-transaction alpha: ${pct(alphaSummary.avg_alpha_pct)}` : "Performance after future transactions",
   ];
+  const selectedLookbackLabel = LOOKBACK_OPTIONS.find((option) => option.value === selectedLookback)?.label ?? `${selectedLookbackDays}D`;
 
   return (
     <div className="space-y-3">
       <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(380px,0.8fr)] xl:[&>section]:h-[152px]">
         <section className={`${CARD} p-3`}>
-          <SectionTitle title="Insider Activity Summary" detail={`${lookbackDays}D`} />
+          <SectionTitle title="Insider Activity Summary" detail={`${selectedLookbackDays}D`} />
           <p className="mt-2 truncate text-xs text-slate-500">Recent activity is summarized from public Form 4 filings and scored outcomes.</p>
           {loading ? <AnalyticsStatsSkeleton /> : <MetricGrid metrics={summaryMetrics} />}
           {alphaUnavailable ? (
@@ -492,7 +476,7 @@ export function InsiderAnalyticsClient({
         </section>
 
         <section className={`${CARD} p-3`}>
-          <SectionTitle title="Activity Trend" detail="1Y" />
+          <SectionTitle title="Activity Trend" detail={selectedLookbackLabel} />
           <div className="mt-3 flex flex-wrap justify-between gap-3">
             <div className="flex gap-4 text-[11px] text-slate-500">
               <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
@@ -500,18 +484,19 @@ export function InsiderAnalyticsClient({
             </div>
             <div className="flex flex-wrap gap-1 text-xs">
               {LOOKBACK_OPTIONS.map((option) => (
-                <Link
+                <button
                   key={option.value}
-                  href={hrefWithParams(insiderName, reportingCik, option.value, issuer, stockSymbol)}
-                  prefetch={false}
+                  type="button"
+                  onClick={() => setSelectedLookback(option.value)}
                   className={`rounded-md border px-2.5 py-1 font-semibold ${
-                    lookback === option.value
+                    selectedLookback === option.value
                       ? "border-sky-400/50 bg-sky-400/10 text-sky-100"
                       : "border-white/10 bg-slate-900/60 text-slate-300"
                   }`}
+                  aria-pressed={selectedLookback === option.value}
                 >
                   {option.label}
-                </Link>
+                </button>
               ))}
             </div>
           </div>
@@ -555,11 +540,6 @@ export function InsiderAnalyticsClient({
 
         <section id="insider-performance" className={`${CARD} p-3`}>
           <SectionTitle title="Performance After Transactions" />
-          <div className="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
-            {["7D", "30D", "90D", "180D", "1Y"].map((label) => (
-              <span key={label} className={`rounded-md border px-2 py-1 ${label === "1Y" ? "border-sky-400/50 bg-sky-400/10 text-sky-100" : "border-white/10 text-slate-400"}`}>{label}</span>
-            ))}
-          </div>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5 xl:grid-cols-1 2xl:grid-cols-5">
             {performanceRows.map((row) => (
               <div key={row.label}>

@@ -18,10 +18,11 @@ const tickerChart = read("components/ticker/PremiumTickerChart.tsx");
 test("insider page renders company stock chart only", () => {
   assert.doesNotMatch(insiderPage, /type ChartMode/);
   assert.doesNotMatch(insiderPage, /chartModeFromParams/);
+  assert.match(insiderPage, /Backtest this Insider/);
   assert.doesNotMatch(insiderAnalyticsClient, /Performance Curve/);
   assert.doesNotMatch(insiderAnalyticsClient, /<PerformanceChart/);
   assert.match(insiderAnalyticsClient, /Company Stock Chart/);
-  assert.match(insiderAnalyticsClient, /query\.set\("chart", "stock"\)/);
+  assert.match(insiderAnalyticsClient, /getInsiderStockChart\(reportingCik/);
 });
 
 test("company stock mode requests insider-scoped stock chart data", () => {
@@ -80,16 +81,22 @@ test("insider page offers expanded lookback windows", () => {
   assert.match(insiderPage, /\{ label: "3Y", value: "1095" \}/);
   assert.match(insiderPage, /LOOKBACK_OPTIONS\.some\(\(option\) => option\.value === v\) \? \(v as Lookback\) : "90"/);
   assert.match(insiderAnalyticsClient, /LOOKBACK_OPTIONS\.map\(\(option\) =>/);
-  assert.match(insiderAnalyticsClient, /lookback === option\.value/);
+  assert.match(insiderAnalyticsClient, /selectedLookback === option\.value/);
   assert.match(insiderAnalyticsClient, /\{option\.label\}/);
 });
 
-test("insider lookback links preserve stock chart and issuer params", () => {
+test("insider activity lookback controls refresh in place without route navigation", () => {
   assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
   assert.match(insiderPage, /query\.set\("chart", "stock"\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
   assert.match(insiderPage, /if \(chartSymbol\) query\.set\("symbol", chartSymbol\)/);
-  assert.match(insiderAnalyticsClient, /href=\{hrefWithParams\(insiderName, reportingCik, option\.value, issuer, stockSymbol\)\}/);
+  assert.match(insiderAnalyticsClient, /const \[selectedLookback, setSelectedLookback\] = useState<Lookback>\(lookback\)/);
+  assert.match(insiderAnalyticsClient, /onClick=\{\(\) => setSelectedLookback\(option\.value\)\}/);
+  assert.match(insiderAnalyticsClient, /aria-pressed=\{selectedLookback === option\.value\}/);
+  assert.match(insiderAnalyticsClient, /lookback_days: selectedLookbackDays/);
+  assert.doesNotMatch(insiderAnalyticsClient, /\["7D", "30D", "90D", "180D", "1Y"\]/);
+  assert.doesNotMatch(insiderAnalyticsClient, /hrefWithParams/);
+  assert.doesNotMatch(insiderAnalyticsClient, /href=\{hrefWithParams/);
   assert.doesNotMatch(insiderAnalyticsClient, /chartMetric/);
   assert.doesNotMatch(insiderAnalyticsClient, /chartMode/);
 });

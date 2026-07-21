@@ -25,6 +25,14 @@ type Props = {
 };
 
 const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
+const MEMBER_NAV_ITEMS = [
+  { label: "Overview", href: "#overview" },
+  { label: "Trades", href: "#recent-trades" },
+  { label: "Performance", href: "#member-performance" },
+  { label: "Holdings", href: "#member-holdings" },
+  { label: "Activity", href: "#member-activity-trend" },
+  { label: "Committees", href: "#member-committees" },
+] as const;
 
 function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
@@ -93,6 +101,13 @@ function buildMemberBacktestHref(memberId: string, lookbackDays: number) {
     benchmark: "SPY",
   });
   return `/backtesting?${query.toString()}`;
+}
+
+function buildCommitteeSourceHref(memberId: string, memberName: string, chamber?: string | null) {
+  if ((chamber ?? "").toLowerCase() === "house") {
+    return `https://clerk.house.gov/Members/${encodeURIComponent(memberId)}`;
+  }
+  return `https://www.congress.gov/member/${encodeURIComponent(nameToSlug(memberName))}/${encodeURIComponent(memberId)}`;
 }
 
 function memberNameFallback(slug: string) {
@@ -191,6 +206,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const headerContext = data.top_tickers[0]
     ? `Most active disclosed ticker: ${data.top_tickers[0].symbol}`
     : "Disclosure history from public filings";
+  const committeeSourceHref = buildCommitteeSourceHref(canonicalMemberId, memberName, data.member.chamber);
   const actionClassName =
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 px-4 text-xs font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.04] sm:text-sm";
   const primaryActionClassName =
@@ -232,7 +248,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </Link>
             <ShareLinks canonicalUrl={canonicalUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={primaryActionClassName}>
-              Create Research
+              Backtest this Member
             </Link>
           </div>
         </div>
@@ -265,13 +281,13 @@ export default async function MemberPage({ params, searchParams }: Props) {
             </div>
         </div>
         <nav className="flex gap-7 overflow-x-auto border-t border-white/10 pt-2 text-sm font-medium text-slate-400">
-          {["Overview", "Trades", "Performance", "Holdings", "Activity", "Committees", "About"].map((item) => (
+          {MEMBER_NAV_ITEMS.map((item) => (
             <a
-              key={item}
-              href={item === "Overview" ? "#overview" : item === "Trades" ? "#recent-trades" : "#member-performance"}
-              className={`shrink-0 border-b-2 pb-2 ${item === "Overview" ? "border-amber-300 text-amber-200" : "border-transparent hover:text-white"}`}
+              key={item.label}
+              href={item.href}
+              className={`shrink-0 border-b-2 pb-2 ${item.label === "Overview" ? "border-amber-300 text-amber-200" : "border-transparent hover:text-white"}`}
             >
-              {item}
+              {item.label}
             </a>
           ))}
         </nav>
@@ -289,6 +305,25 @@ export default async function MemberPage({ params, searchParams }: Props) {
           initialTrades={initialTrades}
         />
       </div>
+
+      <section id="member-committees" className="scroll-mt-6 rounded-lg border border-white/10 bg-[#0a1726]/95 p-3 shadow-[0_14px_34px_rgba(0,0,0,0.22)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-slate-200">Committees</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Current committee and subcommittee assignments are maintained by official congressional profile sources.
+            </p>
+          </div>
+          <a
+            href={committeeSourceHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 bg-slate-950/30 px-3 text-xs font-semibold text-sky-200 transition hover:border-sky-300/40 hover:bg-sky-400/10"
+          >
+            Open official profile
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

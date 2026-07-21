@@ -222,13 +222,28 @@ test("member page renders persisted Portfolio Mode chart and summary metrics", (
 
 test("member page action buttons use compact mobile labels", () => {
   assert.match(memberPage, /grid w-full grid-cols-2 gap-2 sm:flex/);
+  assert.match(memberPage, /MEMBER_NAV_ITEMS/);
+  assert.match(memberPage, /\{ label: "Holdings", href: "#member-holdings" \}/);
+  assert.match(memberPage, /\{ label: "Activity", href: "#member-activity-trend" \}/);
+  assert.match(memberPage, /\{ label: "Committees", href: "#member-committees" \}/);
+  assert.doesNotMatch(memberPage, /"About"/);
   assert.match(memberPage, /<span className="sm:hidden">Backtest<\/span>/);
   assert.match(memberPage, /<span className="hidden sm:inline">Backtest following this member<\/span>/);
+  assert.match(memberPage, /Backtest this Member/);
   assert.match(memberPage, /<span className="sm:hidden">Feed<\/span>/);
   assert.match(memberPage, /<span className="hidden sm:inline">Back to feed<\/span>/);
   assert.match(shareLinks, /whitespace-nowrap/);
   assert.match(shareLinks, /<span className="sm:hidden">Copy<\/span>/);
   assert.match(shareLinks, /<span className="hidden sm:inline">Copy Link<\/span>/);
+});
+
+test("member tabs point to real profile sections", () => {
+  assert.match(memberAnalyticsClient, /id="member-activity-trend"/);
+  assert.match(memberAnalyticsClient, /id="member-holdings"/);
+  assert.match(memberAnalyticsClient, /Estimated Holdings/);
+  assert.match(memberAnalyticsClient, /annual_disclosure_opening_positions_symbols/);
+  assert.match(memberPage, /id="member-committees"/);
+  assert.match(memberPage, /Open official profile/);
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {

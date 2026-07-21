@@ -288,7 +288,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             </Link>
             <ShareLinks canonicalUrl={canonicalInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={primaryActionClassName}>
-              Create Research
+              Backtest this Insider
             </Link>
           </div>
         </div>
@@ -346,7 +346,6 @@ export default async function InsiderPage({ params, searchParams }: Props) {
       <div id="overview">
         <InsiderAnalyticsClient
           reportingCik={reportingCik}
-          insiderName={insiderName}
           lookback={lookback}
           lookbackDays={lookbackDays}
           issuer={normalizedIssuer}
