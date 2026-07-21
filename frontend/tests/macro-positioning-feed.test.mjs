@@ -11,8 +11,9 @@ const component = read("components/insights/InsightsMacroPositioningClient.tsx")
 const feedShell = read("components/feed/FeedPageClient.tsx");
 const api = read("lib/api.ts");
 
-test("macro positioning activity is routed through the insights widget", () => {
-  assert.match(page, /redirect\("\/insights#macro-positioning"\)/);
+test("macro positioning activity renders the standalone feed route", () => {
+  assert.match(page, /<MacroPositioningFeedClient \/>/);
+  assert.doesNotMatch(page, /redirect\("\/insights#macro-positioning"\)/);
   assert.match(api, /\/api\/feed\/macro-positioning/);
   assert.doesNotMatch(feedShell, /\/feed\/macro-positioning/);
   assert.doesNotMatch(feedShell, />\s*Macro Positioning\s*<\/a>/);

@@ -123,12 +123,12 @@ test("insights market snapshot hides provider and internal source terms", () => 
 });
 
 test("insights market snapshot uses requested global and commodity instruments", () => {
-  for (const symbol of ["MCHI", "EWG", "IJP", "ISF", "VFV", "GCUSD", "SILUSD", "BZUSD", "HGUSD"]) {
+  for (const symbol of ["MCHI", "EWG", "IJP", "ISF", "VFV", "GCUSD", "SILUSD", "HGUSD"]) {
     assert.match(marketSnapshot, new RegExp(`symbol: "${symbol}"`));
     assert.match(marketSnapshotLib, new RegExp(`symbol: "${symbol}"`));
   }
 
-  assert.match(marketSnapshot, /symbol: "ACWI"/);
+  assert.doesNotMatch(marketSnapshot, /label: "MSCI ACWI", symbol: "ACWI"/);
   assert.match(marketSnapshot, /symbol: "DXY"/);
 
   for (const label of [
@@ -139,7 +139,6 @@ test("insights market snapshot uses requested global and commodity instruments",
     "Canada \\\\u2014 VFV",
     "Gold \\\\u2014 GCUSD",
     "Silver \\\\u2014 SILUSD",
-    "Brent Crude Oil \\\\u2014 BZUSD",
     "Copper \\\\u2014 HGUSD",
   ]) {
     assert.match(marketSnapshot, new RegExp(`label: "${label}"`));

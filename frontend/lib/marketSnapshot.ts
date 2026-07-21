@@ -118,7 +118,6 @@ export const FALLBACK_US_INDEXES: SnapshotInstrument[] = [
 export const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
   { label: "Gold \u2014 GCUSD", symbol: "GCUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
   { label: "Silver \u2014 SILUSD", symbol: "SILUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
-  { label: "Brent Crude Oil \u2014 BZUSD", symbol: "BZUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
   { label: "Copper \u2014 HGUSD", symbol: "HGUSD", timeframe_label: "Daily Change", unit_label: "USD", status: "unavailable" },
 ];
 

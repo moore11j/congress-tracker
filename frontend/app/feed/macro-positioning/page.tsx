@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
+import { MacroPositioningFeedClient } from "@/components/feed/MacroPositioningFeedClient";
 
 export const dynamic = "force-dynamic";
 
 export default function MacroPositioningFeedPage() {
-  redirect("/insights#macro-positioning");
+  return <MacroPositioningFeedClient />;
 }

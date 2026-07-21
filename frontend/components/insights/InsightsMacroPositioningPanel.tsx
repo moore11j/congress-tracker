@@ -182,9 +182,9 @@ export function InsightsMacroPositioningPanel() {
     <section id="macro-positioning" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 shadow-[0_18px_60px_-42px_rgba(16,185,129,0.55)] lg:sticky lg:top-20">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Macro Positioning</h2>
-        <Link href={MACRO_POSITIONING_HREF} className="text-xs font-semibold text-blue-300 transition hover:text-blue-200">
+        <a href={MACRO_POSITIONING_HREF} className="text-xs font-semibold text-blue-300 transition hover:text-blue-200">
           View full
-        </Link>
+        </a>
       </div>
 
       {locked ? (
@@ -224,9 +224,9 @@ export function InsightsMacroPositioningPanel() {
       )}
 
       <div className="mt-4 border-t border-white/10 pt-3 text-center">
-        <Link href={MACRO_POSITIONING_HREF} className="text-sm font-semibold text-blue-300 transition hover:text-blue-200">
+        <a href={MACRO_POSITIONING_HREF} className="text-sm font-semibold text-blue-300 transition hover:text-blue-200">
           View full Macro Positioning feed
-        </Link>
+        </a>
       </div>
     </section>
   );

@@ -62,6 +62,23 @@ def _fake_frankfurter_payload():
     }
 
 
+def _fake_frankfurter_v2_payload():
+    return [
+        {"date": "2026-06-26", "base": "USD", "quote": "CAD", "rate": 1.36},
+        {"date": "2026-06-26", "base": "USD", "quote": "CHF", "rate": 0.9},
+        {"date": "2026-06-26", "base": "USD", "quote": "EUR", "rate": 0.92},
+        {"date": "2026-06-26", "base": "USD", "quote": "GBP", "rate": 0.78},
+        {"date": "2026-06-26", "base": "USD", "quote": "JPY", "rate": 156.1},
+        {"date": "2026-06-26", "base": "USD", "quote": "SEK", "rate": 10.1},
+        {"date": "2026-06-27", "base": "USD", "quote": "CAD", "rate": 1.37},
+        {"date": "2026-06-27", "base": "USD", "quote": "CHF", "rate": 0.91},
+        {"date": "2026-06-27", "base": "USD", "quote": "EUR", "rate": 0.91},
+        {"date": "2026-06-27", "base": "USD", "quote": "GBP", "rate": 0.77},
+        {"date": "2026-06-27", "base": "USD", "quote": "JPY", "rate": 156.5},
+        {"date": "2026-06-27", "base": "USD", "quote": "SEK", "rate": 10.2},
+    ]
+
+
 def _fake_coingecko_payload(coin_id: str):
     return {
         coin_id: {
@@ -72,8 +89,18 @@ def _fake_coingecko_payload(coin_id: str):
     }
 
 
+def _fake_silv_payload():
+    return {
+        "commodities": {
+            "gold": {"price": 4066.27, "last_updated": "2026-07-21T05:55:58.000Z", "change_24h": {"amount": 54.81, "percent": 1.36}},
+            "silver": {"price": 58.08, "last_updated": "2026-07-21T05:55:59.000Z", "change_24h": {"amount": 1.48, "percent": 2.62}},
+            "copper": {"price": 6.42, "last_updated": "2026-07-21T05:55:43.000Z", "change_24h": {"amount": 0.16, "percent": 2.49}},
+        }
+    }
+
+
 def test_quote_short_response_normalizes_to_public_contract():
-    config = QUOTE_GROUPS["global_markets"][0]
+    config = QUOTE_GROUPS["global_markets"][1]
     item = normalize_insights_quote_response(
         "global_markets",
         config,
@@ -133,6 +160,8 @@ def test_failed_fetch_marks_only_that_symbol_unavailable(monkeypatch):
             return _FakeResponse(_fake_quote_payload(symbol))
         if "frankfurter.dev" in url:
             return _FakeResponse(_fake_frankfurter_payload())
+        if "data.silv.app" in url:
+            return _FakeResponse(_fake_silv_payload())
         if "api.coingecko.com" in url:
             return _FakeResponse(_fake_coingecko_payload(params["ids"]))
         raise AssertionError(f"unexpected url {url}")
@@ -170,6 +199,87 @@ def test_free_currency_provider_returns_dxy_and_pairs(monkeypatch):
     assert currency_rows["EURUSD"]["status"] == "ok"
 
 
+def test_free_currency_provider_parses_v2_rows(monkeypatch):
+    db = _db()
+
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "frankfurter.dev" not in url:
+            raise requests.Timeout("provider timeout")
+        assert params["from"]
+        assert params["quotes"] == "CAD,JPY,SEK,CHF,EUR,GBP"
+        return _FakeResponse(_fake_frankfurter_v2_payload())
+
+    monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
+    try:
+        payload = get_insights_quote_overview(db)
+    finally:
+        db.close()
+
+    currency_rows = {item["symbol"]: item for item in payload["currencies"]}
+    assert currency_rows["DXY"]["status"] == "ok"
+    assert currency_rows["USDCAD"]["price"] == 1.37
+    assert round(currency_rows["USDCAD"]["change"], 2) == 0.01
+
+
+def test_free_commodity_provider_returns_metals_and_copper(monkeypatch):
+    db = _db()
+
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "data.silv.app" not in url:
+            raise requests.Timeout("provider timeout")
+        return _FakeResponse(_fake_silv_payload())
+
+    monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
+    try:
+        payload = get_insights_quote_overview(db)
+    finally:
+        db.close()
+
+    commodity_rows = {item["symbol"]: item for item in payload["commodities"]}
+    assert commodity_rows["GCUSD"]["price"] == 4066.27
+    assert commodity_rows["SILUSD"]["change_percent"] == 2.62
+    assert commodity_rows["HGUSD"]["status"] == "ok"
+
+
+def test_fresh_unavailable_cache_does_not_block_free_provider(monkeypatch):
+    db = _db()
+    db.add(
+        InsightsSnapshot(
+            kind="insights-quote:crypto:BTCUSD:coingecko",
+            payload_json=json.dumps({
+                "group": "crypto",
+                "label": "BTC/USD",
+                "symbol": "BTCUSD",
+                "display_symbol": "BTCUSD",
+                "price": None,
+                "change": None,
+                "change_percent": None,
+                "volume": None,
+                "as_of": None,
+                "status": "unavailable",
+            }),
+            source="test",
+            fetched_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "api.coingecko.com" in url:
+            return _FakeResponse(_fake_coingecko_payload(params["ids"]))
+        raise requests.Timeout("only crypto fetch should be needed")
+
+    monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
+    try:
+        payload = get_insights_quote_overview(db)
+    finally:
+        db.close()
+
+    crypto_rows = {item["symbol"]: item for item in payload["crypto"]}
+    assert crypto_rows["BTCUSD"]["status"] == "ok"
+    assert crypto_rows["BTCUSD"]["price"] == 100.25
+
+
 def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     db = _db()
     cached = {
@@ -203,7 +313,8 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     finally:
         db.close()
 
-    assert payload["global_markets"][0] == cached
+    global_rows = {item["symbol"]: item for item in payload["global_markets"]}
+    assert global_rows["MCHI"] == cached
 
 
 def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
@@ -218,6 +329,9 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
         if "frankfurter.dev" in url:
             calls.append("frankfurter")
             return _FakeResponse(_fake_frankfurter_payload())
+        if "data.silv.app" in url:
+            calls.append("silv")
+            return _FakeResponse(_fake_silv_payload())
         if "api.coingecko.com" in url:
             calls.append(params["ids"])
             return _FakeResponse(_fake_coingecko_payload(params["ids"]))
@@ -230,6 +344,7 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
         db.close()
 
     expected = [
+        "ACWI",
         "MCHI",
         "EWG",
         "IJP",
@@ -237,7 +352,6 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
         "VFV",
         "GCUSD",
         "SILUSD",
-        "BZUSD",
         "HGUSD",
         "DXY",
         "USDCAD",
@@ -259,15 +373,15 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
 
     assert returned == expected
     assert calls == [
+        "ACWI",
         "MCHI",
         "EWG",
         "IJP.AX",
         "ISF.L",
         "VFV.TO",
-        "GC=F",
-        "SI=F",
-        "BZ=F",
-        "HG=F",
+        "silv",
+        "silv",
+        "silv",
         "frankfurter",
         "frankfurter",
         "frankfurter",

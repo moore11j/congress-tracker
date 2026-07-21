@@ -15,11 +15,12 @@ from app.models import InsightsSnapshot
 logger = logging.getLogger(__name__)
 
 InsightQuoteGroup = Literal["global_markets", "commodities", "currencies", "crypto"]
-InsightQuoteEndpoint = Literal["yahoo_chart", "frankfurter", "coingecko"]
+InsightQuoteEndpoint = Literal["yahoo_chart", "frankfurter", "coingecko", "silv"]
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
-FRANKFURTER_SERIES_URL = "https://api.frankfurter.dev/v1"
+FRANKFURTER_SERIES_URL = "https://api.frankfurter.dev/v2/rates"
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
+SILV_COMMODITIES_URL = "https://data.silv.app/commodities.json"
 QUOTE_TTL = timedelta(minutes=10)
 QUOTE_STALE_TTL = timedelta(hours=24)
 CACHE_KIND_PREFIX = "insights-quote"
@@ -36,6 +37,7 @@ class InsightQuoteConfig:
 
 QUOTE_GROUPS: dict[InsightQuoteGroup, tuple[InsightQuoteConfig, ...]] = {
     "global_markets": (
+        InsightQuoteConfig("MSCI ACWI", "ACWI", "ACWI", "yahoo_chart"),
         InsightQuoteConfig("China", "MCHI", "MCHI", "yahoo_chart"),
         InsightQuoteConfig("Germany", "EWG", "EWG", "yahoo_chart"),
         InsightQuoteConfig("Japan", "IJP", "IJP", "yahoo_chart", "IJP.AX"),
@@ -43,10 +45,9 @@ QUOTE_GROUPS: dict[InsightQuoteGroup, tuple[InsightQuoteConfig, ...]] = {
         InsightQuoteConfig("Canada", "VFV", "VFV", "yahoo_chart", "VFV.TO"),
     ),
     "commodities": (
-        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "yahoo_chart", "GC=F"),
-        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "yahoo_chart", "SI=F"),
-        InsightQuoteConfig("Brent Crude Oil", "BZUSD", "BZUSD", "yahoo_chart", "BZ=F"),
-        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "yahoo_chart", "HG=F"),
+        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "silv", "gold"),
+        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "silv", "silver"),
+        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "silv", "copper"),
     ),
     "currencies": (
         InsightQuoteConfig("DXY", "DXY", "DXY", "frankfurter"),
@@ -80,6 +81,13 @@ def _aware(value: datetime | None) -> datetime | None:
 
 def _cache_kind(group: InsightQuoteGroup, config: InsightQuoteConfig) -> str:
     return f"{CACHE_KIND_PREFIX}:{group}:{config.symbol}:{config.endpoint_type}"
+
+
+def _legacy_cache_kinds(group: InsightQuoteGroup, config: InsightQuoteConfig) -> tuple[str, ...]:
+    candidates = [f"{CACHE_KIND_PREFIX}:{group}:{config.symbol}:historical-chart/1min"]
+    if config.provider_symbol:
+        candidates.append(f"{CACHE_KIND_PREFIX}:{group}:{config.provider_symbol}:historical-chart/1min")
+    return tuple(dict.fromkeys(candidates))
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -198,7 +206,9 @@ def normalize_insights_quote_response(
 
 
 def _load_cached_item(db: Session, group: InsightQuoteGroup, config: InsightQuoteConfig) -> tuple[InsightsSnapshot | None, dict[str, Any] | None]:
-    row = db.get(InsightsSnapshot, _cache_kind(group, config))
+    rows = [db.get(InsightsSnapshot, _cache_kind(group, config))]
+    rows.extend(db.get(InsightsSnapshot, key) for key in _legacy_cache_kinds(group, config))
+    row = next((candidate for candidate in rows if candidate is not None), None)
     if row is None:
         return None, None
     try:
@@ -302,17 +312,32 @@ def _frankfurter_series() -> list[tuple[str, dict[str, float]]]:
     end = _utcnow().date()
     start = end - timedelta(days=10)
     response = requests.get(
-        f"{FRANKFURTER_SERIES_URL}/{start.isoformat()}..{end.isoformat()}",
-        params={"base": "USD", "symbols": "CAD,JPY,SEK,CHF,EUR,GBP"},
+        FRANKFURTER_SERIES_URL,
+        params={"from": start.isoformat(), "base": "USD", "quotes": "CAD,JPY,SEK,CHF,EUR,GBP"},
         timeout=10,
     )
     response.raise_for_status()
-    rates = response.json().get("rates")
-    if not isinstance(rates, dict):
-        return []
     rows: list[tuple[str, dict[str, float]]] = []
-    for date_key in sorted(rates):
-        raw = rates.get(date_key)
+    payload = response.json()
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            date_key = str(item.get("date") or "")
+            quote = str(item.get("quote") or "")
+            rate = _coerce_float(item.get("rate"))
+            if not date_key or not quote or rate is None:
+                continue
+            if not rows or rows[-1][0] != date_key:
+                rows.append((date_key, {}))
+            rows[-1][1][quote] = rate
+        return [(date_key, rates) for date_key, rates in rows if rates]
+
+    rates_by_date = payload.get("rates") if isinstance(payload, dict) else None
+    if not isinstance(rates_by_date, dict):
+        return []
+    for date_key in sorted(rates_by_date):
+        raw = rates_by_date.get(date_key)
         if not isinstance(raw, dict):
             continue
         parsed = {key: value for key, value in ((key, _coerce_float(raw.get(key))) for key in raw) if value is not None}
@@ -389,6 +414,26 @@ def _fetch_coingecko_quote(group: InsightQuoteGroup, config: InsightQuoteConfig)
     )
 
 
+def _fetch_silv_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
+    commodity_key = config.provider_symbol or config.symbol.lower()
+    response = requests.get(SILV_COMMODITIES_URL, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+    commodities = payload.get("commodities") if isinstance(payload, dict) else None
+    record = commodities.get(commodity_key) if isinstance(commodities, dict) else None
+    if not isinstance(record, dict):
+        return _unavailable_item(group, config)
+    change_24h = record.get("change_24h") if isinstance(record.get("change_24h"), dict) else {}
+    return _quote_item_payload(
+        group,
+        config,
+        price=_coerce_float(record.get("price")),
+        change=_coerce_float(change_24h.get("amount")),
+        change_percent=_coerce_float(change_24h.get("percent")),
+        as_of=str(record.get("last_updated") or record.get("timestamp") or _utcnow().isoformat()),
+    )
+
+
 def _fetch_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
     if config.endpoint_type == "yahoo_chart":
         return _fetch_yahoo_chart(group, config)
@@ -396,12 +441,14 @@ def _fetch_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[s
         return _fetch_frankfurter_quote(group, config)
     if config.endpoint_type == "coingecko":
         return _fetch_coingecko_quote(group, config)
+    if config.endpoint_type == "silv":
+        return _fetch_silv_quote(group, config)
     return _unavailable_item(group, config)
 
 
 def _quote_item(db: Session, group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
     row, cached = _load_cached_item(db, group, config)
-    if cached and _is_fresh(row):
+    if cached and _is_fresh(row) and cached.get("status") == "ok":
         return cached
     try:
         item = _fetch_quote(group, config)
