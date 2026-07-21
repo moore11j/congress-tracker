@@ -38,8 +38,9 @@ const REFRESHING_COPY = "Refreshing analytics from disclosed activity.";
 const CARD = "overflow-hidden rounded-lg border border-white/10 bg-[#0a1726]/95 shadow-[0_14px_34px_rgba(0,0,0,0.22)]";
 const PANEL = "rounded-lg border border-white/8 bg-white/[0.025]";
 const RECENT_TRADES_PAGE_SIZE = 8;
+const MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS = 730;
 const MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS = 1095;
-const MEMBER_ACTIVITY_TREND_LIMIT = 240;
+const MEMBER_ACTIVITY_TREND_LIMIT = 200;
 
 function pct(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -326,24 +327,30 @@ function MiniBars({ buckets }: { buckets: Array<{ label: string; buy: number; se
 
   return (
     <div className="mt-2 h-36 w-full">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
-        <line x1="28" x2={width - 8} y1={zero} y2={zero} stroke="rgba(148,163,184,0.25)" />
-        {[0, 1, 2].map((tick) => (
-          <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 52} y2={28 + tick * 52} stroke="rgba(148,163,184,0.08)" />
-        ))}
-        {buckets.map((bucket, index) => {
-          const x = 34 + index * (barWidth * 2 + gap);
-          const buyHeight = Math.max(2, (bucket.buy / max) * 64);
-          const sellHeight = Math.max(2, (bucket.sell / max) * 64);
-          return (
-            <g key={bucket.label}>
-              <rect x={x} y={zero - buyHeight} width={barWidth} height={buyHeight} rx="1.5" fill="#34d399" />
-              <rect x={x + barWidth + 2} y={zero} width={barWidth} height={sellHeight} rx="1.5" fill="#fb7185" />
-              {index % labelEvery === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
-            </g>
-          );
-        })}
-      </svg>
+      {buckets.length === 0 ? (
+        <div className="grid h-full place-items-center border-y border-white/8 text-xs text-slate-500">
+          Activity trend refreshes as disclosed trades load.
+        </div>
+      ) : (
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
+          <line x1="28" x2={width - 8} y1={zero} y2={zero} stroke="rgba(148,163,184,0.25)" />
+          {[0, 1, 2].map((tick) => (
+            <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 52} y2={28 + tick * 52} stroke="rgba(148,163,184,0.08)" />
+          ))}
+          {buckets.map((bucket, index) => {
+            const x = 34 + index * (barWidth * 2 + gap);
+            const buyHeight = Math.max(2, (bucket.buy / max) * 64);
+            const sellHeight = Math.max(2, (bucket.sell / max) * 64);
+            return (
+              <g key={bucket.label}>
+                <rect x={x} y={zero - buyHeight} width={barWidth} height={buyHeight} rx="1.5" fill="#34d399" />
+                <rect x={x + barWidth + 2} y={zero} width={barWidth} height={sellHeight} rx="1.5" fill="#fb7185" />
+                {index % labelEvery === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
+              </g>
+            );
+          })}
+        </svg>
+      )}
     </div>
   );
 }
@@ -621,6 +628,7 @@ export function MemberAnalyticsClient({
   initialTopTickers,
   initialAlphaSummary,
   initialTrades,
+  initialTrendTrades,
 }: {
   memberId: string;
   memberName: string;
@@ -630,13 +638,16 @@ export function MemberAnalyticsClient({
   initialTopTickers: Array<{ symbol: string; trades: number }>;
   initialAlphaSummary?: MemberAlphaSummary;
   initialTrades?: MemberTradesResponse;
+  initialTrendTrades?: MemberTradesResponse;
 }) {
   const [alphaSummary, setAlphaSummary] = useState<MemberAlphaSummary>(() => initialAlphaSummary ?? alphaFallback(memberId, lookbackDays));
   const [portfolioTradeCountSummary, setPortfolioTradeCountSummary] = useState<MemberAlphaSummary | null>(null);
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
   const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
   const [trendTrades, setTrendTrades] = useState<MemberTradesResponse>(() =>
-    initialTrades?.lookback_days === MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS
+    initialTrendTrades?.items.length
+      ? initialTrendTrades
+      : initialTrades?.lookback_days === MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS || initialTrades?.lookback_days === MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS
       ? initialTrades
       : tradesFallback(memberId, MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS),
   );
@@ -722,7 +733,7 @@ export function MemberAnalyticsClient({
       signal: controller.signal,
     })
       .then((data) => {
-        if (!cancelled) setTrendTrades(data);
+        if (!cancelled && data.items.length > 0) setTrendTrades(data);
       })
       .catch(() => undefined);
 
@@ -824,7 +835,16 @@ export function MemberAnalyticsClient({
   }, [initialTopTickers, trades.items]);
 
   const activityStats = useMemo(() => summarizeMemberActivity(trades.items), [trades.items]);
-  const trendStats = useMemo(() => summarizeMemberActivity(trendTrades.items, 36), [trendTrades.items]);
+  const hasTrendTrades = trendTrades.items.length > 0;
+  const trendLookbackDays = hasTrendTrades ? trendTrades.lookback_days : lookbackDays;
+  const trendItems = hasTrendTrades ? trendTrades.items : trades.items;
+  const trendStats = useMemo(() => summarizeMemberActivity(trendItems, 24), [trendItems]);
+  const trendDetail =
+    trendLookbackDays >= MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS
+      ? "3Y"
+      : trendLookbackDays >= MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS
+      ? "2Y"
+      : `${lookbackDays}D`;
 
   const analyticsStats = [
     { label: "Disclosures", value: numberOrDash(activityStats.totalCount), sub: `Rank inputs: ${numberOrDash(alphaSummary.trades_analyzed)}` },
@@ -961,7 +981,7 @@ export function MemberAnalyticsClient({
         </section>
 
         <section id="member-activity-trend" className={`${CARD} scroll-mt-6 p-3`}>
-          <SectionTitle title="Activity Trend" detail="3Y" />
+          <SectionTitle title="Activity Trend" detail={trendDetail} />
           <div className="mt-3 flex justify-end gap-4 text-[11px] text-slate-500">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Sells</span>

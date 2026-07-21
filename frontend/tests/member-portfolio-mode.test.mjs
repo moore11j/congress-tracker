@@ -255,11 +255,18 @@ test("member profile overview uses bounded recent trades and mockup-style member
   assert.match(memberAnalyticsClient, /visibleRecentTrades = recentTrades\.slice/);
   assert.match(memberAnalyticsClient, /Previous/);
   assert.match(memberAnalyticsClient, /Next/);
+  assert.match(memberPage, /MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS = 730/);
+  assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS = 730/);
   assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS = 1095/);
-  assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_LIMIT = 240/);
+  assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_LIMIT = 200/);
+  assert.match(memberPage, /MemberProfileInitialActivityTrend/);
+  assert.match(memberPage, /initialTrendTrades=\{initialTrendTrades\}/);
+  assert.match(memberAnalyticsClient, /initialTrendTrades\?: MemberTradesResponse/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId,[\s\S]*source: "MemberActivityTrend"/);
-  assert.match(memberAnalyticsClient, /SectionTitle title="Activity Trend" detail="3Y"/);
+  assert.match(memberAnalyticsClient, /trendDetail/);
+  assert.match(memberAnalyticsClient, /SectionTitle title="Activity Trend" detail=\{trendDetail\}/);
   assert.match(memberAnalyticsClient, /MiniBars buckets=\{trendStats\.buckets\}/);
+  assert.match(memberAnalyticsClient, /Activity trend refreshes as disclosed trades load\./);
   assert.match(memberAnalyticsClient, /ProfileIcon name=\{row\.icon\} toneClass=\{row\.tone\}/);
   assert.match(memberAnalyticsClient, /View all positions/);
   assert.doesNotMatch(memberPage, /Most active disclosed ticker/);
@@ -268,8 +275,10 @@ test("member profile overview uses bounded recent trades and mockup-style member
 test("member trades feed failure renders section fallback instead of crashing page", () => {
   assert.match(memberPage, /getMemberTrades\(canonicalMemberId/);
   assert.match(memberPage, /initialTrades=\{initialTrades\}/);
+  assert.match(memberPage, /initialTrendTrades=\{initialTrendTrades\}/);
   assert.match(memberAnalyticsClient, /getMemberTrades\(memberId/);
   assert.match(memberAnalyticsClient, /initialTrades\?: MemberTradesResponse/);
+  assert.match(memberAnalyticsClient, /initialTrendTrades\?: MemberTradesResponse/);
   assert.match(memberAnalyticsClient, /setTradesUnavailable\(true\)/);
   assert.match(memberAnalyticsClient, /tradesUnavailable && trades\.items\.length === 0/);
   assert.match(memberAnalyticsClient, /Recent activity is refreshing from disclosed trades\./);
