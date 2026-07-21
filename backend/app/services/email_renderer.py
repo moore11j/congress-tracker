@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 VARIABLE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 TRUSTED_HTML_VARIABLE_PATTERN = re.compile(r"{{{\s*([a-zA-Z0-9_]+)\s*}}}")
 LINK_VARIABLES = {"verification_url", "reset_url", "statement_url", "activity_url", "digest_url", "signal_url"}
-TRUSTED_HTML_VARIABLES = {"items_html", "signals_html", "upcoming_events_html"}
+TRUSTED_HTML_VARIABLES = {"items_html", "signals_html", "upcoming_events_html", "market_news_html"}
 
 
 def render_template_string(

@@ -35,8 +35,10 @@ from app.services.email_delivery import (
 from app.services.email_renderer import render_template_string
 from app.services.email_templates import reset_email_template_to_default, seed_default_email_templates
 from app.services.event_calendar import upcoming_event_calendar_items
+from app.services.fmp_news import get_press_releases, get_stock_news
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import resolve_insider_name
+from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
 
 ALERT_EVENT_TYPES = (
@@ -105,6 +107,8 @@ SEND_LIKE_STATUSES = {"sent", "log_only", "queued"}
 DUPLICATE_BLOCKING_STATUSES = SEND_LIKE_STATUSES | {"skipped"}
 WATCHLIST_DISPLAY_LIMIT = 10
 WATCHLIST_FETCH_LIMIT = 25
+WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT = 8
+WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
 SIGNAL_DISPLAY_LIMIT = 10
 SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
 SIGNAL_REFRESH_TOKENS = ("refresh", "refreshed", "status", "sync", "screen refreshed")
@@ -129,21 +133,30 @@ class DigestBuild:
 
 
 def build_watchlist_activity_digest(db: Session, user: UserAccount, watchlist: Watchlist, since: datetime) -> DigestBuild:
-    rows = _watchlist_events(db, watchlist.id, since=since, limit=WATCHLIST_FETCH_LIMIT, user=user)
+    subscription = _watchlist_subscription(db, user, watchlist)
+    rows = _watchlist_events(db, watchlist.id, since=since, limit=WATCHLIST_FETCH_LIMIT, user=user, subscription=subscription)
     items = [_event_item(row) for row in rows]
-    total_count = _watchlist_events_count(db, watchlist.id, since=since, user=user)
-    summary = _count_summary(total_count, "new filing or event", "new filings or events")
+    total_count = _watchlist_events_count(db, watchlist.id, since=since, user=user, subscription=subscription)
+    market_news_items = _watchlist_market_news_items(db, watchlist, since=since, subscription=subscription)
+    summary_count = total_count + len(market_news_items)
+    summary = (
+        _count_summary(summary_count, "new filing, event, or market item", "new filings, events, or market items")
+        if market_news_items
+        else _count_summary(total_count, "new filing or event", "new filings or events")
+    )
     return DigestBuild(
         template_key="alerts.watchlist_activity",
-        items_count=total_count,
+        items_count=summary_count,
         summary=summary,
-        items=items,
+        items=[*items, *market_news_items],
         context={
             "first_name": _first_name(user),
             "watchlist_name": watchlist.name,
             "summary": summary,
             "items_text": _watchlist_items_text(items, total_count=total_count),
             "items_html": _watchlist_items_html(items, total_count=total_count),
+            "market_news_text": _watchlist_market_news_text(market_news_items),
+            "market_news_html": _watchlist_market_news_html(market_news_items),
             "activity_url": f"{_frontend_base_url()}/watchlists/{watchlist.id}",
         },
     )
@@ -288,6 +301,7 @@ def build_signal_alert_digest(
     # originate from MonitoringAlert rows, but broken or internal
     # monitoring changes are gated out before they reach public email content.
     raw_items = [_signal_alert_item(row) for row in alert_rows] + [_confirmation_signal_item(row) for row in confirmation_rows]
+    raw_items = _apply_daily_signal_subscription_preferences(db, user, raw_items)
     items, diagnostics = _qualify_signal_items(raw_items)
     _attach_company_names(db, items)
     items = sorted(items, key=_signal_rank_key, reverse=True)[:SIGNAL_DISPLAY_LIMIT]
@@ -630,6 +644,8 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.watchlist_activity" and template.name == "Watchlist activity alert":
             template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.watchlist_activity" and "market_news_html" not in (template.variables_json or ""):
+            template = reset_email_template_to_default(db, template_key) or template
         return template
     seed_default_email_templates(db)
     return db.execute(select(EmailTemplate).where(EmailTemplate.template_key == template_key)).scalar_one()
@@ -737,6 +753,8 @@ def _preview_watchlist_activity_digest(
         skip = "watchlist_digest_inactive"
     if skip is None and subscription is not None and not subscription.active and not force:
         skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not _subscription_daily_digest_enabled(subscription) and not force:
+        skip = "watchlist_daily_digest_disabled"
     if skip is None and only_if_new and digest.items_count == 0 and not force:
         skip = "no_new_items"
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
@@ -770,6 +788,8 @@ def _preview_monitoring_digest(
         skip = "watchlist_digest_inactive"
     if skip is None and subscription is not None and not subscription.active and not force:
         skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not _subscription_daily_digest_enabled(subscription) and not force:
+        skip = "watchlist_daily_digest_disabled"
     if skip is None and only_if_new and digest.items_count == 0 and not force:
         skip = "no_new_items"
     idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
@@ -963,13 +983,22 @@ def _upcoming_calendar_events_for_digest(
     return result.items, _calendar_filter_label(enabled_kinds)
 
 
-def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit: int, user: UserAccount) -> list[Event]:
+def _watchlist_events(
+    db: Session,
+    watchlist_id: int,
+    *,
+    since: datetime,
+    limit: int,
+    user: UserAccount,
+    subscription: NotificationSubscription | None,
+) -> list[Event]:
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
         return []
     activity_ts = func.coalesce(Event.event_date, Event.ts)
     event_types = _alert_event_types_for_user(db, user)
-    return (
+    query_limit = max(limit * 4, 100) if _subscription_has_trigger_filters(subscription) else limit
+    rows = (
         db.execute(
             select(Event)
             .where(Event.symbol.is_not(None))
@@ -977,19 +1006,40 @@ def _watchlist_events(db: Session, watchlist_id: int, *, since: datetime, limit:
             .where(Event.event_type.in_(event_types))
             .where(activity_ts >= since)
             .order_by(activity_ts.desc(), Event.id.desc())
-            .limit(limit)
+            .limit(query_limit)
         )
         .scalars()
         .all()
     )
+    return [row for row in rows if _watchlist_event_allowed(subscription, row)][:limit]
 
 
-def _watchlist_events_count(db: Session, watchlist_id: int, *, since: datetime, user: UserAccount) -> int:
+def _watchlist_events_count(
+    db: Session,
+    watchlist_id: int,
+    *,
+    since: datetime,
+    user: UserAccount,
+    subscription: NotificationSubscription | None,
+) -> int:
     symbols = _watchlist_symbols(db, watchlist_id)
     if not symbols:
         return 0
     activity_ts = func.coalesce(Event.event_date, Event.ts)
     event_types = _alert_event_types_for_user(db, user)
+    if _subscription_has_trigger_filters(subscription):
+        rows = (
+            db.execute(
+                select(Event)
+                .where(Event.symbol.is_not(None))
+                .where(func.upper(Event.symbol).in_(symbols))
+                .where(Event.event_type.in_(event_types))
+                .where(activity_ts >= since)
+            )
+            .scalars()
+            .all()
+        )
+        return sum(1 for row in rows if _watchlist_event_allowed(subscription, row))
     return int(
         db.execute(
             select(func.count())
@@ -1014,6 +1064,151 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
         ).scalars()
         if symbol and symbol.strip()
     ]
+
+
+def _watchlist_market_news_items(
+    db: Session,
+    watchlist: Watchlist,
+    *,
+    since: datetime,
+    subscription: NotificationSubscription | None,
+) -> list[dict[str, Any]]:
+    if not _watchlist_market_news_enabled(subscription):
+        return []
+    symbols = _watchlist_symbols(db, watchlist.id)
+    if not symbols:
+        return []
+
+    collected: list[dict[str, Any]] = []
+    for symbol in symbols:
+        for kind, getter in (("news_article", get_stock_news), ("press_release", get_press_releases)):
+            try:
+                payload = getter(symbol=symbol, page=0, limit=WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT)
+            except Exception:
+                continue
+            rows = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                item = _market_news_item(symbol, kind, row, since=since)
+                if item:
+                    collected.append(item)
+
+    seen_urls: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in sorted(collected, key=lambda row: str(row.get("sort_timestamp") or ""), reverse=True):
+        url = str(item.get("url") or "").strip()
+        key = url.lower() or f"{item.get('kind')}:{item.get('ticker')}:{item.get('title')}:{item.get('published_at')}"
+        if key in seen_urls:
+            continue
+        seen_urls.add(key)
+        deduped.append(item)
+        if len(deduped) >= WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT:
+            break
+    return deduped
+
+
+def _watchlist_market_news_enabled(subscription: NotificationSubscription | None) -> bool:
+    if subscription is None or not subscription.active:
+        return False
+    payload = _subscription_payload(subscription)
+    return bool(payload.get("watchlist_news_enabled"))
+
+
+def _subscription_has_trigger_filters(subscription: NotificationSubscription | None) -> bool:
+    return subscription is not None and bool(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
+
+
+def _watchlist_event_allowed(subscription: NotificationSubscription | None, event: Event) -> bool:
+    if subscription is None:
+        return True
+    return _subscription_allows_any_trigger(subscription, _watchlist_event_triggers(event))
+
+
+def _watchlist_event_triggers(event: Event) -> set[str]:
+    payload = _loads_dict(event.payload_json)
+    event_type = (event.event_type or "").strip().lower()
+    triggers: set[str] = set()
+    if event_type in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        triggers.add("government_contract")
+    if event_type in INSTITUTIONAL_ALERT_TYPES or event_type == "institutional_activity_change":
+        triggers.add("institutional_activity")
+    if event_type in PRICE_VOLUME_ALERT_TYPES:
+        triggers.add("price_volume")
+    if event_type in FUNDAMENTAL_ALERT_TYPES:
+        triggers.add("fundamentals")
+    if event_type.startswith("congress_trade"):
+        triggers.add("congress_activity")
+    if event_type.startswith("insider_trade"):
+        triggers.add("insider_activity")
+    if _numeric_score(payload.get("smart_score") or payload.get("signal_score") or (round(event.impact_score) if event.impact_score else None)) is not None:
+        triggers.add("smart_score_threshold")
+    if event.amount_max is not None or event.amount_min is not None:
+        triggers.add("large_trade_threshold")
+    if payload.get("cross_source") or payload.get("source_count") or payload.get("confirmation_sources"):
+        triggers.add("cross_source_confirmation")
+    return triggers
+
+
+def _subscription_allows_any_trigger(subscription: NotificationSubscription, item_triggers: set[str]) -> bool:
+    selected = set(normalize_alert_triggers(_loads_list(subscription.alert_triggers_json)))
+    if not selected:
+        return False
+    if selected.intersection(item_triggers):
+        return True
+    if "government_contract" in item_triggers and "large_trade_threshold" in selected:
+        return True
+    if "large_trade_threshold" in item_triggers and "government_contract" in selected:
+        return True
+    return False
+
+
+def _market_news_item(symbol: str, kind: str, row: dict[str, Any], *, since: datetime) -> dict[str, Any] | None:
+    title = _clean_text(row.get("title"))
+    url = _clean_text(row.get("url"))
+    if not title or not url or not _is_http_url(url):
+        return None
+    published_at = _parse_provider_datetime(row.get("published_at"))
+    if published_at is None or published_at < _coerce_aware(since):
+        return None
+    image_url = _clean_text(row.get("image_url")) if kind == "news_article" else None
+    return {
+        "ticker": _normalize_ticker(row.get("symbol") or symbol),
+        "kind": kind,
+        "label": "News article" if kind == "news_article" else "Press release",
+        "title": title,
+        "site": _clean_text(row.get("site")) or ("Market news" if kind == "news_article" else "Press release"),
+        "published_at": _format_datetime(published_at),
+        "sort_timestamp": published_at.isoformat(),
+        "url": url,
+        "image_url": image_url if image_url and _is_http_url(image_url) else None,
+        "summary": _clean_text(row.get("summary")),
+    }
+
+
+def _parse_provider_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return _coerce_aware(value)
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        try:
+            parsed_date = date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+        return datetime.combine(parsed_date, time.min, tzinfo=timezone.utc)
+    return _coerce_aware(parsed)
+
+
+def _is_http_url(value: str) -> bool:
+    return value.startswith(("https://", "http://"))
 
 
 def _user_watchlist_symbols(db: Session, user_id: int) -> list[str]:
@@ -1144,7 +1339,9 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
         "href": _signal_url(ticker),
         "source_type": alert.source_type,
+        "source_id": alert.source_id,
         "alert_type": alert.alert_type,
+        "trigger": _daily_signal_trigger(alert.alert_type, payload, score, source_type=alert.source_type),
         "watchlist_boost": alert.source_type == "watchlist",
     }
 
@@ -1165,7 +1362,9 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
         "href": _signal_url(ticker),
         "source_type": "confirmation_monitoring",
+        "source_id": str(event.watchlist_id) if event.watchlist_id is not None else None,
         "alert_type": event.event_type,
+        "trigger": _daily_signal_trigger(event.event_type, {}, score, source_type="confirmation_monitoring"),
         "watchlist_boost": event.watchlist_id is not None,
     }
 
@@ -1250,6 +1449,58 @@ def _is_signal_monitoring_alert(alert: MonitoringAlert, payload: dict[str, Any])
     }:
         return True
     return bool(payload.get("saved_screen_event"))
+
+
+def _apply_daily_signal_subscription_preferences(db: Session, user: UserAccount, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    subscriptions: dict[str, NotificationSubscription | None] = {}
+    filtered: list[dict[str, Any]] = []
+    for item in items:
+        source_type = str(item.get("source_type") or "")
+        if source_type not in {"watchlist", "confirmation_monitoring"}:
+            filtered.append(item)
+            continue
+        source_id = str(item.get("source_id") or "").strip()
+        if not source_id:
+            filtered.append(item)
+            continue
+        if source_id not in subscriptions:
+            watchlist_id = _int_value(source_id)
+            watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
+            subscriptions[source_id] = _watchlist_subscription(db, user, watchlist) if watchlist is not None else None
+        subscription = subscriptions[source_id]
+        if subscription is None:
+            continue
+        if not subscription.active or not _subscription_daily_digest_enabled(subscription):
+            continue
+        trigger = str(item.get("trigger") or "").strip()
+        if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
+            filtered.append(item)
+    return filtered
+
+
+def _daily_signal_trigger(alert_type: str, payload: dict[str, Any], score: Any, *, source_type: str | None = None) -> str | None:
+    normalized = (alert_type or "").strip().lower()
+    if source_type == "saved_screen" and normalized == "entered_screen":
+        return "saved_screen_entry"
+    if normalized in {"entered_bullish_monitor", "entered_bearish_monitor", "exited_bullish_monitor", "exited_bearish_monitor"}:
+        return "monitor_state"
+    if normalized in PRICE_VOLUME_ALERT_TYPES:
+        return "price_volume"
+    if normalized in FUNDAMENTAL_ALERT_TYPES:
+        return "fundamentals"
+    if normalized in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        return "government_contract"
+    if normalized in INSTITUTIONAL_ALERT_TYPES or normalized == "institutional_activity_change":
+        return "institutional_activity"
+    if normalized.startswith("congress_trade"):
+        return "congress_activity"
+    if normalized.startswith("insider_trade"):
+        return "insider_activity"
+    if normalized in {"cross_source_confirmation", "new_multi_source_confirmation"} or payload.get("cross_source") or payload.get("source_count"):
+        return "cross_source_confirmation"
+    if _numeric_score(score) is not None:
+        return "smart_score_threshold"
+    return None
 
 
 def _qualify_signal_items(raw_items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -1401,6 +1652,82 @@ def _watchlist_items_html(items: list[dict[str, Any]], *, total_count: int | Non
     )
     summary = _showing_summary_html(len(display_items), total_count if total_count is not None else len(items))
     return _table(headers, rows) + summary
+
+
+def _watchlist_market_news_text(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    lines = ["Watchlist news and press releases"]
+    for item in items[:WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT]:
+        lines.append(
+            f"- {item['ticker']} {item['label']}: {item['title']} | {item['site']} | {item['published_at']} | {item['url']}"
+        )
+    return "\n".join(lines)
+
+
+def _watchlist_market_news_html(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    article_cards = "".join(_market_news_article_card(item) for item in items if item.get("kind") == "news_article")
+    release_rows = "".join(
+        "<tr>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;white-space:nowrap;\">{html_escape(str(item['ticker']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\"><a href=\"{html_escape(str(item['url']), quote=True)}\" style=\"color:#0f766e;font-weight:700;text-decoration:none;\">{html_escape(str(item['title']))}</a></td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#64748b;white-space:nowrap;\">{html_escape(str(item['published_at']))}</td>"
+        "</tr>"
+        for item in items
+        if item.get("kind") == "press_release"
+    )
+    article_section = (
+        "<div style=\"margin-top:22px;font-family:Arial,Helvetica,sans-serif;\">"
+        "<h3 style=\"margin:0 0 10px 0;font-size:16px;line-height:22px;color:#0f172a;\">Watchlist news articles</h3>"
+        f"{article_cards}"
+        "</div>"
+        if article_cards
+        else ""
+    )
+    release_section = (
+        "<div style=\"margin-top:22px;font-family:Arial,Helvetica,sans-serif;\">"
+        "<h3 style=\"margin:0 0 10px 0;font-size:16px;line-height:22px;color:#0f172a;\">Watchlist press releases</h3>"
+        f"{_table(['Ticker', 'Release', 'Published'], release_rows)}"
+        "</div>"
+        if release_rows
+        else ""
+    )
+    return article_section + release_section
+
+
+def _market_news_article_card(item: dict[str, Any]) -> str:
+    image_url = _clean_text(item.get("image_url"))
+    image_cell = (
+        "<td width=\"118\" valign=\"top\" style=\"padding-right:12px;\">"
+        f"<img src=\"{html_escape(image_url, quote=True)}\" width=\"118\" height=\"72\" alt=\"\" "
+        "style=\"display:block;width:118px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #dbe6ea;\" />"
+        "</td>"
+        if image_url
+        else ""
+    )
+    summary = _clean_text(item.get("summary"))
+    summary_html = (
+        f"<div style=\"margin-top:5px;font-size:13px;line-height:19px;color:#475569;\">{html_escape(summary)}</div>"
+        if summary
+        else ""
+    )
+    return (
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"margin:10px 0 0 0;border-collapse:separate;border:1px solid #dbe6ea;border-radius:7px;background:#ffffff;\">"
+        "<tr>"
+        f"<td style=\"padding:12px;\">"
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>"
+        f"{image_cell}"
+        "<td valign=\"top\">"
+        f"<div style=\"font-size:12px;line-height:16px;color:#64748b;font-weight:700;\">{html_escape(str(item['ticker']))} - {html_escape(str(item['site']))} - {html_escape(str(item['published_at']))}</div>"
+        f"<a href=\"{html_escape(str(item['url']), quote=True)}\" style=\"display:block;margin-top:4px;color:#0f766e;font-size:15px;line-height:21px;font-weight:700;text-decoration:none;\">{html_escape(str(item['title']))}</a>"
+        f"{summary_html}"
+        "</td></tr></table>"
+        "</td>"
+        "</tr></table>"
+    )
 
 
 def _monitoring_items_text(items: list[dict[str, Any]]) -> str:
@@ -1561,6 +1888,16 @@ def _loads_dict(value: str | None) -> dict[str, Any]:
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _loads_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
 
 
 def _amount(min_value: int | None, max_value: int | None) -> str:

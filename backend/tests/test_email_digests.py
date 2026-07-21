@@ -71,6 +71,7 @@ def _watchlist(
     active_subscription: bool = True,
     only_if_new: bool = True,
     alert_triggers: list[str] | None = None,
+    source_payload: dict | None = None,
 ) -> Watchlist:
     watchlist = Watchlist(name=f"{user.id} AI", owner_user_id=user.id)
     security = db.execute(select(Security).where(Security.symbol == "NVDA")).scalar_one_or_none()
@@ -89,7 +90,23 @@ def _watchlist(
             frequency="daily",
             only_if_new=only_if_new,
             active=active_subscription,
-            alert_triggers_json=json.dumps(alert_triggers if alert_triggers is not None else ["cross_source_confirmation", "smart_score_threshold"]),
+            source_payload_json=json.dumps(source_payload or {}),
+            alert_triggers_json=json.dumps(
+                alert_triggers
+                if alert_triggers is not None
+                else [
+                    "cross_source_confirmation",
+                    "smart_score_threshold",
+                    "monitor_state",
+                    "large_trade_threshold",
+                    "government_contract",
+                    "institutional_activity",
+                    "price_volume",
+                    "fundamentals",
+                    "congress_activity",
+                    "insider_activity",
+                ]
+            ),
         )
     )
     db.commit()
@@ -387,6 +404,28 @@ def test_watchlist_digest_resolves_insider_actor_from_payload():
         db.close()
 
 
+def test_watchlist_activity_digest_respects_trigger_preferences():
+    db = _session()
+    try:
+        user = _user(db, "daily-trigger-filter@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["insider_activity"])
+        _bare_event(db, event_type="congress_trade", member_name="Member")
+        _bare_event(
+            db,
+            event_type="insider_trade",
+            payload={"raw": {"reportingName": "Nvidia Officer"}},
+            member_name="Nvidia Officer",
+        )
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["event_type"] == "insider trade"
+        assert "congress trade" not in digest.context["items_text"]
+    finally:
+        db.close()
+
+
 def test_watchlist_digest_hides_score_column_when_all_scores_missing():
     db = _session()
     try:
@@ -436,6 +475,88 @@ def test_watchlist_digest_caps_display_rows_and_reports_more_count():
         assert digest.context["items_html"].count("<tr>") == 11
         assert "Showing 10 of 12 items" in digest.context["items_html"]
         assert "Showing 10 of 12 items" in digest.context["items_text"]
+    finally:
+        db.close()
+
+
+def test_watchlist_digest_includes_enabled_news_and_press(monkeypatch):
+    def fake_stock_news(*, symbol: str, page: int = 0, limit: int = 20):
+        assert symbol == "NVDA"
+        return {
+            "items": [
+                {
+                    "symbol": "NVDA",
+                    "title": "Nvidia announces new AI platform",
+                    "site": "MarketWire",
+                    "published_at": "2026-06-05T15:30:00+00:00",
+                    "url": "https://example.com/nvda-news",
+                    "image_url": "https://example.com/nvda.jpg",
+                    "summary": "Fresh product news.",
+                },
+                {
+                    "symbol": "NVDA",
+                    "title": "Old Nvidia article",
+                    "site": "MarketWire",
+                    "published_at": "2026-06-01T15:30:00+00:00",
+                    "url": "https://example.com/nvda-old",
+                    "image_url": "https://example.com/old.jpg",
+                },
+            ]
+        }
+
+    def fake_press_releases(*, symbol: str, page: int = 0, limit: int = 20):
+        assert symbol == "NVDA"
+        return {
+            "items": [
+                {
+                    "symbol": "NVDA",
+                    "title": "Nvidia posts investor update",
+                    "site": "Nvidia",
+                    "published_at": "2026-06-05T16:00:00+00:00",
+                    "url": "https://example.com/nvda-release",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.services.email_digests.get_stock_news", fake_stock_news)
+    monkeypatch.setattr("app.services.email_digests.get_press_releases", fake_press_releases)
+    db = _session()
+    try:
+        user = _user(db, "watchlist-news@example.com")
+        watchlist = _watchlist(db, user, source_payload={"watchlist_news_enabled": True})
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime(2026, 6, 5, tzinfo=timezone.utc))
+
+        assert digest.items_count == 2
+        assert "2 new filings, events, or market items" in digest.summary
+        assert "Nvidia announces new AI platform" in digest.context["market_news_text"]
+        assert "Nvidia posts investor update" in digest.context["market_news_text"]
+        assert "Old Nvidia article" not in digest.context["market_news_text"]
+        assert "https://example.com/nvda.jpg" in digest.context["market_news_html"]
+        assert "https://example.com/nvda-release" in digest.context["market_news_html"]
+    finally:
+        db.close()
+
+
+def test_watchlist_digest_omits_news_when_setting_disabled(monkeypatch):
+    def fail_stock_news(**_kwargs):
+        raise AssertionError("stock news should not be fetched")
+
+    def fail_press_releases(**_kwargs):
+        raise AssertionError("press releases should not be fetched")
+
+    monkeypatch.setattr("app.services.email_digests.get_stock_news", fail_stock_news)
+    monkeypatch.setattr("app.services.email_digests.get_press_releases", fail_press_releases)
+    db = _session()
+    try:
+        user = _user(db, "watchlist-news-disabled@example.com")
+        watchlist = _watchlist(db, user)
+
+        digest = build_watchlist_activity_digest(db, user, watchlist, datetime(2026, 6, 5, tzinfo=timezone.utc))
+
+        assert digest.items_count == 0
+        assert digest.context["market_news_text"] == ""
+        assert digest.context["market_news_html"] == ""
     finally:
         db.close()
 
@@ -1110,6 +1231,66 @@ def test_monitoring_digest_job_respects_daily_digest_subscription_flag():
         results = run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True)
 
         assert results == []
+    finally:
+        db.close()
+
+
+def test_signal_digest_respects_watchlist_trigger_preferences():
+    db = _session()
+    try:
+        user = _user(db, "signal-trigger-filter@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["government_contract"])
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="watchlist",
+            alert_type="smart_score_threshold",
+            title="NVDA score cleared threshold",
+            payload={"score": 91, "direction": "bullish"},
+        )
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="watchlist",
+            alert_type="government_contract",
+            title="NVDA government contract",
+            payload={"direction": "bullish"},
+            event_id=778,
+        )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["alert_type"] == "government_contract"
+        assert "government contract" in digest.context["signals_text"]
+        assert "score cleared threshold" not in digest.context["signals_text"]
+    finally:
+        db.close()
+
+
+def test_watchlist_activity_digest_preview_respects_daily_digest_subscription_flag():
+    db = _session()
+    try:
+        user = _user(db, "watchlist-daily-disabled@example.com")
+        watchlist = _watchlist(db, user)
+        subscription = db.execute(select(NotificationSubscription).where(NotificationSubscription.source_id == str(watchlist.id))).scalar_one()
+        subscription.source_payload_json = json.dumps({"daily_digest_enabled": False, "intraday_alerts_enabled": True})
+        _event(db)
+        db.commit()
+
+        results = run_digest_job(
+            db,
+            kind="watchlist_activity",
+            lookback_days=1,
+            dry_run=True,
+            now=datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc),
+        )
+
+        assert len(results) == 1
+        assert results[0]["status"] == "skipped"
+        assert results[0]["error"] == "watchlist_daily_digest_disabled"
     finally:
         db.close()
 

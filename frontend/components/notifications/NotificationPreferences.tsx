@@ -92,6 +92,7 @@ export function NotificationPreferences({
   const [onlyIfNew, setOnlyIfNew] = useState(true);
   const [dailyDigestEnabled, setDailyDigestEnabled] = useState(true);
   const [intradayAlertsEnabled, setIntradayAlertsEnabled] = useState(true);
+  const [watchlistNewsEnabled, setWatchlistNewsEnabled] = useState(false);
   const [triggers, setTriggers] = useState<AlertTriggerType[]>([
     "cross_source_confirmation",
     "smart_score_threshold",
@@ -165,6 +166,7 @@ export function NotificationPreferences({
           const payload = match.source_payload ?? {};
           setDailyDigestEnabled(typeof payload.daily_digest_enabled === "boolean" ? payload.daily_digest_enabled : match.active);
           setIntradayAlertsEnabled(typeof payload.intraday_alerts_enabled === "boolean" ? payload.intraday_alerts_enabled : match.active);
+          setWatchlistNewsEnabled(typeof payload.watchlist_news_enabled === "boolean" ? payload.watchlist_news_enabled : false);
           setTriggers(match.alert_triggers.length ? match.alert_triggers : []);
           if (!accountEmailDestination) window.localStorage.setItem(emailStorageKey, match.email);
         }
@@ -208,6 +210,7 @@ export function NotificationPreferences({
           ...(sourcePayload ?? {}),
           daily_digest_enabled: dailyDigestEnabled,
           intraday_alerts_enabled: intradayAlertsEnabled,
+          watchlist_news_enabled: watchlistNewsEnabled,
         },
         only_if_new: onlyIfNew,
         active,
@@ -309,6 +312,16 @@ export function NotificationPreferences({
             description="Skip the daily digest unless this source has fresh activity."
             onCheckedChange={setOnlyIfNew}
           />
+
+          {sourceType === "watchlist" ? (
+            <DigestSwitch
+              checked={watchlistNewsEnabled}
+              disabled={!canUseDigests || !dailyDigestEnabled}
+              label="Watchlist news and press releases"
+              description="Add ticker news links, article thumbnails, and issuer press release links to daily digests."
+              onCheckedChange={setWatchlistNewsEnabled}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-2">
