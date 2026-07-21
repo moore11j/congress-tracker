@@ -100,10 +100,10 @@ function biasLabel(value?: string | null): string {
 }
 
 function biasClassName(value?: string | null): string {
-  if (value === "bullish") return "border-emerald-300/35 bg-emerald-300/10 text-emerald-200";
-  if (value === "bearish") return "border-rose-300/35 bg-rose-300/10 text-rose-200";
-  if (value === "neutral") return "border-amber-300/35 bg-amber-300/10 text-amber-200";
-  return "border-slate-300/20 bg-slate-300/10 text-slate-300";
+  if (value === "bullish") return "text-emerald-300";
+  if (value === "bearish") return "text-rose-300";
+  if (value === "neutral") return "text-amber-300";
+  return "text-slate-400";
 }
 
 function trendCopy(market?: InsightsMacroPositioningMarket | null): string {
@@ -213,7 +213,7 @@ export function InsightsMacroPositioningPanel() {
                 </p>
               </div>
               <div className="flex items-start justify-between gap-3 sm:block sm:text-right">
-                <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-semibold ${biasClassName(market?.bias)}`}>
+                <span className={`text-[11px] font-semibold ${biasClassName(market?.bias)}`}>
                   {biasLabel(market?.bias)}
                 </span>
                 {market?.trend ? <p className="mt-2 text-xs capitalize text-slate-500">{market.trend}</p> : null}

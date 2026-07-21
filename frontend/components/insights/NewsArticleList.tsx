@@ -30,6 +30,7 @@ function marketReadText(marketRead?: string | null): string | null {
 function marketReadClassName(marketRead?: string | null): string {
   if (marketRead === "bullish") return "text-emerald-300/80";
   if (marketRead === "bearish") return "text-rose-300/80";
+  if (marketRead === "neutral") return "text-amber-300/80";
   return "text-slate-500";
 }
 

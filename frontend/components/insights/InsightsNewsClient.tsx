@@ -62,9 +62,9 @@ function marketReadLabel(value?: string | null): string {
 }
 
 function marketReadClassName(value?: string | null): string {
-  if (value === "bullish") return "border-emerald-300/35 bg-emerald-300/10 text-emerald-200";
-  if (value === "bearish") return "border-rose-300/35 bg-rose-300/10 text-rose-200";
-  return "border-amber-300/35 bg-amber-300/10 text-amber-200";
+  if (value === "bullish") return "text-emerald-300";
+  if (value === "bearish") return "text-rose-300";
+  return "text-amber-300";
 }
 
 function tickerChips(item: NewsItem): string[] {
@@ -140,7 +140,7 @@ function HeadlineRow({ item }: { item: NewsItem }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 md:block md:text-right">
-        <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${marketReadClassName(item.market_read)}`}>
+        <span className={`text-xs font-semibold ${marketReadClassName(item.market_read)}`}>
           {marketReadLabel(item.market_read)}
         </span>
         <p className="text-xs text-slate-500 md:mt-2">{freshnessText(item.published_at)}</p>

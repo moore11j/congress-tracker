@@ -26,13 +26,8 @@ function biasLabel(value?: string | null): string {
 function biasClassName(value?: string | null): string {
   if (value === "bullish") return "text-emerald-300";
   if (value === "bearish") return "text-rose-300";
-  return "text-slate-300";
-}
-
-function biasPillClassName(value?: string | null): string {
-  if (value === "bullish") return "border-emerald-300/30 bg-emerald-300/10 text-emerald-200";
-  if (value === "bearish") return "border-rose-300/30 bg-rose-300/10 text-rose-200";
-  return "border-slate-300/20 bg-slate-300/10 text-slate-200";
+  if (value === "neutral") return "text-amber-300";
+  return "text-slate-400";
 }
 
 function trendLabel(value?: string | null): string {
@@ -166,7 +161,7 @@ function MacroCard({ market, onOpen }: { market: InsightsMacroPositioningMarket;
     >
       <div className="flex items-start justify-between gap-3">
         <h3 className="min-w-0 text-sm font-semibold leading-5 text-white">{market.name}</h3>
-        <span className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${biasPillClassName(market.bias)}`}>
+        <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] ${biasClassName(market.bias)}`}>
           {biasLabel(market.bias)}
         </span>
       </div>

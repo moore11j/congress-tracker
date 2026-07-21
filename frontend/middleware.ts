@@ -188,8 +188,11 @@ export async function middleware(request: NextRequest) {
   const bot = isBotUserAgent(userAgent);
   const family = routeFamily(pathname);
   const shouldNoindex = host === appHost && isNoindexAppRoute(pathname);
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
+  const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";
 
-  if (legacyMarketingHosts.has(host)) {
+  if (legacyMarketingHosts.has(host) || isHttpCanonicalMarketingRequest) {
     const canonicalUrl = request.nextUrl.clone();
     canonicalUrl.protocol = "https:";
     canonicalUrl.hostname = canonicalMarketingHost;

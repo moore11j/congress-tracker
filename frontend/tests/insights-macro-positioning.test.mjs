@@ -8,6 +8,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 const insightsPage = read("app/insights/page.tsx");
 const component = read("components/insights/InsightsMacroPositioningPanel.tsx");
+const feedRouteComponent = read("components/feed/MacroPositioningFeedClient.tsx");
+const fullMacroComponent = read("components/insights/InsightsMacroPositioningClient.tsx");
+const insightsNews = read("components/insights/InsightsNewsClient.tsx");
+const newsArticleList = read("components/insights/NewsArticleList.tsx");
+const researchBriefs = read("components/insights/ResearchBriefsSection.tsx");
 const tickerFlyout = read("components/ticker/ConfirmationSourcesFlyout.tsx");
 const api = read("lib/api.ts");
 const landing = read("app/landing/page.tsx");
@@ -58,4 +63,15 @@ test("macro positioning does not present missing trend as stable", () => {
   assert.match(component, /return "Insufficient data";/);
   assert.match(component, /No recent positioning update\./);
   assert.doesNotMatch(component, /missing.*stable/i);
+});
+
+test("insights sentiment labels render as colored text instead of pills", () => {
+  for (const source of [component, feedRouteComponent, fullMacroComponent, insightsNews, researchBriefs]) {
+    assert.doesNotMatch(source, /rounded-md border px-2 py-1[^`]*\$\{(?:bias|marketRead|judgment|positioning)/);
+    assert.doesNotMatch(source, /bg-(?:emerald|rose|amber|slate)-300\/10[^"]*(?:Bullish|Bearish|Neutral)/);
+  }
+
+  for (const source of [component, feedRouteComponent, fullMacroComponent, insightsNews, newsArticleList, researchBriefs]) {
+    assert.match(source, /text-amber-300/);
+  }
 });

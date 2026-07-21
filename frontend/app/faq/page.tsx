@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 import { legalPageChrome } from "@/lib/legalPageChrome";
+import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
 const lastUpdated = "June 20, 2026";
 
@@ -189,11 +190,11 @@ const faqJsonLd = {
   ),
 };
 
-export const metadata: Metadata = {
+export const metadata: Metadata = marketingPageMetadata("/faq", {
   title: "Frequently Asked Questions | Walnut Markets",
   description:
     "Answers about data sources, disclosures, billing, privacy, security, and how Walnut Intelligence Inc. operates Walnut Market Terminal.",
-};
+});
 
 export default async function FaqPage() {
   const chrome = await legalPageChrome();

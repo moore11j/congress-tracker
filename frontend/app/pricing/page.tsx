@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { PricingPlannerDeferred } from "@/components/billing/PricingPlannerDeferred";
+import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
 export const dynamic = "force-static";
 export const revalidate = false;
 
-export const metadata: Metadata = {
+export const metadata: Metadata = marketingPageMetadata("/pricing", {
   title: "Pricing | Walnut Market Terminal",
   description:
     "Compare Free, Premium, and Pro plans for Walnut Market Terminal, with disclosure intelligence, market signals, leaderboards, and watchlists.",
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
     description:
       "Disclosure intelligence, market signals, alerts, and flexible watchlists.",
   },
-};
+});
 
 export default async function PricingPage() {
   return (

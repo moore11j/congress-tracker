@@ -15,18 +15,39 @@ export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
 export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL] as const;
 
+export function marketingCanonicalUrl(pathname: string): string {
+  const normalizedPath = pathname === "/" ? "/" : `/${pathname.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  return new URL(normalizedPath, `${WALNUT_MARKETING_URL}/`).toString();
+}
+
+export function marketingPageMetadata(pathname: string, metadata: Metadata): Metadata {
+  const canonicalUrl = marketingCanonicalUrl(pathname);
+  return {
+    ...metadata,
+    metadataBase: new URL(WALNUT_MARKETING_URL),
+    alternates: {
+      ...metadata.alternates,
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      ...metadata.openGraph,
+      url: canonicalUrl,
+    },
+  };
+}
+
 export const walnutMarketingMetadata: Metadata = {
   metadataBase: new URL(WALNUT_MARKETING_URL),
   title: WALNUT_MARKETING_TITLE,
   description: WALNUT_MARKETING_DESCRIPTION,
   alternates: {
-    canonical: WALNUT_MARKETING_URL,
+    canonical: marketingCanonicalUrl("/"),
   },
   openGraph: {
     type: "website",
     title: WALNUT_MARKETING_TITLE,
     description: WALNUT_OG_DESCRIPTION,
-    url: WALNUT_MARKETING_URL,
+    url: marketingCanonicalUrl("/"),
     siteName: "Walnut Markets",
     images: [
       {

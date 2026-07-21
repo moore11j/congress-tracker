@@ -12,11 +12,11 @@ function formatBriefDate(value: string): string {
 }
 
 function judgmentClassName(judgment?: ResearchBriefCard["judgment"]): string {
-  if (judgment === "bullish") return "border-emerald-300/35 bg-emerald-300/10 text-emerald-200";
-  if (judgment === "bearish") return "border-rose-300/35 bg-rose-300/10 text-rose-200";
-  if (judgment === "macro") return "border-cyan-300/35 bg-cyan-300/10 text-cyan-200";
-  if (judgment === "policy") return "border-amber-300/35 bg-amber-300/10 text-amber-200";
-  return "border-slate-300/25 bg-slate-300/10 text-slate-200";
+  if (judgment === "bullish") return "text-emerald-300";
+  if (judgment === "bearish") return "text-rose-300";
+  if (judgment === "macro") return "text-cyan-300";
+  if (judgment === "policy") return "text-amber-300";
+  return "text-slate-300";
 }
 
 function judgmentLabel(brief: ResearchBriefCard): string {
@@ -56,7 +56,7 @@ function BriefCard({ brief }: { brief: ResearchBriefCard }) {
       <BriefVisual brief={brief} />
       <div className="relative z-10 flex w-full flex-col justify-between bg-gradient-to-r from-slate-950/94 via-slate-950/72 to-slate-950/20 p-4">
         <div>
-          <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${judgmentClassName(brief.judgment)}`}>
+          <span className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${judgmentClassName(brief.judgment)}`}>
             {judgmentLabel(brief)}
           </span>
           <h3 className="mt-4 max-w-[14rem] text-lg font-semibold leading-6 text-white transition group-hover:text-emerald-100">

@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 import { legalPageChrome } from "@/lib/legalPageChrome";
+import { marketingPageMetadata } from "@/lib/marketingMetadata";
 
 const lastUpdated = "June 4, 2026";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = marketingPageMetadata("/privacy", {
   title: "Privacy Policy | Walnut Market Terminal",
   description: "Privacy Policy for Walnut Intelligence Inc. and Walnut Market Terminal.",
-};
+});
 
 export default async function PrivacyPage() {
   const chrome = await legalPageChrome();

@@ -40,10 +40,10 @@ function positioningLabel(item: MacroPositioningFeedItem) {
 }
 
 function positioningClass(value?: string | null) {
-  if (value === "bullish") return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
-  if (value === "bearish") return "border-rose-300/30 bg-rose-300/10 text-rose-100";
-  if (value === "neutral") return "border-slate-300/20 bg-slate-300/10 text-slate-200";
-  return "border-slate-700 bg-slate-900 text-slate-400";
+  if (value === "bullish") return "text-emerald-300";
+  if (value === "bearish") return "text-rose-300";
+  if (value === "neutral") return "text-amber-300";
+  return "text-slate-400";
 }
 
 function trendLabel(item: MacroPositioningFeedItem) {
@@ -299,7 +299,7 @@ export function MacroPositioningFeedClient({ initialData = null }: { initialData
                 <button key={item.event_id} type="button" onClick={() => setSelected(item)} className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-emerald-400/[0.06] lg:grid-cols-[0.9fr_1fr_1fr_1fr_1fr_1fr_2fr]">
                   <span className="text-sm text-slate-300">{formatDate(item.report_date)}<span className="mt-1 block text-xs text-slate-500">Weekly data</span></span>
                   <span className="font-semibold text-white">{item.market_name}</span>
-                  <span><span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${positioningClass(item.positioning)}`}>{positioningLabel(item)}</span></span>
+                  <span className={`text-xs font-semibold ${positioningClass(item.positioning)}`}>{positioningLabel(item)}</span>
                   <span className="text-sm text-slate-300">{item.weekly_change ?? "-"}</span>
                   <span className="text-sm text-slate-300">{percentileLabel(item.percentile)}</span>
                   <span className="text-sm text-slate-300">{trendLabel(item)}</span>
