@@ -5,7 +5,20 @@ const authSessionCookieName = "ct_session";
 const authHintCookieName = "ct_auth_hint";
 const landingHeaderName = "x-walnut-public-landing";
 const protectedPrefixes = ["/admin", "/account", "/screener", "/backtesting", "/watchlists", "/monitoring", "/signals", "/leaderboards"];
-const publicStaticPaths = new Set(["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq"]);
+const publicStaticPaths = new Set([
+  "/landing",
+  "/about",
+  "/pricing",
+  "/terms",
+  "/privacy",
+  "/faq",
+  "/congress-trades",
+  "/insider-trading-tracker",
+  "/government-contracts",
+  "/institutional-filings",
+  "/stock-confirmation-score",
+  "/market-intelligence-terminal",
+]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -90,7 +103,7 @@ function withNoindex(response: NextResponse): NextResponse {
 function robotsTxtResponse(host: string): NextResponse {
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const marketingAllow = publicLandingHosts.has(host)
-    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /ticker/\n"
+    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /congress-trades\nAllow: /insider-trading-tracker\nAllow: /government-contracts\nAllow: /institutional-filings\nAllow: /stock-confirmation-score\nAllow: /market-intelligence-terminal\nAllow: /ticker/\n"
     : "\n";
   const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
   return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {

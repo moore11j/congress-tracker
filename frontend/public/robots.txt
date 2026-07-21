@@ -5,6 +5,12 @@ Allow: /pricing
 Allow: /faq
 Allow: /terms
 Allow: /privacy
+Allow: /congress-trades
+Allow: /insider-trading-tracker
+Allow: /government-contracts
+Allow: /institutional-filings
+Allow: /stock-confirmation-score
+Allow: /market-intelligence-terminal
 Allow: /ticker/
 
 Disallow: /insider/

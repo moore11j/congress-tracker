@@ -78,7 +78,10 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
   assert.match(legalPageChrome, /new Set\(\["walnutmarkets\.com"\]\)/);
   assert.match(faqPage, /const chrome = await legalPageChrome\(\)/);
   assert.match(faqPage, /chrome=\{chrome\}/);
-  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+  assert.match(middleware, /const publicStaticPaths = new Set\(\[/);
+  for (const route of ["/landing", "/about", "/pricing", "/terms", "/privacy", "/faq", "/congress-trades", "/insider-trading-tracker"]) {
+    assert.match(middleware, new RegExp(`"${route}"`));
+  }
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
   assert.match(middleware, /const isMarketingStaticPage = publicStaticPaths\.has\(pathname\) && publicLandingHosts\.has\(host\)/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);

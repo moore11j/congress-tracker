@@ -6,6 +6,14 @@ import test from "node:test";
 const root = process.cwd();
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
+const publicSeoRoutes = [
+  "/congress-trades",
+  "/insider-trading-tracker",
+  "/government-contracts",
+  "/institutional-filings",
+  "/stock-confirmation-score",
+  "/market-intelligence-terminal",
+];
 
 const disallowedRoutes = [
   "/insider/",
@@ -38,11 +46,17 @@ test("marketing robots keep marketing and public ticker pages indexable", () => 
   assert.match(middleware, /Allow: \/faq/);
   assert.match(middleware, /Allow: \/terms/);
   assert.match(middleware, /Allow: \/privacy/);
+  for (const route of publicSeoRoutes) {
+    assert.match(middleware, new RegExp(`Allow: ${route}`));
+  }
   assert.match(middleware, /Allow: \/ticker\//);
   assert.match(middleware, /Sitemap: https:\/\/walnutmarkets\.com\/sitemap\.xml/);
   assert.match(robots, /Allow: \/pricing/);
   assert.match(robots, /Allow: \/terms/);
   assert.match(robots, /Allow: \/privacy/);
+  for (const route of publicSeoRoutes) {
+    assert.match(robots, new RegExp(`Allow: ${route}`));
+  }
   assert.match(robots, /Allow: \/ticker\//);
   assert.doesNotMatch(robots, /Disallow: \/ticker\//);
 });
@@ -57,7 +71,10 @@ test("app terminal routes receive noindex without blocking real users", () => {
 });
 
 test("legacy marketing domains redirect permanently and public ticker pages remain crawlable", () => {
-  assert.match(middleware, /publicStaticPaths = new Set\(\["\/landing", "\/about", "\/pricing", "\/terms", "\/privacy", "\/faq"\]\)/);
+  assert.match(middleware, /const publicStaticPaths = new Set\(\[/);
+  for (const route of publicSeoRoutes) {
+    assert.match(middleware, new RegExp(`"${route}"`));
+  }
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
   assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /canonicalUrl\.hostname = canonicalMarketingHost/);

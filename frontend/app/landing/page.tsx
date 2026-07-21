@@ -14,6 +14,7 @@ import {
   WALNUT_X_URL,
   walnutMarketingMetadata,
 } from "@/lib/marketingMetadata";
+import { publicResearchTools } from "@/lib/publicResearchTools";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -116,7 +117,7 @@ const signalCards = [
 ] as const;
 
 const whyWalnut = [
-  "Professional-grade signal stack: Congress, insiders, contracts, filings, fundamentals, technicals, and market context.",
+  "Professional-grade signal data: Congress, insiders, contracts, filings, fundamentals, technicals, and market context.",
   "Transparent conviction: see why a ticker scores high before you trust the score.",
   "Built for speed: move from market event to ticker page to evidence trail in seconds.",
   "Public-data edge: identify patterns hidden in plain sight.",
@@ -482,7 +483,8 @@ function landingJsonLd(config: PlanConfig | null) {
   const organization = {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "Walnut Intelligence Inc.",
+    name: "Walnut Markets",
+    legalName: "Walnut Intelligence Inc.",
     alternateName: "Walnut Markets",
     url: WALNUT_MARKETING_URL,
     logo: `${WALNUT_MARKETING_URL}/walnut-intel-logo-mark.png`,
@@ -509,8 +511,12 @@ function landingJsonLd(config: PlanConfig | null) {
 
   const application = {
     "@context": "https://schema.org",
-    "@type": "WebApplication",
+    "@type": "SoftwareApplication",
     name: "Walnut Market Terminal",
+    brand: {
+      "@type": "Brand",
+      name: "Walnut Markets",
+    },
     applicationCategory: "FinanceApplication",
     operatingSystem: "Web",
     url: WALNUT_MARKETING_URL,
@@ -725,7 +731,7 @@ export default async function LandingPage() {
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">The market has tells. Walnut finds them.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut turns scattered public data into a signal stack investors can actually use — Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation in one market terminal.
+              Walnut turns scattered public data into signal data investors can actually use: Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation in one market terminal.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -798,8 +804,8 @@ export default async function LandingPage() {
       <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Signal stack</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One signal is noise. A stack is intelligence.</h2>
+            <SectionEyebrow>Signal data</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One signal is noise. Cross-source context is intelligence.</h2>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {signalCards.map((card) => {
@@ -903,7 +909,7 @@ export default async function LandingPage() {
 
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <SectionEyebrow>The Walnut signal stack</SectionEyebrow>
+          <SectionEyebrow>The Walnut signal data</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
@@ -1024,7 +1030,7 @@ export default async function LandingPage() {
       </section>
 
       <footer className="px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 text-sm text-slate-400 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mx-auto grid max-w-7xl gap-8 text-sm text-slate-400 lg:grid-cols-[1fr_1fr_1fr]">
           <div>
             <p className="font-semibold text-white">Walnut Market Terminal</p>
             <p className="mt-1">Walnut Market Terminal is operated by Walnut Intelligence Inc.</p>
@@ -1032,7 +1038,15 @@ export default async function LandingPage() {
               Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
             </p>
           </div>
-          <nav className="flex flex-wrap gap-4">
+          <nav className="grid gap-2" aria-label="Research tools footer">
+            <p className="font-semibold text-slate-300">Research tools</p>
+            {publicResearchTools.map((tool) => (
+              <a key={tool.href} href={tool.href} className="hover:text-white">
+                {tool.label}
+              </a>
+            ))}
+          </nav>
+          <nav className="flex flex-wrap gap-4 lg:justify-end" aria-label="Company footer">
             <a href={appUrl} className="hover:text-white">
               App
             </a>

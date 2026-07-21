@@ -8,6 +8,14 @@ const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata
 const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
+const seoRoutes = [
+  "/congress-trades",
+  "/insider-trading-tracker",
+  "/government-contracts",
+  "/institutional-filings",
+  "/stock-confirmation-score",
+  "/market-intelligence-terminal",
+];
 
 function readAppPage(route) {
   return fs.readFileSync(path.join(root, "app", route, "page.tsx"), "utf8");
@@ -26,6 +34,9 @@ test("public marketing pages define self-referencing canonical metadata", () => 
   assert.match(readAppPage("pricing"), /marketingPageMetadata\("\/pricing"/);
   assert.match(readAppPage("terms"), /marketingPageMetadata\("\/terms"/);
   assert.match(readAppPage("privacy"), /marketingPageMetadata\("\/privacy"/);
+  for (const route of seoRoutes) {
+    assert.match(readAppPage(route.slice(1)), /marketingSeoPageMetadata\(page\.pathname/);
+  }
 });
 
 test("sitemap contains canonical URLs and no www or http variants", () => {
@@ -35,6 +46,9 @@ test("sitemap contains canonical URLs and no www or http variants", () => {
   assert.ok(urls.includes("https://walnutmarkets.com/pricing"));
   assert.ok(urls.includes("https://walnutmarkets.com/terms"));
   assert.ok(urls.includes("https://walnutmarkets.com/privacy"));
+  for (const route of seoRoutes) {
+    assert.ok(urls.includes(`https://walnutmarkets.com${route}`));
+  }
   assert.ok(urls.every((url) => url.startsWith("https://walnutmarkets.com/")));
   assert.doesNotMatch(sitemap, /https?:\/\/www\.walnutmarkets\.com/);
   assert.doesNotMatch(sitemap, /http:\/\/walnutmarkets\.com/);
@@ -46,6 +60,9 @@ test("robots points crawlers to the canonical sitemap without blocking marketing
   for (const route of ["/faq", "/pricing", "/terms", "/privacy"]) {
     assert.match(robots, new RegExp(`Allow: ${route}`));
   }
+  for (const route of seoRoutes) {
+    assert.match(robots, new RegExp(`Allow: ${route}`));
+  }
 });
 
 test("http and www marketing requests redirect permanently while preserving path and query", () => {
@@ -54,7 +71,7 @@ test("http and www marketing requests redirect permanently while preserving path
   assert.match(middleware, /const requestProto = forwardedProto \|\| request\.nextUrl\.protocol\.replace\(/);
   assert.match(middleware, /host === canonicalMarketingHost && requestProto === "http"/);
 
-  const redirectBlock = middleware.match(/if \(legacyMarketingHosts\.has\(host\) \|\| isHttpCanonicalMarketingRequest\) \{[\s\S]*?return NextResponse\.redirect\(canonicalUrl, 301\);\n  \}/)?.[0] ?? "";
+  const redirectBlock = middleware.match(/if \(legacyMarketingHosts\.has\(host\) \|\| isHttpCanonicalMarketingRequest\) \{[\s\S]*?return NextResponse\.redirect\(canonicalUrl, 301\);[\r\n\s]*\}/)?.[0] ?? "";
   assert.match(redirectBlock, /const canonicalUrl = request\.nextUrl\.clone\(\)/);
   assert.match(redirectBlock, /canonicalUrl\.protocol = "https:"/);
   assert.match(redirectBlock, /canonicalUrl\.hostname = canonicalMarketingHost/);
