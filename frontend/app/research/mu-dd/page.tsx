@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { getResearchBriefBySlug } from "@/lib/researchBriefs";
 
 export const dynamic = "force-static";
 
+const brief = getResearchBriefBySlug("mu-dd");
 const signupHref = "/login?mode=register&return_to=%2Fticker%2FMU";
 const muTickerHref = "/ticker/MU?utm_source=reddit&utm_medium=paid_social&utm_campaign=mu_dd_research_test&utm_content=mu_dd_landing_terminal";
 const compareHref = "/compare/MU/NVDA?utm_source=reddit&utm_medium=paid_social&utm_campaign=mu_dd_research_test&utm_content=mu_dd_landing_compare";
 const micronSourceHref = "https://investors.micron.com/news-releases/news-release-details/micron-technology-inc-reports-record-results-third-quarter";
 
 export const metadata: Metadata = {
-  title: "Is the MU Momentum Trade Dead? | Walnut Markets Research",
-  description:
-    "A research-only Micron DD landing page reviewing the memory-cycle data behind the MU momentum question. Not investment advice.",
+  title: `${brief?.title ?? "MU Research Brief"} | Walnut Markets Research`,
+  description: brief?.description ?? "Walnut Markets research brief. Not investment advice.",
   alternates: {
     canonical: "/research/mu-dd",
   },

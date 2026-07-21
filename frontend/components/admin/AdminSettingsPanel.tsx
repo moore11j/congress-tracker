@@ -24,9 +24,10 @@ import { ProviderUsageReport } from "@/components/admin/ProviderUsageReport";
 import { SalesLedgerReport } from "@/components/admin/SalesLedgerReport";
 import { DataSourcesReport } from "@/components/admin/DataSourcesReport";
 import { AdminAiMarketingView } from "@/components/admin/AdminAiMarketingView";
+import { AdminResearchBriefGeneratorView } from "@/components/admin/AdminResearchBriefGeneratorView";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 
-type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "users";
+type AdminTab = "settings" | "data_sources" | "reports" | "email" | "ai_marketing" | "research_briefs" | "users";
 
 const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> = [
   {
@@ -53,6 +54,11 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string; description: string }> =
     key: "ai_marketing",
     label: "AI Growth",
     description: "Draft reviewed growth assets, research threads, chart drops, ads, and founder digests.",
+  },
+  {
+    key: "research_briefs",
+    label: "Research Briefs",
+    description: "Generate, review, save, and locally publish Walnut due-diligence briefs.",
   },
   {
     key: "users",
@@ -919,6 +925,10 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
 
       {activeTab === "ai_marketing" ? (
         <AdminAiMarketingView showToast={showToast} />
+      ) : null}
+
+      {activeTab === "research_briefs" ? (
+        <AdminResearchBriefGeneratorView showToast={showToast} />
       ) : null}
 
       {activeTab === "users" ? (

@@ -142,6 +142,7 @@ from app.routers.market_pressure import router as market_pressure_router
 from app.routers.notifications import router as notifications_router
 from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.ai_marketing import router as ai_marketing_router
+from app.routers.research_briefs import router as research_briefs_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
 from app.routers.events import (
@@ -12901,4 +12902,5 @@ app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(admin_data_sources_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
+app.include_router(research_briefs_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { formatDateShort } from "@/lib/format";
-import { cardClassName } from "@/lib/styles";
 import type { MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, SectorPerformancePoint, SnapshotInstrument } from "@/lib/types";
 
 type Props = {
@@ -10,6 +9,7 @@ type Props = {
 };
 
 const FALLBACK_WORLD_INDEXES: SnapshotInstrument[] = [
+  { label: "MSCI ACWI", symbol: "ACWI", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "China \u2014 MCHI", symbol: "MCHI", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "Germany \u2014 EWG", symbol: "EWG", timeframe_label: "Daily Change", status: "unavailable" },
   { label: "Japan \u2014 IJP", symbol: "IJP", timeframe_label: "Daily Change", status: "unavailable" },
@@ -32,6 +32,7 @@ const FALLBACK_COMMODITIES: SnapshotInstrument[] = [
 ];
 
 const FALLBACK_CURRENCIES: SnapshotInstrument[] = [
+  { label: "DXY", symbol: "DXY", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
   { label: "USD/CAD", symbol: "USDCAD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
   { label: "EUR/USD", symbol: "EURUSD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
   { label: "GBP/USD", symbol: "GBPUSD", timeframe_label: "Daily Change", unit_label: "rate", status: "unavailable" },
@@ -216,12 +217,12 @@ function isUnavailableInstrument(item: SnapshotInstrument): boolean {
 
 function SectionShell({
   title,
-  subtitle,
+  icon,
   href,
   children,
 }: {
   title: string;
-  subtitle: string;
+  icon: string;
   href: string;
   children: ReactNode;
 }) {
@@ -229,19 +230,17 @@ function SectionShell({
     <Link
       href={href}
       prefetch={false}
-      className="group flex h-full min-h-[18rem] cursor-pointer flex-col rounded-2xl border border-white/10 bg-slate-950/55 p-4 transition hover:border-teal-300/45 hover:bg-slate-950/75 hover:shadow-[0_0_28px_-18px_rgba(45,212,191,0.9)] focus-visible:border-teal-300/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/25"
+      className="group flex h-full min-h-[9.75rem] cursor-pointer flex-col rounded-lg border border-white/10 bg-slate-950/55 p-3.5 transition hover:border-teal-300/45 hover:bg-slate-950/75 hover:shadow-[0_0_28px_-18px_rgba(45,212,191,0.9)] focus-visible:border-teal-300/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300/25"
       aria-label={`Open ${title}`}
     >
-      <div className="shrink-0">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="text-sm font-semibold leading-tight text-slate-50 transition-colors group-hover:text-white md:text-base">{title}</h3>
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-teal-300/70 transition-colors group-hover:text-teal-200">
-            Open -&gt;
-          </span>
-        </div>
-        <p className="mt-1.5 text-[10px] font-medium leading-4 tracking-[0.18em] text-teal-300/60">{subtitle}</p>
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2">
+        <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border border-cyan-300/20 bg-cyan-300/10 text-[11px] font-semibold text-cyan-200">
+          {icon}
+        </span>
+        <h3 className="min-w-0 text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] text-blue-100 transition-colors group-hover:text-white">{title}</h3>
+        <span className="shrink-0 text-sm leading-none text-slate-500 transition group-hover:text-teal-200">-&gt;</span>
       </div>
-      <div className="mt-4 min-h-0 flex-1">{children}</div>
+      <div className="mt-3 min-h-0 flex-1">{children}</div>
     </Link>
   );
 }
@@ -283,25 +282,37 @@ function pointsOrFallback(items: MacroSnapshotPoint[] | undefined, fallback: Mac
 }
 
 function InstrumentList({ items, unavailableText = "Unavailable" }: { items: SnapshotInstrument[]; unavailableText?: string }) {
+  const visibleItems = items.slice(0, 3);
   return (
-    <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${items.length}, minmax(0, 1fr))` }}>
-      {items.map((item) => {
+    <div className="space-y-3">
+      {visibleItems.map((item, index) => {
         const unavailable = isUnavailableInstrument(item);
         const changeValue = item.change_pct ?? item.change;
         const changeText = item.change_pct != null ? formatPercent(item.change_pct) ?? "-" : formatSignedNumber(item.change) ?? "-";
 
         return (
-          <div key={`${item.label}-${item.symbol ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <div key={`${item.label}-${item.symbol ?? "na"}`} className={index === 0 ? "min-w-0" : "grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2"}>
             <div className="min-w-0">
-              <div className={`truncate text-xs font-semibold leading-4 ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
-              <div className="truncate text-[10px] leading-4 text-slate-500">{item.symbol ?? item.timeframe_label}</div>
+              <div className={`overflow-hidden font-semibold leading-4 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] ${index === 0 ? "text-sm" : "text-xs"} ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
+              {index === 0 ? (
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className={`text-xl font-semibold leading-6 ${unavailable ? "text-slate-500" : "text-white"}`}>
+                    {unavailable ? unavailableText : formatValue(item.value, valueDigits(item.value, item.unit_label))}
+                  </span>
+                  {!unavailable ? <span className={`text-xs font-semibold ${deltaClassName(changeValue)}`}>{changeText}</span> : null}
+                </div>
+              ) : (
+                <div className="truncate text-[10px] leading-4 text-slate-500">{item.symbol ?? item.timeframe_label}</div>
+              )}
             </div>
-            <div className="shrink-0 text-right">
-              <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>
-                {unavailable ? unavailableText : formatValue(item.value, valueDigits(item.value, item.unit_label))}
+            {index === 0 ? null : (
+              <div className="shrink-0 text-right">
+                <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>
+                  {unavailable ? unavailableText : formatValue(item.value, valueDigits(item.value, item.unit_label))}
+                </div>
+                {!unavailable ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
               </div>
-              {!unavailable ? <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div> : null}
-            </div>
+            )}
           </div>
         );
       })}
@@ -310,25 +321,35 @@ function InstrumentList({ items, unavailableText = "Unavailable" }: { items: Sna
 }
 
 function MacroPointList({ items, showChange = false }: { items: MacroSnapshotPoint[]; showChange?: boolean }) {
+  const visibleItems = items.slice(0, 3);
   return (
-    <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${items.length}, minmax(0, 1fr))` }}>
-      {items.map((item) => {
+    <div className="space-y-3">
+      {visibleItems.map((item, index) => {
         const unavailable = item.value == null;
         const changeValue = item.change_value ?? item.change;
         const changeText = formatMacroChange(item);
 
         return (
-          <div key={`${item.label}-${item.date ?? "na"}`} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <div key={`${item.label}-${item.date ?? "na"}`} className={index === 0 ? "min-w-0" : "grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2"}>
             <div className="min-w-0">
-              <div className={`truncate text-xs font-semibold leading-4 ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
-              <div className="truncate text-[10px] leading-4 text-slate-500">{formatMacroMeta(item)}</div>
+              <div className={`overflow-hidden font-semibold leading-4 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] ${index === 0 ? "text-sm" : "text-xs"} ${unavailable ? "text-slate-400" : "text-slate-200"}`}>{item.label}</div>
+              {index === 0 ? (
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className={`text-xl font-semibold leading-6 ${unavailable ? "text-slate-500" : "text-white"}`}>{formatMacroMainValue(item)}</span>
+                  {showChange && changeText ? <span className={`text-xs font-semibold ${deltaClassName(changeValue)}`}>{changeText}</span> : null}
+                </div>
+              ) : (
+                <div className="truncate text-[10px] leading-4 text-slate-500">{formatMacroMeta(item)}</div>
+              )}
             </div>
-            <div className="shrink-0 text-right">
-              <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>{formatMacroMainValue(item)}</div>
-              {showChange && changeText ? (
-                <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div>
-              ) : null}
-            </div>
+            {index === 0 ? null : (
+              <div className="shrink-0 text-right">
+                <div className={`text-xs font-semibold leading-4 ${unavailable ? "text-slate-500" : "text-slate-100"}`}>{formatMacroMainValue(item)}</div>
+                {showChange && changeText ? (
+                  <div className={`text-[10px] leading-4 ${deltaClassName(changeValue)}`}>{changeText}</div>
+                ) : null}
+              </div>
+            )}
           </div>
         );
       })}
@@ -338,13 +359,17 @@ function MacroPointList({ items, showChange = false }: { items: MacroSnapshotPoi
 
 function SectorList({ items }: { items: SectorPerformancePoint[] }) {
   if (items.length === 0) return <div className="text-sm text-slate-500">Unavailable</div>;
-  const visibleItems = items.slice(0, 6);
+  const visibleItems = items.slice(0, 3);
   return (
-    <div className="grid h-full gap-1.5" style={{ gridTemplateRows: `repeat(${visibleItems.length}, minmax(0, 1fr))` }}>
-      {visibleItems.map((item) => (
-        <div key={item.sector} className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-          <div className="min-w-0 truncate text-xs font-semibold leading-4 text-slate-200">{item.sector}</div>
-          <div className={`shrink-0 text-right text-xs font-semibold leading-4 ${deltaClassName(item.change_pct)}`}>{formatPercent(item.change_pct) ?? "Unavailable"}</div>
+    <div className="space-y-3">
+      {visibleItems.map((item, index) => (
+        <div key={item.sector} className={index === 0 ? "min-w-0" : "grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2"}>
+          <div className={`min-w-0 overflow-hidden font-semibold leading-4 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] ${index === 0 ? "text-sm text-slate-200" : "text-xs text-slate-200"}`}>{item.sector}</div>
+          {index === 0 ? (
+            <div className={`mt-1 text-xl font-semibold leading-6 ${deltaClassName(item.change_pct)}`}>{formatPercent(item.change_pct) ?? "Unavailable"}</div>
+          ) : (
+            <div className={`shrink-0 text-right text-xs font-semibold leading-4 ${deltaClassName(item.change_pct)}`}>{formatPercent(item.change_pct) ?? "Unavailable"}</div>
+          )}
         </div>
       ))}
     </div>
@@ -352,11 +377,10 @@ function SectorList({ items }: { items: SectorPerformancePoint[] }) {
 }
 
 export function MarketSnapshot({ snapshot }: Props) {
-  // Entitlement-gated market widgets are hidden until coverage is ready:
-  // const worldIndexes = indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES);
-  // const currencies = instrumentsOrFallback(snapshot.currencies, FALLBACK_CURRENCIES);
-  // const commodities = instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES);
-  // const crypto = instrumentsOrFallback(snapshot.crypto, FALLBACK_CRYPTO);
+  const worldIndexes = indexesToInstruments(snapshot.world_indexes, FALLBACK_WORLD_INDEXES);
+  const currencies = instrumentsOrFallback(snapshot.currencies, FALLBACK_CURRENCIES);
+  const commodities = instrumentsOrFallback(snapshot.commodities, FALLBACK_COMMODITIES);
+  const crypto = instrumentsOrFallback(snapshot.crypto, FALLBACK_CRYPTO);
   const economics = pointsOrFallback(snapshot.economics, FALLBACK_MACRO);
   const treasury = pointsOrFallback(snapshot.treasury, FALLBACK_TREASURY);
   const usIndexes = indexesToInstruments(snapshot.indexes, FALLBACK_US_INDEXES);
@@ -365,50 +389,52 @@ export function MarketSnapshot({ snapshot }: Props) {
   const updatedLabel = formatSnapshotUpdatedAt(asOf);
 
   return (
-    <section className={cardClassName}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">INSIGHTS</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Market Snapshot</h2>
-          <p className="mt-2 text-sm text-slate-400">A quick view of global markets, rates, economic signals, and sector momentum.</p>
+    <section className="rounded-lg border border-white/10 bg-slate-950/45 p-4 shadow-[0_18px_60px_-42px_rgba(16,185,129,0.55)]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Market Snapshot</h2>
+          {snapshot.status === "ok" || snapshot.status === "partial" ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+              Live
+            </span>
+          ) : (
+            <span className="text-xs font-semibold text-slate-500">Unavailable</span>
+          )}
         </div>
         {updatedLabel ? <p className="text-xs text-slate-500 sm:text-right">{updatedLabel}</p> : null}
       </div>
 
-      <div className="mt-6 grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/*
-          Entitlement-gated market widgets are hidden until coverage is ready.
-
-        <SectionShell title="Global Markets" subtitle="Daily Change" href="/insights/world-indexes">
+      <div className="mt-4 grid auto-rows-fr gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
+        <SectionShell title="World Indexes" icon="WI" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Commodities" subtitle="Daily Change" href="/insights/commodities">
-          <InstrumentList items={commodities} />
-        </SectionShell>
-
-        <SectionShell title="Currencies" subtitle="Daily Change" href="/insights/currencies">
+        <SectionShell title="Currencies" icon="FX" href="/insights/currencies">
           <InstrumentList items={currencies} unavailableText="-" />
         </SectionShell>
 
-        <SectionShell title="Crypto" subtitle="Daily Change" href="/insights/crypto">
+        <SectionShell title="Commodities" icon="CO" href="/insights/commodities">
+          <InstrumentList items={commodities} />
+        </SectionShell>
+
+        <SectionShell title="Crypto" icon="CR" href="/insights/crypto">
           <InstrumentList items={crypto} unavailableText="-" />
         </SectionShell>
-        */}
 
-        <SectionShell title="US Macro" subtitle="Macro Data" href="/insights/us-macro">
+        <SectionShell title="US Macro" icon="UM" href="/insights/us-macro">
           <MacroPointList items={economics} showChange />
         </SectionShell>
 
-        <SectionShell title="US Treasury" subtitle="Yield and Daily Change" href="/insights/us-treasury">
+        <SectionShell title="Treasury" icon="TY" href="/insights/us-treasury">
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Markets" subtitle="EOD Change" href="/insights/us-indexes">
+        <SectionShell title="US Indexes" icon="UI" href="/insights/us-indexes">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="Sectors" subtitle="EOD Change" href="/insights/us-sectors">
+        <SectionShell title="US Sectors" icon="US" href="/insights/us-sectors">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

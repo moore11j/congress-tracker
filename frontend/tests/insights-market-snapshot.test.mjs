@@ -13,16 +13,15 @@ const categoryClient = read("components/insights/MarketSnapshotCategoryClient.ts
 const api = read("lib/api.ts");
 const withoutHiddenComments = (source) => source.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");
 
-test("insights market snapshot renders only entitlement-ready widgets", () => {
+test("insights market snapshot renders all canonical dashboard categories", () => {
   const activeSnapshot = withoutHiddenComments(marketSnapshot);
 
-  assert.match(marketSnapshot, /Entitlement-gated market widgets are hidden until coverage is ready/);
-  assert.doesNotMatch(activeSnapshot, /const worldIndexes = indexesToInstruments\(snapshot\.world_indexes, FALLBACK_WORLD_INDEXES\)/);
+  assert.match(activeSnapshot, /const worldIndexes = indexesToInstruments\(snapshot\.world_indexes, FALLBACK_WORLD_INDEXES\)/);
+  assert.match(activeSnapshot, /const currencies = instrumentsOrFallback\(snapshot\.currencies, FALLBACK_CURRENCIES\)/);
+  assert.match(activeSnapshot, /const commodities = instrumentsOrFallback\(snapshot\.commodities, FALLBACK_COMMODITIES\)/);
+  assert.match(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
   assert.match(marketSnapshot, /const usIndexes = indexesToInstruments\(snapshot\.indexes, FALLBACK_US_INDEXES\)/);
-  assert.doesNotMatch(activeSnapshot, /const currencies = instrumentsOrFallback\(snapshot\.currencies, FALLBACK_CURRENCIES\)/);
-  assert.doesNotMatch(activeSnapshot, /const commodities = instrumentsOrFallback\(snapshot\.commodities, FALLBACK_COMMODITIES\)/);
-  assert.doesNotMatch(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
-  assert.match(marketSnapshot, /grid auto-rows-fr gap-4 md:grid-cols-2 lg:grid-cols-4/);
+  assert.match(marketSnapshot, /2xl:grid-cols-8/);
   assert.doesNotMatch(withoutHiddenComments(insightsClient), /getInsightsOverview/);
   assert.match(categoryClient, /getInsightsMacroSnapshot/);
   assert.match(categoryClient, /forceRefresh: true/);
@@ -35,24 +34,24 @@ test("insights market snapshot renders only entitlement-ready widgets", () => {
   assert.match(api, /\/api\/insights\/news\/\$\{encodeURIComponent\(category\)\}/);
 
   const order = [
+    'title="World Indexes"',
+    'title="Currencies"',
+    'title="Commodities"',
+    'title="Crypto"',
     'title="US Macro"',
-    'title="US Treasury"',
-    'title="US Markets"',
-    'title="Sectors"',
+    'title="Treasury"',
+    'title="US Indexes"',
+    'title="US Sectors"',
   ].map((needle) => activeSnapshot.indexOf(needle));
+  assert.ok(order.every((index) => index >= 0), "snapshot should include all eight approved categories");
   assert.deepEqual(
     order,
     [...order].sort((a, b) => a - b),
-    "snapshot cards should render in the requested entitlement-ready order",
+    "snapshot cards should render in the approved category order",
   );
-  assert.doesNotMatch(activeSnapshot, /title="Global Markets"/);
-  assert.doesNotMatch(activeSnapshot, /title="Commodities"/);
-  assert.doesNotMatch(activeSnapshot, /title="Currencies"/);
-  assert.doesNotMatch(activeSnapshot, /title="Crypto"/);
 
   assert.doesNotMatch(marketSnapshot, /subtitle="Coming Soon"/);
   assert.match(marketSnapshot, /unavailableText="-"/);
-  assert.match(marketSnapshot, /subtitle="Yield and Daily Change"/);
   assert.match(marketSnapshot, /<MacroPointList items=\{economics\} showChange \/>/);
   assert.doesNotMatch(marketSnapshot, /1D change unavailable/);
   assert.doesNotMatch(marketSnapshot, /1D avg change/);
@@ -122,6 +121,9 @@ test("insights market snapshot uses requested global and commodity instruments",
     assert.match(marketSnapshot, new RegExp(`symbol: "${symbol}"`));
     assert.match(marketSnapshotLib, new RegExp(`symbol: "${symbol}"`));
   }
+
+  assert.match(marketSnapshot, /symbol: "ACWI"/);
+  assert.match(marketSnapshot, /symbol: "DXY"/);
 
   for (const label of [
     "China \\\\u2014 MCHI",

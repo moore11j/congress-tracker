@@ -1,6 +1,7 @@
 import { InsightsMarketSnapshotClient } from "@/components/insights/InsightsMarketSnapshotClient";
-import { InsightsMacroPositioningClient } from "@/components/insights/InsightsMacroPositioningClient";
+import { InsightsMacroPositioningPanel } from "@/components/insights/InsightsMacroPositioningPanel";
 import { InsightsNewsClient } from "@/components/insights/InsightsNewsClient";
+import { ResearchBriefsSection } from "@/components/insights/ResearchBriefsSection";
 
 type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -19,13 +20,16 @@ function one(sp: Record<string, string | string[] | undefined>, key: string): st
 export default async function InsightsPage({ searchParams }: Props) {
   const sp = (await searchParams) ?? {};
   const page = Math.max(Number.parseInt(one(sp, "page") || "0", 10) || 0, 0);
-  const limit = 20;
+  const limit = 12;
 
   return (
-    <div className="w-full max-w-[calc(100vw-2rem)] space-y-6 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
+    <div className="w-full max-w-[calc(100vw-2rem)] space-y-4 sm:max-w-[calc(100vw-3rem)] lg:max-w-none">
       <InsightsMarketSnapshotClient />
-      <InsightsMacroPositioningClient />
-      <InsightsNewsClient page={page} limit={limit} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(22rem,0.9fr)]">
+        <InsightsNewsClient page={page} limit={limit} />
+        <InsightsMacroPositioningPanel />
+      </div>
+      <ResearchBriefsSection />
     </div>
   );
 }
