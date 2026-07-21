@@ -18,6 +18,8 @@ test("mu dd brief is the first canonical research brief", () => {
   assert.equal(firstSlugIndex, configuredBriefs.indexOf("slug:"), "MU DD should be the first configured brief");
   assert.match(registry, /route: "\/research\/mu-dd"/);
   assert.match(registry, /title: "Is the MU momentum trade dead\?"/);
+  assert.match(registry, /The bear case needs memory demand to roll over/);
+  assert.doesNotMatch(registry, /A research-only Micron DD landing page/);
   assert.match(registry, /publishedAt: "2026-07-20"/);
   assert.match(registry, /featured: true/);
 });

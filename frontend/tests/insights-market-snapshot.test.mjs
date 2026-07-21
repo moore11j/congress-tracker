@@ -22,7 +22,10 @@ test("insights market snapshot renders all canonical dashboard categories", () =
   assert.match(activeSnapshot, /const crypto = instrumentsOrFallback\(snapshot\.crypto, FALLBACK_CRYPTO\)/);
   assert.match(marketSnapshot, /const usIndexes = indexesToInstruments\(snapshot\.indexes, FALLBACK_US_INDEXES\)/);
   assert.match(marketSnapshot, /2xl:grid-cols-8/);
-  assert.doesNotMatch(withoutHiddenComments(insightsClient), /getInsightsOverview/);
+  assert.match(withoutHiddenComments(insightsClient), /getInsightsOverview/);
+  assert.match(withoutHiddenComments(insightsClient), /applyInsightsOverview/);
+  assert.match(withoutHiddenComments(categoryClient), /getInsightsOverview/);
+  assert.match(withoutHiddenComments(categoryClient), /applyInsightsOverview/);
   assert.match(categoryClient, /getInsightsMacroSnapshot/);
   assert.match(categoryClient, /forceRefresh: true/);
   assert.match(categoryClient, /getInsightsCategoryNews\(category\.slug/);
@@ -52,6 +55,9 @@ test("insights market snapshot renders all canonical dashboard categories", () =
 
   assert.doesNotMatch(marketSnapshot, /subtitle="Coming Soon"/);
   assert.match(marketSnapshot, /unavailableText="-"/);
+  assert.match(marketSnapshot, /GlobeIcon/);
+  assert.match(marketSnapshot, /CurrencyIcon/);
+  assert.match(marketSnapshot, /BitcoinIcon/);
   assert.match(marketSnapshot, /<MacroPointList items=\{economics\} showChange \/>/);
   assert.doesNotMatch(marketSnapshot, /1D change unavailable/);
   assert.doesNotMatch(marketSnapshot, /1D avg change/);

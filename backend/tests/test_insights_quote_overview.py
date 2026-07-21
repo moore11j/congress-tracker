@@ -39,16 +39,37 @@ def _db():
 
 
 def _fake_quote_payload(symbol: str):
-    if symbol.endswith("USD") and symbol in {"BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD"}:
-        return {
-            "symbol": symbol,
-            "price": 100.25,
-            "change": 1.5,
-            "changesPercentage": 1.52,
-            "volume": 1000000,
-            "timestamp": 1782585600,
+    return {
+        "chart": {
+            "result": [
+                {
+                    "meta": {"regularMarketPrice": 50.125, "chartPreviousClose": 49.5},
+                    "timestamp": [1782585600],
+                    "indicators": {"quote": [{"close": [49.5, 50.125], "volume": [1200]}]},
+                }
+            ]
         }
-    return [{"symbol": symbol, "price": 50.125, "volume": 1200}]
+    }
+
+
+def _fake_frankfurter_payload():
+    return {
+        "base": "USD",
+        "rates": {
+            "2026-06-26": {"CAD": 1.36, "JPY": 156.1, "SEK": 10.1, "CHF": 0.9, "EUR": 0.92, "GBP": 0.78},
+            "2026-06-27": {"CAD": 1.37, "JPY": 156.5, "SEK": 10.2, "CHF": 0.91, "EUR": 0.91, "GBP": 0.77},
+        },
+    }
+
+
+def _fake_coingecko_payload(coin_id: str):
+    return {
+        coin_id: {
+            "usd": 100.25,
+            "usd_24h_change": 1.52,
+            "usd_24h_vol": 1000000,
+        }
+    }
 
 
 def test_quote_short_response_normalizes_to_public_contract():
@@ -103,14 +124,18 @@ def test_quote_response_normalizes_change_fields():
 
 def test_failed_fetch_marks_only_that_symbol_unavailable(monkeypatch):
     db = _db()
-    monkeypatch.setenv("FMP_API_KEY", "secret-key")
 
-    def fake_get(url, params=None, timeout=10):
-        symbol = params["symbol"]
-        assert "secret-key" not in url
-        if symbol == "EWG":
-            raise requests.Timeout("provider timeout")
-        return _FakeResponse(_fake_quote_payload(symbol))
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "query1.finance.yahoo.com" in url:
+            symbol = url.rsplit("/", 1)[-1]
+            if symbol == "EWG":
+                raise requests.Timeout("provider timeout")
+            return _FakeResponse(_fake_quote_payload(symbol))
+        if "frankfurter.dev" in url:
+            return _FakeResponse(_fake_frankfurter_payload())
+        if "api.coingecko.com" in url:
+            return _FakeResponse(_fake_coingecko_payload(params["ids"]))
+        raise AssertionError(f"unexpected url {url}")
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
@@ -121,13 +146,32 @@ def test_failed_fetch_marks_only_that_symbol_unavailable(monkeypatch):
     global_rows = {item["symbol"]: item for item in payload["global_markets"]}
     assert global_rows["MCHI"]["status"] == "ok"
     assert global_rows["EWG"]["status"] == "unavailable"
-    assert global_rows["IJP.AX"]["status"] == "ok"
+    assert global_rows["IJP"]["status"] == "ok"
     assert "secret-key" not in json.dumps(payload)
+
+
+def test_free_currency_provider_returns_dxy_and_pairs(monkeypatch):
+    db = _db()
+
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "frankfurter.dev" not in url:
+            raise requests.Timeout("provider timeout")
+        return _FakeResponse(_fake_frankfurter_payload())
+
+    monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
+    try:
+        payload = get_insights_quote_overview(db)
+    finally:
+        db.close()
+
+    currency_rows = {item["symbol"]: item for item in payload["currencies"]}
+    assert currency_rows["DXY"]["status"] == "ok"
+    assert currency_rows["USDCAD"]["price"] == 1.37
+    assert currency_rows["EURUSD"]["status"] == "ok"
 
 
 def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     db = _db()
-    monkeypatch.setenv("FMP_API_KEY", "secret-key")
     cached = {
         "group": "global_markets",
         "label": "China",
@@ -142,7 +186,7 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
     }
     db.add(
         InsightsSnapshot(
-            kind="insights-quote:global_markets:MCHI:historical-chart/1min",
+            kind="insights-quote:global_markets:MCHI:yahoo_chart",
             payload_json=json.dumps(cached),
             source="test",
             fetched_at=datetime.now(timezone.utc) - timedelta(minutes=30),
@@ -164,14 +208,20 @@ def test_failed_fetch_uses_stale_cached_quote(monkeypatch):
 
 def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
     db = _db()
-    monkeypatch.setenv("FMP_API_KEY", "secret-key")
     calls: list[str] = []
 
-    def fake_get(url, params=None, timeout=10):
-        assert url.startswith("https://financialmodelingprep.com/stable/")
-        symbol = params["symbol"]
-        calls.append(symbol)
-        return _FakeResponse(_fake_quote_payload(symbol))
+    def fake_get(url, params=None, timeout=10, **_kwargs):
+        if "query1.finance.yahoo.com" in url:
+            symbol = url.rsplit("/", 1)[-1]
+            calls.append(symbol)
+            return _FakeResponse(_fake_quote_payload(symbol))
+        if "frankfurter.dev" in url:
+            calls.append("frankfurter")
+            return _FakeResponse(_fake_frankfurter_payload())
+        if "api.coingecko.com" in url:
+            calls.append(params["ids"])
+            return _FakeResponse(_fake_coingecko_payload(params["ids"]))
+        raise AssertionError(f"unexpected url {url}")
 
     monkeypatch.setattr("app.services.insights_quote_overview.requests.get", fake_get)
     try:
@@ -182,13 +232,14 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
     expected = [
         "MCHI",
         "EWG",
-        "IJP.AX",
-        "ISF.L",
-        "VFV.TO",
+        "IJP",
+        "ISF",
+        "VFV",
         "GCUSD",
         "SILUSD",
         "BZUSD",
         "HGUSD",
+        "DXY",
         "USDCAD",
         "EURUSD",
         "GBPUSD",
@@ -207,6 +258,27 @@ def test_insights_overview_endpoint_returns_all_requested_symbols(monkeypatch):
     ]
 
     assert returned == expected
-    assert calls == expected
+    assert calls == [
+        "MCHI",
+        "EWG",
+        "IJP.AX",
+        "ISF.L",
+        "VFV.TO",
+        "GC=F",
+        "SI=F",
+        "BZ=F",
+        "HG=F",
+        "frankfurter",
+        "frankfurter",
+        "frankfurter",
+        "frankfurter",
+        "frankfurter",
+        "frankfurter",
+        "bitcoin",
+        "ethereum",
+        "solana",
+        "ripple",
+        "binancecoin",
+    ]
     assert payload["updated_at"] is not None
     assert "secret-key" not in json.dumps(payload)

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getInsightsMacroSnapshot } from "@/lib/api";
+import { getInsightsMacroSnapshot, getInsightsOverview } from "@/lib/api";
+import { applyInsightsOverview } from "@/lib/marketSnapshot";
 import type { MacroSnapshotResponse } from "@/lib/types";
 import { MarketSnapshot } from "@/components/insights/MarketSnapshot";
 import { cardClassName } from "@/lib/styles";
@@ -56,14 +57,16 @@ export function InsightsMarketSnapshotClient() {
 
   useEffect(() => {
     const controller = new AbortController();
-    // Global markets, commodities, currencies, and crypto widgets are hidden until
-    // provider entitlements are re-enabled, so do not call /api/insights/overview here.
-    Promise.allSettled([getInsightsMacroSnapshot({ signal: controller.signal })])
-      .then(([snapshotResult]) => {
+    Promise.allSettled([
+      getInsightsMacroSnapshot({ signal: controller.signal }),
+      getInsightsOverview({ signal: controller.signal }),
+    ])
+      .then(([snapshotResult, overviewResult]) => {
         if (controller.signal.aborted) return;
         const base = snapshotResult.status === "fulfilled" ? snapshotResult.value : { ...EMPTY_SNAPSHOT, status: "unavailable" };
-        setSnapshot(base);
-        setFailed(snapshotResult.status === "rejected");
+        const merged = overviewResult.status === "fulfilled" ? applyInsightsOverview(base, overviewResult.value) : base;
+        setSnapshot(merged);
+        setFailed(snapshotResult.status === "rejected" && overviewResult.status === "rejected");
       })
       .catch(() => {
         if (!controller.signal.aborted) {

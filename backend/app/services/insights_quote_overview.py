@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -16,9 +15,11 @@ from app.models import InsightsSnapshot
 logger = logging.getLogger(__name__)
 
 InsightQuoteGroup = Literal["global_markets", "commodities", "currencies", "crypto"]
-InsightQuoteEndpoint = Literal["historical-chart/1min", "historical-price-eod/light"]
+InsightQuoteEndpoint = Literal["yahoo_chart", "frankfurter", "coingecko"]
 
-BASE_URL = "https://financialmodelingprep.com"
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
+FRANKFURTER_SERIES_URL = "https://api.frankfurter.dev/v1"
+COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 QUOTE_TTL = timedelta(minutes=10)
 QUOTE_STALE_TTL = timedelta(hours=24)
 CACHE_KIND_PREFIX = "insights-quote"
@@ -30,35 +31,37 @@ class InsightQuoteConfig:
     symbol: str
     display_symbol: str
     endpoint_type: InsightQuoteEndpoint
+    provider_symbol: str | None = None
 
 
 QUOTE_GROUPS: dict[InsightQuoteGroup, tuple[InsightQuoteConfig, ...]] = {
     "global_markets": (
-        InsightQuoteConfig("China", "MCHI", "MCHI", "historical-chart/1min"),
-        InsightQuoteConfig("Germany", "EWG", "EWG", "historical-chart/1min"),
-        InsightQuoteConfig("Japan", "IJP.AX", "IJP", "historical-chart/1min"),
-        InsightQuoteConfig("UK", "ISF.L", "ISF", "historical-chart/1min"),
-        InsightQuoteConfig("Canada", "VFV.TO", "VFV", "historical-chart/1min"),
+        InsightQuoteConfig("China", "MCHI", "MCHI", "yahoo_chart"),
+        InsightQuoteConfig("Germany", "EWG", "EWG", "yahoo_chart"),
+        InsightQuoteConfig("Japan", "IJP", "IJP", "yahoo_chart", "IJP.AX"),
+        InsightQuoteConfig("UK", "ISF", "ISF", "yahoo_chart", "ISF.L"),
+        InsightQuoteConfig("Canada", "VFV", "VFV", "yahoo_chart", "VFV.TO"),
     ),
     "commodities": (
-        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "historical-chart/1min"),
-        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "historical-chart/1min"),
-        InsightQuoteConfig("Brent Crude Oil", "BZUSD", "BZUSD", "historical-chart/1min"),
-        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "historical-chart/1min"),
+        InsightQuoteConfig("Gold", "GCUSD", "GCUSD", "yahoo_chart", "GC=F"),
+        InsightQuoteConfig("Silver", "SILUSD", "SILUSD", "yahoo_chart", "SI=F"),
+        InsightQuoteConfig("Brent Crude Oil", "BZUSD", "BZUSD", "yahoo_chart", "BZ=F"),
+        InsightQuoteConfig("Copper", "HGUSD", "HGUSD", "yahoo_chart", "HG=F"),
     ),
     "currencies": (
-        InsightQuoteConfig("USD/CAD", "USDCAD", "USDCAD", "historical-chart/1min"),
-        InsightQuoteConfig("EUR/USD", "EURUSD", "EURUSD", "historical-chart/1min"),
-        InsightQuoteConfig("GBP/USD", "GBPUSD", "GBPUSD", "historical-chart/1min"),
-        InsightQuoteConfig("USD/JPY", "USDJPY", "USDJPY", "historical-chart/1min"),
-        InsightQuoteConfig("EUR/CAD", "EURCAD", "EURCAD", "historical-chart/1min"),
+        InsightQuoteConfig("DXY", "DXY", "DXY", "frankfurter"),
+        InsightQuoteConfig("USD/CAD", "USDCAD", "USDCAD", "frankfurter"),
+        InsightQuoteConfig("EUR/USD", "EURUSD", "EURUSD", "frankfurter"),
+        InsightQuoteConfig("GBP/USD", "GBPUSD", "GBPUSD", "frankfurter"),
+        InsightQuoteConfig("USD/JPY", "USDJPY", "USDJPY", "frankfurter"),
+        InsightQuoteConfig("EUR/CAD", "EURCAD", "EURCAD", "frankfurter"),
     ),
     "crypto": (
-        InsightQuoteConfig("BTC/USD", "BTCUSD", "BTCUSD", "historical-chart/1min"),
-        InsightQuoteConfig("ETH/USD", "ETHUSD", "ETHUSD", "historical-chart/1min"),
-        InsightQuoteConfig("SOL/USD", "SOLUSD", "SOLUSD", "historical-chart/1min"),
-        InsightQuoteConfig("XRP/USD", "XRPUSD", "XRPUSD", "historical-chart/1min"),
-        InsightQuoteConfig("BNB/USD", "BNBUSD", "BNBUSD", "historical-chart/1min"),
+        InsightQuoteConfig("BTC/USD", "BTCUSD", "BTCUSD", "coingecko", "bitcoin"),
+        InsightQuoteConfig("ETH/USD", "ETHUSD", "ETHUSD", "coingecko", "ethereum"),
+        InsightQuoteConfig("SOL/USD", "SOLUSD", "SOLUSD", "coingecko", "solana"),
+        InsightQuoteConfig("XRP/USD", "XRPUSD", "XRPUSD", "coingecko", "ripple"),
+        InsightQuoteConfig("BNB/USD", "BNBUSD", "BNBUSD", "coingecko", "binancecoin"),
     ),
 }
 
@@ -77,10 +80,6 @@ def _aware(value: datetime | None) -> datetime | None:
 
 def _cache_kind(group: InsightQuoteGroup, config: InsightQuoteConfig) -> str:
     return f"{CACHE_KIND_PREFIX}:{group}:{config.symbol}:{config.endpoint_type}"
-
-
-def _api_key() -> str:
-    return os.getenv("FMP_API_KEY", "").strip()
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -240,30 +239,163 @@ def _store_cached_item(db: Session, group: InsightQuoteGroup, config: InsightQuo
     db.commit()
 
 
+def _quote_item_payload(
+    group: InsightQuoteGroup,
+    config: InsightQuoteConfig,
+    *,
+    price: float | None,
+    previous: float | None = None,
+    change: float | None = None,
+    change_percent: float | None = None,
+    volume: float | None = None,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    computed_change = change
+    computed_change_percent = change_percent
+    if price is not None and previous not in (None, 0):
+        computed_change = price - previous
+        computed_change_percent = (computed_change / previous) * 100
+    return {
+        "group": group,
+        "label": config.label,
+        "symbol": config.symbol,
+        "display_symbol": config.display_symbol,
+        "price": price,
+        "change": computed_change,
+        "change_percent": computed_change_percent,
+        "volume": volume,
+        "as_of": as_of,
+        "status": "ok" if price is not None else "unavailable",
+    }
+
+
+def _fetch_yahoo_chart(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
+    provider_symbol = config.provider_symbol or config.symbol
+    response = requests.get(
+        f"{YAHOO_CHART_URL}/{provider_symbol}",
+        params={"range": "5d", "interval": "1d"},
+        timeout=10,
+        headers={"User-Agent": "WalnutMarkets/1.0"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    result = ((payload.get("chart") or {}).get("result") or [None])[0]
+    if not isinstance(result, dict):
+        return _unavailable_item(group, config)
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) if isinstance(result.get("indicators"), dict) else {}
+    closes = [value for value in (quote.get("close") if isinstance(quote, dict) else []) if _coerce_float(value) is not None]
+    price = _coerce_float(meta.get("regularMarketPrice")) or (_coerce_float(closes[-1]) if closes else None)
+    previous = _coerce_float(meta.get("chartPreviousClose")) or _coerce_float(meta.get("previousClose"))
+    if previous is None and len(closes) >= 2:
+        previous = _coerce_float(closes[-2])
+    timestamps = result.get("timestamp") if isinstance(result.get("timestamp"), list) else []
+    as_of = None
+    if timestamps:
+        timestamp = _coerce_float(timestamps[-1])
+        if timestamp is not None:
+            as_of = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+    return _quote_item_payload(group, config, price=price, previous=previous, as_of=as_of or _utcnow().isoformat())
+
+
+def _frankfurter_series() -> list[tuple[str, dict[str, float]]]:
+    end = _utcnow().date()
+    start = end - timedelta(days=10)
+    response = requests.get(
+        f"{FRANKFURTER_SERIES_URL}/{start.isoformat()}..{end.isoformat()}",
+        params={"base": "USD", "symbols": "CAD,JPY,SEK,CHF,EUR,GBP"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    rates = response.json().get("rates")
+    if not isinstance(rates, dict):
+        return []
+    rows: list[tuple[str, dict[str, float]]] = []
+    for date_key in sorted(rates):
+        raw = rates.get(date_key)
+        if not isinstance(raw, dict):
+            continue
+        parsed = {key: value for key, value in ((key, _coerce_float(raw.get(key))) for key in raw) if value is not None}
+        if parsed:
+            rows.append((date_key, parsed))
+    return rows
+
+
+def _dxy_value(rates: dict[str, float]) -> float | None:
+    try:
+        eur_usd = 1 / rates["EUR"]
+        usd_jpy = rates["JPY"]
+        gbp_usd = 1 / rates["GBP"]
+        usd_cad = rates["CAD"]
+        usd_sek = rates["SEK"]
+        usd_chf = rates["CHF"]
+    except (KeyError, ZeroDivisionError):
+        return None
+    return 50.14348112 * (eur_usd ** -0.576) * (usd_jpy ** 0.136) * (gbp_usd ** -0.119) * (usd_cad ** 0.091) * (usd_sek ** 0.042) * (usd_chf ** 0.036)
+
+
+def _currency_value(symbol: str, rates: dict[str, float]) -> float | None:
+    try:
+        if symbol == "DXY":
+            return _dxy_value(rates)
+        if symbol == "USDCAD":
+            return rates["CAD"]
+        if symbol == "EURUSD":
+            return 1 / rates["EUR"]
+        if symbol == "GBPUSD":
+            return 1 / rates["GBP"]
+        if symbol == "USDJPY":
+            return rates["JPY"]
+        if symbol == "EURCAD":
+            return rates["CAD"] / rates["EUR"]
+    except (KeyError, ZeroDivisionError):
+        return None
+    return None
+
+
+def _fetch_frankfurter_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
+    rows = _frankfurter_series()
+    if not rows:
+        return _unavailable_item(group, config)
+    latest_date, latest_rates = rows[-1]
+    previous_rates = rows[-2][1] if len(rows) >= 2 else {}
+    price = _currency_value(config.symbol, latest_rates)
+    previous = _currency_value(config.symbol, previous_rates) if previous_rates else None
+    return _quote_item_payload(group, config, price=price, previous=previous, as_of=latest_date)
+
+
+def _fetch_coingecko_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
+    coin_id = config.provider_symbol or config.symbol.lower()
+    response = requests.get(
+        COINGECKO_PRICE_URL,
+        params={"ids": coin_id, "vs_currencies": "usd", "include_24hr_vol": "true", "include_24hr_change": "true"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    record = response.json().get(coin_id)
+    if not isinstance(record, dict):
+        return _unavailable_item(group, config)
+    price = _coerce_float(record.get("usd"))
+    change_percent = _coerce_float(record.get("usd_24h_change"))
+    change = (price * change_percent / 100) if price is not None and change_percent is not None else None
+    return _quote_item_payload(
+        group,
+        config,
+        price=price,
+        change=change,
+        change_percent=change_percent,
+        volume=_coerce_float(record.get("usd_24h_vol")),
+        as_of=_utcnow().isoformat(),
+    )
+
+
 def _fetch_quote(group: InsightQuoteGroup, config: InsightQuoteConfig) -> dict[str, Any]:
-    api_key = _api_key()
-    if not api_key:
-        raise RuntimeError("missing market data API key")
-    today = _utcnow().date()
-    endpoints = (config.endpoint_type, "historical-price-eod/light")
-    last_response: requests.Response | None = None
-    for endpoint_type in dict.fromkeys(endpoints):
-        params = {"symbol": config.symbol, "apikey": api_key}
-        if endpoint_type == "historical-chart/1min":
-            params["from"] = (today - timedelta(days=7)).isoformat()
-            params["to"] = today.isoformat()
-        response = requests.get(
-            f"{BASE_URL}/stable/{endpoint_type}",
-            params=params,
-            timeout=10,
-        )
-        last_response = response
-        response.raise_for_status()
-        item = normalize_insights_quote_response(group, config, response.json())
-        if item.get("status") == "ok":
-            return item
-    if last_response is not None:
-        last_response.raise_for_status()
+    if config.endpoint_type == "yahoo_chart":
+        return _fetch_yahoo_chart(group, config)
+    if config.endpoint_type == "frankfurter":
+        return _fetch_frankfurter_quote(group, config)
+    if config.endpoint_type == "coingecko":
+        return _fetch_coingecko_quote(group, config)
     return _unavailable_item(group, config)
 
 

@@ -4,15 +4,92 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getInsightsMacroPositioning, type InsightsMacroPositioningMarket, type InsightsMacroPositioningResponse } from "@/lib/api";
 
+const MACRO_POSITIONING_HREF = "/feed/macro-positioning";
+
+type MacroIconProps = {
+  className?: string;
+};
+
+function ChartPulseIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 18V8M9 18V5M14 18v-7M19 18V9" />
+      <path d="M4 14l4-3 4 2 5-6 3 2" />
+    </svg>
+  );
+}
+
+function RatesIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 17h16M6 17V9M12 17V5M18 17v-4" />
+      <path d="M7 7l5-4 5 4" />
+    </svg>
+  );
+}
+
+function DollarIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3v18M16 7.5h-5.5a2.5 2.5 0 0 0 0 5H14a2.5 2.5 0 0 1 0 5H8" />
+    </svg>
+  );
+}
+
+function GoldIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M8 11h8l3 8H5l3-8Z" />
+      <path d="M10 5h4l2 6H8l2-6Z" />
+    </svg>
+  );
+}
+
+function DropletIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3.5s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11Z" />
+    </svg>
+  );
+}
+
+function BitcoinIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M10 7v10M14 7v10M9 8h4.5a2 2 0 0 1 0 4H9M9 12h5a2 2 0 0 1 0 4H9" />
+    </svg>
+  );
+}
+
+function FuturesIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M5 17l4-4 3 3 7-8" />
+      <path d="M16 8h3v3" />
+      <path d="M5 7h7" />
+    </svg>
+  );
+}
+
+function RiskIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3l8 5v5c0 4.5-3.4 7.3-8 8-4.6-.7-8-3.5-8-8V8l8-5Z" />
+      <path d="M9 12h6M12 9v6" />
+    </svg>
+  );
+}
+
 const macroRows = [
-  { label: "Equity Positioning", match: /(equity|s&p|nasdaq|russell|index)/i },
-  { label: "Rates", match: /(rate|treasury|bond|yield)/i },
-  { label: "US Dollar", match: /(dollar|usd|dxy|fx)/i },
-  { label: "Gold", match: /gold/i },
-  { label: "Oil", match: /(oil|crude|wti|brent|energy)/i },
-  { label: "Bitcoin", match: /(bitcoin|btc|crypto)/i },
-  { label: "COT Signals", match: /(cot|positioning|futures)/i },
-  { label: "Risk-On / Risk-Off", match: /(risk|equity)/i },
+  { label: "Equity Positioning", match: /(equity|s&p|nasdaq|russell|index)/i, icon: <ChartPulseIcon />, tone: "text-cyan-200 bg-cyan-300/10 border-cyan-300/20" },
+  { label: "Rates", match: /(rate|treasury|bond|yield)/i, icon: <RatesIcon />, tone: "text-blue-200 bg-blue-300/10 border-blue-300/20" },
+  { label: "US Dollar", match: /(dollar|usd|dxy|fx)/i, icon: <DollarIcon />, tone: "text-rose-200 bg-rose-300/10 border-rose-300/20" },
+  { label: "Gold", match: /gold/i, icon: <GoldIcon />, tone: "text-amber-200 bg-amber-300/10 border-amber-300/20" },
+  { label: "Oil", match: /(oil|crude|wti|brent|energy)/i, icon: <DropletIcon />, tone: "text-orange-200 bg-orange-300/10 border-orange-300/20" },
+  { label: "Bitcoin", match: /(bitcoin|btc|crypto)/i, icon: <BitcoinIcon />, tone: "text-yellow-200 bg-yellow-300/10 border-yellow-300/20" },
+  { label: "COT Signals", match: /(cot|positioning|futures)/i, icon: <FuturesIcon />, tone: "text-indigo-200 bg-indigo-300/10 border-indigo-300/20" },
+  { label: "Risk-On / Risk-Off", match: /(risk|equity)/i, icon: <RiskIcon />, tone: "text-red-200 bg-red-300/10 border-red-300/20" },
 ] as const;
 
 function biasLabel(value?: string | null): string {
@@ -105,7 +182,7 @@ export function InsightsMacroPositioningPanel() {
     <section id="macro-positioning" className="rounded-lg border border-white/10 bg-slate-950/55 p-4 shadow-[0_18px_60px_-42px_rgba(16,185,129,0.55)] lg:sticky lg:top-20">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Macro Positioning</h2>
-        <Link href="/feed/macro-positioning" className="text-xs font-semibold text-blue-300 transition hover:text-blue-200">
+        <Link href={MACRO_POSITIONING_HREF} className="text-xs font-semibold text-blue-300 transition hover:text-blue-200">
           View full
         </Link>
       </div>
@@ -124,11 +201,11 @@ export function InsightsMacroPositioningPanel() {
         </div>
       ) : (
         <div className="mt-3 divide-y divide-white/10 overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">
-          {rows.map(({ label, market }) => (
-            <Link key={label} href="/feed/macro-positioning" className="grid gap-3 p-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(0,1fr)_auto]">
+          {rows.map(({ label, market, icon, tone }) => (
+            <Link key={label} href={MACRO_POSITIONING_HREF} className="grid gap-3 p-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(0,1fr)_auto]">
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-300/70" />
+                  <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border ${tone}`}>{icon}</span>
                   <p className="truncate text-sm font-semibold text-white">{label}</p>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
@@ -147,7 +224,7 @@ export function InsightsMacroPositioningPanel() {
       )}
 
       <div className="mt-4 border-t border-white/10 pt-3 text-center">
-        <Link href="/feed/macro-positioning" className="text-sm font-semibold text-blue-300 transition hover:text-blue-200">
+        <Link href={MACRO_POSITIONING_HREF} className="text-sm font-semibold text-blue-300 transition hover:text-blue-200">
           View full Macro Positioning feed
         </Link>
       </div>

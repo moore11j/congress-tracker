@@ -215,14 +215,96 @@ function isUnavailableInstrument(item: SnapshotInstrument): boolean {
   return item.status === "unavailable" || item.status === "disabled" || item.value == null;
 }
 
+type SnapshotIconProps = {
+  className?: string;
+};
+
+function IconFrame({ children, tone = "cyan" }: { children: ReactNode; tone?: "cyan" | "blue" | "violet" | "teal" | "amber" | "indigo" | "rose" | "emerald" }) {
+  const tones = {
+    cyan: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
+    blue: "border-blue-300/25 bg-blue-300/10 text-blue-200",
+    violet: "border-violet-300/25 bg-violet-300/10 text-violet-200",
+    teal: "border-teal-300/25 bg-teal-300/10 text-teal-200",
+    amber: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+    indigo: "border-indigo-300/25 bg-indigo-300/10 text-indigo-200",
+    rose: "border-rose-300/25 bg-rose-300/10 text-rose-200",
+    emerald: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
+  };
+  return <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border ${tones[tone]}`}>{children}</span>;
+}
+
+function GlobeIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.2 2.5 3.3 5.5 3.3 9s-1.1 6.5-3.3 9M12 3c-2.2 2.5-3.3 5.5-3.3 9s1.1 6.5 3.3 9" />
+    </svg>
+  );
+}
+
+function CurrencyIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M7 7h8.5a3.5 3.5 0 0 1 0 7H9a3 3 0 0 0 0 6h8" />
+      <path d="M12 3v18" />
+    </svg>
+  );
+}
+
+function DropletIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3.5s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11Z" />
+    </svg>
+  );
+}
+
+function BitcoinIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10 7v10M14 7v10M9 8h4.5a2 2 0 0 1 0 4H9M9 12h5a2 2 0 0 1 0 4H9" />
+    </svg>
+  );
+}
+
+function LandmarkIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 10h16M6 10v7M10 10v7M14 10v7M18 10v7M3 19h18M12 4l8 4H4l8-4Z" />
+    </svg>
+  );
+}
+
+function BarsIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M5 19V9M12 19V5M19 19v-7" />
+      <path d="M3 19h18" />
+    </svg>
+  );
+}
+
+function PieIcon({ className = "h-3.5 w-3.5" }: SnapshotIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3v9h9" />
+      <path d="M20.5 15.5A9 9 0 1 1 8.5 3.8" />
+      <path d="M14 3.2A9 9 0 0 1 20.8 10H14V3.2Z" />
+    </svg>
+  );
+}
+
 function SectionShell({
   title,
   icon,
+  tone,
   href,
   children,
 }: {
   title: string;
-  icon: string;
+  icon: ReactNode;
+  tone?: "blue" | "violet" | "teal" | "amber" | "indigo" | "rose" | "emerald";
   href: string;
   children: ReactNode;
 }) {
@@ -234,9 +316,7 @@ function SectionShell({
       aria-label={`Open ${title}`}
     >
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2">
-        <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border border-cyan-300/20 bg-cyan-300/10 text-[11px] font-semibold text-cyan-200">
-          {icon}
-        </span>
+        <IconFrame tone={tone}>{icon}</IconFrame>
         <h3 className="min-w-0 text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] text-blue-100 transition-colors group-hover:text-white">{title}</h3>
         <span className="shrink-0 text-sm leading-none text-slate-500 transition group-hover:text-teal-200">-&gt;</span>
       </div>
@@ -406,35 +486,35 @@ export function MarketSnapshot({ snapshot }: Props) {
       </div>
 
       <div className="mt-4 grid auto-rows-fr gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
-        <SectionShell title="World Indexes" icon="WI" href="/insights/world-indexes">
+        <SectionShell title="World Indexes" icon={<GlobeIcon />} tone="blue" href="/insights/world-indexes">
           <InstrumentList items={worldIndexes} />
         </SectionShell>
 
-        <SectionShell title="Currencies" icon="FX" href="/insights/currencies">
+        <SectionShell title="Currencies" icon={<CurrencyIcon />} tone="violet" href="/insights/currencies">
           <InstrumentList items={currencies} unavailableText="-" />
         </SectionShell>
 
-        <SectionShell title="Commodities" icon="CO" href="/insights/commodities">
+        <SectionShell title="Commodities" icon={<DropletIcon />} tone="teal" href="/insights/commodities">
           <InstrumentList items={commodities} />
         </SectionShell>
 
-        <SectionShell title="Crypto" icon="CR" href="/insights/crypto">
+        <SectionShell title="Crypto" icon={<BitcoinIcon />} tone="amber" href="/insights/crypto">
           <InstrumentList items={crypto} unavailableText="-" />
         </SectionShell>
 
-        <SectionShell title="US Macro" icon="UM" href="/insights/us-macro">
+        <SectionShell title="US Macro" icon={<LandmarkIcon />} tone="indigo" href="/insights/us-macro">
           <MacroPointList items={economics} showChange />
         </SectionShell>
 
-        <SectionShell title="Treasury" icon="TY" href="/insights/us-treasury">
+        <SectionShell title="Treasury" icon={<LandmarkIcon />} tone="rose" href="/insights/us-treasury">
           <MacroPointList items={treasury} showChange />
         </SectionShell>
 
-        <SectionShell title="US Indexes" icon="UI" href="/insights/us-indexes">
+        <SectionShell title="US Indexes" icon={<BarsIcon />} tone="emerald" href="/insights/us-indexes">
           <InstrumentList items={usIndexes} />
         </SectionShell>
 
-        <SectionShell title="US Sectors" icon="US" href="/insights/us-sectors">
+        <SectionShell title="US Sectors" icon={<PieIcon />} tone="blue" href="/insights/us-sectors">
           <SectorList items={sectorPerformance} />
         </SectionShell>
       </div>

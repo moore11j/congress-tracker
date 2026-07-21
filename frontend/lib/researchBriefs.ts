@@ -16,7 +16,7 @@ export const researchBriefs: ResearchBriefCard[] = [
     slug: "mu-dd",
     route: "/research/mu-dd",
     title: "Is the MU momentum trade dead?",
-    description: "A research-only Micron DD landing page reviewing the memory-cycle data behind the MU momentum question. Not investment advice.",
+    description: "The bear case needs memory demand to roll over. The latest cycle data says the trade still has a pulse.",
     tickers: ["MU"],
     category: "Semiconductors",
     judgment: "bullish",

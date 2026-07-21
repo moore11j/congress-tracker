@@ -24,6 +24,10 @@ test("macro positioning panel has pro lock, compact rows, and feed links", () =>
   assert.match(component, /function findMarket/);
   assert.match(component, /No recent positioning update\./);
   assert.doesNotMatch(component, /getMacroPositioningFeed/);
+  assert.match(component, /MACRO_POSITIONING_HREF = "\/feed\/macro-positioning"/);
+  assert.match(component, /ChartPulseIcon/);
+  assert.match(component, /RatesIcon/);
+  assert.match(component, /RiskIcon/);
   for (const heading of ["Equity Positioning", "Rates", "US Dollar", "Gold", "Oil", "Bitcoin", "Risk-On / Risk-Off"]) {
     assert.match(component, new RegExp(heading));
   }
