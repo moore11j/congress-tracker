@@ -12,6 +12,7 @@ import { WALNUT_MARKETING_DESCRIPTION, WALNUT_MARKETING_TITLE, WALNUT_MARKETING_
 import "./globals.css";
 
 const GOOGLE_ANALYTICS_ID = "G-QQTFFK7FBH";
+const REDDIT_PIXEL_ID = process.env.NEXT_PUBLIC_REDDIT_PIXEL_ID ?? "a2_jdfg5l7gwuw1";
 
 export const metadata: Metadata = {
   metadataBase: new URL(WALNUT_MARKETING_URL),
@@ -48,6 +49,22 @@ function GoogleTag() {
   );
 }
 
+function RedditPixel() {
+  if (!REDDIT_PIXEL_ID) return null;
+
+  return (
+    <script
+      dangerouslySetInnerHTML={{
+        __html: `
+!function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js?pixel_id=${REDDIT_PIXEL_ID}",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);
+rdt('init','${REDDIT_PIXEL_ID}');
+rdt('track', 'PageVisit');
+`,
+      }}
+    />
+  );
+}
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const requestHeaders = await headers();
   const isPublicLanding = requestHeaders.get("x-walnut-public-landing") === "1";
@@ -57,6 +74,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <html lang="en" className="h-full">
         <head>
           <GoogleTag />
+          <RedditPixel />
         </head>
         <body className="min-h-full">
           {children}
@@ -70,6 +88,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang="en" className="h-full">
       <head>
         <GoogleTag />
+        <RedditPixel />
       </head>
       <body className="min-h-full">
         <div className="relative min-h-screen min-w-0 max-w-full">
