@@ -14,6 +14,10 @@ const api = read("lib/api.ts");
 const tradeDisplay = read("lib/tradeDisplay.ts");
 const addTickerToWatchlist = read("components/watchlists/AddTickerToWatchlist.tsx");
 const tickerChart = read("components/ticker/PremiumTickerChart.tsx");
+const insider = read("lib/insider.ts");
+const wikipediaHeadshot = read("lib/wikipediaHeadshot.ts");
+const backendMain = read("../backend/app/main.py");
+const backendEvents = read("../backend/app/routers/events.py");
 
 test("insider page renders company stock chart only", () => {
   assert.doesNotMatch(insiderPage, /type ChartMode/);
@@ -80,21 +84,26 @@ test("insider page offers expanded lookback windows", () => {
   assert.match(insiderPage, /\{ label: "1Y", value: "365" \}/);
   assert.match(insiderPage, /\{ label: "3Y", value: "1095" \}/);
   assert.match(insiderPage, /LOOKBACK_OPTIONS\.some\(\(option\) => option\.value === v\) \? \(v as Lookback\) : "90"/);
-  assert.match(insiderAnalyticsClient, /LOOKBACK_OPTIONS\.map\(\(option\) =>/);
-  assert.match(insiderAnalyticsClient, /selectedLookback === option\.value/);
+  assert.match(insiderAnalyticsClient, /PERFORMANCE_LOOKBACK_OPTIONS\.map\(\(option\) =>/);
+  assert.match(insiderAnalyticsClient, /performanceLookback === option\.value/);
   assert.match(insiderAnalyticsClient, /\{option\.label\}/);
 });
 
-test("insider activity lookback controls refresh in place without route navigation", () => {
+test("insider activity trend is fixed at 1Y and performance owns return horizons", () => {
   assert.match(insiderPage, /query\.set\("lookback", lookback\)/);
   assert.match(insiderPage, /query\.set\("chart", "stock"\)/);
   assert.match(insiderPage, /if \(issuer\) query\.set\("issuer", issuer\)/);
   assert.match(insiderPage, /if \(chartSymbol\) query\.set\("symbol", chartSymbol\)/);
-  assert.match(insiderAnalyticsClient, /const \[selectedLookback, setSelectedLookback\] = useState<Lookback>\(lookback\)/);
-  assert.match(insiderAnalyticsClient, /onClick=\{\(\) => setSelectedLookback\(option\.value\)\}/);
-  assert.match(insiderAnalyticsClient, /aria-pressed=\{selectedLookback === option\.value\}/);
-  assert.match(insiderAnalyticsClient, /lookback_days: selectedLookbackDays/);
-  assert.doesNotMatch(insiderAnalyticsClient, /\["7D", "30D", "90D", "180D", "1Y"\]/);
+  assert.match(insiderAnalyticsClient, /ACTIVITY_TREND_LOOKBACK_DAYS = 365/);
+  assert.match(insiderAnalyticsClient, /ACTIVITY_TREND_LOOKBACK_LABEL = "1Y"/);
+  assert.match(insiderAnalyticsClient, /getInsiderTrades\(reportingCik, ACTIVITY_TREND_LOOKBACK_DAYS, TREND_TRADES_LIMIT/);
+  assert.match(insiderAnalyticsClient, /lookback_days: ACTIVITY_TREND_LOOKBACK_DAYS/);
+  assert.match(insiderAnalyticsClient, /Performance After Sales/);
+  assert.match(insiderAnalyticsClient, /const \[performanceLookback, setPerformanceLookback\]/);
+  assert.match(insiderAnalyticsClient, /onClick=\{\(\) => setPerformanceLookback\(option\.value\)\}/);
+  assert.match(insiderAnalyticsClient, /aria-pressed=\{performanceLookback === option\.value\}/);
+  assert.match(insiderAnalyticsClient, /lookback_days: performanceLookbackDays/);
+  assert.match(insiderAnalyticsClient, /\{ label: "7D", value: "7" \}/);
   assert.doesNotMatch(insiderAnalyticsClient, /hrefWithParams/);
   assert.doesNotMatch(insiderAnalyticsClient, /href=\{hrefWithParams/);
   assert.doesNotMatch(insiderAnalyticsClient, /chartMetric/);
@@ -115,6 +124,37 @@ test("company stock chart has buy sell marker details and empty state", () => {
   assert.match(tickerChart, /signal_score/);
   assert.match(insiderAnalyticsClient, /No company stock chart is available for this insider yet\./);
   assert.match(insiderAnalyticsClient, /PremiumTickerChartSkeleton/);
+});
+
+test("insider stock chart bundle includes volume and candle data for ticker-style chart overlays", () => {
+  assert.match(backendMain, /_ticker_chart_volume_and_candles\(db, resolved_symbol, price_points\)/);
+  assert.match(backendMain, /"volumes": volume_points/);
+  assert.match(backendMain, /"candles": candle_points/);
+  assert.match(api, /volumes\?: TickerChartVolumePoint\[\]/);
+  assert.match(api, /candles\?: TickerChartCandlePoint\[\]/);
+  assert.match(tickerChart, /volumeProfileBuckets/);
+  assert.match(tickerChart, /HistogramSeries/);
+});
+
+test("Jensen Huang aliases resolve display name and Wikipedia headshot candidates", () => {
+  assert.match(insider, /"huang jen hsun", "Jensen Huang"/);
+  assert.match(insider, /"jen hsun huang", "Jensen Huang"/);
+  assert.match(wikipediaHeadshot, /"huang jen hsun", \["Jensen Huang", "Jen-Hsun Huang"\]/);
+  assert.match(wikipediaHeadshot, /headshotNameCandidates/);
+});
+
+test("insider tabs point to real sections and ownership is derived from direct Form 4 rows", () => {
+  assert.match(insiderPage, /INSIDER_NAV_ITEMS/);
+  assert.match(insiderPage, /\{ label: "Transactions", href: "#recent-filings" \}/);
+  assert.match(insiderPage, /\{ label: "Ownership", href: "#insider-ownership" \}/);
+  assert.match(insiderPage, /\{ label: "Performance", href: "#insider-performance" \}/);
+  assert.doesNotMatch(insiderPage, /"About"/);
+  assert.match(backendEvents, /"shares_owned_following": shares_owned_following/);
+  assert.match(backendEvents, /"direct_or_indirect": direct_or_indirect/);
+  assert.match(api, /shares_owned_following\?: number \| null/);
+  assert.match(api, /direct_or_indirect\?: string \| null/);
+  assert.match(insiderAnalyticsClient, /Direct Ownership/);
+  assert.match(insiderAnalyticsClient, /directOwnershipValue\(derived\.sorted, stockChart\)/);
 });
 
 test("insider profile optional sections fall back instead of throwing the route", () => {

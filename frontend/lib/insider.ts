@@ -1,5 +1,9 @@
 const CIK_PATTERN = /^\d{10}$/;
 const UNKNOWN_SLUG_PREFIXES = ["unknown-insider", "unknown", "insider"];
+const PREFERRED_INSIDER_NAMES = new Map<string, string>([
+  ["huang jen hsun", "Jensen Huang"],
+  ["jen hsun huang", "Jensen Huang"],
+]);
 
 function cleanReportingCik(value?: string | null): string | null {
   if (!value) return null;
@@ -80,6 +84,15 @@ function cleanName(value?: string | null): string | null {
   return cleaned ? cleaned : null;
 }
 
+function normalizedNameKey(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function isInitialToken(token: string): boolean {
   return /^[A-Za-z]\.?$/.test(token);
 }
@@ -151,7 +164,8 @@ function reorderLikelyInvertedPersonName(name: string): string {
 export function normalizeInsiderName(name?: string | null): string | null {
   const cleaned = cleanName(name);
   if (!cleaned) return null;
-  return reorderLikelyInvertedPersonName(toDisplayCase(cleaned));
+  const displayName = reorderLikelyInvertedPersonName(toDisplayCase(cleaned));
+  return PREFERRED_INSIDER_NAMES.get(normalizedNameKey(displayName)) ?? displayName;
 }
 
 export function getInsiderDisplayName(...candidates: Array<string | null | undefined>): string | null {

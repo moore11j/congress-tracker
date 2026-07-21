@@ -33,6 +33,21 @@ const MEMBER_NAV_ITEMS = [
   { label: "Activity", href: "#member-activity-trend" },
   { label: "Committees", href: "#member-committees" },
 ] as const;
+const MEMBER_COMMITTEE_ASSIGNMENTS: Record<string, { headline: string; committees: Array<{ name: string; subcommittees: string[] }> }> = {
+  K000389: {
+    headline: "House Armed Services; Oversight and Government Reform",
+    committees: [
+      {
+        name: "Committee on Armed Services",
+        subcommittees: ["Cyber, Information Technologies, and Innovation", "Seapower and Projection Forces"],
+      },
+      {
+        name: "Committee on Oversight and Government Reform",
+        subcommittees: ["Cybersecurity, Information Technology, and Government Innovation", "Economic Growth, Energy Policy, and Regulatory Affairs"],
+      },
+    ],
+  },
+};
 
 function getSiteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
@@ -108,6 +123,10 @@ function buildCommitteeSourceHref(memberId: string, memberName: string, chamber?
     return `https://clerk.house.gov/Members/${encodeURIComponent(memberId)}`;
   }
   return `https://www.congress.gov/member/${encodeURIComponent(nameToSlug(memberName))}/${encodeURIComponent(memberId)}`;
+}
+
+function committeeAssignmentsFor(memberId: string) {
+  return MEMBER_COMMITTEE_ASSIGNMENTS[memberId] ?? null;
 }
 
 function memberNameFallback(slug: string) {
@@ -203,9 +222,10 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const districtLabel = data.member.district ? `${data.member.state ?? ""}-${data.member.district}` : data.member.state;
   const activityStatus =
     data.trades.length >= 50 ? "Very Active Trader" : data.trades.length > 0 ? "Active Trader" : "Activity profile";
-  const headerContext = data.top_tickers[0]
-    ? `Most active disclosed ticker: ${data.top_tickers[0].symbol}`
-    : "Disclosure history from public filings";
+  const committeeAssignments = committeeAssignmentsFor(canonicalMemberId);
+  const headerContext = committeeAssignments?.headline
+    ? `Committees: ${committeeAssignments.headline}`
+    : "Committee assignments from official profile sources";
   const committeeSourceHref = buildCommitteeSourceHref(canonicalMemberId, memberName, data.member.chamber);
   const actionClassName =
     "inline-flex h-9 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-slate-950/20 px-4 text-xs font-semibold text-slate-100 transition hover:border-white/25 hover:bg-white/[0.04] sm:text-sm";
@@ -311,7 +331,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
           <div>
             <h2 className="text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-slate-200">Committees</h2>
             <p className="mt-2 text-sm text-slate-400">
-              Current committee and subcommittee assignments are maintained by official congressional profile sources.
+              Current committee and subcommittee assignments from official congressional profile sources.
             </p>
           </div>
           <a
@@ -323,6 +343,20 @@ export default async function MemberPage({ params, searchParams }: Props) {
             Open official profile
           </a>
         </div>
+        {committeeAssignments ? (
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {committeeAssignments.committees.map((committee) => (
+              <div key={committee.name} className="rounded-lg border border-white/8 bg-white/[0.025] p-3">
+                <p className="text-sm font-semibold text-slate-100">{committee.name}</p>
+                <div className="mt-2 space-y-1">
+                  {committee.subcommittees.map((subcommittee) => (
+                    <p key={subcommittee} className="text-xs leading-5 text-slate-400">{subcommittee}</p>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
     </div>
   );

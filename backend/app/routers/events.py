@@ -2113,6 +2113,13 @@ def _insider_trade_row(
     if amount_max is None and outcome is not None and outcome.amount_max is not None:
         amount_max = float(outcome.amount_max)
     shares = _first_numeric_field(payload, "shares", "transactionShares", "securitiesTransacted")
+    shares_owned_following = _first_numeric_field(
+        payload,
+        "shares_owned_following",
+        "sharesOwnedFollowing",
+        "sharesOwnedFollowingTransaction",
+    )
+    direct_or_indirect = _first_text_field(payload, "direct_or_indirect", "directOrIndirectOwnership", "ownership")
     if price is not None and shares is not None and shares > 0:
         trade_value = price * shares
     if trade_value is None:
@@ -2181,6 +2188,10 @@ def _insider_trade_row(
         "trade_value": trade_value,
         "tradeValue": trade_value,
         "shares": shares,
+        "shares_owned_following": shares_owned_following,
+        "sharesOwnedFollowing": shares_owned_following,
+        "direct_or_indirect": direct_or_indirect,
+        "directOrIndirectOwnership": direct_or_indirect,
         "price": price,
         "display_price": price,
         "displayPrice": price,

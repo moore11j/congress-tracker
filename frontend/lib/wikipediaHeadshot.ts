@@ -33,6 +33,10 @@ const WIKIPEDIA_SUMMARY_BASE = "https://en.wikipedia.org/api/rest_v1/page/summar
 const WIKIPEDIA_REVALIDATE_SECONDS = 60 * 60 * 24 * 7;
 const WIKIMEDIA_UPLOAD_PREFIX = "https://upload.wikimedia.org/";
 const REQUEST_TIMEOUT_MS = 1800;
+const WIKIPEDIA_HEADSHOT_ALIASES = new Map<string, string[]>([
+  ["huang jen hsun", ["Jensen Huang", "Jen-Hsun Huang"]],
+  ["jen hsun huang", ["Jensen Huang", "Jen-Hsun Huang"]],
+]);
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "")
@@ -46,6 +50,17 @@ function normalizeText(value: string | null | undefined) {
 
 function wikipediaTitle(name: string) {
   return name.trim().replace(/\s+/g, "_");
+}
+
+function headshotNameCandidates(name: string) {
+  const candidates = [name.trim()];
+  const aliases = WIKIPEDIA_HEADSHOT_ALIASES.get(normalizeText(name)) ?? [];
+  for (const alias of aliases) {
+    if (!candidates.some((candidate) => normalizeText(candidate) === normalizeText(alias))) {
+      candidates.push(alias);
+    }
+  }
+  return candidates;
 }
 
 function titleLooksLikePerson(title: string | undefined, name: string) {
@@ -120,14 +135,18 @@ export async function resolveWikipediaHeadshot(
   const cleanName = (name ?? "").trim();
   if (!cleanName) return null;
 
-  const summary = await fetchWikipediaSummary(wikipediaTitle(cleanName));
-  const src = summary?.thumbnail?.source;
-  if (!summary || !titleLooksLikePerson(summary.title, cleanName) || !isWikimediaThumbnail(src)) return null;
-  if (!summaryMatchesKind(summary, options)) return null;
+  for (const candidate of headshotNameCandidates(cleanName)) {
+    const summary = await fetchWikipediaSummary(wikipediaTitle(candidate));
+    const src = summary?.thumbnail?.source;
+    if (!summary || !titleLooksLikePerson(summary.title, candidate) || !isWikimediaThumbnail(src)) continue;
+    if (!summaryMatchesKind(summary, options)) continue;
 
-  return {
-    src: src!,
-    pageUrl: summary.content_urls?.desktop?.page ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(wikipediaTitle(cleanName))}`,
-    title: summary.title ?? cleanName,
-  };
+    return {
+      src: src!,
+      pageUrl: summary.content_urls?.desktop?.page ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(wikipediaTitle(candidate))}`,
+      title: summary.title ?? candidate,
+    };
+  }
+
+  return null;
 }

@@ -242,8 +242,27 @@ test("member tabs point to real profile sections", () => {
   assert.match(memberAnalyticsClient, /id="member-holdings"/);
   assert.match(memberAnalyticsClient, /Estimated Holdings/);
   assert.match(memberAnalyticsClient, /annual_disclosure_opening_positions_symbols/);
+  assert.match(memberAnalyticsClient, /estimated_opening_positions_count/);
+  assert.match(memberAnalyticsClient, /displayCount = annualCount > 0 \? annualCount : estimatedCount > 0 \? estimatedCount : symbols\.length/);
   assert.match(memberPage, /id="member-committees"/);
+  assert.match(memberPage, /MEMBER_COMMITTEE_ASSIGNMENTS/);
+  assert.match(memberPage, /Committee on Armed Services/);
   assert.match(memberPage, /Open official profile/);
+});
+
+test("member profile overview uses bounded recent trades and mockup-style member icons", () => {
+  assert.match(memberAnalyticsClient, /RECENT_TRADES_PAGE_SIZE = 8/);
+  assert.match(memberAnalyticsClient, /visibleRecentTrades = recentTrades\.slice/);
+  assert.match(memberAnalyticsClient, /Previous/);
+  assert.match(memberAnalyticsClient, /Next/);
+  assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS = 1095/);
+  assert.match(memberAnalyticsClient, /MEMBER_ACTIVITY_TREND_LIMIT = 240/);
+  assert.match(memberAnalyticsClient, /getMemberTrades\(memberId,[\s\S]*source: "MemberActivityTrend"/);
+  assert.match(memberAnalyticsClient, /SectionTitle title="Activity Trend" detail="3Y"/);
+  assert.match(memberAnalyticsClient, /MiniBars buckets=\{trendStats\.buckets\}/);
+  assert.match(memberAnalyticsClient, /ProfileIcon name=\{row\.icon\} toneClass=\{row\.tone\}/);
+  assert.match(memberAnalyticsClient, /View all positions/);
+  assert.doesNotMatch(memberPage, /Most active disclosed ticker/);
 });
 
 test("member trades feed failure renders section fallback instead of crashing page", () => {

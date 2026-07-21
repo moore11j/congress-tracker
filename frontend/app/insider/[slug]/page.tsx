@@ -34,6 +34,13 @@ const LOOKBACK_OPTIONS = [
   { label: "1Y", value: "365" },
   { label: "3Y", value: "1095" },
 ] as const satisfies readonly { label: string; value: Lookback }[];
+const INSIDER_NAV_ITEMS = [
+  { label: "Overview", href: "#overview" },
+  { label: "Transactions", href: "#recent-filings" },
+  { label: "Ownership", href: "#insider-ownership" },
+  { label: "Performance", href: "#insider-performance" },
+  { label: "Filings", href: "#recent-filings" },
+] as const;
 
 type OptionalSectionResult<T> = {
   data: T;
@@ -331,13 +338,13 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           </p>
         ) : null}
         <nav className="flex gap-7 overflow-x-auto border-t border-white/10 pt-2 text-sm font-medium text-slate-400">
-          {["Overview", "Transactions", "Ownership", "Performance", "Filings", "About"].map((item) => (
+          {INSIDER_NAV_ITEMS.map((item) => (
             <a
-              key={item}
-              href={item === "Overview" ? "#overview" : item === "Filings" || item === "Transactions" ? "#recent-filings" : "#insider-performance"}
-              className={`shrink-0 border-b-2 pb-2 ${item === "Overview" ? "border-amber-300 text-amber-200" : "border-transparent hover:text-white"}`}
+              key={item.label}
+              href={item.href}
+              className={`shrink-0 border-b-2 pb-2 ${item.label === "Overview" ? "border-amber-300 text-amber-200" : "border-transparent hover:text-white"}`}
             >
-              {item}
+              {item.label}
             </a>
           ))}
         </nav>

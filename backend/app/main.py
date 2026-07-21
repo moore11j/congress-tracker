@@ -10997,6 +10997,8 @@ def _build_insider_stock_chart_bundle(
             "end_date": None,
             "benchmark": {"symbol": _TICKER_BENCHMARK_SYMBOL, "label": _TICKER_BENCHMARK_LABEL, "points": []},
             "prices": [],
+            "volumes": [],
+            "candles": [],
             "markers": [],
             "quote": {
                 "current_price": None,
@@ -11043,6 +11045,7 @@ def _build_insider_stock_chart_bundle(
         company_name = _insider_trade_row(scoped[0][0], enriched_payload).get("company_name")
 
     quote = _build_ticker_chart_quote(db, resolved_symbol, price_points)
+    volume_points, candle_points = _ticker_chart_volume_and_candles(db, resolved_symbol, price_points)
     if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
         volume_by_day = get_daily_volume_series_from_provider(resolved_symbol, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
@@ -11060,6 +11063,8 @@ def _build_insider_stock_chart_bundle(
             "points": benchmark_points,
         },
         "prices": price_points,
+        "volumes": volume_points,
+        "candles": candle_points,
         "markers": markers,
         "quote": quote,
         "available_symbols": sorted(symbols),

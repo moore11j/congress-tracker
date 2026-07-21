@@ -3893,6 +3893,10 @@ export type InsiderTrade = {
   trade_value?: number | null;
   tradeValue?: number | null;
   shares: number | null;
+  shares_owned_following?: number | null;
+  sharesOwnedFollowing?: number | null;
+  direct_or_indirect?: string | null;
+  directOrIndirectOwnership?: string | null;
   price: number | null;
   display_price?: number | null;
   displayPrice?: number | null;

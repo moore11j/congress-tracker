@@ -24,18 +24,23 @@ import { resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { gainLossLabel, gainLossTooltip } from "@/lib/gainLossCopy";
 
 type Lookback = "30" | "90" | "180" | "365" | "1095";
+type PerformanceLookback = "7" | "30" | "90" | "180" | "365";
 
 const RECENT_TRADES_PAGE_SIZE = 20;
+const ACTIVITY_TREND_LOOKBACK_DAYS = 365;
+const ACTIVITY_TREND_LOOKBACK_LABEL = "1Y";
+const TREND_TRADES_LIMIT = 240;
 const REFRESHING_COPY = "Refreshing the latest analytics from disclosed activity.";
 const CARD = "overflow-hidden rounded-lg border border-white/10 bg-[#0a1726]/95 shadow-[0_14px_34px_rgba(0,0,0,0.22)]";
 const PANEL = "rounded-lg border border-white/8 bg-white/[0.025]";
-const LOOKBACK_OPTIONS = [
+const PERFORMANCE_LOOKBACK_OPTIONS = [
+  { label: "7D", value: "7" },
   { label: "30D", value: "30" },
   { label: "90D", value: "90" },
   { label: "180D", value: "180" },
   { label: "1Y", value: "365" },
-  { label: "3Y", value: "1095" },
-] as const satisfies readonly { label: string; value: Lookback }[];
+] as const satisfies readonly { label: string; value: PerformanceLookback }[];
+const DEFAULT_PERFORMANCE_LOOKBACK: PerformanceLookback = "365";
 
 type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
 type InsiderStockChartData = Awaited<ReturnType<typeof getInsiderStockChart>>;
@@ -156,6 +161,113 @@ function priceRange(trade: InsiderTradesData["items"][number]) {
   return "—";
 }
 
+function compactNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "â€”";
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: Math.abs(value) >= 1_000_000 ? 1 : 0,
+  }).format(value);
+}
+
+function sharesOwnedFollowing(trade: InsiderTradesData["items"][number]): number | null {
+  const value = trade.shares_owned_following ?? trade.sharesOwnedFollowing;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function isDirectOwnership(trade: InsiderTradesData["items"][number]): boolean {
+  const value = (trade.direct_or_indirect ?? trade.directOrIndirectOwnership ?? "").trim().toLowerCase();
+  return value === "d" || value === "direct";
+}
+
+function summarizeInsiderTrades(items: InsiderTradesData["items"]) {
+  const sorted = [...items].sort((left, right) => {
+    const a = Date.parse(left.filing_date ?? left.transaction_date ?? left.trade_date ?? "");
+    const b = Date.parse(right.filing_date ?? right.transaction_date ?? right.trade_date ?? "");
+    return (Number.isFinite(b) ? b : 0) - (Number.isFinite(a) ? a : 0);
+  });
+  const months = new Map<string, { label: string; buy: number; sell: number }>();
+  let sharesBought = 0;
+  let sharesSold = 0;
+  let saleValue = 0;
+  let saleCount = 0;
+  let buyValue = 0;
+  let buyCount = 0;
+
+  sorted.forEach((trade) => {
+    const direction = tradeDirection(trade.trade_type ?? trade.tradeType);
+    const shares = trade.shares ?? 0;
+    const value = tradeValue(trade) ?? 0;
+    if (direction === "buy") {
+      sharesBought += shares;
+      buyValue += value;
+      buyCount += 1;
+    }
+    if (direction === "sell") {
+      sharesSold += shares;
+      saleValue += value;
+      saleCount += 1;
+    }
+    const rawDate = trade.filing_date ?? trade.transaction_date ?? trade.trade_date;
+    const date = rawDate ? new Date(rawDate) : null;
+    if (date && Number.isFinite(date.getTime())) {
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+      const label = date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
+      const bucket = months.get(key) ?? { label, buy: 0, sell: 0 };
+      if (direction === "buy") bucket.buy += Math.max(1, Math.round(shares || 1));
+      if (direction === "sell") bucket.sell += Math.max(1, Math.round(shares || 1));
+      months.set(key, bucket);
+    }
+  });
+
+  return {
+    sorted,
+    sharesBought,
+    sharesSold,
+    saleValue,
+    saleCount,
+    buyValue,
+    buyCount,
+    avgSale: saleCount > 0 ? saleValue / saleCount : null,
+    avgBuy: buyCount > 0 ? buyValue / buyCount : null,
+    buckets: Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12).map((entry) => entry[1]),
+  };
+}
+
+function directOwnershipValue(trades: InsiderTradesData["items"], stockChart: InsiderStockChartData | null): string {
+  const latestDirect = trades.find((trade) => isDirectOwnership(trade) && sharesOwnedFollowing(trade) != null);
+  const directShares = latestDirect ? sharesOwnedFollowing(latestDirect) : null;
+  if (directShares == null) return "â€”";
+
+  const marketCap = stockChart?.quote?.market_cap;
+  const currentPrice = stockChart?.quote?.current_price ?? stockChart?.quote?.latest_close;
+  const impliedSharesOutstanding =
+    typeof marketCap === "number" && Number.isFinite(marketCap) && typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0
+      ? marketCap / currentPrice
+      : null;
+
+  if (impliedSharesOutstanding && impliedSharesOutstanding > 0) {
+    return pct((directShares / impliedSharesOutstanding) * 100);
+  }
+  return `${compactNumber(directShares)} sh`;
+}
+
+function WatchIcon({ name, toneClass }: { name: "purchase" | "frequency" | "plan" | "ownership" | "performance"; toneClass: string }) {
+  const paths = {
+    purchase: "M6 10.5V3.5m0 0L3.5 6m2.5-2.5L8.5 6M3 10.5h6",
+    frequency: "M2.5 7a3.5 3.5 0 0 1 5.8-2.6L9.5 5.5M9.5 3v2.5H7M9.5 7a3.5 3.5 0 0 1-5.8 2.6L2.5 8.5M2.5 11V8.5H5",
+    plan: "M3.5 2.5h5l1 1v6h-7v-6l1-1Zm1 2h4m-4 2h4m-4 2h2",
+    ownership: "M6 2.5 9.5 4v3.2c0 2-1.4 3.5-3.5 4.3-2.1-.8-3.5-2.3-3.5-4.3V4L6 2.5Zm-1.5 4 1 1 2-2",
+    performance: "M2.5 9.5 5 7l1.5 1.5 3-4M7.5 4.5h2v2",
+  } as const;
+  return (
+    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border ${toneClass}`}>
+      <svg viewBox="0 0 12 12" aria-hidden="true" className="h-4 w-4" fill="none">
+        <path d={paths[name]} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.15" />
+      </svg>
+    </span>
+  );
+}
+
 function SectionTitle({ title, detail }: { title: string; detail?: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -226,7 +338,6 @@ function AnalyticsStatsSkeleton() {
 
 export function InsiderAnalyticsClient({
   reportingCik,
-  lookback,
   lookbackDays,
   issuer,
   stockSymbol,
@@ -245,18 +356,26 @@ export function InsiderAnalyticsClient({
   initialAlphaSummary?: InsiderAlphaSummary;
   initialTrades?: InsiderTradesData;
 }) {
-  const [selectedLookback, setSelectedLookback] = useState<Lookback>(lookback);
-  const selectedLookbackDays = Number(selectedLookback);
+  const [performanceLookback, setPerformanceLookback] = useState<PerformanceLookback>(DEFAULT_PERFORMANCE_LOOKBACK);
+  const performanceLookbackDays = Number(performanceLookback);
   const [alphaSummary, setAlphaSummary] = useState<InsiderAlphaSummary>(() =>
-    initialAlphaSummary ?? fallbackInsiderAlphaSummary(reportingCik, lookbackDays),
+    initialAlphaSummary?.lookback_days === performanceLookbackDays
+      ? initialAlphaSummary
+      : fallbackInsiderAlphaSummary(reportingCik, performanceLookbackDays),
   );
   const [trades, setTrades] = useState<InsiderTradesData>(() =>
     initialTrades ?? fallbackInsiderTrades(reportingCik, lookbackDays, recentTradesPage),
+  );
+  const [trendTrades, setTrendTrades] = useState<InsiderTradesData>(() =>
+    initialTrades?.lookback_days === ACTIVITY_TREND_LOOKBACK_DAYS
+      ? initialTrades
+      : fallbackInsiderTrades(reportingCik, ACTIVITY_TREND_LOOKBACK_DAYS, 0),
   );
   const [liveSummary, setLiveSummary] = useState<InsiderSummary>(summary);
   const [stockChart, setStockChart] = useState<InsiderStockChartData | null>(null);
   const hasInitialAnalytics = Boolean(initialAlphaSummary || initialTrades);
   const [loading, setLoading] = useState(!hasInitialAnalytics);
+  const [performanceLoading, setPerformanceLoading] = useState(initialAlphaSummary?.lookback_days !== performanceLookbackDays);
   const [stockChartLoading, setStockChartLoading] = useState(true);
   const [alphaUnavailable, setAlphaUnavailable] = useState(false);
   const [tradesUnavailable, setTradesUnavailable] = useState(false);
@@ -266,7 +385,7 @@ export function InsiderAnalyticsClient({
     const controller = new AbortController();
     let cancelled = false;
     setLiveSummary(summary);
-    getInsiderSummary(reportingCik, selectedLookbackDays, issuer, {
+    getInsiderSummary(reportingCik, lookbackDays, issuer, {
       signal: controller.signal,
       source: "InsiderAnalyticsSummaryClient",
     })
@@ -278,48 +397,81 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [issuer, reportingCik, selectedLookbackDays, summary]);
+  }, [issuer, lookbackDays, reportingCik, summary]);
 
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
-    setLoading(!hasInitialAnalytics || selectedLookback !== lookback);
-    setAlphaUnavailable(false);
+    setLoading(!initialTrades || initialTrades.lookback_days !== lookbackDays || initialTrades.page !== recentTradesPage);
     setTradesUnavailable(false);
 
-    Promise.all([
-      getInsiderAlphaSummary(reportingCik, {
-        lookback_days: selectedLookbackDays,
-        issuer,
-        source: "InsiderAlphaSummary",
-        signal: controller.signal,
+    getInsiderTrades(reportingCik, lookbackDays, RECENT_TRADES_PAGE_SIZE, issuer, {
+      page: recentTradesPage,
+      source: "InsiderTrades",
+      signal: controller.signal,
+    })
+      .then((data) => {
+        if (!cancelled) setTrades(data);
       })
-        .then((data) => {
-          if (!cancelled) setAlphaSummary(data);
-        })
-        .catch(() => {
-          if (!cancelled) setAlphaUnavailable(true);
-        }),
-      getInsiderTrades(reportingCik, selectedLookbackDays, RECENT_TRADES_PAGE_SIZE, issuer, {
-        page: recentTradesPage,
-        source: "InsiderTrades",
-        signal: controller.signal,
+      .catch(() => {
+        if (!cancelled) setTradesUnavailable(true);
       })
-        .then((data) => {
-          if (!cancelled) setTrades(data);
-        })
-        .catch(() => {
-          if (!cancelled) setTradesUnavailable(true);
-        }),
-    ]).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [hasInitialAnalytics, issuer, lookback, recentTradesPage, reportingCik, selectedLookback, selectedLookbackDays]);
+  }, [initialTrades, issuer, lookbackDays, recentTradesPage, reportingCik]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    setPerformanceLoading(!initialAlphaSummary || initialAlphaSummary.lookback_days !== performanceLookbackDays);
+    setAlphaUnavailable(false);
+
+    getInsiderAlphaSummary(reportingCik, {
+      lookback_days: performanceLookbackDays,
+      issuer,
+      source: "InsiderAlphaSummary",
+      signal: controller.signal,
+    })
+      .then((data) => {
+        if (!cancelled) setAlphaSummary(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAlphaUnavailable(true);
+      })
+      .finally(() => {
+        if (!cancelled) setPerformanceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [initialAlphaSummary, issuer, performanceLookbackDays, reportingCik]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    getInsiderTrades(reportingCik, ACTIVITY_TREND_LOOKBACK_DAYS, TREND_TRADES_LIMIT, issuer, {
+      page: 0,
+      source: "InsiderActivityTrend",
+      signal: controller.signal,
+    })
+      .then((data) => {
+        if (!cancelled) setTrendTrades(data);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [issuer, reportingCik]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -327,7 +479,7 @@ export function InsiderAnalyticsClient({
     setStockChartLoading(true);
     setStockChartUnavailable(false);
     getInsiderStockChart(reportingCik, {
-      lookback_days: selectedLookbackDays,
+      lookback_days: ACTIVITY_TREND_LOOKBACK_DAYS,
       symbol: stockSymbol,
       source: "InsiderStockChart",
       signal: controller.signal,
@@ -345,7 +497,7 @@ export function InsiderAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [reportingCik, selectedLookbackDays, stockSymbol]);
+  }, [reportingCik, stockSymbol]);
 
   const recentTradesLimit = typeof trades.limit === "number" && trades.limit > 0 ? trades.limit : RECENT_TRADES_PAGE_SIZE;
   const recentTradesPageValue = typeof trades.page === "number" && trades.page >= 0 ? trades.page : recentTradesPage;
@@ -355,62 +507,11 @@ export function InsiderAnalyticsClient({
       ? trades.has_next
       : recentTradesPageValue * recentTradesLimit + trades.items.length < recentTradesTotal;
 
-  const derived = useMemo(() => {
-    const sorted = [...trades.items].sort((left, right) => {
-      const a = Date.parse(left.filing_date ?? left.transaction_date ?? left.trade_date ?? "");
-      const b = Date.parse(right.filing_date ?? right.transaction_date ?? right.trade_date ?? "");
-      return (Number.isFinite(b) ? b : 0) - (Number.isFinite(a) ? a : 0);
-    });
-    const months = new Map<string, { label: string; buy: number; sell: number }>();
-    let sharesBought = 0;
-    let sharesSold = 0;
-    let saleValue = 0;
-    let saleCount = 0;
-    let buyValue = 0;
-    let buyCount = 0;
-
-    sorted.forEach((trade) => {
-      const direction = tradeDirection(trade.trade_type ?? trade.tradeType);
-      const shares = trade.shares ?? 0;
-      const value = tradeValue(trade) ?? 0;
-      if (direction === "buy") {
-        sharesBought += shares;
-        buyValue += value;
-        buyCount += 1;
-      }
-      if (direction === "sell") {
-        sharesSold += shares;
-        saleValue += value;
-        saleCount += 1;
-      }
-      const rawDate = trade.filing_date ?? trade.transaction_date ?? trade.trade_date;
-      const date = rawDate ? new Date(rawDate) : null;
-      if (date && Number.isFinite(date.getTime())) {
-        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-        const label = date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
-        const bucket = months.get(key) ?? { label, buy: 0, sell: 0 };
-        if (direction === "buy") bucket.buy += Math.max(1, Math.round(shares || 1));
-        if (direction === "sell") bucket.sell += Math.max(1, Math.round(shares || 1));
-        months.set(key, bucket);
-      }
-    });
-
-    return {
-      sorted,
-      sharesBought,
-      sharesSold,
-      saleValue,
-      saleCount,
-      buyValue,
-      buyCount,
-      avgSale: saleCount > 0 ? saleValue / saleCount : null,
-      avgBuy: buyCount > 0 ? buyValue / buyCount : null,
-      buckets: Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12).map((entry) => entry[1]),
-    };
-  }, [trades.items]);
+  const derived = useMemo(() => summarizeInsiderTrades(trades.items), [trades.items]);
+  const trendDerived = useMemo(() => summarizeInsiderTrades(trendTrades.items), [trendTrades.items]);
 
   const summaryMetrics = [
-    { label: "Filings", value: numberOrDash(liveSummary.total_trades), sub: `Rank window: ${selectedLookbackDays}D` },
+    { label: "Filings", value: numberOrDash(liveSummary.total_trades), sub: `Rank window: ${lookbackDays}D` },
     {
       label: "Buy / Sell Ratio",
       value: `${liveSummary.buy_count} / ${liveSummary.sell_count}`,
@@ -439,6 +540,7 @@ export function InsiderAnalyticsClient({
     ["Avg. Sale Size", compactMoney(derived.avgSale)],
     ["Avg. Buy Size", compactMoney(derived.avgBuy)],
     ["Most Recent Filing", asDate(liveSummary.latest_filing_date)],
+    ["Direct Ownership", directOwnershipValue(derived.sorted, stockChart)],
   ];
   const performanceRows = [
     { label: "Avg Return", value: pct(alphaSummary.avg_return_pct), tone: tone(alphaSummary.avg_return_pct) },
@@ -448,26 +550,41 @@ export function InsiderAnalyticsClient({
     { label: "Scored", value: numberOrDash(alphaSummary.trades_analyzed), tone: "text-white/85" },
   ];
   const watchRows = [
-    liveSummary.buy_count > 0 ? "Any open-market purchases" : "No open-market purchases in this window",
-    "Change in transaction frequency",
-    liveSummary.latest_filing_date ? `Next Form 4 after ${asDate(liveSummary.latest_filing_date)}` : "Next Form 4 filing",
-    liveSummary.primary_symbol ? `${liveSummary.primary_symbol} ownership changes` : "Issuer ownership changes",
-    alphaSummary.avg_alpha_pct != null ? `Post-transaction alpha: ${pct(alphaSummary.avg_alpha_pct)}` : "Performance after future transactions",
+    {
+      label: liveSummary.buy_count > 0 ? "Any open-market purchases" : "No open-market purchases in this window",
+      icon: "purchase" as const,
+      tone: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    },
+    {
+      label: "Change in transaction frequency",
+      icon: "frequency" as const,
+      tone: "border-rose-400/20 bg-rose-400/10 text-rose-300",
+    },
+    {
+      label: liveSummary.latest_filing_date ? `Next Form 4 after ${asDate(liveSummary.latest_filing_date)}` : "Next Form 4 filing",
+      icon: "plan" as const,
+      tone: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    },
+    {
+      label: liveSummary.primary_symbol ? `${liveSummary.primary_symbol} ownership changes` : "Issuer ownership changes",
+      icon: "ownership" as const,
+      tone: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    },
+    {
+      label: alphaSummary.avg_alpha_pct != null ? `Post-transaction alpha: ${pct(alphaSummary.avg_alpha_pct)}` : "Performance after future transactions",
+      icon: "performance" as const,
+      tone: "border-violet-400/20 bg-violet-400/10 text-violet-300",
+    },
   ];
-  const selectedLookbackLabel = LOOKBACK_OPTIONS.find((option) => option.value === selectedLookback)?.label ?? `${selectedLookbackDays}D`;
+  const performanceLookbackLabel = PERFORMANCE_LOOKBACK_OPTIONS.find((option) => option.value === performanceLookback)?.label ?? `${performanceLookbackDays}D`;
 
   return (
     <div className="space-y-3">
       <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.45fr)_minmax(380px,0.8fr)] xl:[&>section]:h-[152px]">
         <section className={`${CARD} p-3`}>
-          <SectionTitle title="Insider Activity Summary" detail={`${selectedLookbackDays}D`} />
+          <SectionTitle title="Insider Activity Summary" detail={`${lookbackDays}D`} />
           <p className="mt-2 truncate text-xs text-slate-500">Recent activity is summarized from public Form 4 filings and scored outcomes.</p>
           {loading ? <AnalyticsStatsSkeleton /> : <MetricGrid metrics={summaryMetrics} />}
-          {alphaUnavailable ? (
-            <p className="mt-2 rounded-md border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-[11px] leading-tight text-amber-100">
-              {REFRESHING_COPY}
-            </p>
-          ) : null}
           {alphaSummary.trades_analyzed === 0 && trades.items.length > 0 ? (
             <p className="mt-2 rounded-md border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-[11px] leading-tight text-amber-100">
               No market trades analyzed in this window. Showing recent insider activity below.
@@ -476,31 +593,14 @@ export function InsiderAnalyticsClient({
         </section>
 
         <section className={`${CARD} p-3`}>
-          <SectionTitle title="Activity Trend" detail={selectedLookbackLabel} />
+          <SectionTitle title="Activity Trend" detail={ACTIVITY_TREND_LOOKBACK_LABEL} />
           <div className="mt-3 flex flex-wrap justify-between gap-3">
             <div className="flex gap-4 text-[11px] text-slate-500">
               <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
               <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Sells</span>
             </div>
-            <div className="flex flex-wrap gap-1 text-xs">
-              {LOOKBACK_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setSelectedLookback(option.value)}
-                  className={`rounded-md border px-2.5 py-1 font-semibold ${
-                    selectedLookback === option.value
-                      ? "border-sky-400/50 bg-sky-400/10 text-sky-100"
-                      : "border-white/10 bg-slate-900/60 text-slate-300"
-                  }`}
-                  aria-pressed={selectedLookback === option.value}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
           </div>
-          <MiniBars buckets={derived.buckets} />
+          <MiniBars buckets={trendDerived.buckets} />
         </section>
       </div>
 
@@ -525,7 +625,7 @@ export function InsiderAnalyticsClient({
           </div>
         </section>
 
-        <section className={`${CARD} p-3`}>
+        <section id="insider-ownership" className={`${CARD} p-3 scroll-mt-6`}>
           <SectionTitle title="Transaction Pattern" detail="LTM" />
           <div className="mt-4 divide-y divide-white/8">
             {patternRows.map(([label, value]) => (
@@ -538,17 +638,43 @@ export function InsiderAnalyticsClient({
           <Link href="#recent-filings" className="mt-3 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">View full pattern</Link>
         </section>
 
-        <section id="insider-performance" className={`${CARD} p-3`}>
-          <SectionTitle title="Performance After Transactions" />
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5 xl:grid-cols-1 2xl:grid-cols-5">
-            {performanceRows.map((row) => (
-              <div key={row.label}>
-                <p className={`text-base font-semibold leading-none tabular-nums ${row.tone}`}>{row.value}</p>
-                <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{row.label}</p>
-              </div>
+        <section id="insider-performance" className={`${CARD} p-3 scroll-mt-6`}>
+          <SectionTitle title="Performance After Sales" detail={performanceLookbackLabel} />
+          <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+            {PERFORMANCE_LOOKBACK_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setPerformanceLookback(option.value)}
+                className={`rounded-md border px-2.5 py-1 font-semibold ${
+                  performanceLookback === option.value
+                    ? "border-sky-400/50 bg-sky-400/10 text-sky-100"
+                    : "border-white/10 bg-slate-900/60 text-slate-300 hover:border-white/20 hover:text-white"
+                }`}
+                aria-pressed={performanceLookback === option.value}
+              >
+                {option.label}
+              </button>
             ))}
           </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5 xl:grid-cols-1 2xl:grid-cols-5">
+            {performanceLoading ? (
+              Array.from({ length: 5 }).map((_, idx) => <SkeletonBlock key={idx} className="h-10 w-full" />)
+            ) : (
+              performanceRows.map((row) => (
+                <div key={row.label}>
+                  <p className={`text-base font-semibold leading-none tabular-nums ${row.tone}`}>{row.value}</p>
+                  <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-slate-500">{row.label}</p>
+                </div>
+              ))
+            )}
+          </div>
           <p className="mt-3 text-xs text-slate-500">Performance measured from transaction date when outcome data is available.</p>
+          {alphaUnavailable ? (
+            <p className="mt-2 rounded-md border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-[11px] leading-tight text-amber-100">
+              {REFRESHING_COPY}
+            </p>
+          ) : null}
           <Link href="/pricing" className="mt-2 inline-flex text-xs font-medium text-sky-300 hover:text-sky-200">How we calculate</Link>
         </section>
       </div>
@@ -556,10 +682,10 @@ export function InsiderAnalyticsClient({
       <section className={`${CARD} p-3`}>
         <SectionTitle title="What to Watch Next" />
         <div className="mt-2.5 grid gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-5">
-          {watchRows.map((row, index) => (
-            <div key={row} className="flex items-center gap-2 bg-[#081321] px-2.5 py-2">
-              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border text-[10px] ${index % 2 === 0 ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-rose-400/20 bg-rose-400/10 text-rose-300"}`}>•</span>
-              <p className="text-xs leading-tight text-slate-300">{row}</p>
+          {watchRows.map((row) => (
+            <div key={row.label} className="flex items-center gap-2 bg-[#081321] px-2.5 py-2">
+              <WatchIcon name={row.icon} toneClass={row.tone} />
+              <p className="text-xs leading-tight text-slate-300">{row.label}</p>
             </div>
           ))}
         </div>

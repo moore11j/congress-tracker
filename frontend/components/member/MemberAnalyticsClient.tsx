@@ -37,6 +37,9 @@ import {
 const REFRESHING_COPY = "Refreshing analytics from disclosed activity.";
 const CARD = "overflow-hidden rounded-lg border border-white/10 bg-[#0a1726]/95 shadow-[0_14px_34px_rgba(0,0,0,0.22)]";
 const PANEL = "rounded-lg border border-white/8 bg-white/[0.025]";
+const RECENT_TRADES_PAGE_SIZE = 8;
+const MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS = 1095;
+const MEMBER_ACTIVITY_TREND_LIMIT = 240;
 
 function pct(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -157,7 +160,7 @@ function tradesFallback(memberId: string, lookbackDays: number): MemberTradesRes
   return {
     member_id: memberId,
     lookback_days: lookbackDays,
-    limit: 100,
+    limit: MEMBER_ACTIVITY_TREND_LIMIT,
     items: [],
   };
 }
@@ -175,6 +178,83 @@ function daysBetween(later: string | null | undefined, earlier: string | null | 
   const b = Date.parse(earlier ?? "");
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
   return Math.max(0, Math.round((a - b) / 86400000));
+}
+
+function summarizeMemberActivity(items: MemberTrade[], bucketLimit = 12) {
+  let buyCount = 0;
+  let sellCount = 0;
+  let totalValue = 0;
+  let lagTotal = 0;
+  let lagCount = 0;
+  const groups = new Map<string, number>();
+  const months = new Map<string, { label: string; buy: number; sell: number }>();
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  let net30 = 0;
+
+  for (const trade of items) {
+    const direction = tradeDirection(trade.transaction_type ?? "");
+    const value = amountMid(trade) ?? 0;
+    totalValue += value;
+    if (direction === "buy") buyCount += 1;
+    if (direction === "sell") sellCount += 1;
+    const group = sectorLabel(trade.sector);
+    groups.set(group, (groups.get(group) ?? 0) + 1);
+    const rawDate = trade.report_date ?? trade.trade_date;
+    const date = rawDate ? new Date(rawDate) : null;
+    if (date && Number.isFinite(date.getTime())) {
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+      const label = date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
+      const bucket = months.get(key) ?? { label, buy: 0, sell: 0 };
+      if (direction === "buy") bucket.buy += 1;
+      if (direction === "sell") bucket.sell += 1;
+      months.set(key, bucket);
+      if (date >= cutoff) {
+        if (direction === "buy") net30 += value;
+        if (direction === "sell") net30 -= value;
+      }
+    }
+    const lag = daysBetween(trade.report_date, trade.trade_date);
+    if (lag != null) {
+      lagTotal += lag;
+      lagCount += 1;
+    }
+  }
+
+  const colors = ["#34d399", "#60a5fa", "#a78bfa", "#f59e0b", "#fb7185", "#94a3b8"];
+  const sectorRows = Array.from(groups.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, value], index) => ({ label, value, color: colors[index % colors.length] }));
+
+  return {
+    buyCount,
+    sellCount,
+    totalCount: items.length,
+    totalValue,
+    net30,
+    avgLag: lagCount > 0 ? lagTotal / lagCount : null,
+    sectorRows,
+    buckets: Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-bucketLimit).map((entry) => entry[1]),
+  };
+}
+
+function ProfileIcon({ name, toneClass }: { name: "position" | "increase" | "decrease" | "calendar" | "committee" | "trend" | "filing"; toneClass: string }) {
+  const paths = {
+    position: "M6 2.5 9.5 4v3.2c0 2-1.4 3.5-3.5 4.3-2.1-.8-3.5-2.3-3.5-4.3V4L6 2.5Zm-1.5 4 1 1 2-2",
+    increase: "M2.5 8.5 5 6l1.5 1.5 3-4M7.5 3.5h2v2",
+    decrease: "M2.5 3.5 5 6l1.5-1.5 3 4M7.5 8.5h2v-2",
+    calendar: "M3 2.5h6v7H3v-7Zm1 2h4M4 6h1m1 0h1M4 8h1m1 0h1M4 1.5v2M8 1.5v2",
+    committee: "M2.5 9.5v-4L6 3l3.5 2.5v4M4 9.5v-3m2 3V5.5m2 4v-3M2 9.5h8",
+    trend: "M2.5 8.5 4.8 6l1.7 1.2 3-3.7M8 3.5h1.5V5",
+    filing: "M3.5 2.5h4l1 1v6h-5v-7Zm1 2h3m-3 2h3m-3 2h2",
+  } as const;
+  return (
+    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border ${toneClass}`}>
+      <svg viewBox="0 0 12 12" aria-hidden="true" className="h-4 w-4" fill="none">
+        <path d={paths[name]} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.15" />
+      </svg>
+    </span>
+  );
 }
 
 function SectionTitle({ title, detail }: { title: string; detail?: string }) {
@@ -213,9 +293,9 @@ function ActivityDonut({ rows }: { rows: Array<{ label: string; value: number; c
     : "#1f2937 0% 100%";
 
   return (
-    <div className="mt-2 flex items-center gap-3">
-      <div className="relative h-20 w-20 shrink-0 rounded-full" style={{ background: `conic-gradient(${gradient})` }}>
-        <div className="absolute inset-5 rounded-full border border-white/10 bg-[#081321]" />
+    <div className="mt-3 flex items-center gap-4">
+      <div className="relative h-24 w-24 shrink-0 rounded-full" style={{ background: `conic-gradient(${gradient})` }}>
+        <div className="absolute inset-6 rounded-full border border-white/10 bg-[#081321]" />
       </div>
       <div className="min-w-0 flex-1 space-y-1.5">
         {rows.length === 0 ? (
@@ -236,28 +316,30 @@ function ActivityDonut({ rows }: { rows: Array<{ label: string; value: number; c
 
 function MiniBars({ buckets }: { buckets: Array<{ label: string; buy: number; sell: number }> }) {
   const max = Math.max(1, ...buckets.map((bucket) => Math.max(bucket.buy, bucket.sell)));
-  const width = 360;
-  const height = 150;
-  const zero = 76;
-  const gap = 8;
-  const barWidth = Math.max(4, (width - 48 - gap * buckets.length) / Math.max(1, buckets.length * 2));
+  const dense = buckets.length > 18;
+  const width = dense ? 520 : 380;
+  const height = 168;
+  const zero = 84;
+  const gap = dense ? 3 : 8;
+  const barWidth = Math.max(dense ? 2 : 4, (width - 48 - gap * buckets.length) / Math.max(1, buckets.length * 2));
+  const labelEvery = dense ? 6 : 2;
 
   return (
-    <div className="mt-2 h-28 w-full">
+    <div className="mt-2 h-36 w-full">
       <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
         <line x1="28" x2={width - 8} y1={zero} y2={zero} stroke="rgba(148,163,184,0.25)" />
         {[0, 1, 2].map((tick) => (
-          <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 48} y2={28 + tick * 48} stroke="rgba(148,163,184,0.08)" />
+          <line key={tick} x1="28" x2={width - 8} y1={28 + tick * 52} y2={28 + tick * 52} stroke="rgba(148,163,184,0.08)" />
         ))}
         {buckets.map((bucket, index) => {
           const x = 34 + index * (barWidth * 2 + gap);
-          const buyHeight = Math.max(2, (bucket.buy / max) * 58);
-          const sellHeight = Math.max(2, (bucket.sell / max) * 58);
+          const buyHeight = Math.max(2, (bucket.buy / max) * 64);
+          const sellHeight = Math.max(2, (bucket.sell / max) * 64);
           return (
             <g key={bucket.label}>
               <rect x={x} y={zero - buyHeight} width={barWidth} height={buyHeight} rx="1.5" fill="#34d399" />
               <rect x={x + barWidth + 2} y={zero} width={barWidth} height={sellHeight} rx="1.5" fill="#fb7185" />
-              {index % 2 === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
+              {index % labelEvery === 0 ? <text x={x} y={height - 8} fill="#64748b" fontSize="9">{bucket.label}</text> : null}
             </g>
           );
         })}
@@ -465,15 +547,27 @@ function MemberHoldingsPanel({
     portfolio?.annual_disclosure_opening_positions_value ??
     diagnostics?.annual_disclosure_opening_positions_value ??
     null;
+  const estimatedCount =
+    portfolio?.estimated_opening_positions_count ??
+    diagnostics?.estimated_opening_positions_count ??
+    0;
+  const estimatedValue =
+    portfolio?.estimated_opening_positions_value ??
+    diagnostics?.estimated_opening_positions_value ??
+    null;
   const estimatedSymbols =
     portfolio?.estimated_opening_positions_symbols ??
     diagnostics?.estimated_opening_positions_symbols ??
     [];
   const symbols = annualSymbols.length > 0 ? annualSymbols : estimatedSymbols;
+  const displayCount = annualCount > 0 ? annualCount : estimatedCount > 0 ? estimatedCount : symbols.length;
+  const displayValue = annualCount > 0 ? annualValue : estimatedValue ?? annualValue;
+  const basisLabel = annualCount > 0 ? "Annual disclosure" : "Estimated";
+  const sectionDetail = annualCount > 0 ? "Annual disclosures" : "Estimated positions";
 
   return (
     <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
-      <SectionTitle title="Estimated Holdings" detail="Annual disclosures" />
+      <SectionTitle title="Estimated Holdings" detail={sectionDetail} />
       {loading ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-14 w-full" />)}
@@ -486,12 +580,12 @@ function MemberHoldingsPanel({
         <>
           <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-4">
             <div className="bg-[#081321] px-3 py-2.5">
-              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Annual positions</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(annualCount)}</p>
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Estimated positions</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(displayCount)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Est. value</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(annualValue)}</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{compactUSD(displayValue)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Visible symbols</p>
@@ -499,7 +593,7 @@ function MemberHoldingsPanel({
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
               <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Basis</p>
-              <p className="mt-1.5 text-base font-semibold leading-none text-white">Estimated</p>
+              <p className="mt-1.5 text-base font-semibold leading-none text-white">{basisLabel}</p>
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
@@ -541,6 +635,12 @@ export function MemberAnalyticsClient({
   const [portfolioTradeCountSummary, setPortfolioTradeCountSummary] = useState<MemberAlphaSummary | null>(null);
   const [portfolio, setPortfolio] = useState<MemberPortfolioPerformance | null>(null);
   const [trades, setTrades] = useState<MemberTradesResponse>(() => initialTrades ?? tradesFallback(memberId, lookbackDays));
+  const [trendTrades, setTrendTrades] = useState<MemberTradesResponse>(() =>
+    initialTrades?.lookback_days === MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS
+      ? initialTrades
+      : tradesFallback(memberId, MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS),
+  );
+  const [recentTradesPage, setRecentTradesPage] = useState(0);
   const [entitlements, setEntitlements] = useState<Entitlements>(() => entitlementsFromTierHint(storedEntitlementTier()));
   const [entitlementsLoaded, setEntitlementsLoaded] = useState(true);
   const hasInitialAnalytics = Boolean(initialAlphaSummary || initialTrades);
@@ -615,6 +715,27 @@ export function MemberAnalyticsClient({
     const controller = new AbortController();
     let cancelled = false;
 
+    getMemberTrades(memberId, {
+      lookback_days: MEMBER_ACTIVITY_TREND_LOOKBACK_DAYS,
+      limit: MEMBER_ACTIVITY_TREND_LIMIT,
+      source: "MemberActivityTrend",
+      signal: controller.signal,
+    })
+      .then((data) => {
+        if (!cancelled) setTrendTrades(data);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [memberId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
     if (!entitlementsLoaded) return () => undefined;
     if (!canViewPortfolio) {
       setPortfolio(null);
@@ -668,6 +789,12 @@ export function MemberAnalyticsClient({
   }, [canViewPortfolio, entitlementsLoaded, loading, lookbackDays, memberId, portfolioLookbackDays]);
 
   const recentTrades = useMemo(() => sortedTrades(trades.items), [trades.items]);
+  const recentTradesTotalPages = Math.max(1, Math.ceil(recentTrades.length / RECENT_TRADES_PAGE_SIZE));
+  const boundedRecentTradesPage = Math.min(recentTradesPage, recentTradesTotalPages - 1);
+  const visibleRecentTrades = recentTrades.slice(
+    boundedRecentTradesPage * RECENT_TRADES_PAGE_SIZE,
+    boundedRecentTradesPage * RECENT_TRADES_PAGE_SIZE + RECENT_TRADES_PAGE_SIZE,
+  );
   const topTickers = useMemo(() => {
     const counts = new Map<string, { trades: number; buy: number; sell: number; value: number; latestDirection: "buy" | "sell" | null; sectors: Map<string, number> }>();
     trades.items.forEach((trade) => {
@@ -696,63 +823,8 @@ export function MemberAnalyticsClient({
       });
   }, [initialTopTickers, trades.items]);
 
-  const activityStats = useMemo(() => {
-    let buyCount = 0;
-    let sellCount = 0;
-    let totalValue = 0;
-    let lagTotal = 0;
-    let lagCount = 0;
-    const groups = new Map<string, number>();
-    const months = new Map<string, { label: string; buy: number; sell: number }>();
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    let net30 = 0;
-
-    for (const trade of trades.items) {
-      const direction = tradeDirection(trade.transaction_type ?? "");
-      const value = amountMid(trade) ?? 0;
-      totalValue += value;
-      if (direction === "buy") buyCount += 1;
-      if (direction === "sell") sellCount += 1;
-      const group = sectorLabel(trade.sector);
-      groups.set(group, (groups.get(group) ?? 0) + 1);
-      const rawDate = trade.report_date ?? trade.trade_date;
-      const date = rawDate ? new Date(rawDate) : null;
-      if (date && Number.isFinite(date.getTime())) {
-        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-        const label = date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
-        const bucket = months.get(key) ?? { label, buy: 0, sell: 0 };
-        if (direction === "buy") bucket.buy += 1;
-        if (direction === "sell") bucket.sell += 1;
-        months.set(key, bucket);
-        if (date >= cutoff) {
-          if (direction === "buy") net30 += value;
-          if (direction === "sell") net30 -= value;
-        }
-      }
-      const lag = daysBetween(trade.report_date, trade.trade_date);
-      if (lag != null) {
-        lagTotal += lag;
-        lagCount += 1;
-      }
-    }
-
-    const colors = ["#34d399", "#60a5fa", "#a78bfa", "#f59e0b", "#fb7185", "#94a3b8"];
-    const sectorRows = Array.from(groups.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([label, value], index) => ({ label, value, color: colors[index % colors.length] }));
-
-    return {
-      buyCount,
-      sellCount,
-      totalCount: trades.items.length,
-      totalValue,
-      net30,
-      avgLag: lagCount > 0 ? lagTotal / lagCount : null,
-      sectorRows,
-      buckets: Array.from(months.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-12).map((entry) => entry[1]),
-    };
-  }, [trades.items]);
+  const activityStats = useMemo(() => summarizeMemberActivity(trades.items), [trades.items]);
+  const trendStats = useMemo(() => summarizeMemberActivity(trendTrades.items, 36), [trendTrades.items]);
 
   const analyticsStats = [
     { label: "Disclosures", value: numberOrDash(activityStats.totalCount), sub: `Rank inputs: ${numberOrDash(alphaSummary.trades_analyzed)}` },
@@ -777,22 +849,43 @@ export function MemberAnalyticsClient({
     return {
       key: `${trade.event_id ?? trade.id}`,
       tone: direction === "sell" ? "border-rose-400/20 bg-rose-400/10 text-rose-300" : direction === "buy" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-slate-400/20 bg-slate-400/10 text-slate-300",
+      icon: direction === "sell" ? "decrease" as const : direction === "buy" ? "increase" as const : "position" as const,
       title: `${formatTransactionLabel(trade.transaction_type)} in ${symbol}`,
       body: rangeLabel(trade.amount_range_min, trade.amount_range_max),
       date: formatDateShort(trade.report_date ?? trade.trade_date),
     };
   });
   const watchRows = [
-    topTickers[0] ? `Position size changes in ${topTickers[0].symbol}` : "New disclosed ticker concentration",
-    activityStats.avgLag != null ? `Disclosure lag currently averages ${Math.round(activityStats.avgLag)} days` : "Disclosure lag becomes available as filings update",
-    activityStats.buyCount >= activityStats.sellCount ? "Continuation of net buying pattern" : "Continuation of net selling pattern",
-    alphaSummary.avg_alpha_pct != null ? `Average alpha trend: ${pct(alphaSummary.avg_alpha_pct)}` : "Outcome analytics as trades become scorable",
-    tradesUnavailable ? "Recent activity refresh status" : "Fresh disclosures in the next filing batch",
+    {
+      label: topTickers[0] ? `Position size changes in ${topTickers[0].symbol}` : "New disclosed ticker concentration",
+      icon: "position" as const,
+      tone: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    },
+    {
+      label: activityStats.avgLag != null ? `Disclosure lag currently averages ${Math.round(activityStats.avgLag)} days` : "Disclosure lag becomes available as filings update",
+      icon: "calendar" as const,
+      tone: "border-amber-400/20 bg-amber-400/10 text-amber-300",
+    },
+    {
+      label: activityStats.buyCount >= activityStats.sellCount ? "Continuation of net buying pattern" : "Continuation of net selling pattern",
+      icon: activityStats.buyCount >= activityStats.sellCount ? "increase" as const : "decrease" as const,
+      tone: activityStats.buyCount >= activityStats.sellCount ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-rose-400/20 bg-rose-400/10 text-rose-300",
+    },
+    {
+      label: alphaSummary.avg_alpha_pct != null ? `Average alpha trend: ${pct(alphaSummary.avg_alpha_pct)}` : "Outcome analytics as trades become scorable",
+      icon: "trend" as const,
+      tone: "border-sky-400/20 bg-sky-400/10 text-sky-300",
+    },
+    {
+      label: tradesUnavailable ? "Recent activity refresh status" : "Fresh disclosures in the next filing batch",
+      icon: "filing" as const,
+      tone: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+    },
   ];
 
   return (
     <div className="space-y-3">
-      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[158px]">
+      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[182px]">
         <section className={`${CARD} p-3`}>
           <SectionTitle title="Member Activity Summary" detail={`${lookbackDays}D`} />
           <p className="mt-2 truncate text-xs text-slate-500">One of the most active disclosed traders in Congress, summarized from public filings.</p>
@@ -818,8 +911,8 @@ export function MemberAnalyticsClient({
             ) : changeRows.length === 0 ? (
               <p className="text-sm text-slate-500">No recent changes found.</p>
             ) : changeRows.map((row) => (
-              <div key={row.key} className="grid grid-cols-[20px_1fr_auto] gap-2">
-                <span className={`grid h-5 w-5 place-items-center rounded-md border text-[10px] ${row.tone}`}>•</span>
+              <div key={row.key} className="grid grid-cols-[28px_1fr_auto] gap-2">
+                <ProfileIcon name={row.icon} toneClass={row.tone} />
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium leading-tight text-slate-100">{row.title}</p>
                   <p className="truncate text-[10px] leading-tight text-slate-500">{row.body}</p>
@@ -831,7 +924,7 @@ export function MemberAnalyticsClient({
         </section>
       </div>
 
-      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[210px]">
+      <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.75fr)_minmax(260px,0.78fr)] xl:[&>section]:h-[252px]">
         <section className={`${CARD} p-3`}>
           <SectionTitle title="Top Convictions" detail="By disclosed activity" />
           <div className="mt-3 overflow-x-auto">
@@ -862,24 +955,27 @@ export function MemberAnalyticsClient({
             </table>
             {topTickers.length === 0 ? <p className="py-8 text-sm text-slate-500">No ticker concentration yet.</p> : null}
           </div>
+          <Link href="#member-holdings" className="mt-2 inline-flex w-full justify-center text-xs font-medium text-sky-300 hover:text-sky-200">
+            View all positions
+          </Link>
         </section>
 
         <section id="member-activity-trend" className={`${CARD} scroll-mt-6 p-3`}>
-          <SectionTitle title="Activity Trend" detail="Disclosures" />
+          <SectionTitle title="Activity Trend" detail="3Y" />
           <div className="mt-3 flex justify-end gap-4 text-[11px] text-slate-500">
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Buys</span>
             <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />Sells</span>
           </div>
-          <MiniBars buckets={activityStats.buckets} />
+          <MiniBars buckets={trendStats.buckets} />
         </section>
 
         <section className={`${CARD} p-3`}>
           <SectionTitle title="What to Watch Next" />
           <div className="mt-2 space-y-1.5">
             {watchRows.map((row) => (
-              <div key={row} className="flex items-center gap-2 border-b border-white/8 pb-2 last:border-0 last:pb-0">
-                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-300">•</span>
-                <p className="text-xs leading-tight text-slate-300">{row}</p>
+              <div key={row.label} className="flex items-center gap-2 border-b border-white/8 pb-2 last:border-0 last:pb-0">
+                <ProfileIcon name={row.icon} toneClass={row.tone} />
+                <p className="text-xs leading-tight text-slate-300">{row.label}</p>
               </div>
             ))}
           </div>
@@ -924,7 +1020,7 @@ export function MemberAnalyticsClient({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/8">
-                  {recentTrades.map((trade) => {
+                  {visibleRecentTrades.map((trade) => {
                     const signal = resolveSmartSignalValue(trade as Record<string, unknown>);
                     const sideLabel = formatTransactionLabel(trade.transaction_type ?? "") ?? "Trade";
                     const sideTone = transactionTone(trade.transaction_type ?? "");
@@ -957,6 +1053,35 @@ export function MemberAnalyticsClient({
               </table>
             )}
           </div>
+          {recentTrades.length > RECENT_TRADES_PAGE_SIZE ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/8 pt-3 text-xs text-slate-400">
+              <span>
+                Showing {boundedRecentTradesPage * RECENT_TRADES_PAGE_SIZE + 1}-
+                {Math.min(recentTrades.length, (boundedRecentTradesPage + 1) * RECENT_TRADES_PAGE_SIZE)} of {recentTrades.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecentTradesPage((page) => Math.max(0, page - 1))}
+                  disabled={boundedRecentTradesPage === 0}
+                  className="rounded-md border border-white/10 bg-slate-950/40 px-3 py-1.5 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span className="tabular-nums">
+                  {boundedRecentTradesPage + 1} / {recentTradesTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRecentTradesPage((page) => Math.min(recentTradesTotalPages - 1, page + 1))}
+                  disabled={boundedRecentTradesPage >= recentTradesTotalPages - 1}
+                  className="rounded-md border border-white/10 bg-slate-950/40 px-3 py-1.5 font-semibold text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
           <p className="mt-3 text-xs text-slate-500">
             Disclosures are reported by public congressional filing feeds. Full underlying history remains accessible in this table.
           </p>
