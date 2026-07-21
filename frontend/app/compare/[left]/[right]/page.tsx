@@ -12,6 +12,11 @@ type PageProps = {
   params: Promise<{ left: string; right: string }>;
 };
 
+const TICKER_COLORS = {
+  left: "#22d3ee",
+  right: "#a78bfa",
+} as const;
+
 export const metadata: Metadata = {
   title: "Peer Compare | Walnut",
 };
@@ -27,13 +32,43 @@ function edgeLabel(edge: "left" | "right" | "even", data: PeerCompareResponse) {
 }
 
 function edgeClass(edge: "left" | "right" | "even") {
-  if (edge === "left") return "border-cyan-300/40 bg-cyan-300/10 text-cyan-100";
-  if (edge === "right") return "border-violet-300/40 bg-violet-300/10 text-violet-100";
   return "border-white/10 bg-white/[0.03] text-slate-300";
 }
 
-function formatValue(metric: PeerCompareMetric, side: "left" | "right") {
+function alpha(hex: string, value: number) {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${value})`;
+}
+
+function edgeStyle(edge: "left" | "right" | "even") {
+  if (edge === "even") return undefined;
+  const color = TICKER_COLORS[edge];
+  return {
+    borderColor: alpha(color, 0.45),
+    backgroundColor: alpha(color, 0.12),
+    color,
+  };
+}
+
+function metricValueStyle(metric: PeerCompareMetric, side: "left" | "right") {
+  if (metric.edge !== side) return undefined;
+  const color = TICKER_COLORS[side];
+  return {
+    color,
+    textShadow: `0 0 18px ${alpha(color, 0.28)}`,
+  };
+}
+
+function formatValue(metric: PeerCompareMetric, side: "left" | "right", context?: { categoryKey?: string; metrics?: PeerCompareMetric[] }) {
   const value = side === "left" ? metric.left : metric.right;
+  if (context?.categoryKey === "government_contracts" && metric.key === "total_award_amount") {
+    const contracts = context.metrics?.find((item) => item.key === "contract_count");
+    const contractValue = side === "left" ? contracts?.left : contracts?.right;
+    if (typeof contractValue === "number" && contractValue <= 0) return "N/A";
+  }
   if (value === null || value === undefined || value === "") return "Unavailable";
   if (typeof value === "string") return value.replace(/_/g, " ");
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -50,10 +85,13 @@ function formatValue(metric: PeerCompareMetric, side: "left" | "right") {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function SideHeader({ side, winner }: { side: PeerCompareResponse["left"]; winner: boolean }) {
+function SideHeader({ side, winner, tone }: { side: PeerCompareResponse["left"]; winner: boolean; tone: string }) {
   const href = tickerHref(side.symbol);
   return (
-    <div className={`min-w-0 rounded-lg border p-4 ${winner ? "border-emerald-300/40 bg-emerald-300/10" : "border-white/10 bg-slate-950/45"}`}>
+    <div
+      className={`min-w-0 rounded-lg border p-4 ${winner ? "bg-white/[0.04]" : "border-white/10 bg-slate-950/45"}`}
+      style={winner ? { borderColor: alpha(tone, 0.5), boxShadow: `inset 0 0 0 1px ${alpha(tone, 0.14)}` } : undefined}
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-2xl font-semibold text-white">{side.symbol}</p>
@@ -82,7 +120,7 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
           <h2 className="text-sm font-semibold text-white">{category.label}</h2>
           {category.locked ? <p className="mt-1 text-xs text-slate-500">Locked: {category.required_plan?.toUpperCase() ?? "PLAN"}</p> : null}
         </div>
-        <span className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${edgeClass(category.edge)}`}>
+        <span className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${edgeClass(category.edge)}`} style={edgeStyle(category.edge)}>
           {category.locked ? "Locked" : edgeLabel(category.edge, data)}
         </span>
       </div>
@@ -92,16 +130,20 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
             <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
                 <th className="px-3 py-2 font-semibold">Metric</th>
-                <th className="px-3 py-2 text-right font-semibold">{data.left.symbol}</th>
-                <th className="px-3 py-2 text-right font-semibold">{data.right.symbol}</th>
+                <th className="px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.left }}>{data.left.symbol}</th>
+                <th className="px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.right }}>{data.right.symbol}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {category.metrics.map((metric) => (
-                <tr key={metric.key}>
+                <tr key={metric.key} className={metric.edge === "even" ? "" : "bg-white/[0.012]"}>
                   <td className="px-3 py-2 text-slate-300">{metric.label}</td>
-                  <td className={`px-3 py-2 text-right font-medium ${metric.edge === "left" ? "text-cyan-100" : "text-slate-300"}`}>{formatValue(metric, "left")}</td>
-                  <td className={`px-3 py-2 text-right font-medium ${metric.edge === "right" ? "text-violet-100" : "text-slate-300"}`}>{formatValue(metric, "right")}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "left")}>
+                    {formatValue(metric, "left", { categoryKey: category.key, metrics: category.metrics })}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "right")}>
+                    {formatValue(metric, "right", { categoryKey: category.key, metrics: category.metrics })}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -114,10 +156,12 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
 
 function CompareReport({ data }: { data: PeerCompareResponse }) {
   const winner = data.call.winner;
+  const leftWinner = winner === "left";
+  const rightWinner = winner === "right";
   return (
     <div className="space-y-5">
       <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
-        <SideHeader side={data.left} winner={winner === "left"} />
+        <SideHeader side={data.left} winner={leftWinner} tone={TICKER_COLORS.left} />
         <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Our Call</p>
           <h1 className="mt-2 text-2xl font-semibold text-white">
@@ -134,7 +178,7 @@ function CompareReport({ data }: { data: PeerCompareResponse }) {
             </div>
           ) : null}
         </div>
-        <SideHeader side={data.right} winner={winner === "right"} />
+        <SideHeader side={data.right} winner={rightWinner} tone={TICKER_COLORS.right} />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

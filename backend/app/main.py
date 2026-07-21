@@ -8909,7 +8909,68 @@ def _peer_compare_trade_summary(db: Session, symbol: str, event_type: str, *, lo
     }
 
 
-def _peer_compare_business_category(left_f: FundamentalsCache | None, right_f: FundamentalsCache | None) -> dict[str, Any]:
+def _peer_compare_financials_fallbacks(db: Session, symbol: str) -> dict[str, Any]:
+    try:
+        row = db.get(TickerFinancialsCache, symbol)
+    except Exception:
+        db.rollback()
+        logger.debug("peer_compare_financials_cache_lookup_failed symbol=%s", symbol, exc_info=True)
+        row = None
+    if row is None:
+        return {}
+    try:
+        payload = json.loads(row.payload_json or "{}")
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    normalized = _normalize_ticker_financials_payload(payload)
+    summary = normalized.get("summary") if isinstance(normalized.get("summary"), dict) else {}
+    valuation = normalized.get("valuation_metrics") if isinstance(normalized.get("valuation_metrics"), dict) else {}
+    sections = normalized.get("sections") if isinstance(normalized.get("sections"), dict) else {}
+    valuation_section = sections.get("valuation") if isinstance(sections.get("valuation"), dict) else {}
+    return {
+        "forward_pe": _first_peer_compare_number(
+            valuation.get("forward_pe"),
+            summary.get("forwardPE"),
+            valuation_section.get("forwardPE"),
+            valuation_section.get("forward_pe"),
+        ),
+        "eps_growth": _first_peer_compare_number(
+            valuation.get("expected_eps_growth_rate_percent"),
+            summary.get("expectedEpsGrowthRatePercent"),
+            valuation_section.get("expectedEpsGrowthRatePercent"),
+            valuation_section.get("expected_eps_growth_rate_percent"),
+        ),
+    }
+
+
+def _first_peer_compare_number(*values: Any) -> float | None:
+    for value in values:
+        parsed = _peer_compare_num(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _peer_compare_fundamental_value(
+    fundamentals: FundamentalsCache | None,
+    fallbacks: dict[str, Any] | None,
+    attr: str,
+) -> float | None:
+    value = _peer_compare_num(getattr(fundamentals, attr, None))
+    if value is not None:
+        return value
+    return _peer_compare_num((fallbacks or {}).get(attr))
+
+
+def _peer_compare_business_category(
+    left_f: FundamentalsCache | None,
+    right_f: FundamentalsCache | None,
+    *,
+    left_fallbacks: dict[str, Any] | None = None,
+    right_fallbacks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     specs = [
         ("revenue_growth", "Revenue Growth", "percent", True, 2.0),
         ("eps_growth", "EPS Growth", "percent", True, 2.0),
@@ -8921,15 +8982,21 @@ def _peer_compare_business_category(left_f: FundamentalsCache | None, right_f: F
     metrics = []
     score = 0
     for attr, label, unit, higher_better, threshold in specs:
-        left = _peer_compare_num(getattr(left_f, attr, None))
-        right = _peer_compare_num(getattr(right_f, attr, None))
+        left = _peer_compare_fundamental_value(left_f, left_fallbacks, attr)
+        right = _peer_compare_fundamental_value(right_f, right_fallbacks, attr)
         edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, abs_threshold=threshold)
         score += 1 if edge == "left" else -1 if edge == "right" else 0
         metrics.append(_peer_compare_metric(attr, label, left, right, unit=unit, edge=edge))
     return {"key": "business_quality", "label": "Business Quality", "edge": "left" if score > 0 else "right" if score < 0 else "even", "score": score, "metrics": metrics}
 
 
-def _peer_compare_valuation_category(left_f: FundamentalsCache | None, right_f: FundamentalsCache | None) -> dict[str, Any]:
+def _peer_compare_valuation_category(
+    left_f: FundamentalsCache | None,
+    right_f: FundamentalsCache | None,
+    *,
+    left_fallbacks: dict[str, Any] | None = None,
+    right_fallbacks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     specs = [
         ("forward_pe", "Forward P/E", "multiple"),
         ("trailing_pe", "Trailing P/E", "multiple"),
@@ -8940,8 +9007,8 @@ def _peer_compare_valuation_category(left_f: FundamentalsCache | None, right_f: 
     metrics = []
     score = 0
     for attr, label, unit in specs:
-        left = _peer_compare_num(getattr(left_f, attr, None))
-        right = _peer_compare_num(getattr(right_f, attr, None))
+        left = _peer_compare_fundamental_value(left_f, left_fallbacks, attr)
+        right = _peer_compare_fundamental_value(right_f, right_fallbacks, attr)
         higher_better = attr == "fcf_yield"
         edge = _peer_compare_edge_from_metric(left, right, higher_better=higher_better, rel_threshold=0.1)
         score += 1 if edge == "left" else -1 if edge == "right" else 0
@@ -8989,6 +9056,8 @@ def _peer_compare_government_category(left: dict[str, Any] | None, right: dict[s
     right_amount = _peer_compare_num(right.get("total_award_amount") or right.get("total_amount"))
     count_edge = _peer_compare_edge_from_metric(left_count, right_count, higher_better=True, abs_threshold=1.0)
     amount_edge = _peer_compare_edge_from_metric(left_amount, right_amount, higher_better=True, rel_threshold=0.1)
+    left_amount_display: Any = "N/A" if left_count is not None and left_count <= 0 else left_amount
+    right_amount_display: Any = "N/A" if right_count is not None and right_count <= 0 else right_amount
     score = (1 if count_edge == "left" else -1 if count_edge == "right" else 0) + (1 if amount_edge == "left" else -1 if amount_edge == "right" else 0)
     return {
         "key": "government_contracts",
@@ -8997,7 +9066,7 @@ def _peer_compare_government_category(left: dict[str, Any] | None, right: dict[s
         "score": score,
         "metrics": [
             _peer_compare_metric("contract_count", "Contracts", left_count, right_count, unit="integer", edge=count_edge),
-            _peer_compare_metric("total_award_amount", "Award Value", left_amount, right_amount, unit="currency", edge=amount_edge),
+            _peer_compare_metric("total_award_amount", "Award Value", left_amount_display, right_amount_display, unit="currency", edge=amount_edge),
         ],
     }
 
@@ -9133,6 +9202,8 @@ def _build_peer_compare_payload(
 
     left_identity = _peer_compare_identity(db, left, left_f)
     right_identity = _peer_compare_identity(db, right, right_f)
+    left_financial_fallbacks = _peer_compare_financials_fallbacks(db, left)
+    right_financial_fallbacks = _peer_compare_financials_fallbacks(db, right)
     left_pv = _ticker_price_volume_summary(db, left)
     right_pv = _ticker_price_volume_summary(db, right)
     left_congress = _peer_compare_trade_summary(db, left, "congress_trade", lookback_days=30)
@@ -9162,8 +9233,8 @@ def _build_peer_compare_payload(
             right_options = right_context.get("options_flow_summary")
 
     categories = [
-        _peer_compare_business_category(left_f, right_f),
-        _peer_compare_valuation_category(left_f, right_f),
+        _peer_compare_business_category(left_f, right_f, left_fallbacks=left_financial_fallbacks, right_fallbacks=right_financial_fallbacks),
+        _peer_compare_valuation_category(left_f, right_f, left_fallbacks=left_financial_fallbacks, right_fallbacks=right_financial_fallbacks),
         _peer_compare_price_volume_category(left_pv, right_pv),
         _peer_compare_trade_category("congress_activity", "Congress Activity", left_congress, right_congress),
         _peer_compare_trade_category("insider_activity", "Insider Activity", left_insiders, right_insiders),

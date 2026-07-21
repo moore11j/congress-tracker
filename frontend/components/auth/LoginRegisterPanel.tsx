@@ -29,8 +29,9 @@ export function LoginRegisterPanel({
   const resolvedReturnTo = returnTo ?? searchParams.get("return_to") ?? undefined;
   const resolvedAccountDeleted = accountDeleted ?? searchParams.get("account_deleted") === "1";
   const resolvedReactivated = reactivated ?? searchParams.get("reactivated") === "1";
+  const requestedMode: Mode = searchParams.get("mode") === "register" ? "register" : "login";
   const nextPath = safeAppReturnPath(resolvedReturnTo, resolvedReactivated ? reactivatedBillingPath : defaultPostLoginPath);
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>(requestedMode);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -66,6 +67,10 @@ export function LoginRegisterPanel({
       cancelled = true;
     };
   }, [nextPath, router]);
+
+  useEffect(() => {
+    setMode(requestedMode);
+  }, [requestedMode]);
 
   const headline = useMemo(
     () => (mode === "register" ? "Create your Walnut account." : "Welcome back."),

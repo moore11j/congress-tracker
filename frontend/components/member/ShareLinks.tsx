@@ -10,7 +10,7 @@ type Props = {
   buttonClassName?: string;
 };
 
-export function ShareLinks({ canonicalUrl, showCopyButton = true, buttonClassName }: Props) {
+export function ShareLinks({ canonicalUrl, showCopyButton = false, buttonClassName }: Props) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);

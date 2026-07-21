@@ -28,16 +28,20 @@ test("research actions include the required Phase 4 outputs", () => {
   for (const label of [
     "Copy Walnut Take",
     "Copy Data Bullets",
-    "Copy Comparison Conclusion",
     "Create X Card",
     "Create Reddit DD Outline",
     "Export Research Brief",
-    "Share Research URL",
+    "shareResearchUrl",
   ]) {
     assert.match(componentSource, new RegExp(label));
   }
   assert.match(componentSource, /buildSimplePdf/);
+  assert.match(componentSource, /drawPageBase/);
   assert.match(componentSource, /socialCardSvg/);
+  assert.match(componentSource, /subject\.kind === "compare"/);
+  assert.match(componentSource, /<button type="button" onClick=\{\(\) => run\(\(\) => shareResearchUrl\(\)\)\}/);
+  assert.doesNotMatch(componentSource, /label="Copy Comparison Conclusion"/);
+  assert.doesNotMatch(componentSource, /label="Share Research URL"/);
 });
 
 test("research actions are deterministic and do not call an LLM endpoint", () => {

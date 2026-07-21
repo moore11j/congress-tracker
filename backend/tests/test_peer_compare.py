@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import app.main as main_module
 from app.db import Base
 from app.entitlements import ENTITLEMENTS
-from app.models import FundamentalsCache
+from app.models import FundamentalsCache, TickerFinancialsCache
 
 
 def _engine():
@@ -94,6 +94,59 @@ def test_peer_compare_free_tier_excludes_locked_sources(monkeypatch):
     assert by_key["institutional_activity"]["locked"] is True
     assert by_key["options_flow"]["locked"] is True
     assert any("excluded from the call" in note for note in payload["notes"])
+    gov_metrics = {metric["key"]: metric for metric in by_key["government_contracts"]["metrics"]}
+    assert gov_metrics["total_award_amount"]["left"] == "N/A"
+    assert gov_metrics["total_award_amount"]["right"] == "N/A"
+
+
+def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _fundamentals("AAA", revenue_growth=24, roe=30, forward_pe=18),
+                _fundamentals("BBB", revenue_growth=8, roe=12, forward_pe=32),
+                TickerFinancialsCache(
+                    symbol="AAA",
+                    status="ok",
+                    fetched_at=datetime.now(timezone.utc),
+                    payload_json='{"summary":{"forwardPE":15,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":21},"valuation_metrics":{"forward_pe":15,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":21,"status":"ok"}}',
+                ),
+                TickerFinancialsCache(
+                    symbol="BBB",
+                    status="ok",
+                    fetched_at=datetime.now(timezone.utc),
+                    payload_json='{"summary":{"forwardPE":28,"forwardPESource":"price_over_estimated_eps","expectedEpsGrowthRatePercent":9},"valuation_metrics":{"forward_pe":28,"forward_pe_source":"price_over_estimated_eps","expected_eps_growth_rate_percent":9,"status":"ok"}}',
+                ),
+            ]
+        )
+        db.flush()
+        db.query(FundamentalsCache).filter(FundamentalsCache.symbol == "AAA").update({"forward_pe": None, "eps_growth": None})
+        db.query(FundamentalsCache).filter(FundamentalsCache.symbol == "BBB").update({"forward_pe": None, "eps_growth": None})
+        db.commit()
+
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda _db, _symbol: {"direction": "neutral", "change_pct_1d": 0.0, "volume_vs_avg": 1.0},
+        )
+        monkeypatch.setattr(main_module, "get_government_contracts_summary", lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0})
+
+        payload = main_module._build_peer_compare_payload(
+            db,
+            "AAA",
+            "BBB",
+            entitlements=ENTITLEMENTS["free"],
+            authenticated=False,
+        )
+
+    by_key = {category["key"]: category for category in payload["categories"]}
+    business_metrics = {metric["key"]: metric for metric in by_key["business_quality"]["metrics"]}
+    valuation_metrics = {metric["key"]: metric for metric in by_key["valuation"]["metrics"]}
+    assert business_metrics["eps_growth"]["left"] == 21
+    assert business_metrics["eps_growth"]["right"] == 9
+    assert valuation_metrics["forward_pe"]["left"] == 15
+    assert valuation_metrics["forward_pe"]["right"] == 28
 
 
 def test_peer_compare_pro_tier_unlocks_pro_sources(monkeypatch):
