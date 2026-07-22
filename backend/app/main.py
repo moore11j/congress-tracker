@@ -171,6 +171,7 @@ from app.services.price_lookup import (
     get_daily_volume_series_from_provider,
     get_eod_close,
     get_eod_close_series,
+    get_intraday_chart_series_with_fallback,
     is_price_history_stale,
 )
 from app.services.quote_lookup import get_current_prices, get_current_prices_db, get_current_prices_meta_db
@@ -10858,6 +10859,69 @@ def _chart_recent_refresh_lookback_days() -> int:
         return 15
 
 
+def _intraday_chart_start_date(end_date: date, days: int) -> date:
+    calendar_padding = 7 if days <= 1 else 10
+    return end_date - timedelta(days=max(days + calendar_padding, days - 1, 0))
+
+
+def _intraday_chart_payload_points(
+    provider_points: list[dict[str, Any]],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    prices: list[dict] = []
+    volumes: list[dict] = []
+    candles: list[dict] = []
+    for point in provider_points:
+        timestamp = str(point.get("date") or "").strip()
+        close = _parse_numeric(point.get("close"))
+        if not timestamp or close is None:
+            continue
+        prices.append({"date": timestamp, "close": close})
+        volume = _parse_numeric(point.get("volume"))
+        if volume is not None and volume >= 0:
+            volumes.append({"date": timestamp, "volume": volume})
+        open_price = _parse_numeric(point.get("open")) or close
+        high_price = _parse_numeric(point.get("high")) or max(open_price, close)
+        low_price = _parse_numeric(point.get("low")) or min(open_price, close)
+        candles.append(
+            {
+                "date": timestamp,
+                "open": open_price,
+                "high": max(high_price, open_price, close),
+                "low": min(low_price, open_price, close),
+                "close": close,
+                "volume": volume,
+            }
+        )
+    return prices, volumes, candles
+
+
+def _intraday_chart_freshness_payload(
+    provider_points: list[dict[str, Any]],
+    *,
+    expected_latest_date: date,
+) -> dict[str, Any]:
+    if not provider_points:
+        return {
+            "status": "unavailable",
+            "is_stale": True,
+            "latest_date": None,
+            "expected_latest_date": expected_latest_date.isoformat(),
+            "refresh_attempted": True,
+            "message": "Latest market data is temporarily unavailable.",
+        }
+    latest_ts = str(provider_points[-1].get("date") or "")
+    latest_day = latest_ts[:10] if latest_ts else None
+    is_stale = bool(latest_day and latest_day < expected_latest_date.isoformat())
+    return {
+        "status": "stale" if is_stale else "ok",
+        "is_stale": is_stale,
+        "latest_date": latest_ts or latest_day,
+        "expected_latest_date": expected_latest_date.isoformat(),
+        "refresh_attempted": True,
+        "message": f"Updated through {latest_ts}." if latest_ts else "Latest market data is temporarily unavailable.",
+    }
+
+
 def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     sym = normalize_symbol(symbol)
     if not sym:
@@ -10889,16 +10953,51 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     start_key = start_date.isoformat()
     end_key = end_date.isoformat()
 
-    live_fetch_allowed = not foreground_request
-    series_loader = get_daily_close_series_with_fallback if live_fetch_allowed else get_eod_close_series
-    ticker_map = series_loader(db, sym, start_key, end_key)
-    benchmark_map = series_loader(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
-    if live_fetch_allowed:
-        ticker_freshness = is_price_history_stale(db, sym, expected_date=expected_latest_date)
-        benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
-    price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
-    volume_points, candle_points = _ticker_chart_volume_and_candles(db, sym, price_points)
-    benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
+    resolution = "daily"
+    price_points: list[dict] = []
+    volume_points: list[dict] = []
+    candle_points: list[dict] = []
+    benchmark_points: list[dict] = []
+    if days <= 5:
+        intraday_start_key = _intraday_chart_start_date(end_date, days).isoformat()
+        ticker_intraday = get_intraday_chart_series_with_fallback(
+            sym,
+            intraday_start_key,
+            end_key,
+            limit_days=days,
+            allow_user_request=foreground_request,
+        )
+        if ticker_intraday:
+            benchmark_intraday = get_intraday_chart_series_with_fallback(
+                _TICKER_BENCHMARK_SYMBOL,
+                intraday_start_key,
+                end_key,
+                limit_days=days,
+                allow_user_request=foreground_request,
+            )
+            price_points, volume_points, candle_points = _intraday_chart_payload_points(ticker_intraday)
+            benchmark_points, _, _ = _intraday_chart_payload_points(benchmark_intraday)
+            resolution = "1min"
+            start_key = str(price_points[0]["date"])[:10] if price_points else start_key
+            end_key = str(price_points[-1]["date"])[:10] if price_points else end_key
+            ticker_freshness = _intraday_chart_freshness_payload(ticker_intraday, expected_latest_date=expected_latest_date)
+            benchmark_freshness = (
+                _intraday_chart_freshness_payload(benchmark_intraday, expected_latest_date=expected_latest_date)
+                if benchmark_intraday
+                else benchmark_freshness
+            )
+
+    if not price_points:
+        live_fetch_allowed = not foreground_request
+        series_loader = get_daily_close_series_with_fallback if live_fetch_allowed else get_eod_close_series
+        ticker_map = series_loader(db, sym, start_key, end_key)
+        benchmark_map = series_loader(db, _TICKER_BENCHMARK_SYMBOL, start_key, end_key)
+        if live_fetch_allowed:
+            ticker_freshness = is_price_history_stale(db, sym, expected_date=expected_latest_date)
+            benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
+        price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
+        volume_points, candle_points = _ticker_chart_volume_and_candles(db, sym, price_points)
+        benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     events = select_visible_ticker_events(db, symbol=sym, since=start_dt, limit=500)
@@ -10966,7 +11065,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
     benchmark_freshness_payload = _chart_freshness_payload(benchmark_freshness)
     return {
         "symbol": sym,
-        "resolution": "daily",
+        "resolution": resolution,
         "days": days,
         "start_date": start_key,
         "end_date": end_key,
@@ -11261,7 +11360,7 @@ def _coalesced_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
 def ticker_chart_bundle(
     request: Request,
     symbol: str,
-    days: int = Query(365, ge=30, le=365),
+    days: int = Query(365, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
     started_at = perf_counter()

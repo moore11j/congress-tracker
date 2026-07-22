@@ -3517,7 +3517,7 @@ export type TickerChartFreshness = {
 export type TickerChartBundle = {
   symbol: string | null;
   company_name?: string | null;
-  resolution: "daily";
+  resolution: "daily" | "1min";
   days: number;
   status?: "ok" | "loading" | "no_data" | "unavailable" | "stale" | "updating" | string;
   start_date: string | null;

@@ -250,6 +250,78 @@ def _extract_volume_series_from_payload(payload: Any, start_date: str, end_date:
     return dict(sorted(volume_map.items()))
 
 
+def _intraday_timestamp_key(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace(" ", "T")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1]
+    normalized = normalized.split("+", 1)[0].split(".", 1)[0]
+    if "T" not in normalized:
+        normalized = f"{normalized}T00:00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _extract_intraday_chart_points_from_payload(
+    payload: Any,
+    start_date: str,
+    end_date: str,
+    *,
+    limit_days: int,
+) -> list[dict[str, float | str | None]]:
+    points_by_ts: dict[str, dict[str, float | str | None]] = {}
+    for row in _rows_from_series_payload(payload):
+        if not isinstance(row, dict):
+            continue
+        timestamp = _intraday_timestamp_key(row.get("date") or row.get("datetime") or row.get("timestamp"))
+        if not timestamp:
+            continue
+        day = timestamp[:10]
+        if day < start_date or day > end_date:
+            continue
+        try:
+            close_value = float(row.get("close") or row.get("adjClose") or row.get("price"))
+        except (TypeError, ValueError):
+            continue
+        if close_value <= 0:
+            continue
+
+        def optional_float(*keys: str) -> float | None:
+            for key in keys:
+                raw_value = row.get(key)
+                if raw_value is None:
+                    continue
+                try:
+                    parsed = float(raw_value)
+                except (TypeError, ValueError):
+                    continue
+                if parsed > 0:
+                    return parsed
+            return None
+
+        volume = optional_float("volume")
+        points_by_ts[timestamp] = {
+            "date": timestamp,
+            "close": close_value,
+            "open": optional_float("open") or close_value,
+            "high": optional_float("high") or close_value,
+            "low": optional_float("low") or close_value,
+            "volume": volume,
+        }
+
+    points = [points_by_ts[key] for key in sorted(points_by_ts)]
+    if not points:
+        return []
+    days = sorted({str(point["date"])[:10] for point in points})
+    keep_days = set(days[-max(1, int(limit_days or 1)):])
+    return [point for point in points if str(point["date"])[:10] in keep_days]
+
+
 def _weekday_count(start_date: str, end_date: str) -> int:
     start = datetime.strptime(start_date, "%Y-%m-%d").date()
     end = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -1189,6 +1261,74 @@ def _fetch_provider_eod_price_volume_series(
 def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
     price_map, _volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start_date, end_date)
     return price_map, provider_symbol
+
+
+def get_intraday_chart_series_with_fallback(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    limit_days: int = 1,
+    allow_user_request: bool = False,
+) -> list[dict[str, float | str | None]]:
+    """Return short-range 1-minute chart points from FMP historical-chart/1min."""
+    status, normalized_symbol, _ = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return []
+
+    start_key = (start_date or "")[:10]
+    end_key = (end_date or "")[:10]
+    if not _is_valid_yyyy_mm_dd(start_key) or not _is_valid_yyyy_mm_dd(end_key):
+        return []
+    if start_key > end_key:
+        start_key, end_key = end_key, start_key
+
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        record_fallback(category="price:historical-chart/1min", symbol=normalized_symbol, reason="provider_disabled")
+        return []
+
+    best_points: list[dict[str, float | str | None]] = []
+    best_symbol: str | None = None
+    for candidate_symbol in symbol_variants(normalized_symbol):
+        provider_payload = _fetch_provider_eod_payload(
+            "historical-chart/1min",
+            candidate_symbol,
+            start_key,
+            end_key,
+            api_key,
+            allow_user_request=allow_user_request,
+        )
+        if provider_payload is None:
+            continue
+        status_code = getattr(provider_payload, "status_code", 200)
+        if status_code != 200:
+            continue
+        provider_points = _extract_intraday_chart_points_from_payload(
+            provider_payload,
+            start_key,
+            end_key,
+            limit_days=limit_days,
+        )
+        if len(provider_points) > len(best_points):
+            best_points = provider_points
+            best_symbol = candidate_symbol
+        if provider_points:
+            break
+
+    if best_points:
+        logger.info(
+            "price_lookup intraday chart hydrated symbol=%s provider_symbol=%s points=%s start=%s end=%s limit_days=%s",
+            normalized_symbol,
+            best_symbol or normalized_symbol,
+            len(best_points),
+            start_key,
+            end_key,
+            limit_days,
+        )
+    else:
+        record_fallback(category="price:historical-chart/1min", symbol=normalized_symbol, reason="no_data")
+    return best_points
 
 
 def get_daily_close_series_with_fallback(

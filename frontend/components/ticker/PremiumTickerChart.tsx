@@ -109,13 +109,29 @@ function formatPct(value: number | null | undefined): string {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+function chartKey(value: string): string {
+  const raw = value.trim();
+  if (!raw.includes("T")) return raw.slice(0, 10);
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return raw;
+  return new Date(parsed).toISOString().replace(".000Z", "Z");
+}
+
+function chartTime(value: string): Time {
+  const key = chartKey(value);
+  if (!key.includes("T")) return key;
+  const parsed = Date.parse(key);
+  if (!Number.isFinite(parsed)) return key;
+  return Math.floor(parsed / 1000) as Time;
+}
+
 function movingAverage(points: { date: string; close: number }[], period: number): LineData[] {
   const data: LineData[] = [];
   for (let index = 0; index < points.length; index += 1) {
     const window = points.slice(Math.max(0, index - period + 1), index + 1);
     if (window.length < period) continue;
     const value = window.reduce((sum, point) => sum + point.close, 0) / period;
-    data.push({ time: points[index].date, value });
+    data.push({ time: chartTime(points[index].date), value });
   }
   return data;
 }
@@ -129,8 +145,8 @@ function bollingerBands(points: { date: string; close: number }[], period = 20, 
     const average = window.reduce((sum, point) => sum + point.close, 0) / period;
     const variance = window.reduce((sum, point) => sum + (point.close - average) ** 2, 0) / period;
     const bandWidth = Math.sqrt(variance) * deviations;
-    upper.push({ time: points[index].date, value: average + bandWidth });
-    lower.push({ time: points[index].date, value: average - bandWidth });
+    upper.push({ time: chartTime(points[index].date), value: average + bandWidth });
+    lower.push({ time: chartTime(points[index].date), value: average - bandWidth });
   }
   return { upper, lower };
 }
@@ -143,7 +159,7 @@ function vwapLine(points: { date: string; close: number; volume?: number | null 
     if (volume <= 0) return [];
     cumulativeValue += point.close * volume;
     cumulativeVolume += volume;
-    return [{ time: point.date, value: cumulativeValue / cumulativeVolume }];
+    return [{ time: chartTime(point.date), value: cumulativeValue / cumulativeVolume }];
   });
 }
 
@@ -151,7 +167,7 @@ function relativeLineData(points: { date: string; close: number }[], anchor: num
   if (!anchor || anchor <= 0) return [];
   return points.flatMap((point) => {
     if (dates && !dates.has(point.date)) return [];
-    return [{ time: point.date, value: ((point.close / anchor) - 1) * 100 }];
+    return [{ time: chartTime(point.date), value: ((point.close / anchor) - 1) * 100 }];
   });
 }
 
@@ -172,7 +188,7 @@ function relativeIndicatorData(data: LineData[], anchor: number | null | undefin
 function relativeCandleData(data: { date: string; open: number; high: number; low: number; close: number }[], anchor: number | null | undefined): CandlestickData[] {
   if (!anchor || anchor <= 0) return [];
   return data.map((point) => ({
-    time: point.date,
+    time: chartTime(point.date),
     open: ((point.open / anchor) - 1) * 100,
     high: ((point.high / anchor) - 1) * 100,
     low: ((point.low / anchor) - 1) * 100,
@@ -217,6 +233,18 @@ export function assertDailyPriceTerminalConsistency(bundle: TickerChartBundle | 
 }
 
 function formatDate(value: string): string {
+  if (value.includes("T")) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "UTC",
+      }).format(new Date(parsed));
+    }
+  }
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return value;
   return new Intl.DateTimeFormat("en-US", {
@@ -280,6 +308,9 @@ function markerSecondaryLine(event: TickerChartMarker): string {
 
 function resolveMarkerChartDate(date: string, priceDates: string[]): string | null {
   if (priceDates.length === 0) return null;
+  const markerDay = date.slice(0, 10);
+  const sameDay = priceDates.find((priceDate) => priceDate.slice(0, 10) === markerDay);
+  if (sameDay) return sameDay;
   let lo = 0;
   let hi = priceDates.length - 1;
   let best: string | null = null;
@@ -298,8 +329,8 @@ function resolveMarkerChartDate(date: string, priceDates: string[]): string | nu
 }
 
 function timeToDateKey(time: Time | undefined): string | null {
-  if (typeof time === "string") return time;
-  if (typeof time === "number") return new Date(time * 1000).toISOString().slice(0, 10);
+  if (typeof time === "string") return chartKey(time);
+  if (typeof time === "number") return new Date(time * 1000).toISOString().replace(".000Z", "Z");
   if (time && typeof time === "object") {
     const month = String(time.month).padStart(2, "0");
     const day = String(time.day).padStart(2, "0");
@@ -419,18 +450,24 @@ export function PremiumTickerChart({
   const normalized = useMemo(() => {
     const prices = [...(bundle?.prices ?? [])]
       .filter((point) => Number.isFinite(point.close))
+      .map((point) => ({ ...point, date: chartKey(point.date) }))
       .sort((a, b) => a.date.localeCompare(b.date));
     const benchmark = [...(bundle?.benchmark.points ?? [])]
       .filter((point) => Number.isFinite(point.close))
+      .map((point) => ({ ...point, date: chartKey(point.date) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const comparePrices = [...(compareBundle?.prices ?? [])]
+      .filter((point) => Number.isFinite(point.close))
+      .map((point) => ({ ...point, date: chartKey(point.date) }))
       .sort((a, b) => a.date.localeCompare(b.date));
     const priceByDate = new Map(prices.map((point) => [point.date, point.close]));
     const benchmarkByDate = new Map(benchmark.map((point) => [point.date, point.close]));
     const priceDates = prices.map((point) => point.date);
     const firstClose = prices[0]?.close ?? null;
     const firstBenchmarkClose = benchmark[0]?.close ?? null;
-    const volumeByDate = new Map((bundle?.volumes ?? []).map((point) => [point.date, point.volume]));
+    const volumeByDate = new Map((bundle?.volumes ?? []).map((point) => [chartKey(point.date), point.volume]));
     const candleSource = bundle?.candles?.length
-      ? [...bundle.candles].sort((a, b) => a.date.localeCompare(b.date))
+      ? [...bundle.candles].map((point) => ({ ...point, date: chartKey(point.date) })).sort((a, b) => a.date.localeCompare(b.date))
       : prices.map((point, index) => {
           const previousClose = prices[index - 1]?.close ?? point.close;
           return {
@@ -447,13 +484,13 @@ export function PremiumTickerChart({
       close: point.close,
       volume: volumeByDate.get(point.date) ?? candleSource.find((candle) => candle.date === point.date)?.volume ?? null,
     }));
-    const compareData = compareBundle?.prices ? relativeCompareData(prices, compareBundle.prices) : [];
+    const compareData = comparePrices.length ? relativeCompareData(prices, comparePrices) : [];
     const performanceMode = compareData.length >= 2;
     const priceDateSet = new Set(priceDates);
     const candleData: CandlestickData[] = performanceMode
       ? relativeCandleData(candleSource, firstClose)
       : candleSource.map((point) => ({
-          time: point.date,
+          time: chartTime(point.date),
           open: point.open,
           high: point.high,
           low: point.low,
@@ -464,7 +501,7 @@ export function PremiumTickerChart({
       .map((point, index) => {
         const previous = closeVolumePoints[index - 1]?.close ?? point.close;
         return {
-          time: point.date,
+          time: chartTime(point.date),
           value: point.volume ?? 0,
           color: point.close >= previous ? "rgba(52,211,153,0.34)" : "rgba(251,113,133,0.34)",
         };
@@ -476,15 +513,15 @@ export function PremiumTickerChart({
         const matchedClose = priceByDate.get(point.date);
         if (matchedClose === undefined) continue;
         benchmarkData.push({
-          time: point.date,
+          time: chartTime(point.date),
           value: performanceMode ? ((point.close / firstBenchmarkClose) - 1) * 100 : (point.close / firstBenchmarkClose) * firstClose,
         });
       }
     }
     const areaData: AreaData[] = performanceMode
       ? relativeLineData(prices, firstClose, priceDateSet).map((point): AreaData => ({ time: point.time, value: point.value }))
-      : prices.map((point): AreaData => ({ time: point.date, value: point.close }));
-    const chartValueByDate = new Map(areaData.map((point) => [String(point.time), point.value]));
+      : prices.map((point): AreaData => ({ time: chartTime(point.date), value: point.close }));
+    const chartValueByDate = new Map(areaData.map((point) => [timeToDateKey(point.time) ?? String(point.time), point.value]));
     const sma20Data = movingAverage(prices, 20);
     const sma50Data = movingAverage(prices, 50);
     const bollingerData = bollingerBands(prices);
@@ -578,7 +615,7 @@ export function PremiumTickerChart({
       },
       timeScale: {
         borderColor: "rgba(148,163,184,0.18)",
-        timeVisible: false,
+        timeVisible: bundle?.resolution === "1min",
         secondsVisible: false,
       },
       handleScroll: {
@@ -740,7 +777,7 @@ export function PremiumTickerChart({
             : "arrowUp";
       return {
         id: group.id,
-        time: group.chartDate,
+        time: chartTime(group.chartDate),
         position: "atPriceTop",
         price: group.close,
         shape,
@@ -802,7 +839,7 @@ export function PremiumTickerChart({
       chart.unsubscribeClick(handleClick);
       chart.remove();
     };
-  }, [chartMode, compareSymbol, indicatorVisibility, normalized]);
+  }, [bundle?.resolution, chartMode, compareSymbol, indicatorVisibility, normalized]);
 
   const symbol = bundle?.symbol ?? "Ticker";
   const quote = bundle?.quote;

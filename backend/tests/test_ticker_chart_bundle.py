@@ -297,6 +297,49 @@ def test_ticker_chart_bundle_hydrates_missing_adr_history(monkeypatch):
     assert bundle["quote"]["current_price"] == provider_rows[-1]["close"]
 
 
+def test_ticker_chart_bundle_populates_1d_from_one_minute_history(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+    _disable_chart_metric_fetches(monkeypatch)
+    monkeypatch.setattr("app.main._quote_snapshot_from_fmp", lambda symbol: {})
+    monkeypatch.setattr("app.main.get_current_prices_db", lambda db, symbols: {})
+    monkeypatch.setattr("app.main._query_unified_signals", lambda **kwargs: [])
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    rows_by_symbol = {
+        "MU": [
+            {"date": f"{today} 09:30:00", "open": 120.0, "high": 121.0, "low": 119.5, "close": 120.5, "volume": 1000},
+            {"date": f"{today} 09:31:00", "open": 120.5, "high": 122.0, "low": 120.25, "close": 121.75, "volume": 1500},
+        ],
+        "SPY": [
+            {"date": f"{today} 09:30:00", "open": 500.0, "high": 501.0, "low": 499.0, "close": 500.5, "volume": 5000},
+            {"date": f"{today} 09:31:00", "open": 500.5, "high": 502.0, "low": 500.0, "close": 501.5, "volume": 6000},
+        ],
+    }
+    calls = []
+
+    def fake_fetch(url, params, retries=2):
+        calls.append((url, params["symbol"]))
+        if url.endswith("/historical-chart/1min"):
+            return _FakeResponse(200, rows_by_symbol.get(params["symbol"], []))
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+
+    bundle = _build_ticker_chart_bundle("MU", 1, db)
+
+    assert any(url.endswith("/historical-chart/1min") and symbol == "MU" for url, symbol in calls)
+    assert bundle["resolution"] == "1min"
+    assert bundle["prices"] == [
+        {"date": f"{today}T09:30:00Z", "close": 120.5},
+        {"date": f"{today}T09:31:00Z", "close": 121.75},
+    ]
+    assert bundle["volumes"][-1] == {"date": f"{today}T09:31:00Z", "volume": 1500.0}
+    assert bundle["candles"][-1]["open"] == 120.5
+    assert bundle["candles"][-1]["high"] == 122.0
+    assert bundle["benchmark"]["points"][-1] == {"date": f"{today}T09:31:00Z", "close": 501.5}
+
+
 def test_ticker_chart_bundle_keeps_ticker_when_benchmark_history_missing(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
