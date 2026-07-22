@@ -117,12 +117,12 @@ const signalCards = [
 ] as const;
 
 const whyWalnut = [
-  "What the data says",
-  "What changed",
-  "What supports the move",
-  "What contradicts it",
-  "What the risks are",
-  "What to watch next",
+  "Market read",
+  "Recent changes",
+  "Supporting evidence",
+  "Contradicting evidence",
+  "Risk factors",
+  "Next data to watch",
 ] as const;
 
 const marketToolCategories = [
@@ -748,11 +748,11 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              More data is not the edge. Knowing what the data says is.
+              Stock research that explains the move.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">The market has tells. Walnut finds them.</p>
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Ticker analysis, market signals, and public disclosures in one workflow.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for every ticker.
+              Walnut helps investors analyze technicals, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, and filings in one market intelligence terminal.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -833,8 +833,8 @@ export default async function LandingPage() {
       <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Signal data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">One signal is noise. Cross-source context is intelligence.</h2>
+            <SectionEyebrow>Ticker Research Data</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Analyze the signals behind every ticker.</h2>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {signalCards.map((card) => {
@@ -921,12 +921,12 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">More data is not the edge. Knowing what the data says is.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Ticker research should show the evidence behind the move.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Walnut brings technicals, fundamentals, public disclosures, government contracts, reported institutional activity, and our proprietary confirmation score into one research workflow.
+              Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one research workflow.
             </p>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              We help investors move from scattered data to a clearer market read: what changed, what supports the move, what contradicts it, what the risks are, and what to watch next.
+              We help investors see what changed, what supports the move, what contradicts it, the risks to monitor, and the next data points to watch.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -945,9 +945,9 @@ export default async function LandingPage() {
             <SectionEyebrow>Differentiation</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Most market tools are built around one job: snapshots, charts, data feeds, or activity alerts.
+              Market research usually starts with charts, screeners, data feeds, and alerts.
             </p>
-            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut is built for the question that comes after the data pull: &ldquo;What does this actually mean?&rdquo;</p>
+            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut turns that raw material into ticker research: what changed, why it matters, what confirms it, and what to watch next.</p>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -962,7 +962,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
               <h3 className="mt-4 text-2xl font-semibold text-white">Research judgment layer.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-300">
-                We connect technicals, fundamentals, public disclosures, contracts, reported institutional activity, and our proprietary confirmation score into a clearer market read: what changed, what supports it, what contradicts it, and what to watch next.
+                We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clear ticker research workflow.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {["Market take", "Recent changes", "Supporting data", "Risks", "What to watch next", "Research workflow"].map((item) => (

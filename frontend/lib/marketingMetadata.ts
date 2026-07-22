@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
 export const WALNUT_MARKETING_TITLE = "Walnut Markets | Market Intelligence Terminal";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Walnut Markets turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for investors.";
+  "Walnut Markets is a stock research and market intelligence terminal for ticker analysis across technicals, fundamentals, Congress trades, insider activity, government contracts, institutional activity, news, and filings.";
 export const WALNUT_OG_DESCRIPTION =
-  "Walnut Markets turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for investors.";
+  "Walnut Markets is a stock research and market intelligence terminal for ticker analysis across technicals, fundamentals, Congress trades, insider activity, government contracts, institutional activity, news, and filings.";
 export const WALNUT_TWITTER_DESCRIPTION =
   "We help investors understand what the data is saying. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
