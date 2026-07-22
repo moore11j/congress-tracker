@@ -963,7 +963,7 @@ export default async function LandingPage() {
             </div>
             <article className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.06] p-6 shadow-2xl shadow-emerald-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
-              <h3 className="mt-4 text-2xl font-semibold text-white">Research judgment layer.</h3>
+              <h3 className="mt-4 text-2xl font-semibold text-white">Intelligent investment decisions.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-300">
                 We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clearer read on whether the data points bullish, bearish, or mixed.
               </p>
@@ -982,7 +982,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market intelligence datasets coming next.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>

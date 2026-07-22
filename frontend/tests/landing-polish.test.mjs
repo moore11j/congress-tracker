@@ -56,7 +56,7 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Better research starts with better trend confirmation\./);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
   assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different<\/h2>/);
-  assert.match(landingPage, /Research judgment layer\./);
+  assert.match(landingPage, /Intelligent investment decisions\./);
   assert.match(landingPage, /Market research usually starts with charts, screeners, data feeds, and alerts/);
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
