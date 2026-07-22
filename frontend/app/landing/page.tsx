@@ -868,22 +868,10 @@ export default async function LandingPage() {
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <a
-                href={loginUrl}
+                href={appUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Start Free
-              </a>
-              <a
-                href={`${appUrl}/ticker/NVDA`}
-                className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
-              >
-                Explore Ticker Research
-              </a>
-              <a
-                href="/congress-trades"
-                className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
-              >
-                View Congress Trades
+                Launch Terminal
               </a>
             </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">

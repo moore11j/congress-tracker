@@ -41,7 +41,8 @@ test("landing mobile header uses feed-style login instead of terminal launch", (
 });
 
 test("landing SEO labels use insights and stock screener copy", () => {
-  assert.match(landingPage, /Explore Ticker Research/);
+  assert.doesNotMatch(landingPage, /Explore Ticker Research/);
+  assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Congress and Insider Trade Profiles<\/SectionEyebrow>/);
