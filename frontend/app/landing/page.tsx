@@ -117,13 +117,51 @@ const signalCards = [
 ] as const;
 
 const whyWalnut = [
-  "Bullish trends",
-  "Bearish trends",
-  "Trend confirmation",
-  "Contradicting data",
-  "Risk factors",
-  "Next move watchlist",
+  {
+    title: "Bullish trends",
+    icon: "bull",
+    cardClassName: "border-emerald-300/20 bg-emerald-300/[0.045]",
+    iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
+    glowClassName: "bg-emerald-300/15",
+  },
+  {
+    title: "Bearish trends",
+    icon: "bear",
+    cardClassName: "border-rose-300/20 bg-rose-300/[0.04]",
+    iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-200",
+    glowClassName: "bg-rose-300/15",
+  },
+  {
+    title: "Trend confirmation",
+    icon: "trend",
+    cardClassName: "border-lime-300/20 bg-lime-300/[0.04]",
+    iconClassName: "border-lime-300/25 bg-lime-300/10 text-lime-200",
+    glowClassName: "bg-lime-300/15",
+  },
+  {
+    title: "Contradicting data",
+    icon: "search",
+    cardClassName: "border-cyan-300/20 bg-cyan-300/[0.04]",
+    iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
+    glowClassName: "bg-cyan-300/15",
+  },
+  {
+    title: "Risk factors",
+    icon: "warning",
+    cardClassName: "border-amber-300/20 bg-amber-300/[0.04]",
+    iconClassName: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+    glowClassName: "bg-amber-300/15",
+  },
+  {
+    title: "Alerts & watchlists",
+    icon: "alarm",
+    cardClassName: "border-violet-300/20 bg-violet-300/[0.04]",
+    iconClassName: "border-violet-300/25 bg-violet-300/10 text-violet-200",
+    glowClassName: "bg-violet-300/15",
+  },
 ] as const;
+
+type WhyWalnutIconKind = (typeof whyWalnut)[number]["icon"];
 
 const marketToolCategories = [
   {
@@ -688,6 +726,75 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{children}</p>;
 }
 
+function WhyWalnutIcon({ kind }: { kind: WhyWalnutIconKind }) {
+  const commonProps = {
+    viewBox: "0 0 96 96",
+    fill: "none",
+    className: "h-14 w-14",
+    "aria-hidden": true,
+  };
+
+  if (kind === "bull") {
+    return (
+      <svg {...commonProps}>
+        <path d="M18 50c8-18 24-25 45-21l10-12c1 11-1 19-7 25" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M27 55c8-10 19-14 34-12 10 2 17 8 18 17-8-3-15-2-22 3-10 7-22 7-35 0" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M22 63l-8 10M38 68l-3 12M61 65l8 11M74 58l10 8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+        <path d="M64 31l15-2M59 43l11 8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "bear") {
+    return (
+      <svg {...commonProps}>
+        <path d="M25 37c-7-10 5-20 14-12 6-4 13-5 20-2 10 4 16 14 14 25 10 7 8 23-5 28-12 5-30 1-41-9-11-10-13-22-2-30Z" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M41 44h.1M61 45h.1M48 54c5 3 10 3 15 0M34 31l-11-9M68 35l12-5" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M38 70l-5 9M52 74l-2 10M65 72l8 8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "trend") {
+    return (
+      <svg {...commonProps}>
+        <path d="M18 72h62" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+        <path d="M22 67l15-18 13 9 25-31" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M61 27h14v14" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M25 72V55M45 72V59M66 72V39" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.65" />
+      </svg>
+    );
+  }
+
+  if (kind === "search") {
+    return (
+      <svg {...commonProps}>
+        <path d="M43 59a18 18 0 1 0 0-36 18 18 0 0 0 0 36ZM57 57l19 19" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+        <path d="M27 74h18M29 29h13M35 23v13M51 34l12 12M63 34 51 46" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
+        <path d="M25 82h8M43 82h8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.7" />
+      </svg>
+    );
+  }
+
+  if (kind === "warning") {
+    return (
+      <svg {...commonProps}>
+        <path d="M48 17 83 78H13L48 17Z" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M48 39v17M48 67h.1" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+        <path d="M31 78h34" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.65" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...commonProps}>
+      <path d="M31 21 20 31M65 21l11 10M48 29a25 25 0 1 1 0 50 25 25 0 0 1 0-50Z" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M48 44v15l11 7M34 83l-5 6M62 83l5 6" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M35 14c-6 0-11 5-11 11M61 14c6 0 11 5 11 11" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.75" />
+    </svg>
+  );
+}
+
 export default async function LandingPage() {
   const [latestInsights, planConfig, marketSnapshot, trendingTickers] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot(), loadTrendingTickers()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
@@ -934,8 +1041,17 @@ export default async function LandingPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {whyWalnut.map((item) => (
-              <div key={item} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 text-sm font-semibold leading-6 text-slate-100">
-                {item}
+              <div key={item.title} className={`relative min-h-[150px] overflow-hidden rounded-lg border p-5 ${item.cardClassName}`}>
+                <div className={`pointer-events-none absolute -bottom-8 -right-8 h-28 w-28 rounded-full blur-2xl ${item.glowClassName}`} />
+                <div className="relative flex h-full min-h-[110px] flex-col justify-between gap-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <h3 className="max-w-[9rem] text-sm font-semibold leading-6 text-slate-100">{item.title}</h3>
+                    <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border ${item.iconClassName}`}>
+                      <WhyWalnutIcon kind={item.icon} />
+                    </div>
+                  </div>
+                  <div className="h-px w-full bg-gradient-to-r from-white/15 via-white/5 to-transparent" />
+                </div>
               </div>
             ))}
           </div>
