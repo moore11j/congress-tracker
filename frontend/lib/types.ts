@@ -305,6 +305,12 @@ export type NewsItem = {
   image_url?: string | null;
   summary?: string | null;
   market_read?: "bullish" | "bearish" | "neutral" | string;
+  walnut_summary?: string | null;
+  walnut_take_bias?: "bullish" | "bearish" | "neutral" | string;
+  walnut_take?: string | null;
+  walnut_take_source?: "openai" | "fallback" | string;
+  walnut_take_model?: string | null;
+  walnut_take_generated_at?: string | null;
   source: "fmp_general_news" | "fmp_stock_news" | string;
 };
 

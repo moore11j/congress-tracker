@@ -14,6 +14,7 @@ from app.services.fred_macro_cache import build_fred_macro_sections
 from app.services.fmp_market_snapshot import get_macro_snapshot
 from app.services.fmp_news import get_general_news
 from app.services.insights_builder_safe import build_builder_safe_insights_snapshot
+from app.services.walnut_takes import enrich_walnut_takes
 
 logger = logging.getLogger(__name__)
 
@@ -156,15 +157,19 @@ def refresh_insights_headlines(db: Session, *, limit: int = 50) -> dict[str, Any
         items = payload.get("items") if isinstance(payload, dict) else []
         if not isinstance(items, list) or not items:
             raise RuntimeError("empty headlines payload")
+        existing = _load_row(db, INSIGHTS_HEADLINES_KIND)
+        existing_payload = _loads_payload(existing) if existing is not None else {}
+        previous_items = existing_payload.get("items") if isinstance(existing_payload.get("items"), list) else []
+        enriched_items = enrich_walnut_takes(db, items, previous_items=previous_items)
         durable_payload = {
-            "items": items,
+            "items": enriched_items,
             "status": "ok",
             "page": 0,
-            "limit": len(items),
+            "limit": len(enriched_items),
             "has_next": bool(payload.get("has_next")),
         }
         row = _store_payload(db, durable_payload, kind=INSIGHTS_HEADLINES_KIND, source="fmp")
-        logger.info("insights_headlines_refresh_timing kind=%s status=ok count=%s", INSIGHTS_HEADLINES_KIND, len(items))
+        logger.info("insights_headlines_refresh_timing kind=%s status=ok count=%s", INSIGHTS_HEADLINES_KIND, len(enriched_items))
         return _decorate(durable_payload, row, stale=False, cache_hit=False)
     except Exception:
         logger.exception("insights_headlines_refresh_failed kind=%s", INSIGHTS_HEADLINES_KIND)
@@ -244,6 +249,7 @@ def get_insights_headlines(db: Session, *, page: int = 0, limit: int = 20) -> di
     row = _load_row(db, INSIGHTS_HEADLINES_KIND)
     if row is None:
         payload = _empty_headlines_payload(page=bounded_page, limit=bounded_limit)
+        payload.pop("message", None)
         return _decorate(
             payload,
             None,

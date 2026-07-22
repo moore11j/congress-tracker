@@ -8,7 +8,12 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models import FredObservation, FredSeriesRefresh, InsightsSnapshot, PriceCache
-from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot, refresh_insights_snapshot
+from app.services.insights_snapshots import (
+    get_insights_headlines,
+    get_insights_snapshot,
+    refresh_insights_headlines,
+    refresh_insights_snapshot,
+)
 
 
 def _db():
@@ -145,6 +150,139 @@ def test_insights_headlines_cache_miss_returns_warming_without_provider_call(mon
         assert "message" not in payload
         assert payload["cache_hit"] is False
         assert payload["items"] == []
+    finally:
+        db.close()
+
+
+def test_insights_headlines_refresh_generates_and_saves_walnut_takes(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setattr(
+            "app.services.insights_snapshots.get_general_news",
+            lambda **_kwargs: {
+                "items": [
+                    {
+                        "title": "Chip Stocks Rebound Lifting Indexes Ahead of Big Tech Earnings",
+                        "site": "TestWire",
+                        "published_at": "2026-07-21T12:00:00+00:00",
+                        "url": "https://example.com/chips",
+                        "summary": "Chip shares rose as investors positioned for earnings.",
+                        "symbol": None,
+                        "market_read": "neutral",
+                        "source": "fmp_general_news",
+                    }
+                ],
+                "has_next": False,
+            },
+        )
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "output_text": json.dumps(
+                        {
+                            "items": [
+                                {
+                                    "id": "url:https://example.com/chips",
+                                    "summary": "Chip shares rallied ahead of major tech earnings.",
+                                    "bias": "bullish",
+                                    "take": "Positive read for chip exposure, but follow-through depends on earnings guidance.",
+                                }
+                            ]
+                        }
+                    ),
+                    "usage": {"input_tokens": 100, "output_tokens": 30},
+                }
+
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            captured["json"] = kwargs.get("json")
+            return FakeResponse()
+
+        monkeypatch.setattr("app.services.walnut_takes.requests.post", fake_post)
+
+        payload = refresh_insights_headlines(db, limit=10)
+
+        item = payload["items"][0]
+        assert captured["url"] == "https://api.openai.com/v1/responses"
+        assert captured["json"]["model"] == "gpt-5.6"
+        assert item["walnut_summary"] == "Chip shares rallied ahead of major tech earnings."
+        assert item["walnut_take_bias"] == "bullish"
+        assert item["walnut_take_source"] == "openai"
+
+        cached = get_insights_headlines(db, page=0, limit=10)
+        assert cached["items"][0]["walnut_take"] == "Positive read for chip exposure, but follow-through depends on earnings guidance."
+    finally:
+        db.close()
+
+
+def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        db.add(
+            InsightsSnapshot(
+                kind="market-headlines",
+                payload_json=json.dumps(
+                    {
+                        "items": [
+                            {
+                                "title": "Energy stocks rally",
+                                "url": "https://example.com/energy",
+                                "summary": "Old provider summary.",
+                                "market_read": "neutral",
+                                "walnut_summary": "Energy stocks rallied on oil supply concerns.",
+                                "walnut_take_bias": "bullish",
+                                "walnut_take": "Supportive for energy exposure while oil supply risk remains elevated.",
+                                "walnut_take_source": "openai",
+                                "walnut_take_model": "gpt-5.6-sol",
+                                "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
+                            }
+                        ],
+                        "status": "ok",
+                        "page": 0,
+                        "limit": 1,
+                        "has_next": False,
+                    }
+                ),
+                source="fmp",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            "app.services.insights_snapshots.get_general_news",
+            lambda **_kwargs: {
+                "items": [
+                    {
+                        "title": "Energy stocks rally",
+                        "url": "https://example.com/energy",
+                        "summary": "New provider summary should not trigger a second OpenAI call.",
+                        "market_read": "neutral",
+                        "source": "fmp_general_news",
+                    }
+                ],
+                "has_next": False,
+            },
+        )
+
+        def fail_post(*_args, **_kwargs):
+            raise AssertionError("OpenAI should not be called for an article with a cached Walnut Take")
+
+        monkeypatch.setattr("app.services.walnut_takes.requests.post", fail_post)
+
+        payload = refresh_insights_headlines(db, limit=10)
+
+        item = payload["items"][0]
+        assert item["summary"] == "New provider summary should not trigger a second OpenAI call."
+        assert item["walnut_take"] == "Supportive for energy exposure while oil supply risk remains elevated."
+        assert item["walnut_take_bias"] == "bullish"
+        assert item["walnut_take_source"] == "openai"
     finally:
         db.close()
 

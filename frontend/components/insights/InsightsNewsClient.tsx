@@ -42,7 +42,7 @@ function categoryLabel(value: CategoryFilter): string {
 }
 
 function itemText(item: NewsItem): string {
-  return `${item.title} ${item.summary ?? ""} ${item.symbol ?? ""}`.toLowerCase();
+  return `${item.title} ${item.summary ?? ""} ${item.walnut_summary ?? ""} ${item.symbol ?? ""}`.toLowerCase();
 }
 
 function itemCategory(item: NewsItem): Exclude<CategoryFilter, "all"> {
@@ -59,6 +59,10 @@ function marketReadLabel(value?: string | null): string {
   if (value === "bearish") return "Bearish";
   if (value === "neutral") return "Neutral";
   return "Mixed";
+}
+
+function effectiveMarketRead(item: NewsItem): string | null | undefined {
+  return item.walnut_take_bias || item.market_read;
 }
 
 function marketReadClassName(value?: string | null): string {
@@ -82,8 +86,9 @@ function freshnessText(value?: string | null): string {
 }
 
 function walnutTake(item: NewsItem): string {
+  if (item.walnut_take?.trim()) return item.walnut_take;
   const category = itemCategory(item);
-  const read = item.market_read;
+  const read = effectiveMarketRead(item);
   if (read === "bullish") {
     if (category === "earnings") return "Positive operating signal. Check whether guidance and margins support follow-through.";
     if (category === "commodities") return "Supportive for exposed producers, but demand and inventory data still matter.";
@@ -105,6 +110,7 @@ function EmptyState({ text }: { text: string }) {
 function HeadlineRow({ item }: { item: NewsItem }) {
   const chips = tickerChips(item);
   const [imageVisible, setImageVisible] = useState(Boolean(item.image_url));
+  const summary = item.walnut_summary || item.summary || item.site || "Summary unavailable.";
 
   return (
     <article className="grid gap-3 border-b border-white/10 py-3 last:border-b-0 md:grid-cols-[7.5rem_minmax(0,1fr)_9rem_7rem_minmax(12rem,0.75fr)] md:items-center">
@@ -123,7 +129,7 @@ function HeadlineRow({ item }: { item: NewsItem }) {
           {item.title}
         </a>
         <p className="mt-1 text-sm leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-          {item.summary || item.site || "Summary unavailable."}
+          {summary}
         </p>
       </div>
 
@@ -140,8 +146,8 @@ function HeadlineRow({ item }: { item: NewsItem }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 md:block md:text-right">
-        <span className={`text-xs font-semibold ${marketReadClassName(item.market_read)}`}>
-          {marketReadLabel(item.market_read)}
+        <span className={`text-xs font-semibold ${marketReadClassName(effectiveMarketRead(item))}`}>
+          {marketReadLabel(effectiveMarketRead(item))}
         </span>
         <p className="text-xs text-slate-500 md:mt-2">{freshnessText(item.published_at)}</p>
       </div>
@@ -224,7 +230,7 @@ export function InsightsNewsClient({ page, limit }: Props) {
 
   const visibleItems = (response?.items ?? []).filter((item) => {
     const categoryMatch = category === "all" || itemCategory(item) === category;
-    const impactMatch = impact === "all" || item.market_read === impact;
+    const impactMatch = impact === "all" || effectiveMarketRead(item) === impact;
     return categoryMatch && impactMatch;
   });
 
