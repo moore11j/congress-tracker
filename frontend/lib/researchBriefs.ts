@@ -13,6 +13,18 @@ export type ResearchBriefCard = {
 
 export const researchBriefs: ResearchBriefCard[] = [
   {
+    slug: "ai-earnings-dd",
+    route: "/research/ai-earnings-dd",
+    title: "AI earnings week DD: numbers over hype",
+    description: "The market already knows the AI story. This week is about revenue, margins, capex discipline, free cash flow, and guidance quality.",
+    tickers: ["GOOGL", "TSLA", "SNOW", "IBM", "TXN"],
+    category: "AI Infrastructure",
+    judgment: "macro",
+    publishedAt: "2026-07-22",
+    readingMinutes: 6,
+    featured: true,
+  },
+  {
     slug: "mu-dd",
     route: "/research/mu-dd",
     title: "Is the MU momentum trade dead?",
