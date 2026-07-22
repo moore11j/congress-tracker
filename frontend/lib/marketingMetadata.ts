@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
-export const WALNUT_MARKETING_TITLE = "Walnut Markets | Congress Trades & Insider Activity Research";
+export const WALNUT_MARKETING_TITLE = "Walnut Markets | Market Intelligence Terminal";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Walnut Markets connects Congress trades, insider activity, government contracts, technicals, fundamentals, institutional filings, and ticker context into confirmation data for serious investors.";
+  "Walnut Markets turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for investors.";
 export const WALNUT_OG_DESCRIPTION =
-  "The market has tells. Walnut finds them. Research Congress trades, insiders, contracts, technicals, fundamentals, and confirmation scores in one market terminal.";
+  "Walnut Markets turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for investors.";
 export const WALNUT_TWITTER_DESCRIPTION =
-  "We connect market signals into confirmation data. Built for research. Not investment advice.";
+  "We help investors understand what the data is saying. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
 export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - The market has tells. Walnut finds them.";
 export const WALNUT_X_HANDLE = "@Walnutmarkets";

@@ -41,12 +41,21 @@ test("landing mobile header uses feed-style login instead of terminal launch", (
 });
 
 test("landing SEO labels use insights and stock screener copy", () => {
-  assert.match(landingPage, /Explore Insights/);
+  assert.match(landingPage, /Explore Ticker Research/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
   assert.match(landingPage, /<SectionEyebrow>Congress and Insider Trade Profiles<\/SectionEyebrow>/);
   assert.match(landingPage, /\["Stock Screener", "#screener"\]/);
   assert.match(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
+});
+
+test("landing page explains Walnut differentiation and free tier", () => {
+  assert.match(landingPage, /More data is not the edge\. Knowing what the data says is\./);
+  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different<\/h2>/);
+  assert.match(landingPage, /Ticker decision layer\./);
+  assert.match(landingPage, /our proprietary confirmation score/);
+  assert.match(landingPage, /Free tier available\./);
+  assert.equal((landingPage.match(/<SectionEyebrow>Why Walnut<\/SectionEyebrow>/g) ?? []).length, 1);
 });
 
 test("landing quote cards render prices with two decimals", () => {

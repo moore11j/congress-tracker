@@ -117,10 +117,31 @@ const signalCards = [
 ] as const;
 
 const whyWalnut = [
-  "Professional-grade signal data: Congress, insiders, contracts, filings, fundamentals, technicals, and market context.",
-  "Transparent conviction: see why a ticker scores high before you trust the score.",
-  "Built for speed: move from market event to ticker page to evidence trail in seconds.",
-  "Public-data edge: identify patterns hidden in plain sight.",
+  "What the data says",
+  "What changed",
+  "What supports the move",
+  "What contradicts it",
+  "What the risks are",
+  "What to watch next",
+] as const;
+
+const competitorCards = [
+  {
+    name: "Finviz",
+    body: "Fast snapshots, screeners, valuation metrics.",
+  },
+  {
+    name: "TradingView",
+    body: "Charts, indicators, and technical analysis.",
+  },
+  {
+    name: "Quiver",
+    body: "Alternative public datasets and disclosure tracking.",
+  },
+  {
+    name: "Unusual Whales",
+    body: "Options flow, dark pool, and unusual activity.",
+  },
 ] as const;
 
 const availableNowColumns = [
@@ -727,28 +748,36 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Crack the market.
+              More data is not the edge. Knowing what the data says is.
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">The market has tells. Walnut finds them.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut turns scattered public data into signal data investors can actually use: Congress trades, insider activity, government contracts, ticker intelligence, and cross-source confirmation in one market terminal.
+              Walnut turns technicals, fundamentals, public disclosures, contracts, and reported institutional activity into a clearer research workflow for every ticker.
             </p>
             <LandingSearch appUrl={appUrl} />
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <a
-                href={appUrl}
+                href={loginUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Launch Terminal
+                Start Free
               </a>
               <a
-                href="#signals"
+                href={`${appUrl}/ticker/NVDA`}
                 className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
               >
-                Explore Insights
+                Explore Ticker Research
+              </a>
+              <a
+                href="/congress-trades"
+                className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/40 hover:bg-white/[0.06]"
+              >
+                View Congress Trades
               </a>
             </div>
-            <p className="mt-5 text-xs leading-5 text-slate-400">Built for research. Not investment advice.</p>
+            <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
+              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers unlock heavier research features such as signals, our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
+            </p>
           </div>
 
           <div className="relative">
@@ -892,14 +921,17 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Built for investors who want the evidence, not just a rating.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">More data is not the edge. Knowing what the data says is.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Walnut brings political disclosures, insider activity, government contracts, ticker context, and signal confirmation into one compact research workflow.
+              Walnut brings technicals, fundamentals, public disclosures, government contracts, reported institutional activity, and our proprietary confirmation score into one research workflow.
+            </p>
+            <p className="mt-4 text-base leading-7 text-slate-400">
+              We help investors move from scattered data to a clearer market read: what changed, what supports the move, what contradicts it, what the risks are, and what to watch next.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {whyWalnut.map((item) => (
-              <div key={item} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-slate-300">
+              <div key={item} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 text-sm font-semibold leading-6 text-slate-100">
                 {item}
               </div>
             ))}
@@ -909,7 +941,44 @@ export default async function LandingPage() {
 
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <SectionEyebrow>The Walnut signal data</SectionEyebrow>
+          <div className="max-w-3xl">
+            <SectionEyebrow>Differentiation</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different</h2>
+            <p className="mt-5 text-base leading-7 text-slate-400">
+              Finviz is great for fast snapshots. TradingView is great for charting. Quiver is great for public datasets. Unusual Whales is strong for options flow.
+            </p>
+            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut is built for the next question: &ldquo;What does the data actually mean?&rdquo;</p>
+          </div>
+          <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {competitorCards.map((card) => (
+                <article key={card.name} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+                  <h3 className="text-lg font-semibold text-white">{card.name}</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
+                </article>
+              ))}
+            </div>
+            <article className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.06] p-6 shadow-2xl shadow-emerald-950/15">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
+              <h3 className="mt-4 text-2xl font-semibold text-white">Ticker decision layer.</h3>
+              <p className="mt-4 text-sm leading-6 text-slate-300">
+                We connect technicals, fundamentals, public disclosures, contracts, reported institutional activity, and our proprietary confirmation score into a clearer market read.
+              </p>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {["Market take", "Recent changes", "Supporting data", "Risks", "What to watch next", "Research workflow"].map((item) => (
+                  <div key={item} className="rounded-lg border border-emerald-300/20 bg-slate-950/55 px-4 py-3 text-sm font-semibold text-emerald-50">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <SectionEyebrow>The Walnut data</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market-intelligence datasets coming next.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
@@ -981,11 +1050,14 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
           <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to Premium or Pro when you need deeper insights.</h2>
+          <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
+            <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
+          </p>
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             <article className="rounded-lg border border-white/10 bg-white/[0.035] p-6">
               <h3 className="text-xl font-semibold text-white">Free</h3>
               <LandingPlanPrice display={freePrice} />
-              <p className="mt-3 text-sm leading-6 text-slate-400">Start with public signal discovery, ticker pages, and core disclosure research.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context.</p>
             </article>
             <article className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.04] p-6">
               <div className="flex items-center justify-between gap-3">
