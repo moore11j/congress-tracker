@@ -3263,6 +3263,7 @@ async function DeferredTickerContent({
                 key={value}
                 href={hrefWithFilters(normalizedSymbol, value, source, side)}
                 prefetch={false}
+                scroll={false}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                   lookback === value
                     ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"

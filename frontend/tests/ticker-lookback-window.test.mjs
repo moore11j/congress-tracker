@@ -17,6 +17,7 @@ test("ticker page keeps confirmation on 30D while chart uses selected URL range"
   assert.match(tickerPage, /type Lookback = "1" \| "5" \| "30" \| "90" \| "180" \| "365"/);
   assert.match(tickerPage, /v === "1" \|\| v === "5" \|\| v === "30"/);
   assert.match(tickerPage, /\(\["1", "5", "30", "90", "180", "365"\] as const\)\.map/);
+  assert.match(tickerPage, /href=\{hrefWithFilters\(normalizedSymbol, value, source, side\)\}[\s\S]*?scroll=\{false\}/);
   assert.match(tickerPage, /const SIGNAL_WINDOW_DAYS = 30/);
   assert.match(tickerPage, /const lookbackDays = Number\(lookback\)/);
   assert.match(tickerPage, /recent_days: lookbackDays/);
