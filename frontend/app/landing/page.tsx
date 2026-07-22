@@ -125,22 +125,22 @@ const whyWalnut = [
   "What to watch next",
 ] as const;
 
-const competitorCards = [
+const marketToolCategories = [
   {
-    name: "Finviz",
-    body: "Fast snapshots, screeners, valuation metrics.",
+    name: "Market snapshots",
+    body: "Fast scans across price, valuation, liquidity, and basic fundamentals.",
   },
   {
-    name: "TradingView",
-    body: "Charts, indicators, and technical analysis.",
+    name: "Charting workspaces",
+    body: "Technical charts, indicators, alerts, and visual analysis.",
   },
   {
-    name: "Quiver",
-    body: "Alternative public datasets and disclosure tracking.",
+    name: "Public data trackers",
+    body: "Disclosure feeds, alternative datasets, and event monitoring.",
   },
   {
-    name: "Unusual Whales",
-    body: "Options flow, dark pool, and unusual activity.",
+    name: "Flow and activity feeds",
+    body: "Options flow, volume spikes, dark-pool prints, and unusual activity.",
   },
 ] as const;
 
@@ -945,13 +945,13 @@ export default async function LandingPage() {
             <SectionEyebrow>Differentiation</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Finviz is great for fast snapshots. TradingView is great for charting. Quiver is great for public datasets. Unusual Whales is strong for options flow.
+              Most market tools are built around one job: snapshots, charts, data feeds, or activity alerts.
             </p>
-            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut is built for the next question: &ldquo;What does the data actually mean?&rdquo;</p>
+            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut is built for the question that comes after the data pull: &ldquo;What does this actually mean?&rdquo;</p>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
             <div className="grid gap-4 sm:grid-cols-2">
-              {competitorCards.map((card) => (
+              {marketToolCategories.map((card) => (
                 <article key={card.name} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
                   <h3 className="text-lg font-semibold text-white">{card.name}</h3>
                   <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
@@ -960,9 +960,9 @@ export default async function LandingPage() {
             </div>
             <article className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.06] p-6 shadow-2xl shadow-emerald-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
-              <h3 className="mt-4 text-2xl font-semibold text-white">Ticker decision layer.</h3>
+              <h3 className="mt-4 text-2xl font-semibold text-white">Research judgment layer.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-300">
-                We connect technicals, fundamentals, public disclosures, contracts, reported institutional activity, and our proprietary confirmation score into a clearer market read.
+                We connect technicals, fundamentals, public disclosures, contracts, reported institutional activity, and our proprietary confirmation score into a clearer market read: what changed, what supports it, what contradicts it, and what to watch next.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {["Market take", "Recent changes", "Supporting data", "Risks", "What to watch next", "Research workflow"].map((item) => (

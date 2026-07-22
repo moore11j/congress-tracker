@@ -52,9 +52,11 @@ test("landing SEO labels use insights and stock screener copy", () => {
 test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /More data is not the edge\. Knowing what the data says is\./);
   assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different<\/h2>/);
-  assert.match(landingPage, /Ticker decision layer\./);
+  assert.match(landingPage, /Research judgment layer\./);
+  assert.match(landingPage, /Most market tools are built around one job/);
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
+  assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
   assert.equal((landingPage.match(/<SectionEyebrow>Why Walnut<\/SectionEyebrow>/g) ?? []).length, 1);
 });
 
