@@ -63,6 +63,11 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
   assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
+  assert.match(landingPage, /icon: "trendUp"/);
+  assert.match(landingPage, /icon: "trendDown"/);
+  assert.match(landingPage, /icon: "confirmedTrend"/);
+  assert.match(landingPage, /icon: "splitData"/);
+  assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
   assert.equal((landingPage.match(/<SectionEyebrow>Why Walnut<\/SectionEyebrow>/g) ?? []).length, 1);
 });
 
