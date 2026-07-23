@@ -212,6 +212,7 @@ from app.services.confirmation_score import (
     inactive_confirmation_score_bundle,
     redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
+    with_confirmation_score_history,
 )
 from app.services.ticker_decision_layer import build_ticker_decision_layer
 from app.services.options_flow import unavailable_options_flow_summary
@@ -8204,6 +8205,12 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             )
         except Exception:
             logger.info("ticker_confirmation_fresh_context_merge_failed symbol=%s", normalized_symbol, exc_info=True)
+        bundle = with_confirmation_score_history(
+            db,
+            bundle,
+            lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+            fallback_days=7,
+        )
         return {
             "confirmation_score_bundle": bundle,
             "options_flow_summary": (
@@ -8234,6 +8241,12 @@ def _ticker_confirmation_context(db: Session, symbol: str) -> dict[str, Any]:
             bundle,
             None,
             {"institutional_activity": {"locked": False}},
+        )
+        bundle = with_confirmation_score_history(
+            db,
+            bundle,
+            lookback_days=CONFIRMATION_SIGNAL_WINDOW_DAYS,
+            fallback_days=7,
         )
         return {
             "confirmation_score_bundle": bundle,

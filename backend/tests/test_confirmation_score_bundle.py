@@ -7,13 +7,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.models import Event, FundamentalsCache, GovernmentContract, PriceCache
+from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Event, FundamentalsCache, GovernmentContract, PriceCache
 from app.services.confirmation_score import (
     CONFIRMATION_CLASSIFICATION_VERSION,
+    confirmation_score_history_for_ticker,
     confirmation_score_bundle_from_source_contexts,
     confirmation_score_bundle_from_source_payloads,
     confirmation_band_for_score,
     get_slim_confirmation_score_bundles_for_tickers,
+    redact_confirmation_bundle_sources,
     slim_confirmation_score_bundle,
     get_confirmation_score_bundle_for_ticker,
 )
@@ -117,6 +119,100 @@ def test_confirmation_score_bundle_degrades_to_inactive_without_sources():
         assert bundle["sources"]["fundamentals"]["present"] is False
 
 
+def test_confirmation_score_history_uses_recent_monitoring_rows():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime(2026, 7, 22, 12, tzinfo=timezone.utc)
+
+    with Session(engine) as db:
+        db.add_all(
+            [
+                ConfirmationMonitoringEvent(
+                    user_id=1,
+                    watchlist_id=10,
+                    ticker="CRM",
+                    event_type="score_changed",
+                    title="Old score change",
+                    score_before=22,
+                    score_after=33,
+                    band_before="weak",
+                    band_after="weak",
+                    direction_before="neutral",
+                    direction_after="neutral",
+                    source_count_before=1,
+                    source_count_after=1,
+                    created_at=now - timedelta(days=45),
+                ),
+                ConfirmationMonitoringEvent(
+                    user_id=1,
+                    watchlist_id=10,
+                    ticker="crm",
+                    event_type="score_changed",
+                    title="Recent score change",
+                    score_before=42,
+                    score_after=55,
+                    band_before="moderate",
+                    band_after="moderate",
+                    direction_before="neutral",
+                    direction_after="bullish",
+                    source_count_before=1,
+                    source_count_after=2,
+                    created_at=now - timedelta(days=10),
+                ),
+                ConfirmationMonitoringSnapshot(
+                    user_id=1,
+                    watchlist_id=10,
+                    ticker="CRM",
+                    score=61,
+                    band="strong",
+                    direction="bullish",
+                    source_count=2,
+                    status="2-source bullish confirmation",
+                    source_states_json="{}",
+                    observed_at=now - timedelta(days=2),
+                ),
+            ]
+        )
+        db.commit()
+
+        history = confirmation_score_history_for_ticker(
+            db,
+            "CRM",
+            current_score=64,
+            lookback_days=30,
+            now=now,
+        )
+
+    assert history == [
+        {"date": "2026-07-12", "score": 55},
+        {"date": "2026-07-20", "score": 61},
+        {"date": "2026-07-22", "score": 64},
+    ]
+
+
+def test_confirmation_score_history_falls_back_to_seven_day_current_score_line():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime(2026, 7, 22, 12, tzinfo=timezone.utc)
+
+    with Session(engine) as db:
+        history = confirmation_score_history_for_ticker(
+            db,
+            "CRM",
+            current_score=70,
+            lookback_days=30,
+            fallback_days=7,
+            now=now,
+        )
+
+    assert history == [
+        {"date": "2026-07-16", "score": 70},
+        {"date": "2026-07-22", "score": 70},
+    ]
+
+
 def test_confirmation_score_bundle_receives_fundamentals_without_unavailable_penalty():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
@@ -190,6 +286,22 @@ def test_slim_confirmation_score_bundle_derives_active_source_count():
     assert slim["confirmation_source_count"] == 2
     assert slim["is_multi_source"] is True
     assert slim["confirmation_explanation"] == "Congress buy-skewed"
+
+
+def test_redacted_confirmation_bundle_preserves_score_history():
+    bundle = confirmation_score_bundle_from_source_payloads(
+        "HIST",
+        sources_payload={"signals": _payload_source("bullish")},
+    )
+    bundle["history"] = [
+        {"date": "2026-07-16", "score": 61},
+        {"date": "2026-07-22", "score": 70},
+    ]
+
+    redacted = redact_confirmation_bundle_sources(bundle, {"signals"}, lock_state="premium_locked", required_plan="premium")
+
+    assert redacted["history"] == bundle["history"]
+    assert redacted["sources"]["signals"]["locked"] is True
 
 
 def test_confirmation_bundle_can_include_government_contracts_without_breaking_why_now():

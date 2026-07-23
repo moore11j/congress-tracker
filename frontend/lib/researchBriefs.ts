@@ -13,6 +13,18 @@ export type ResearchBriefCard = {
 
 export const researchBriefs: ResearchBriefCard[] = [
   {
+    slug: "nbis-vs-crwv-ai-neoclouds",
+    route: "/research/nbis-vs-crwv-ai-neoclouds",
+    title: "NBIS vs CRWV: Which AI Neocloud Trade Has Better Risk/Reward?",
+    description: "Nebius and CoreWeave compared across revenue, backlog, margins, debt, capex, Nvidia alignment, and Walnut market data.",
+    tickers: ["NBIS", "CRWV", "NVDA"],
+    category: "AI Infrastructure",
+    judgment: "mixed",
+    publishedAt: "2026-07-23",
+    readingMinutes: 9,
+    featured: true,
+  },
+  {
     slug: "ai-earnings-dd",
     route: "/research/ai-earnings-dd",
     title: "AI earnings week DD: numbers over hype",

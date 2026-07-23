@@ -9,7 +9,7 @@ from typing import Any, Literal, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Event, PriceCache
+from app.models import ConfirmationMonitoringEvent, ConfirmationMonitoringSnapshot, Event, PriceCache
 from app.services.event_activity_filters import insider_visibility_clause
 from app.services.fundamentals_cache import cached_fundamentals_by_symbol, fundamentals_summary_from_cache_row
 from app.services.intelligence_overlays import (
@@ -256,6 +256,8 @@ def redact_confirmation_bundle_sources(
     }
     all_locked = existing_locked | locked
     redacted["redacted_sources"] = sorted(all_locked)
+    if isinstance(bundle.get("history"), list):
+        redacted["history"] = bundle["history"]
     for key in all_locked:
         existing = raw_sources.get(key) if isinstance(raw_sources.get(key), dict) else {}
         source_lock_state = lock_state if key in locked else str(existing.get("lock_state") or existing.get("status") or lock_state)
@@ -463,6 +465,130 @@ def slim_confirmation_score_bundle(bundle: dict) -> dict:
         "why_now": slim_why_now_bundle(bundle),
         "signal_freshness": slim_signal_freshness_bundle(bundle),
     }
+
+
+def confirmation_score_history_for_ticker(
+    db: Session,
+    ticker: str,
+    *,
+    current_score: int | float | None = None,
+    lookback_days: int = 30,
+    fallback_days: int = 7,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    symbol = (ticker or "").strip().upper()
+    if not symbol:
+        return []
+
+    bounded_lookback = max(1, min(int(lookback_days or 30), 365))
+    bounded_fallback = max(2, min(int(fallback_days or 7), bounded_lookback))
+    end_at = now or datetime.now(timezone.utc)
+    if end_at.tzinfo is None:
+        end_at = end_at.replace(tzinfo=timezone.utc)
+    cutoff_day = end_at.date() - timedelta(days=bounded_lookback - 1)
+    cutoff = datetime.combine(cutoff_day, datetime.min.time(), tzinfo=end_at.tzinfo)
+    points: dict[str, tuple[datetime, int]] = {}
+
+    def add_point(point_at: datetime | None, score_value: Any) -> None:
+        score = _score_history_int(score_value)
+        if score is None or point_at is None:
+            return
+        normalized_at = point_at if point_at.tzinfo is not None else point_at.replace(tzinfo=timezone.utc)
+        if normalized_at < cutoff:
+            return
+        day_key = normalized_at.date().isoformat()
+        previous = points.get(day_key)
+        if previous is None or normalized_at >= previous[0]:
+            points[day_key] = (normalized_at, score)
+
+    try:
+        events = (
+            db.execute(
+                select(ConfirmationMonitoringEvent)
+                .where(
+                    func.upper(ConfirmationMonitoringEvent.ticker) == symbol,
+                    ConfirmationMonitoringEvent.created_at >= cutoff,
+                )
+                .order_by(ConfirmationMonitoringEvent.created_at.asc(), ConfirmationMonitoringEvent.id.asc())
+                .limit(500)
+            )
+            .scalars()
+            .all()
+        )
+        for event in events:
+            if event.score_before is not None:
+                add_point(event.created_at - timedelta(seconds=1), event.score_before)
+            add_point(event.created_at, event.score_after)
+    except Exception:
+        pass
+
+    try:
+        snapshots = (
+            db.execute(
+                select(ConfirmationMonitoringSnapshot)
+                .where(
+                    func.upper(ConfirmationMonitoringSnapshot.ticker) == symbol,
+                    ConfirmationMonitoringSnapshot.observed_at >= cutoff,
+                )
+                .order_by(ConfirmationMonitoringSnapshot.observed_at.asc(), ConfirmationMonitoringSnapshot.id.asc())
+                .limit(200)
+            )
+            .scalars()
+            .all()
+        )
+        for snapshot in snapshots:
+            add_point(snapshot.observed_at, snapshot.score)
+    except Exception:
+        pass
+
+    current_score_int = _score_history_int(current_score)
+    if current_score_int is not None:
+        add_point(end_at, current_score_int)
+
+    if len(points) < 2 and current_score_int is not None and current_score_int > 0:
+        add_point(end_at - timedelta(days=bounded_fallback - 1), current_score_int)
+        add_point(end_at, current_score_int)
+
+    return [
+        {"date": day_key, "score": score}
+        for day_key, (_observed_at, score) in sorted(points.items(), key=lambda item: item[0])
+    ][-bounded_lookback:]
+
+
+def with_confirmation_score_history(
+    db: Session,
+    bundle: dict,
+    *,
+    lookback_days: int = 30,
+    fallback_days: int = 7,
+    now: datetime | None = None,
+) -> dict:
+    if not isinstance(bundle, dict):
+        return bundle
+    ticker = str(bundle.get("ticker") or "").strip().upper()
+    history = confirmation_score_history_for_ticker(
+        db,
+        ticker,
+        current_score=bundle.get("score"),
+        lookback_days=lookback_days,
+        fallback_days=fallback_days,
+        now=now,
+    )
+    enriched = dict(bundle)
+    enriched["history"] = history
+    return enriched
+
+
+def _score_history_int(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        parsed = float(value)
+        if not isfinite(parsed):
+            return None
+        return _clamp_int(parsed)
+    except (TypeError, ValueError):
+        return None
 
 
 def get_slim_confirmation_score_bundles_for_tickers(

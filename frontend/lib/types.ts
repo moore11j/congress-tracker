@@ -213,6 +213,7 @@ export type ConfirmationScoreBundle = {
   drivers: string[];
   active_sources?: string[];
   source_details?: Record<string, string>;
+  history?: { date: string; score: number }[];
 };
 
 export type OptionsFlowState = "bullish" | "bearish" | "mixed" | "inactive" | "unavailable";

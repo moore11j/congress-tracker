@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="628" viewBox="0 0 1200 628" role="img" aria-labelledby="title desc">
+  <title id="title">NBIS vs CRWV AI neocloud comparison</title>
+  <desc id="desc">Walnut Markets comparison thumbnail for NBIS versus CRWV.</desc>
+  <rect width="1200" height="628" fill="#06111f"/>
+  <rect x="34" y="34" width="1132" height="560" rx="8" fill="#081827" stroke="#1f3b4c" stroke-width="2"/>
+  <text x="72" y="94" fill="#6ee7b7" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="3">WALNUT MARKETS</text>
+  <text x="72" y="176" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="800">NBIS vs CRWV</text>
+  <text x="76" y="226" fill="#cbd5e1" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="600">AI Neoclouds: Scale vs Risk/Reward</text>
+  <rect x="72" y="274" width="500" height="212" rx="8" fill="#0f2534" stroke="#27506a" stroke-width="2"/>
+  <rect x="628" y="274" width="500" height="212" rx="8" fill="#0f2534" stroke="#27506a" stroke-width="2"/>
+  <text x="112" y="334" fill="#a7f3d0" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="800">NBIS</text>
+  <text x="112" y="380" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Smaller base</text>
+  <text x="112" y="424" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Profitability inflection</text>
+  <text x="112" y="468" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Nvidia alignment</text>
+  <text x="668" y="334" fill="#67e8f9" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="800">CRWV</text>
+  <text x="668" y="380" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Larger revenue</text>
+  <text x="668" y="424" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Massive backlog</text>
+  <text x="668" y="468" fill="#e2e8f0" font-family="Arial, Helvetica, sans-serif" font-size="28">Higher capex/debt risk</text>
+  <rect x="72" y="520" width="1056" height="46" rx="8" fill="#102e3a" stroke="#21495b"/>
+  <text x="104" y="552" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">The call: CRWV for scale. NBIS for cleaner risk/reward.</text>
+</svg>

@@ -11,11 +11,8 @@ const muPage = read("app/research/mu-dd/page.tsx");
 const insightsPage = read("app/insights/page.tsx");
 const researchSection = read("components/insights/ResearchBriefsSection.tsx");
 
-test("mu dd brief is the first canonical research brief", () => {
-  const configuredBriefs = registry.slice(registry.indexOf("export const researchBriefs"));
-  const firstSlugIndex = configuredBriefs.indexOf('slug: "mu-dd"');
-  assert.ok(firstSlugIndex >= 0, "MU DD brief should be configured");
-  assert.equal(firstSlugIndex, configuredBriefs.indexOf("slug:"), "MU DD should be the first configured brief");
+test("mu dd brief remains a canonical research brief", () => {
+  assert.match(registry, /slug: "mu-dd"/);
   assert.match(registry, /route: "\/research\/mu-dd"/);
   assert.match(registry, /title: "Is the MU momentum trade dead\?"/);
   assert.match(registry, /The bear case needs memory demand to roll over/);
