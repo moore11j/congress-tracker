@@ -485,8 +485,125 @@ def test_mixed_price_volume_discounts_but_does_not_override_broad_bullish_stack(
 
     assert bundle["sources"]["price_volume"]["direction"] == "mixed"
     assert bundle["direction"] == "bullish"
-    assert bundle["score"] == 58
-    assert bundle["band"] == "moderate"
+    assert bundle["score"] == 73
+    assert bundle["band"] == "strong"
+
+
+def test_institutional_new_positions_raise_bullish_confirmation_weight():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    now = datetime.now(timezone.utc)
+    fundamentals = {
+        "status": "bullish",
+        "headline": "Fundamental strength",
+        "data_quality": {"scored_metric_count": 5},
+        "metrics": {
+            "revenue_growth": {"state": "bullish"},
+            "return_on_equity": {"state": "bullish"},
+            "ev_to_ebitda": {"state": "neutral"},
+            "operating_margin_expansion": {"state": "bullish"},
+            "net_debt_to_ebitda": {"state": "bullish"},
+        },
+    }
+    base_institutional = {
+        "status": "ok",
+        "active": True,
+        "direction": "bullish",
+        "total_value": 25_000_000,
+        "institution_count": 3,
+        "total_holders": 3,
+        "materiality_score": 70,
+        "confirmation_contribution": 10,
+        "latest_filing_date": now.date().isoformat(),
+        "new_positions": 0,
+        "institutional_net_reported_30d": {"new_positions_30d": 0},
+    }
+    new_position_institutional = {
+        **base_institutional,
+        "new_positions": 6,
+        "institutional_net_reported_30d": {"new_positions_30d": 4},
+    }
+
+    with Session(engine) as db:
+        base = get_confirmation_score_bundle_for_ticker(
+            db,
+            "INST",
+            fundamentals_summary=fundamentals,
+            institutional_activity_summary=base_institutional,
+        )
+        with_new_positions = get_confirmation_score_bundle_for_ticker(
+            db,
+            "INST",
+            fundamentals_summary=fundamentals,
+            institutional_activity_summary=new_position_institutional,
+        )
+
+    assert with_new_positions["sources"]["institutional_activity"]["strength"] > base["sources"]["institutional_activity"]["strength"]
+    assert with_new_positions["score"] > base["score"]
+
+
+def test_bullish_fundamentals_get_more_confirmation_lift_than_bearish_fundamentals():
+    bullish = confirmation_score_bundle_from_source_contexts(
+        "QUAL",
+        source_contexts={
+            "price_volume": {"status": "active", "direction": "bullish", "score": 55, "price_points": 80},
+            "fundamentals": {
+                "status": "bullish",
+                "headline": "Fundamental strength",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bullish"},
+                    "return_on_equity": {"state": "bullish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bullish"},
+                    "net_debt_to_ebitda": {"state": "bullish"},
+                },
+            },
+        },
+    )
+    bearish = confirmation_score_bundle_from_source_contexts(
+        "QUAL",
+        source_contexts={
+            "price_volume": {"status": "active", "direction": "bullish", "score": 55, "price_points": 80},
+            "fundamentals": {
+                "status": "bearish",
+                "headline": "Fundamental pressure",
+                "data_quality": {"scored_metric_count": 5},
+                "metrics": {
+                    "revenue_growth": {"state": "bearish"},
+                    "return_on_equity": {"state": "bearish"},
+                    "ev_to_ebitda": {"state": "neutral"},
+                    "operating_margin_expansion": {"state": "bearish"},
+                    "net_debt_to_ebitda": {"state": "bearish"},
+                },
+            },
+        },
+    )
+
+    assert bullish["sources"]["fundamentals"]["strength"] > bearish["sources"]["fundamentals"]["strength"]
+    assert bullish["score"] > bearish["score"]
+
+
+def test_insider_selling_is_dampened_while_insider_buying_stays_constructive():
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(bind=engine)
+
+    recent = datetime.now(timezone.utc) - timedelta(days=2)
+
+    with Session(engine) as db:
+        db.add(_event(event_id=401, symbol="IBUY", event_type="insider_trade", trade_type="purchase", event_date=recent))
+        db.add(_event(event_id=402, symbol="ISELL", event_type="insider_trade", trade_type="sale", event_date=recent))
+        db.add(_event(event_id=403, symbol="CSELL", event_type="congress_trade", trade_type="sale", event_date=recent))
+        db.commit()
+
+        insider_buy = get_confirmation_score_bundle_for_ticker(db, "IBUY", lookback_days=30)
+        insider_sell = get_confirmation_score_bundle_for_ticker(db, "ISELL", lookback_days=30)
+        congress_sell = get_confirmation_score_bundle_for_ticker(db, "CSELL", lookback_days=30)
+
+    assert insider_buy["sources"]["insiders"]["strength"] > insider_sell["sources"]["insiders"]["strength"]
+    assert insider_sell["sources"]["insiders"]["strength"] < congress_sell["sources"]["congress"]["strength"]
+    assert insider_sell["direction"] == "bearish"
 
 
 def _payload_source(direction: str, *, strength: int = 92, quality: int = 92, freshness_days: int | None = 3) -> dict:

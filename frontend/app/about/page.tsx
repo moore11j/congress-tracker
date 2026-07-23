@@ -1,19 +1,24 @@
 import type { Metadata } from "next";
 import { LegalPageShell, LegalSection } from "@/components/landing/LegalPageShell";
 import { legalPageChrome } from "@/lib/legalPageChrome";
-import { WALNUT_MARKETING_DESCRIPTION, WALNUT_MARKETING_URL, WALNUT_REDDIT_URL, WALNUT_SOCIAL_URLS, WALNUT_X_HANDLE, WALNUT_X_URL } from "@/lib/marketingMetadata";
+import {
+  WALNUT_MARKETING_DESCRIPTION,
+  WALNUT_MARKETING_URL,
+  WALNUT_REDDIT_URL,
+  WALNUT_SOCIAL_URLS,
+  WALNUT_X_HANDLE,
+  WALNUT_X_URL,
+  marketingPageMetadata,
+} from "@/lib/marketingMetadata";
 
 const lastUpdated = "July 9, 2026";
 const ABOUT_DESCRIPTION =
   "Learn who operates Walnut Market Terminal, why Walnut focuses on disclosure intelligence, and how its research tools are built.";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = marketingPageMetadata("/about", {
   title: "About Walnut Markets | Walnut Market Terminal",
   description: ABOUT_DESCRIPTION,
-  alternates: {
-    canonical: "/about",
-  },
-};
+});
 
 const aboutJsonLd = [
   {

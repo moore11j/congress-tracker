@@ -109,7 +109,7 @@ function withNoindex(response: NextResponse): NextResponse {
 function robotsTxtResponse(host: string): NextResponse {
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
   const marketingAllow = publicLandingHosts.has(host)
-    ? "\nAllow: /\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /congress-trades\nAllow: /insider-trading-tracker\nAllow: /government-contracts\nAllow: /institutional-filings\nAllow: /stock-confirmation-score\nAllow: /market-intelligence-terminal\nAllow: /ticker/\n"
+    ? "\nAllow: /\nAllow: /landing\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /congress-trades\nAllow: /insider-trading-tracker\nAllow: /government-contracts\nAllow: /institutional-filings\nAllow: /stock-confirmation-score\nAllow: /market-intelligence-terminal\nAllow: /ticker/\n"
     : "\n";
   const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
   return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {

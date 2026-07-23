@@ -63,7 +63,7 @@ SOURCE_LABELS: dict[ConfirmationSourceKey, str] = {
     "macro_positioning": "Macro Positioning",
 }
 SUPPORT_ONLY_SOURCE_KEYS: set[ConfirmationSourceKey] = {"government_contracts"}
-CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v2"
+CONFIRMATION_CLASSIFICATION_VERSION = "confirmation_direction_v3"
 MATERIAL_DIRECTIONAL_EVIDENCE_MIN = 55.0
 DEFENSIBLE_DIRECTIONAL_MARGIN = 35.0
 CONFLICT_DIRECTIONAL_MARGIN = 25.0
@@ -214,7 +214,7 @@ def _source_summary_from_payload(source: Any, *, fallback_label: str) -> Confirm
         quality=_clamp_int(float(source.get("quality") or 0)),
         freshness_days=freshness_days,
         label=label,
-        score_contribution=_clamp_int(float(source.get("score_contribution") or 0), minimum=0, maximum=20),
+        score_contribution=_clamp_int(float(source.get("score_contribution") or 0), minimum=0, maximum=25),
         detail=detail,
         summary=summary,
     )
@@ -962,24 +962,41 @@ def _institutional_activity_source(summary: dict | None) -> ConfirmationSourceSu
         )
 
     direction = summary.get("direction") if summary.get("direction") in {"bullish", "bearish", "mixed"} else "neutral"
-    total_value = float(summary.get("total_value") or summary.get("net_activity") or 0)
-    institution_count = int(summary.get("institution_count") or summary.get("total_holders") or 0)
-    materiality = float(summary.get("materiality_score") or 0)
-    score_contribution = _clamp_int(abs(float(summary.get("confirmation_contribution") or summary.get("score_contribution") or 0)), maximum=15)
+    total_value = _context_float(summary, "total_value") or _context_float(summary, "net_activity") or 0.0
+    institution_count = _context_int(summary, "institution_count") or _context_int(summary, "total_holders")
+    materiality = _context_float(summary, "materiality_score") or 0.0
+    metrics_30d = summary.get("institutional_net_reported_30d") if isinstance(summary.get("institutional_net_reported_30d"), dict) else {}
+    new_positions = max(0, _context_int(summary, "new_positions"))
+    new_positions_30d = max(0, _context_int(metrics_30d, "new_positions_30d"))
+    contribution_cap = 25 if direction == "bullish" else 12 if direction == "bearish" else 15
+    score_contribution = _clamp_int(
+        abs(float(summary.get("confirmation_contribution") or summary.get("score_contribution") or 0)),
+        maximum=contribution_cap,
+    )
     freshness_days = _days_since_iso(summary.get("latest_filing_date") or summary.get("latest_activity_date"))
+    new_position_bonus = 0.0
+    if direction == "bullish":
+        new_position_bonus = min(new_positions_30d, 5) * 5.0 + min(max(new_positions - new_positions_30d, 0), 10) * 1.5
     strength = _clamp_int(
         24
-        + min(materiality, 100.0) * 0.35
+        + min(materiality, 100.0) * 0.38
         + min(abs(total_value) / 50_000_000, 2.5) * 8
         + min(institution_count, 12) * 1.5
-        + score_contribution * 1.5
+        + score_contribution * 2.0
+        + new_position_bonus,
+        maximum=100 if direction == "bullish" else 86,
     )
     quality = _clamp_int(
         32
-        + min(materiality, 100.0) * 0.28
+        + min(materiality, 100.0) * 0.30
         + min(institution_count, 20) * 1.2
         + score_contribution * 1.8
+        + new_position_bonus * 0.35,
+        maximum=92 if direction == "bullish" else 82,
     )
+    if direction == "bearish":
+        strength = _clamp_int(strength * 0.90)
+        quality = _clamp_int(quality * 0.92)
     latest_quarter = (
         f"Q{summary.get('latest_report_quarter')} {summary.get('latest_report_year')}"
         if summary.get("latest_report_quarter") and summary.get("latest_report_year")
@@ -1233,14 +1250,29 @@ def _fundamentals_context_source(context: dict[str, Any] | None) -> Confirmation
         for metric in metrics.values()
         if isinstance(metric, dict) and str(metric.get("state") or "").strip().lower() in {"bullish", "neutral", "bearish"}
     ]
+    bullish_count = sum(1 for state in states if state == "bullish")
+    bearish_count = sum(1 for state in states if state == "bearish")
     raw_points = sum(1 if state == "bullish" else -1 if state == "bearish" else 0 for state in states)
     freshness_days = _context_freshness_days(context)
     if freshness_days is None:
         raw_freshness = context.get("freshness_days")
         freshness_days = raw_freshness if isinstance(raw_freshness, int) else None
     freshness_penalty = 12 if freshness_days is not None and freshness_days > 180 else 6 if freshness_days is not None and freshness_days > 90 else 0
-    strength = _clamp_int(24 + min(abs(raw_points), 4) * 5 - freshness_penalty, maximum=48)
-    quality = _clamp_int(32 + min(scored_count, 6) * 5 - freshness_penalty, maximum=60)
+    if direction == "bullish":
+        strength = _clamp_int(
+            28 + min(max(raw_points, 0), 5) * 6 + min(bullish_count, 5) * 3 - freshness_penalty,
+            maximum=68,
+        )
+        quality = _clamp_int(
+            36 + min(scored_count, 6) * 5 + min(bullish_count, 5) * 2 - freshness_penalty,
+            maximum=72,
+        )
+    elif direction == "bearish":
+        strength = _clamp_int(22 + min(abs(min(raw_points, 0)), 4) * 5 + min(bearish_count, 5) * 2 - freshness_penalty, maximum=46)
+        quality = _clamp_int(30 + min(scored_count, 6) * 4 - freshness_penalty, maximum=56)
+    else:
+        strength = _clamp_int(24 + min(abs(raw_points), 4) * 5 - freshness_penalty, maximum=52)
+        quality = _clamp_int(32 + min(scored_count, 6) * 5 - freshness_penalty, maximum=60)
     return ConfirmationSourceSummary(
         present=True,
         direction=direction,
@@ -1470,6 +1502,13 @@ def _trade_activity_summary_from_rows(
     strength = _clamp_int(22 + min(count, 6) * 7 + skew * 40 + amount_score + neutral_penalty)
     quality_base = 30 if event_type == "insider_trade" else 24
     quality = _clamp_int(quality_base + min(count, 6) * 8 + min(breadth, 5) * 7 + skew * 20)
+    if event_type == "insider_trade":
+        if direction == "bullish":
+            strength = _clamp_int(strength * 1.10)
+            quality = _clamp_int(quality * 1.05)
+        elif direction == "bearish":
+            strength = _clamp_int(strength * 0.70)
+            quality = _clamp_int(quality * 0.85)
     freshness = _freshness_days(latest_ts, now)
 
     if direction == "bullish":
@@ -1880,6 +1919,40 @@ def _classification_strength(evidence: float, edge: float) -> Literal["weak", "m
     return "weak"
 
 
+def _asymmetric_source_component(
+    source: ConfirmationSourceSummary,
+    *,
+    bullish_weight: float,
+    bearish_weight: float,
+    mixed_weight: float = 0.0,
+) -> float:
+    if not source.present:
+        return 0.0
+    if source.direction == "bullish":
+        return source.strength * bullish_weight
+    if source.direction == "bearish":
+        return source.strength * bearish_weight
+    if source.direction == "mixed":
+        return source.strength * mixed_weight
+    return 0.0
+
+
+def _disclosure_component(sources: dict[ConfirmationSourceKey, ConfirmationSourceSummary]) -> float:
+    congress = sources["congress"]
+    insiders = sources["insiders"]
+    component = 0.0
+    if congress.present and congress.direction in {"bullish", "bearish"}:
+        component += congress.strength * 0.05
+    if insiders.present:
+        if insiders.direction == "bullish":
+            component += insiders.strength * 0.07
+        elif insiders.direction == "bearish":
+            component += insiders.strength * 0.02
+        elif insiders.direction == "mixed":
+            component += insiders.strength * 0.03
+    return component
+
+
 def _score_bundle(
     ticker: str,
     lookback_days: int,
@@ -1919,7 +1992,19 @@ def _score_bundle(
     quality_component = sum(source.quality for source in present_sources) / active_count
     freshness_component = sum(_freshness_score(source.freshness_days) for source in present_sources) / active_count
     price_component = sources["price_volume"].strength if sources["price_volume"].present else 0
-    fundamentals_component = sources["fundamentals"].strength if sources["fundamentals"].present else 0
+    fundamentals_component = _asymmetric_source_component(
+        sources["fundamentals"],
+        bullish_weight=0.16,
+        bearish_weight=0.08,
+        mixed_weight=0.08,
+    )
+    institutional_component = _asymmetric_source_component(
+        sources["institutional_activity"],
+        bullish_weight=0.20,
+        bearish_weight=0.10,
+        mixed_weight=0.06,
+    )
+    disclosure_component = _disclosure_component(sources)
     support_bonus = sum(
         sources[key].score_contribution
         for key in SOURCE_ORDER
@@ -1927,12 +2012,14 @@ def _score_bundle(
     )
 
     score = _clamp_int(
-        breadth_component * 0.25
-        + agreement_component * 0.25
-        + quality_component * 0.20
-        + freshness_component * 0.15
-        + price_component * 0.15
-        + fundamentals_component * 0.10
+        breadth_component * 0.20
+        + agreement_component * 0.22
+        + quality_component * 0.16
+        + freshness_component * 0.12
+        + price_component * 0.12
+        + fundamentals_component
+        + institutional_component
+        + disclosure_component
         + support_bonus
     )
     if active_count == 1 and not _has_only_support_sources(sources):

@@ -25,6 +25,10 @@ export function marketingPageMetadata(pathname: string, metadata: Metadata): Met
   return {
     ...metadata,
     metadataBase: new URL(WALNUT_MARKETING_URL),
+    robots: metadata.robots ?? {
+      index: true,
+      follow: true,
+    },
     alternates: {
       ...metadata.alternates,
       canonical: canonicalUrl,
@@ -88,6 +92,10 @@ export const walnutMarketingMetadata: Metadata = {
   metadataBase: new URL(WALNUT_MARKETING_URL),
   title: WALNUT_MARKETING_TITLE,
   description: WALNUT_MARKETING_DESCRIPTION,
+  robots: {
+    index: true,
+    follow: true,
+  },
   alternates: {
     canonical: marketingCanonicalUrl("/"),
   },

@@ -58,7 +58,7 @@ Central constants:
 - `CONFLICT_DIRECTIONAL_EDGE_RATIO`
 - `MATERIAL_EVIDENCE_MAX_FRESHNESS_DAYS`
 
-Score weights were not changed. The numeric Confirmation Score remains the public strength/quality score, and direction remains the canonical qualitative classification. Classification version `confirmation_direction_v2` is included in newly generated bundles and slim summaries. Historical monitoring and saved-screen rows without this metadata should be treated as legacy snapshots rather than silently equivalent classifications.
+Score weights now use `confirmation_direction_v3`. The numeric Confirmation Score remains the public strength/quality score, while direction remains the canonical qualitative classification. V3 gives institutional accumulation a dedicated score lane, rewards newly opened institutional positions, gives bullish fundamentals more constructive weight, and dampens insider selling relative to insider buying. Newly generated bundles and slim summaries include classification version `confirmation_direction_v3`. Historical monitoring and saved-screen rows without this metadata should be treated as legacy snapshots rather than silently equivalent classifications.
 
 ## Endpoint
 
