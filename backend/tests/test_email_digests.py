@@ -592,14 +592,14 @@ def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
     try:
         user = _user(db, "monitoring-alert@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="insider_trade")
 
         result = send_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
 
         assert result["status"] == "log_only"
         assert result["item_count"] == 1
-        assert result["template_key"] == "alerts.signal_alert"
-        assert result["rendered_preview"]["sample_items"][0]["why_notable"] == "NVDA has fresh monitored activity"
+        assert result["template_key"] == "alerts.monitoring_digest"
+        assert result["rendered_preview"]["sample_items"][0]["title"] == "NVDA has fresh monitored activity"
     finally:
         db.close()
 
@@ -620,8 +620,8 @@ def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
     try:
         user = _user(db, "monitoring-sender@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
-        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.signal_alert")).scalar_one()
+        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold")
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.monitoring_digest")).scalar_one()
         template.from_email = "alerts@walnutmarkets.com"
         db.commit()
 
@@ -1058,13 +1058,13 @@ def test_signal_digest_force_test_does_not_change_scheduled_skip_logic(monkeypat
         db.close()
 
 
-def test_admin_monitoring_digest_run_now_reports_quality_diagnostics():
+def test_admin_monitoring_digest_run_now_reports_watchlist_monitoring_items():
     db = _session()
     try:
-        admin = _user(db, "signal-admin@example.com", role="admin")
+        admin = _user(db, "monitoring-admin@example.com", role="admin")
         watchlist = _watchlist(db, admin)
-        _monitoring_alert(db, admin, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=1, symbol="UNKNOWN")
-        _monitoring_alert(db, admin, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=2, symbol="NBIS")
+        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=1, symbol="UNKNOWN")
+        _monitoring_alert(db, admin, watchlist, source_type="watchlist", alert_type="insider_trade", event_id=2, symbol="NBIS")
 
         result = admin_run_email_digest_now(
             AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
@@ -1072,12 +1072,10 @@ def test_admin_monitoring_digest_run_now_reports_quality_diagnostics():
             db,
         )
 
-        assert result["summary"]["candidate_count"] == 2
         assert result["summary"]["qualified_count"] == 1
-        assert result["summary"]["excluded_count"] == 1
-        assert result["summary"]["excluded_reasons"]["missing_ticker"] == 1
-        assert result["items"][0]["candidate_count"] == 2
-        assert result["items"][0]["excluded_reasons"]["missing_ticker"] == 1
+        assert result["items"][0]["template_key"] == "alerts.monitoring_digest"
+        assert result["items"][0]["item_count"] == 1
+        assert result["items"][0]["rendered_preview"]["sample_items"][0]["ticker"] == "NBIS"
     finally:
         db.close()
 
@@ -1153,7 +1151,7 @@ def test_intraday_high_priority_watchlist_item_sends(monkeypatch):
         user = _user(db, "intraday-watchlist@example.com")
         _watchlist(db, user)
         now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
-        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+        _bare_event(db, event_type="signal", ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
 
         results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=False, now=now)
         summary = summarize_intraday_alert_results(results)
@@ -1205,7 +1203,7 @@ def test_intraday_watchlist_trigger_preferences_are_enforced():
         user = _user(db, "intraday-trigger-disabled@example.com")
         _watchlist(db, user, alert_triggers=["government_contract"])
         now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
-        _bare_event(db, ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+        _bare_event(db, event_type="signal", ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
 
         results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
         summary = summarize_intraday_alert_results(results)
@@ -1214,6 +1212,23 @@ def test_intraday_watchlist_trigger_preferences_are_enforced():
         assert summary["skipped_count"] == 1
         assert results[0]["trigger"] == "smart_score_threshold"
         assert results[0]["skip_reason"] == "trigger_disabled"
+    finally:
+        db.close()
+
+
+def test_intraday_watchlist_congress_trigger_catches_high_score_congress_trade():
+    db = _session()
+    try:
+        user = _user(db, "intraday-congress-only@example.com")
+        _watchlist(db, user, alert_triggers=["congress_activity"])
+        now = datetime(2026, 6, 5, 17, 0, tzinfo=timezone.utc)
+        _bare_event(db, event_type="congress_trade", ts=now - timedelta(minutes=5), impact_score=91, payload={"smart_score": 91})
+
+        results = run_intraday_alert_sweep(db, lookback_minutes=60, dry_run=True, now=now)
+
+        assert results[0]["status"] == "would_send"
+        assert results[0]["event_type"] == "congress_trade"
+        assert results[0]["trigger"] == "congress_activity"
     finally:
         db.close()
 
@@ -1230,7 +1245,45 @@ def test_monitoring_digest_job_respects_daily_digest_subscription_flag():
 
         results = run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True)
 
-        assert results == []
+        assert len(results) == 1
+        assert results[0]["status"] == "skipped"
+        assert results[0]["error"] == "watchlist_daily_digest_disabled"
+    finally:
+        db.close()
+
+
+def test_monitoring_digest_respects_watchlist_trigger_preferences():
+    db = _session()
+    try:
+        user = _user(db, "monitoring-trigger-filter@example.com")
+        watchlist = _watchlist(db, user, alert_triggers=["insider_activity"])
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="watchlist",
+            alert_type="congress_trade",
+            event_id=1,
+            symbol="NVDA",
+            title="NVDA congress trade",
+        )
+        _monitoring_alert(
+            db,
+            user,
+            watchlist,
+            source_type="watchlist",
+            alert_type="insider_trade",
+            event_id=2,
+            symbol="TSM",
+            title="TSM insider trade",
+        )
+
+        digest = build_monitoring_digest(db, user, watchlist, datetime.now(timezone.utc) - timedelta(days=1))
+
+        assert digest.items_count == 1
+        assert digest.items[0]["ticker"] == "TSM"
+        assert "TSM insider trade" in digest.context["items_text"]
+        assert "NVDA congress trade" not in digest.context["items_text"]
     finally:
         db.close()
 
@@ -1448,7 +1501,7 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         admin = _user(db, "run-admin@example.com", role="admin")
         user = _user(db, "run-reader@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold", event_id=1, symbol="NVDA")
+        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold", event_id=1, symbol="NVDA")
 
         result = admin_run_email_digest_now(
             AdminDigestRunNowPayload(kind="monitoring", lookback_days=1, limit=10, dry_run=True),
@@ -1457,7 +1510,7 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         )
 
         assert result["dry_run"] is True
-        assert result["summary"]["total"] == 2
+        assert result["summary"]["total"] == 1
         assert result["summary"]["would_send"] == 1
         assert any(item["item_count"] == 1 for item in result["items"])
         assert db.query(EmailDelivery).count() == 0
@@ -1465,37 +1518,39 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         db.close()
 
 
-def test_admin_monitoring_digest_endpoint_targets_ranked_digest(monkeypatch):
+def test_admin_monitoring_digest_endpoint_targets_watchlist_digest(monkeypatch):
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
         user = _user(db, "reader@example.com")
+        watchlist = _watchlist(db, user)
         calls = []
 
-        def fake_send(db_arg, user_arg, since_arg, force=False):
-            calls.append((user_arg.id, since_arg, force))
+        def fake_send(db_arg, user_arg, watchlist_arg, since_arg, force=False):
+            calls.append((user_arg.id, watchlist_arg.id, since_arg, force))
             return {
                 "id": 123,
                 "status": "log_only",
                 "provider": "postmark",
                 "provider_message_id": None,
-                "template_key": "alerts.signal_alert",
+                "template_key": "alerts.monitoring_digest",
                 "category": "alerts",
                 "to_email": user_arg.email,
                 "error": None,
             }
 
-        monkeypatch.setattr("app.routers.accounts.send_signal_alert_digest", fake_send)
+        monkeypatch.setattr("app.routers.accounts.send_monitoring_digest", fake_send)
         result = admin_send_monitoring_digest_test(
-            AdminDigestSendTestPayload(user_id=user.id, lookback_days=7, force=True),
+            AdminDigestSendTestPayload(user_id=user.id, watchlist_id=watchlist.id, lookback_days=7, force=True),
             _request_for_user(admin),
             db,
         )
 
-        assert result["template_key"] == "alerts.signal_alert"
+        assert result["template_key"] == "alerts.monitoring_digest"
         assert len(calls) == 1
         assert calls[0][0] == user.id
-        assert calls[0][2] is True
+        assert calls[0][1] == watchlist.id
+        assert calls[0][3] is True
     finally:
         db.close()
 
@@ -1522,7 +1577,7 @@ def test_monitoring_digest_force_can_preview_on_non_trading_day():
     try:
         user = _user(db, "force-weekend-digest@example.com")
         watchlist = _watchlist(db, user)
-        _monitoring_alert(db, user, watchlist, source_type="saved_screen", alert_type="smart_score_threshold")
+        _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold")
 
         results = run_digest_job(
             db,

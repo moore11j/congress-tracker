@@ -12705,7 +12705,8 @@ def get_watchlist(
 ):
     user = _require_account(request, db)
     watchlist = _get_owned_watchlist(db, user, watchlist_id)
-    background_tasks.add_task(_refresh_watchlist_alerts_background, user.id, watchlist_id)
+    if background_tasks is not None:
+        background_tasks.add_task(_refresh_watchlist_alerts_background, user.id, watchlist_id)
 
     q = (
         select(Security.symbol, Security.name)

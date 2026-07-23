@@ -551,6 +551,10 @@ def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None,
         return "price_volume"
     if event_type in FUNDAMENTAL_EVENT_TYPES:
         return "fundamentals"
+    if event_type.startswith("congress_trade"):
+        return "congress_activity"
+    if event_type.startswith("insider_trade"):
+        return "insider_activity"
     if score is not None and score >= email_alert_min_score():
         return "smart_score_threshold"
     if amount is not None and float(amount) >= email_alert_min_flow_usd():
@@ -559,10 +563,6 @@ def _watchlist_trigger(event: Event, payload: dict[str, Any], score: int | None,
         return "cross_source_confirmation"
     if _major_direction_change(payload):
         return "major_direction_change"
-    if event_type.startswith("congress_trade"):
-        return "congress_activity"
-    if event_type.startswith("insider_trade"):
-        return "insider_activity"
     return None
 
 

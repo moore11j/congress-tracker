@@ -98,6 +98,8 @@ export function NotificationPreferences({
     "smart_score_threshold",
     "monitor_state",
     "large_trade_threshold",
+    "congress_activity",
+    "insider_activity",
     "government_contract",
     "institutional_activity",
     "price_volume",

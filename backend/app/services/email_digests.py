@@ -246,12 +246,15 @@ def build_monitoring_digest(
         .scalars()
         .all()
     )
-    items = _qualify_monitoring_items(
-        sorted(
-            [_monitoring_item(row) for row in confirmation_rows] + [_monitoring_alert_item(row) for row in alert_rows],
-            key=lambda item: str(item.get("sort_timestamp") or ""),
-            reverse=True,
-        )[:12]
+    items = _apply_monitoring_subscription_preferences(
+        _qualify_monitoring_items(
+            sorted(
+                [_monitoring_item(row) for row in confirmation_rows] + [_monitoring_alert_item(row) for row in alert_rows],
+                key=lambda item: str(item.get("sort_timestamp") or ""),
+                reverse=True,
+            )[:12]
+        ),
+        _watchlist_subscription(db, user, watchlist),
     )
     items = sorted(
         items,
@@ -276,7 +279,6 @@ def build_monitoring_digest(
         },
     )
 
-
 def send_monitoring_digest(
     db: Session,
     user: UserAccount,
@@ -285,7 +287,43 @@ def send_monitoring_digest(
     window_end: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    return send_signal_alert_digest(db, user, since, window_end=window_end, force=force)
+    template_key = "alerts.monitoring_digest"
+    window_end = window_end or datetime.now(timezone.utc)
+    subscription = _watchlist_subscription(db, user, watchlist)
+    skip = _alert_skip_reason(user, "watchlist_activity")
+    only_if_new = True if subscription is None else bool(subscription.only_if_new)
+    if skip is None and subscription is None and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not subscription.active and not force:
+        skip = "watchlist_digest_inactive"
+    if skip is None and subscription is not None and not _subscription_daily_digest_enabled(subscription) and not force:
+        skip = "watchlist_daily_digest_disabled"
+    digest = build_monitoring_digest(db, user, watchlist, since, window_end=window_end)
+    idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
+    duplicate = _duplicate_digest_result(db, idempotency_key)
+    if duplicate:
+        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
+    if skip is not None:
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
+    if only_if_new and digest.items_count == 0 and not force:
+        return _with_digest_meta(
+            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
+            digest,
+            since,
+            window_end,
+            idempotency_key,
+        )
+    result = _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key)
+    if result.get("status") in SEND_LIKE_STATUSES and subscription is not None:
+        subscription.last_delivered_at = window_end
+        db.commit()
+    return _with_digest_meta(result, digest, since, window_end, idempotency_key)
 
 
 def build_signal_alert_digest(
@@ -417,7 +455,7 @@ def run_digest_job(
     if not force and not monitoring_email_send_day(now=now):
         return []
     results: list[dict[str, Any]] = []
-    if kind in {"monitoring", "signals"}:
+    if kind == "signals":
         users = _eligible_monitoring_digest_users(db, limit=limit)
         if dry_run:
             return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
@@ -441,6 +479,12 @@ def run_digest_job(
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
         if not user or not watchlist:
             continue
+        if kind == "monitoring":
+            results.append(
+                _preview_monitoring_digest(db, user, watchlist, since, window_end, force=force)
+                if dry_run
+                else send_monitoring_digest(db, user, watchlist, since, window_end=window_end, force=force)
+            )
         if kind == "watchlist_activity":
             results.append(
                 _preview_watchlist_activity_digest(db, user, watchlist, since, window_end, force=force)
@@ -1278,6 +1322,7 @@ def _event_actor(event: Event, payload: dict[str, Any]) -> str:
 
 def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
+    score = event.score_after
     return {
         "ticker": _normalize_ticker(event.ticker),
         "title": event.title,
@@ -1286,6 +1331,10 @@ def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
         "timestamp": _format_datetime(event.created_at),
         "sort_timestamp": _coerce_aware(event.created_at).isoformat() if event.created_at else "",
         "reason": event.body or payload.get("event_type") or event.event_type,
+        "source_type": "confirmation_monitoring",
+        "source_id": str(event.watchlist_id),
+        "alert_type": event.event_type,
+        "trigger": _daily_signal_trigger(event.event_type, payload, score, source_type="confirmation_monitoring"),
     }
 
 
@@ -1303,6 +1352,10 @@ def _monitoring_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         "timestamp": _format_datetime(alert.event_created_at),
         "sort_timestamp": _coerce_aware(alert.event_created_at).isoformat() if alert.event_created_at else "",
         "reason": alert.body or alert.alert_type.replace("_", " "),
+        "source_type": alert.source_type,
+        "source_id": alert.source_id,
+        "alert_type": alert.alert_type,
+        "trigger": _daily_signal_trigger(alert.alert_type, event_payload or payload, score, source_type=alert.source_type),
     }
 
 
@@ -1472,6 +1525,19 @@ def _apply_daily_signal_subscription_preferences(db: Session, user: UserAccount,
             continue
         if not subscription.active or not _subscription_daily_digest_enabled(subscription):
             continue
+        trigger = str(item.get("trigger") or "").strip()
+        if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
+            filtered.append(item)
+    return filtered
+
+
+def _apply_monitoring_subscription_preferences(items: list[dict[str, Any]], subscription: NotificationSubscription | None) -> list[dict[str, Any]]:
+    if subscription is None:
+        return []
+    if not subscription.active or not _subscription_daily_digest_enabled(subscription):
+        return []
+    filtered: list[dict[str, Any]] = []
+    for item in items:
         trigger = str(item.get("trigger") or "").strip()
         if _subscription_allows_any_trigger(subscription, {trigger} if trigger else set()):
             filtered.append(item)
