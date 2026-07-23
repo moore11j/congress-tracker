@@ -3917,17 +3917,17 @@ export default async function TickerPage({ params, searchParams }: Props) {
         label: "Upgrade to Premium",
         message: "Confirmation score, active-source alignment, and freshness setup are available with Premium or Pro.",
       };
-  const loadFreshSignalSummary = () => getTickerSignalsSummary(normalizedSymbol, {
-    side,
-    limit: 3,
-    lookback_days: lookbackDays,
-    authToken: authToken ?? undefined,
-    activeUser: activeTickerSsrRequest,
-    source: "TickerSignalsSummary",
-  }).catch((error) => {
-    if (contextBundle?.signals_summary) return contextBundle.signals_summary;
-    throw error;
-  });
+  const loadFreshSignalSummary = () => {
+    if (contextBundle?.signals_summary) return Promise.resolve(contextBundle.signals_summary);
+    return getTickerSignalsSummary(normalizedSymbol, {
+      side,
+      limit: 3,
+      lookback_days: lookbackDays,
+      authToken: authToken ?? undefined,
+      activeUser: activeTickerSsrRequest,
+      source: "TickerSignalsSummary",
+    });
+  };
   const headerMetadata = tickerHeaderMetadata(profile.ticker);
   const headerExchange = cleanTickerHeaderMetadata(profile.ticker.exchange_short_name ?? profile.ticker.exchange);
   const headerCurrency = cleanTickerHeaderMetadata(contextBundle?.identity?.currency);
@@ -3954,9 +3954,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
     const shouldFetchInsiderActivity = source === "all" || source === "insider";
     const shouldFetchInstitutionalActivity = canViewProContext && (source === "all" || source === "institutional");
     const tradeType = sideToTradeType(side);
-    const congressActivity =
+    const congressActivityRequest =
       shouldFetchCongressActivity
-        ? await getEvents({
+        ? getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
             limit: ACTIVITY_FETCH_SIZE,
@@ -3973,10 +3973,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
             });
             return emptyEventsResponse(congressPage, ACTIVITY_PAGE_SIZE);
           })
-        : undefined;
-    const insiderActivity =
+        : Promise.resolve(undefined);
+    const insiderActivityRequest =
       shouldFetchInsiderActivity
-        ? await getEvents({
+        ? getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
             limit: ACTIVITY_FETCH_SIZE,
@@ -3993,10 +3993,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
             });
             return emptyEventsResponse(insiderPage, ACTIVITY_PAGE_SIZE);
           })
-        : undefined;
-    const institutionalActivity =
+        : Promise.resolve(undefined);
+    const institutionalActivityRequest =
       shouldFetchInstitutionalActivity
-        ? await getEvents({
+        ? getEvents({
             symbol: normalizedSymbol,
             recent_days: lookbackDays,
             limit: ACTIVITY_FETCH_SIZE,
@@ -4015,10 +4015,10 @@ export default async function TickerPage({ params, searchParams }: Props) {
             });
             return emptyEventsResponse(institutionalPage, ACTIVITY_PAGE_SIZE);
           })
-        : undefined;
-    const governmentContracts =
+        : Promise.resolve(undefined);
+    const governmentContractsRequest =
       shouldFetchGovernmentContracts
-        ? await getTickerGovernmentContracts(normalizedSymbol, {
+        ? getTickerGovernmentContracts(normalizedSymbol, {
             lookback_days: lookbackDays,
             min_amount: 1_000_000,
             limit: GOVERNMENT_CONTRACTS_PAGE_SIZE,
@@ -4039,7 +4039,18 @@ export default async function TickerPage({ params, searchParams }: Props) {
               has_next: false,
             };
           })
-        : undefined;
+        : Promise.resolve(undefined);
+    const [
+      congressActivity,
+      insiderActivity,
+      institutionalActivity,
+      governmentContracts,
+    ] = await Promise.all([
+      congressActivityRequest,
+      insiderActivityRequest,
+      institutionalActivityRequest,
+      governmentContractsRequest,
+    ]);
     const boundedEvents = [
       ...((congressActivity?.items ?? []) as EventsResponse["items"]),
       ...((insiderActivity?.items ?? []) as EventsResponse["items"]),

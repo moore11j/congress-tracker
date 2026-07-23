@@ -2092,7 +2092,7 @@ def test_ticker_context_bundle_quote_fetches_live_without_identity(monkeypatch):
     assert captured["bypass_miss_cache"] is True
 
 
-def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
+def test_ticker_context_bundle_stale_cache_rebuilds_complete_payload(monkeypatch):
     engine = _engine()
     with Session(engine) as db:
         counters = _mock_ticker_context_bundle_dependencies(monkeypatch, tier="premium")
@@ -2126,9 +2126,11 @@ def test_ticker_context_bundle_stale_cache_hit_avoids_rebuild(monkeypatch):
             db=db,
         )
 
-    assert response["stale_fixture"] is True
-    assert counters["profile"] == 0
-    assert counters["signals"] == 0
+    assert response["symbol"] == "AAPL"
+    assert "stale_fixture" not in response
+    assert response["quote"]["stale"] is False
+    assert counters["profile"] == 1
+    assert counters["signals"] == 1
 
 
 def test_ticker_context_bundle_build_coalescing_returns_leader_payload(monkeypatch):

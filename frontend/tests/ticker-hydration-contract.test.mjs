@@ -189,8 +189,12 @@ test("ticker server context relies on cookie-backed auth state without client to
   assert.match(tickerPage, /const authToken = authState\.token/);
   assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
   assert.match(tickerPage, /authToken: authToken \?\? undefined/);
-  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary\(normalizedSymbol/);
-  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
+  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => \{/);
+  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return Promise\.resolve\(contextBundle\.signals_summary\)/);
+  assert.ok(
+    tickerPage.indexOf("if (contextBundle?.signals_summary)") < tickerPage.indexOf("return getTickerSignalsSummary(normalizedSymbol"),
+    "ticker page should reuse complete context-bundle summary before fetching a separate signals summary",
+  );
   assert.match(tickerPage, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);
 });
@@ -206,8 +210,12 @@ test("ticker context gates source cards instead of the whole context request", (
   assert.match(tickerPage, /function displaySourceEntitlementsForTickerContext/);
   assert.match(tickerPage, /function displayConfirmationBundleForEntitlements/);
   assert.match(tickerPage, /getTickerContextBundle\(normalizedSymbol/);
-  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => getTickerSignalsSummary\(normalizedSymbol/);
-  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return contextBundle\.signals_summary/);
+  assert.match(tickerPage, /const loadFreshSignalSummary = \(\) => \{/);
+  assert.match(tickerPage, /if \(contextBundle\?\.signals_summary\) return Promise\.resolve\(contextBundle\.signals_summary\)/);
+  assert.ok(
+    tickerPage.indexOf("if (contextBundle?.signals_summary)") < tickerPage.indexOf("return getTickerSignalsSummary(normalizedSymbol"),
+    "ticker page should reuse complete context-bundle summary before fetching a separate signals summary",
+  );
   assert.match(tickerPage, /signalSummaryRequest: loadFreshSignalSummary\(\)/);
   assert.doesNotMatch(tickerPage, /const signalSummaryRequest =\s*authToken\s*\?/);
   assert.doesNotMatch(tickerPage, /canViewSignalActivity && authToken[\s\S]*?getTickerSignalsSummary\(normalizedSymbol/);

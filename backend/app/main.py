@@ -2739,6 +2739,17 @@ def _is_public_get_cacheable_path(path: str) -> bool:
     return False
 
 
+def _is_public_get_complete_data_path(path: str) -> bool:
+    lower_path = (path or "").rstrip("/").lower()
+    if lower_path in {"/api/feed", "/api/events"}:
+        return True
+    parts = [part for part in lower_path.split("/") if part]
+    return len(parts) == 4 and parts[:2] == ["api", "tickers"] and parts[3] in {
+        "signals-summary",
+        "government-contracts",
+    }
+
+
 def _public_get_cache_stat(name: str) -> None:
     _PUBLIC_GET_RESPONSE_CACHE_STATS[name] = _PUBLIC_GET_RESPONSE_CACHE_STATS.get(name, 0) + 1
 
@@ -3253,6 +3264,7 @@ async def log_slow_requests(request: Request, call_next):
 async def public_get_response_cache(request: Request, call_next):
     cache_key = _public_get_cache_key(request)
     cache_key_hash = _public_get_cache_key_hash(cache_key) if cache_key else None
+    complete_data_path = _is_public_get_complete_data_path(request.url.path) if cache_key else False
     inflight_event: asyncio.Event | None = None
     inflight_leader = False
     stale_cached: tuple[int, dict[str, str], bytes] | None = None
@@ -3301,7 +3313,7 @@ async def public_get_response_cache(request: Request, call_next):
                             stale_cached = (status_code, dict(headers), body)
                         else:
                             _PUBLIC_GET_RESPONSE_CACHE.pop(cache_key, None)
-            if not inflight_leader and stale_cached is not None:
+            if not inflight_leader and stale_cached is not None and not complete_data_path:
                 status_code, headers, body = stale_cached
                 _public_get_cache_stat("stale")
                 logger.info("public_get_response_cache_stale_hit path=%s key=%s bytes=%s reason=inflight_wait", request.url.path, cache_key_hash, len(body))
@@ -3342,7 +3354,7 @@ async def public_get_response_cache(request: Request, call_next):
             with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
                 _PUBLIC_GET_RESPONSE_INFLIGHT.pop(cache_key, None)
             inflight_event.set()
-        if cache_key and response.status_code == 503 and stale_cached is not None:
+        if cache_key and response.status_code == 503 and stale_cached is not None and not complete_data_path:
             status_code, headers, body = stale_cached
             _public_get_cache_stat("stale")
             logger.info("public_get_response_cache_stale_hit path=%s key=%s bytes=%s reason=downstream_503", request.url.path, cache_key_hash, len(body))
@@ -5772,9 +5784,9 @@ def _ticker_context_bundle_stale_ttl_seconds() -> int:
 
 def _ticker_context_bundle_coalesce_wait_seconds() -> float:
     try:
-        return max(0.1, min(float(os.getenv("TICKER_CONTEXT_BUNDLE_COALESCE_WAIT_SECONDS", "2.0") or 2.0), 5.0))
+        return max(0.1, min(float(os.getenv("TICKER_CONTEXT_BUNDLE_COALESCE_WAIT_SECONDS", "4.0") or 4.0), 8.0))
     except ValueError:
-        return 2.0
+        return 4.0
 
 
 def _ticker_context_bundle_max_concurrent_builds() -> int:
@@ -5816,6 +5828,10 @@ def _ticker_context_bundle_memory_cache_get(
         if expires_at_ts <= now_ts:
             _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
             return None
+        if stale_after_ts <= now_ts:
+            _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
+            logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s source=memory reason=stale_after", symbol, user_segment)
+            return None
         result = copy.deepcopy(payload)
         if not _ticker_context_bundle_cache_payload_is_complete(result):
             _TICKER_CONTEXT_BUNDLE_MEMORY_CACHE.pop(cache_key, None)
@@ -5823,8 +5839,7 @@ def _ticker_context_bundle_memory_cache_get(
             return None
 
     logger.info(
-        "ticker_bundle_cache_%s symbol=%s user_segment=%s source=memory duration_ms=%.1f",
-        "stale_hit" if stale_after_ts <= now_ts else "hit",
+        "ticker_bundle_cache_hit symbol=%s user_segment=%s source=memory duration_ms=%.1f",
         symbol,
         user_segment,
         (perf_counter() - started_at) * 1000,
@@ -5944,10 +5959,11 @@ def _ticker_context_bundle_cache_get(
     stale_after = row.stale_after
     if stale_after.tzinfo is None:
         stale_after = stale_after.replace(tzinfo=timezone.utc)
-    stale = stale_after <= now
+    if stale_after <= now:
+        logger.info("ticker_bundle_cache_miss symbol=%s user_segment=%s reason=stale_after", symbol, user_segment)
+        return None
     logger.info(
-        "ticker_bundle_cache_%s symbol=%s user_segment=%s duration_ms=%.1f",
-        "stale_hit" if stale else "hit",
+        "ticker_bundle_cache_hit symbol=%s user_segment=%s duration_ms=%.1f",
         symbol,
         user_segment,
         (perf_counter() - started_at) * 1000,

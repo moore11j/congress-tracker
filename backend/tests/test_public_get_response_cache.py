@@ -10,6 +10,7 @@ from app.main import (
     _PUBLIC_GET_RESPONSE_CACHE,
     _PUBLIC_GET_RESPONSE_CACHE_LOCK,
     _PUBLIC_GET_RESPONSE_INFLIGHT,
+    _is_public_get_complete_data_path,
     _is_public_get_cacheable_path,
     _public_get_cache_key,
     public_get_response_cache,
@@ -51,6 +52,18 @@ def test_public_get_response_cache_allowlist_only_market_data_paths():
     assert not _is_public_get_cacheable_path("/api/watchlists")
     assert not _is_public_get_cacheable_path("/api/signals/all")
     assert not _is_public_get_cacheable_path("/api/admin/settings")
+
+
+def test_public_get_complete_data_paths_do_not_allow_stale_fallback():
+    assert _is_public_get_complete_data_path("/api/feed")
+    assert _is_public_get_complete_data_path("/api/events")
+    assert _is_public_get_complete_data_path("/api/tickers/AAPL/signals-summary")
+    assert _is_public_get_complete_data_path("/api/tickers/NVDA/government-contracts")
+
+    assert not _is_public_get_complete_data_path("/api/plan-config")
+    assert not _is_public_get_complete_data_path("/api/search/suggest")
+    assert not _is_public_get_complete_data_path("/api/tickers/AAPL")
+    assert not _is_public_get_complete_data_path("/api/tickers/AAPL/chart-bundle")
 
 
 def test_public_get_response_cache_key_skips_user_specific_and_prefetch_variants():
@@ -113,7 +126,7 @@ def test_public_events_cache_key_normalizes_equivalent_query_variants():
     assert symbol_a == symbol_b
 
 
-def test_public_get_response_cache_serves_stale_payload_on_downstream_503(monkeypatch):
+def test_public_get_response_cache_does_not_serve_stale_events_on_downstream_503(monkeypatch):
     monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_STALE_SECONDS", "120")
     request = _request(
         "/api/events?limit=50&enrich_prices=1",
@@ -123,6 +136,42 @@ def test_public_get_response_cache_serves_stale_payload_on_downstream_503(monkey
     assert cache_key is not None
 
     stale_body = b'{"items":[{"id":1,"gain_loss_status":"ok","gain_loss_percent":9.4}],"limit":50}'
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+        _PUBLIC_GET_RESPONSE_CACHE[cache_key] = (
+            time.time() - 1,
+            200,
+            {"content-type": "application/json"},
+            stale_body,
+        )
+
+    async def call_next(_request):
+        return JSONResponse(
+            status_code=503,
+            content={"reason": "heavy_route_saturated"},
+        )
+
+    response = asyncio.run(public_get_response_cache(request, call_next))
+
+    assert response.status_code == 503
+    assert response.body != stale_body
+
+    with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
+        _PUBLIC_GET_RESPONSE_CACHE.clear()
+        _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
+
+
+def test_public_get_response_cache_serves_stale_noncritical_payload_on_downstream_503(monkeypatch):
+    monkeypatch.setenv("PUBLIC_GET_RESPONSE_CACHE_STALE_SECONDS", "120")
+    request = _request(
+        "/api/plan-config",
+        headers={"User-Agent": "k6/0.49.0", "X-Walnut-Request-Source": "load_test"},
+    )
+    cache_key = _public_get_cache_key(request)
+    assert cache_key is not None
+
+    stale_body = b'{"plans":[]}'
     with _PUBLIC_GET_RESPONSE_CACHE_LOCK:
         _PUBLIC_GET_RESPONSE_CACHE.clear()
         _PUBLIC_GET_RESPONSE_INFLIGHT.clear()
