@@ -642,7 +642,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
     force: digestForce,
   });
 
-  const sendDigestTest = async (kind: "watchlist_activity" | "monitoring" | "billing") => {
+  const sendDigestTest = async (kind: "watchlist_activity" | "monitoring" | "signals" | "billing") => {
     setBusy(true);
     setStatus(null);
     try {
@@ -1005,7 +1005,7 @@ export function AdminEmailTemplatesView({ showToast }: AdminToastApi) {
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => sendDigestTest("monitoring")}
+            onClick={() => sendDigestTest("signals")}
             disabled={busy}
             className="rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
           >

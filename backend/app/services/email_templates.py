@@ -482,6 +482,14 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             "cautions",
             "signals_text",
             "signals_html",
+            "congress_trades_text",
+            "congress_trades_html",
+            "insider_trades_text",
+            "insider_trades_html",
+            "government_contracts_text",
+            "government_contracts_html",
+            "institutional_activity_text",
+            "institutional_activity_html",
             "upcoming_events_text",
             "upcoming_events_html",
             "calendar_alert_filters_text",
@@ -494,6 +502,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
                 "Ticker: {{ticker}}\nSignal score: {{signal_score}}\nDirection: {{direction}}\nWhy notable: {{why_notable}}\nSource stack: {{source_stack}}",
                 "Monitoring candidates are research inputs, not recommendations. {{cautions}}",
                 "{{signals_text}}",
+                "{{congress_trades_text}}",
+                "{{insider_trades_text}}",
+                "{{government_contracts_text}}",
+                "{{institutional_activity_text}}",
                 "Calendar alert filters: {{calendar_alert_filters_text}}",
                 "{{upcoming_events_text}}",
             ],
@@ -518,6 +530,10 @@ DEFAULT_TEMPLATES: tuple[dict[str, Any], ...] = (
             )
             + walnut_info_card("Research caution", "Monitoring candidates are research inputs, not recommendations. {{cautions}}")
             + "{{{signals_html}}}"
+            + "{{{congress_trades_html}}}"
+            + "{{{insider_trades_html}}}"
+            + "{{{government_contracts_html}}}"
+            + "{{{institutional_activity_html}}}"
             + walnut_info_card("Calendar alert filters", "{{calendar_alert_filters_text}}")
             + "{{{upcoming_events_html}}}",
             cta_label="{{signal_cta_label}}",

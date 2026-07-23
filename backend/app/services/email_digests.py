@@ -37,7 +37,7 @@ from app.services.email_templates import reset_email_template_to_default, seed_d
 from app.services.event_calendar import upcoming_event_calendar_items
 from app.services.fmp_news import get_press_releases, get_stock_news
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
-from app.services.monitoring_titles import resolve_insider_name
+from app.services.monitoring_titles import normalize_trade_side, resolve_insider_name
 from app.services.notifications import normalize_alert_triggers
 from app.services.price_lookup import is_market_trading_day
 
@@ -110,6 +110,7 @@ WATCHLIST_FETCH_LIMIT = 25
 WATCHLIST_MARKET_NEWS_DISPLAY_LIMIT = 8
 WATCHLIST_MARKET_NEWS_PER_SYMBOL_LIMIT = 3
 SIGNAL_DISPLAY_LIMIT = 10
+SIGNAL_ACTIVITY_SECTION_LIMIT = 8
 SIGNAL_ALLOWED_DIRECTIONS = {"bullish", "bearish", "mixed", "neutral"}
 SIGNAL_REFRESH_TOKENS = ("refresh", "refreshed", "status", "sync", "screen refreshed")
 CALENDAR_EVENT_KINDS = ("economic", "earnings", "dividend", "ipo", "split")
@@ -287,43 +288,7 @@ def send_monitoring_digest(
     window_end: datetime | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    template_key = "alerts.monitoring_digest"
-    window_end = window_end or datetime.now(timezone.utc)
-    subscription = _watchlist_subscription(db, user, watchlist)
-    skip = _alert_skip_reason(user, "watchlist_activity")
-    only_if_new = True if subscription is None else bool(subscription.only_if_new)
-    if skip is None and subscription is None and not force:
-        skip = "watchlist_digest_inactive"
-    if skip is None and subscription is not None and not subscription.active and not force:
-        skip = "watchlist_digest_inactive"
-    if skip is None and subscription is not None and not _subscription_daily_digest_enabled(subscription) and not force:
-        skip = "watchlist_daily_digest_disabled"
-    digest = build_monitoring_digest(db, user, watchlist, since, window_end=window_end)
-    idempotency_key = None if force else _digest_key(template_key, user.id, watchlist.id, since, window_end)
-    duplicate = _duplicate_digest_result(db, idempotency_key)
-    if duplicate:
-        return _with_digest_meta(duplicate, digest, since, window_end, idempotency_key)
-    if skip is not None:
-        return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason=skip),
-            digest,
-            since,
-            window_end,
-            idempotency_key,
-        )
-    if only_if_new and digest.items_count == 0 and not force:
-        return _with_digest_meta(
-            _log_skip(db, user=user, template_key=template_key, category="alerts", context=digest.context, idempotency_key=idempotency_key, reason="no_new_items"),
-            digest,
-            since,
-            window_end,
-            idempotency_key,
-        )
-    result = _send_digest(db, user=user, digest=digest, category="alerts", idempotency_key=idempotency_key)
-    if result.get("status") in SEND_LIKE_STATUSES and subscription is not None:
-        subscription.last_delivered_at = window_end
-        db.commit()
-    return _with_digest_meta(result, digest, since, window_end, idempotency_key)
+    return send_signal_alert_digest(db, user, since, window_end=window_end, force=force)
 
 
 def build_signal_alert_digest(
@@ -335,6 +300,7 @@ def build_signal_alert_digest(
 ) -> DigestBuild:
     alert_rows = _signal_monitoring_alerts(db, user, since=since, limit=SIGNAL_DISPLAY_LIMIT)
     confirmation_rows = _signal_confirmation_events(db, user, since=since, watchlist=watchlist, limit=SIGNAL_DISPLAY_LIMIT)
+    activity_sections = _signal_activity_sections(db, alert_rows)
     # The public Monitoring digest is a qualified ranked board. Candidates may
     # originate from MonitoringAlert rows, but broken or internal
     # monitoring changes are gated out before they reach public email content.
@@ -371,6 +337,14 @@ def build_signal_alert_digest(
             "cautions": "Review source context before acting.",
             "signals_text": _signal_items_text(items),
             "signals_html": _signal_items_html(items),
+            "congress_trades_text": _activity_items_text("Congress trades", activity_sections["congress_trades"]),
+            "congress_trades_html": _activity_items_html("Congress trades", activity_sections["congress_trades"]),
+            "insider_trades_text": _activity_items_text("Insider trades", activity_sections["insider_trades"]),
+            "insider_trades_html": _activity_items_html("Insider trades", activity_sections["insider_trades"]),
+            "government_contracts_text": _activity_items_text("Government contracts", activity_sections["government_contracts"]),
+            "government_contracts_html": _activity_items_html("Government contracts", activity_sections["government_contracts"]),
+            "institutional_activity_text": _activity_items_text("Institutional activity", activity_sections["institutional_activity"]),
+            "institutional_activity_html": _activity_items_html("Institutional activity", activity_sections["institutional_activity"]),
             "upcoming_events_text": _calendar_items_text(upcoming_events),
             "upcoming_events_html": _calendar_items_html(upcoming_events),
             "calendar_alert_filters_text": calendar_filters_text,
@@ -461,6 +435,12 @@ def run_digest_job(
             return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
         return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
 
+    if kind == "monitoring":
+        users = _eligible_monitoring_digest_users(db, limit=limit)
+        if dry_run:
+            return [_preview_signal_alert_digest(db, user, since, window_end, force=force) for user in users]
+        return [send_signal_alert_digest(db, user, since, window_end=window_end, force=force) for user in users]
+
     subscriptions = (
         db.execute(
             select(NotificationSubscription)
@@ -479,12 +459,6 @@ def run_digest_job(
         watchlist = db.get(Watchlist, watchlist_id) if watchlist_id is not None else None
         if not user or not watchlist:
             continue
-        if kind == "monitoring":
-            results.append(
-                _preview_monitoring_digest(db, user, watchlist, since, window_end, force=force)
-                if dry_run
-                else send_monitoring_digest(db, user, watchlist, since, window_end=window_end, force=force)
-            )
         if kind == "watchlist_activity":
             results.append(
                 _preview_watchlist_activity_digest(db, user, watchlist, since, window_end, force=force)
@@ -681,6 +655,8 @@ def _template(db: Session, template_key: str) -> EmailTemplate:
         if template_key == "alerts.signal_alert" and template.preheader == "Your ranked signal candidates.":
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_alert" and "calendar_alert_filters_text" not in (template.variables_json or ""):
+            template = reset_email_template_to_default(db, template_key) or template
+        if template_key == "alerts.signal_alert" and "congress_trades_html" not in (template.variables_json or ""):
             template = reset_email_template_to_default(db, template_key) or template
         if template_key == "alerts.signal_intraday" and template.name == "Intraday signal alert":
             template = reset_email_template_to_default(db, template_key) or template
@@ -950,7 +926,7 @@ def _eligible_monitoring_digest_users(db: Session, *, limit: int) -> list[UserAc
             .scalars()
             .all()
         )
-        if not subscriptions or any(_subscription_daily_digest_enabled(subscription) for subscription in subscriptions):
+        if any(_subscription_daily_digest_enabled(subscription) for subscription in subscriptions):
             eligible.append(user)
     return eligible
 
@@ -1320,6 +1296,190 @@ def _event_actor(event: Event, payload: dict[str, Any]) -> str:
     return _clean_text(event.member_name) or _clean_text(payload.get("actor")) or _clean_text(event.source) or "Unavailable"
 
 
+def _signal_activity_sections(db: Session, alerts: list[MonitoringAlert]) -> dict[str, list[dict[str, Any]]]:
+    sections: dict[str, list[dict[str, Any]]] = {
+        "congress_trades": [],
+        "insider_trades": [],
+        "government_contracts": [],
+        "institutional_activity": [],
+    }
+    event_ids = sorted({alert.event_id for alert in alerts if alert.event_id})
+    if not event_ids:
+        return sections
+    events = db.execute(select(Event).where(Event.id.in_(event_ids))).scalars().all()
+    event_by_id = {event.id: event for event in events}
+    seen: set[int] = set()
+    for alert in sorted(alerts, key=lambda row: _coerce_aware(row.event_created_at).isoformat() if row.event_created_at else "", reverse=True):
+        if alert.event_id in seen:
+            continue
+        event = event_by_id.get(alert.event_id)
+        if event is None:
+            continue
+        section = _signal_activity_section_key(event.event_type)
+        if section is None or len(sections[section]) >= SIGNAL_ACTIVITY_SECTION_LIMIT:
+            continue
+        item = _activity_item_from_event(event)
+        if item:
+            sections[section].append(item)
+            seen.add(alert.event_id)
+    return sections
+
+
+def _signal_activity_section_key(event_type: str | None) -> str | None:
+    normalized = (event_type or "").strip().lower()
+    if normalized.startswith("congress_trade"):
+        return "congress_trades"
+    if normalized.startswith("insider_trade"):
+        return "insider_trades"
+    if normalized in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        return "government_contracts"
+    if normalized in INSTITUTIONAL_ALERT_TYPES or normalized == "institutional_activity_change":
+        return "institutional_activity"
+    return None
+
+
+def _activity_item_from_event(event: Event) -> dict[str, Any]:
+    payload = _loads_dict(event.payload_json)
+    return {
+        "date": _format_date(event.event_date or event.ts),
+        "name": _activity_actor(event, payload),
+        "ticker": _normalize_ticker(event.symbol or payload.get("symbol") or payload.get("ticker")),
+        "action": _activity_action(event, payload),
+        "value": _activity_value(event, payload),
+        "trade_price": _activity_trade_price(payload),
+        "sort_timestamp": _coerce_aware(event.event_date or event.ts).isoformat() if (event.event_date or event.ts) else "",
+    }
+
+
+def _activity_actor(event: Event, payload: dict[str, Any]) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    normalized_type = (event.event_type or "").strip().lower()
+    if normalized_type.startswith("congress_trade"):
+        return _clean_text(event.member_name) or _clean_text(payload.get("member_name")) or _clean_text(payload.get("memberName")) or "Unavailable"
+    if normalized_type.startswith("insider_trade"):
+        return resolve_insider_name(payload, event_member_name=event.member_name) or "Unresolved insider"
+    if normalized_type in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        return (
+            _clean_text(payload.get("department"))
+            or _clean_text(payload.get("awarding_agency"))
+            or _clean_text(payload.get("awardingAgency"))
+            or _clean_text(payload.get("agency"))
+            or _clean_text(raw.get("awarding_agency"))
+            or _clean_text(raw.get("awardingAgency"))
+            or _clean_text(event.source)
+            or "Unavailable department"
+        )
+    if normalized_type in INSTITUTIONAL_ALERT_TYPES or normalized_type == "institutional_activity_change":
+        return (
+            _clean_text(payload.get("holder_name"))
+            or _clean_text(payload.get("holderName"))
+            or _clean_text(payload.get("institution_name"))
+            or _clean_text(payload.get("institutionName"))
+            or _clean_text(event.member_name)
+            or _clean_text(raw.get("holder_name"))
+            or "Institutional holder"
+        )
+    return _event_actor(event, payload)
+
+
+def _activity_action(event: Event, payload: dict[str, Any]) -> str:
+    normalized_type = (event.event_type or "").strip().lower()
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    side = normalize_trade_side(
+        event.trade_type,
+        event.transaction_type,
+        payload.get("trade_type"),
+        payload.get("tradeType"),
+        payload.get("transaction_type"),
+        payload.get("transactionType"),
+        payload.get("side"),
+        raw.get("transaction_type"),
+        raw.get("transactionType"),
+        raw.get("acquiredDisposedCode"),
+    )
+    if side:
+        return "Buy" if side == "purchase" else "Sell" if side == "sale" else side.title()
+    if normalized_type in GOVERNMENT_CONTRACT_ALERT_TYPES:
+        return "Award"
+    if normalized_type in {"new_institutional_position", "institutional_accumulation", "cluster_accumulation", "contrarian_accumulation", "smart_money_confirmation"}:
+        return "Buy"
+    if normalized_type in {"major_holder_exit", "institutional_distribution", "major_holder_reduction", "cluster_distribution"}:
+        return "Sell"
+    return _clean_text(event.trade_type) or _clean_text(event.transaction_type) or event.event_type.replace("_", " ").title()
+
+
+def _activity_value(event: Event, payload: dict[str, Any]) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    amount_min = event.amount_min if event.amount_min is not None else _intish(payload.get("amount_min") or payload.get("amountMin") or payload.get("amount_low") or payload.get("amountLow"))
+    amount_max = event.amount_max if event.amount_max is not None else _intish(
+        _first_present(
+            payload,
+            raw,
+            keys=(
+                "amount_max",
+                "amountMax",
+                "amount_high",
+                "amountHigh",
+                "value",
+                "value_usd",
+                "valueUsd",
+                "reported_value_usd",
+                "reportedValueUsd",
+                "value_delta_usd",
+                "valueDeltaUsd",
+                "award_amount",
+                "awardAmount",
+            ),
+        )
+    )
+    return _amount(amount_min, amount_max)
+
+
+def _activity_trade_price(payload: dict[str, Any]) -> str:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    value = _first_present(
+        payload,
+        raw,
+        keys=(
+            "trade_price",
+            "tradePrice",
+            "price_per_share",
+            "pricePerShare",
+            "transaction_price",
+            "transactionPrice",
+            "transactionPricePerShare",
+            "share_price",
+            "sharePrice",
+        ),
+    )
+    if value is None:
+        return "--"
+    try:
+        number = float(str(value).replace("$", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text or "--"
+    return f"${number:,.2f}"
+
+
+def _first_present(*sources: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, ""):
+                return value
+    return None
+
+
+def _intish(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(str(value).replace("$", "").replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return None
+
+
 def _monitoring_item(event: ConfirmationMonitoringEvent) -> dict[str, Any]:
     payload = _loads_dict(event.payload_json)
     score = event.score_after
@@ -1378,7 +1538,12 @@ def _signal_alert_item(alert: MonitoringAlert) -> dict[str, Any]:
         or event_payload.get("direction")
     )
     why_notable = _clean_text(alert.title) or _clean_text(alert.body) or alert.alert_type.replace("_", " ")
-    source_stack = _clean_text(payload.get("source_stack")) or _clean_text(alert.source_name) or alert.source_type.replace("_", " ")
+    source_stack = _signal_source_label(
+        source_type=alert.source_type,
+        source_name=alert.source_name,
+        direction=direction,
+        fallback=_clean_text(payload.get("source_stack")),
+    )
     return {
         "ticker": ticker,
         "company_name": _clean_text(payload.get("company_name")) or _clean_text(event_payload.get("company_name")) or _clean_text(after.get("company_name")),
@@ -1407,8 +1572,8 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "company_name": None,
         "signal_score": _numeric_score(score),
         "direction": _normalize_direction(event.direction_after),
-        "why_notable": event.title or event.event_type.replace("_", " "),
-        "source_stack": "Confirmation monitoring",
+        "why_notable": _confirmation_signal_reason(event),
+        "source_stack": _confirmation_screen_label(event.direction_after),
         "cautions": "Review source context before acting.",
         "date": _format_date(event.created_at),
         "latest_event_date": _format_date(event.created_at),
@@ -1420,6 +1585,39 @@ def _confirmation_signal_item(event: ConfirmationMonitoringEvent) -> dict[str, A
         "trigger": _daily_signal_trigger(event.event_type, {}, score, source_type="confirmation_monitoring"),
         "watchlist_boost": event.watchlist_id is not None,
     }
+
+
+def _confirmation_signal_reason(event: ConfirmationMonitoringEvent) -> str:
+    score = _score_change(event.score_before, event.score_after)
+    direction = _direction_change(event.direction_before, event.direction_after)
+    source_count = _score_change(event.source_count_before, event.source_count_after)
+    body = _clean_text(event.body)
+    title = _clean_text(event.title) or event.event_type.replace("_", " ")
+    parts = [title, f"Score {score}", f"direction {direction}", f"sources {source_count}"]
+    if body and body.lower() not in title.lower():
+        parts.append(body)
+    return "; ".join(parts)
+
+
+def _confirmation_screen_label(direction: Any) -> str:
+    normalized = _normalize_direction(direction)
+    if normalized in {"bullish", "bearish"}:
+        return f"{normalized.title()} confirmation screen"
+    return "Confirmation screen"
+
+
+def _signal_source_label(*, source_type: str, source_name: str | None, direction: Any, fallback: str | None) -> str:
+    if source_type == "saved_screen":
+        if fallback and fallback.strip().lower() not in {"confirmation monitoring", "saved screen", "screen"}:
+            return fallback
+        name = _clean_text(source_name) or fallback
+        if name:
+            if "screen" in name.lower():
+                return name
+            if "confirmation" in name.lower():
+                return f"{name} screen"
+        return _confirmation_screen_label(direction)
+    return fallback or _clean_text(source_name) or source_type.replace("_", " ")
 
 
 def _signal_monitoring_alerts(db: Session, user: UserAccount, *, since: datetime, limit: int) -> list[MonitoringAlert]:
@@ -1847,6 +2045,40 @@ def _signal_items_html(items: list[dict[str, Any]]) -> str:
         if item
     )
     return _table(["Ticker", "Score", "Direction", "Why", "Source", "Link"], rows)
+
+
+def _activity_items_text(title: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    lines = [title]
+    for item in items[:SIGNAL_ACTIVITY_SECTION_LIMIT]:
+        price = f" | trade price {item['trade_price']}" if item.get("trade_price") and item.get("trade_price") != "--" else ""
+        lines.append(
+            f"- {item['date']} | {item['name']} | {item['ticker']} | {item['action']} | {item['value']}{price}"
+        )
+    return "\n".join(lines)
+
+
+def _activity_items_html(title: str, items: list[dict[str, Any]]) -> str:
+    if not items:
+        return ""
+    rows = "".join(
+        "<tr>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item['date']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['name']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;\">{html_escape(str(item['ticker']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;\">{html_escape(str(item['action']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item['value']))}</td>"
+        f"<td style=\"padding:10px;border-bottom:1px solid #e2e8f0;color:#334155;white-space:nowrap;\">{html_escape(str(item['trade_price']))}</td>"
+        "</tr>"
+        for item in items[:SIGNAL_ACTIVITY_SECTION_LIMIT]
+    )
+    return (
+        "<div style=\"margin-top:22px;font-family:Arial,Helvetica,sans-serif;\">"
+        f"<h3 style=\"margin:0 0 10px 0;font-size:16px;line-height:22px;color:#0f172a;\">{html_escape(title)}</h3>"
+        f"{_table(['Date', 'Name', 'Ticker', 'Action', 'Value', 'Trade price'], rows)}"
+        "</div>"
+    )
 
 
 def _calendar_items_text(items: list[dict[str, Any]]) -> str:

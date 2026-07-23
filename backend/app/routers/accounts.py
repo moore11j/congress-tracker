@@ -76,7 +76,6 @@ from app.services.email_delivery import email_delivery_enabled, send_email
 from app.services.email_digests import (
     DEFAULT_DIGEST_TIMEZONE,
     run_digest_job,
-    send_monitoring_digest,
     send_monthly_billing_statement,
     send_signal_alert_digest,
     send_watchlist_activity_digest,
@@ -6766,8 +6765,7 @@ def admin_send_monitoring_digest_test(
 ):
     admin = require_admin_user(db, request)
     user = _admin_digest_user(db, payload, admin)
-    watchlist = _admin_digest_watchlist(db, user, payload.watchlist_id)
-    return send_monitoring_digest(db, user, watchlist, _admin_digest_since(payload), force=payload.force)
+    return send_signal_alert_digest(db, user, _admin_digest_since(payload), force=payload.force)
 
 
 @router.post("/admin/email/digests/signals/send-test", dependencies=[Depends(rate_limit_admin_mutation)])

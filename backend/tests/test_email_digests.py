@@ -584,7 +584,7 @@ def test_watchlist_digest_idempotency_prevents_duplicate_delivery_rows(monkeypat
         db.close()
 
 
-def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
+def test_monitoring_digest_send_wrapper_targets_ranked_digest(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
     monkeypatch.delenv("POSTMARK_SERVER_TOKEN", raising=False)
@@ -598,13 +598,13 @@ def test_monitoring_digest_includes_watchlist_monitoring_alert(monkeypatch):
 
         assert result["status"] == "log_only"
         assert result["item_count"] == 1
-        assert result["template_key"] == "alerts.monitoring_digest"
-        assert result["rendered_preview"]["sample_items"][0]["title"] == "NVDA has fresh monitored activity"
+        assert result["template_key"] == "alerts.signal_alert"
+        assert result["rendered_preview"]["sample_items"][0]["why_notable"] == "NVDA has fresh monitored activity"
     finally:
         db.close()
 
 
-def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
+def test_monitoring_digest_send_wrapper_uses_ranked_template_sender(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
     monkeypatch.setenv("POSTMARK_SERVER_TOKEN", "server-token")
@@ -621,7 +621,7 @@ def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
         user = _user(db, "monitoring-sender@example.com")
         watchlist = _watchlist(db, user)
         _monitoring_alert(db, user, watchlist, source_type="watchlist", alert_type="smart_score_threshold")
-        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.monitoring_digest")).scalar_one()
+        template = db.execute(select(EmailTemplate).where(EmailTemplate.template_key == "alerts.signal_alert")).scalar_one()
         template.from_email = "alerts@walnutmarkets.com"
         db.commit()
 
@@ -631,6 +631,7 @@ def test_monitoring_digest_uses_template_sender_over_alerts_env(monkeypatch):
         assert result["status"] == "sent"
         assert captured["From"] == "Walnut Alerts <alerts@walnutmarkets.com>"
         assert row.from_email == "alerts@walnutmarkets.com"
+        assert row.template_key == "alerts.signal_alert"
     finally:
         db.close()
 
@@ -688,7 +689,7 @@ def test_signal_digest_includes_saved_screen_monitoring_alert(monkeypatch):
 
         assert result["status"] == "log_only"
         assert result["item_count"] >= 1
-        assert any(item["source_stack"] == watchlist.name for item in result["rendered_preview"]["sample_items"])
+        assert any(item["source_stack"] == "Bullish confirmation screen" for item in result["rendered_preview"]["sample_items"])
     finally:
         db.close()
 
@@ -1014,6 +1015,72 @@ def test_signal_digest_includes_source_monitoring_alert_without_score():
         db.close()
 
 
+def test_ranked_monitoring_digest_labels_confirmation_screen_and_groups_activity_sections():
+    db = _session()
+    try:
+        user = _user(db, "signal-activity-sections@example.com", tier="pro")
+        watchlist = _watchlist(db, user)
+        _confirmation_event(db, user, watchlist, ticker="TSM", score_after=90)
+        congress = _bare_event(
+            db,
+            symbol="NVDA",
+            event_type="congress_trade",
+            member_name="Rep. Example",
+            payload={"trade_price": 125.25, "smart_score": 88},
+            amount_max=50_000,
+        )
+        insider = _bare_event(
+            db,
+            symbol="MSFT",
+            event_type="insider_trade",
+            member_name="Jane CFO",
+            payload={"raw": {"reportingName": "Jane CFO", "transactionPricePerShare": "88.50"}, "direction": "bearish"},
+            amount_max=2_500_000,
+        )
+        contract = _bare_event(
+            db,
+            symbol="LMT",
+            event_type="government_contract",
+            payload={"awarding_agency": "Department of Defense", "direction": "bullish"},
+            amount_max=25_000_000,
+        )
+        institutional = _bare_event(
+            db,
+            symbol="AMD",
+            event_type="institutional_accumulation",
+            member_name="Blue Ridge Capital",
+            payload={"holder_name": "Blue Ridge Capital", "direction": "bullish", "value_delta_usd": 10_000_000},
+        )
+        for event in (congress, insider, contract, institutional):
+            _monitoring_alert(
+                db,
+                user,
+                watchlist,
+                source_type="watchlist",
+                alert_type=event.event_type,
+                event_id=event.id,
+                symbol=event.symbol or "NVDA",
+                title=f"{event.symbol} monitored activity",
+                payload={"direction": "bullish"},
+            )
+
+        digest = build_signal_alert_digest(db, user, datetime.now(timezone.utc) - timedelta(days=1))
+
+        tsm = next(item for item in digest.items if item["ticker"] == "TSM")
+        assert tsm["source_stack"] == "Bullish confirmation screen"
+        assert "Score 50 -> 90" in tsm["why_notable"]
+        assert "Rep. Example" in digest.context["congress_trades_html"]
+        assert "$125.25" in digest.context["congress_trades_html"]
+        assert "Jane CFO" in digest.context["insider_trades_html"]
+        assert "$88.50" in digest.context["insider_trades_html"]
+        assert "Department of Defense" in digest.context["government_contracts_html"]
+        assert "$25,000,000" in digest.context["government_contracts_html"]
+        assert "Blue Ridge Capital" in digest.context["institutional_activity_html"]
+        assert "$10,000,000" in digest.context["institutional_activity_html"]
+    finally:
+        db.close()
+
+
 def test_signal_digest_scheduled_send_skips_when_no_qualified_signals(monkeypatch):
     monkeypatch.setenv("EMAIL_PROVIDER", "postmark")
     monkeypatch.setenv("EMAIL_DELIVERY_ENABLED", "true")
@@ -1073,7 +1140,7 @@ def test_admin_monitoring_digest_run_now_reports_watchlist_monitoring_items():
         )
 
         assert result["summary"]["qualified_count"] == 1
-        assert result["items"][0]["template_key"] == "alerts.monitoring_digest"
+        assert result["items"][0]["template_key"] == "alerts.signal_alert"
         assert result["items"][0]["item_count"] == 1
         assert result["items"][0]["rendered_preview"]["sample_items"][0]["ticker"] == "NBIS"
     finally:
@@ -1245,9 +1312,7 @@ def test_monitoring_digest_job_respects_daily_digest_subscription_flag():
 
         results = run_digest_job(db, kind="monitoring", lookback_days=1, dry_run=True)
 
-        assert len(results) == 1
-        assert results[0]["status"] == "skipped"
-        assert results[0]["error"] == "watchlist_daily_digest_disabled"
+        assert results == []
     finally:
         db.close()
 
@@ -1518,39 +1583,37 @@ def test_admin_digest_run_now_dry_run_requires_admin_and_returns_summary():
         db.close()
 
 
-def test_admin_monitoring_digest_endpoint_targets_watchlist_digest(monkeypatch):
+def test_admin_monitoring_digest_endpoint_targets_ranked_digest(monkeypatch):
     db = _session()
     try:
         admin = _user(db, "admin@example.com", role="admin")
         user = _user(db, "reader@example.com")
-        watchlist = _watchlist(db, user)
         calls = []
 
-        def fake_send(db_arg, user_arg, watchlist_arg, since_arg, force=False):
-            calls.append((user_arg.id, watchlist_arg.id, since_arg, force))
+        def fake_send(db_arg, user_arg, since_arg, force=False):
+            calls.append((user_arg.id, since_arg, force))
             return {
                 "id": 123,
                 "status": "log_only",
                 "provider": "postmark",
                 "provider_message_id": None,
-                "template_key": "alerts.monitoring_digest",
+                "template_key": "alerts.signal_alert",
                 "category": "alerts",
                 "to_email": user_arg.email,
                 "error": None,
             }
 
-        monkeypatch.setattr("app.routers.accounts.send_monitoring_digest", fake_send)
+        monkeypatch.setattr("app.routers.accounts.send_signal_alert_digest", fake_send)
         result = admin_send_monitoring_digest_test(
-            AdminDigestSendTestPayload(user_id=user.id, watchlist_id=watchlist.id, lookback_days=7, force=True),
+            AdminDigestSendTestPayload(user_id=user.id, lookback_days=7, force=True),
             _request_for_user(admin),
             db,
         )
 
-        assert result["template_key"] == "alerts.monitoring_digest"
+        assert result["template_key"] == "alerts.signal_alert"
         assert len(calls) == 1
         assert calls[0][0] == user.id
-        assert calls[0][1] == watchlist.id
-        assert calls[0][3] is True
+        assert calls[0][2] is True
     finally:
         db.close()
 
