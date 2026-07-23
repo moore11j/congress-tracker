@@ -1334,6 +1334,7 @@ def _opportunity_assets(
     include_download_urls: bool = False,
 ) -> list[dict[str, Any]]:
     assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
+    assets = _prefer_generated_thumbnail_assets(assets)
     if not include_download_urls:
         return assets
     decorated: list[dict[str, Any]] = []
@@ -1343,6 +1344,38 @@ def _opportunity_assets(
             next_asset["download_url"] = f"/api/admin/ai-growth/drafts/{opportunity.id}/assets/{index}/download"
         decorated.append(next_asset)
     return decorated
+
+
+def _prefer_generated_thumbnail_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    generated = [
+        asset
+        for asset in assets
+        if str(asset.get("template") or "") == "generated_thumbnail"
+        and _asset_data_uri(asset).lower().startswith("data:image/jpeg")
+    ]
+    if not generated:
+        return assets
+    generated_keys = {(str(asset.get("url") or ""), str(asset.get("thumbnail_url") or "")) for asset in generated}
+    filtered = []
+    for asset in assets:
+        key = (str(asset.get("url") or ""), str(asset.get("thumbnail_url") or ""))
+        if key in generated_keys:
+            continue
+        if _is_legacy_generated_draft_card(asset):
+            continue
+        filtered.append(asset)
+    return [*generated, *filtered]
+
+
+def _is_legacy_generated_draft_card(asset: dict[str, Any]) -> bool:
+    template = str(asset.get("template") or "")
+    card_type = str(asset.get("card_type") or "")
+    data_uri = _asset_data_uri(asset).lower()
+    return (
+        data_uri.startswith("data:image/svg+xml")
+        and template in SOCIAL_CARD_TEMPLATES
+        and card_type in SOCIAL_CARD_TYPES
+    )
 
 
 def ai_growth_asset_download(
@@ -2845,6 +2878,10 @@ def _article_candidate_to_source_item(
             }
         },
     }
+    should_seed_legacy_card = (
+        _article_campaign_pref(campaign, "include_image_card", True)
+        and not marketing_image_generation_enabled()
+    )
     return SourceItem(
         platform="x",
         source_id=f"fmp:{candidate.dedupe_hash}",
@@ -2857,7 +2894,7 @@ def _article_candidate_to_source_item(
         ticker_theme=ticker_theme,
         recommended_action="draft_post",
         fit_score=int(scoring["final_score"]),
-        assets=[_article_card_asset(candidate, scoring)] if _article_campaign_pref(campaign, "include_image_card", True) else [],
+        assets=[_article_card_asset(candidate, scoring)] if should_seed_legacy_card else [],
         excerpt=candidate.summary,
         source_created_at=candidate.published_at,
         metadata=metadata,
@@ -4646,7 +4683,9 @@ def generate_suggestion(
     opportunity.quality_scores_json = _dump_object(structured["quality_scores"])
     opportunity.source_notes_json = _dump_json_list(structured["source_notes"])
     opportunity.missing_data_notes_json = _dump_json_list(structured["missing_data_notes"])
-    opportunity.asset_refs_json = _dump_json_list(_normalize_assets(_load_json_list(opportunity.asset_refs_json) + structured["assets"]))
+    opportunity.asset_refs_json = _dump_json_list(
+        _prefer_generated_thumbnail_assets(_normalize_assets(_load_json_list(opportunity.asset_refs_json) + structured["assets"]))
+    )
     if structured["content_type"] == "reddit_thread":
         opportunity.status = "new" if structured["quality_gate_passed"] else "regeneration_needed"
     _clear_suggestion_failure(opportunity)

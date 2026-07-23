@@ -4,6 +4,7 @@ import base64
 import json
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
+from types import SimpleNamespace
 from urllib.parse import unquote
 
 import pytest
@@ -69,6 +70,9 @@ from app.services.ai_marketing import (
     _ensure_x_hashtags,
     _matched_tickers,
     _generated_thumbnail_asset,
+    _article_candidate_to_source_item,
+    _email_asset_attachments,
+    _opportunity_assets,
     _thumbnail_headline,
     _social_card_asset,
     create_email_action_token,
@@ -1807,6 +1811,78 @@ def test_generated_thumbnail_asset_uses_image_model_when_enabled(monkeypatch):
     assert "Do not render a source line" in asset["image_prompt"]
     assert "bearish confirmation is leading" in asset["image_prompt"]
     assert "Avoid: dashboard cards" in asset["image_prompt"]
+
+
+def test_article_reactive_source_item_skips_legacy_svg_when_image_generation_enabled(monkeypatch):
+    monkeypatch.setenv("AI_MARKETING_IMAGE_GENERATION_ENABLED", "true")
+    campaign = SimpleNamespace(
+        id=7,
+        default_destination_page="https://walnutmarkets.com",
+        output_preferences_json=json.dumps({}),
+        recipient_email="",
+    )
+    candidate = SimpleNamespace(
+        id=11,
+        dedupe_hash="article-hash",
+        title="NVDA AI demand drives market reaction",
+        url="https://example.com/nvda-ai",
+        site="Example",
+        summary="NVDA demand is moving semiconductor sentiment.",
+        published_at=datetime.now(timezone.utc),
+    )
+    scoring = {
+        "tickers": ["NVDA"],
+        "themes": ["ai infrastructure"],
+        "final_score": 91,
+        "walnut_context": {},
+        "clear_walnut_angle": True,
+    }
+
+    source_item = _article_candidate_to_source_item(candidate, scoring, campaign)
+
+    assert source_item.assets == []
+
+
+def test_generated_thumbnail_asset_replaces_legacy_svg_for_existing_article_drafts():
+    legacy = _social_card_asset(
+        _normalize_social_card_spec(
+            {
+                "card_type": "article_reactive",
+                "template": "article_reactive",
+                "ticker": "NVDA",
+                "headline": "NVDA article reaction",
+                "url": "https://walnutmarkets.com/ticker/NVDA",
+            },
+            fallback_card_type="article_reactive",
+            fallback_tickers=["NVDA"],
+            fallback_url="https://walnutmarkets.com/ticker/NVDA",
+        )
+    )
+    enhanced = {
+        "title": "Walnut generated thumbnail: NVDA article reaction",
+        "asset_type": "image",
+        "url": "data:image/jpeg;base64," + base64.b64encode(b"enhanced-jpg").decode("ascii"),
+        "thumbnail_url": "data:image/jpeg;base64," + base64.b64encode(b"enhanced-jpg").decode("ascii"),
+        "suggested_caption": "NVDA article reaction",
+        "source_data_notes": "Generated 16:9 Walnut Markets thumbnail with gpt-image-2.",
+        "template": "generated_thumbnail",
+        "card_type": "article_reactive",
+        "tone": "market-native",
+        "width": 1600,
+        "height": 900,
+    }
+    opportunity = SimpleNamespace(id=42, title="Article-Reactive X: NVDA", asset_refs_json=json.dumps([legacy]))
+    suggestion = SimpleNamespace(assets_json=json.dumps([enhanced]))
+
+    assets = _opportunity_assets(opportunity, suggestion=suggestion, include_download_urls=True)
+    attachments = _email_asset_attachments([opportunity], {42: suggestion})
+
+    assert [asset["template"] for asset in assets] == ["generated_thumbnail"]
+    assert assets[0]["download_url"] == "/api/admin/ai-growth/drafts/42/assets/0/download"
+    assert assets[0]["url"].startswith("data:image/jpeg;base64,")
+    assert attachments[0]["content_type"] == "image/jpeg"
+    assert attachments[0]["name"].endswith(".jpg")
+    assert attachments[0]["content"] == b"enhanced-jpg"
 
 
 def test_x_copy_normalizer_strips_hashtags_and_adds_cashtags():
