@@ -2100,6 +2100,7 @@ def test_ai_growth_regenerate_uses_change_request(monkeypatch):
             "ranked_bars",
             "bucket_breakdown",
             "data_sources",
+            "signal_stack",
             "comparison_card",
         ]
         assert schema["properties"]["suggested_post"]["maxLength"] == X_POST_CHARACTER_LIMIT

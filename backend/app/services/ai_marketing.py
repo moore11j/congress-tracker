@@ -2819,7 +2819,7 @@ def _x_visual_brief_data_uri(
                 f"<text x=\"{min(1380, 450 + bar_width)}\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text}</text>"
             )
         else:
-            bucket_width = 650 if chart_type in {"bucket_breakdown", "data_sources", "comparison_card"} else 520
+            bucket_width = 650 if chart_type in {"bucket_breakdown", "data_sources", "signal_stack", "comparison_card"} else 520
             bar = (
                 f"<rect x=\"430\" y=\"{y - 28}\" width=\"{bucket_width}\" height=\"34\" rx=\"8\" fill=\"#1f6f55\" opacity=\"0.72\"/>"
                 f"<text x=\"452\" y=\"{y - 5}\" fill=\"#d1fae5\" font-size=\"28\" font-family=\"Arial\" font-weight=\"700\">{value_text or 'Review'}</text>"
@@ -6371,7 +6371,7 @@ def _suggestion_json_schema() -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "chart_type": {"type": "string", "enum": ["ranked_bars", "bucket_breakdown", "data_sources", "comparison_card"]},
+                    "chart_type": {"type": "string", "enum": ["ranked_bars", "bucket_breakdown", "data_sources", "signal_stack", "comparison_card"]},
                     "metric_label": {"type": "string"},
                     "rows": {
                         "type": "array",
