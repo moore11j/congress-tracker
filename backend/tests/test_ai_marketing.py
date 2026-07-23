@@ -72,6 +72,7 @@ from app.services.ai_marketing import (
     _generated_thumbnail_asset,
     _article_candidate_to_source_item,
     _email_asset_attachments,
+    _normalize_fmp_article,
     _opportunity_assets,
     _thumbnail_headline,
     _social_card_asset,
@@ -2701,8 +2702,63 @@ def test_article_reactive_missing_fmp_key_returns_safe_config_error(monkeypatch)
         campaign = admin_ai_marketing_create_campaign(_article_campaign_payload(), _request_for_user(admin), db)
         result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
         assert result["status"] == "configuration_failed"
-        assert "FMP Articles API key missing" in result["errors"][0]
+        assert "Article feed credentials missing" in result["errors"][0]
+        assert "FMP" not in result["errors"][0]
         assert "apikey" not in json.dumps(result).lower()
+    finally:
+        db.close()
+
+
+def test_article_normalizer_rejects_financial_modeling_prep_owned_articles():
+    assert _normalize_fmp_article(
+        _fmp_article(
+            site="Financial Modeling Prep",
+            url="https://financialmodelingprep.com/market-news/hpe-ai-networking",
+        )
+    ) is None
+    assert _normalize_fmp_article(_fmp_article(site="FMP News")) is None
+    assert _normalize_fmp_article(_fmp_article(site="Example Markets")) is not None
+
+
+def test_article_reactive_campaign_only_reacts_to_third_party_article_sources(monkeypatch):
+    monkeypatch.setenv(FMP_API_KEY, "fmp-test")
+
+    class FakeFmpResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [
+                _fmp_article(
+                    id="fmp-owned-hpe",
+                    title="HPE AI networking shift draws attention",
+                    url="https://financialmodelingprep.com/market-news/hpe-ai-networking",
+                    site="Financial Modeling Prep",
+                    tickers=["HPE"],
+                ),
+                _fmp_article(
+                    id="third-party-nvda",
+                    title="Nvidia AI data center demand keeps semiconductor investors focused",
+                    url="https://example.com/nvda-ai",
+                    site="Example Markets",
+                    tickers=["NVDA"],
+                ),
+            ]
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.get", lambda *args, **kwargs: FakeFmpResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+        _seed_watchlist_context(db, "NVDA")
+        campaign = admin_ai_marketing_create_campaign(_article_campaign_payload(max_drafts_per_day=1), _request_for_user(admin), db)
+        result = admin_ai_marketing_run_campaign(campaign["id"], _request_for_user(admin), db)
+
+        assert result["drafts_generated"] == 1
+        assert db.query(AiMarketingArticleCandidate).count() == 1
+        opportunity = db.execute(select(AiMarketingOpportunity)).scalar_one()
+        assert "nvda-ai" in opportunity.source_url
+        assert "financialmodelingprep" not in json.dumps(result).lower()
+        assert result["opportunities"][0]["source_provider"] == "article_feed"
     finally:
         db.close()
 
@@ -2791,9 +2847,11 @@ def test_article_reactive_campaign_generates_draft_emails_and_enforces_daily_cap
             campaign_type=ARTICLE_REACTIVE_CAMPAIGN_TYPE,
             content_type="x_post",
             platform="x",
-            suggested_post="NVDA AI demand is the hook. The useful question is what confirms it across price, filings, disclosures, and Walnut signal context. $NVDA #AI",
-            alternate_hooks=["NVDA AI demand is a clean read-through."],
-            alternate_reply_more_direct="NVDA AI demand matters most when it confirms across disclosures and price.",
+            suggested_post="NVDA AI demand is the real setup. The market tell is whether price/volume confirms the data center demand shift. $NVDA #AI",
+            alternate_hooks=["NVDA AI demand is the setup to watch."],
+            alternate_reply_more_direct="NVDA AI demand is the real tell when disclosures and price confirm it.",
+            content_angle="NVDA AI demand is the setup; the market tell is confirmation.",
+            short_reason="The real setup is AI demand; the market tell is confirmation.",
             compliance_notes="Human review required. No investment advice.",
         ),
     )
@@ -2834,7 +2892,11 @@ def test_article_reactive_campaign_generates_draft_emails_and_enforces_daily_cap
         draft = payload["items"][0]
         assert draft["generated_content"]
         assert "$NVDA" in draft["generated_content"]
-        assert draft["assets"][0]["source_data_notes"].startswith("Source: FMP")
+        serialized_draft = json.dumps(draft).lower()
+        assert "real setup" not in serialized_draft
+        assert "market tell" not in serialized_draft
+        assert "business question" in serialized_draft
+        assert draft["assets"][0]["source_data_notes"].startswith("Source: linked article")
         assert draft["compliance_notes"]
     finally:
         db.close()

@@ -10,13 +10,13 @@
 - Sharp market participant voice: useful, concrete, concise, and non-spammy.
 - Lead with ticker-specific data, then explain why it matters.
 - Prefer one-line or two-line market takes.
-- Name the actual market tell instead of explaining the product.
+- Name the actual business driver, disclosure event, operating change, valuation issue, or data question instead of using abstract shorthand.
 - Use reported/disclosed/filed language for Congress, insider, and institutional data.
 - No hype, guarantees, buy/sell/short instructions, or spammy CTA language.
 
 ## Brand Idea
 
-The market has tells. We help find them.
+Markets leave evidence. Walnut helps organize it.
 
 ## Data Language
 
@@ -39,7 +39,7 @@ The market has tells. We help find them.
 - Double-check numbers and dates against the provided context before using them.
 - Do not use stale figures.
 - If recency or freshness is unclear, say what is missing instead of inventing current numbers.
-- Draft like high-signal market tape:
+- Draft like high-signal market commentary:
   - one factual hook
   - one sourced stat or event
   - Walnut-native context only when it adds something concrete
@@ -66,6 +66,8 @@ Optional second sentence only for:
 - Use `we` or `our` only when describing Walnut's own signal process.
 - Do not add promotional CTA language.
 - Do not say `cross-check`, `review`, or `check ticker pages`.
+- Do not call something `the setup`, `the real setup`, `a tell`, or `the market tell`.
+- Explain the mechanism directly, such as revenue mix, margin profile, capex demand, competitive position, insider-supply interpretation, or price/volume confirmation.
 - State what the data says, explain the takeaway or limitation, then provide the relevant ticker link only when useful.
 
 ## Thumbnail Direction
@@ -82,7 +84,7 @@ Optional second sentence only for:
 - Do not render visible source/footer text in thumbnails.
 - Thumbnail headlines must be complete market statements, not fragments.
 - Do not write vague lines like `bearish confirmation is leading`.
-- For bearish setups, use clear phrasing like `Bearish trend confirmed` or `Bearish signal identified`, then name the underlying data that confirms it.
+- For bearish claims, use clear phrasing like `Bearish trend confirmed` or `Bearish signal identified`, then name the underlying data that confirms it.
 - Avoid:
   - SVG dashboard cards
   - evidence panels
@@ -115,7 +117,6 @@ Use as supporting/contextual language:
 
 - Confirmation signals
 - Evidence trail
-- Market tells
 - Price/volume confirmation
 - Reported holdings/activity
 - Data sources

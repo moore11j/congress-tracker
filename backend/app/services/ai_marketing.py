@@ -126,7 +126,7 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
         "Sharp market participant voice: useful, concrete, concise, and non-spammy.",
         "Lead with ticker-specific data, then explain why it matters.",
         "For X replies, mimic the strongest Walnut reply behavior: concise market judgment under high-reach posts.",
-        "Prefer a one-line or two-line take that names the actual market tell instead of explaining the product.",
+        "Prefer a one-line or two-line take that names the actual business driver, disclosure event, operating change, valuation issue, or data question.",
         "Use data, not stack, as the public-facing language: price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
         "Keep the distinction clear: confirmation score is Walnut's proprietary score; underlying data is the evidence behind the situation.",
         "Posting formula: assess the situation, identify the issues, analyze the data, then conclude.",
@@ -134,7 +134,7 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
         "Avoid generic one-word replies unless the prompt explicitly calls for a one-word answer.",
         "Use reported/disclosed/filed language for Congress, insider, and institutional data.",
         "No hype, guarantees, buy/sell/short instructions, or spammy CTA language.",
-        "Brand idea: The market has tells. We help find them.",
+        "Brand idea: Markets leave evidence. Walnut helps organize it.",
     ]
 )
 AI_GROWTH_SEO_KEYWORD_GUIDANCE = " ".join(
@@ -228,6 +228,7 @@ SCHEDULED_X_CAMPAIGN_TYPE = "scheduled_x_campaign"
 X_REPLY_CAMPAIGN_TYPE = "x_reply_campaign"
 X_REPLY_PROVIDER = "x_api"
 FMP_ARTICLES_URL = "https://financialmodelingprep.com/stable/fmp-articles"
+DISALLOWED_ARTICLE_SOURCE_NAMES = {"fmp", "financialmodelingprep", "financial modeling prep"}
 ARTICLE_RUN_DEFAULT_LIMIT = 20
 ARTICLE_DEDUPE_DAYS = 14
 ARTICLE_MIN_FINAL_SCORE = 58
@@ -245,7 +246,7 @@ AI_MARKETING_SETTINGS: dict[str, dict[str, Any]] = {
     OPENAI_WEB_SEARCH_ENABLED: {"label": "OpenAI Web Search", "is_secret": False, "required_for": "AI Growth web discovery"},
     AI_GROWTH_EMAIL_TONE: {"label": "AI Growth Email Tone", "is_secret": False, "required_for": "AI Growth messaging"},
     AI_GROWTH_VOICE_CHARACTERISTICS: {"label": "AI Growth Voice Characteristics", "is_secret": False, "required_for": "AI Growth messaging"},
-    FMP_API_KEY: {"label": "FMP Articles API", "is_secret": True, "required_for": "Article-Reactive X campaigns"},
+    FMP_API_KEY: {"label": "Article feed credentials", "is_secret": True, "required_for": "Article-Reactive X campaigns"},
     X_CLIENT_ID: {"label": "X Client ID", "is_secret": True, "required_for": "X OAuth status"},
     X_CLIENT_SECRET: {"label": "X Client Secret", "is_secret": True, "required_for": "X OAuth status"},
     X_REDIRECT_URI: {"label": "X Redirect URI", "is_secret": False, "required_for": "X OAuth status"},
@@ -800,7 +801,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
             f"OpenAI credits low: {openai_credits['label']} remaining. Repurchase before AI Growth generation stalls."
         )
     if not statuses[FMP_API_KEY]["configured"]:
-        warnings.append("FMP Articles API key missing")
+        warnings.append("Article feed credentials missing")
     if any(status.get("deprecated_admin_setting") for status in statuses.values()) or _has_legacy_db_provider_setting(db):
         warnings.append("Deprecated DB-stored provider credentials detected; ignored.")
     if not statuses[REDDIT_CLIENT_ID]["configured"]:
@@ -839,7 +840,7 @@ def config_status(db: Session | None = None) -> dict[str, Any]:
         "fmp_articles_configured": bool(statuses[FMP_API_KEY]["configured"]),
         "fmp_articles_status": "configured" if statuses[FMP_API_KEY]["configured"] else "missing",
         "fmp_articles_missing": [] if statuses[FMP_API_KEY]["configured"] else [FMP_API_KEY],
-        "fmp_articles_provider": "FMP Articles",
+        "fmp_articles_provider": "Article feed",
         "reddit_configured": reddit_configured,
         "reddit_status": "configured" if reddit_configured else "missing",
         "reddit_missing": [
@@ -1285,7 +1286,7 @@ def opportunity_to_dict(
         "content_type": content_type,
         "platform": opportunity.platform,
         "source_platform": source_platform,
-        "source_provider": opportunity.source_provider,
+        "source_provider": _public_opportunity_source_provider(opportunity),
         "source_id": opportunity.source_id,
         "source_url": opportunity.source_url,
         "title": opportunity.title,
@@ -1325,6 +1326,12 @@ def opportunity_to_dict(
         "posted_manually_at": _iso(opportunity.posted_manually_at),
         "suggestion": suggestion_to_dict(suggestion) if suggestion else None,
     }
+
+
+def _public_opportunity_source_provider(opportunity: AiMarketingOpportunity) -> str | None:
+    if opportunity.source_provider == ARTICLE_REACTIVE_PROVIDER:
+        return "article_feed"
+    return opportunity.source_provider
 
 
 def _opportunity_assets(
@@ -1489,18 +1496,18 @@ def _article_provider_status(db: Session | None = None) -> dict[str, Any]:
     configured = bool(resolved_setting_value(db, FMP_API_KEY))
     return {
         "provider": ARTICLE_REACTIVE_PROVIDER,
-        "label": "FMP Articles API",
+        "label": "Article feed",
         "configured": configured,
         "status": "configured" if configured else "missing",
         "managed_by": "server_env",
-        "admin_message": "Managed outside the admin UI",
+        "admin_message": "Article feed credentials are managed outside the admin UI.",
     }
 
 
 def fetch_fmp_articles(db: Session | None = None, *, page: int = 0, limit: int = ARTICLE_RUN_DEFAULT_LIMIT) -> list[dict[str, Any]]:
     api_key = resolved_setting_value(db, FMP_API_KEY)
     if not api_key:
-        raise MissingMarketingCredential("FMP Articles API key missing. Configure FMP_API_KEY on the server.")
+        raise MissingMarketingCredential("Article feed credentials missing. Configure the server article feed credentials.")
     response = requests.get(
         FMP_ARTICLES_URL,
         params={"page": page, "limit": limit, "apikey": api_key},
@@ -1547,6 +1554,21 @@ def _article_value(article: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _normalized_article_source_name(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
+
+
+def _is_disallowed_article_source(source: str | None, url: str | None = None) -> bool:
+    normalized = _normalized_article_source_name(source)
+    compact = normalized.replace(" ", "")
+    if normalized in DISALLOWED_ARTICLE_SOURCE_NAMES or compact in DISALLOWED_ARTICLE_SOURCE_NAMES:
+        return True
+    if "financial modeling prep" in normalized or "financialmodelingprep" in compact or re.search(r"\bfmp\b", normalized):
+        return True
+    hostname = urlparse(str(url or "")).hostname or ""
+    return hostname.lower().removeprefix("www.") == "financialmodelingprep.com"
+
+
 def _extract_article_tickers(article: dict[str, Any]) -> list[str]:
     raw_values: list[Any] = []
     for key in ("tickers", "symbols", "symbol", "ticker", "stock", "stocks"):
@@ -1575,6 +1597,8 @@ def _normalize_fmp_article(article: dict[str, Any]) -> dict[str, Any] | None:
         or article.get("created_at")
     )
     site = _article_value(article, "site", "source", "publisher")
+    if _is_disallowed_article_source(site, url):
+        return None
     summary = _truncate(_article_value(article, "text", "summary", "snippet", "description"), 1500)
     provider_article_id = _article_value(article, "id", "articleId", "uuid") or _dedupe_key(url)
     dedupe_hash = _dedupe_key(provider_article_id or url or title)
@@ -1940,7 +1964,7 @@ def _article_card_asset(candidate: AiMarketingArticleCandidate, scoring: dict[st
             "cta": "View the data on Walnut",
             "url": "https://walnutmarkets.com",
             "visual_emphasis": "mini chart",
-            "source_label": str(candidate.site or "FMP / linked article"),
+            "source_label": str(candidate.site or "Linked article"),
             "tone": "market-native",
             "include_chart": True,
             "include_cta": True,
@@ -1951,7 +1975,7 @@ def _article_card_asset(candidate: AiMarketingArticleCandidate, scoring: dict[st
         fallback_tickers=tickers,
         fallback_url="https://walnutmarkets.com",
     )
-    asset = _social_card_asset(spec, source_note="Source: FMP / linked article. Do not reuse article thumbnails unless redistribution is explicitly allowed.")
+    asset = _social_card_asset(spec, source_note="Source: linked article. Do not reuse article thumbnails unless redistribution is explicitly allowed.")
     asset["suggested_caption"] = "Walnut-branded 16:9 article reaction card generated from structured metadata."
     return asset
 
@@ -2855,7 +2879,7 @@ def _article_candidate_to_source_item(
     metadata = {
         "article_reactive": True,
         "article_candidate_id": candidate.id,
-        "provider": "fmp",
+        "provider": "article_feed",
         "article_title": candidate.title,
         "article_source": candidate.site,
         "article_url": candidate.url,
@@ -2971,7 +2995,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
         return summary
     if not resolved_setting_value(db, FMP_API_KEY):
         summary["status"] = "configuration_failed"
-        summary["errors"].append("FMP Articles API key missing. Configure FMP_API_KEY on the server.")
+        summary["errors"].append("Article feed credentials missing. Configure the server article feed credentials.")
         campaign.last_run_at = datetime.now(timezone.utc)
         db.commit()
         record_campaign_run(db, campaign, summary)
@@ -2988,7 +3012,7 @@ def run_article_reactive_campaign(db: Session, campaign: AiMarketingCampaign, *,
     except Exception:
         logger.exception("ai_growth_article_fmp_fetch_failed campaign_id=%s", campaign.id)
         summary["status"] = "provider_failed"
-        summary["errors"].append("FMP Articles API request failed.")
+        summary["errors"].append("Article feed request failed.")
         campaign.last_run_at = datetime.now(timezone.utc)
         db.commit()
         record_campaign_run(db, campaign, summary)
@@ -6056,7 +6080,7 @@ def _digest_context(
         snippet = opportunity.excerpt or "none"
         query = str(metadata.get("query") or "manual").strip() or "manual"
         article_title = str(metadata.get("article_title") or "").strip()
-        article_source = str(metadata.get("article_source") or opportunity.source_provider or "").strip()
+        article_source = str(metadata.get("article_source") or "").strip()
         article_url = str(metadata.get("article_url") or opportunity.source_url or "").strip()
         needs_manual_review = bool(metadata.get("needs_manual_review")) or (
             opportunity.source_provider == WEB_SEARCH_REDDIT_SOURCE_PROVIDER
@@ -6079,7 +6103,7 @@ def _digest_context(
         angle = (suggestion.content_angle if suggestion else None) or (suggestion.reply_angle if suggestion else "pending")
         disclosure = suggestion.disclosure_text if suggestion else ""
         compliance = (suggestion.compliance_notes if suggestion else opportunity.compliance_notes) or "Human review required before approval/posting."
-        assets = _normalize_assets(_load_json_list(opportunity.asset_refs_json) + (_load_json_list(suggestion.assets_json) if suggestion else []))
+        assets = _opportunity_assets(opportunity, suggestion=suggestion)
         posting_links = _posting_links(opportunity, suggestion=suggestion)
         x_status = x_account_status(db)
         approve_posts_to_x = content_type == "x_post" and bool(x_status.get("connected"))
@@ -6249,11 +6273,13 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "If opportunity.metadata.change_request is present, treat it as the highest-priority revision instruction while preserving compliance. "
         "For campaign_type='article_reactive_x', use the article only as a trigger and source reference. Do not summarize or repost it. "
         "Use this posting formula for article-reactive X: assess the situation, identify the issues, analyze the data, then conclude. "
+        "For article-reactive X, do not call something the setup, the real setup, a tell, or the market tell. Name the actual business driver, disclosure event, operating change, valuation issue, or data question. "
+        "For example, say whether AI/networking expansion may change revenue mix, margin profile, capex demand, competitive position, insider-supply interpretation, or price/volume confirmation; do not hide that mechanism behind setup/tell language. "
         "Use data, underlying data, or data sources as the public-facing language; do not use stack as shorthand in public X copy. "
         "Keep this distinction clear: confirmation score is Walnut's proprietary score, while underlying data means price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, and other cited evidence. "
         "Double-check numbers and dates against the provided context before using them; do not use stale figures, and say what freshness is missing when the context does not establish recency. "
         "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics while staying market-native and terse. "
-        "Draft X posts like high-signal market tape: one factual hook, one sourced stat or event, and Walnut-native context only when it adds something concrete. "
+        "Draft X posts like high-signal market commentary: one factual hook, one sourced stat or event, and Walnut-native context only when it adds something concrete. "
         "Prefer this shape: '[Ticker/company/stat/event], per [source].' Add a second sentence only for Walnut signal context, a material caveat, or a data-backed why-it-matters line. "
         "Use BREAKING only when the source event is truly breaking. Prefer cashtags over hashtags and avoid hashtags by default. "
         "Do not force first-person plural; use 'we' or 'our' only when describing Walnut's own signal process. Do not add promotional CTA language to X posts. "
@@ -6292,9 +6318,9 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "quality_scores, suggested_image_asset, suggested_flair, and suggested_subreddits where appropriate. "
         "For paid_ad, write suggested_ad_variants as native paid ad headline/body/CTA variants. "
         "Walnut Market Terminal is a professional-grade market intelligence platform for sophisticated retail investors. "
-        "It helps users find market tells by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
+        "It helps users organize market evidence by combining ticker context, price/volume confirmation, financials and filings, insider activity, "
         "Congress trading disclosures, government contracts, signal conviction, screener workflows, and evidence trail or why-now context. "
-        "The brand idea is: 'The market has tells. We help find them.' Do not describe Walnut as a casual stock app. "
+        "The brand idea is: 'Markets leave evidence. Walnut helps organize it.' Do not describe Walnut as a casual stock app. "
         "When replying, lead with useful insight specific to the thread, then add nuance, then mention Walnut only if it has a strong natural angle. "
         "Sound like a sharp market participant and excellent founder/salesperson, while staying concise, helpful, and non-spammy. "
         "Explain Walnut concretely when mentioned; vague phrases like 'compare drivers in one place' are not enough. "
@@ -6570,6 +6596,10 @@ def _normalize_suggestion_payload(
         disclosure_text = ""
         suggested_post = _ensure_x_hashtags(_strip_x_self_disclosure(suggested_post), detected_tickers)
         alternate_hooks = [_ensure_x_hashtags(_strip_x_self_disclosure(item), detected_tickers) for item in alternate_hooks]
+        if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+            suggested_post = _clean_article_reactive_x_language(suggested_post)
+            alternate_hooks = [_clean_article_reactive_x_language(item) for item in alternate_hooks]
+            alternate_reply = _clean_article_reactive_x_language(alternate_reply)
         suggested_post = _fit_x_post_text(suggested_post)
         alternate_hooks = [_fit_x_post_text(item) for item in alternate_hooks]
     content_values = [suggested_reply, alternate_reply, suggested_post, *ad_variants]
@@ -6583,6 +6613,9 @@ def _normalize_suggestion_payload(
     value_added_insight = _truncate(str(payload.get("value_added_insight") or "").strip(), 1500) or ""
     walnut_feature = _truncate(str(payload.get("walnut_feature_to_mention") or "").strip(), 500) or ""
     content_angle = _truncate(str(payload.get("content_angle") or payload.get("reply_angle") or "").strip(), 500) or reply_angle
+    if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+        value_added_insight = _clean_article_reactive_x_language(value_added_insight)
+        content_angle = _clean_article_reactive_x_language(content_angle)
     assets = _normalize_assets(payload.get("assets"))
     if reddit_structured and reddit_structured["suggested_image_asset"]:
         assets = _normalize_assets([*assets, reddit_structured["suggested_image_asset"]])
@@ -6597,6 +6630,8 @@ def _normalize_suggestion_payload(
             preferences=preferences,
             visual_brief=payload.get("visual_brief"),
         )
+        if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
+            card_spec = _clean_article_reactive_card_spec(card_spec)
         generated_asset = (
             _generated_thumbnail_asset(
                 api_key=openai_api_key,
@@ -6669,7 +6704,13 @@ def _normalize_suggestion_payload(
         "source_notes": source_notes,
         "missing_data_notes": missing_data_notes,
         "quality_gate_passed": bool(quality_gate["passed"]),
-        "short_reason": _truncate(str(payload.get("short_reason") or "").strip(), 1000) or value_added_insight or "No reason provided.",
+        "short_reason": (
+            _truncate(_clean_article_reactive_x_language(str(payload.get("short_reason") or "").strip()), 1000)
+            if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE
+            else _truncate(str(payload.get("short_reason") or "").strip(), 1000)
+        )
+        or value_added_insight
+        or "No reason provided.",
         "compliance_notes": _truncate(str(payload.get("compliance_notes") or "").strip(), 2000) or "Review manually before posting.",
     }
 
@@ -7550,6 +7591,40 @@ def _ensure_x_hashtags(value: str | None, tickers: list[str]) -> str:
         if len(candidate) <= X_POST_CHARACTER_LIMIT:
             return candidate
     return _fit_x_post_text(cleaned)
+
+
+def _clean_article_reactive_x_language(value: str | None) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if not cleaned:
+        return ""
+    replacements = (
+        (r"\bthe real setup\b", "the business question"),
+        (r"\breal setup\b", "business question"),
+        (r"\bthe setup\b", "the business question"),
+        (r"\bthis setup\b", "this business question"),
+        (r"\bthat setup\b", "that business question"),
+        (r"\bsetup\b", "business question"),
+        (r"\bthe market tell\b", "the market question"),
+        (r"\bmarket tell\b", "market question"),
+        (r"\bmarket tells\b", "market evidence"),
+        (r"\bthe real tell\b", "the main question"),
+        (r"\breal tell\b", "main question"),
+        (r"\bthe tell\b", "the question"),
+        (r"\btells\b", "evidence"),
+    )
+    for pattern, replacement in replacements:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _clean_article_reactive_card_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(spec)
+    for key in ("headline", "subheadline", "visual_emphasis", "cta", "source_label"):
+        if key in cleaned:
+            cleaned[key] = _clean_article_reactive_x_language(str(cleaned.get(key) or ""))
+    cleaned["bullets"] = [_clean_article_reactive_x_language(item) for item in _coerce_json_list(cleaned.get("bullets"))]
+    cleaned["chips"] = [_clean_article_reactive_x_language(item) for item in _coerce_json_list(cleaned.get("chips"))]
+    return cleaned
 
 
 def _fit_x_post_text(value: str | None, *, limit: int = X_POST_CHARACTER_LIMIT) -> str:
