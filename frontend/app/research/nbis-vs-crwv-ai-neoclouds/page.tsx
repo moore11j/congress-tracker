@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     type: "article",
     images: [
       {
-        url: "/ad-thumbnails/nbis-crwv-neoclouds.png",
+        url: "/ad-thumbnails/nbis-crwv-neoclouds.jpg",
         width: 1200,
         height: 628,
         alt: "NBIS vs CRWV AI neocloud comparison thumbnail",
@@ -46,7 +46,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "NBIS vs CRWV: AI Neocloud Stock Comparison | Walnut Markets",
     description: pageDescription,
-    images: ["/ad-thumbnails/nbis-crwv-neoclouds.png"],
+    images: ["/ad-thumbnails/nbis-crwv-neoclouds.jpg"],
   },
 };
 
