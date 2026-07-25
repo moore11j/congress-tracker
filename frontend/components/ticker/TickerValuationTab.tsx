@@ -1,9 +1,11 @@
 import type { TickerValuationResponse } from "@/lib/api";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
+import type { ReactNode } from "react";
 
 type Props = {
   data: TickerValuationResponse;
   symbol: string;
+  canViewDetails?: boolean;
 };
 
 const cardSurface = "rounded-lg border border-white/10 bg-slate-950/55";
@@ -78,6 +80,22 @@ function SummaryCard({
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className={`mt-3 text-2xl font-semibold tabular-nums ${tone}`}>{value}</p>
       {sub ? <p className="mt-1 text-xs leading-5 text-slate-400">{sub}</p> : null}
+    </div>
+  );
+}
+
+function ProBlur({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`relative overflow-hidden rounded-lg ${className}`}>
+      <div className="pointer-events-none select-none blur-[3px]" aria-hidden="true">
+        {children}
+      </div>
+      <div className="absolute inset-0 grid place-items-center bg-slate-950/45 backdrop-blur-[1px]">
+        <div className="rounded-lg border border-indigo-300/30 bg-indigo-500/15 px-3 py-2 text-center shadow-[0_0_22px_rgba(99,102,241,0.16)]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-200">Pro</p>
+          <p className="mt-1 text-xs font-semibold text-slate-100">Full valuation details</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -289,7 +307,7 @@ export function TickerValuationSkeleton() {
   );
 }
 
-export function TickerValuationTab({ data, symbol }: Props) {
+export function TickerValuationTab({ data, symbol, canViewDetails = false }: Props) {
   const dcf = data.dcf ?? {};
   const consensus = data.consensus ?? null;
   const hasAnyValuation = asNumber(dcf.fairValue) !== null || asNumber(dcf.currentPrice) !== null || asNumber(consensus?.targetConsensus) !== null;
@@ -307,30 +325,55 @@ export function TickerValuationTab({ data, symbol }: Props) {
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Walnut Fair Value" value={formatMoney(dcf.fairValue, { maximumFractionDigits: 0 })} sub="/ share" tone="text-teal-200" />
-        <SummaryCard
-          label="Upside / Downside"
-          value={formatPercent(dcf.upsideDownsidePct, { signed: true })}
-          sub="vs current price"
-          tone={(dcf.upsideDownsidePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"}
-        />
-        <SummaryCard
-          label="Street Consensus"
-          value={formatMoney(consensus?.targetConsensus, { maximumFractionDigits: 0 })}
-          sub={consensus?.status === "ok" ? "analyst target" : "unavailable"}
-          tone="text-sky-200"
-        />
-        <SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} />
-        <SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" />
+        {canViewDetails ? (
+          <>
+            <SummaryCard
+              label="Upside / Downside"
+              value={formatPercent(dcf.upsideDownsidePct, { signed: true })}
+              sub="vs current price"
+              tone={(dcf.upsideDownsidePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"}
+            />
+            <SummaryCard
+              label="Street Consensus"
+              value={formatMoney(consensus?.targetConsensus, { maximumFractionDigits: 0 })}
+              sub={consensus?.status === "ok" ? "analyst target" : "unavailable"}
+              tone="text-sky-200"
+            />
+            <SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} />
+            <SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" />
+          </>
+        ) : (
+          <>
+            <ProBlur><SummaryCard label="Upside / Downside" value={formatPercent(dcf.upsideDownsidePct, { signed: true })} sub="vs current price" tone={(dcf.upsideDownsidePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} /></ProBlur>
+            <ProBlur><SummaryCard label="Street Consensus" value={formatMoney(consensus?.targetConsensus, { maximumFractionDigits: 0 })} sub={consensus?.status === "ok" ? "analyst target" : "unavailable"} tone="text-sky-200" /></ProBlur>
+            <ProBlur><SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} /></ProBlur>
+            <ProBlur><SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" /></ProBlur>
+          </>
+        )}
       </div>
 
-      <ValuationRange data={data} />
+      {canViewDetails ? <ValuationRange data={data} /> : <ProBlur><ValuationRange data={data} /></ProBlur>}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.75fr)]">
-        <CashFlowChart data={data} />
-        <div className="grid gap-4">
-          <Assumptions data={data} />
-          <MethodSignals data={data} />
-        </div>
+        {canViewDetails ? (
+          <>
+            <CashFlowChart data={data} />
+            <div className="grid gap-4">
+              <Assumptions data={data} />
+              <MethodSignals data={data} />
+            </div>
+          </>
+        ) : (
+          <>
+            <ProBlur><CashFlowChart data={data} /></ProBlur>
+            <ProBlur>
+              <div className="grid gap-4">
+                <Assumptions data={data} />
+                <MethodSignals data={data} />
+              </div>
+            </ProBlur>
+          </>
+        )}
       </div>
 
       <section className={`${cardSurface} p-4`}>

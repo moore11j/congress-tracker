@@ -1134,7 +1134,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
               ) : null}
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
-              {loadingValuation || !valuation ? <TickerValuationSkeleton /> : <TickerValuationTab data={valuation} symbol={symbol} />}
+              {loadingValuation || !valuation ? <TickerValuationSkeleton /> : <TickerValuationTab data={valuation} symbol={symbol} canViewDetails={canViewOwnership} />}
             </div>
           </div>
         ) : null}
