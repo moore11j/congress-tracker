@@ -238,6 +238,44 @@ def test_insights_macro_positioning_summary_is_derived_from_cached_assets(monkey
         db.close()
 
 
+def test_insights_macro_positioning_uses_feed_event_for_rates_when_asset_missing(monkeypatch):
+    db = _db()
+    try:
+        _set_tier(monkeypatch, "pro")
+        db.add(
+            MacroPositioningFeedEvent(
+                event_id="macro:us-treasuries:current:2026-07-21",
+                report_date=date(2026, 7, 21),
+                market_id="us-treasuries",
+                market_name="US Treasuries",
+                market_group="rates",
+                positioning="bullish",
+                crowded=False,
+                weekly_change="Strengthening",
+                percentile=None,
+                trend="increasing",
+                trend_weeks=None,
+                event_kind="current_state",
+                insight="Major shift. US Treasuries positioning is strongly net long in the latest weekly report.",
+                summary=None,
+                significance=3,
+                is_summary=False,
+                generated_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        payload = insights_macro_positioning(_request(), db)
+
+        rates = next(market for market in payload["markets"] if market["id"] == "us-treasuries")
+        assert rates["name"] == "US Treasuries"
+        assert rates["bias"] == "bullish"
+        assert rates["trend"] == "increasing"
+        assert "strongly net long" in rates["headline"]
+    finally:
+        db.close()
+
+
 def test_insights_macro_positioning_endpoint_does_not_refresh_cache(monkeypatch):
     db = _db()
     try:

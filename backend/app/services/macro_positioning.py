@@ -358,10 +358,11 @@ def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
 
     rows = db.execute(select(MacroPositioningAsset)).scalars().all()
     by_asset = {row.asset_key: row for row in rows}
+    feed_fallbacks = _latest_feed_current_state_by_market(db)
     markets = [
         market
         for target in INSIGHTS_MACRO_POSITIONING_MARKETS
-        if (market := _insights_market_from_asset(target, by_asset.get(target["asset_key"]))) is not None
+        if (market := _insights_market_from_asset(target, by_asset.get(target["asset_key"])) or _insights_market_from_feed_event(target, feed_fallbacks.get(target["id"]))) is not None
     ]
     if not markets:
         return _insights_unavailable_payload(status="awaiting_first_refresh", message="Macro positioning will appear after the next weekly data refresh.")
@@ -372,6 +373,7 @@ def get_insights_macro_positioning(db: Session) -> dict[str, Any]:
         if row.asset_key in {target["asset_key"] for target in INSIGHTS_MACRO_POSITIONING_MARKETS} and isinstance(row.positioning_date, date)
     ]
     fetched_dates = [row.fetched_at for row in rows if row.asset_key in {target["asset_key"] for target in INSIGHTS_MACRO_POSITIONING_MARKETS} and isinstance(row.fetched_at, datetime)]
+    fetched_dates.extend(row.generated_at for row in feed_fallbacks.values() if isinstance(row.generated_at, datetime))
     latest_positioning_date = max((market["positioning_date"] for market in markets if market.get("positioning_date")), default=None)
     stale = _is_stale_positioning_date(latest_positioning_date)
     updated_at = (max(fetched_dates) if fetched_dates else max(updated_dates) if updated_dates else datetime.now(timezone.utc)).isoformat()
@@ -731,6 +733,23 @@ def _insights_unavailable_payload(*, status: str, message: str) -> dict[str, Any
     }
 
 
+def _latest_feed_current_state_by_market(db: Session) -> dict[str, MacroPositioningFeedEvent]:
+    latest_report_date = db.execute(
+        select(func.max(MacroPositioningFeedEvent.report_date))
+        .where(MacroPositioningFeedEvent.event_kind == "current_state")
+        .where(MacroPositioningFeedEvent.is_summary.is_(False))
+    ).scalar()
+    if not isinstance(latest_report_date, date):
+        return {}
+    rows = db.execute(
+        select(MacroPositioningFeedEvent)
+        .where(MacroPositioningFeedEvent.report_date == latest_report_date)
+        .where(MacroPositioningFeedEvent.event_kind == "current_state")
+        .where(MacroPositioningFeedEvent.is_summary.is_(False))
+    ).scalars().all()
+    return {row.market_id: row for row in rows if row.market_id}
+
+
 def _insights_market_from_asset(target: dict[str, str], row: MacroPositioningAsset | None) -> dict[str, Any] | None:
     if row is None or not isinstance(row.positioning_date, date):
         return None
@@ -763,6 +782,26 @@ def _insights_market_from_asset(target: dict[str, str], row: MacroPositioningAss
         "crowding": crowding,
         "updated_at": datetime.combine(positioning_date, datetime.min.time(), timezone.utc).isoformat(),
         "positioning_date": positioning_date,
+    }
+
+
+def _insights_market_from_feed_event(target: dict[str, str], row: MacroPositioningFeedEvent | None) -> dict[str, Any] | None:
+    if row is None or not isinstance(row.report_date, date):
+        return None
+    bias = _bias_value(row.positioning)
+    return {
+        "id": target["id"],
+        "name": target["name"],
+        "bias": bias,
+        "rating": 4 if bias in {"bullish", "bearish"} else 3,
+        "percentile": round(row.percentile) if isinstance(row.percentile, (int, float)) else None,
+        "trend": _trend_value(row.trend),
+        "trend_weeks": row.trend_weeks if isinstance(row.trend_weeks, int) else None,
+        "headline": _clean_public_text(row.insight) or _headline_for_market(trend=_trend_value(row.trend), crowded=bool(row.crowded)),
+        "interpretation": _clean_public_text(row.insight) or _interpretation_for_market(bias=bias, trend=_trend_value(row.trend), crowded=bool(row.crowded)),
+        "crowding": "crowded" if row.crowded else None,
+        "updated_at": datetime.combine(row.report_date, datetime.min.time(), timezone.utc).isoformat(),
+        "positioning_date": row.report_date,
     }
 
 

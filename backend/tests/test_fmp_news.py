@@ -515,6 +515,23 @@ def test_market_read_heuristic_returns_neutral_when_both_sides_match(monkeypatch
     assert response["items"][0]["market_read"] == "neutral"
 
 
+def test_market_read_heuristic_flags_valuation_spending_and_bond_anxiety_as_bearish():
+    from app.services.fmp_news import _classify_market_read
+
+    assert _classify_market_read(
+        title="Market Valuations Are Beyond Stretched",
+        summary="The article says earnings growth is concentrated and cash flow is weakening.",
+    ) == "bearish"
+    assert _classify_market_read(
+        title="Spending Worries Weigh On Tech Shares",
+        summary="Tech shares are under pressure as investors worry about spending.",
+    ) == "bearish"
+    assert _classify_market_read(
+        title="Bond market anxiety is growing over AI capex budgets",
+        summary="Bond investors are uneasy about larger AI capital spending budgets.",
+    ) == "bearish"
+
+
 def test_ticker_sec_filings_uses_symbol_endpoint_and_defaults_date_range(monkeypatch):
     _session()
     clear_news_cache()

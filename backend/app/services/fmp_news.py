@@ -108,6 +108,32 @@ _BEARISH_KEYWORDS = (
     "bankruptcy",
     "layoffs",
 )
+_BULLISH_PHRASES = (
+    "raises guidance",
+    "raised guidance",
+    "raises outlook",
+    "beats expectations",
+    "record revenue",
+)
+_BEARISH_PHRASES = (
+    "beyond stretched",
+    "valuation stretch",
+    "valuations are stretched",
+    "stretched valuations",
+    "cash flow is weakening",
+    "spending worries",
+    "weigh on",
+    "weighs on",
+    "under pressure",
+    "prices falling",
+    "bond market anxiety",
+    "anxiety is growing",
+    "growing uneasy",
+    "capex budget",
+    "capex budgets",
+    "spending concern",
+    "spending concerns",
+)
 
 INSIGHTS_CATEGORY_NEWS_ENDPOINTS = {
     "world-indexes": "news/general-latest",
@@ -592,16 +618,31 @@ def _request_ticker_press_rows(*, symbol: str, page: int, limit: int) -> tuple[l
 
 
 def _classify_market_read(*, title: str | None, summary: str | None) -> Literal["bullish", "bearish", "neutral"]:
+    title_text = (title or "").lower()
     haystack = " ".join(part for part in [title, summary] if part).lower()
-    bullish = any(keyword in haystack for keyword in _BULLISH_KEYWORDS)
-    bearish = any(keyword in haystack for keyword in _BEARISH_KEYWORDS)
-    if bullish and bearish:
-        return "neutral"
-    if bullish:
+    bullish_score = _market_read_score(haystack, title_text, _BULLISH_KEYWORDS, _BULLISH_PHRASES)
+    bearish_score = _market_read_score(haystack, title_text, _BEARISH_KEYWORDS, _BEARISH_PHRASES)
+    strong_bearish_title = any(phrase in title_text for phrase in _BEARISH_PHRASES)
+    strong_bullish_title = any(phrase in title_text for phrase in _BULLISH_PHRASES)
+    if bullish_score and bearish_score:
+        if strong_bearish_title and not strong_bullish_title:
+            return "bearish"
+        if strong_bullish_title and not strong_bearish_title and bearish_score >= 2:
+            return "neutral"
+        if abs(bullish_score - bearish_score) <= 3:
+            return "neutral"
+    if bullish_score > bearish_score:
         return "bullish"
-    if bearish:
+    if bearish_score > bullish_score:
         return "bearish"
     return "neutral"
+
+
+def _market_read_score(haystack: str, title: str, keywords: tuple[str, ...], phrases: tuple[str, ...]) -> int:
+    score = sum(1 for keyword in keywords if keyword in haystack)
+    score += sum(2 for phrase in phrases if phrase in haystack)
+    score += sum(2 for phrase in phrases if phrase in title)
+    return score
 
 
 def _mentions_symbol(row: dict[str, Any], symbol: str) -> bool:

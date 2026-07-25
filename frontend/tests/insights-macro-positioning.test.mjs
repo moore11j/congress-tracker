@@ -28,6 +28,8 @@ test("macro positioning panel has pro lock, compact rows, and feed links", () =>
   assert.match(component, /Upgrade to Pro/);
   assert.match(component, /function findMarket/);
   assert.match(component, /No recent positioning update\./);
+  assert.match(component, /Treasury futures are net long/);
+  assert.match(component, /preferredIds: \["us-treasuries"\]/);
   assert.doesNotMatch(component, /getMacroPositioningFeed/);
   assert.match(component, /MACRO_POSITIONING_HREF = "\/feed\/macro-positioning"/);
   assert.match(component, /ChartPulseIcon/);

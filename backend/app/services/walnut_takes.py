@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.6-sol"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
+WALNUT_TAKE_MAX_CHARS = 150
+WALNUT_SUMMARY_MAX_CHARS = 190
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v2"
 
 
 def enrich_walnut_takes(
@@ -76,11 +79,12 @@ def enrich_walnut_takes(
         output.append(
             {
                 **item,
-                "walnut_summary": _clean_text(generated_item.get("summary"), limit=220) or item.get("walnut_summary"),
+                "walnut_summary": _clean_text(generated_item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or item.get("walnut_summary"),
                 "walnut_take_bias": _clean_bias(generated_item.get("bias")),
-                "walnut_take": _clean_text(generated_item.get("take"), limit=320) or item.get("walnut_take"),
+                "walnut_take": _clean_text(generated_item.get("take"), limit=WALNUT_TAKE_MAX_CHARS) or item.get("walnut_take"),
                 "walnut_take_source": "openai",
                 "walnut_take_model": _walnut_take_model(db),
+                "walnut_take_prompt_version": WALNUT_TAKE_PROMPT_VERSION,
                 "walnut_take_generated_at": generated_at,
             }
         )
@@ -133,7 +137,11 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "You generate Walnut Takes for a market intelligence news list.",
             "For each article, return a concise factual summary and a market-impact bias.",
             "Allowed bias values: bullish, bearish, neutral.",
-            "The take should explain the market read in one or two compact sentences.",
+            "The take must be one compact sentence of 150 characters or fewer.",
+            "For broad market articles, bullish means supportive for risk assets; bearish means pressure, risk-off, higher discount-rate concern, or margin/cash-flow risk.",
+            "Valuation stretch, spending worries, falling prices, weak cash flow, bond-market anxiety, or AI capex-budget concerns are bearish unless the article gives a clear positive offset.",
+            "Neutral is only for genuinely mixed or unclear impact, not for obvious caution or pressure headlines.",
+            "The provider_market_read is weak context only; override it when the title or summary implies a different read.",
             "Do not provide trading instructions, price targets, guarantees, or hype.",
             "Do not invent facts beyond the title, summary, ticker, source, and existing market read.",
             "Return only valid JSON with this exact shape:",
@@ -145,7 +153,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
 
 
 def _fallback_take(item: dict[str, Any]) -> dict[str, Any]:
-    summary = _clean_text(item.get("summary"), limit=220) or _clean_text(item.get("title"), limit=220) or "Summary unavailable."
+    summary = _clean_text(item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or _clean_text(item.get("title"), limit=WALNUT_SUMMARY_MAX_CHARS) or "Summary unavailable."
     bias = _clean_bias(item.get("market_read"))
     return {
         "walnut_summary": summary,
@@ -156,7 +164,7 @@ def _fallback_take(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fallback_take_text(item: dict[str, Any], *, bias: str) -> str:
-    summary = _clean_text(item.get("summary"), limit=220)
+    summary = _clean_text(item.get("summary"), limit=WALNUT_TAKE_MAX_CHARS)
     if summary:
         return summary
     if bias == "bullish":
@@ -171,6 +179,7 @@ def _has_openai_take(item: dict[str, Any] | None) -> bool:
         return False
     return (
         item.get("walnut_take_source") == "openai"
+        and item.get("walnut_take_prompt_version") == WALNUT_TAKE_PROMPT_VERSION
         and isinstance(item.get("walnut_take"), str)
         and bool(str(item.get("walnut_take")).strip())
         and _clean_bias(item.get("walnut_take_bias")) in VALID_BIASES
@@ -180,7 +189,7 @@ def _has_openai_take(item: dict[str, Any] | None) -> bool:
 def _merge_take(item: dict[str, Any], cached: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(cached, dict):
         return item
-    keys = ("walnut_summary", "walnut_take_bias", "walnut_take", "walnut_take_source", "walnut_take_model", "walnut_take_generated_at")
+    keys = ("walnut_summary", "walnut_take_bias", "walnut_take", "walnut_take_source", "walnut_take_model", "walnut_take_prompt_version", "walnut_take_generated_at")
     return {**item, **{key: cached[key] for key in keys if key in cached}}
 
 

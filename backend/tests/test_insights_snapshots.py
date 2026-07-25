@@ -241,6 +241,7 @@ def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(mo
                                 "walnut_take": "Supportive for energy exposure while oil supply risk remains elevated.",
                                 "walnut_take_source": "openai",
                                 "walnut_take_model": "gpt-5.6-sol",
+                                "walnut_take_prompt_version": "market_read_v2",
                                 "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
                             }
                         ],
@@ -283,6 +284,87 @@ def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(mo
         assert item["walnut_take"] == "Supportive for energy exposure while oil supply risk remains elevated."
         assert item["walnut_take_bias"] == "bullish"
         assert item["walnut_take_source"] == "openai"
+    finally:
+        db.close()
+
+
+def test_insights_headlines_refresh_regenerates_old_walnut_take_prompt_versions(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        db.add(
+            InsightsSnapshot(
+                kind="market-headlines",
+                payload_json=json.dumps(
+                    {
+                        "items": [
+                            {
+                                "title": "Market Valuations Are Beyond Stretched",
+                                "url": "https://example.com/valuations",
+                                "summary": "Old provider summary.",
+                                "market_read": "bullish",
+                                "walnut_summary": "Old summary.",
+                                "walnut_take_bias": "bullish",
+                                "walnut_take": "Old bullish take.",
+                                "walnut_take_source": "openai",
+                                "walnut_take_model": "gpt-5.6-sol",
+                                "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
+                            }
+                        ],
+                        "status": "ok",
+                        "page": 0,
+                        "limit": 1,
+                        "has_next": False,
+                    }
+                ),
+                source="fmp",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            "app.services.insights_snapshots.get_general_news",
+            lambda **_kwargs: {
+                "items": [
+                    {
+                        "title": "Market Valuations Are Beyond Stretched",
+                        "url": "https://example.com/valuations",
+                        "summary": "Cash flow is weakening while valuations look stretched.",
+                        "market_read": "bearish",
+                        "source": "fmp_general_news",
+                    }
+                ],
+                "has_next": False,
+            },
+        )
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "output_text": json.dumps(
+                        {
+                            "items": [
+                                {
+                                    "id": "url:https://example.com/valuations",
+                                    "summary": "Valuation and cash-flow pressure are the key market risks.",
+                                    "bias": "bearish",
+                                    "take": "Stretched valuations and weaker cash flow make this a bearish risk-asset read.",
+                                }
+                            ]
+                        }
+                    )
+                }
+
+        monkeypatch.setattr("app.services.walnut_takes.requests.post", lambda *_args, **_kwargs: FakeResponse())
+
+        payload = refresh_insights_headlines(db, limit=10)
+
+        item = payload["items"][0]
+        assert item["walnut_take_bias"] == "bearish"
+        assert item["walnut_take"] == "Stretched valuations and weaker cash flow make this a bearish risk-asset read."
+        assert item["walnut_take_prompt_version"] == "market_read_v2"
     finally:
         db.close()
 

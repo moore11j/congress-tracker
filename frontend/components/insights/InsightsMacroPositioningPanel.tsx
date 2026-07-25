@@ -82,14 +82,14 @@ function RiskIcon({ className = "h-3.5 w-3.5" }: MacroIconProps) {
 }
 
 const macroRows = [
-  { label: "Equity Positioning", match: /(equity|s&p|nasdaq|russell|index)/i, icon: <ChartPulseIcon />, tone: "text-cyan-200 bg-cyan-300/10 border-cyan-300/20" },
-  { label: "Rates", match: /(rate|treasury|bond|yield)/i, icon: <RatesIcon />, tone: "text-blue-200 bg-blue-300/10 border-blue-300/20" },
-  { label: "US Dollar", match: /(dollar|usd|dxy|fx)/i, icon: <DollarIcon />, tone: "text-rose-200 bg-rose-300/10 border-rose-300/20" },
-  { label: "Gold", match: /gold/i, icon: <GoldIcon />, tone: "text-amber-200 bg-amber-300/10 border-amber-300/20" },
-  { label: "Oil", match: /(oil|crude|wti|brent|energy)/i, icon: <DropletIcon />, tone: "text-orange-200 bg-orange-300/10 border-orange-300/20" },
-  { label: "Bitcoin", match: /(bitcoin|btc|crypto)/i, icon: <BitcoinIcon />, tone: "text-yellow-200 bg-yellow-300/10 border-yellow-300/20" },
+  { label: "Equity Positioning", preferredIds: ["sp-500", "nasdaq-100", "russell-2000"], match: /(equity|s&p|nasdaq|russell|index)/i, icon: <ChartPulseIcon />, tone: "text-cyan-200 bg-cyan-300/10 border-cyan-300/20" },
+  { label: "Rates", preferredIds: ["us-treasuries"], match: /(rate|treasury|bond|yield)/i, icon: <RatesIcon />, tone: "text-blue-200 bg-blue-300/10 border-blue-300/20" },
+  { label: "US Dollar", preferredIds: ["us-dollar"], match: /(dollar|usd|dxy|fx)/i, icon: <DollarIcon />, tone: "text-rose-200 bg-rose-300/10 border-rose-300/20" },
+  { label: "Gold", preferredIds: ["gold"], match: /gold/i, icon: <GoldIcon />, tone: "text-amber-200 bg-amber-300/10 border-amber-300/20" },
+  { label: "Oil", preferredIds: ["crude-oil"], match: /(oil|crude|wti|brent|energy)/i, icon: <DropletIcon />, tone: "text-orange-200 bg-orange-300/10 border-orange-300/20" },
+  { label: "Bitcoin", preferredIds: ["bitcoin"], match: /(bitcoin|btc|crypto)/i, icon: <BitcoinIcon />, tone: "text-yellow-200 bg-yellow-300/10 border-yellow-300/20" },
   { label: "COT Signals", match: /(cot|positioning|futures)/i, icon: <FuturesIcon />, tone: "text-indigo-200 bg-indigo-300/10 border-indigo-300/20" },
-  { label: "Risk-On / Risk-Off", match: /(risk|equity)/i, icon: <RiskIcon />, tone: "text-red-200 bg-red-300/10 border-red-300/20" },
+  { label: "Risk-On / Risk-Off", match: /(risk)/i, icon: <RiskIcon />, tone: "text-red-200 bg-red-300/10 border-red-300/20" },
 ] as const;
 
 function biasLabel(value?: string | null): string {
@@ -106,8 +106,12 @@ function biasClassName(value?: string | null): string {
   return "text-slate-400";
 }
 
-function trendCopy(market?: InsightsMacroPositioningMarket | null): string {
+function trendCopy(label: string, market?: InsightsMacroPositioningMarket | null): string {
   if (!market) return "No recent positioning update.";
+  if (label === "Rates" && market.id === "us-treasuries") {
+    if (market.bias === "bullish") return "Treasury futures are net long, a rates-down / yields-down positioning read.";
+    if (market.bias === "bearish") return "Treasury futures are net short, a rates-up / yields-up positioning read.";
+  }
   if (market.headline) return market.headline;
   if (market.interpretation) return market.interpretation;
   if (market.trend === "increasing") return "Positioning is increasing.";
@@ -116,7 +120,9 @@ function trendCopy(market?: InsightsMacroPositioningMarket | null): string {
   return "Latest weekly positioning is available.";
 }
 
-function findMarket(markets: InsightsMacroPositioningMarket[], label: string, match: RegExp): InsightsMacroPositioningMarket | null {
+function findMarket(markets: InsightsMacroPositioningMarket[], label: string, match: RegExp, preferredIds?: readonly string[]): InsightsMacroPositioningMarket | null {
+  const preferred = preferredIds?.map((id) => markets.find((market) => market.id === id)).find(Boolean);
+  if (preferred) return preferred;
   const exact = markets.find((market) => market.name.toLowerCase() === label.toLowerCase());
   if (exact) return exact;
   return markets.find((market) => match.test(`${market.id} ${market.name}`)) ?? null;
@@ -169,7 +175,7 @@ export function InsightsMacroPositioningPanel() {
     const markets = data?.entitlement.unlocked ? data.markets : [];
     return macroRows.map((row) => ({
       ...row,
-      market: findMarket(markets, row.label, row.match),
+      market: findMarket(markets, row.label, row.match, "preferredIds" in row ? row.preferredIds : undefined),
     }));
   }, [data]);
 
@@ -209,7 +215,7 @@ export function InsightsMacroPositioningPanel() {
                   <p className="truncate text-sm font-semibold text-white">{label}</p>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                  {trendCopy(market)}
+                  {trendCopy(label, market)}
                 </p>
               </div>
               <div className="flex items-start justify-between gap-3 sm:block sm:text-right">

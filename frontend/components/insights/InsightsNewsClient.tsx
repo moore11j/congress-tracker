@@ -35,6 +35,7 @@ const impactFilters = ["all", "bullish", "bearish", "neutral"] as const;
 
 type CategoryFilter = (typeof categoryFilters)[number];
 type ImpactFilter = (typeof impactFilters)[number];
+const WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 150;
 
 function categoryLabel(value: CategoryFilter): string {
   if (value === "all") return "All";
@@ -86,7 +87,7 @@ function freshnessText(value?: string | null): string {
 }
 
 function walnutTake(item: NewsItem): string {
-  if (item.walnut_take?.trim()) return item.walnut_take;
+  if (item.walnut_take?.trim()) return compactVisibleText(item.walnut_take, WALNUT_TAKE_VISIBLE_CHAR_LIMIT);
   const category = itemCategory(item);
   const read = effectiveMarketRead(item);
   if (read === "bullish") {
@@ -101,6 +102,15 @@ function walnutTake(item: NewsItem): string {
   }
   if (item.summary) return item.summary;
   return "Current impact is unclear from available article data.";
+}
+
+function compactVisibleText(value: string, limit: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  const clipped = text.slice(0, Math.max(0, limit - 3)).replace(/[\s,;:.!?-]+$/, "");
+  const lastBreak = clipped.lastIndexOf(" ");
+  const trimmed = lastBreak > limit * 0.7 ? clipped.slice(0, lastBreak) : clipped;
+  return `${trimmed}...`;
 }
 
 function EmptyState({ text }: { text: string }) {
@@ -154,7 +164,7 @@ function HeadlineRow({ item }: { item: NewsItem }) {
 
       <div className="min-w-0 md:border-l md:border-white/10 md:pl-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Walnut take</p>
-        <p className="mt-1 text-xs leading-5 text-slate-400 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden">{walnutTake(item)}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{walnutTake(item)}</p>
       </div>
     </article>
   );
