@@ -159,7 +159,7 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert draft["article"]["preview_body"]
     assert draft["validation"]["status"] == "passed"
     assert draft["validation"]["source_link_count"] >= 2
-    assert draft["model"] == service.research_brief_model(None)
+    assert draft["model"] == "gpt-5.6-sol"
     saved = service.list_drafts()["items"]
     assert saved[0]["id"] == draft["id"]
 
@@ -187,6 +187,15 @@ def test_model_selector_passes_selected_model_and_rejects_invalid(tmp_path, monk
     with pytest.raises(HTTPException) as exc:
         service.validate_config(_payload(selected_model="not-configured").model_dump())
     assert exc.value.status_code == 422
+
+
+def test_model_options_default_to_luna_terra_sol(monkeypatch):
+    monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, raising=False)
+    monkeypatch.delenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, raising=False)
+
+    assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
+    assert service.research_brief_model(None) == "gpt-5.6-terra"
+    assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
 
 
 def test_source_links_zero_blocks_publish_validation(tmp_path, monkeypatch):

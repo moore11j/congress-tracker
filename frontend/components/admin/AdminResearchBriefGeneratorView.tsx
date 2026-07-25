@@ -30,6 +30,7 @@ type ResearchBriefOptions = {
   model_options: string[];
   model_default: string;
   model_descriptions: Record<string, string>;
+  model_labels: Record<string, string>;
   sections: string[];
 };
 
@@ -105,9 +106,18 @@ const fallbackOptions: ResearchBriefOptions = {
     "X Thread",
     "Internal Analyst Note",
   ],
-  model_options: ["gpt-5.4-mini"],
-  model_default: "gpt-5.4-mini",
-  model_descriptions: { "gpt-5.4-mini": "Fast / cheaper" },
+  model_options: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+  model_default: "gpt-5.6-terra",
+  model_descriptions: {
+    "gpt-5.6-luna": "Fast / cheaper",
+    "gpt-5.6-terra": "Balanced",
+    "gpt-5.6-sol": "Deep research / highest quality",
+  },
+  model_labels: {
+    "gpt-5.6-luna": "GPT-5.6 Luna",
+    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.6-sol": "GPT-5.6 Sol",
+  },
   sections: DEFAULT_SECTIONS,
 };
 
@@ -198,6 +208,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           model_options: payload.model_options,
           model_default: payload.model_default,
           model_descriptions: payload.model_descriptions,
+          model_labels: payload.model_labels,
           sections: payload.sections,
         });
         setConfig((current) => ({
@@ -441,6 +452,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                   value={config.selected_model || options.model_options[options.model_options.length - 1] || options.model_default}
                   options={options.model_options}
                   descriptions={options.model_descriptions}
+                  labels={options.model_labels}
                   onChange={(value) => updateConfig("selected_model", value)}
                 />
                 <Select label="External research mode" value={config.external_research_mode} options={options.external_research_modes} onChange={(value) => updateConfig("external_research_mode", value)} />
@@ -609,12 +621,14 @@ function Select({
   value,
   options,
   descriptions,
+  labels,
   onChange,
 }: {
   label: string;
   value: string;
   options: string[];
   descriptions?: Record<string, string>;
+  labels?: Record<string, string>;
   onChange: (value: string) => void;
 }) {
   return (
@@ -623,7 +637,7 @@ function Select({
       <select value={value} onChange={(event) => onChange(event.target.value)} className={fieldClassName("mt-2")}>
         {options.map((option) => (
           <option key={option} value={option}>
-            {descriptions?.[option] ? `${option} - ${descriptions[option]}` : option}
+            {descriptions?.[option] ? `${labels?.[option] || option} - ${descriptions[option]}` : labels?.[option] || option}
           </option>
         ))}
       </select>

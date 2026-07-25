@@ -21,11 +21,9 @@ from app.services.ai_marketing import (
     AI_MARKETING_IMAGE_MODEL,
     AI_MARKETING_IMAGE_QUALITY,
     AI_MARKETING_IMAGE_SIZE,
-    AI_MARKETING_MODEL,
     DEFAULT_AI_MARKETING_IMAGE_MODEL,
     DEFAULT_AI_MARKETING_IMAGE_QUALITY,
     DEFAULT_AI_MARKETING_IMAGE_SIZE,
-    DEFAULT_AI_MARKETING_MODEL,
     OPENAI_API_KEY,
     resolved_setting_value,
 )
@@ -40,6 +38,18 @@ RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
+DEFAULT_RESEARCH_BRIEF_MODEL = "gpt-5.6-terra"
+DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
+RESEARCH_BRIEF_MODEL_LABELS = {
+    "gpt-5.6-luna": "GPT-5.6 Luna",
+    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.6-sol": "GPT-5.6 Sol",
+}
+RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
+    "gpt-5.6-luna": "Fast / cheaper",
+    "gpt-5.6-terra": "Balanced",
+    "gpt-5.6-sol": "Deep research / highest quality",
+}
 
 ANGLE_OPTIONS = {
     "Full company DD",
@@ -134,13 +144,13 @@ def research_brief_model(db: Session | None = None) -> str:
     configured = os.getenv(RESEARCH_BRIEF_MODEL_DEFAULT, "").strip() or os.getenv(RESEARCH_BRIEF_GENERATOR_MODEL, "").strip()
     if configured:
         return configured
-    return resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL
+    return DEFAULT_RESEARCH_BRIEF_MODEL
 
 
 def research_brief_model_options(db: Session | None = None) -> list[str]:
     configured = [item.strip() for item in os.getenv(RESEARCH_BRIEF_MODEL_OPTIONS, "").split(",") if item.strip()]
     default = research_brief_model(db)
-    options = configured or [default]
+    options = configured or list(DEFAULT_RESEARCH_BRIEF_MODEL_OPTIONS)
     if default not in options:
         options.insert(0, default)
     return list(dict.fromkeys(options))
@@ -149,7 +159,11 @@ def research_brief_model_options(db: Session | None = None) -> list[str]:
 def research_brief_model_descriptions(db: Session | None = None) -> dict[str, str]:
     options = research_brief_model_options(db)
     labels = ["Fast / cheaper", "Balanced", "Deep research / highest quality"]
-    return {model: labels[min(index, len(labels) - 1)] for index, model in enumerate(options)}
+    return {model: RESEARCH_BRIEF_MODEL_DESCRIPTIONS.get(model) or labels[min(index, len(labels) - 1)] for index, model in enumerate(options)}
+
+
+def research_brief_model_labels(db: Session | None = None) -> dict[str, str]:
+    return {model: RESEARCH_BRIEF_MODEL_LABELS.get(model) or model for model in research_brief_model_options(db)}
 
 
 def _selected_research_model(config: dict[str, Any], db: Session | None = None) -> str:

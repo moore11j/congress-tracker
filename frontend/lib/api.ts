@@ -5656,6 +5656,7 @@ export async function getAdminResearchBriefOptions(): Promise<{
   model_options: string[];
   model_default: string;
   model_descriptions: Record<string, string>;
+  model_labels: Record<string, string>;
   sections: string[];
   publication_default: string;
   storage: string;

@@ -28,6 +28,9 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Full post body/);
   assert.match(component, /Advanced metadata/);
   assert.match(component, /Model/);
+  assert.match(component, /GPT-5\.6 Luna/);
+  assert.match(component, /GPT-5\.6 Terra/);
+  assert.match(component, /GPT-5\.6 Sol/);
   assert.match(component, /External research mode/);
   assert.match(component, /Generate thumbnail \/ hero image/);
   assert.match(component, /Section format/);
