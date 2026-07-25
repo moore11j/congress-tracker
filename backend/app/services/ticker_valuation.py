@@ -251,12 +251,28 @@ def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows
             year = _fiscal_year(row)
             if estimate is None or estimate <= 0:
                 continue
-            if base_year is not None and year is not None and year < base_year:
+            if base_year is not None and year is not None and year <= base_year:
                 continue
             candidates.append((year if year is not None else 9999, estimate))
         if candidates:
             _, next_revenue = sorted(candidates, key=lambda item: item[0])[0]
             growth = (next_revenue - base_revenue) / base_revenue
+            if math.isfinite(growth):
+                return _clamp(growth, -0.50, 5.00)
+
+    estimate_candidates = []
+    for row in estimate_rows:
+        estimate = _revenue_estimate(row)
+        year = _fiscal_year(row)
+        if estimate is None or estimate <= 0 or year is None:
+            continue
+        estimate_candidates.append((year, estimate))
+    estimate_candidates = sorted(estimate_candidates, key=lambda item: item[0])
+    if len(estimate_candidates) >= 2:
+        base_estimate = estimate_candidates[0][1]
+        next_estimate = estimate_candidates[1][1]
+        if base_estimate > 0:
+            growth = (next_estimate - base_estimate) / base_estimate
             if math.isfinite(growth):
                 return _clamp(growth, -0.50, 5.00)
 

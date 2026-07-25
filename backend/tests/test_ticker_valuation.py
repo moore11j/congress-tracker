@@ -45,7 +45,11 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
         if endpoint in {"cash-flow-statement", "balance-sheet-statement"}:
             return []
         if endpoint == "analyst-estimates":
-            return [{"fiscalYear": "2026", "revenueAvg": 220}]
+            return [
+                {"date": "2027-09-30", "revenueAvg": 260},
+                {"date": "2026-09-30", "revenueAvg": 220},
+                {"date": "2025-09-30", "revenueAvg": 105},
+            ]
         if endpoint == "profile":
             return [{"beta": 1.5}]
         if endpoint == "custom-discounted-cash-flow":
@@ -173,3 +177,17 @@ def test_ticker_valuation_rejects_negative_fair_value_and_clamps_tax_rate(monkey
     assert round(response["dcf"]["upsideDownsidePct"], 2) == -100
     assert assumptions["taxRate"] == 0
     assert response["consensus"]["targetConsensus"] == 227
+
+
+def test_forward_revenue_growth_uses_next_financial_estimate_after_latest_actual():
+    growth = valuation_module._forward_revenue_growth_pct(
+        [{"date": "2025-09-30", "revenue": 100}],
+        [
+            {"date": "2030-09-27", "revenueLow": 626, "revenueHigh": 691, "revenueAvg": 648},
+            {"date": "2027-09-30", "revenueAvg": 300},
+            {"date": "2026-09-30", "revenueAvg": 220},
+            {"date": "2025-09-30", "revenueAvg": 105},
+        ],
+    )
+
+    assert growth == 1.2
