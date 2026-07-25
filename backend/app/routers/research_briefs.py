@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,9 @@ from app.services.research_briefs import (
     TONE_OPTIONS,
     assemble_research_context,
     delete_draft,
-    generate_research_brief,
+    enqueue_research_brief_generation_job,
+    get_research_brief_generation_job,
+    get_research_brief_generation_job_draft,
     get_draft,
     list_drafts,
     normalize_supported_symbol,
@@ -45,7 +47,8 @@ class ResearchBriefGeneratePayload(BaseModel):
     ticker: str = Field(min_length=1, max_length=20)
     research_question: str = Field(min_length=12, max_length=3000)
     desired_angle: str = "Full company DD"
-    comparison_ticker: str | None = Field(default=None, max_length=20)
+    comparison_ticker: str | None = Field(default=None, max_length=100)
+    comparison_tickers: list[str] = Field(default_factory=list)
     time_horizon: str = "Near term"
     intended_audience: str = "Walnut Research Brief"
     judgment_preference: str = "Let the data decide"
@@ -60,6 +63,7 @@ class ResearchBriefGeneratePayload(BaseModel):
     include_source_links: bool = True
     generate_thumbnail: bool = True
     hero_image: str | None = Field(default=None, max_length=1000)
+    client_request_id: str | None = Field(default=None, max_length=120)
 
 
 class ResearchBriefUpdatePayload(BaseModel):
@@ -112,10 +116,23 @@ def admin_research_brief_context(payload: ResearchBriefGeneratePayload, request:
     return {"config": config, "research_context": assemble_research_context(db, config)}
 
 
-@router.post("/admin/research-briefs/generate", dependencies=[Depends(rate_limit_admin_mutation)])
-def admin_research_brief_generate(payload: ResearchBriefGeneratePayload, request: Request, db: Session = Depends(get_db)):
+@router.post("/admin/research-briefs/generate", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_generate(payload: ResearchBriefGeneratePayload, request: Request, response: Response, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return generate_research_brief(db, admin, payload.model_dump())
+    response.status_code = status.HTTP_202_ACCEPTED
+    return enqueue_research_brief_generation_job(db, admin, payload.model_dump())
+
+
+@router.get("/admin/research-briefs/jobs/{job_id}")
+def admin_research_brief_job(job_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return get_research_brief_generation_job(job_id)
+
+
+@router.get("/admin/research-briefs/jobs/{job_id}/draft")
+def admin_research_brief_job_draft(job_id: str, request: Request, db: Session = Depends(get_db)):
+    require_admin_user(db, request)
+    return get_research_brief_generation_job_draft(job_id)
 
 
 @router.get("/admin/research-briefs/drafts")

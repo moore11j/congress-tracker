@@ -3,17 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deleteAdminResearchBriefDraft,
-  generateAdminResearchBriefDraft,
+  getAdminResearchBriefGenerationDraft,
+  getAdminResearchBriefGenerationJob,
   getAdminResearchBriefDrafts,
   getAdminResearchBriefOptions,
   publishAdminResearchBriefDraft,
   refreshAdminResearchBriefSources,
+  startAdminResearchBriefGeneration,
   unpublishAdminResearchBriefDraft,
   updateAdminResearchBriefDraft,
   validateAdminResearchBriefTicker,
   type AdminResearchBriefArticle,
   type AdminResearchBriefConfig,
   type AdminResearchBriefDraft,
+  type AdminResearchBriefJob,
 } from "@/lib/api";
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
@@ -57,6 +60,7 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   research_question: "Is MU's momentum trade breaking down, or do the fundamentals still support the cycle?",
   desired_angle: "Full company DD",
   comparison_ticker: "",
+  comparison_tickers: [],
   time_horizon: "Near term",
   intended_audience: "Walnut Research Brief",
   judgment_preference: "Let the data decide",
@@ -174,6 +178,24 @@ function markdownToSections(markdown: string): AdminResearchBriefArticle["sectio
   });
 }
 
+function parseComparisonTickers(value: string | string[] | null | undefined) {
+  const values = Array.isArray(value) ? value : [value || ""];
+  const seen = new Set<string>();
+  const symbols: string[] = [];
+  values.flatMap((item) => String(item || "").split(",")).forEach((item) => {
+    const symbol = normalizeTickerSymbol(item);
+    if (!symbol || seen.has(symbol)) return;
+    symbols.push(symbol);
+    seen.add(symbol);
+  });
+  return symbols;
+}
+
+function createClientRequestId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `rb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toast }) {
   const [options, setOptions] = useState(fallbackOptions);
   const [config, setConfig] = useState<AdminResearchBriefConfig>(DEFAULT_CONFIG);
@@ -184,12 +206,19 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [bodyMarkdown, setBodyMarkdown] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [activeJob, setActiveJob] = useState<AdminResearchBriefJob | null>(null);
+  const [comparisonTickerInput, setComparisonTickerInput] = useState("");
+  const [comparisonTickerErrors, setComparisonTickerErrors] = useState<Record<string, string>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [activePane, setActivePane] = useState<"create" | "drafts" | "published" | "settings">("create");
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
   const blockingWarnings = selectedWarnings.filter((warning) => warning.blocking);
   const selectedCard = articleDraft?.suggested_card;
+  const comparisonTickers = config.comparison_tickers || [];
+  const comparisonTickerLimitError = comparisonTickers.length > 5 ? "Comparison tickers are limited to 5 symbols." : "";
+  const hasComparisonTickerErrors = Boolean(comparisonTickerLimitError || Object.keys(comparisonTickerErrors).length);
+  const generationJobActive = activeJob?.status === "queued" || activeJob?.status === "running";
 
   useEffect(() => {
     let alive = true;
@@ -239,6 +268,43 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }, [config.ticker]);
 
   useEffect(() => {
+    let alive = true;
+    const primary = normalizeTickerSymbol(config.ticker);
+    const errors: Record<string, string> = {};
+    comparisonTickers.forEach((symbol) => {
+      if (symbol === primary) errors[symbol] = "Primary ticker cannot appear in comparison tickers.";
+    });
+    setComparisonTickerErrors(errors);
+    const toValidate = comparisonTickers.filter((symbol) => symbol !== primary);
+    if (!toValidate.length) return () => {
+      alive = false;
+    };
+    const handle = window.setTimeout(() => {
+      Promise.all(
+        toValidate.map((symbol) =>
+          validateAdminResearchBriefTicker(symbol)
+            .then(() => ({ symbol, error: "" }))
+            .catch(() => ({ symbol, error: `${symbol} is not currently supported as a comparison ticker.` })),
+        ),
+      ).then((results) => {
+        if (!alive) return;
+        setComparisonTickerErrors((current) => {
+          const next = { ...current };
+          results.forEach((result) => {
+            if (result.error) next[result.symbol] = result.error;
+            else delete next[result.symbol];
+          });
+          return next;
+        });
+      });
+    }, 300);
+    return () => {
+      alive = false;
+      window.clearTimeout(handle);
+    };
+  }, [comparisonTickers, config.ticker]);
+
+  useEffect(() => {
     if (!selectedDraft) {
       setArticleDraft(null);
       setBodyMarkdown("");
@@ -247,6 +313,41 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setArticleDraft(selectedDraft.article);
     setBodyMarkdown(articleToMarkdown(selectedDraft.article));
   }, [selectedDraft]);
+
+  useEffect(() => {
+    if (!activeJob?.job_id || !generationJobActive) return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const job = await getAdminResearchBriefGenerationJob(activeJob.job_id);
+        if (!alive) return;
+        setActiveJob(job);
+        if (job.status === "completed") {
+          const draft = await getAdminResearchBriefGenerationDraft(job.job_id);
+          if (!alive) return;
+          setSelectedDraft(draft);
+          await refreshDrafts(draft);
+          setBusy(null);
+          showToast?.("Research brief draft generated.", "success");
+        } else if (job.status === "failed") {
+          const message = job.error_message_safe || "Research brief generation failed. Try again or reduce research depth.";
+          setError(message);
+          setBusy(null);
+          showToast?.(message, "error");
+        }
+      } catch {
+        if (!alive) return;
+        setError("Research brief generation failed. Try again or reduce research depth.");
+        setBusy(null);
+      }
+    };
+    const handle = window.setInterval(poll, 3000);
+    void poll();
+    return () => {
+      alive = false;
+      window.clearInterval(handle);
+    };
+  }, [activeJob?.job_id, generationJobActive, showToast]);
 
   const generatedDrafts = useMemo(() => drafts.filter((draft) => draft.status !== "published"), [drafts]);
   const publishedDrafts = useMemo(() => drafts.filter((draft) => draft.status === "published"), [drafts]);
@@ -269,18 +370,24 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }
 
   async function generateDraft() {
+    if (generationJobActive) return;
     setBusy("generate");
     setError("");
     try {
-      const draft = await generateAdminResearchBriefDraft(config);
-      setSelectedDraft(draft);
-      await refreshDrafts(draft);
-      showToast?.("Research brief draft generated.", "success");
+      const normalizedComparisonTickers = parseComparisonTickers(config.comparison_tickers);
+      const job = await startAdminResearchBriefGeneration({
+        ...config,
+        comparison_ticker: normalizedComparisonTickers[0] || null,
+        comparison_tickers: normalizedComparisonTickers,
+        client_request_id: createClientRequestId(),
+      });
+      setActiveJob(job);
+      showToast?.("Research brief generation started.", "info");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to generate draft.";
+      const rawMessage = err instanceof Error ? err.message : "";
+      const message = rawMessage.includes("ROUTER_EXTERNAL_TARGET_ERROR") ? "Research brief generation failed. Try again or reduce research depth." : rawMessage || "Unable to start research brief generation.";
       setError(message);
       showToast?.(message, "error");
-    } finally {
       setBusy(null);
     }
   }
@@ -381,6 +488,19 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     void generateDraft();
   }
 
+  function updateComparisonTickers(value: string) {
+    const nextInput = value.toUpperCase();
+    const nextTickers = parseComparisonTickers(nextInput);
+    setComparisonTickerInput(nextInput);
+    setConfig((current) => ({ ...current, comparison_ticker: nextTickers[0] || null, comparison_tickers: nextTickers }));
+  }
+
+  function removeComparisonTicker(symbol: string) {
+    const nextTickers = comparisonTickers.filter((item) => item !== symbol);
+    setComparisonTickerInput(nextTickers.join(", "));
+    setConfig((current) => ({ ...current, comparison_ticker: nextTickers[0] || null, comparison_tickers: nextTickers }));
+  }
+
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-emerald-300/15 bg-slate-950/55 p-4">
@@ -461,13 +581,30 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
               </div>
 
               <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Comparison ticker</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Comparison tickers</span>
                 <input
-                  value={config.comparison_ticker || ""}
-                  onChange={(event) => updateConfig("comparison_ticker", event.target.value.toUpperCase())}
+                  value={comparisonTickerInput}
+                  onChange={(event) => updateComparisonTickers(event.target.value)}
                   className={fieldClassName("mt-2")}
-                  placeholder="Optional, e.g. NVDA"
+                  placeholder="GOOGL, AMZN, MSFT"
                 />
+                <span className="mt-1 block text-xs text-slate-500">Separate multiple tickers with commas.</span>
+                {comparisonTickers.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {comparisonTickers.map((symbol) => (
+                      <span key={symbol} className="inline-flex items-center gap-1 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">
+                        {symbol}
+                        <button type="button" onClick={() => removeComparisonTicker(symbol)} className="text-emerald-100/70 hover:text-white" aria-label={`Remove ${symbol}`}>
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {comparisonTickerLimitError ? <span className="mt-2 block text-xs text-rose-200">{comparisonTickerLimitError}</span> : null}
+                {Object.entries(comparisonTickerErrors).map(([symbol, message]) => (
+                  <span key={symbol} className="mt-2 block text-xs text-rose-200">{message}</span>
+                ))}
               </label>
 
               <label className="block">
@@ -515,9 +652,26 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 </div>
               ) : null}
 
+              {activeJob ? (
+                <div className={`rounded-lg border px-3 py-2 text-sm ${
+                  activeJob.status === "failed"
+                    ? "border-rose-300/30 bg-rose-950/25 text-rose-100"
+                    : activeJob.status === "completed"
+                      ? "border-emerald-300/25 bg-emerald-950/20 text-emerald-100"
+                      : "border-sky-300/25 bg-sky-950/20 text-sky-100"
+                }`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold">{activeJob.status === "completed" ? "Completed" : activeJob.status === "failed" ? "Generation failed" : "Generating research brief"}</span>
+                    <span className="text-xs uppercase tracking-[0.16em] opacity-75">{activeJob.progress_step || activeJob.status}</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 opacity-85">{activeJob.progress_message || "Working in the background."}</p>
+                  {activeJob.status === "completed" && activeJob.draft_id ? <p className="mt-1 text-xs opacity-75">Draft saved: {activeJob.draft_id}</p> : null}
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap gap-2">
-                <Button tone="primary" disabled={busy === "generate"} onClick={generateDraft}>
-                  {busy === "generate" ? "Generating..." : "Generate Draft"}
+                <Button tone="primary" disabled={generationJobActive || hasComparisonTickerErrors} onClick={generateDraft}>
+                  {generationJobActive ? "Generating..." : activeJob?.status === "failed" ? "Retry Generate" : "Generate Draft"}
                 </Button>
               </div>
             </div>

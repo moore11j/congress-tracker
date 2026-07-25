@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
 import time
+import uuid
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.models import Event, FundamentalsCache, GovernmentContract, QuoteCache, Security, TickerMeta, UserAccount
 from app.services.ai_marketing import (
     AI_MARKETING_IMAGE_GENERATION_ENABLED,
@@ -45,6 +48,10 @@ RESEARCH_BRIEF_MODEL_LABELS = {
     "gpt-5.6-terra": "GPT-5.6 Terra",
     "gpt-5.6-sol": "GPT-5.6 Sol",
 }
+logger = logging.getLogger(__name__)
+RESEARCH_BRIEF_JOB_SAFE_ERROR = "Research brief generation failed. Try again or reduce research depth."
+RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS = "RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS"
+RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS = "RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
     "gpt-5.6-luna": "Fast / cheaper",
     "gpt-5.6-terra": "Balanced",
@@ -85,6 +92,7 @@ SECTION_FORMAT_OPTIONS = [
 ]
 STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
+MAX_COMPARISON_TICKERS = 5
 KEY_RESEARCH_FIELDS = [
     "revenue",
     "revenue growth",
@@ -138,6 +146,8 @@ UNSUPPORTED_LANGUAGE = [
 
 _STORE_LOCK = threading.Lock()
 _ACTIVE_GENERATIONS: set[str] = set()
+_JOB_WORKER_LOCK = threading.Lock()
+_JOB_WORKERS: dict[str, threading.Thread] = {}
 
 
 def research_brief_model(db: Session | None = None) -> str:
@@ -234,16 +244,17 @@ def _is_internal_key(key: str) -> bool:
 def _read_store() -> dict[str, Any]:
     path = draft_store_path()
     if not path.exists():
-        return {"drafts": [], "audit": []}
+        return {"drafts": [], "audit": [], "jobs": []}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {"drafts": [], "audit": []}
+        return {"drafts": [], "audit": [], "jobs": []}
     if not isinstance(payload, dict):
-        return {"drafts": [], "audit": []}
+        return {"drafts": [], "audit": [], "jobs": []}
     drafts = payload.get("drafts") if isinstance(payload.get("drafts"), list) else []
     audit = payload.get("audit") if isinstance(payload.get("audit"), list) else []
-    return {"drafts": drafts, "audit": audit}
+    jobs = payload.get("jobs") if isinstance(payload.get("jobs"), list) else []
+    return {"drafts": drafts, "audit": audit, "jobs": jobs}
 
 
 def _write_store(payload: dict[str, Any]) -> None:
@@ -302,6 +313,36 @@ def normalize_supported_symbol(db: Session, raw: str | None) -> tuple[str, dict[
         "country": (meta.country if meta else None) or (fundamentals.country if fundamentals else None),
     }
     return symbol, identity
+
+
+def normalize_comparison_tickers(config: dict[str, Any], *, primary_ticker: str | None = None) -> list[str]:
+    values: list[Any] = []
+    raw_list = config.get("comparison_tickers")
+    if isinstance(raw_list, list):
+        values.extend(raw_list)
+    elif raw_list:
+        values.append(raw_list)
+    if config.get("comparison_ticker"):
+        values.append(config.get("comparison_ticker"))
+
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for part in str(value or "").split(","):
+            symbol = normalize_symbol(part)
+            if not symbol or symbol in seen:
+                continue
+            symbols.append(symbol)
+            seen.add(symbol)
+
+    if len(symbols) > MAX_COMPARISON_TICKERS:
+        raise HTTPException(status_code=422, detail=f"Comparison tickers are limited to {MAX_COMPARISON_TICKERS} symbols.")
+
+    primary = normalize_symbol(primary_ticker)
+    if primary and primary in seen:
+        raise HTTPException(status_code=422, detail="Primary ticker cannot appear in comparison tickers.")
+
+    return symbols
 
 
 def _latest_fundamentals(db: Session, symbol: str) -> dict[str, Any] | None:
@@ -410,15 +451,18 @@ def _government_contracts(db: Session, symbol: str) -> dict[str, Any]:
 
 def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     symbol, identity = normalize_supported_symbol(db, payload.get("ticker"))
-    comparison_raw = payload.get("comparison_ticker")
-    comparison_symbol = None
-    comparison_identity = None
-    if comparison_raw:
-        comparison_symbol, comparison_identity = normalize_supported_symbol(db, comparison_raw)
-        if comparison_symbol == symbol:
-            raise HTTPException(status_code=422, detail="Comparison ticker must be different from the primary ticker.")
+    comparison_symbols = normalize_comparison_tickers(payload, primary_ticker=symbol)
+    comparison_identities: dict[str, dict[str, Any]] = {}
+    for comparison_symbol in comparison_symbols:
+        try:
+            normalized_comparison, comparison_identity = normalize_supported_symbol(db, comparison_symbol)
+        except HTTPException as exc:
+            if exc.status_code == 422:
+                raise HTTPException(status_code=422, detail=f"{comparison_symbol} is not currently supported as a comparison ticker.") from exc
+            raise
+        comparison_identities[normalized_comparison] = comparison_identity
 
-    symbols = [symbol] + ([comparison_symbol] if comparison_symbol else [])
+    symbols = [symbol] + list(comparison_identities.keys())
     fundamentals = {item: _latest_fundamentals(db, item) for item in symbols}
     quotes = {item: _quote(db, item) for item in symbols}
     try:
@@ -469,6 +513,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         },
         "external_research": external_research,
         "comparison": None,
+        "comparisons": [],
         "missing_data_notes": _dedupe_strings(missing),
         "limitations": [
             "13F activity is reported with filing lag and is not real-time.",
@@ -476,16 +521,35 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             "Missing Walnut data is unavailable, not zero and not automatically bearish.",
         ],
     }
-    if comparison_symbol and comparison_identity:
-        context["comparison"] = {
+    for comparison_symbol, comparison_identity in comparison_identities.items():
+        comparison_context = {
             "identity": comparison_identity,
             "quote": quotes.get(comparison_symbol),
             "fundamentals": fundamentals.get(comparison_symbol),
             "confirmation": _compact(confirmation.get(comparison_symbol)),
             "congress_activity": _recent_events(db, comparison_symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
             "insider_activity": _recent_events(db, comparison_symbol, ["insider_trade"]),
+            "institutional_activity": _recent_events(
+                db,
+                comparison_symbol,
+                [
+                    "institutional_accumulation",
+                    "institutional_distribution",
+                    "new_institutional_position",
+                    "major_holder_reduction",
+                    "major_holder_exit",
+                    "cluster_accumulation",
+                    "cluster_distribution",
+                    "smart_money_confirmation",
+                    "crowded_long",
+                    "contrarian_accumulation",
+                ],
+            ),
             "government_contracts": _government_contracts(db, comparison_symbol),
         }
+        context["comparisons"].append(comparison_context)
+    if context["comparisons"]:
+        context["comparison"] = context["comparisons"][0]
     return context
 
 
@@ -661,11 +725,14 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Ticker is required.")
     if len(prompt) < 12:
         raise HTTPException(status_code=422, detail="Research question must be more specific.")
+    normalized_ticker = normalize_symbol(ticker)
+    comparison_tickers = normalize_comparison_tickers(config, primary_ticker=normalized_ticker)
     normalized = {
-        "ticker": ticker,
+        "ticker": normalized_ticker or ticker,
         "research_question": prompt[:3000],
         "desired_angle": _choice(config.get("desired_angle"), ANGLE_OPTIONS, "Full company DD"),
-        "comparison_ticker": config.get("comparison_ticker") or None,
+        "comparison_ticker": comparison_tickers[0] if comparison_tickers else None,
+        "comparison_tickers": comparison_tickers,
         "time_horizon": _choice(config.get("time_horizon"), TIME_HORIZON_OPTIONS, "Near term"),
         "intended_audience": _choice(config.get("intended_audience"), AUDIENCE_OPTIONS, "Walnut Research Brief"),
         "judgment_preference": _choice(config.get("judgment_preference"), JUDGMENT_OPTIONS, "Let the data decide"),
@@ -682,8 +749,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "hero_image": config.get("hero_image") or "",
     }
     normalized["selected_model"] = _selected_research_model(normalized)
-    if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_ticker"]:
-        raise HTTPException(status_code=422, detail="Comparison ticker is required for peer comparison briefs.")
+    if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
+        raise HTTPException(status_code=422, detail="Comparison tickers are required for peer comparison briefs.")
     return normalized
 
 
@@ -711,9 +778,13 @@ def _sections(value: Any) -> list[str]:
     return cleaned or list(DEFAULT_SECTIONS)
 
 
-def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, Any]) -> dict[str, Any]:
+def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, Any], progress_callback: Any | None = None) -> dict[str, Any]:
     normalized_config = validate_config(config)
     normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
+    if progress_callback:
+        progress_callback("loading_walnut_data", "Loading Walnut data.")
+        if normalized_config.get("external_research_mode") != "Off":
+            progress_callback("finding_sources", "Finding source context.")
     context = assemble_research_context(db, normalized_config)
     actor_key = f"admin:{admin.id}"
     if actor_key in _ACTIVE_GENERATIONS:
@@ -721,12 +792,32 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
     _ACTIVE_GENERATIONS.add(actor_key)
     try:
         started = time.perf_counter()
+        if progress_callback:
+            progress_callback("generating_brief", "Generating research brief.")
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
         if normalized_config.get("generate_thumbnail"):
-            article["thumbnail_asset"] = generate_thumbnail_asset(db, normalized_config, article)
-            if article["thumbnail_asset"].get("url") and not article.get("hero_image"):
-                article["hero_image"] = article["thumbnail_asset"]["url"]
+            if progress_callback:
+                progress_callback("generating_thumbnail", "Generating thumbnail.")
+            try:
+                article["thumbnail_asset"] = generate_thumbnail_asset(db, normalized_config, article)
+                if article["thumbnail_asset"].get("url") and not article.get("hero_image"):
+                    article["hero_image"] = article["thumbnail_asset"]["url"]
+            except Exception as exc:
+                logger.warning("research_brief_thumbnail_failed ticker=%s error=%s", normalized_config.get("ticker"), exc.__class__.__name__)
+                article["thumbnail_asset"] = {
+                    "image_title": str(article.get("title") or normalized_config.get("ticker") or "Walnut research")[:120],
+                    "image_prompt": "",
+                    "asset_type": _thumbnail_asset_type(normalized_config),
+                    "url": "",
+                    "thumbnail_url": "",
+                    "source_notes": "Thumbnail generation failed; text draft was saved.",
+                    "created_at": _now(),
+                }
+        if progress_callback:
+            progress_callback("validating_claims", "Validating generated draft.")
         validation = validate_article(article, context)
+        if progress_callback:
+            progress_callback("saving_draft", "Saving generated draft.")
         draft = _new_draft(admin, normalized_config, context, article, validation, elapsed_ms=int((time.perf_counter() - started) * 1000))
         with _STORE_LOCK:
             store = _read_store()
@@ -736,6 +827,272 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         return draft
     finally:
         _ACTIVE_GENERATIONS.discard(actor_key)
+
+
+def enqueue_research_brief_generation_job(db: Session, admin: UserAccount, config: dict[str, Any]) -> dict[str, Any]:
+    normalized_config = validate_config(config)
+    normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
+    client_request_id = str(config.get("client_request_id") or uuid.uuid4()).strip()[:120]
+    now = _now()
+    with _STORE_LOCK:
+        store = _read_store()
+        jobs = store.setdefault("jobs", [])
+        for job in jobs:
+            if job.get("created_by_admin_id") == admin.id and job.get("client_request_id") == client_request_id:
+                payload = _job_response_payload(job)
+                if job.get("status") in {"queued", "running"}:
+                    _start_research_brief_job_worker(str(job["id"]))
+                return payload
+        job = {
+            "id": f"rbj_{uuid.uuid4().hex}",
+            "status": "queued",
+            "client_request_id": client_request_id,
+            "created_by_admin_id": admin.id,
+            "created_by_admin_email": getattr(admin, "email", None),
+            "ticker": normalized_config["ticker"],
+            "request_payload_json": normalized_config,
+            "model": normalized_config.get("selected_model"),
+            "external_research_mode": normalized_config.get("external_research_mode"),
+            "section_format": normalized_config.get("section_format"),
+            "generate_thumbnail": bool(normalized_config.get("generate_thumbnail")),
+            "progress_step": "queued",
+            "progress_message": "Research brief generation queued.",
+            "source_links_count": 0,
+            "numeric_claims_count": 0,
+            "validation_status": None,
+            "draft_id": None,
+            "error_message_safe": None,
+            "error_details_internal": None,
+            "created_at": now,
+            "started_at": None,
+            "completed_at": None,
+            "failed_at": None,
+        }
+        jobs.append(job)
+        _write_store(store)
+        payload = _job_response_payload(job)
+    logger.info(
+        "research_brief_job_created job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s",
+        payload["job_id"],
+        payload.get("ticker"),
+        payload.get("model"),
+        payload.get("external_research_mode"),
+        payload.get("generate_thumbnail"),
+    )
+    _start_research_brief_job_worker(payload["job_id"])
+    return payload
+
+
+def get_research_brief_generation_job(job_id: str) -> dict[str, Any]:
+    with _STORE_LOCK:
+        job = _find_job(_read_store(), job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Research brief generation job not found.")
+        payload = _job_response_payload(job)
+    if payload["status"] == "queued":
+        _start_research_brief_job_worker(job_id)
+    return payload
+
+
+def list_generation_jobs(status: str | None = None) -> dict[str, Any]:
+    with _STORE_LOCK:
+        jobs = [_job_response_payload(job) for job in (_read_store().get("jobs") or [])]
+    if status and status != "all":
+        jobs = [job for job in jobs if job.get("status") == status]
+    return {"items": sorted(jobs, key=lambda item: item.get("created_at") or "", reverse=True)}
+
+
+def get_research_brief_generation_job_draft(job_id: str) -> dict[str, Any]:
+    job = get_research_brief_generation_job(job_id)
+    if job["status"] != "completed" or not job.get("draft_id"):
+        raise HTTPException(status_code=409, detail="Research brief generation is not complete yet.")
+    return get_draft(str(job["draft_id"]))
+
+
+def run_research_brief_generation_job(job_id: str, db: Session | None = None) -> None:
+    owns_db = db is None
+    session = db or SessionLocal()
+    started = time.perf_counter()
+    try:
+        job = _mark_job_running(job_id)
+        if job.get("status") == "completed":
+            return
+        admin = session.get(UserAccount, job.get("created_by_admin_id"))
+        if not admin:
+            raise HTTPException(status_code=404, detail="Admin account not found for research brief generation job.")
+
+        def progress(step: str, message: str) -> None:
+            _update_job_progress(job_id, step, message)
+
+        draft = generate_research_brief(session, admin, dict(job.get("request_payload_json") or {}), progress_callback=progress)
+        validation = draft.get("validation") or {}
+        _complete_job(job_id, draft, duration_ms=int((time.perf_counter() - started) * 1000))
+        logger.info(
+            "research_brief_job_completed job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s duration_ms=%s source_links_count=%s numeric_claims_count=%s validation_status=%s",
+            job_id,
+            draft.get("primary_ticker"),
+            draft.get("model"),
+            (draft.get("config") or {}).get("external_research_mode"),
+            (draft.get("config") or {}).get("generate_thumbnail"),
+            int((time.perf_counter() - started) * 1000),
+            validation.get("source_link_count"),
+            len(validation.get("numeric_claims") or []),
+            validation.get("status"),
+        )
+    except Exception as exc:
+        _fail_job(job_id, exc, duration_ms=int((time.perf_counter() - started) * 1000))
+    finally:
+        if owns_db:
+            session.close()
+
+
+def _start_research_brief_job_worker(job_id: str) -> None:
+    with _JOB_WORKER_LOCK:
+        existing = _JOB_WORKERS.get(job_id)
+        if existing and existing.is_alive():
+            return
+        thread = threading.Thread(target=run_research_brief_generation_job, args=(job_id,), name=f"research-brief-job-{job_id}", daemon=True)
+        _JOB_WORKERS[job_id] = thread
+        thread.start()
+
+
+def _mark_job_running(job_id: str) -> dict[str, Any]:
+    with _STORE_LOCK:
+        store = _read_store()
+        job = _find_job(store, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Research brief generation job not found.")
+        if job.get("status") == "completed":
+            return deepcopy(job)
+        if job.get("status") in {"failed", "cancelled"}:
+            raise HTTPException(status_code=409, detail="Research brief generation job is not active.")
+        job["status"] = "running"
+        job["started_at"] = job.get("started_at") or _now()
+        job["progress_step"] = "loading_walnut_data"
+        job["progress_message"] = "Starting research brief generation."
+        _write_store(store)
+        payload = deepcopy(job)
+    logger.info(
+        "research_brief_job_started job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s",
+        job_id,
+        payload.get("ticker"),
+        payload.get("model"),
+        payload.get("external_research_mode"),
+        payload.get("generate_thumbnail"),
+    )
+    return payload
+
+
+def _update_job_progress(job_id: str, step: str, message: str) -> None:
+    with _STORE_LOCK:
+        store = _read_store()
+        job = _find_job(store, job_id)
+        if not job or job.get("status") not in {"queued", "running"}:
+            return
+        job["status"] = "running"
+        job["progress_step"] = step
+        job["progress_message"] = message
+        _write_store(store)
+        payload = deepcopy(job)
+    logger.info(
+        "research_brief_job_step job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s progress_step=%s",
+        job_id,
+        payload.get("ticker"),
+        payload.get("model"),
+        payload.get("external_research_mode"),
+        payload.get("generate_thumbnail"),
+        step,
+    )
+
+
+def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int) -> None:
+    validation = draft.get("validation") or {}
+    with _STORE_LOCK:
+        store = _read_store()
+        job = _find_job(store, job_id)
+        if not job:
+            return
+        job["status"] = "completed"
+        job["progress_step"] = "completed"
+        job["progress_message"] = "Research brief draft generated."
+        job["draft_id"] = draft.get("id")
+        job["source_links_count"] = validation.get("source_link_count") or 0
+        job["numeric_claims_count"] = len(validation.get("numeric_claims") or [])
+        job["validation_status"] = validation.get("status")
+        job["completed_at"] = _now()
+        job["failed_at"] = None
+        job["error_message_safe"] = None
+        job["error_details_internal"] = None
+        job["duration_ms"] = duration_ms
+        _write_store(store)
+
+
+def _fail_job(job_id: str, exc: Exception, *, duration_ms: int) -> None:
+    safe_error = _safe_job_error(exc)
+    with _STORE_LOCK:
+        store = _read_store()
+        job = _find_job(store, job_id)
+        if job:
+            job["status"] = "failed"
+            job["progress_step"] = "failed"
+            job["progress_message"] = safe_error
+            job["error_message_safe"] = safe_error
+            job["error_details_internal"] = f"{exc.__class__.__name__}: {str(exc)[:1000]}"
+            job["failed_at"] = _now()
+            job["duration_ms"] = duration_ms
+            _write_store(store)
+            payload = deepcopy(job)
+        else:
+            payload = {"ticker": None, "model": None, "external_research_mode": None, "generate_thumbnail": None}
+    logger.warning(
+        "research_brief_job_failed job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s duration_ms=%s error=%s",
+        job_id,
+        payload.get("ticker"),
+        payload.get("model"),
+        payload.get("external_research_mode"),
+        payload.get("generate_thumbnail"),
+        duration_ms,
+        exc.__class__.__name__,
+    )
+
+
+def _safe_job_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException) and exc.status_code == 422:
+        detail = str(exc.detail or "").strip()
+        if detail and not re.search(r"\b(provider|internal|cache|raw|token|credential|diagnostic)s?\b", detail, flags=re.IGNORECASE):
+            return detail[:300]
+    return RESEARCH_BRIEF_JOB_SAFE_ERROR
+
+
+def _find_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    for job in store.get("jobs") or []:
+        if job.get("id") == job_id:
+            return job
+    return None
+
+
+def _job_response_payload(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job.get("id"),
+        "status": job.get("status"),
+        "client_request_id": job.get("client_request_id"),
+        "ticker": job.get("ticker"),
+        "model": job.get("model"),
+        "external_research_mode": job.get("external_research_mode"),
+        "section_format": job.get("section_format"),
+        "generate_thumbnail": job.get("generate_thumbnail"),
+        "progress_step": job.get("progress_step"),
+        "progress_message": job.get("progress_message"),
+        "source_links_count": job.get("source_links_count") or 0,
+        "numeric_claims_count": job.get("numeric_claims_count") or 0,
+        "validation_status": job.get("validation_status"),
+        "draft_id": job.get("draft_id"),
+        "error_message_safe": job.get("error_message_safe"),
+        "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+        "failed_at": job.get("failed_at"),
+    }
 
 
 def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -753,7 +1110,7 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
             "max_output_tokens": _max_output_tokens(config["length"]),
             "text": {"format": {"type": "json_schema", "name": "walnut_research_brief", "schema": article_schema(), "strict": True}},
         },
-        timeout=90,
+        timeout=_env_float(RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS, 90.0),
     )
     if response.status_code == 429:
         raise HTTPException(status_code=429, detail="OpenAI rate limit hit. Try again later.")
@@ -790,8 +1147,17 @@ def _max_output_tokens(length: str) -> int:
     return 6000
 
 
+def _env_float(name: str, fallback: float) -> float:
+    try:
+        return max(float(os.getenv(name, "") or fallback), 1.0)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     section_format = _section_format_instructions(config.get("section_format") or "Walnut Research Brief")
+    prompt_config = dict(config)
+    prompt_config.pop("comparison_ticker", None)
     return "\n".join(
         [
             "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
@@ -804,6 +1170,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
             "Write directly, specifically, and professionally. Avoid generic AI phrasing and marketing filler.",
+            "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
             "End with a clear Walnut judgment plus a brief research-only disclaimer.",
             "The JSON summary is the Insights preview body. Keep it 1-3 sentences and do not duplicate the full post body.",
             "Section format instructions:",
@@ -812,7 +1179,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             json.dumps(KEY_RESEARCH_FIELDS, indent=2),
             "Return only JSON matching the provided schema.",
             "Admin configuration:",
-            json.dumps(config, indent=2, sort_keys=True),
+            json.dumps(prompt_config, indent=2, sort_keys=True),
             "Walnut research context:",
             json.dumps(context, indent=2, sort_keys=True, default=str)[:18000],
         ]
@@ -1026,7 +1393,8 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         "prompt_version": RESEARCH_BRIEF_PROMPT_VERSION,
         "research_context_timestamp": context.get("generated_at"),
         "primary_ticker": context["primary"]["identity"]["symbol"],
-        "comparison_ticker": config.get("comparison_ticker"),
+        "comparison_ticker": (config.get("comparison_tickers") or [None])[0],
+        "comparison_tickers": list(config.get("comparison_tickers") or []),
         "config": config,
         "article": {k: v for k, v in article.items() if not str(k).startswith("_")},
         "validation": validation,
@@ -1071,7 +1439,7 @@ def generate_thumbnail_asset(db: Session, config: dict[str, Any], article: dict[
                 "quality": os.getenv(AI_MARKETING_IMAGE_QUALITY, "").strip() or DEFAULT_AI_MARKETING_IMAGE_QUALITY,
                 "output_format": "jpeg",
             },
-            timeout=130,
+            timeout=_env_float(RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS, 45.0),
         )
     except requests.RequestException:
         asset["source_notes"] += " Image generation request failed; prompt is saved for retry."
@@ -1153,7 +1521,7 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
         "judgment": "mixed",
         "confidence": "medium",
         "primary_ticker": symbol,
-        "comparison_tickers": [config["comparison_ticker"]] if config.get("comparison_ticker") else [],
+        "comparison_tickers": list(config.get("comparison_tickers") or []),
         "category": context["primary"]["identity"].get("sector") or "Research",
         "reading_minutes": 4,
         "sections": [
@@ -1180,6 +1548,7 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
 def list_drafts(status: str | None = None) -> dict[str, Any]:
     with _STORE_LOCK:
         drafts = deepcopy(_read_store().get("drafts", []))
+    drafts = [_draft_with_comparison_tickers(draft) for draft in drafts]
     if status and status != "all":
         drafts = [draft for draft in drafts if draft.get("status") == status]
     return {"items": sorted(drafts, key=lambda item: item.get("updated_at") or "", reverse=True)}
@@ -1188,8 +1557,26 @@ def list_drafts(status: str | None = None) -> dict[str, Any]:
 def get_draft(draft_id: str) -> dict[str, Any]:
     for draft in _read_store().get("drafts", []):
         if draft.get("id") == draft_id:
-            return deepcopy(draft)
+            return _draft_with_comparison_tickers(deepcopy(draft))
     raise HTTPException(status_code=404, detail="Research brief draft not found.")
+
+
+def _draft_with_comparison_tickers(draft: dict[str, Any]) -> dict[str, Any]:
+    config = draft.setdefault("config", {})
+    source_config = dict(config)
+    if draft.get("comparison_tickers") and not source_config.get("comparison_tickers"):
+        source_config["comparison_tickers"] = draft.get("comparison_tickers")
+    if draft.get("comparison_ticker") and not source_config.get("comparison_ticker"):
+        source_config["comparison_ticker"] = draft.get("comparison_ticker")
+    comparison_tickers = normalize_comparison_tickers(source_config)
+    config["comparison_tickers"] = comparison_tickers
+    config["comparison_ticker"] = comparison_tickers[0] if comparison_tickers else None
+    draft["comparison_tickers"] = comparison_tickers
+    draft["comparison_ticker"] = comparison_tickers[0] if comparison_tickers else None
+    article = draft.get("article")
+    if isinstance(article, dict) and not isinstance(article.get("comparison_tickers"), list):
+        article["comparison_tickers"] = comparison_tickers
+    return draft
 
 
 def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any], status: str | None = None) -> dict[str, Any]:

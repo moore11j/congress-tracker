@@ -5586,6 +5586,7 @@ export type AdminResearchBriefConfig = {
   research_question: string;
   desired_angle: string;
   comparison_ticker?: string | null;
+  comparison_tickers: string[];
   time_horizon: string;
   intended_audience: string;
   judgment_preference: string;
@@ -5600,6 +5601,7 @@ export type AdminResearchBriefConfig = {
   include_source_links: boolean;
   generate_thumbnail: boolean;
   hero_image?: string | null;
+  client_request_id?: string | null;
 };
 
 export type AdminResearchBriefArticle = {
@@ -5665,6 +5667,7 @@ export type AdminResearchBriefDraft = {
   research_context_timestamp?: string | null;
   primary_ticker: string;
   comparison_ticker?: string | null;
+  comparison_tickers?: string[];
   config: AdminResearchBriefConfig;
   article: AdminResearchBriefArticle;
   validation: AdminResearchBriefValidation;
@@ -5674,6 +5677,28 @@ export type AdminResearchBriefDraft = {
     usage?: Record<string, unknown>;
   };
   research_context?: Record<string, unknown>;
+};
+
+export type AdminResearchBriefJob = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled" | string;
+  client_request_id?: string | null;
+  ticker?: string | null;
+  model?: string | null;
+  external_research_mode?: string | null;
+  section_format?: string | null;
+  generate_thumbnail?: boolean | null;
+  progress_step?: string | null;
+  progress_message?: string | null;
+  source_links_count?: number;
+  numeric_claims_count?: number;
+  validation_status?: string | null;
+  draft_id?: string | null;
+  error_message_safe?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  failed_at?: string | null;
 };
 
 export type PublicResearchBriefCard = {
@@ -5721,11 +5746,27 @@ export async function validateAdminResearchBriefTicker(symbol: string): Promise<
   });
 }
 
-export async function generateAdminResearchBriefDraft(payload: AdminResearchBriefConfig): Promise<AdminResearchBriefDraft> {
-  return fetchJson<AdminResearchBriefDraft>(buildApiUrl("/api/admin/research-briefs/generate"), {
+export async function startAdminResearchBriefGeneration(payload: AdminResearchBriefConfig): Promise<AdminResearchBriefJob> {
+  return fetchJson<AdminResearchBriefJob>(buildApiUrl("/api/admin/research-briefs/generate"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function getAdminResearchBriefGenerationJob(jobId: string): Promise<AdminResearchBriefJob> {
+  return fetchJson<AdminResearchBriefJob>(buildApiUrl(`/api/admin/research-briefs/jobs/${encodeURIComponent(jobId)}`), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function getAdminResearchBriefGenerationDraft(jobId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/jobs/${encodeURIComponent(jobId)}/draft`), {
+    cache: "no-store",
+    next: { revalidate: 0 },
     source: "AdminResearchBriefs",
   });
 }

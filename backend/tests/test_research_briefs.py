@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -139,7 +139,7 @@ def test_research_brief_generation_requires_admin(tmp_path, monkeypatch):
     user = _user(db, "user@example.com")
 
     with pytest.raises(HTTPException) as exc:
-        admin_research_brief_generate(_payload(), _request_for_user(user), db)
+        admin_research_brief_generate(_payload(), _request_for_user(user), Response(), db=db)
 
     assert exc.value.status_code == 403
 
@@ -148,12 +148,25 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setattr(service.requests, "post", _fake_openai_response)
+    monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
     db = _session()
     _seed_ticker(db)
     admin = _user(db, "admin@example.com", role="admin")
+    response = Response()
 
-    draft = admin_research_brief_generate(_payload(), _request_for_user(admin), db)
+    job = admin_research_brief_generate(_payload(client_request_id="req-1"), _request_for_user(admin), response=response, db=db)
 
+    assert response.status_code == 202
+    assert job["status"] == "queued"
+    assert job["job_id"]
+    assert service.list_generation_jobs()["items"][0]["job_id"] == job["job_id"]
+
+    service.run_research_brief_generation_job(job["job_id"], db)
+    completed = service.get_research_brief_generation_job(job["job_id"])
+    draft = service.get_research_brief_generation_job_draft(job["job_id"])
+
+    assert completed["status"] == "completed"
+    assert completed["draft_id"] == draft["id"]
     assert draft["status"] == "draft"
     assert draft["article"]["slug"] == "mu-generated-test"
     assert draft["article"]["preview_body"]
@@ -162,6 +175,59 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert draft["model"] == "gpt-5.6-sol"
     saved = service.list_drafts()["items"]
     assert saved[0]["id"] == draft["id"]
+
+
+def test_research_brief_generation_dedupes_client_request_id(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    request = _request_for_user(admin)
+
+    first = admin_research_brief_generate(_payload(client_request_id="same-request"), request, Response(), db=db)
+    second = admin_research_brief_generate(_payload(client_request_id="same-request"), request, Response(), db=db)
+
+    assert second["job_id"] == first["job_id"]
+    assert len(service.list_generation_jobs()["items"]) == 1
+
+
+def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
+
+    def bad_post(*_args, **_kwargs):
+        raise RuntimeError("provider cache raw token exploded")
+
+    monkeypatch.setattr(service.requests, "post", bad_post)
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    job = admin_research_brief_generate(_payload(client_request_id="fail-request"), _request_for_user(admin), Response(), db=db)
+    service.run_research_brief_generation_job(job["job_id"], db)
+    failed = service.get_research_brief_generation_job(job["job_id"])
+
+    assert failed["status"] == "failed"
+    assert failed["error_message_safe"] == service.RESEARCH_BRIEF_JOB_SAFE_ERROR
+    assert "provider" not in failed["error_message_safe"].lower()
+
+
+def test_thumbnail_failure_does_not_fail_text_draft(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service.requests, "post", _fake_openai_response)
+    monkeypatch.setattr(service, "generate_thumbnail_asset", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("image failed")))
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    draft = service.generate_research_brief(db, admin, _payload(generate_thumbnail=True).model_dump())
+
+    assert draft["status"] == "draft"
+    assert draft["article"]["thumbnail_asset"]["url"] == ""
+    assert "text draft was saved" in draft["article"]["thumbnail_asset"]["source_notes"]
 
 
 def test_model_selector_passes_selected_model_and_rejects_invalid(tmp_path, monkeypatch):
@@ -180,7 +246,7 @@ def test_model_selector_passes_selected_model_and_rejects_invalid(tmp_path, monk
     _seed_ticker(db)
     admin = _user(db, "admin@example.com", role="admin")
 
-    draft = admin_research_brief_generate(_payload(selected_model="gpt-deep"), _request_for_user(admin), db)
+    draft = service.generate_research_brief(db, admin, _payload(selected_model="gpt-deep").model_dump())
 
     assert captured["model"] == "gpt-deep"
     assert draft["model"] == "gpt-deep"
@@ -274,6 +340,69 @@ def test_reddit_dd_section_format_prompt_contains_required_sections():
     assert "The risk / opportunity" in prompt
     assert "The data" in prompt
     assert "Conclusion" in prompt
+
+
+def test_comparison_tickers_are_normalized_from_single_and_comma_separated_inputs():
+    single = service.validate_config(_payload(comparison_tickers=["GOOGL"]).model_dump())
+    comma = service.validate_config(_payload(comparison_tickers=["googl, amzn, MSFT, googl,,"]).model_dump())
+    legacy = service.validate_config(_payload(comparison_ticker="googl,amzn,msft").model_dump())
+
+    assert single["comparison_tickers"] == ["GOOGL"]
+    assert single["comparison_ticker"] == "GOOGL"
+    assert comma["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
+    assert legacy["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
+
+
+def test_comparison_tickers_reject_too_many_and_primary_duplicates():
+    with pytest.raises(HTTPException) as too_many:
+        service.validate_config(_payload(comparison_tickers=["A,B,C,D,E,F"]).model_dump())
+    assert too_many.value.status_code == 422
+    assert "limited to 5" in too_many.value.detail
+
+    with pytest.raises(HTTPException) as duplicate:
+        service.validate_config(_payload(ticker="mu", comparison_tickers=["GOOGL, MU"]).model_dump())
+    assert duplicate.value.status_code == 422
+    assert "Primary ticker" in duplicate.value.detail
+
+
+def test_comparison_tickers_validate_each_symbol_individually(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    db = _session()
+    _seed_ticker(db, "MU")
+    _seed_ticker(db, "GOOGL")
+    _seed_ticker(db, "AMZN")
+
+    with pytest.raises(HTTPException) as exc:
+        service.assemble_research_context(db, service.validate_config(_payload(comparison_tickers=["GOOGL, AMZN, MSFT"]).model_dump()))
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "MSFT is not currently supported as a comparison ticker."
+
+
+def test_research_prompt_receives_comparison_tickers_array(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
+    captured = {}
+
+    def fake_post(*args, **kwargs):
+        captured["input"] = kwargs["json"]["input"]
+        return _fake_openai_response(*args, **kwargs)
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    db = _session()
+    for symbol in ["MU", "GOOGL", "AMZN", "MSFT"]:
+        _seed_ticker(db, symbol)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    job = admin_research_brief_generate(_payload(comparison_tickers=["googl,amzn,msft"]), _request_for_user(admin), Response(), db=db)
+    service.run_research_brief_generation_job(job["job_id"], db)
+    draft = service.get_research_brief_generation_job_draft(job["job_id"])
+
+    assert draft["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
+    assert draft["config"]["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
+    assert '"comparison_tickers": [\n    "GOOGL",\n    "AMZN",\n    "MSFT"\n  ]' in captured["input"]
+    assert '"comparison_ticker": "GOOGL,AMZN,MSFT"' not in captured["input"]
 
 
 def test_context_marks_missing_data_without_treating_it_as_zero(tmp_path, monkeypatch):
