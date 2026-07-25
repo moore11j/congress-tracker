@@ -1715,6 +1715,34 @@ def ensure_event_columns() -> None:
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlist_items'")
         ).fetchone()
         if watchlist_items_exists:
+            existing_watchlist_item_columns = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(watchlist_items)")).fetchall()
+                if len(row) > 1
+            }
+            if "target_type" not in existing_watchlist_item_columns:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_type TEXT NOT NULL DEFAULT 'ticker'"))
+            if "target_value" not in existing_watchlist_item_columns:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_value TEXT"))
+            if "target_label" not in existing_watchlist_item_columns:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_label TEXT"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE watchlist_items
+                    SET target_type = COALESCE(NULLIF(target_type, ''), 'ticker'),
+                        target_value = COALESCE(
+                            NULLIF(target_value, ''),
+                            (
+                                SELECT upper(securities.symbol)
+                                FROM securities
+                                WHERE securities.id = watchlist_items.security_id
+                            )
+                        )
+                    WHERE security_id IS NOT NULL
+                    """
+                )
+            )
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist_security "
@@ -1725,6 +1753,18 @@ def ensure_event_columns() -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_watchlist_items_security_id "
                     "ON watchlist_items (security_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_watchlist_items_target_scope "
+                    "ON watchlist_items (watchlist_id, target_type, target_value)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist_target "
+                    "ON watchlist_items (watchlist_id, target_type, target_value)"
                 )
             )
         conn.execute(
@@ -2215,6 +2255,69 @@ def ensure_event_columns() -> None:
                 """
             )
         )
+
+
+def ensure_watchlist_item_target_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        if conn.dialect.name == "sqlite":
+            exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='watchlist_items'")
+            ).fetchone()
+            if not exists:
+                return
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(watchlist_items)")).fetchall()
+                if len(row) > 1
+            }
+            if "target_type" not in existing:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_type TEXT NOT NULL DEFAULT 'ticker'"))
+            if "target_value" not in existing:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_value TEXT"))
+            if "target_label" not in existing:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN target_label TEXT"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE watchlist_items
+                    SET target_type = COALESCE(NULLIF(target_type, ''), 'ticker'),
+                        target_value = COALESCE(
+                            NULLIF(target_value, ''),
+                            (
+                                SELECT upper(securities.symbol)
+                                FROM securities
+                                WHERE securities.id = watchlist_items.security_id
+                            )
+                        )
+                    WHERE security_id IS NOT NULL
+                    """
+                )
+            )
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_watchlist_items_target_scope ON watchlist_items (watchlist_id, target_type, target_value)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist_target ON watchlist_items (watchlist_id, target_type, target_value)"))
+            return
+
+        if conn.dialect.name == "postgresql":
+            _set_postgres_ddl_timeouts(conn)
+            exists = conn.execute(text("SELECT to_regclass('public.watchlist_items')")).scalar_one_or_none()
+            if not exists:
+                return
+            conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'ticker'"))
+            conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_value TEXT"))
+            conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_label TEXT"))
+            conn.execute(
+                text(
+                    """
+                    UPDATE watchlist_items wi
+                    SET target_type = COALESCE(NULLIF(wi.target_type, ''), 'ticker'),
+                        target_value = COALESCE(NULLIF(wi.target_value, ''), upper(securities.symbol))
+                    FROM securities
+                    WHERE wi.security_id = securities.id
+                    """
+                )
+            )
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_watchlist_items_target_scope ON watchlist_items (watchlist_id, target_type, target_value)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_watchlist_items_watchlist_target ON watchlist_items (watchlist_id, target_type, target_value)"))
 
 
 def ensure_monitoring_alert_columns() -> None:

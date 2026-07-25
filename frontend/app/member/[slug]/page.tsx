@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Badge } from "@/components/Badge";
 import { ShareLinks } from "@/components/member/ShareLinks";
 import { MemberAnalyticsClient } from "@/components/member/MemberAnalyticsClient";
+import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import {
   getMemberAlphaSummary,
   getMemberProfile,
@@ -274,9 +275,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
               <span className="sm:hidden">Feed</span>
               <span className="hidden sm:inline">Back to feed</span>
             </span>
-            <Link href="/?mode=congress" className={actionClassName}>
-              Follow Member
-            </Link>
+            <AddWatchlistTarget targetType="member" targetValue={canonicalMemberId} targetLabel={memberName} buttonLabel="Follow Member" className={actionClassName} />
             <ShareLinks canonicalUrl={canonicalUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={primaryActionClassName}>
               Backtest this Member

@@ -33,7 +33,7 @@ test("annual pricing badge derives rounded-up months free from configured prices
 
 test("included feature cells render as green checks while limits stay numeric", () => {
   assert.match(source, /aria-label="Included"[\s\S]*?text-emerald-300[\s\S]*?✓/);
-  assert.match(source, /if \(feature\.kind === "limit"\) return formatLimit\(feature, feature\.limits\[tier\] \?\? 0\);/);
+  assert.match(source, /if \(feature\.kind === "limit"\) \{[\s\S]*?return formatLimit\(feature, value\);[\s\S]*?\}/);
   assert.doesNotMatch(source, /return "Included";/);
 });
 
@@ -82,6 +82,8 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     "event_calendar:",
     "watchlists:",
     "watchlist_tickers:",
+    "watchlist_people_departments:",
+    "watchlist_institutions:",
     "saved_views:",
     "screener_saved_screens:",
     "screener_monitoring:",
@@ -113,6 +115,7 @@ test("advanced workflow rows mark future options flow without hiding active inst
   assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
   assert.match(source, /if \(\["options_flow_feed", "options_flow_filters", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
   assert.doesNotMatch(source, /institutional_feed"[\s\S]*?return "Coming soon"/);
+  assert.match(source, /\["watchlist_people_departments", "watchlist_institutions"\]\.includes\(feature\.feature_key\)[\s\S]*?return "-"/);
 });
 
 test("advanced intelligence rows are Pro-only in frontend fallback config", () => {
@@ -122,6 +125,8 @@ test("advanced intelligence rows are Pro-only in frontend fallback config", () =
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_filters"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"macro_positioning"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"market_pressure"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_people_departments"[\s\S]*?required_tier:\s*"premium"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_institutions"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /label:\s*"Pressure Map"/);
   assert.match(entitlementConfig, /export const proEntitlements/);
   const premiumBlock = entitlementConfig.slice(
@@ -189,9 +194,11 @@ test("fallback plan config starts with current public prices", () => {
 });
 
 test("fallback plan config starts with current public headline limits", () => {
-  assert.match(defaultPlanConfig, /free:\s*\{[\s\S]*?screener_saved_screens:\s*1,[\s\S]*?screener_results:\s*5,[\s\S]*?watchlists:\s*1,[\s\S]*?watchlist_tickers:\s*5,[\s\S]*?saved_views:\s*1,[\s\S]*?monitoring_sources:\s*3,/);
-  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?screener_saved_screens:\s*5,[\s\S]*?screener_results:\s*25,[\s\S]*?watchlists:\s*5,[\s\S]*?watchlist_tickers:\s*25,[\s\S]*?saved_views:\s*10,[\s\S]*?monitoring_sources:\s*10,/);
-  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?screener_saved_screens:\s*25,[\s\S]*?screener_results:\s*100,[\s\S]*?watchlists:\s*25,[\s\S]*?watchlist_tickers:\s*100,[\s\S]*?saved_views:\s*25,[\s\S]*?monitoring_sources:\s*25,/);
+  assert.match(defaultPlanConfig, /free:\s*\{[\s\S]*?screener_saved_screens:\s*1,[\s\S]*?screener_results:\s*5,[\s\S]*?watchlists:\s*1,[\s\S]*?watchlist_tickers:\s*5,[\s\S]*?watchlist_people_departments:\s*0,[\s\S]*?watchlist_institutions:\s*0,[\s\S]*?saved_views:\s*1,[\s\S]*?monitoring_sources:\s*3,/);
+  assert.match(defaultPlanConfig, /premium:\s*\{[\s\S]*?screener_saved_screens:\s*5,[\s\S]*?screener_results:\s*25,[\s\S]*?watchlists:\s*5,[\s\S]*?watchlist_tickers:\s*25,[\s\S]*?watchlist_people_departments:\s*10,[\s\S]*?watchlist_institutions:\s*0,[\s\S]*?saved_views:\s*10,[\s\S]*?monitoring_sources:\s*10,/);
+  assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?screener_saved_screens:\s*25,[\s\S]*?screener_results:\s*100,[\s\S]*?watchlists:\s*25,[\s\S]*?watchlist_tickers:\s*100,[\s\S]*?watchlist_people_departments:\s*25,[\s\S]*?watchlist_institutions:\s*25,[\s\S]*?saved_views:\s*25,[\s\S]*?monitoring_sources:\s*25,/);
+  assert.match(defaultPlanConfig, /label:\s*"Members\/Insiders\/Departments per watchlist"/);
+  assert.match(defaultPlanConfig, /label:\s*"Institutions per watchlist"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"signals"[\s\S]*?required_tier:\s*"premium"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"screener_csv_export"[\s\S]*?required_tier:\s*"pro"/);
 });

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ApiError, getDepartmentProfile, type DepartmentContractItem, type DepartmentProfileResponse } from "@/lib/api";
 import { ShareLinks } from "@/components/member/ShareLinks";
+import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
@@ -65,6 +66,7 @@ export default async function DepartmentPage({ params }: Props) {
             <Link href="/?mode=government_contracts" className={ghostButtonClassName} prefetch={false}>
               Government contracts feed
             </Link>
+            <AddWatchlistTarget targetType="department" targetValue={department.name} targetLabel={department.name} buttonLabel="Follow Department" className={ghostButtonClassName} />
             <ShareLinks canonicalUrl={canonicalDepartmentUrl} />
             <Link href="/screener?government_contracts_active=true&government_contracts_lookback_days=365" className={ghostButtonClassName} prefetch={false}>
               Screener overlay

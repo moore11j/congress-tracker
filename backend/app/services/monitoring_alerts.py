@@ -5,14 +5,16 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.entitlements import entitlements_for_user
 from app.models import Event, MonitoringAlert, SavedScreen, SavedScreenEvent, Security, UserAccount, Watchlist, WatchlistItem, WatchlistViewState
 from app.routers.events import _event_effective_activity_ts, _event_effective_activity_ts_expr
+from app.services.government_departments import canonical_department_name
 from app.services.institutional_activity import INSTITUTIONAL_EVENT_TYPES
 from app.services.monitoring_titles import build_monitoring_event_title
+from app.services.ticker_meta import normalize_cik
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +59,189 @@ def watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
             select(Security.symbol)
             .join(WatchlistItem, WatchlistItem.security_id == Security.id)
             .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.target_type == "ticker")
             .order_by(Security.symbol.asc())
         )
         .scalars()
         .all()
     )
     return sorted({row.strip().upper() for row in rows if row and row.strip()})
+
+
+def watchlist_targets(db: Session, watchlist_id: int) -> dict[str, set[str]]:
+    rows = (
+        db.execute(
+            select(WatchlistItem.target_type, WatchlistItem.target_value)
+            .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.target_type != "ticker")
+        )
+        .all()
+    )
+    targets: dict[str, set[str]] = {"member": set(), "insider": set(), "department": set(), "institution": set()}
+    for target_type, target_value in rows:
+        key = (target_type or "").strip().lower()
+        value = (target_value or "").strip()
+        if key not in targets or not value:
+            continue
+        if key in {"insider", "institution"}:
+            normalized = normalize_cik(value)
+            if normalized:
+                targets[key].add(normalized)
+        elif key == "department":
+            targets[key].add(_department_key(value))
+        else:
+            targets[key].add(value.upper())
+    return targets
+
+
+def _department_key(value: str | None) -> str:
+    return (canonical_department_name(value) or value or "").strip().lower()
+
+
+def _payload_values(payload: Any, keys: set[str]) -> list[str]:
+    values: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in keys and value is not None:
+                values.append(str(value))
+            if isinstance(value, (dict, list)):
+                values.extend(_payload_values(value, keys))
+    elif isinstance(payload, list):
+        for item in payload:
+            values.extend(_payload_values(item, keys))
+    return values
+
+
+def _event_ciks(event: Event, payload: dict[str, Any]) -> set[str]:
+    raw_values = [
+        event.member_bioguide_id,
+        *_payload_values(
+            payload,
+            {
+                "reporting_cik",
+                "reportingCik",
+                "reporting_owner_cik",
+                "reportingOwnerCik",
+                "holder_cik",
+                "holderCik",
+                "institution_cik",
+                "institutionCik",
+                "cik",
+            },
+        ),
+    ]
+    return {normalized for raw in raw_values for normalized in [normalize_cik(raw)] if normalized}
+
+
+def _event_department_keys(event: Event, payload: dict[str, Any]) -> set[str]:
+    raw_values = [
+        event.member_name,
+        *_payload_values(payload, {"awarding_agency", "awardingAgency", "funding_agency", "fundingAgency"}),
+    ]
+    return {key for raw in raw_values for key in [_department_key(raw)] if key}
+
+
+def _event_matches_watchlist(
+    event: Event,
+    *,
+    symbols: set[str],
+    targets: dict[str, set[str]],
+) -> bool:
+    if event.symbol and event.symbol.strip().upper() in symbols:
+        return True
+    payload = _event_payload(event)
+    member_id = (event.member_bioguide_id or "").strip().upper()
+    if member_id and member_id in targets.get("member", set()):
+        return True
+    event_ciks = _event_ciks(event, payload)
+    if event.event_type.startswith("insider") and event_ciks.intersection(targets.get("insider", set())):
+        return True
+    if (event.event_type in INSTITUTIONAL_EVENT_TYPES or event.event_type == "institutional_activity") and event_ciks.intersection(targets.get("institution", set())):
+        return True
+    if event.event_type.startswith("government_contract") and _event_department_keys(event, payload).intersection(targets.get("department", set())):
+        return True
+    return False
+
+
+def event_matches_watchlist(db: Session, watchlist_id: int, event: Event) -> bool:
+    return _event_matches_watchlist(event, symbols=set(watchlist_symbols(db, watchlist_id)), targets=watchlist_targets(db, watchlist_id))
+
+
+def _watchlist_candidate_events(
+    db: Session,
+    *,
+    watchlist_id: int,
+    event_types: tuple[str, ...],
+    since: datetime,
+    strict_since: bool,
+) -> list[Event]:
+    symbols = set(watchlist_symbols(db, watchlist_id))
+    targets = watchlist_targets(db, watchlist_id)
+    target_values = set().union(*targets.values()) if targets else set()
+    if not symbols and not target_values:
+        return []
+
+    freshness_ts = _event_effective_activity_ts_expr(db)
+    predicates = []
+    if symbols:
+        predicates.append(Event.symbol.is_not(None) & func.upper(Event.symbol).in_(symbols))
+    member_ids = targets.get("member", set())
+    ciks = targets.get("insider", set()).union(targets.get("institution", set()))
+    if member_ids:
+        predicates.append(Event.member_bioguide_id.in_(member_ids))
+    if ciks:
+        predicates.append(Event.member_bioguide_id.in_(ciks))
+        cik_needles = sorted(ciks.union({cik.lstrip("0") for cik in ciks if cik.lstrip("0")}))
+        predicates.extend(Event.payload_json.like(f"%{cik}%") for cik in cik_needles)
+    department_values = targets.get("department", set())
+    if department_values:
+        predicates.append(Event.event_type.in_(("government_contract", "government_contract_new")))
+        predicates.extend(Event.payload_json.like(f"%{department}%") for department in department_values)
+
+    if not predicates:
+        return []
+    since_clause = freshness_ts > since if strict_since else freshness_ts >= since
+    rows = (
+        db.execute(
+            select(Event)
+            .where(Event.event_type.in_(event_types))
+            .where(or_(*predicates))
+            .where(since_clause)
+            .order_by(freshness_ts.asc(), Event.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    seen: set[int] = set()
+    matched: list[Event] = []
+    for event in rows:
+        if event.id in seen:
+            continue
+        if _event_matches_watchlist(event, symbols=symbols, targets=targets):
+            matched.append(event)
+            if event.id is not None:
+                seen.add(event.id)
+    return matched
+
+
+def watchlist_matching_event_ids_for_target(db: Session, target_type: str, target_value: str) -> list[int]:
+    normalized_type = (target_type or "").strip().lower()
+    value = (target_value or "").strip()
+    if not normalized_type or not value:
+        return []
+    targets = {"member": set(), "insider": set(), "department": set(), "institution": set()}
+    if normalized_type == "member":
+        targets["member"].add(value.upper())
+    elif normalized_type in {"insider", "institution"}:
+        normalized_cik = normalize_cik(value)
+        if normalized_cik:
+            targets[normalized_type].add(normalized_cik)
+    elif normalized_type == "department":
+        targets["department"].add(_department_key(value))
+    else:
+        return []
+    rows = db.execute(select(Event).where(Event.event_type.in_(ALERTABLE_EVENT_TYPES))).scalars().all()
+    return [int(event.id) for event in rows if event.id is not None and _event_matches_watchlist(event, symbols=set(), targets=targets)]
 
 
 def watchlist_checkpoint(db: Session, watchlist_id: int) -> datetime | None:
@@ -183,22 +362,14 @@ def watchlist_unread_count(db: Session, watchlist_id: int, checkpoint: datetime 
     if checkpoint is None:
         return 0
 
-    symbols = watchlist_symbols(db, watchlist_id)
-    if not symbols:
-        return 0
-
-    activity_ts = _event_effective_activity_ts_expr(db)
-    return int(
-        db.execute(
-            select(func.count())
-            .select_from(Event)
-            .where(Event.symbol.is_not(None))
-            .where(func.upper(Event.symbol).in_(symbols))
-            .where(Event.event_type.in_(_event_types_for_user(db, user_id)))
-            .where(activity_ts >= checkpoint)
-        ).scalar_one()
-        or 0
+    events = _watchlist_candidate_events(
+        db,
+        watchlist_id=watchlist_id,
+        event_types=_event_types_for_user(db, user_id),
+        since=checkpoint,
+        strict_since=False,
     )
+    return len(events)
 
 
 def watchlist_unread_counts(db: Session, watchlist_ids: list[int], user_id: int | None = None) -> dict[int, int]:
@@ -236,39 +407,31 @@ def refresh_watchlist_alerts(
 ) -> int:
     can_view_institutional, can_view_signal_context = _visibility_for_user(db, user_id)
     symbols = watchlist_symbols(db, watchlist.id)
+    targets = watchlist_targets(db, watchlist.id)
     checkpoint = watchlist_checkpoint(db, watchlist.id)
     since = datetime.now(timezone.utc) - timedelta(days=max(int(lookback_days or 1), 1))
     if checkpoint is not None and not force_lookback:
         since = checkpoint
 
-    if not symbols:
+    target_count = sum(len(values) for values in targets.values())
+    if not symbols and target_count == 0:
         logger.info(
-            "monitoring_watchlist_check user_id=%s watchlist_id=%s symbols_count=0 checkpoint=%s matched_events=0 unread_created=0",
+            "monitoring_watchlist_check user_id=%s watchlist_id=%s symbols_count=0 targets_count=0 checkpoint=%s matched_events=0 unread_created=0",
             user_id,
             watchlist.id,
             checkpoint,
         )
         return 0
 
-    freshness_ts = _event_effective_activity_ts_expr(db)
-    events = (
-        db.execute(
-            select(Event)
-            .where(Event.symbol.is_not(None))
-            .where(func.upper(Event.symbol).in_(symbols))
-            .where(
-                Event.event_type.in_(
-                    _event_types_from_visibility(
-                        can_view_institutional=can_view_institutional,
-                        can_view_signal_context=can_view_signal_context,
-                    )
-                )
-            )
-            .where(freshness_ts > since)
-            .order_by(freshness_ts.asc(), Event.id.asc())
-        )
-        .scalars()
-        .all()
+    events = _watchlist_candidate_events(
+        db,
+        watchlist_id=watchlist.id,
+        event_types=_event_types_from_visibility(
+            can_view_institutional=can_view_institutional,
+            can_view_signal_context=can_view_signal_context,
+        ),
+        since=since,
+        strict_since=True,
     )
 
     created = _ensure_alerts_for_events(
@@ -281,10 +444,11 @@ def refresh_watchlist_alerts(
     )
 
     logger.info(
-        "monitoring_watchlist_check user_id=%s watchlist_id=%s symbols_count=%s checkpoint=%s matched_events=%s unread_created=%s",
+        "monitoring_watchlist_check user_id=%s watchlist_id=%s symbols_count=%s targets_count=%s checkpoint=%s matched_events=%s unread_created=%s",
         user_id,
         watchlist.id,
         len(symbols),
+        target_count,
         checkpoint,
         len(events),
         created,

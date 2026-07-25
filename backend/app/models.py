@@ -446,13 +446,18 @@ class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
     __table_args__ = (
         UniqueConstraint("watchlist_id", "security_id", name="uq_watchlist_items_scope"),
+        UniqueConstraint("watchlist_id", "target_type", "target_value", name="uq_watchlist_items_target_scope"),
         Index("ix_watchlist_items_watchlist_security", "watchlist_id", "security_id"),
         Index("ix_watchlist_items_security_id", "security_id"),
+        Index("ix_watchlist_items_watchlist_target", "watchlist_id", "target_type", "target_value"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     watchlist_id: Mapped[int]
-    security_id: Mapped[int]
+    security_id: Mapped[Optional[int]] = mapped_column(nullable=True)
+    target_type: Mapped[str] = mapped_column(Text, default="ticker", server_default="ticker", nullable=False)
+    target_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_label: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class WatchlistViewState(Base):

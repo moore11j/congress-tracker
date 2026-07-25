@@ -58,6 +58,7 @@ from app.db import (
     ensure_ticker_financials_cache_schema,
     ensure_trade_outcomes_amount_bigint,
     ensure_user_account_billing_schema,
+    ensure_watchlist_item_target_schema,
     get_db,
     is_database_locked_error,
 )
@@ -178,7 +179,7 @@ from app.services.quote_lookup import get_current_prices, get_current_prices_db,
 from app.services.data_enrichment_queue import enqueue_data_enrichment_job
 from app.services.government_contracts import get_government_contracts_for_symbol
 from app.services.government_contracts import get_government_contracts_summary
-from app.services.government_departments import get_department_profile, list_departments
+from app.services.government_departments import canonical_department_name, get_department_profile, list_departments
 from app.services.congress_metadata import get_congress_metadata_resolver
 from app.services.congress_assets import (
     CONGRESS_DISCLOSURE_EVENT_TYPES,
@@ -243,6 +244,7 @@ from app.services.confirmation_monitoring import (
 from app.services.monitoring_alerts import (
     alert_to_dict as monitoring_alert_to_dict,
     ensure_alerts_for_saved_screen_events,
+    event_matches_watchlist,
     mark_alert_read,
     dismiss_alerts,
     mark_alerts_read,
@@ -257,9 +259,10 @@ from app.services.monitoring_alerts import (
     watchlist_unread_count,
     watchlist_unread_counts,
     watchlist_unread_summary,
+    watchlist_matching_event_ids_for_target,
 )
 from app.services.why_now import build_why_now_bundle
-from app.services.ticker_meta import get_cik_meta, get_ticker_meta
+from app.services.ticker_meta import get_cik_meta, get_ticker_meta, normalize_cik
 from app.services.insights_snapshots import get_insights_headlines, get_insights_snapshot, refresh_insights_snapshot
 from app.services.insights_quote_overview import get_insights_quote_overview
 from app.services.fmp_news import get_insights_category_news, get_press_releases, get_sec_filings, get_stock_news
@@ -3491,6 +3494,62 @@ class WatchlistPayload(BaseModel):
     name: str
 
 
+WATCHLIST_TARGET_TYPES = {"ticker", "member", "insider", "department", "institution"}
+
+
+def _clean_watchlist_target_type(value: str | None) -> str:
+    target_type = (value or "ticker").strip().lower().replace("-", "_")
+    if target_type not in WATCHLIST_TARGET_TYPES:
+        raise HTTPException(status_code=422, detail="Unsupported watchlist target type")
+    return target_type
+
+
+def _normalize_watchlist_target_value(target_type: str, value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=422, detail="Watchlist target value is required")
+    if target_type == "ticker":
+        normalized = normalize_symbol(raw)
+        if not normalized:
+            raise HTTPException(status_code=422, detail="Ticker symbol is required")
+        return normalized
+    if target_type == "member":
+        return raw.upper()
+    if target_type in {"insider", "institution"}:
+        normalized_cik = normalize_cik(raw)
+        if not normalized_cik:
+            raise HTTPException(status_code=422, detail="Valid CIK is required")
+        return normalized_cik
+    if target_type == "department":
+        return canonical_department_name(raw) or raw
+    return raw
+
+
+def _watchlist_target_response(item: WatchlistItem) -> dict[str, str | int | None]:
+    return {
+        "id": item.id,
+        "type": item.target_type or "ticker",
+        "value": item.target_value,
+        "label": item.target_label or item.target_value,
+    }
+
+
+def _watchlist_target_limit_feature(target_type: str) -> str:
+    if target_type == "ticker":
+        return "watchlist_tickers"
+    if target_type == "institution":
+        return "watchlist_institutions"
+    return "watchlist_people_departments"
+
+
+def _watchlist_target_limit_message(target_type: str) -> str:
+    if target_type == "ticker":
+        return "Your current plan has reached its ticker-per-watchlist limit. Upgrade to add more symbols."
+    if target_type == "institution":
+        return "Following institutions in watchlists is included with Pro."
+    return "Following members, insiders, and departments in watchlists is included with Premium."
+
+
 def _require_account(request: Request, db: Session) -> UserAccount:
     return current_user(db, request, required=True)
 
@@ -3836,6 +3895,7 @@ def _startup_create_tables():
         ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
         ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
+        ("schema_watchlist_item_targets", lambda: ensure_watchlist_item_target_schema(engine)),
         ("schema_monitoring_alert_columns", ensure_monitoring_alert_columns),
         ("schema_house_annual_disclosure", ensure_house_annual_disclosure_schema),
         ("schema_trade_outcomes_amount_bigint", ensure_trade_outcomes_amount_bigint),
@@ -12003,7 +12063,7 @@ def create_watchlist(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Watchlist name already exists")
-    return {"id": w.id, "name": w.name, "symbols": []}
+    return {"id": w.id, "name": w.name, "symbols": [], "targets": []}
 
 
 def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
@@ -12012,11 +12072,37 @@ def _watchlist_symbols(db: Session, watchlist_id: int) -> list[str]:
             select(Security.symbol)
             .join(WatchlistItem, WatchlistItem.security_id == Security.id)
             .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.target_type == "ticker")
         )
         .scalars()
         .all()
     )
     return [normalized for symbol in symbols if (normalized := normalize_symbol(symbol))]
+
+
+def _watchlist_non_ticker_targets(db: Session, watchlist_id: int) -> dict[str, list[dict[str, str | int | None]]]:
+    targets = {"members": [], "insiders": [], "departments": [], "institutions": []}
+    rows = (
+        db.execute(
+            select(WatchlistItem)
+            .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(WatchlistItem.target_type != "ticker")
+            .order_by(WatchlistItem.target_type.asc(), WatchlistItem.target_label.asc(), WatchlistItem.target_value.asc())
+        )
+        .scalars()
+        .all()
+    )
+    target_keys = {
+        "member": "members",
+        "insider": "insiders",
+        "department": "departments",
+        "institution": "institutions",
+    }
+    for row in rows:
+        key = target_keys.get(row.target_type or "")
+        if key:
+            targets[key].append(_watchlist_target_response(row))
+    return targets
 
 
 @app.get("/api/insights/news", dependencies=[Depends(rate_limit_provider_backed)])
@@ -12175,14 +12261,31 @@ def list_watchlists(request: Request, db: Session = Depends(get_db)):
             select(WatchlistItem.watchlist_id, Security.symbol)
             .join(Security, WatchlistItem.security_id == Security.id)
             .where(WatchlistItem.watchlist_id.in_(watchlist_ids))
+            .where(WatchlistItem.target_type == "ticker")
             .order_by(WatchlistItem.watchlist_id.asc(), Security.symbol.asc())
         ).all()
         for watchlist_id, symbol in symbol_rows:
             normalized_symbol = (symbol or "").strip().upper()
             if normalized_symbol:
                 symbols_by_watchlist.setdefault(watchlist_id, []).append(normalized_symbol)
+    targets_by_watchlist: dict[int, list[dict[str, str | int | None]]] = {watchlist_id: [] for watchlist_id in watchlist_ids}
+    if watchlist_ids:
+        target_rows = db.execute(
+            select(WatchlistItem)
+            .where(WatchlistItem.watchlist_id.in_(watchlist_ids))
+            .where(WatchlistItem.target_type != "ticker")
+            .order_by(WatchlistItem.watchlist_id.asc(), WatchlistItem.target_type.asc(), WatchlistItem.target_label.asc())
+        ).scalars().all()
+        for item in target_rows:
+            targets_by_watchlist.setdefault(item.watchlist_id, []).append(_watchlist_target_response(item))
     return [
-        {"id": w.id, "name": w.name, "symbols": symbols_by_watchlist.get(w.id, []), **_watchlist_view_summary(db, w.id, user.id)}
+        {
+            "id": w.id,
+            "name": w.name,
+            "symbols": symbols_by_watchlist.get(w.id, []),
+            "targets": targets_by_watchlist.get(w.id, []),
+            **_watchlist_view_summary(db, w.id, user.id),
+        }
         for w in rows
     ]
 
@@ -12626,104 +12729,156 @@ def _resolve_watchlist_security(db: Session, raw_symbol: str) -> Security:
 @app.post("/api/watchlists/{watchlist_id}/add")
 def add_to_watchlist(
     watchlist_id: int,
-    symbol: str,
     request: Request,
+    symbol: str | None = None,
+    target_type: str | None = None,
+    target_value: str | None = None,
+    target_label: str | None = None,
     db: Session = Depends(get_db),
 ):
     user = _require_account(request, db)
     _get_owned_watchlist(db, user, watchlist_id)
 
-    sec = _resolve_watchlist_security(db, symbol)
+    clean_target_type = _clean_watchlist_target_type(target_type)
+    clean_target_value = _normalize_watchlist_target_value(clean_target_type, target_value or symbol)
+    clean_target_label = (target_label or "").strip() or clean_target_value
+    sec = _resolve_watchlist_security(db, clean_target_value) if clean_target_type == "ticker" else None
 
     existing = db.execute(
         select(WatchlistItem)
         .where(
             and_(
                 WatchlistItem.watchlist_id == watchlist_id,
-                WatchlistItem.security_id == sec.id,
+                WatchlistItem.target_type == clean_target_type,
+                WatchlistItem.target_value == clean_target_value,
             )
         )
     ).scalar_one_or_none()
     if existing:
-        return {"status": "exists", "symbol": sec.symbol}
+        return {"status": "exists", "symbol": sec.symbol if sec else None, "target": _watchlist_target_response(existing)}
 
     entitlements = current_entitlements(request, db)
+    limit_feature = _watchlist_target_limit_feature(clean_target_type)
     require_feature(
         entitlements,
-        "watchlist_tickers",
-        message="Adding tickers to watchlists is included with Premium.",
+        limit_feature,  # type: ignore[arg-type]
+        message=_watchlist_target_limit_message(clean_target_type),
     )
+    if clean_target_type == "ticker":
+        count_filter = WatchlistItem.target_type == "ticker"
+    elif clean_target_type == "institution":
+        count_filter = WatchlistItem.target_type == "institution"
+    else:
+        count_filter = WatchlistItem.target_type.in_(["member", "insider", "department"])
     current_count = int(
         db.execute(
             select(func.count())
             .select_from(WatchlistItem)
             .where(WatchlistItem.watchlist_id == watchlist_id)
+            .where(count_filter)
         ).scalar_one()
         or 0
     )
     enforce_limit(
         entitlements,
-        "watchlist_tickers",
+        limit_feature,  # type: ignore[arg-type]
         current_count=current_count,
-        message="Your current plan has reached its ticker-per-watchlist limit. Upgrade to add more symbols.",
+        message=_watchlist_target_limit_message(clean_target_type),
     )
 
     item = WatchlistItem(
         watchlist_id=watchlist_id,
-        security_id=sec.id,
+        security_id=sec.id if sec else None,
+        target_type=clean_target_type,
+        target_value=clean_target_value,
+        target_label=clean_target_label,
     )
     db.add(item)
     db.commit()
-    return {"status": "added", "symbol": sec.symbol}
+    db.refresh(item)
+    return {"status": "added", "symbol": sec.symbol if sec else None, "target": _watchlist_target_response(item)}
 
 
 @app.delete("/api/watchlists/{watchlist_id}/remove")
-def remove_from_watchlist(watchlist_id: int, symbol: str, request: Request, db: Session = Depends(get_db)):
+def remove_from_watchlist(
+    watchlist_id: int,
+    request: Request,
+    symbol: str | None = None,
+    target_type: str | None = None,
+    target_value: str | None = None,
+    db: Session = Depends(get_db),
+):
     user = _require_account(request, db)
     _get_owned_watchlist(db, user, watchlist_id)
-    sec = db.execute(
-        select(Security).where(Security.symbol == symbol.upper())
-    ).scalar_one_or_none()
+    clean_target_type = _clean_watchlist_target_type(target_type)
+    clean_target_value = _normalize_watchlist_target_value(clean_target_type, target_value or symbol)
+    sec = None
+    if clean_target_type == "ticker":
+        sec = db.execute(
+            select(Security).where(Security.symbol == clean_target_value.upper())
+        ).scalar_one_or_none()
 
-    if not sec:
+    if clean_target_type == "ticker" and not sec:
         raise HTTPException(404, "Ticker not found")
 
     db.execute(
         WatchlistItem.__table__.delete().where(
             and_(
                 WatchlistItem.watchlist_id == watchlist_id,
-                WatchlistItem.security_id == sec.id,
+                WatchlistItem.target_type == clean_target_type,
+                WatchlistItem.target_value == clean_target_value,
             )
         )
     )
-    db.execute(
-        ConfirmationMonitoringSnapshot.__table__.delete().where(
-            and_(
-                ConfirmationMonitoringSnapshot.watchlist_id == watchlist_id,
-                func.upper(ConfirmationMonitoringSnapshot.ticker) == sec.symbol.upper(),
+
+    def delete_alerts_that_no_longer_match(alert_query):
+        alerts = db.execute(alert_query).scalars().all()
+        for alert in alerts:
+            event = db.get(Event, alert.event_id)
+            if event is None or not event_matches_watchlist(db, watchlist_id, event):
+                db.delete(alert)
+
+    if sec is not None:
+        db.execute(
+            ConfirmationMonitoringSnapshot.__table__.delete().where(
+                and_(
+                    ConfirmationMonitoringSnapshot.watchlist_id == watchlist_id,
+                    func.upper(ConfirmationMonitoringSnapshot.ticker) == sec.symbol.upper(),
+                )
             )
         )
-    )
-    db.execute(
-        ConfirmationMonitoringEvent.__table__.delete().where(
-            and_(
-                ConfirmationMonitoringEvent.watchlist_id == watchlist_id,
-                func.upper(ConfirmationMonitoringEvent.ticker) == sec.symbol.upper(),
+        db.execute(
+            ConfirmationMonitoringEvent.__table__.delete().where(
+                and_(
+                    ConfirmationMonitoringEvent.watchlist_id == watchlist_id,
+                    func.upper(ConfirmationMonitoringEvent.ticker) == sec.symbol.upper(),
+                )
             )
         )
-    )
-    db.execute(
-        MonitoringAlert.__table__.delete().where(
-            and_(
-                MonitoringAlert.source_type == "watchlist",
-                MonitoringAlert.source_id == str(watchlist_id),
-                func.upper(MonitoringAlert.symbol) == sec.symbol.upper(),
+        delete_alerts_that_no_longer_match(
+            select(MonitoringAlert).where(
+                and_(
+                    MonitoringAlert.source_type == "watchlist",
+                    MonitoringAlert.source_id == str(watchlist_id),
+                    func.upper(MonitoringAlert.symbol) == sec.symbol.upper(),
+                )
             )
         )
-    )
+    else:
+        event_ids = watchlist_matching_event_ids_for_target(db, clean_target_type, clean_target_value)
+        if event_ids:
+            delete_alerts_that_no_longer_match(
+                select(MonitoringAlert).where(
+                    and_(
+                        MonitoringAlert.source_type == "watchlist",
+                        MonitoringAlert.source_id == str(watchlist_id),
+                        MonitoringAlert.event_id.in_(event_ids),
+                    )
+                )
+            )
     db.commit()
 
-    return {"status": "removed", "symbol": symbol.upper()}
+    return {"status": "removed", "symbol": sec.symbol if sec else None, "target": {"type": clean_target_type, "value": clean_target_value}}
 
 
 @app.post("/api/watchlists/{watchlist_id}/seen")
@@ -12753,10 +12908,12 @@ def get_watchlist(
         select(Security.symbol, Security.name)
         .join(WatchlistItem, WatchlistItem.security_id == Security.id)
         .where(WatchlistItem.watchlist_id == watchlist_id)
+        .where(WatchlistItem.target_type == "ticker")
         .order_by(Security.symbol.asc())
     )
 
     rows = db.execute(q).all()
+    target_groups = _watchlist_non_ticker_targets(db, watchlist_id)
 
     return {
         "watchlist_id": watchlist_id,
@@ -12764,6 +12921,8 @@ def get_watchlist(
         "tickers": [
             {"symbol": s, "name": safe_company_identity_candidate(n, s) or n or s} for s, n in rows
         ],
+        "targets": [target for items in target_groups.values() for target in items],
+        **target_groups,
         **_watchlist_view_summary(db, watchlist_id, user.id),
     }
 

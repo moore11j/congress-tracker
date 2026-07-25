@@ -46,6 +46,8 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
     event_calendar: 35,
     watchlists: 40,
     watchlist_tickers: 50,
+    watchlist_people_departments: 51,
+    watchlist_institutions: 52,
     saved_views: 60,
     screener_saved_screens: 70,
     screener_monitoring: 80,
@@ -65,7 +67,7 @@ const featureOrderByCategory: Record<string, Record<string, number>> = {
 function categoryFor(featureKey: string) {
   if (["congress_feed", "insider_feed", "government_contracts_feed", "government_contracts_filters", "premium_feed_metrics"].includes(featureKey)) return "Market feeds";
   if (["screener", "screener_intelligence", "screener_presets", "screener_results", "signals", "ticker_confirmation", "leaderboards"].includes(featureKey)) return "Screener & signals";
-  if (["watchlists", "watchlist_tickers", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "event_calendar", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
+  if (["watchlists", "watchlist_tickers", "watchlist_people_departments", "watchlist_institutions", "screener_saved_screens", "screener_monitoring", "monitoring_sources", "event_calendar", "inbox_alerts", "inbox_alert_retention", "notification_digests", "saved_views"].includes(featureKey)) return "Watchlists & monitoring";
   if (["screener_csv_export", "backtesting"].includes(featureKey)) return "Data export & workflow";
   return "Advanced workflows";
 }
@@ -128,7 +130,11 @@ function featureIncluded(feature: PlanConfigFeature, tier: PlanTier) {
 }
 
 function featureCell(feature: PlanConfigFeature, tier: PlanTier) {
-  if (feature.kind === "limit") return formatLimit(feature, feature.limits[tier] ?? 0);
+  if (feature.kind === "limit") {
+    const value = feature.limits[tier] ?? 0;
+    if (["watchlist_people_departments", "watchlist_institutions"].includes(feature.feature_key) && value <= 0) return "-";
+    return formatLimit(feature, value);
+  }
   if (featureIncluded(feature, tier)) {
     if (["options_flow_feed", "options_flow_filters", "api_webhooks"].includes(feature.feature_key)) return "Coming soon";
     return (

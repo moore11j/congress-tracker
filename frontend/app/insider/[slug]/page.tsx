@@ -5,6 +5,7 @@ import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
 import { InsiderProfileHeaderClient } from "@/components/insider/InsiderProfileHeaderClient";
 import { ShareLinks } from "@/components/member/ShareLinks";
+import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import {
   getInsiderDisplayName,
   insiderDisplayNameFromSlug,
@@ -290,9 +291,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
             Insider profile
           </Link>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end lg:absolute lg:right-5 lg:top-3">
-            <Link href="/?mode=insider" className={actionClassName}>
-              Follow Insider
-            </Link>
+            <AddWatchlistTarget targetType="insider" targetValue={reportingCik} targetLabel={insiderName} buttonLabel="Follow Insider" className={actionClassName} />
             <ShareLinks canonicalUrl={canonicalInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={primaryActionClassName}>
               Backtest this Insider

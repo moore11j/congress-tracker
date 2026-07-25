@@ -281,7 +281,7 @@ def test_free_user_hitting_watchlist_ticker_limit_gets_upgrade_response(monkeypa
         watchlist_id = _seed_watchlist_with_tickers(db, 5, user.id)
 
         try:
-            add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)
+            add_to_watchlist(watchlist_id, _request_for_user(user), symbol="AAPL", db=db)
         except HTTPException as exc:
             assert exc.status_code == 402
             assert exc.detail["feature"] == "watchlist_tickers"
@@ -299,9 +299,10 @@ def test_free_user_keeps_core_watchlist_flow_under_limits(monkeypatch):
         user = _user(db, "core@example.com")
         watchlist_id = _seed_watchlist_with_tickers(db, 2, user.id)
 
-        response = add_to_watchlist(watchlist_id, "AAPL", _request_for_user(user), db)
+        response = add_to_watchlist(watchlist_id, _request_for_user(user), symbol="AAPL", db=db)
 
-        assert response == {"status": "added", "symbol": "AAPL"}
+        assert response["status"] == "added"
+        assert response["symbol"] == "AAPL"
     finally:
         db.close()
 

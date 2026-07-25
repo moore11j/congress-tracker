@@ -10,6 +10,7 @@ from starlette.requests import Request
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
 from app.main import (
+    add_to_watchlist,
     get_monitoring_inbox,
     get_monitoring_unread_count,
     get_watchlist,
@@ -115,6 +116,184 @@ def test_watchlist_alert_uses_created_at_not_old_trade_date_and_dedupes():
         assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 0
         db.commit()
         assert db.query(MonitoringAlert).count() == 1
+    finally:
+        db.close()
+
+
+def test_watchlist_member_target_and_ticker_match_same_event_once():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.add(
+            WatchlistItem(
+                watchlist_id=watchlist.id,
+                target_type="member",
+                target_value="P000197",
+                target_label="Nancy Pelosi",
+            )
+        )
+        db.add(
+            Event(
+                event_type="congress_trade",
+                ts=now - timedelta(minutes=5),
+                event_date=now - timedelta(minutes=5),
+                created_at=now - timedelta(minutes=5),
+                symbol="AAPL",
+                source="congress",
+                member_name="Nancy Pelosi",
+                member_bioguide_id="P000197",
+                trade_type="purchase",
+                payload_json=json.dumps({"member": "Nancy Pelosi", "transaction_date": "2026-06-01"}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
+        db.commit()
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 0
+        db.commit()
+        assert db.query(MonitoringAlert).count() == 1
+    finally:
+        db.close()
+
+
+def test_watchlist_insider_target_matches_reporting_cik_without_ticker_watch():
+    db = _session()
+    try:
+        user, watchlist, now = _seed_watchlist(db)
+        db.query(WatchlistItem).delete()
+        db.add(
+            WatchlistItem(
+                watchlist_id=watchlist.id,
+                target_type="insider",
+                target_value="0000320193",
+                target_label="Apple Insider",
+            )
+        )
+        db.add(
+            Event(
+                event_type="insider_trade",
+                ts=now - timedelta(minutes=5),
+                event_date=now - timedelta(minutes=5),
+                created_at=now - timedelta(minutes=5),
+                symbol="MSFT",
+                source="insider",
+                trade_type="sale",
+                payload_json=json.dumps({"reporting_cik": "320193", "insider_name": "Apple Insider", "trade_date": "2026-06-01"}),
+                impact_score=0,
+            )
+        )
+        db.commit()
+
+        assert refresh_watchlist_alerts(db, user_id=user.id, watchlist=watchlist) == 1
+        db.commit()
+        alert = db.query(MonitoringAlert).one()
+        assert alert.symbol == "MSFT"
+    finally:
+        db.close()
+
+
+def test_member_insider_department_watchlist_targets_are_premium_only_and_limited():
+    db = _session()
+    try:
+        user, watchlist, _now = _seed_watchlist(db)
+        request = _request_for_user(user)
+
+        try:
+            add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="member",
+                target_value="P000197",
+                target_label="Nancy Pelosi",
+                db=db,
+            )
+            raise AssertionError("Expected free member follow to be blocked")
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 402
+            assert exc.detail["feature"] == "watchlist_people_departments"
+
+        user.entitlement_tier = "premium"
+        db.commit()
+        for index in range(10):
+            response = add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="member",
+                target_value=f"M{index:06d}",
+                target_label=f"Member {index}",
+                db=db,
+            )
+            assert response["status"] == "added"
+
+        try:
+            add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="department",
+                target_value="Department of Defense",
+                target_label="Department of Defense",
+                db=db,
+            )
+            raise AssertionError("Expected premium people/department follow cap")
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 402
+            assert exc.detail["feature"] == "watchlist_people_departments"
+            assert exc.detail["limit"] == 10
+    finally:
+        db.close()
+
+
+def test_institution_watchlist_targets_are_pro_only_and_limited():
+    db = _session()
+    try:
+        user, watchlist, _now = _seed_watchlist(db)
+        user.entitlement_tier = "premium"
+        db.commit()
+        request = _request_for_user(user)
+
+        try:
+            add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="institution",
+                target_value="0001067983",
+                target_label="Berkshire Hathaway",
+                db=db,
+            )
+            raise AssertionError("Expected premium institution follow to be blocked")
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 402
+            assert exc.detail["feature"] == "watchlist_institutions"
+
+        user.entitlement_tier = "pro"
+        db.commit()
+        for index in range(25):
+            response = add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="institution",
+                target_value=str(1000 + index),
+                target_label=f"Institution {index}",
+                db=db,
+            )
+            assert response["status"] == "added"
+
+        try:
+            add_to_watchlist(
+                watchlist.id,
+                request,
+                target_type="institution",
+                target_value="9999",
+                target_label="Institution 26",
+                db=db,
+            )
+            raise AssertionError("Expected pro institution follow cap")
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 402
+            assert exc.detail["feature"] == "watchlist_institutions"
+            assert exc.detail["limit"] == 25
     finally:
         db.close()
 

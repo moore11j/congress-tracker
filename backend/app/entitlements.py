@@ -33,6 +33,8 @@ FeatureKey = Literal[
     "screener_results",
     "watchlists",
     "watchlist_tickers",
+    "watchlist_people_departments",
+    "watchlist_institutions",
     "saved_views",
     "notification_digests",
     "monitoring_sources",
@@ -55,6 +57,8 @@ FeatureKey = Literal[
 PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
 PLAN_RANKS: dict[TierName, int] = {"free": 0, "premium": 10, "pro": 20, "admin": 100}
 HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
+    "watchlist_people_departments": "premium",
+    "watchlist_institutions": "pro",
     "options_flow_feed": "pro",
     "options_flow_filters": "pro",
     "institutional_feed": "pro",
@@ -97,6 +101,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "screener_results": 5,
             "watchlists": 1,
             "watchlist_tickers": 5,
+            "watchlist_people_departments": 0,
+            "watchlist_institutions": 0,
             "saved_views": 1,
             "notification_digests": 0,
             "monitoring_sources": 3,
@@ -149,6 +155,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "screener_results": 25,
             "watchlists": 5,
             "watchlist_tickers": 25,
+            "watchlist_people_departments": 10,
+            "watchlist_institutions": 0,
             "saved_views": 10,
             "notification_digests": 25,
             "monitoring_sources": 10,
@@ -212,6 +220,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             "screener_results": 100,
             "watchlists": 25,
             "watchlist_tickers": 100,
+            "watchlist_people_departments": 25,
+            "watchlist_institutions": 25,
             "saved_views": 25,
             "notification_digests": 100,
             "monitoring_sources": 25,
@@ -246,6 +256,8 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
                 "screener_results",
                 "watchlists",
                 "watchlist_tickers",
+                "watchlist_people_departments",
+                "watchlist_institutions",
                 "saved_views",
                 "notification_digests",
                 "monitoring_sources",
@@ -323,6 +335,14 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "watchlist_tickers": {
         "required_tier": "free",
         "description": "Add tickers to a watchlist.",
+    },
+    "watchlist_people_departments": {
+        "required_tier": "premium",
+        "description": "Follow members, insiders, and departments inside a watchlist.",
+    },
+    "watchlist_institutions": {
+        "required_tier": "pro",
+        "description": "Follow institutions inside a watchlist.",
     },
     "saved_views": {
         "required_tier": "free",
@@ -514,6 +534,22 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "sort_order": 50,
         "pricing_description": "Ticker capacity inside each watchlist.",
     },
+    "watchlist_people_departments": {
+        "label": "Members/Insiders/Departments per watchlist",
+        "kind": "limit",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 51,
+        "pricing_description": "Member, insider, and department follow capacity inside each watchlist.",
+    },
+    "watchlist_institutions": {
+        "label": "Institutions per watchlist",
+        "kind": "limit",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 52,
+        "pricing_description": "Institution follow capacity inside each watchlist.",
+    },
     "notification_digests": {
         "label": "Alerts and digests",
         "kind": "feature",
@@ -662,6 +698,12 @@ PLAN_LIMIT_SETTING_KEYS: dict[tuple[TierName, FeatureKey], str] = {
     ("free", "monitoring_sources"): "free_monitoring_sources_limit",
     ("premium", "monitoring_sources"): "premium_monitoring_sources_limit",
     ("pro", "monitoring_sources"): "pro_monitoring_sources_limit",
+    ("free", "watchlist_people_departments"): "free_watchlist_people_departments_limit",
+    ("premium", "watchlist_people_departments"): "premium_watchlist_people_departments_limit",
+    ("pro", "watchlist_people_departments"): "pro_watchlist_people_departments_limit",
+    ("free", "watchlist_institutions"): "free_watchlist_institutions_limit",
+    ("premium", "watchlist_institutions"): "premium_watchlist_institutions_limit",
+    ("pro", "watchlist_institutions"): "pro_watchlist_institutions_limit",
 }
 
 LEGACY_PLAN_LIMIT_SETTING_KEYS: dict[tuple[TierName, FeatureKey], tuple[str, ...]] = {

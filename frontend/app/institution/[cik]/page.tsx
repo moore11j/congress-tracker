@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
 import { ShareLinks } from "@/components/member/ShareLinks";
+import { AddWatchlistTarget } from "@/components/watchlists/AddWatchlistTarget";
 import { normalizeInstitutionCik } from "@/lib/institution";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { withServerTimeout } from "@/lib/serverTimeout";
@@ -112,6 +113,7 @@ export default async function InstitutionPage({ params }: Props) {
             <Link href="/feed?mode=institutional" className={ghostButtonClassName} prefetch={false}>
               Institutional feed
             </Link>
+            <AddWatchlistTarget targetType="institution" targetValue={cik} targetLabel={name} buttonLabel="Follow Institution" className={ghostButtonClassName} />
             <ShareLinks canonicalUrl={canonicalInstitutionUrl} />
             <Link href="/signals?mode=institutional" className={ghostButtonClassName} prefetch={false}>
               Institutional signals

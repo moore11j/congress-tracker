@@ -15,6 +15,8 @@ export type EntitlementFeature =
   | "screener_results"
   | "watchlists"
   | "watchlist_tickers"
+  | "watchlist_people_departments"
+  | "watchlist_institutions"
   | "saved_views"
   | "notification_digests"
   | "monitoring_sources"
@@ -73,6 +75,8 @@ export const defaultEntitlements: Entitlements = {
     screener_results: 5,
     watchlists: 1,
     watchlist_tickers: 5,
+    watchlist_people_departments: 0,
+    watchlist_institutions: 0,
     saved_views: 1,
     notification_digests: 0,
     monitoring_sources: 3,
@@ -112,6 +116,8 @@ export const premiumEntitlements: Entitlements = {
     screener_results: 25,
     watchlists: 5,
     watchlist_tickers: 25,
+    watchlist_people_departments: 10,
+    watchlist_institutions: 0,
     saved_views: 10,
     notification_digests: 25,
     monitoring_sources: 10,
@@ -144,6 +150,7 @@ export const premiumEntitlements: Entitlements = {
     "screener_results",
     "watchlists",
     "watchlist_tickers",
+    "watchlist_people_departments",
     "saved_views",
     "notification_digests",
     "monitoring_sources",
@@ -174,6 +181,8 @@ export const proEntitlements: Entitlements = {
     screener_results: 100,
     watchlists: 25,
     watchlist_tickers: 100,
+    watchlist_people_departments: 25,
+    watchlist_institutions: 25,
     saved_views: 25,
     notification_digests: 100,
     monitoring_sources: 25,
@@ -207,6 +216,8 @@ export const proEntitlements: Entitlements = {
     "screener_results",
     "watchlists",
     "watchlist_tickers",
+    "watchlist_people_departments",
+    "watchlist_institutions",
     "saved_views",
     "notification_digests",
     "monitoring_sources",

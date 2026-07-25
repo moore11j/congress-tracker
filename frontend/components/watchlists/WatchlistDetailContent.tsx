@@ -78,7 +78,14 @@ export function WatchlistDetailContent({ watchlist, confirmationEvents, initialS
       </div>
 
       <div className="grid w-full min-w-0 gap-6 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
-        <WatchlistTickerManager watchlistId={watchlist.watchlist_id} tickers={watchlist.tickers} />
+        <WatchlistTickerManager
+          watchlistId={watchlist.watchlist_id}
+          tickers={watchlist.tickers}
+          members={watchlist.members}
+          insiders={watchlist.insiders}
+          departments={watchlist.departments}
+          institutions={watchlist.institutions}
+        />
 
         <section className={`${cardClassName} min-w-0 space-y-4`}>
           <NotificationPreferences

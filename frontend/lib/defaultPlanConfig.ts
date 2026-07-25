@@ -17,6 +17,8 @@ type FeatureKey =
   | "screener_results"
   | "watchlists"
   | "watchlist_tickers"
+  | "watchlist_people_departments"
+  | "watchlist_institutions"
   | "saved_views"
   | "notification_digests"
   | "monitoring_sources"
@@ -58,6 +60,8 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     screener_results: 5,
     watchlists: 1,
     watchlist_tickers: 5,
+    watchlist_people_departments: 0,
+    watchlist_institutions: 0,
     saved_views: 1,
     notification_digests: 0,
     monitoring_sources: 3,
@@ -91,6 +95,8 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     screener_results: 25,
     watchlists: 5,
     watchlist_tickers: 25,
+    watchlist_people_departments: 10,
+    watchlist_institutions: 0,
     saved_views: 10,
     notification_digests: 25,
     monitoring_sources: 10,
@@ -124,6 +130,8 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
     screener_results: 100,
     watchlists: 25,
     watchlist_tickers: 100,
+    watchlist_people_departments: 25,
+    watchlist_institutions: 25,
     saved_views: 25,
     notification_digests: 100,
     monitoring_sources: 25,
@@ -294,6 +302,26 @@ const featureDefinitions: FeatureDefinition[] = [
     unit_singular: "ticker",
     unit_plural: "tickers",
     sort_order: 50,
+  },
+  {
+    feature_key: "watchlist_people_departments",
+    label: "Members/Insiders/Departments per watchlist",
+    kind: "limit",
+    description: "Member, insider, and department follow capacity inside each watchlist.",
+    required_tier: "premium",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 51,
+  },
+  {
+    feature_key: "watchlist_institutions",
+    label: "Institutions per watchlist",
+    kind: "limit",
+    description: "Institution follow capacity inside each watchlist.",
+    required_tier: "pro",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 52,
   },
   {
     feature_key: "notification_digests",

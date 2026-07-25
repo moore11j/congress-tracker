@@ -79,6 +79,7 @@ const SCREENER_FEATURE_KEYS = [
 
 const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "saved_views", "screener_results"] as const;
 const MONITORING_LIMIT_KEYS = ["monitoring_sources"] as const;
+const WATCHLIST_LIMIT_KEYS = ["watchlists", "watchlist_tickers", "watchlist_people_departments", "watchlist_institutions"] as const;
 
 const SCREENER_LIMIT_ORDER = [
   "screener_saved_screens:free",
@@ -126,6 +127,25 @@ const SCREENER_LIMIT_COPY: Record<string, { label: string; helperText: string }>
   "saved_views:pro": {
     label: "Saved Views \u2014 Pro",
     helperText: "Number of saved feed, signal, leaderboard, and table views pro users can save.",
+  },
+};
+
+const WATCHLIST_LIMIT_COPY: Record<string, { label: string; helperText: string }> = {
+  watchlists: {
+    label: "Watchlists",
+    helperText: "Number of watchlists this plan can create.",
+  },
+  watchlist_tickers: {
+    label: "Tickers per watchlist",
+    helperText: "Ticker symbols this plan can follow inside each watchlist.",
+  },
+  watchlist_people_departments: {
+    label: "Members/Insiders/Departments per watchlist",
+    helperText: "Combined member, insider, and department follows allowed inside each watchlist.",
+  },
+  watchlist_institutions: {
+    label: "Institutions per watchlist",
+    helperText: "Institution follows allowed inside each watchlist.",
   },
 };
 
@@ -199,7 +219,7 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
     [planLimits],
   );
   const watchlistLimits = useMemo(
-    () => planLimits.filter((limit) => ["watchlists", "watchlist_tickers"].includes(limit.feature_key)),
+    () => planLimits.filter((limit) => WATCHLIST_LIMIT_KEYS.includes(limit.feature_key as (typeof WATCHLIST_LIMIT_KEYS)[number])),
     [planLimits],
   );
   const screenerLimits = useMemo(
@@ -708,33 +728,36 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
               <div className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
                 <h3 className="font-semibold text-white">Watchlist limits</h3>
                 <div className="mt-4 space-y-3">
-                  {watchlistLimits.map((limit) => (
-                    <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
-                      <label className="text-sm">
-                        <span className="block font-medium text-slate-200">
-                          {limit.label ?? limit.feature_key} - {limit.tier}
-                        </span>
-                        <span className="text-xs text-slate-500">{limit.feature_key}</span>
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={limitDrafts[limitDraftKey(limit)] ?? ""}
-                        onChange={(event) =>
-                          setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
-                        }
-                        className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
-                      />
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => updateLimit(limit)}
-                        className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  ))}
+                  {watchlistLimits.map((limit) => {
+                    const copy = WATCHLIST_LIMIT_COPY[limit.feature_key];
+                    return (
+                      <div key={limitDraftKey(limit)} className="grid gap-3 md:grid-cols-[1fr_8rem_auto] md:items-end">
+                        <label className="text-sm">
+                          <span className="block font-medium text-slate-200">
+                            {copy?.label ?? limit.label ?? limit.feature_key} - {limit.tier}
+                          </span>
+                          <span className="text-xs text-slate-500">{copy?.helperText ?? limit.feature_key}</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={limitDrafts[limitDraftKey(limit)] ?? ""}
+                          onChange={(event) =>
+                            setLimitDrafts((current) => ({ ...current, [limitDraftKey(limit)]: event.target.value }))
+                          }
+                          className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-300/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => updateLimit(limit)}
+                          className="rounded-lg border border-emerald-300/30 px-3 py-2 text-sm font-semibold text-emerald-100"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

@@ -4,18 +4,45 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
-import { addToWatchlist, getEntitlements, removeFromWatchlist } from "@/lib/api";
+import { addToWatchlist, getEntitlements, removeFromWatchlist, removeWatchlistTarget } from "@/lib/api";
 import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTickerAutocomplete";
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { formatCompanyName } from "@/lib/companyName";
 import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
+import type { WatchlistTarget } from "@/lib/types";
 
 type Ticker = { symbol: string; name: string };
 
-export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: number; tickers: Ticker[] }) {
+type TargetSection = {
+  title: string;
+  empty: string;
+  items: WatchlistTarget[];
+};
+
+export function WatchlistTickerManager({
+  watchlistId,
+  tickers,
+  members = [],
+  insiders = [],
+  departments = [],
+  institutions = [],
+}: {
+  watchlistId: number;
+  tickers: Ticker[];
+  members?: WatchlistTarget[];
+  insiders?: WatchlistTarget[];
+  departments?: WatchlistTarget[];
+  institutions?: WatchlistTarget[];
+}) {
   const [rows, setRows] = useState(tickers);
+  const [targetSections, setTargetSections] = useState<TargetSection[]>([
+    { title: "Members in this watchlist", empty: "No members followed yet.", items: members },
+    { title: "Insiders in this watchlist", empty: "No insiders followed yet.", items: insiders },
+    { title: "Departments in this watchlist", empty: "No departments followed yet.", items: departments },
+    { title: "Institutions in this watchlist", empty: "No institutions followed yet.", items: institutions },
+  ]);
   const [symbol, setSymbol] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements>(defaultEntitlements);
@@ -29,6 +56,15 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
   useEffect(() => {
     setRows(tickers);
   }, [tickers]);
+
+  useEffect(() => {
+    setTargetSections([
+      { title: "Members in this watchlist", empty: "No members followed yet.", items: members },
+      { title: "Insiders in this watchlist", empty: "No insiders followed yet.", items: insiders },
+      { title: "Departments in this watchlist", empty: "No departments followed yet.", items: departments },
+      { title: "Institutions in this watchlist", empty: "No institutions followed yet.", items: institutions },
+    ]);
+  }, [members, insiders, departments, institutions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +154,25 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
     });
   };
 
+  const handleRemoveTarget = (target: WatchlistTarget) => {
+    if (!target.type || !target.value) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await removeWatchlistTarget(watchlistId, { type: String(target.type), value: String(target.value) });
+        setTargetSections((current) =>
+          current.map((section) => ({
+            ...section,
+            items: section.items.filter((item) => !(item.type === target.type && item.value === target.value)),
+          })),
+        );
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to remove watchlist item.");
+      }
+    });
+  };
+
   return (
     <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-card">
       <div className="flex flex-col gap-3 border-b border-white/10 pb-4">
@@ -179,6 +234,35 @@ export function WatchlistTickerManager({ watchlistId, tickers }: { watchlistId: 
             </div>
           ))
         )}
+      </div>
+      <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+        {targetSections.map((section) => (
+          <div key={section.title} className="space-y-3">
+            <h3 className="text-sm font-semibold text-white">{section.title}</h3>
+            {section.items.length === 0 ? (
+              <p className="text-sm text-slate-500">{section.empty}</p>
+            ) : (
+              <div className="space-y-2">
+                {section.items.map((target) => (
+                  <div key={`${target.type}-${target.value}`} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-100">{target.label ?? target.value}</p>
+                      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{target.type}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={ghostButtonClassName}
+                      onClick={() => handleRemoveTarget(target)}
+                      disabled={isPending}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

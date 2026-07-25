@@ -6441,11 +6441,42 @@ export async function addToWatchlist(id: number, symbol: string, authToken?: str
   });
 }
 
+export async function addWatchlistTarget(
+  id: number,
+  target: { type: string; value: string; label?: string },
+  authToken?: string,
+) {
+  return fetchJson<{ status: string; symbol?: string | null; target?: { type: string; value?: string | null; label?: string | null } }>(
+    buildApiUrl(`/api/watchlists/${id}/add`, {
+      target_type: target.type,
+      target_value: target.value,
+      target_label: target.label,
+    }),
+    {
+      method: "POST",
+      headers: authHeaders(authToken),
+    },
+  );
+}
+
 export async function removeFromWatchlist(id: number, symbol: string, authToken?: string) {
   return fetchJson<{ status: string; symbol: string }>(buildApiUrl(`/api/watchlists/${id}/remove`, { symbol }), {
     method: "DELETE",
     headers: authHeaders(authToken),
   });
+}
+
+export async function removeWatchlistTarget(id: number, target: { type: string; value: string }, authToken?: string) {
+  return fetchJson<{ status: string; symbol?: string | null; target?: { type: string; value?: string | null } }>(
+    buildApiUrl(`/api/watchlists/${id}/remove`, {
+      target_type: target.type,
+      target_value: target.value,
+    }),
+    {
+      method: "DELETE",
+      headers: authHeaders(authToken),
+    },
+  );
 }
 
 export async function deleteWatchlist(id: number, authToken?: string) {

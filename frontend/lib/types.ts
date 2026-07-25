@@ -489,11 +489,21 @@ export type WatchlistSummary = {
   id: number;
   name: string;
   symbols?: string[];
+  targets?: WatchlistTarget[];
   unseen_count?: number;
   unread_count?: number;
   new_count?: number;
   last_seen_at?: string | null;
   unseen_since?: string | null;
+};
+
+export type WatchlistTargetType = "member" | "insider" | "department" | "institution";
+
+export type WatchlistTarget = {
+  id?: number;
+  type: WatchlistTargetType | "ticker" | string;
+  value?: string | null;
+  label?: string | null;
 };
 
 export type ConfirmationMonitoringEvent = {
@@ -633,6 +643,11 @@ export type WatchlistDetail = {
   watchlist_id: number;
   name?: string;
   tickers: { symbol: string; name: string }[];
+  targets?: WatchlistTarget[];
+  members?: WatchlistTarget[];
+  insiders?: WatchlistTarget[];
+  departments?: WatchlistTarget[];
+  institutions?: WatchlistTarget[];
   unseen_count?: number;
   unread_count?: number;
   new_count?: number;
