@@ -150,11 +150,86 @@ def test_ticker_valuation_projects_cash_flow_bridge_when_dcf_rows_omit_cash_flow
     cash_flows = response["dcf"]["cashFlows"]
 
     assert response["dcf"]["method"] == "Discounted Cash Flow"
-    assert len(cash_flows) == 6
+    assert len(cash_flows) == 5
     assert cash_flows[0]["actualCashFlow"] == 220
     assert 0 < cash_flows[0]["discountedCashFlow"] < cash_flows[0]["actualCashFlow"]
-    assert cash_flows[-1]["year"] == "Terminal"
-    assert 0 < cash_flows[-1]["discountedCashFlow"] < cash_flows[-1]["actualCashFlow"]
+    assert cash_flows[-1]["year"] != "Terminal"
+
+
+def test_ticker_valuation_blends_dcf_with_sector_ebitda_multiple(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "price-target-consensus":
+            return [{"targetConsensus": 130}]
+        if endpoint == "profile":
+            return [{"sector": "Technology", "beta": 1.0, "sharesOutstanding": 100}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 5_000, "ebitda": 1_000, "ebit": 800, "incomeBeforeTax": 800, "incomeTaxExpense": 160}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 900, "capitalExpenditure": -200}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [{"totalDebt": 2_000, "cashAndShortTermInvestments": 1_000}]
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "stockPrice": 100, "dcf": 100}]
+        if endpoint in {
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    response = ticker_valuation("nvda")
+
+    assert response["dcf"]["dcfValue"] == 100
+    assert response["dcf"]["multiplesValue"] == 170
+    assert response["dcf"]["sectorMultiple"] == 18
+    assert response["dcf"]["modelValue"] == 135
+    assert response["dcf"]["fairValue"] == 117.5
+    assert response["dcf"]["method"] == "Blended DCF / Multiples"
+    assert response["dcf"]["methodSignals"][1] == {"method": "Multiples", "signal": "Bullish"}
+
+
+def test_ticker_valuation_uses_nav_for_financials_instead_of_ebitda_multiple(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "price-target-consensus":
+            return [{"targetConsensus": 90}]
+        if endpoint == "profile":
+            return [{"sector": "Financial Services", "industry": "Capital Markets", "beta": 1.0, "sharesOutstanding": 100}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 5_000, "ebitda": 1_000, "ebit": 800, "incomeBeforeTax": 800, "incomeTaxExpense": 160}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 500, "capitalExpenditure": 0}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [{"totalAssets": 10_000, "totalLiabilities": 5_000, "totalDebt": 2_000, "cashAndShortTermInvestments": 1_000}]
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "stockPrice": 100, "dcf": 140}]
+        if endpoint in {
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    response = ticker_valuation("bank")
+
+    assert response["dcf"]["modelValue"] == 50
+    assert response["dcf"]["multiplesValue"] is None
+    assert response["dcf"]["sectorMultiple"] is None
+    assert response["dcf"]["fairValue"] == 75
+    assert response["dcf"]["method"] == "Asset / NAV"
 
 
 def test_ticker_valuation_keeps_dcf_when_consensus_unavailable(monkeypatch):

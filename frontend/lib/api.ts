@@ -3693,6 +3693,9 @@ export type TickerValuationResponse = {
     symbol?: string | null;
     fairValue?: number | null;
     modelValue?: number | null;
+    dcfValue?: number | null;
+    multiplesValue?: number | null;
+    sectorMultiple?: number | null;
     valuationAnchor?: number | null;
     anchorWeight?: number | null;
     bearValue?: number | null;

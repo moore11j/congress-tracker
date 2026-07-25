@@ -111,6 +111,21 @@ CASH_RETURN_GROWTH_ADJUSTMENT_MAX = 0.06
 FAIR_VALUE_MODEL_WEIGHT = 0.5
 PROJECTED_CASH_FLOW_YEARS = 5
 DCF_METHOD_LABEL = "Discounted Cash Flow"
+MULTIPLES_METHOD_LABEL = "Multiples"
+BLENDED_METHOD_LABEL = "Blended DCF / Multiples"
+SECTOR_EBITDA_MULTIPLES = {
+    "basic materials": 8.0,
+    "communication services": 13.0,
+    "consumer cyclical": 12.0,
+    "consumer defensive": 11.0,
+    "energy": 6.0,
+    "healthcare": 14.0,
+    "industrials": 12.0,
+    "technology": 18.0,
+    "utilities": 10.0,
+}
+ASSET_VALUATION_SECTORS = {"financial services", "real estate"}
+ASSET_VALUATION_KEYWORDS = ("reit", "real estate", "bank", "insurance", "asset management", "capital markets", "mortgage", "financial")
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -299,6 +314,48 @@ def _shareholder_return_yield(cash: dict[str, Any], balance: dict[str, Any], pro
     return value if math.isfinite(value) and value > 0 else None
 
 
+def _profile_text(profile: dict[str, Any], *keys: str) -> str:
+    return " ".join(str(profile.get(key) or "").strip().lower() for key in keys if profile.get(key) is not None)
+
+
+def _is_asset_valuation_profile(profile: dict[str, Any]) -> bool:
+    combined = _profile_text(profile, "sector", "industry", "companyName", "name", "assetType", "type")
+    if str(profile.get("isEtf")).lower() == "true" or str(profile.get("isFund")).lower() == "true":
+        return True
+    sector = str(profile.get("sector") or "").strip().lower()
+    if sector in ASSET_VALUATION_SECTORS:
+        return True
+    return any(keyword in combined for keyword in ASSET_VALUATION_KEYWORDS)
+
+
+def _sector_ebitda_multiple(profile: dict[str, Any]) -> float | None:
+    if _is_asset_valuation_profile(profile):
+        return None
+    sector = str(profile.get("sector") or "").strip().lower()
+    if not sector:
+        return None
+    return SECTOR_EBITDA_MULTIPLES.get(sector)
+
+
+def _multiples_value_per_share(
+    ebitda: float | None,
+    total_debt: float | None,
+    cash_and_investments: float | None,
+    balance: dict[str, Any],
+    profile: dict[str, Any],
+    multiple: float | None,
+) -> float | None:
+    if ebitda is None or ebitda <= 0 or multiple is None or multiple <= 0:
+        return None
+    shares = _shares_outstanding(balance, profile)
+    if shares is None or shares <= 0:
+        return None
+    enterprise_value = ebitda * multiple
+    equity_value = enterprise_value - (total_debt or 0.0) + (cash_and_investments or 0.0)
+    per_share = equity_value / shares
+    return per_share if math.isfinite(per_share) and per_share > 0 else None
+
+
 def _positive_price(value: float | None) -> float | None:
     if value is None:
         return None
@@ -478,11 +535,17 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     shareholder_return_yield = _shareholder_return_yield(cash, balance, profile)
     asset_to_revenue = _ratio(total_assets, revenue)
     cash_asset_ratio = _ratio(cash_and_investments, total_assets)
+    is_asset_valuation_profile = _is_asset_valuation_profile(profile)
     is_asset_heavy = bool(
         nav_per_share is not None
-        and is_pre_profit
-        and (operating_cash_flow_pct or 0.0) <= 0.10
-        and ((asset_to_revenue or 0.0) >= 2.0 or (cash_asset_ratio or 0.0) >= 0.50)
+        and (
+            is_asset_valuation_profile
+            or (
+                is_pre_profit
+                and (operating_cash_flow_pct or 0.0) <= 0.10
+                and ((asset_to_revenue or 0.0) >= 2.0 or (cash_asset_ratio or 0.0) >= 0.50)
+            )
+        )
     )
     is_quality_compounder = (
         not is_pre_profit
@@ -510,11 +573,14 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     discounted_retained_cash_flow_per_share = (
         retained_cash_flow_per_share / (1 + cost_of_equity / 100) if retained_cash_flow_per_share is not None else None
     )
-    asset_value = (
-        nav_per_share + (discounted_retained_cash_flow_per_share or 0.0)
-        if nav_per_share is not None
-        else None
-    )
+    if nav_per_share is not None and is_asset_valuation_profile:
+        asset_value = nav_per_share
+    elif nav_per_share is not None:
+        asset_value = nav_per_share + (discounted_retained_cash_flow_per_share or 0.0)
+    else:
+        asset_value = None
+    sector_multiple = _sector_ebitda_multiple(profile)
+    multiples_value = _multiples_value_per_share(ebitda, total_debt, cash_and_investments, balance, profile, sector_multiple)
 
     debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)
     revenue_base_rows = rows["annual_income"] or rows["ttm_income"]
@@ -566,6 +632,8 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     return {
         "assumptions": assumptions,
         "assetValue": round(float(asset_value), 6) if is_asset_heavy and asset_value is not None else None,
+        "multiplesValue": round(float(multiples_value), 6) if not is_asset_heavy and multiples_value is not None else None,
+        "sectorMultiple": round(float(sector_multiple), 2) if not is_asset_heavy and sector_multiple is not None else None,
         "projectedCashFlows": _projected_cash_flow_points(revenue, assumptions),
     }
 
@@ -584,32 +652,18 @@ def _projected_cash_flow_points(base_revenue: float | None, assumptions: dict[st
         return []
 
     discount_rate = discount_rate_pct / 100
-    terminal_growth = max(0.0, (assumptions.get("longTermGrowthRate") or 0.0) / 100)
     projected_revenue = float(base_revenue)
     current_year = datetime.now(timezone.utc).year
     points: list[dict[str, Any]] = []
-    last_cash_flow: float | None = None
     for year_offset in range(1, PROJECTED_CASH_FLOW_YEARS + 1):
         projected_revenue *= 1 + revenue_growth
         cash_flow = projected_revenue * cash_flow_margin
         discounted_cash_flow = cash_flow / ((1 + discount_rate) ** year_offset)
-        last_cash_flow = cash_flow
         points.append(
             {
                 "year": str(current_year + year_offset),
                 "actualCashFlow": round(cash_flow, 2),
                 "discountedCashFlow": round(discounted_cash_flow, 2),
-            }
-        )
-
-    if last_cash_flow is not None and discount_rate > terminal_growth:
-        terminal_value = last_cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
-        discounted_terminal_value = terminal_value / ((1 + discount_rate) ** PROJECTED_CASH_FLOW_YEARS)
-        points.append(
-            {
-                "year": "Terminal",
-                "actualCashFlow": round(terminal_value, 2),
-                "discountedCashFlow": round(discounted_terminal_value, 2),
             }
         )
 
@@ -686,6 +740,20 @@ def _method_signals(judgment: str, *, method: str = DCF_METHOD_LABEL) -> list[di
             {"method": "Street comparison", "signal": "Reference only"},
             {"method": "Final valuation", "signal": final_signal},
         ]
+    if method == BLENDED_METHOD_LABEL:
+        return [
+            {"method": "DCF", "signal": final_signal},
+            {"method": "Multiples", "signal": final_signal},
+            {"method": "Street comparison", "signal": "Reference only"},
+            {"method": "Final valuation", "signal": final_signal},
+        ]
+    if method == MULTIPLES_METHOD_LABEL:
+        return [
+            {"method": "DCF", "signal": "Unavailable"},
+            {"method": "Multiples", "signal": final_signal},
+            {"method": "Street comparison", "signal": "Reference only"},
+            {"method": "Final valuation", "signal": final_signal},
+        ]
     return [
         {"method": "DCF", "signal": final_signal},
         {"method": "Asset / Income", "signal": "Neutral"},
@@ -700,11 +768,25 @@ def _valuation_from_dcf_rows(
     *,
     inputs: dict[str, float] | None = None,
     asset_value: float | None = None,
+    multiples_value: float | None = None,
+    sector_multiple: float | None = None,
     projected_cash_flows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     dcf_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
     nav_value = _non_negative_price(asset_value)
-    model_value = nav_value if nav_value is not None and (dcf_value is None or nav_value > dcf_value) else dcf_value
+    multiple_value = _non_negative_price(multiples_value)
+    if nav_value is not None:
+        model_value = nav_value
+        method = "Asset / NAV"
+    else:
+        operating_values = [value for value in (dcf_value, multiple_value) if value is not None]
+        model_value = sum(operating_values) / len(operating_values) if operating_values else None
+        if dcf_value is not None and multiple_value is not None:
+            method = BLENDED_METHOD_LABEL
+        elif multiple_value is not None:
+            method = MULTIPLES_METHOD_LABEL
+        else:
+            method = DCF_METHOD_LABEL
     current_price = _positive_price(_first_row_number(rows, CURRENT_PRICE_KEYS))
     fair_value = _anchored_fair_value(model_value, current_price)
     upside_downside_pct = None
@@ -714,13 +796,15 @@ def _valuation_from_dcf_rows(
     bear_value = fair_value * 0.85 if fair_value is not None else None
     bull_value = fair_value * 1.15 if fair_value is not None else None
     judgment = _judgment(upside_downside_pct)
-    method = "Asset / NAV" if nav_value is not None and model_value == nav_value else DCF_METHOD_LABEL
     is_anchored = fair_value is not None and model_value is not None and current_price is not None
     cash_flows = _cash_flow_points(rows) or (projected_cash_flows or [])
     return {
         "symbol": symbol,
         "fairValue": fair_value,
         "modelValue": model_value,
+        "dcfValue": dcf_value,
+        "multiplesValue": multiple_value,
+        "sectorMultiple": sector_multiple,
         "valuationAnchor": current_price if is_anchored else None,
         "anchorWeight": FAIR_VALUE_MODEL_WEIGHT if is_anchored else None,
         "bearValue": bear_value,
@@ -787,6 +871,8 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
         dcf_rows,
         inputs=dcf_inputs,
         asset_value=valuation_model.get("assetValue"),
+        multiples_value=valuation_model.get("multiplesValue"),
+        sector_multiple=valuation_model.get("sectorMultiple"),
         projected_cash_flows=valuation_model.get("projectedCashFlows"),
     )
     if dcf["fairValue"] is None and not dcf["cashFlows"] and not dcf["assumptions"]:

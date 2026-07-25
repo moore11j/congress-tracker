@@ -148,13 +148,9 @@ function ValuationRange({ data }: { data: TickerValuationResponse }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Valuation Range</p>
-          <p className="mt-2 text-sm text-slate-400">Anchored fair value, scenario sensitivity, current price, and street consensus.</p>
+          <p className="mt-2 text-sm text-slate-400">Fair value, scenario sensitivity, current price, and street consensus.</p>
         </div>
-        {dcf.rangeSource === "fair_value_anchor" ? (
-          <span className="rounded-md border border-teal-300/20 bg-teal-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-teal-100">
-            Anchored FMV
-          </span>
-        ) : dcf.rangeSource === "dcf_sensitivity" ? (
+        {dcf.rangeSource === "dcf_sensitivity" ? (
           <span className="rounded-md border border-teal-300/20 bg-teal-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-teal-100">
             DCF sensitivity
           </span>
@@ -233,15 +229,25 @@ function CashFlowChart({ data }: { data: TickerValuationResponse }) {
         <div className="relative overflow-hidden rounded-lg border border-white/10 bg-slate-950/70 px-4 pb-8 pt-4">
           <div className="absolute inset-x-4 bottom-8 border-t border-white/10" />
           <div className="relative z-10 grid h-40 items-end gap-3" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
-            {points.map((point) => {
+            {points.map((point, index) => {
               const actual = asNumber(point.actualCashFlow);
               const discounted = asNumber(point.discountedCashFlow);
               const actualHeight = `${Math.max(4, ((Math.abs(actual ?? 0) / maxAbs) * 100))}%`;
               const discountedHeight = `${Math.max(4, ((Math.abs(discounted ?? 0) / maxAbs) * 100))}%`;
+              const tooltipPosition = index === 0 ? "left-0" : index === points.length - 1 ? "right-0" : "left-1/2 -translate-x-1/2";
               return (
-                <div key={point.year} className="flex h-full min-w-0 items-end justify-center gap-1.5">
-                  <div title={`Projected FCF ${formatMoney(actual, { compact: true })}`} className="w-full max-w-5 rounded-t bg-teal-300/85 shadow-[0_0_14px_rgba(45,212,191,0.22)]" style={{ height: actual === null ? 0 : actualHeight }} />
-                  <div title={`Discounted CF ${formatMoney(discounted, { compact: true })}`} className="w-full max-w-5 rounded-t bg-sky-300/85 shadow-[0_0_14px_rgba(125,211,252,0.18)]" style={{ height: discounted === null ? 0 : discountedHeight }} />
+                <div key={point.year} className="group relative flex h-full min-w-0 items-end justify-center gap-1.5">
+                  <div className={`pointer-events-none absolute top-2 z-20 hidden min-w-44 rounded-md border border-white/10 bg-slate-950/95 px-3 py-2 text-left text-[11px] shadow-2xl shadow-slate-950/50 group-hover:block ${tooltipPosition}`}>
+                    <p className="font-semibold text-slate-100">{point.year}</p>
+                    <div className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 tabular-nums">
+                      <span className="text-slate-400">Projected FCF</span>
+                      <span className="text-right font-semibold text-teal-200">{formatMoney(actual)}</span>
+                      <span className="text-slate-400">Discounted CF</span>
+                      <span className="text-right font-semibold text-sky-200">{formatMoney(discounted)}</span>
+                    </div>
+                  </div>
+                  <div className="w-full max-w-5 rounded-t bg-teal-300/85 shadow-[0_0_14px_rgba(45,212,191,0.22)]" style={{ height: actual === null ? 0 : actualHeight }} />
+                  <div className="w-full max-w-5 rounded-t bg-sky-300/85 shadow-[0_0_14px_rgba(125,211,252,0.18)]" style={{ height: discounted === null ? 0 : discountedHeight }} />
                 </div>
               );
             })}
@@ -286,10 +292,10 @@ function Assumptions({ data }: { data: TickerValuationResponse }) {
   return (
     <section className={`${cardSurface} p-5`}>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Key Inputs</p>
-      <div className="mt-4 grid gap-2">
+      <div className="mt-3 divide-y divide-white/10">
         {assumptions.map((item) => (
-          <div key={item.key ?? item.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2.5 text-sm">
-            <span className="min-w-0 truncate text-slate-300">{item.label}</span>
+          <div key={item.key ?? item.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-1.5 text-sm">
+            <span className="min-w-0 truncate text-slate-400">{item.label}</span>
             <span className="font-semibold tabular-nums text-teal-200">{formatAssumption(item.value, item.key)}</span>
           </div>
         ))}
