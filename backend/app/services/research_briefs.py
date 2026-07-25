@@ -145,6 +145,49 @@ UNSUPPORTED_LANGUAGE = [
     "can't lose",
     "will moon",
 ]
+PUBLISH_COPY_FORBIDDEN_PATTERNS = [
+    r"\bresearch request\b",
+    r"\bsupplied research request\b",
+    r"\bsupplied research context\b",
+    r"\bsupplied materials?\b",
+    r"\bsupplied context\b",
+    r"\bsupplied q[1-4] figures?\b",
+    r"\bresearch configuration\b",
+    r"\bmarked available in the research configuration\b",
+    r"\bprovided comparison confirmation\b",
+    r"\bno reviewed consensus source was supplied\b",
+    r"\breviewed materials do not provide\b",
+    r"\bthis configuration\b",
+    r"\bin this research configuration\b",
+    r"\bpublication context\b",
+    r"\buser request\b",
+    r"\bmodel was asked\b",
+    r"\bgenerated from\b",
+    r"\bthe prompt\b",
+    r"\bprompt\b",
+]
+PUBLISH_COPY_FORBIDDEN_RE = re.compile("|".join(PUBLISH_COPY_FORBIDDEN_PATTERNS), re.IGNORECASE)
+MISSING_DATA_AWKWARD_RE = re.compile(
+    r"\b(not supplied|was supplied|were supplied|no .* was supplied|reviewed materials do not provide|supplied materials|supplied context|research configuration)\b",
+    re.IGNORECASE,
+)
+PLACEHOLDER_HEADINGS = {"intro", "hook", "intro / hook"}
+SINGLETON_HEADINGS = {
+    "the call": "The call",
+    "sources": "Sources",
+    "what to watch next": "What to watch next",
+    "data freshness and limitations": "Data freshness and limitations",
+}
+REDDIT_BULL_BEAR_OUTLINE = [
+    "Executive thesis",
+    "Bull case",
+    "Bear case",
+    "The data",
+    "The call",
+    "What to watch next",
+    "Sources",
+    "Data freshness and limitations",
+]
 
 _STORE_LOCK = threading.Lock()
 _ACTIVE_GENERATIONS: set[str] = set()
@@ -241,6 +284,311 @@ def _compact(value: Any, *, limit: int = 5000) -> Any:
 def _is_internal_key(key: str) -> bool:
     lowered = key.lower()
     return any(term in lowered for term in ("provider", "cache", "secret", "token", "credential", "diagnostic", "raw"))
+
+
+def sanitize_research_brief_copy(markdown: str) -> str:
+    text = str(markdown or "")
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    repaired_blocks: list[str] = []
+    for block in re.split(r"(\n{2,})", text):
+        if not block or block.startswith("\n"):
+            repaired_blocks.append(block)
+            continue
+        repaired_blocks.append(_sanitize_copy_block(block))
+    cleaned = "".join(repaired_blocks)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _sanitize_copy_block(block: str) -> str:
+    if re.search(r"(?m)^#{1,6}\s+", block):
+        lines = block.splitlines()
+        output: list[str] = []
+        pending: list[str] = []
+
+        def flush_pending() -> None:
+            if not pending:
+                return
+            cleaned = _sanitize_copy_text_block("\n".join(pending))
+            if cleaned:
+                output.append(cleaned)
+            pending.clear()
+
+        for line in lines:
+            if re.match(r"^#{1,6}\s+", line):
+                flush_pending()
+                output.append(line)
+            else:
+                pending.append(line)
+        flush_pending()
+        return "\n".join(output).strip()
+    return _sanitize_copy_text_block(block)
+
+
+def _sanitize_copy_text_block(block: str) -> str:
+    if block.lstrip().startswith("|"):
+        return "" if PUBLISH_COPY_FORBIDDEN_RE.search(block) else block
+    pieces = re.split(r"(?<=[.!?])(\s+)", block)
+    output: list[str] = []
+    index = 0
+    while index < len(pieces):
+        sentence = pieces[index]
+        separator = pieces[index + 1] if index + 1 < len(pieces) else ""
+        replacement = _rewrite_internal_workflow_sentence(sentence)
+        if replacement is not None:
+            if replacement and replacement not in output:
+                output.append(replacement)
+                output.append(separator)
+        else:
+            output.append(_rewrite_internal_phrases(sentence))
+            output.append(separator)
+        index += 2
+    return "".join(output).strip()
+
+
+def _rewrite_internal_workflow_sentence(sentence: str) -> str | None:
+    lowered = sentence.lower()
+    if not PUBLISH_COPY_FORBIDDEN_RE.search(sentence):
+        return None
+    if "eps" in lowered and any(term in lowered for term in ("estimate", "consensus")):
+        return "Current EPS consensus estimates were not verified in reviewed sources, so they are omitted from the analysis."
+    if "revenue" in lowered and any(term in lowered for term in ("estimate", "consensus")):
+        return "Current revenue consensus estimates were not verified in reviewed sources, so they are omitted from the analysis."
+    if "price" in lowered and ("volume" in lowered or "technical" in lowered):
+        return "Current Walnut data does not provide enough ticker-specific price/volume detail to support a full technical read, so price action is not central to this brief."
+    if "tax" in lowered:
+        return "Diluted EPS should be read with caution if one-time tax items affected the quarter."
+    if "guidance" in lowered:
+        return "Current guidance was not verified in reviewed sources, so the analysis focuses on reported results and the questions management needs to answer."
+    if "options" in lowered or "implied move" in lowered:
+        return "Options flow is omitted because no reliable options-implied move was verified in reviewed sources."
+    if "congress" in lowered or "insider" in lowered:
+        return "No ticker-specific Congress or insider activity was material enough to affect this setup."
+    if "q1" in lowered and ("figures" in lowered or "operating" in lowered):
+        return "Q1 operating figures should be read alongside official earnings materials and SEC filings."
+    return ""
+
+
+def _rewrite_internal_phrases(sentence: str) -> str:
+    replacements = {
+        r"\breferenced in the research request\b": "not independently verified",
+        r"\bfrom the supplied research context\b": "from reviewed Walnut data",
+        r"\bfrom supplied research context\b": "from reviewed Walnut data",
+        r"\bsupplied research context\b": "reviewed Walnut data",
+        r"\bsupplied materials?\b": "reviewed sources",
+        r"\bsupplied context\b": "reviewed Walnut data",
+        r"\bavailable Walnut context\b": "available Walnut data",
+        r"\bWalnut context\b": "Walnut data",
+        r"\bresearch configuration\b": "reviewed data",
+        r"\bprovided comparison confirmation\b": "comparison data",
+        r"\bno reviewed consensus source was supplied\b": "no reliable consensus source was verified",
+        r"\breviewed materials do not provide\b": "reviewed sources did not verify",
+    }
+    rewritten = sentence
+    for pattern, replacement in replacements.items():
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def clean_research_brief_markdown(markdown: str, section_format: str, section_heading: str | None = None) -> str:
+    text = sanitize_research_brief_copy(markdown)
+    if not text:
+        return ""
+    text = _remove_redundant_leading_heading(text, section_heading)
+    parts = re.split(r"(?m)^(##\s+.+?)\s*$", text)
+    if len(parts) == 1:
+        return text.strip()
+    intro = parts[0].strip()
+    sections: list[dict[str, str]] = []
+    pending_empty_heading: str | None = None
+    for index in range(1, len(parts), 2):
+        heading = re.sub(r"^##\s+", "", parts[index]).strip()
+        body = parts[index + 1].strip() if index + 1 < len(parts) else ""
+        normalized = _canonical_heading(heading)
+        if _is_placeholder_heading(normalized):
+            if body:
+                intro = "\n\n".join(part for part in [intro, body] if part).strip()
+            pending_empty_heading = None
+            continue
+        if not body:
+            pending_empty_heading = normalized
+            continue
+        if pending_empty_heading:
+            normalized = pending_empty_heading
+            pending_empty_heading = None
+        if sections and _heading_key(sections[-1]["heading"]) == _heading_key(normalized):
+            sections[-1]["body"] = _merge_markdown_bodies(sections[-1]["body"], body)
+            continue
+        sections.append({"heading": normalized, "body": body})
+    sections = _merge_singleton_sections(sections)
+    if section_format == "Reddit DD - Bull Case / Bear Case / The Data / The Call":
+        sections = _order_outline_sections(sections, REDDIT_BULL_BEAR_OUTLINE)
+        intro = _merge_intro_into_first_section(intro, sections)
+    output: list[str] = []
+    if intro:
+        output.append(intro)
+    for section in sections:
+        output.append(f"## {section['heading']}\n\n{section['body'].strip()}")
+    return "\n\n".join(output).strip()
+
+
+def _remove_redundant_leading_heading(markdown: str, section_heading: str | None) -> str:
+    if not section_heading:
+        return markdown
+    match = re.match(r"^\s*##\s+(.+?)\s*\n+", markdown)
+    if not match:
+        return markdown
+    if _heading_key(match.group(1)) == _heading_key(section_heading):
+        return markdown[match.end() :].strip()
+    return markdown
+
+
+def _canonical_heading(heading: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(heading or "").strip().strip("#")).strip()
+    key = _heading_key(cleaned)
+    for singleton_key, canonical in SINGLETON_HEADINGS.items():
+        if key == singleton_key or key.startswith(f"{singleton_key}:"):
+            return canonical
+    return cleaned
+
+
+def _heading_key(heading: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(heading or "").lower()).strip()
+
+
+def _is_placeholder_heading(heading: str) -> bool:
+    return _heading_key(heading) in PLACEHOLDER_HEADINGS
+
+
+def _merge_markdown_bodies(left: str, right: str) -> str:
+    lines: list[str] = []
+    seen = set()
+    for line in [*str(left or "").splitlines(), "", *str(right or "").splitlines()]:
+        key = line.strip()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        lines.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _merge_singleton_sections(sections: list[dict[str, str]]) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    singleton_indexes: dict[str, int] = {}
+    for section in sections:
+        key = _heading_key(section["heading"])
+        if key in SINGLETON_HEADINGS:
+            section["heading"] = SINGLETON_HEADINGS[key]
+            if key in singleton_indexes:
+                target = merged[singleton_indexes[key]]
+                target["body"] = _merge_markdown_bodies(target["body"], section["body"])
+                continue
+            singleton_indexes[key] = len(merged)
+        merged.append(section)
+    return merged
+
+
+def _order_outline_sections(sections: list[dict[str, str]], outline: list[str]) -> list[dict[str, str]]:
+    order = {_heading_key(heading): index for index, heading in enumerate(outline)}
+    return [item[1] for item in sorted(enumerate(sections), key=lambda item: (order.get(_heading_key(item[1]["heading"]), len(order) + item[0]), item[0]))]
+
+
+def _merge_intro_into_first_section(intro: str, sections: list[dict[str, str]]) -> str:
+    if intro and sections:
+        sections[0]["body"] = _merge_markdown_bodies(intro, sections[0]["body"])
+        return ""
+    return intro
+
+
+def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    section_format = str(config.get("section_format") or "Walnut Research Brief")
+    sanitized = deepcopy(article)
+    before = json.dumps(sanitized, sort_keys=True, default=str)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(sanitized.get(key), str):
+            sanitized[key] = sanitize_research_brief_copy(sanitized[key]).lstrip("# ").strip()
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(sanitized.get(key), list):
+            sanitized[key] = _dedupe_strings([sanitize_research_brief_copy(str(item)) for item in sanitized[key]])
+    sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
+    cleaned_sections: list[dict[str, Any]] = []
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        heading = sanitize_research_brief_copy(str(section.get("heading") or "")).lstrip("# ").strip() or f"Section {index + 1}"
+        heading = _canonical_heading(heading)
+        if _is_placeholder_heading(heading):
+            heading = "Executive thesis"
+        body = clean_research_brief_markdown(str(section.get("body_markdown") or ""), section_format, section_heading=heading)
+        if not body:
+            continue
+        cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
+    sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
+    after = json.dumps(sanitized, sort_keys=True, default=str)
+    if after != before:
+        sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
+    return sanitized
+
+
+def _article_sections_from_clean_markdown(body: str, fallback_heading: str, source_section: dict[str, Any], index: int) -> list[dict[str, Any]]:
+    parts = re.split(r"(?m)^(##\s+.+?)\s*$", body)
+    if len(parts) == 1:
+        return [
+            {
+                **source_section,
+                "heading": fallback_heading,
+                "key": str(source_section.get("key") or _slugify(fallback_heading, fallback=f"section-{index + 1}")),
+                "body_markdown": body.strip(),
+            }
+        ]
+    sections: list[dict[str, Any]] = []
+    intro = parts[0].strip()
+    if intro:
+        sections.append(
+            {
+                **source_section,
+                "heading": fallback_heading,
+                "key": str(source_section.get("key") or _slugify(fallback_heading, fallback=f"section-{index + 1}")),
+                "body_markdown": intro,
+            }
+        )
+    for part_index in range(1, len(parts), 2):
+        heading = _canonical_heading(re.sub(r"^##\s+", "", parts[part_index]).strip())
+        section_body = parts[part_index + 1].strip() if part_index + 1 < len(parts) else ""
+        if not section_body:
+            continue
+        sections.append(
+            {
+                **source_section,
+                "heading": heading,
+                "key": _slugify(heading, fallback=f"section-{index + 1}-{part_index}"),
+                "body_markdown": section_body,
+            }
+        )
+    return sections
+
+
+def _merge_article_sections(sections: list[dict[str, Any]], section_format: str) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    by_heading: dict[str, int] = {}
+    for section in sections:
+        heading = _canonical_heading(str(section.get("heading") or ""))
+        key = _heading_key(heading)
+        if key in by_heading:
+            existing = merged[by_heading[key]]
+            existing["body_markdown"] = _merge_markdown_bodies(str(existing.get("body_markdown") or ""), str(section.get("body_markdown") or ""))
+            continue
+        section["heading"] = heading
+        by_heading[key] = len(merged)
+        merged.append(section)
+    if section_format == "Reddit DD - Bull Case / Bear Case / The Data / The Call":
+        order = {_heading_key(heading): index for index, heading in enumerate(REDDIT_BULL_BEAR_OUTLINE)}
+        merged = [item[1] for item in sorted(enumerate(merged), key=lambda item: (order.get(_heading_key(item[1].get("heading")), len(order) + item[0]), item[0]))]
+    return merged
 
 
 def _read_store() -> dict[str, Any]:
@@ -1135,6 +1483,7 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         if progress_callback:
             progress_callback("generating_brief", "Generating research brief.")
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
+        article = sanitize_research_brief_article(article, normalized_config)
         if normalized_config.get("generate_thumbnail"):
             if progress_callback:
                 progress_callback("generating_thumbnail", "Generating thumbnail.")
@@ -1704,10 +2053,11 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
     return "\n".join(
         [
             "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
-            "Use supplied Walnut research context plus the attached external research notes and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
+            "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
+            "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "Separate underlying data from Walnut confirmation score. Missing data is unavailable, not zero and not bearish.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
@@ -1739,7 +2089,7 @@ def _section_format_instructions(section_format: str) -> str:
             "The data uses concrete sourced numbers without burying unavailable fields. Conclusion makes a bullish, bearish, mixed, or insufficient-data call. Research only. Not investment advice."
         )
     if section_format == "Reddit DD - Bull Case / Bear Case / The Data / The Call":
-        return "Use this markdown structure: Intro / hook; Bull case; Bear case; The data; The call; Sources; What to watch next."
+        return "Use this markdown structure: Executive thesis; Bull case; Bear case; The data; The call; What to watch next; Sources; Data freshness and limitations. Do not include an Intro / hook heading."
     if section_format == "ValueInvesting - Business / Valuation / Risks / Margin of Safety":
         return "Use this markdown structure: Business; Valuation; Risks; Margin of safety; Sources; What to watch next. Emphasize cash flow, downside case, assumptions, and valuation limits."
     if section_format == "X Thread":
@@ -1842,7 +2192,19 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     blocking = False
     title = str(article.get("title") or "").strip()
     body = "\n\n".join(str(section.get("body_markdown") or "") for section in article.get("sections") or [] if isinstance(section, dict))
+    rendered_markdown = "\n\n".join(
+        f"## {section.get('heading')}\n\n{section.get('body_markdown') or ''}"
+        for section in article.get("sections") or []
+        if isinstance(section, dict)
+    )
     slug = _slugify(str(article.get("slug") or title), fallback=f"{context['primary']['identity']['symbol'].lower()}-research-brief")
+    repair_count = int(article.get("_copy_sanitizer_repairs") or 0)
+    labels = {
+        "structure": "repaired" if repair_count else "passed",
+        "internal_language": "repaired" if repair_count else "passed",
+        "source_support": "passed",
+        "missing_data_language": "repaired" if repair_count else "passed",
+    }
     if not title:
         warnings.append(_warning("missing_title", "Title is required.", blocking=True))
         blocking = True
@@ -1857,9 +2219,11 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     source_link_count = _source_link_count(article, body)
     if source_link_count == 0:
         warnings.append(_warning("missing_source_links", "This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.", blocking=True))
+        labels["source_support"] = "failed"
         blocking = True
     elif source_link_count < 2:
         warnings.append(_warning("insufficient_source_links", "Research briefs need at least 2 credible source links before publishing.", blocking=True))
+        labels["source_support"] = "failed"
         blocking = True
     for phrase in UNSUPPORTED_LANGUAGE:
         if phrase in lowered:
@@ -1867,9 +2231,26 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
             blocking = True
     if "not supplied" in lowered:
         warnings.append(_warning("not_supplied_language", "Use 'Not found in reviewed sources' once in Data limitations instead of repeated 'not supplied' language.", blocking=True))
+        labels["missing_data_language"] = "failed"
+        blocking = True
+    missing_language_hits = _missing_data_language_hits(lowered)
+    if missing_language_hits:
+        warnings.append(_warning("awkward_missing_data_language", f"Missing-data wording needs cleanup: {', '.join(missing_language_hits)}.", blocking=True))
+        labels["missing_data_language"] = "failed"
+        blocking = True
+    internal_language_hits = _internal_language_hits(lowered)
+    if internal_language_hits:
+        warnings.append(_warning("internal_workflow_language", f"Internal workflow language remains: {', '.join(internal_language_hits)}.", blocking=True))
+        labels["internal_language"] = "failed"
+        blocking = True
+    structure_issues = _markdown_structure_issues(rendered_markdown)
+    if structure_issues:
+        warnings.append(_warning("markdown_structure", f"Markdown structure needs cleanup: {', '.join(structure_issues)}.", blocking=True))
+        labels["structure"] = "failed"
         blocking = True
     if re.search(r"\b(provider|internal|cache|raw|token|credential|diagnostic)s?\b", lowered):
         warnings.append(_warning("internal_wording", "Provider/internal/cache/source-system wording must not appear in user-facing output.", blocking=True))
+        labels["internal_language"] = "failed"
         blocking = True
     if "confirmation score equals" in lowered or "confirmation stack" in lowered:
         warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
@@ -1887,6 +2268,7 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     numeric_claims = sorted(set(re.findall(r"(?<![A-Za-z])(?:\$?\d[\d,]*(?:\.\d+)?%?|\d+\s?bps)(?![A-Za-z])", body)))[:80]
     if numeric_claims and not _context_has_numbers(context):
         warnings.append(_warning("numeric_claims_without_context", "Numeric claims detected while source context has few numeric fields.", blocking=True))
+        labels["source_support"] = "failed"
         blocking = True
     if _duplicate_slug(slug, draft_id=draft_id):
         warnings.append(_warning("duplicate_slug", f"Slug '{slug}' is already published or reserved.", blocking=True))
@@ -1899,7 +2281,80 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "numeric_claims": numeric_claims,
         "source_link_count": source_link_count,
         "estimated_reading_minutes": max(1, round(len(body.split()) / 220)),
+        "labels": labels,
     }
+
+
+def _internal_language_hits(lowered_text: str) -> list[str]:
+    hits: list[str] = []
+    labels = [
+        ("research request", r"\bresearch request\b"),
+        ("supplied research context", r"\bsupplied research context\b"),
+        ("supplied materials", r"\bsupplied materials?\b"),
+        ("supplied context", r"\bsupplied context\b"),
+        ("research configuration", r"\bresearch configuration\b|\bthis configuration\b|\bin this research configuration\b"),
+        ("provided comparison confirmation", r"\bprovided comparison confirmation\b"),
+        ("user request", r"\buser request\b"),
+        ("prompt", r"\bprompt\b"),
+        ("generated from", r"\bgenerated from\b"),
+        ("model was asked", r"\bmodel was asked\b"),
+    ]
+    for label, pattern in labels:
+        if re.search(pattern, lowered_text):
+            hits.append(label)
+    return hits
+
+
+def _missing_data_language_hits(lowered_text: str) -> list[str]:
+    hits: list[str] = []
+    labels = [
+        ("not supplied", r"\bnot supplied\b"),
+        ("was supplied", r"\b(?:was|were)\s+supplied\b"),
+        ("no reviewed consensus source was supplied", r"\bno reviewed consensus source was supplied\b"),
+        ("reviewed materials do not provide", r"\breviewed materials do not provide\b"),
+    ]
+    for label, pattern in labels:
+        if re.search(pattern, lowered_text):
+            hits.append(label)
+    return hits
+
+
+def _markdown_structure_issues(markdown: str) -> list[str]:
+    issues: list[str] = []
+    sections = _markdown_h2_sections(markdown)
+    previous_had_body = True
+    counts: dict[str, int] = {}
+    for section in sections:
+        key = _heading_key(section["heading"])
+        counts[key] = counts.get(key, 0) + 1
+        if _is_placeholder_heading(section["heading"]):
+            issues.append("placeholder heading")
+        if not section["body"].strip():
+            issues.append(f"empty heading: {section['heading']}")
+        if not previous_had_body:
+            issues.append("consecutive H2 headings without body text")
+        previous_had_body = bool(section["body"].strip())
+    if any(count > 1 for count in counts.values()):
+        issues.append("duplicate headings")
+    return _dedupe_strings(issues)
+
+
+def _markdown_h2_sections(markdown: str) -> list[dict[str, str]]:
+    lines = str(markdown or "").replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    sections: list[dict[str, str]] = []
+    current: dict[str, Any] | None = None
+    for line in lines:
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match:
+            if current is not None:
+                sections.append({"heading": current["heading"], "body": "\n".join(current["body_lines"]).strip()})
+            current = {"heading": match.group(1).strip(), "body_lines": []}
+            continue
+        if current is not None:
+            current["body_lines"].append(line)
+    if current is not None:
+        sections.append({"heading": current["heading"], "body": "\n".join(current["body_lines"]).strip()})
+    return sections
 
 
 def _available_data_missing_claims(lowered_text: str, context: dict[str, Any]) -> list[str]:
@@ -2089,7 +2544,7 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
     ]
     body = (
         f"{company} ({symbol}) deserves a focused research review because the current question is specific: {question}\n\n"
-        "The available Walnut context should be read as evidence, not as a recommendation. The confirmation score is a separate Walnut signal, while fundamentals, price context, public filings, reported institutional activity, government contracts, and event history are the underlying data.\n\n"
+        "The available Walnut data should be read as evidence, not as a recommendation. The confirmation score is a separate Walnut signal, while fundamentals, price action, public filings, reported institutional activity, government contracts, and event history are the underlying data.\n\n"
         "The strongest constructive case is that available company and market data still support a credible thesis. The strongest risk case is that missing or stale data can hide a change in the cycle, and unavailable data should not be treated as bearish or bullish by itself.\n\n"
         "What matters next is whether the observable data improves or deteriorates: fundamentals, tape confirmation, public filings, reported activity, catalysts, and risk signals. Research only. Not investment advice.\n\n"
         "Sources:\n"
@@ -2182,9 +2637,10 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
             article = draft.setdefault("article", {})
             article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
+            draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {})
             if status:
                 draft["status"] = _normalize_status(status)
-            draft["validation"] = validate_article(article, draft.get("research_context") or {}, draft_id=draft_id)
+            draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
             draft["updated_at"] = _now()
             _upsert_db_draft(db, draft)
             return deepcopy(draft)
@@ -2195,9 +2651,10 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
                 article = draft.setdefault("article", {})
                 article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
+                draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {})
                 if status:
                     draft["status"] = _normalize_status(status)
-                draft["validation"] = validate_article(article, draft.get("research_context") or {}, draft_id=draft_id)
+                draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
                 draft["updated_at"] = _now()
                 _append_audit(store, action="save", admin=admin, draft_id=draft_id)
                 _write_store(store)
@@ -2223,7 +2680,8 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
         article = draft.setdefault("article", {})
         article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-        draft["validation"] = validate_article(article, context, draft_id=draft_id)
+        draft["article"] = sanitize_research_brief_article(article, config)
+        draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
         draft["updated_at"] = _now()
         _upsert_db_draft(db, draft)
         return deepcopy(draft)
@@ -2248,7 +2706,8 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
             article = draft.setdefault("article", {})
             article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
             article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-            draft["validation"] = validate_article(article, context, draft_id=draft_id)
+            draft["article"] = sanitize_research_brief_article(article, config)
+            draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
             draft["updated_at"] = _now()
             _append_audit(store, action="refresh_sources", admin=admin, draft_id=draft_id, metadata={"mode": external.get("mode")})
             _write_store(store)
@@ -2282,6 +2741,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
     if db is not None:
         draft = _db_draft(db, draft_id)
         if draft:
+            draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {})
             validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
             if validation["status"] != "passed":
                 draft["validation"] = validation
@@ -2297,6 +2757,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
         store = _read_store()
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
+                draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {})
                 validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
                 if validation["status"] != "passed":
                     draft["validation"] = validation

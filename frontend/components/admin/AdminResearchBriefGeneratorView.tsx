@@ -223,6 +223,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [activePane, setActivePane] = useState<"create" | "drafts" | "published" | "settings">("create");
 
   const selectedWarnings = selectedDraft?.validation?.warnings ?? [];
+  const validationLabels = selectedDraft?.validation?.labels;
   const blockingWarnings = selectedWarnings.filter((warning) => warning.blocking);
   const selectedCard = articleDraft?.suggested_card;
   const comparisonTickers = config.comparison_tickers || [];
@@ -782,6 +783,21 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       <section className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
         <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
           <h3 className="text-base font-semibold text-white">Validation</h3>
+          {validationLabels ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              {[
+                ["Structure", validationLabels.structure],
+                ["Internal language", validationLabels.internal_language],
+                ["Source support", validationLabels.source_support],
+                ["Missing data", validationLabels.missing_data_language],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-white/10 bg-slate-950/50 px-2.5 py-2">
+                  <p className="text-slate-500">{label}</p>
+                  <p className={`mt-1 font-semibold capitalize ${value === "failed" ? "text-rose-200" : value === "repaired" ? "text-amber-200" : "text-emerald-200"}`}>{value || "passed"}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 grid gap-2">
             {selectedWarnings.length ? (
               selectedWarnings.map((warning) => (

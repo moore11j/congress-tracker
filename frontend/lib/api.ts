@@ -5671,6 +5671,7 @@ export type AdminResearchBriefValidation = {
   numeric_claims: string[];
   source_link_count: number;
   estimated_reading_minutes: number;
+  labels?: Record<"structure" | "internal_language" | "source_support" | "missing_data_language", "passed" | "repaired" | "failed" | string>;
 };
 
 export type AdminResearchBriefDraft = {

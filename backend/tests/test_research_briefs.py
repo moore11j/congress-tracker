@@ -472,6 +472,122 @@ def test_validation_fails_when_draft_marks_available_data_missing():
     assert "reported institutional activity" in warning["message"]
 
 
+META_BAD_DRAFT_MARKDOWN = """
+## Intro / hook
+
+## Bull case
+## Why the bull case still works
+Meta still has a constructive fundamental setup.
+
+## The call
+## The call: wait for the print, with a constructive fundamental bias
+A Q2 EPS figure of approximately $7.18 was referenced in the research request as a Public.com estimate.
+META price/volume and technical data are marked available in the research configuration, but no numerical META price, volume, support/resistance, or directional technical output was supplied for publication.
+The supplied materials flag a tax-benefit impact.
+
+## Sources
+## Sources
+- Meta Investor Relations - financial results and company disclosures
+- SEC EDGAR - Meta Platforms filings
+
+## What to watch next
+## What to watch next
+Watch ad impressions, average price per ad, AI capex, and free cash flow.
+
+## Data freshness and limitations
+No reviewed consensus source was supplied. The supplied context includes reported Congressional transactions and provided comparison confirmation.
+""".strip()
+
+
+def test_research_brief_markdown_cleanup_repairs_meta_draft_structure_and_language():
+    cleaned = service.clean_research_brief_markdown(
+        META_BAD_DRAFT_MARKDOWN,
+        "Reddit DD - Bull Case / Bear Case / The Data / The Call",
+    )
+    lowered = cleaned.lower()
+
+    assert "## Intro / hook" not in cleaned
+    assert cleaned.count("## The call") == 1
+    assert cleaned.count("## Sources") == 1
+    assert cleaned.count("## What to watch next") == 1
+    assert "research request" not in lowered
+    assert "supplied materials" not in lowered
+    assert "research configuration" not in lowered
+    assert "marked available in the research configuration" not in lowered
+    assert "provided comparison confirmation" not in lowered
+    assert "$7.18" not in cleaned
+    assert "Current EPS consensus estimates were not verified in reviewed sources" in cleaned
+    assert not service._markdown_structure_issues(cleaned)
+
+
+def test_research_brief_article_sanitizer_marks_repaired_and_blocks_no_internal_language():
+    article = {
+        "title": "META earnings setup",
+        "slug": "meta-earnings-setup",
+        "subtitle": "Research only. Not investment advice.",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "key": "body",
+                "heading": "Intro / hook",
+                "body_markdown": META_BAD_DRAFT_MARKDOWN
+                + "\n\nResearch only. Not investment advice. https://www.sec.gov/edgar/search/#/q=META https://investor.fb.com/ "
+                + "word " * 220,
+            }
+        ],
+        "source_links": [
+            {"label": "SEC EDGAR", "url": "https://www.sec.gov/edgar/search/#/q=META", "source_type": "filing_search"},
+            {"label": "Meta Investor Relations", "url": "https://investor.fb.com/", "source_type": "company"},
+        ],
+    }
+
+    cleaned = service.sanitize_research_brief_article(article, {"section_format": "Reddit DD - Bull Case / Bear Case / The Data / The Call"})
+    body = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+    validation = service.validate_article(cleaned, {"primary": {"identity": {"symbol": "META"}}})
+
+    assert cleaned["_copy_sanitizer_repairs"] == 1
+    assert "research request" not in body.lower()
+    assert "supplied context" not in body.lower()
+    assert "research configuration" not in body.lower()
+    assert validation["labels"]["structure"] == "repaired"
+    assert validation["labels"]["internal_language"] == "repaired"
+    assert validation["labels"]["missing_data_language"] == "repaired"
+    assert not any(warning["code"] in {"internal_workflow_language", "markdown_structure"} for warning in validation["warnings"])
+
+
+def test_validation_labels_fail_on_unsanitized_internal_and_structure_language():
+    article = {
+        "title": "META bad draft",
+        "slug": "meta-bad-draft",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": (
+                    "## Intro / hook\n\n## Sources\n## Sources\n"
+                    "The Q1 operating figures are drawn from the supplied research context and research configuration. "
+                    "No reviewed consensus source was supplied. Research only. Not investment advice. "
+                    "https://www.sec.gov/edgar/search/#/q=META https://investor.fb.com/ "
+                    + "word " * 220
+                ),
+            }
+        ],
+        "source_links": [
+            {"label": "SEC EDGAR", "url": "https://www.sec.gov/edgar/search/#/q=META", "source_type": "filing_search"},
+            {"label": "Meta Investor Relations", "url": "https://investor.fb.com/", "source_type": "company"},
+        ],
+    }
+
+    validation = service.validate_article(article, {"primary": {"identity": {"symbol": "META"}}})
+
+    assert validation["status"] == "failed"
+    assert validation["labels"]["structure"] == "failed"
+    assert validation["labels"]["internal_language"] == "failed"
+    assert validation["labels"]["missing_data_language"] == "failed"
+
+
 def test_missing_data_and_internal_terms_fail_validation(tmp_path, monkeypatch):
     monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
     context = {"primary": {"identity": {"symbol": "MU"}}}
