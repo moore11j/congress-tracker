@@ -112,6 +112,20 @@ def _seed_event(db, symbol: str, event_type: str):
     db.commit()
 
 
+def _confirmation_bundle(score: int = 79):
+    return {
+        "score": score,
+        "direction": "bullish",
+        "status": "Strong",
+        "sources": {
+            "fundamentals": {"present": True, "direction": "bullish"},
+            "institutional_activity": {"present": True, "direction": "bullish"},
+            "price_volume": {"present": True, "direction": "mixed"},
+            "options_flow": {"present": True, "direction": "bearish"},
+        },
+    }
+
+
 def _payload(**overrides) -> ResearchBriefGeneratePayload:
     data = {
         "ticker": "MU",
@@ -151,13 +165,13 @@ def _fake_openai_response(*_args, **kwargs):
                         "body_markdown": (
                             "MU's setup is still tied to observable data. Revenue growth of 42.5 and gross margin of 61.2 "
                             "support the constructive side, while cycle risk remains real.\n\n"
-                            "The Walnut confirmation score is separate from the underlying fundamentals and tape. "
+                            "Walnut data should be read separately from the underlying fundamentals and tape. "
                             "Research only. Not investment advice. Sources: https://www.sec.gov/edgar/search/#/q=MU and https://www.nasdaq.com/market-activity/stocks/mu. "
                             + " ".join(["Evidence remains specific."] * 120)
                         ),
                     }
                 ],
-                "key_points": ["Use underlying data before confirmation score."],
+                "key_points": ["Use underlying data before drawing a conclusion."],
                 "catalysts": ["Next earnings update"],
                 "risks": ["Memory cycle deterioration"],
                 "watch_items": ["Revenue growth", "Gross margin"],
@@ -344,6 +358,124 @@ def test_model_options_default_to_luna_terra_sol(monkeypatch):
     assert service.research_brief_model_options(None) == ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]
     assert service.research_brief_model(None) == "gpt-5.6-terra"
     assert service.research_brief_model_labels(None)["gpt-5.6-luna"] == "GPT-5.6 Luna"
+
+
+def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    captured = {}
+
+    def fake_post(*args, **kwargs):
+        captured["input"] = kwargs["json"]["input"]
+        return _fake_openai_response(*args, **kwargs)
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"MU": _confirmation_bundle(79)})
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    draft = service.generate_research_brief(
+        db,
+        admin,
+        _payload(include_confirmation_score=True, include_cross_source_confirmations=True).model_dump(),
+    )
+    body = "\n\n".join(f"{section['heading']}\n{section['body_markdown']}" for section in draft["article"]["sections"])
+
+    assert '"include_confirmation_score": true' in captured["input"]
+    assert '"include_cross_source_confirmations": true' in captured["input"]
+    assert "Walnut's proprietary confirmation score is 79/100" in body
+    assert "Cross-source confirmations" in body
+    assert "supported by fundamentals, reported institutional activity" in body
+    assert "mixed in price/volume" in body
+    assert "data categories" in body
+    assert "stack" not in body.lower()
+
+
+def test_confirmation_preferences_omit_unchecked_score_and_cross_source(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(service.requests, "post", _fake_openai_response)
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"MU": _confirmation_bundle(79)})
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    draft = service.generate_research_brief(
+        db,
+        admin,
+        _payload(include_confirmation_score=False, include_cross_source_confirmations=False).model_dump(),
+    )
+    body = "\n\n".join(f"{section['heading']}\n{section['body_markdown']}" for section in draft["article"]["sections"])
+
+    assert "confirmation score" not in body.lower()
+    assert "cross-source confirmation" not in body.lower()
+    assert draft["config"]["include_confirmation_score"] is False
+    assert draft["config"]["include_cross_source_confirmations"] is False
+
+
+def test_confirmation_score_requested_requires_loaded_score():
+    article = {
+        "title": "MU score missing",
+        "slug": "mu-score-missing",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [{"heading": "Executive thesis", "body_markdown": "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu " + "word " * 220}],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+        ],
+    }
+
+    validation = service.validate_article(article, {"primary": {"identity": {"symbol": "MU"}, "confirmation": {}}, "include_confirmation_score": True})
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "confirmation_score_unavailable" for warning in validation["warnings"])
+
+
+def test_confirmation_score_disabled_blocks_score_language():
+    article = {
+        "title": "MU score included",
+        "slug": "mu-score-included",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [{"heading": "Executive thesis", "body_markdown": "Walnut's proprietary confirmation score is 79/100. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu " + "word " * 220}],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+        ],
+    }
+
+    validation = service.validate_article(article, {"primary": {"identity": {"symbol": "MU"}, "confirmation": _confirmation_bundle(79)}, "include_confirmation_score": False})
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "confirmation_score_not_requested" for warning in validation["warnings"])
+
+
+def test_cross_source_confirmation_validation_keeps_score_separate():
+    article = {
+        "title": "MU conflated",
+        "slug": "mu-conflated",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [{"heading": "Cross-source confirmations", "body_markdown": "The confirmation score is based on fundamentals and reported institutional activity. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu " + "word " * 220}],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+        ],
+    }
+
+    validation = service.validate_article(
+        article,
+        {
+            "primary": {"identity": {"symbol": "MU"}, "confirmation": _confirmation_bundle(79)},
+            "include_confirmation_score": True,
+            "include_cross_source_confirmations": True,
+        },
+    )
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "confirmation_score_conflated" for warning in validation["warnings"])
 
 
 def test_source_links_zero_blocks_publish_validation(tmp_path, monkeypatch):

@@ -14,6 +14,7 @@ from app.services.insights_snapshots import (
     refresh_insights_headlines,
     refresh_insights_snapshot,
 )
+from app.services.walnut_takes import WALNUT_TAKE_MAX_CHARS
 
 
 def _db():
@@ -241,7 +242,7 @@ def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(mo
                                 "walnut_take": "Supportive for energy exposure while oil supply risk remains elevated.",
                                 "walnut_take_source": "openai",
                                 "walnut_take_model": "gpt-5.6-sol",
-                                "walnut_take_prompt_version": "market_read_v2",
+                                "walnut_take_prompt_version": "market_read_v3",
                                 "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
                             }
                         ],
@@ -364,7 +365,76 @@ def test_insights_headlines_refresh_regenerates_old_walnut_take_prompt_versions(
         item = payload["items"][0]
         assert item["walnut_take_bias"] == "bearish"
         assert item["walnut_take"] == "Stretched valuations and weaker cash flow make this a bearish risk-asset read."
-        assert item["walnut_take_prompt_version"] == "market_read_v2"
+        assert item["walnut_take_prompt_version"] == "market_read_v3"
+    finally:
+        db.close()
+
+
+def test_insights_headlines_refresh_calibrates_walnut_take_reads(monkeypatch):
+    db = _db()
+    try:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        articles = [
+            {
+                "title": "Market Valuations Are Beyond Stretched",
+                "url": "https://example.com/stretched",
+                "summary": "Earnings growth is concentrated while free cash flow is weakening.",
+                "market_read": "bullish",
+                "source": "fmp_general_news",
+            },
+            {
+                "title": "Bond market anxiety is growing over AI capex budgets",
+                "url": "https://example.com/bond-anxiety",
+                "summary": "Bond investors are growing uneasy about larger AI capex budgets.",
+                "market_read": "neutral",
+                "source": "fmp_general_news",
+            },
+            {
+                "title": "Ireland's Ambassador to US Wants to 'Stabilize' Trade",
+                "url": "https://example.com/ireland-trade",
+                "summary": "Ireland wants to stabilize trade relations with the U.S. and EU.",
+                "market_read": "neutral",
+                "source": "fmp_general_news",
+            },
+            {
+                "title": "Lisa Su explains what's coming next in AI",
+                "url": "https://example.com/lisa-su-ai",
+                "summary": "AMD CEO Lisa Su says she is seeing the opposite of an AI slowdown.",
+                "market_read": "neutral",
+                "source": "fmp_general_news",
+            },
+        ]
+        monkeypatch.setattr("app.services.insights_snapshots.get_general_news", lambda **_kwargs: {"items": articles, "has_next": False})
+
+        long_take = "This generated take is intentionally too long so the backend must trim it to fit the insights list without clipping the Walnut Take box."
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "output_text": json.dumps(
+                        {
+                            "items": [
+                                {"id": "url:https://example.com/stretched", "summary": "Valuations remain stretched.", "bias": "bullish", "take": long_take},
+                                {"id": "url:https://example.com/bond-anxiety", "summary": "Bond-market anxiety is growing.", "bias": "neutral", "take": long_take},
+                                {"id": "url:https://example.com/ireland-trade", "summary": "Ireland wants to stabilize trade.", "bias": "neutral", "take": long_take},
+                                {"id": "url:https://example.com/lisa-su-ai", "summary": "AI demand is resilient.", "bias": "neutral", "take": long_take},
+                            ]
+                        }
+                    )
+                }
+
+        monkeypatch.setattr("app.services.walnut_takes.requests.post", lambda *_args, **_kwargs: FakeResponse())
+
+        payload = refresh_insights_headlines(db, limit=10)
+        reads = {item["url"]: item["walnut_take_bias"] for item in payload["items"]}
+
+        assert reads["https://example.com/stretched"] == "bearish"
+        assert reads["https://example.com/bond-anxiety"] == "bearish"
+        assert reads["https://example.com/ireland-trade"] == "bullish"
+        assert reads["https://example.com/lisa-su-ai"] == "bullish"
+        assert all(len(item["walnut_take"]) <= WALNUT_TAKE_MAX_CHARS for item in payload["items"])
     finally:
         db.close()
 

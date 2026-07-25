@@ -286,11 +286,11 @@ def _trend_from_change(row: list[str], long_change_index: int | None, short_chan
 
 def _headline_for_ingested_positioning(*, bias: str, trend: str | None) -> str:
     if trend == "increasing":
-        return "Institutional positioning is increasing."
+        return f"Institutional positioning is {_positioning_stance(bias)} and increasing."
     if trend == "decreasing":
-        return "Institutional positioning is decreasing."
+        return f"Institutional positioning is {_positioning_stance(bias)}, but decreasing."
     if trend == "stable":
-        return "Institutional positioning is stable."
+        return f"Institutional positioning is {_positioning_stance(bias)} and little changed."
     if bias == "bullish":
         return "Institutional positioning is net long."
     if bias == "bearish":
@@ -766,7 +766,7 @@ def _insights_market_from_asset(target: dict[str, str], row: MacroPositioningAss
     )
     trend_weeks = _first_int(payload, ("trend_weeks", "consecutive_weeks", "streak_weeks"))
     crowding = _crowding_label(percentile)
-    headline = _clean_public_text(payload.get("headline")) or _headline_for_market(trend=trend, crowded=bool(crowding))
+    headline = _clean_public_text(payload.get("headline")) or _headline_for_market(bias=bias, trend=trend, crowded=bool(crowding))
     interpretation = _clean_public_text(payload.get("interpretation")) or _interpretation_for_market(bias=bias, trend=trend, crowded=bool(crowding))
     positioning_date = row.positioning_date
     return {
@@ -797,7 +797,7 @@ def _insights_market_from_feed_event(target: dict[str, str], row: MacroPositioni
         "percentile": round(row.percentile) if isinstance(row.percentile, (int, float)) else None,
         "trend": _trend_value(row.trend),
         "trend_weeks": row.trend_weeks if isinstance(row.trend_weeks, int) else None,
-        "headline": _clean_public_text(row.insight) or _headline_for_market(trend=_trend_value(row.trend), crowded=bool(row.crowded)),
+        "headline": _clean_public_text(row.insight) or _headline_for_market(bias=bias, trend=_trend_value(row.trend), crowded=bool(row.crowded)),
         "interpretation": _clean_public_text(row.insight) or _interpretation_for_market(bias=bias, trend=_trend_value(row.trend), crowded=bool(row.crowded)),
         "crowding": "crowded" if row.crowded else None,
         "updated_at": datetime.combine(row.report_date, datetime.min.time(), timezone.utc).isoformat(),
@@ -858,16 +858,24 @@ def _crowding_label(percentile: float | None) -> str | None:
     return None
 
 
-def _headline_for_market(*, trend: str | None, crowded: bool) -> str:
+def _headline_for_market(*, bias: str, trend: str | None, crowded: bool) -> str:
     if crowded:
-        return "Institutional positioning is becoming crowded."
+        return f"Institutional positioning is {_positioning_stance(bias)} and becoming crowded."
     if trend == "increasing":
-        return "Institutional positioning is increasing."
+        return f"Institutional positioning is {_positioning_stance(bias)} and increasing."
     if trend == "decreasing":
-        return "Institutional positioning is decreasing."
+        return f"Institutional positioning is {_positioning_stance(bias)}, but decreasing."
     if trend == "stable":
-        return "Institutional positioning is stable."
+        return f"Institutional positioning is {_positioning_stance(bias)} and little changed."
     return "Institutional positioning is available for the latest weekly report."
+
+
+def _positioning_stance(bias: str) -> str:
+    if bias == "bullish":
+        return "net long"
+    if bias == "bearish":
+        return "net short"
+    return "balanced"
 
 
 def _interpretation_for_market(*, bias: str, trend: str | None, crowded: bool) -> str:

@@ -28,7 +28,11 @@ test("macro positioning panel has pro lock, compact rows, and feed links", () =>
   assert.match(component, /Upgrade to Pro/);
   assert.match(component, /function findMarket/);
   assert.match(component, /No recent positioning update\./);
-  assert.match(component, /Treasury futures are net long/);
+  assert.match(component, /Treasury futures are \$\{stancePhrase\(market\.bias\)\}\$\{trendPhrase\(market\.trend\)\}/);
+  assert.match(component, /positioning is \$\{stancePhrase\(market\.bias\)\}\$\{trendPhrase\(market\.trend\)\}/);
+  assert.match(component, /Cross-asset positioning leans risk-on/);
+  assert.match(component, /Cross-asset positioning leans risk-off/);
+  assert.match(component, /inferredRiskMarket/);
   assert.match(component, /preferredIds: \["us-treasuries"\]/);
   assert.doesNotMatch(component, /getMacroPositioningFeed/);
   assert.match(component, /MACRO_POSITIONING_HREF = "\/feed\/macro-positioning"/);
@@ -38,6 +42,7 @@ test("macro positioning panel has pro lock, compact rows, and feed links", () =>
   for (const heading of ["Equity Positioning", "Rates", "US Dollar", "Gold", "Oil", "Bitcoin", "Risk-On / Risk-Off"]) {
     assert.match(component, new RegExp(heading));
   }
+  assert.doesNotMatch(component, /COT Signals/);
   assert.match(component, /\/feed\/macro-positioning/);
 });
 
@@ -76,4 +81,9 @@ test("insights sentiment labels render as colored text instead of pills", () => 
   for (const source of [component, feedRouteComponent, fullMacroComponent, insightsNews, newsArticleList, researchBriefs]) {
     assert.match(source, /text-amber-300/);
   }
+});
+
+test("walnut take copy is capped to fit the insights row", () => {
+  assert.match(insightsNews, /WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 125/);
+  assert.match(insightsNews, /break-words text-xs leading-5 text-slate-400/);
 });

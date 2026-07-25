@@ -45,13 +45,13 @@ def _asset(
     positioning_date: date | None = None,
     payload: dict | None = None,
 ) -> MacroPositioningAsset:
-    now = datetime(2026, 7, 10, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc) - timedelta(days=3)
     return MacroPositioningAsset(
         asset_key=asset_key,
         display_name=name,
         bias=bias,
         rating=rating,
-        positioning_date=positioning_date or date(2026, 7, 10),
+        positioning_date=positioning_date or now.date(),
         payload_json=json.dumps(payload or {"percentile": 72, "trend": "increasing", "trend_weeks": 2}),
         fetched_at=now,
     )
@@ -234,6 +234,23 @@ def test_insights_macro_positioning_summary_is_derived_from_cached_assets(monkey
 
         assert "positioning strengthened in S&P 500 and Nasdaq 100" in payload["summary"]
         assert "US Dollar" in payload["summary"]
+    finally:
+        db.close()
+
+
+def test_insights_macro_positioning_headline_combines_stance_and_trend(monkeypatch):
+    db = _db()
+    try:
+        _set_tier(monkeypatch, "pro")
+        db.add(_asset("us_dollar", "US Dollar", "bullish", payload={"percentile": 72, "trend": "decreasing"}))
+        db.commit()
+
+        payload = insights_macro_positioning(_request(), db)
+
+        dollar = next(market for market in payload["markets"] if market["id"] == "us-dollar")
+        assert dollar["bias"] == "bullish"
+        assert dollar["trend"] == "decreasing"
+        assert dollar["headline"] == "Institutional positioning is net long, but decreasing."
     finally:
         db.close()
 

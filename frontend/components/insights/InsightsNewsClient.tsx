@@ -35,7 +35,7 @@ const impactFilters = ["all", "bullish", "bearish", "neutral"] as const;
 
 type CategoryFilter = (typeof categoryFilters)[number];
 type ImpactFilter = (typeof impactFilters)[number];
-const WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 150;
+const WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 125;
 
 function categoryLabel(value: CategoryFilter): string {
   if (value === "all") return "All";
@@ -164,7 +164,7 @@ function HeadlineRow({ item }: { item: NewsItem }) {
 
       <div className="min-w-0 md:border-l md:border-white/10 md:pl-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Walnut take</p>
-        <p className="mt-1 text-xs leading-5 text-slate-400">{walnutTake(item)}</p>
+        <p className="mt-1 break-words text-xs leading-5 text-slate-400">{walnutTake(item)}</p>
       </div>
     </article>
   );

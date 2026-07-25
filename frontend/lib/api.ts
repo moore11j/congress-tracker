@@ -5618,6 +5618,8 @@ export type AdminResearchBriefConfig = {
   selected_model?: string | null;
   include_charts: boolean;
   include_source_links: boolean;
+  include_confirmation_score: boolean;
+  include_cross_source_confirmations: boolean;
   generate_thumbnail: boolean;
   hero_image?: string | null;
   client_request_id?: string | null;

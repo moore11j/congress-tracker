@@ -74,6 +74,8 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   selected_model: "",
   include_charts: false,
   include_source_links: true,
+  include_confirmation_score: false,
+  include_cross_source_confirmations: false,
   generate_thumbnail: true,
   hero_image: "",
 };
@@ -216,6 +218,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [bodyMarkdown, setBodyMarkdown] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [activeJob, setActiveJob] = useState<AdminResearchBriefJob | null>(null);
   const [comparisonTickerInput, setComparisonTickerInput] = useState("");
   const [comparisonTickerErrors, setComparisonTickerErrors] = useState<Record<string, string>>({});
@@ -509,13 +513,26 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
+  function requestDeleteSelected() {
+    if (!selectedDraft) return;
+    setDeleteConfirmationText("");
+    setDeleteDialogOpen(true);
+  }
+
+  function closeDeleteDialog() {
+    if (busy === "delete") return;
+    setDeleteDialogOpen(false);
+    setDeleteConfirmationText("");
+  }
+
   async function deleteSelected() {
     if (!selectedDraft) return;
-    if (window.prompt("Type DELETE to remove this draft.") !== "DELETE") return;
     setBusy("delete");
     try {
       await deleteAdminResearchBriefDraft(selectedDraft.id);
       setSelectedDraft(null);
+      setDeleteDialogOpen(false);
+      setDeleteConfirmationText("");
       await refreshDrafts();
       showToast?.("Draft deleted.", "success");
     } catch (err) {
@@ -678,6 +695,30 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                     </label>
                   ))}
                 </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <label className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={config.include_confirmation_score}
+                        onChange={(event) => updateConfig("include_confirmation_score", event.target.checked)}
+                      />
+                      Walnut confirmation score
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">Include Walnut&apos;s proprietary confirmation score, shown separately from underlying data.</span>
+                  </label>
+                  <label className="rounded-lg border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={config.include_cross_source_confirmations}
+                        onChange={(event) => updateConfig("include_cross_source_confirmations", event.target.checked)}
+                      />
+                      Cross-source confirmations
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">Mention which data categories support or contradict the thesis.</span>
+                  </label>
+                </div>
               </div>
 
               <button type="button" onClick={() => setAdvancedOpen((open) => !open)} className="text-left text-sm font-semibold text-emerald-200">
@@ -732,7 +773,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onReady={() => saveDraft("ready_for_review")}
             onPublish={publishSelected}
             onUnpublish={unpublishSelected}
-            onDelete={deleteSelected}
+            onDelete={requestDeleteSelected}
             onRefreshSources={refreshSources}
             onRegenerate={regenerateWith}
             blockingWarnings={blockingWarnings.length}
@@ -825,6 +866,16 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           </div>
         </div>
       </section>
+
+      <DeleteDraftDialog
+        open={deleteDialogOpen}
+        draft={selectedDraft}
+        value={deleteConfirmationText}
+        busy={busy === "delete"}
+        onValueChange={setDeleteConfirmationText}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void deleteSelected()}
+      />
     </div>
   );
 }
@@ -872,6 +923,61 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function DeleteDraftDialog({
+  open,
+  draft,
+  value,
+  busy,
+  onValueChange,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  draft: AdminResearchBriefDraft | null;
+  value: string;
+  busy: boolean;
+  onValueChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open || !draft) return null;
+  const canDelete = value === "DELETE";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="delete-draft-title">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-rose-300/25 bg-slate-950 shadow-2xl shadow-rose-950/30">
+        <div className="border-b border-white/10 bg-rose-300/10 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-200">Destructive action</p>
+          <h3 id="delete-draft-title" className="mt-1 text-lg font-semibold text-white">Delete research draft</h3>
+        </div>
+        <div className="space-y-4 px-5 py-5">
+          <p className="text-sm leading-6 text-slate-300">
+            This removes the draft from the admin queue. Type <span className="font-semibold text-white">DELETE</span> to confirm.
+          </p>
+          <div className="rounded-lg border border-white/10 bg-slate-900/60 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Draft</p>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-100">{draft.article?.title || draft.id}</p>
+            <p className="mt-1 text-xs text-slate-500">{draft.id}</p>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Confirmation</span>
+            <input
+              autoFocus
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              className={fieldClassName("mt-2 border-rose-300/25 focus:border-rose-200/70 focus:ring-rose-300/10")}
+              placeholder="Type DELETE"
+            />
+          </label>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-white/10 bg-slate-950/80 px-5 py-4 sm:flex-row sm:justify-end">
+          <Button disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button tone="danger" disabled={busy || !canDelete} onClick={onConfirm}>{busy ? "Deleting..." : "Delete Draft"}</Button>
+        </div>
+      </div>
     </div>
   );
 }

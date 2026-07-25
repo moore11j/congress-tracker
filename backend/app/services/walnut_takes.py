@@ -20,9 +20,59 @@ logger = logging.getLogger(__name__)
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.6-sol"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
-WALNUT_TAKE_MAX_CHARS = 150
+WALNUT_TAKE_MAX_CHARS = 125
 WALNUT_SUMMARY_MAX_CHARS = 190
-WALNUT_TAKE_PROMPT_VERSION = "market_read_v2"
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v3"
+
+BULLISH_READ_PHRASES = (
+    "stabilize trade",
+    "stabilise trade",
+    "stabilize relations",
+    "stabilise relations",
+    "trade relations stabilize",
+    "stable trade relations",
+    "tariff relief",
+    "tariff pause",
+    "trade deal",
+    "trade progress",
+    "opposite of an ai slowdown",
+    "opposite of ai slowdown",
+    "coming next in ai",
+    "ai demand",
+    "continued ai demand",
+    "demand remains strong",
+    "demand is strong",
+    "accelerating ai",
+    "ai buildout continues",
+)
+
+BEARISH_READ_PHRASES = (
+    "beyond stretched",
+    "stretched valuation",
+    "stretched valuations",
+    "valuations are stretched",
+    "valuation pressure",
+    "overvalued",
+    "weak cash flow",
+    "weaker cash flow",
+    "cash flow is weakening",
+    "cash flow weakening",
+    "free cash flow is weakening",
+    "bond market anxiety",
+    "market anxiety is growing",
+    "anxiety is growing",
+    "capex budget",
+    "capex budgets",
+    "spending worries",
+    "spending concern",
+    "investors worry",
+    "investors are growing uneasy",
+    "growing uneasy",
+    "higher discount-rate concern",
+    "margin risk",
+    "geopolitical risk",
+    "risk-off",
+)
 
 
 def enrich_walnut_takes(
@@ -80,7 +130,7 @@ def enrich_walnut_takes(
             {
                 **item,
                 "walnut_summary": _clean_text(generated_item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or item.get("walnut_summary"),
-                "walnut_take_bias": _clean_bias(generated_item.get("bias")),
+                "walnut_take_bias": _calibrated_bias(item, generated_item.get("bias"), generated_item=generated_item),
                 "walnut_take": _clean_text(generated_item.get("take"), limit=WALNUT_TAKE_MAX_CHARS) or item.get("walnut_take"),
                 "walnut_take_source": "openai",
                 "walnut_take_model": _walnut_take_model(db),
@@ -137,9 +187,10 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "You generate Walnut Takes for a market intelligence news list.",
             "For each article, return a concise factual summary and a market-impact bias.",
             "Allowed bias values: bullish, bearish, neutral.",
-            "The take must be one compact sentence of 150 characters or fewer.",
+            f"The take must be one compact sentence of {WALNUT_TAKE_MAX_CHARS} characters or fewer.",
             "For broad market articles, bullish means supportive for risk assets; bearish means pressure, risk-off, higher discount-rate concern, or margin/cash-flow risk.",
             "Valuation stretch, spending worries, falling prices, weak cash flow, bond-market anxiety, or AI capex-budget concerns are bearish unless the article gives a clear positive offset.",
+            "Constructive trade stabilization, tariff relief, resilient AI demand, or evidence that AI spending is not slowing are bullish unless the article says the benefit failed or reversed.",
             "Neutral is only for genuinely mixed or unclear impact, not for obvious caution or pressure headlines.",
             "The provider_market_read is weak context only; override it when the title or summary implies a different read.",
             "Do not provide trading instructions, price targets, guarantees, or hype.",
@@ -154,7 +205,7 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
 
 def _fallback_take(item: dict[str, Any]) -> dict[str, Any]:
     summary = _clean_text(item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or _clean_text(item.get("title"), limit=WALNUT_SUMMARY_MAX_CHARS) or "Summary unavailable."
-    bias = _clean_bias(item.get("market_read"))
+    bias = _calibrated_bias(item, item.get("market_read"))
     return {
         "walnut_summary": summary,
         "walnut_take_bias": bias,
@@ -216,11 +267,43 @@ def _clean_bias(value: Any) -> str:
     return bias if bias in VALID_BIASES else "neutral"
 
 
+def _calibrated_bias(item: dict[str, Any], value: Any, *, generated_item: dict[str, Any] | None = None) -> str:
+    text = _market_read_text(item, generated_item=generated_item)
+    if _contains_any(text, BULLISH_READ_PHRASES):
+        return "bullish"
+    if _contains_any(text, BEARISH_READ_PHRASES):
+        return "bearish"
+    return _clean_bias(value)
+
+
+def _market_read_text(item: dict[str, Any], *, generated_item: dict[str, Any] | None = None) -> str:
+    fields = [
+        item.get("title"),
+        item.get("summary"),
+        item.get("walnut_summary"),
+        item.get("site"),
+        item.get("source"),
+        item.get("symbol"),
+        item.get("market_read"),
+    ]
+    if isinstance(generated_item, dict):
+        fields.extend([generated_item.get("summary"), generated_item.get("take")])
+    return " ".join(str(field or "") for field in fields).lower()
+
+
+def _contains_any(text: str, phrases: tuple[str, ...]) -> bool:
+    return any(phrase in text for phrase in phrases)
+
+
 def _clean_text(value: Any, *, limit: int) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
-    return text[: max(0, limit - 3)].rstrip() + "..."
+    clipped = text[: max(0, limit - 3)].rstrip()
+    last_break = clipped.rfind(" ")
+    if last_break > limit * 0.7:
+        clipped = clipped[:last_break].rstrip()
+    return clipped + "..."
 
 
 def _extract_responses_text(data: dict[str, Any]) -> str:

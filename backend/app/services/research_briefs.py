@@ -134,6 +134,8 @@ DEFAULT_SECTIONS = [
     "Final Walnut judgment",
     "Data freshness and limitations",
 ]
+CONFIRMATION_SCORE_SECTION_HEADING = "Walnut confirmation score"
+CROSS_SOURCE_CONFIRMATIONS_SECTION_HEADING = "Cross-source confirmations"
 PUBLISHED_STATIC_SLUGS = {"mu-dd"}
 UNSUPPORTED_LANGUAGE = [
     "buy now",
@@ -504,7 +506,7 @@ def _merge_intro_into_first_section(intro: str, sections: list[dict[str, str]]) 
     return intro
 
 
-def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any] | None = None) -> dict[str, Any]:
     section_format = str(config.get("section_format") or "Walnut Research Brief")
     sanitized = deepcopy(article)
     before = json.dumps(sanitized, sort_keys=True, default=str)
@@ -528,6 +530,7 @@ def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, A
             continue
         cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
     sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
+    sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -589,6 +592,177 @@ def _merge_article_sections(sections: list[dict[str, Any]], section_format: str)
         order = {_heading_key(heading): index for index, heading in enumerate(REDDIT_BULL_BEAR_OUTLINE)}
         merged = [item[1] for item in sorted(enumerate(merged), key=lambda item: (order.get(_heading_key(item[1].get("heading")), len(order) + item[0]), item[0]))]
     return merged
+
+
+def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    include_score = bool(config.get("include_confirmation_score"))
+    include_cross_source = bool(config.get("include_cross_source_confirmations"))
+    sanitized = deepcopy(article)
+    sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
+    sections = [_strip_confirmation_content_from_section(section, include_score=include_score, include_cross_source=include_cross_source) for section in sections if isinstance(section, dict)]
+    sections = [section for section in sections if str(section.get("body_markdown") or "").strip()]
+    sanitized["sections"] = sections
+
+    if include_score:
+        score_text = _confirmation_score_sentence(context)
+        if score_text and not _article_mentions_confirmation_score(sanitized):
+            sanitized["sections"] = _append_or_merge_generated_section(
+                sanitized["sections"],
+                CONFIRMATION_SCORE_SECTION_HEADING,
+                score_text,
+                key="walnut_confirmation_score",
+            )
+    if include_cross_source:
+        commentary = _cross_source_confirmation_commentary(context)
+        if commentary and not _article_mentions_cross_source_confirmations(sanitized):
+            sanitized["sections"] = _append_or_merge_generated_section(
+                sanitized["sections"],
+                CROSS_SOURCE_CONFIRMATIONS_SECTION_HEADING,
+                commentary,
+                key="cross_source_confirmations",
+            )
+    return sanitized
+
+
+def _strip_confirmation_content_from_section(section: dict[str, Any], *, include_score: bool, include_cross_source: bool) -> dict[str, Any]:
+    cleaned = dict(section)
+    heading = str(cleaned.get("heading") or "")
+    heading_key = _heading_key(heading)
+    body = str(cleaned.get("body_markdown") or "")
+    if not include_score and ("confirmation score" in heading_key or "walnut confirmation score" in heading_key):
+        cleaned["body_markdown"] = ""
+        return cleaned
+    if not include_cross_source and ("cross source confirmation" in heading_key or "cross source confirmations" in heading_key):
+        cleaned["body_markdown"] = ""
+        return cleaned
+    if not include_score:
+        body = _remove_sentences_matching(body, r"\bconfirmation score\b")
+    if not include_cross_source:
+        body = _remove_sentences_matching(body, r"\bcross-source confirmations?\b|\bcross source confirmations?\b")
+    cleaned["body_markdown"] = body.strip()
+    return cleaned
+
+
+def _remove_sentences_matching(text: str, pattern: str) -> str:
+    blocks: list[str] = []
+    for block in re.split(r"(\n{2,})", str(text or "")):
+        if not block or block.startswith("\n"):
+            blocks.append(block)
+            continue
+        if block.lstrip().startswith(("- ", "* ", "1. ")):
+            lines = [line for line in block.splitlines() if not re.search(pattern, line, flags=re.IGNORECASE)]
+            blocks.append("\n".join(lines))
+            continue
+        pieces = re.split(r"(?<=[.!?])(\s+)", block)
+        kept: list[str] = []
+        index = 0
+        while index < len(pieces):
+            sentence = pieces[index]
+            separator = pieces[index + 1] if index + 1 < len(pieces) else ""
+            if not re.search(pattern, sentence, flags=re.IGNORECASE):
+                kept.append(sentence)
+                kept.append(separator)
+            index += 2
+        blocks.append("".join(kept).strip())
+    return re.sub(r"\n{3,}", "\n\n", "".join(blocks)).strip()
+
+
+def _append_or_merge_generated_section(sections: list[dict[str, Any]], heading: str, body: str, *, key: str) -> list[dict[str, Any]]:
+    next_sections = [dict(section) for section in sections]
+    target_key = _heading_key(heading)
+    for section in next_sections:
+        if _heading_key(str(section.get("heading") or "")) == target_key:
+            section["body_markdown"] = _merge_markdown_bodies(str(section.get("body_markdown") or ""), body)
+            return next_sections
+    next_sections.append({"key": key, "heading": heading, "body_markdown": body})
+    return next_sections
+
+
+def _primary_confirmation(context: dict[str, Any]) -> dict[str, Any]:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    return confirmation
+
+
+def _confirmation_score_value(context: dict[str, Any]) -> int | None:
+    confirmation = _primary_confirmation(context)
+    value = confirmation.get("score", confirmation.get("confirmation_score"))
+    try:
+        score = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return score if score > 0 else None
+
+
+def _confirmation_score_sentence(context: dict[str, Any]) -> str:
+    score = _confirmation_score_value(context)
+    if score is None:
+        return ""
+    confirmation = _primary_confirmation(context)
+    direction = str(confirmation.get("direction") or confirmation.get("confirmation_direction") or "").strip().lower()
+    direction_text = f" The score direction is {direction}." if direction in {"bullish", "bearish", "neutral", "mixed"} else ""
+    return f"Walnut's proprietary confirmation score is {score}/100.{direction_text} This score is separate from the underlying data."
+
+
+def _cross_source_confirmation_commentary(context: dict[str, Any]) -> str:
+    confirmation = _primary_confirmation(context)
+    sources = confirmation.get("sources") if isinstance(confirmation.get("sources"), dict) else {}
+    supported: list[str] = []
+    contradicted: list[str] = []
+    mixed: list[str] = []
+    for key, source in sources.items():
+        if not isinstance(source, dict) or source.get("present") is False or source.get("locked") is True:
+            continue
+        label = _confirmation_source_label(str(key))
+        direction = str(source.get("direction") or "").lower()
+        if direction == "bullish":
+            supported.append(label)
+        elif direction == "bearish":
+            contradicted.append(label)
+        elif direction == "mixed":
+            mixed.append(label)
+    clauses: list[str] = []
+    if supported:
+        clauses.append(f"supported by {', '.join(supported[:4])}")
+    if contradicted:
+        clauses.append(f"contradicted by {', '.join(contradicted[:4])}")
+    if mixed:
+        clauses.append(f"mixed in {', '.join(mixed[:4])}")
+    if not clauses:
+        return "Cross-source confirmations are not strong enough to change the thesis; no single data category should be treated as decisive."
+    return f"The setup is {', and '.join(clauses)}. These are underlying data categories and should be read qualitatively."
+
+
+def _confirmation_source_label(key: str) -> str:
+    labels = {
+        "price_volume": "price/volume",
+        "fundamentals": "fundamentals",
+        "institutional_activity": "reported institutional activity",
+        "congress": "Congress activity",
+        "insiders": "insider activity",
+        "government_contracts": "government contracts",
+        "options_flow": "options flow",
+        "macro_positioning": "macro positioning",
+        "signals": "signal data",
+    }
+    return labels.get(key, key.replace("_", " "))
+
+
+def _article_body_text(article: dict[str, Any]) -> str:
+    sections = article.get("sections") if isinstance(article.get("sections"), list) else []
+    return "\n\n".join(
+        f"{section.get('heading') or ''}\n{section.get('body_markdown') or ''}"
+        for section in sections
+        if isinstance(section, dict)
+    )
+
+
+def _article_mentions_confirmation_score(article: dict[str, Any]) -> bool:
+    return bool(re.search(r"\bconfirmation score\b", _article_body_text(article), flags=re.IGNORECASE))
+
+
+def _article_mentions_cross_source_confirmations(article: dict[str, Any]) -> bool:
+    return bool(re.search(r"\bcross[- ]source confirmations?\b", _article_body_text(article), flags=re.IGNORECASE))
 
 
 def _read_store() -> dict[str, Any]:
@@ -1196,6 +1370,8 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         "generated_at": _now(),
         "external_research_mode": payload.get("external_research_mode") or "Standard",
         "section_format": payload.get("section_format") or "Walnut Research Brief",
+        "include_confirmation_score": bool(payload.get("include_confirmation_score")),
+        "include_cross_source_confirmations": bool(payload.get("include_cross_source_confirmations")),
         "primary": primary_context,
         "external_research": external_research,
         "data_availability": data_availability,
@@ -1432,6 +1608,8 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "section_format": _choice_from_list(config.get("section_format"), SECTION_FORMAT_OPTIONS, "Walnut Research Brief"),
         "include_charts": bool(config.get("include_charts")),
         "include_source_links": bool(config.get("include_source_links")),
+        "include_confirmation_score": bool(config.get("include_confirmation_score")),
+        "include_cross_source_confirmations": bool(config.get("include_cross_source_confirmations")),
         "generate_thumbnail": bool(config.get("generate_thumbnail", _default_generate_thumbnail(config))),
         "selected_model": str(config.get("selected_model") or "").strip(),
         "hero_image": config.get("hero_image") or "",
@@ -1483,7 +1661,7 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
         if progress_callback:
             progress_callback("generating_brief", "Generating research brief.")
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
-        article = sanitize_research_brief_article(article, normalized_config)
+        article = sanitize_research_brief_article(article, normalized_config, context)
         if normalized_config.get("generate_thumbnail"):
             if progress_callback:
                 progress_callback("generating_thumbnail", "Generating thumbnail.")
@@ -2057,6 +2235,8 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
+            "Only include Walnut's proprietary confirmation score if include_confirmation_score is true. Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep these concepts separate.",
+            "The confirmation score is Walnut's proprietary score. Cross-source confirmations are qualitative supporting or contradicting data categories such as price/volume, fundamentals, reported institutional activity, Congress activity, insider activity, government contracts, options flow, and macro positioning. Use 'data,' not 'stack.'",
             "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "Separate underlying data from Walnut confirmation score. Missing data is unavailable, not zero and not bearish.",
@@ -2216,6 +2396,8 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing.", blocking=True))
         blocking = True
     lowered = f"{title}\n{body}".lower()
+    include_confirmation_score = bool(context.get("include_confirmation_score"))
+    include_cross_source_confirmations = bool(context.get("include_cross_source_confirmations"))
     source_link_count = _source_link_count(article, body)
     if source_link_count == 0:
         warnings.append(_warning("missing_source_links", "This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.", blocking=True))
@@ -2254,6 +2436,18 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         blocking = True
     if "confirmation score equals" in lowered or "confirmation stack" in lowered:
         warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
+        blocking = True
+    if include_confirmation_score and _confirmation_score_value(context) is None:
+        warnings.append(_warning("confirmation_score_unavailable", "Walnut confirmation score was requested but could not be loaded for the primary ticker.", blocking=True))
+        blocking = True
+    if not include_confirmation_score and re.search(r"\bconfirmation score\b", lowered):
+        warnings.append(_warning("confirmation_score_not_requested", "Walnut confirmation score is unchecked, but the post body mentions the confirmation score.", blocking=True))
+        blocking = True
+    if not include_cross_source_confirmations and _article_mentions_cross_source_confirmations(article):
+        warnings.append(_warning("cross_source_confirmations_not_requested", "Cross-source confirmations are unchecked, but the post body includes cross-source confirmation commentary.", blocking=True))
+        blocking = True
+    if include_cross_source_confirmations and _conflates_confirmation_score_with_data(lowered):
+        warnings.append(_warning("confirmation_score_conflated", "Cross-source data categories must not be described as the proprietary confirmation score.", blocking=True))
         blocking = True
     contradicted_fields = _available_data_missing_claims(lowered, context)
     if contradicted_fields:
@@ -2383,6 +2577,16 @@ def _available_data_missing_claims(lowered_text: str, context: dict[str, Any]) -
                 contradicted.append(field)
                 break
     return contradicted
+
+
+def _conflates_confirmation_score_with_data(lowered_text: str) -> bool:
+    data_terms = r"(?:price/?volume|price and volume|fundamentals|reported institutional activity|congress activity|insider activity|government contracts|options flow|macro positioning|underlying data|data categories)"
+    patterns = [
+        rf"confirmation score\s+(?:is|equals|represents|is derived from|is based on|comes from)\s+.{{0,80}}{data_terms}",
+        rf"{data_terms}.{{0,80}}\s+(?:are|is)\s+the\s+confirmation score",
+        r"confirmation score\s+and\s+underlying data\s+are\s+the\s+same",
+    ]
+    return any(re.search(pattern, lowered_text) for pattern in patterns)
 
 
 def _source_link_count(article: dict[str, Any], body: str) -> int:
@@ -2637,7 +2841,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
             article = draft.setdefault("article", {})
             article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
-            draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {})
+            draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
             if status:
                 draft["status"] = _normalize_status(status)
             draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
@@ -2651,7 +2855,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
                 article = draft.setdefault("article", {})
                 article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
-                draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {})
+                draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
                 if status:
                     draft["status"] = _normalize_status(status)
                 draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
@@ -2680,7 +2884,7 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
         article = draft.setdefault("article", {})
         article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-        draft["article"] = sanitize_research_brief_article(article, config)
+        draft["article"] = sanitize_research_brief_article(article, config, context)
         draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
         draft["updated_at"] = _now()
         _upsert_db_draft(db, draft)
@@ -2706,7 +2910,7 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
             article = draft.setdefault("article", {})
             article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
             article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-            draft["article"] = sanitize_research_brief_article(article, config)
+            draft["article"] = sanitize_research_brief_article(article, config, context)
             draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
             draft["updated_at"] = _now()
             _append_audit(store, action="refresh_sources", admin=admin, draft_id=draft_id, metadata={"mode": external.get("mode")})
@@ -2741,7 +2945,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
     if db is not None:
         draft = _db_draft(db, draft_id)
         if draft:
-            draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {})
+            draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {}, draft.get("research_context") or {})
             validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
             if validation["status"] != "passed":
                 draft["validation"] = validation
@@ -2757,7 +2961,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
         store = _read_store()
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
-                draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {})
+                draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {}, draft.get("research_context") or {})
                 validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
                 if validation["status"] != "passed":
                     draft["validation"] = validation

@@ -61,6 +61,8 @@ class ResearchBriefGeneratePayload(BaseModel):
     selected_model: str | None = Field(default=None, max_length=120)
     include_charts: bool = False
     include_source_links: bool = True
+    include_confirmation_score: bool = False
+    include_cross_source_confirmations: bool = False
     generate_thumbnail: bool = True
     hero_image: str | None = Field(default=None, max_length=1000)
     client_request_id: str | None = Field(default=None, max_length=120)
