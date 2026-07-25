@@ -125,7 +125,16 @@ SECTOR_EBITDA_MULTIPLES = {
     "utilities": 10.0,
 }
 ASSET_VALUATION_SECTORS = {"financial services", "real estate"}
-ASSET_VALUATION_KEYWORDS = ("reit", "real estate", "bank", "insurance", "asset management", "capital markets", "mortgage", "financial")
+ASSET_VALUATION_KEYWORDS = (
+    "reit",
+    "real estate",
+    "bank",
+    "insurance",
+    "asset management",
+    "capital markets",
+    "mortgage",
+    "financial",
+)
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -356,6 +365,16 @@ def _multiples_value_per_share(
     return per_share if math.isfinite(per_share) and per_share > 0 else None
 
 
+def _is_pre_profit_company(revenue: float | None, ebitda: float | None, operating_cash_flow: float | None) -> bool:
+    if revenue is None or revenue <= 0:
+        return True
+    if ebitda is not None and ebitda > 0:
+        return False
+    if operating_cash_flow is not None and operating_cash_flow > 0:
+        return False
+    return True
+
+
 def _positive_price(value: float | None) -> float | None:
     if value is None:
         return None
@@ -414,7 +433,7 @@ def _revenue_estimate_points(estimate_rows: list[dict[str, Any]]) -> list[tuple[
     return sorted(by_year.items(), key=lambda item: item[0])
 
 
-def _annualized_revenue_growth(start_revenue: float | None, end_revenue: float | None, years: int) -> float | None:
+def _annualized_revenue_growth(start_revenue: float | None, end_revenue: float | None, years: int, *, cap: bool = True) -> float | None:
     if start_revenue is None or end_revenue is None or start_revenue <= 0 or end_revenue <= 0 or years <= 0:
         return None
     if years == 1:
@@ -423,11 +442,13 @@ def _annualized_revenue_growth(start_revenue: float | None, end_revenue: float |
         growth = (end_revenue / start_revenue) ** (1 / years) - 1
     if not math.isfinite(growth):
         return None
+    if not cap:
+        return growth
     low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
     return _clamp(growth, low, high)
 
 
-def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows: list[dict[str, Any]]) -> float | None:
+def _forward_revenue_growth_from_estimates(income_rows: list[dict[str, Any]], estimate_rows: list[dict[str, Any]]) -> float | None:
     latest_income = _latest_row(income_rows)
     base_revenue = _first_number(latest_income, ("revenue", "totalRevenue"))
     estimate_points = _revenue_estimate_points(estimate_rows)
@@ -437,17 +458,23 @@ def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows
         if candidates:
             target_year, target_revenue = candidates[-1]
             years = target_year - base_year if base_year is not None else len(candidates)
-            growth = _annualized_revenue_growth(base_revenue, target_revenue, max(years, 1))
+            growth = _annualized_revenue_growth(base_revenue, target_revenue, max(years, 1), cap=False)
             if growth is not None:
                 return growth
 
     if len(estimate_points) >= 2:
         base_year, base_estimate = estimate_points[0]
         target_year, target_estimate = estimate_points[-1]
-        growth = _annualized_revenue_growth(base_estimate, target_estimate, max(target_year - base_year, 1))
+        growth = _annualized_revenue_growth(base_estimate, target_estimate, max(target_year - base_year, 1), cap=False)
         if growth is not None:
             return growth
+    return None
 
+
+def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows: list[dict[str, Any]]) -> float | None:
+    estimate_growth = _forward_revenue_growth_from_estimates(income_rows, estimate_rows)
+    if estimate_growth is not None:
+        return estimate_growth
     ordered = _latest_rows(income_rows)
     if len(ordered) >= 2:
         previous = _first_number(ordered[-2], ("revenue", "totalRevenue"))
@@ -527,7 +554,7 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     total_debt = _first_number(balance, ("totalDebt", "totalDebtTtm"))
     if total_debt is None:
         total_debt = _sum_numbers(balance, ("shortTermDebtAndCapitalLeaseObligations", "shortTermDebt", "longTermDebt"))
-    is_pre_profit = (ebit is not None and ebit <= 0) or (pretax_income is not None and pretax_income <= 0)
+    is_pre_profit = _is_pre_profit_company(revenue, ebitda, operating_cash_flow)
     total_assets = _first_number(balance, ("totalAssets",))
     cash_and_investments = _first_number(balance, ("cashAndShortTermInvestments", "cashAndCashEquivalents", "shortTermInvestments"))
     nav_per_share = _asset_nav_per_share(balance, profile)
@@ -584,9 +611,11 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
 
     debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)
     revenue_base_rows = rows["annual_income"] or rows["ttm_income"]
+    forward_revenue_growth = _forward_revenue_growth_from_estimates(revenue_base_rows, rows["annual_estimates"])
+    revenue_growth_from_estimates = forward_revenue_growth is not None
     computed: dict[str, float | None] = {
         "revenueGrowthPct": _first_present(
-            _forward_revenue_growth_pct(revenue_base_rows, rows["annual_estimates"]),
+            forward_revenue_growth,
             _statement_growth(income_growth, ("growthRevenue", "revenueGrowth", "growthRevenueTtm")),
         ),
         "ebitdaPct": ebitda_pct,
@@ -607,11 +636,15 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
         "beta": beta,
         "riskFreeRate": risk_free_rate,
     }
-    if is_pre_profit:
-        computed["revenueGrowthPct"] = min(computed["revenueGrowthPct"] or DEFAULT_DCF_ASSUMPTIONS["revenueGrowthPct"], 0.20)
+    if is_pre_profit and not is_asset_valuation_profile:
+        if not revenue_growth_from_estimates:
+            computed["revenueGrowthPct"] = min(computed["revenueGrowthPct"] or DEFAULT_DCF_ASSUMPTIONS["revenueGrowthPct"], 0.20)
         computed["ebitdaPct"] = min(computed["ebitdaPct"] or 0.0, 0.15)
         computed["ebitPct"] = 0.0
         computed["operatingCashFlowPct"] = min(computed["operatingCashFlowPct"] or 0.0, 0.05)
+        computed["taxRate"] = max(computed["taxRate"] or 0.0, DEFAULT_DCF_ASSUMPTIONS["taxRate"])
+    elif is_pre_profit:
+        computed["ebitPct"] = min(computed["ebitPct"] or 0.0, DEFAULT_DCF_ASSUMPTIONS["ebitPct"])
         computed["taxRate"] = max(computed["taxRate"] or 0.0, DEFAULT_DCF_ASSUMPTIONS["taxRate"])
     elif is_cash_return_compounder:
         buyback_adjusted_growth = (computed["revenueGrowthPct"] or DEFAULT_DCF_ASSUMPTIONS["revenueGrowthPct"]) + min(
@@ -621,12 +654,13 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
         computed["revenueGrowthPct"] = buyback_adjusted_growth
 
     assumptions: dict[str, float] = {}
+    uncapped_assumption_keys = {"revenueGrowthPct"} if revenue_growth_from_estimates else set()
     for key in DCF_INPUT_PARAM_KEYS:
         value = computed.get(key)
         if value is None or not math.isfinite(value):
             value = DEFAULT_DCF_ASSUMPTIONS[key]
         limits = RATIO_ASSUMPTION_LIMITS.get(key)
-        if limits is not None:
+        if limits is not None and key not in uncapped_assumption_keys:
             value = _clamp(value, limits[0], limits[1]) or 0.0
         assumptions[key] = round(float(value), 6)
     return {

@@ -325,13 +325,13 @@ def test_forward_revenue_growth_uses_financial_estimate_horizon_cagr():
     assert round(growth, 4) == 0.2
 
 
-def test_forward_revenue_growth_caps_unsustainable_single_year_estimate():
+def test_forward_revenue_growth_uses_uncapped_financial_estimate():
     growth = valuation_module._forward_revenue_growth_pct(
         [{"date": "2025-09-30", "revenue": 100}],
         [{"date": "2026-09-30", "revenueAvg": 1_000}],
     )
 
-    assert growth == 0.35
+    assert growth == 9.0
 
 
 def test_dcf_inputs_normalize_extreme_beta(monkeypatch):
@@ -369,20 +369,20 @@ def test_dcf_inputs_use_conservative_ramp_for_pre_profit_ticker(monkeypatch):
         if endpoint == "profile":
             return [{"beta": 0.5}]
         if endpoint == "income-statement-ttm":
-            return [{"revenue": 100, "ebitda": 50, "ebit": 0, "incomeBeforeTax": 0, "incomeTaxExpense": 0}]
+            return [{"revenue": 100, "ebitda": -10, "ebit": -20, "incomeBeforeTax": -20, "incomeTaxExpense": 0}]
         if endpoint == "cash-flow-statement-ttm":
-            return [{"operatingCashFlow": 22, "capitalExpenditure": -75, "depreciationAndAmortization": 35}]
+            return [{"operatingCashFlow": -5, "capitalExpenditure": -75, "depreciationAndAmortization": 35}]
         if endpoint == "balance-sheet-statement-ttm":
             return [{"cashAndShortTermInvestments": 100}]
-        if endpoint == "analyst-estimates":
-            return [{"date": "2026-12-31", "revenueAvg": 300}]
+        if endpoint == "income-statement-growth":
+            return [{"growthRevenue": 3.0}]
         if endpoint in {
             "price-target-consensus",
             "custom-discounted-cash-flow",
             "income-statement",
             "cash-flow-statement",
             "balance-sheet-statement",
-            "income-statement-growth",
+            "analyst-estimates",
             "cash-flow-statement-growth",
             "balance-sheet-statement-growth",
         }:
@@ -400,6 +400,43 @@ def test_dcf_inputs_use_conservative_ramp_for_pre_profit_ticker(monkeypatch):
     assert assumptions["taxRate"] == 0.21
     assert assumptions["beta"] == 1.8
     assert round(assumptions["costOfEquity"], 4) == 12.926
+
+
+def test_positive_ebitda_company_uses_uncapped_forward_estimate_growth(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"sector": "Basic Materials", "industry": "Other Precious Metals", "companyName": "Gold Royalty Corp.", "beta": 1.2, "sharesOutstanding": 100}]
+        if endpoint == "income-statement-ttm":
+            return [{"date": "2025-12-31", "revenue": 19_600_000, "ebitda": 2_940_000, "ebit": -1_000_000, "incomeBeforeTax": -1_000_000, "incomeTaxExpense": 0}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 1_500_000, "capitalExpenditure": 0, "depreciationAndAmortization": 100_000}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [{"totalAssets": 500_000_000, "totalLiabilities": 100_000_000, "cashAndShortTermInvestments": 8_000_000}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-12-31", "revenueAvg": 40_300_000}]
+        if endpoint in {
+            "price-target-consensus",
+            "custom-discounted-cash-flow",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    valuation_model = valuation_module._walnut_valuation_model("GROY")
+
+    assert round(valuation_model["assumptions"]["revenueGrowthPct"], 4) == 1.0561
+    assert valuation_model["assumptions"]["ebitdaPct"] == 0.15
+    assert valuation_model["assumptions"]["operatingCashFlowPct"] == 0.076531
+    assert valuation_model["assetValue"] is None
+    assert valuation_model["multiplesValue"] == 315200
+    assert valuation_model["sectorMultiple"] == 8
 
 
 def test_dcf_inputs_lower_beta_ceiling_for_quality_compounder(monkeypatch):
