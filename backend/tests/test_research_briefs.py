@@ -11,7 +11,7 @@ from starlette.requests import Request
 
 from app.auth import SESSION_COOKIE_NAME, sign_session_payload
 from app.db import Base
-from app.models import FundamentalsCache, QuoteCache, Security, TickerMeta, UserAccount
+from app.models import Event, FundamentalsCache, QuoteCache, Security, TickerFinancialsCache, TickerMeta, UserAccount
 from app.routers.research_briefs import ResearchBriefGeneratePayload, admin_research_brief_generate
 from app.services import research_briefs as service
 
@@ -48,6 +48,8 @@ def _seed_ticker(db, symbol: str = "MU"):
             company_name=f"{symbol} Corp",
             sector="Technology",
             industry="Semiconductors",
+            volume=50_000_000,
+            avg_volume=45_000_000,
             revenue_growth=42.5,
             eps_growth=18.0,
             gross_margin=61.2,
@@ -56,6 +58,57 @@ def _seed_ticker(db, symbol: str = "MU"):
         )
     )
     db.add(QuoteCache(symbol=symbol, price=125.0, asof_ts=datetime(2026, 7, 20, 16, 0), market_cap=100_000_000_000))
+    db.commit()
+
+
+def _seed_financials_cache(db, symbol: str = "MU"):
+    db.add(
+        TickerFinancialsCache(
+            symbol=symbol,
+            status="ok",
+            fetched_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+            payload_json=json.dumps(
+                {
+                    "status": "ok",
+                    "summary": {"latestQuarter": "Q2 2026"},
+                    "forecasts": {
+                        "nextQuarter": {
+                            "period": "Q2 2026",
+                            "revenueEstimate": 101_000_000_000,
+                            "epsEstimate": 1.5,
+                        }
+                    },
+                    "subsections": {
+                        "analyst_estimates": {
+                            "status": "ok",
+                            "data": {
+                                "nextQuarter": {
+                                    "period": "Q2 2026",
+                                    "revenueEstimate": 101_000_000_000,
+                                    "epsEstimate": 1.5,
+                                }
+                            },
+                        }
+                    },
+                }
+            ),
+        )
+    )
+    db.commit()
+
+
+def _seed_event(db, symbol: str, event_type: str):
+    db.add(
+        Event(
+            event_type=event_type,
+            ts=datetime(2026, 7, 20, tzinfo=timezone.utc),
+            event_date=datetime(2026, 7, 20, tzinfo=timezone.utc),
+            symbol=symbol,
+            source="test",
+            impact_score=50,
+            payload_json=json.dumps({"title": f"{symbol} {event_type}", "summary": "Reported activity"}),
+        )
+    )
     db.commit()
 
 
@@ -330,6 +383,93 @@ def test_external_research_mode_attaches_source_discovery(monkeypatch):
     assert research["mode"] == "Standard"
     assert any("sec.gov" in source["url"] for source in research["reviewed_sources"])
     assert research["official_facts"]["revenue"]["value"] == 1_000_000
+
+
+def test_context_filters_missing_notes_against_walnut_available_data(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+
+    def fake_discovery(*_args, **_kwargs):
+        return {
+            "mode": "Standard",
+            "reviewed_sources": [],
+            "source_notes": [],
+            "official_facts": {},
+            "missing_data_notes": [
+                "gross margin: Not found in reviewed sources",
+                "debt: Not found in reviewed sources",
+                "revenue consensus: Not found in reviewed sources",
+                "eps consensus: Not found in reviewed sources",
+                "reported institutional activity: Not found in reviewed sources",
+                "price/volume and technicals: Not found in reviewed sources",
+                "guidance: Not found in reviewed sources",
+            ],
+        }
+
+    monkeypatch.setattr(service, "discover_external_research", fake_discovery)
+    db = _session()
+    _seed_ticker(db, "MU")
+    _seed_financials_cache(db, "MU")
+    _seed_event(db, "MU", "institutional_accumulation")
+
+    context = service.assemble_research_context(db, service.validate_config(_payload(external_research_mode="Standard").model_dump()))
+
+    assert context["data_availability"]["current price"] is True
+    assert context["data_availability"]["volume"] is True
+    assert context["data_availability"]["gross margin"] is True
+    assert context["data_availability"]["debt"] is True
+    assert context["data_availability"]["revenue consensus"] is True
+    assert context["data_availability"]["eps consensus"] is True
+    assert context["data_availability"]["reported institutional activity"] is True
+    assert context["primary"]["financials"]["forecasts"]["nextQuarter"]["revenueEstimate"] == 101_000_000_000
+    assert context["missing_data_notes"] == ["guidance: Not found in reviewed sources"]
+
+
+def test_prompt_restricts_missing_limitations_to_filtered_notes():
+    config = service.validate_config(_payload().model_dump())
+    prompt = service._prompt(config, {"primary": {"identity": {"symbol": "MU"}}, "missing_data_notes": [], "data_availability": {"current price": True}})
+
+    assert "Treat data_availability as authoritative" in prompt
+    assert "Only list fields from missing_data_notes as missing" in prompt
+
+
+def test_validation_fails_when_draft_marks_available_data_missing():
+    context = {
+        "primary": {"identity": {"symbol": "MU"}},
+        "data_availability": {
+            "current price": True,
+            "volume": True,
+            "reported institutional activity": True,
+        },
+    }
+    article = {
+        "title": "MU bad limitations",
+        "slug": "mu-bad-limitations",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "body_markdown": (
+                    "### Data limitations\n\n"
+                    "Not found in reviewed sources: current MU price, volume data, and reported institutional activity. "
+                    "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=MU "
+                    "https://www.nasdaq.com/market-activity/stocks/mu "
+                    + "word " * 220
+                )
+            }
+        ],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+        ],
+    }
+
+    validation = service.validate_article(article, context)
+
+    assert validation["status"] == "failed"
+    warning = next(item for item in validation["warnings"] if item["code"] == "available_data_marked_missing")
+    assert "current price" in warning["message"]
+    assert "volume" in warning["message"]
+    assert "reported institutional activity" in warning["message"]
 
 
 def test_missing_data_and_internal_terms_fail_validation(tmp_path, monkeypatch):

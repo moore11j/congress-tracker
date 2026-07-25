@@ -105,6 +105,8 @@ RATIO_ASSUMPTION_LIMITS = {
 }
 DCF_BETA_MIN = 1.0
 DCF_BETA_MAX = 1.8
+PRE_PROFIT_DCF_BETA = 1.8
+QUALITY_COMPOUNDER_DCF_BETA_MAX = 1.35
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -215,6 +217,57 @@ def _sum_numbers(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:
         return None
     total = sum(present)
     return total if math.isfinite(total) else None
+
+
+def _shares_outstanding(balance: dict[str, Any], profile: dict[str, Any]) -> float | None:
+    shares = _first_number(
+        profile,
+        (
+            "sharesOutstanding",
+            "weightedAverageShsOutDil",
+            "weightedAverageShsOut",
+            "weightedAverageSharesDiluted",
+            "commonStockSharesOutstanding",
+        ),
+    ) or _first_number(balance, ("commonStockSharesOutstanding", "weightedAverageShsOutDil", "weightedAverageShsOut"))
+    if shares is None:
+        market_cap = _first_number(profile, ("marketCap", "mktCap"))
+        price = _first_number(profile, ("price", "currentPrice"))
+        shares = _ratio(market_cap, price)
+    return shares if shares is not None and shares > 0 else None
+
+
+def _asset_nav_per_share(balance: dict[str, Any], profile: dict[str, Any]) -> float | None:
+    equity = _first_number(balance, ("totalStockholdersEquity", "totalEquity", "totalShareholderEquity"))
+    if equity is None:
+        assets = _first_number(balance, ("totalAssets",))
+        liabilities = _first_number(balance, ("totalLiabilities",))
+        if assets is not None and liabilities is not None:
+            equity = assets - liabilities
+    shares = _shares_outstanding(balance, profile)
+    if equity is None or equity <= 0 or shares is None or shares <= 0:
+        return None
+    nav = equity / shares
+    return nav if math.isfinite(nav) and nav > 0 else None
+
+
+def _retained_cash_flow_per_share(cash: dict[str, Any], balance: dict[str, Any], profile: dict[str, Any]) -> float | None:
+    shares = _shares_outstanding(balance, profile)
+    if shares is None:
+        return None
+    free_cash_flow = _first_number(cash, ("freeCashFlow", "free_cash_flow", "fcf"))
+    if free_cash_flow is None:
+        operating_cash_flow = _first_number(cash, ("operatingCashFlow", "netCashProvidedByOperatingActivities"))
+        capital_expenditure = _first_number(cash, ("capitalExpenditure", "capitalExpenditures"))
+        if operating_cash_flow is not None:
+            free_cash_flow = operating_cash_flow + (capital_expenditure or 0.0)
+    if free_cash_flow is None:
+        return None
+    dividends = abs(_first_number(cash, ("dividendsPaid", "commonDividendsPaid")) or 0.0)
+    buybacks = abs(_first_number(cash, ("commonStockRepurchased", "repurchasesOfCommonStock", "stockRepurchased")) or 0.0)
+    retained_cash_flow = free_cash_flow - dividends - buybacks
+    value = retained_cash_flow / shares
+    return value if math.isfinite(value) else None
 
 
 def _positive_price(value: float | None) -> float | None:
@@ -358,7 +411,7 @@ def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
     return rows_by_key
 
 
-def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
+def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     rows = _fetch_dcf_input_rows(symbol)
     income = _first_available_row(rows["ttm_income"], rows["annual_income"])
     cash = _first_available_row(rows["ttm_cash"], rows["annual_cash"])
@@ -367,33 +420,73 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
     profile = rows["profile"][0] if rows["profile"] else {}
 
     revenue = _first_number(income, ("revenue", "totalRevenue"))
+    ebit = _first_number(income, ("ebit", "operatingIncome"))
+    ebitda = _first_number(income, ("ebitda", "EBITDA"))
+    operating_cash_flow = _first_number(cash, ("operatingCashFlow", "netCashProvidedByOperatingActivities"))
+    capital_expenditure_pct = _ratio(_first_number(cash, ("capitalExpenditure", "capitalExpenditures")), revenue, absolute=True)
+    ebit_pct = _ratio(ebit, revenue)
+    ebitda_pct = _ratio(ebitda, revenue)
+    operating_cash_flow_pct = _ratio(operating_cash_flow, revenue)
     pretax_income = _first_number(income, ("incomeBeforeTax", "incomeBeforeTaxTtm"))
     tax_expense = _first_number(income, ("incomeTaxExpense", "taxProvision"))
     interest_expense = _first_number(income, ("interestExpense", "interestAndDebtExpense"))
     total_debt = _first_number(balance, ("totalDebt", "totalDebtTtm"))
     if total_debt is None:
         total_debt = _sum_numbers(balance, ("shortTermDebtAndCapitalLeaseObligations", "shortTermDebt", "longTermDebt"))
+    is_pre_profit = (ebit is not None and ebit <= 0) or (pretax_income is not None and pretax_income <= 0)
+    total_assets = _first_number(balance, ("totalAssets",))
+    cash_and_investments = _first_number(balance, ("cashAndShortTermInvestments", "cashAndCashEquivalents", "shortTermInvestments"))
+    nav_per_share = _asset_nav_per_share(balance, profile)
+    retained_cash_flow_per_share = _retained_cash_flow_per_share(cash, balance, profile)
+    asset_to_revenue = _ratio(total_assets, revenue)
+    cash_asset_ratio = _ratio(cash_and_investments, total_assets)
+    is_asset_heavy = bool(
+        nav_per_share is not None
+        and is_pre_profit
+        and (operating_cash_flow_pct or 0.0) <= 0.10
+        and ((asset_to_revenue or 0.0) >= 2.0 or (cash_asset_ratio or 0.0) >= 0.50)
+    )
+    is_quality_compounder = (
+        not is_pre_profit
+        and (ebitda_pct or 0) >= 0.50
+        and (ebit_pct or 0) >= 0.40
+        and (operating_cash_flow_pct or 0) >= 0.30
+        and (capital_expenditure_pct or 1) <= 0.10
+    )
 
     risk_free_rate = _clamp(_env_float("WALNUT_DCF_RISK_FREE_RATE", DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]
     market_risk_premium = _clamp(_env_float("WALNUT_DCF_MARKET_RISK_PREMIUM", DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]
     beta = _clamp(_number(profile.get("beta")), DCF_BETA_MIN, DCF_BETA_MAX) or DEFAULT_DCF_ASSUMPTIONS["beta"]
+    if is_pre_profit:
+        beta = max(beta, PRE_PROFIT_DCF_BETA)
+    elif is_quality_compounder:
+        beta = min(beta, QUALITY_COMPOUNDER_DCF_BETA_MAX)
     cost_of_equity = _clamp(risk_free_rate + beta * market_risk_premium, 0.0, 30.0) or DEFAULT_DCF_ASSUMPTIONS["costOfEquity"]
+    discounted_retained_cash_flow_per_share = (
+        retained_cash_flow_per_share / (1 + cost_of_equity / 100) if retained_cash_flow_per_share is not None else None
+    )
+    asset_value = (
+        nav_per_share + (discounted_retained_cash_flow_per_share or 0.0)
+        if nav_per_share is not None
+        else None
+    )
 
     debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)
+    revenue_base_rows = rows["annual_income"] or rows["ttm_income"]
     computed: dict[str, float | None] = {
         "revenueGrowthPct": _first_present(
-            _forward_revenue_growth_pct(rows["annual_income"], rows["annual_estimates"]),
+            _forward_revenue_growth_pct(revenue_base_rows, rows["annual_estimates"]),
             _statement_growth(income_growth, ("growthRevenue", "revenueGrowth", "growthRevenueTtm")),
         ),
-        "ebitdaPct": _ratio(_first_number(income, ("ebitda", "EBITDA")), revenue),
+        "ebitdaPct": ebitda_pct,
         "depreciationAndAmortizationPct": _ratio(_first_number(cash, ("depreciationAndAmortization", "depreciationAndAmortizationExpense")), revenue, absolute=True),
         "cashAndShortTermInvestmentsPct": _ratio(_first_number(balance, ("cashAndShortTermInvestments", "cashAndCashEquivalents")), revenue),
         "receivablesPct": _ratio(_first_number(balance, ("netReceivables", "accountsReceivables", "accountReceivables")), revenue),
         "inventoriesPct": _ratio(_first_number(balance, ("inventory", "inventories")), revenue),
         "payablePct": _ratio(_first_number(balance, ("accountPayables", "accountsPayable", "payables")), revenue),
-        "ebitPct": _ratio(_first_number(income, ("ebit", "operatingIncome")), revenue),
-        "capitalExpenditurePct": _ratio(_first_number(cash, ("capitalExpenditure", "capitalExpenditures")), revenue, absolute=True),
-        "operatingCashFlowPct": _ratio(_first_number(cash, ("operatingCashFlow", "netCashProvidedByOperatingActivities")), revenue),
+        "ebitPct": ebit_pct,
+        "capitalExpenditurePct": capital_expenditure_pct,
+        "operatingCashFlowPct": operating_cash_flow_pct,
         "sellingGeneralAndAdministrativeExpensesPct": _ratio(_first_number(income, ("sellingGeneralAndAdministrativeExpenses", "sellingAndMarketingExpenses")), revenue, absolute=True),
         "taxRate": _clamp(_ratio(tax_expense, pretax_income, absolute=False), 0.0, 1.0),
         "longTermGrowthRate": _clamp(_env_float("WALNUT_DCF_LONG_TERM_GROWTH_RATE", DEFAULT_DCF_ASSUMPTIONS["longTermGrowthRate"]), 0.0, 6.0),
@@ -403,6 +496,12 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
         "beta": beta,
         "riskFreeRate": risk_free_rate,
     }
+    if is_pre_profit:
+        computed["revenueGrowthPct"] = min(computed["revenueGrowthPct"] or DEFAULT_DCF_ASSUMPTIONS["revenueGrowthPct"], 0.20)
+        computed["ebitdaPct"] = min(computed["ebitdaPct"] or 0.0, 0.15)
+        computed["ebitPct"] = 0.0
+        computed["operatingCashFlowPct"] = min(computed["operatingCashFlowPct"] or 0.0, 0.05)
+        computed["taxRate"] = max(computed["taxRate"] or 0.0, DEFAULT_DCF_ASSUMPTIONS["taxRate"])
 
     assumptions: dict[str, float] = {}
     for key in DCF_INPUT_PARAM_KEYS:
@@ -413,7 +512,14 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
         if limits is not None:
             value = _clamp(value, limits[0], limits[1]) or 0.0
         assumptions[key] = round(float(value), 6)
-    return assumptions
+    return {
+        "assumptions": assumptions,
+        "assetValue": round(float(asset_value), 6) if is_asset_heavy and asset_value is not None else None,
+    }
+
+
+def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
+    return _walnut_valuation_model(symbol)["assumptions"]
 
 
 def _target_consensus_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -473,12 +579,19 @@ def _judgment(upside_downside_pct: float | None) -> str:
     return "Fairly valued"
 
 
-def _method_signals(judgment: str) -> list[dict[str, str]]:
+def _method_signals(judgment: str, *, method: str = "Custom DCF Advanced") -> list[dict[str, str]]:
     final_signal = "Neutral"
     if judgment == "Undervalued":
         final_signal = "Bullish"
     elif judgment == "Overvalued":
         final_signal = "Bearish"
+    if method == "Asset / NAV":
+        return [
+            {"method": "DCF", "signal": "Cash-flow limited"},
+            {"method": "Asset / NAV", "signal": final_signal},
+            {"method": "Street comparison", "signal": "Reference only"},
+            {"method": "Final valuation", "signal": final_signal},
+        ]
     return [
         {"method": "DCF", "signal": final_signal},
         {"method": "Asset / Income", "signal": "Neutral"},
@@ -487,8 +600,10 @@ def _method_signals(judgment: str) -> list[dict[str, str]]:
     ]
 
 
-def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs: dict[str, float] | None = None) -> dict[str, Any]:
-    fair_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
+def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs: dict[str, float] | None = None, asset_value: float | None = None) -> dict[str, Any]:
+    dcf_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
+    nav_value = _non_negative_price(asset_value)
+    fair_value = nav_value if nav_value is not None and (dcf_value is None or nav_value > dcf_value) else dcf_value
     current_price = _positive_price(_first_row_number(rows, CURRENT_PRICE_KEYS))
     upside_downside_pct = None
     if fair_value is not None and current_price not in (None, 0):
@@ -497,6 +612,7 @@ def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs:
     bear_value = fair_value * 0.85 if fair_value is not None else None
     bull_value = fair_value * 1.15 if fair_value is not None else None
     judgment = _judgment(upside_downside_pct)
+    method = "Asset / NAV" if nav_value is not None and fair_value == nav_value else "Custom DCF Advanced"
     return {
         "symbol": symbol,
         "fairValue": fair_value,
@@ -505,11 +621,11 @@ def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs:
         "currentPrice": current_price,
         "upsideDownsidePct": upside_downside_pct,
         "judgment": judgment,
-        "method": "Custom DCF Advanced",
-        "rangeSource": "dcf_sensitivity" if fair_value is not None else "unavailable",
+        "method": method,
+        "rangeSource": "asset_nav" if method == "Asset / NAV" else "dcf_sensitivity" if fair_value is not None else "unavailable",
         "cashFlows": _cash_flow_points(rows),
         "assumptions": _assumptions(rows, inputs),
-        "methodSignals": _method_signals(judgment),
+        "methodSignals": _method_signals(judgment, method=method),
     }
 
 
@@ -544,7 +660,8 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
         consensus = {"targetConsensus": None, "targetHigh": None, "targetLow": None, "targetMedian": None, "status": "unavailable"}
 
     try:
-        dcf_inputs = _walnut_dcf_assumptions(normalized_symbol)
+        valuation_model = _walnut_valuation_model(normalized_symbol)
+        dcf_inputs = valuation_model["assumptions"]
         dcf_rows = _request_stable_rows(
             "custom-discounted-cash-flow",
             params={"symbol": normalized_symbol, **dcf_inputs},
@@ -558,7 +675,7 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
     except FMPClientError:
         return _unavailable(normalized_symbol, consensus=consensus, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
 
-    dcf = _valuation_from_dcf_rows(normalized_symbol, dcf_rows, inputs=dcf_inputs)
+    dcf = _valuation_from_dcf_rows(normalized_symbol, dcf_rows, inputs=dcf_inputs, asset_value=valuation_model.get("assetValue"))
     if dcf["fairValue"] is None and not dcf["cashFlows"] and not dcf["assumptions"]:
         return _unavailable(normalized_symbol, consensus=consensus)
 

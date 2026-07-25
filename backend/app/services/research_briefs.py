@@ -18,7 +18,7 @@ from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Event, FundamentalsCache, GovernmentContract, QuoteCache, Security, TickerMeta, UserAccount
+from app.models import Event, FundamentalsCache, GovernmentContract, QuoteCache, Security, TickerFinancialsCache, TickerMeta, UserAccount
 from app.services.ai_marketing import (
     AI_MARKETING_IMAGE_GENERATION_ENABLED,
     AI_MARKETING_IMAGE_MODEL,
@@ -590,6 +590,44 @@ def _quote(db: Session, symbol: str) -> dict[str, Any] | None:
     return {"price": row.price, "market_cap": row.market_cap, "as_of": _iso(row.asof_ts)}
 
 
+def _cached_financials_snapshot(db: Session, symbol: str) -> dict[str, Any] | None:
+    row = (
+        db.execute(
+            select(TickerFinancialsCache)
+            .where(func.upper(TickerFinancialsCache.symbol) == symbol)
+            .order_by(desc(TickerFinancialsCache.fetched_at))
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+    if not row:
+        return None
+    payload = _load_json(row.payload_json)
+    if not isinstance(payload, dict):
+        return None
+    subsections = payload.get("subsections") if isinstance(payload.get("subsections"), dict) else {}
+    sections = payload.get("sections") if isinstance(payload.get("sections"), dict) else {}
+    analyst_estimates = subsections.get("analyst_estimates") if isinstance(subsections.get("analyst_estimates"), dict) else {}
+    valuation = subsections.get("valuation") if isinstance(subsections.get("valuation"), dict) else {}
+    income = subsections.get("income") if isinstance(subsections.get("income"), dict) else {}
+    cash_flow = subsections.get("cash_flow") if isinstance(subsections.get("cash_flow"), dict) else {}
+    health = subsections.get("health") if isinstance(subsections.get("health"), dict) else {}
+    earnings_subsection = subsections.get("earnings") if isinstance(subsections.get("earnings"), dict) else {}
+    return _compact(
+        {
+            "status": payload.get("status") or row.status,
+            "as_of": _iso(row.fetched_at),
+            "latest_quarter": (payload.get("summary") or {}).get("latestQuarter") if isinstance(payload.get("summary"), dict) else None,
+            "forecasts": payload.get("forecasts") or analyst_estimates.get("data") or sections.get("analyst_estimates"),
+            "earnings": payload.get("earnings") or sections.get("earnings") or earnings_subsection.get("data"),
+            "valuation": valuation.get("data") or sections.get("valuation") or payload.get("valuation_metrics"),
+            "income": income.get("data") or sections.get("income"),
+            "cash_flow": cash_flow.get("data") or sections.get("cashFlow"),
+            "health": health.get("data") or sections.get("health"),
+        },
+        limit=2500,
+    )
+
+
 def _recent_events(db: Session, symbol: str, event_types: list[str], *, limit: int = 8) -> list[dict[str, Any]]:
     rows = (
         db.execute(
@@ -649,6 +687,102 @@ def _government_contracts(db: Session, symbol: str) -> dict[str, Any]:
     }
 
 
+def _has_value(mapping: Any, keys: list[str]) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    for key in keys:
+        value = mapping.get(key)
+        if value is not None and value != "":
+            return True
+    return False
+
+
+def _has_nested_value(mapping: Any, paths: list[tuple[str, ...]]) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    for path in paths:
+        value: Any = mapping
+        for key in path:
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(key)
+        if isinstance(value, list) and value:
+            return True
+        if isinstance(value, dict) and any(item is not None and item != "" for item in value.values()):
+            return True
+        if value is not None and value != "":
+            return True
+    return False
+
+
+def _research_data_availability(primary: dict[str, Any], external_research: dict[str, Any]) -> dict[str, bool]:
+    quote = primary.get("quote") if isinstance(primary.get("quote"), dict) else {}
+    fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
+    financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    official_facts = (external_research.get("official_facts") or {}) if isinstance(external_research, dict) else {}
+    government_contracts = primary.get("government_contracts") if isinstance(primary.get("government_contracts"), dict) else {}
+
+    has_price = _has_value(quote, ["price"]) or _has_value(fundamentals, ["price"])
+    has_volume = _has_value(fundamentals, ["volume", "avg_volume"])
+    has_confirmation = bool(confirmation)
+    has_forecast_revenue = _has_nested_value(
+        financials,
+        [
+            ("forecasts", "nextQuarter", "revenueEstimate"),
+            ("forecasts", "nextQuarter", "estimatedRevenueAvg"),
+            ("forecasts", "nextFiscalYear", "revenueEstimate"),
+        ],
+    )
+    has_forecast_eps = _has_nested_value(
+        financials,
+        [
+            ("forecasts", "nextQuarter", "epsEstimate"),
+            ("forecasts", "nextFiscalYear", "epsEstimate"),
+        ],
+    )
+    return {
+        "revenue": _has_value(fundamentals, ["revenue_growth"]) or "revenue" in official_facts or has_forecast_revenue,
+        "revenue growth": _has_value(fundamentals, ["revenue_growth"]),
+        "revenue consensus": has_forecast_revenue,
+        "eps consensus": has_forecast_eps,
+        "gross margin": _has_value(fundamentals, ["gross_margin"]) or "gross_margin" in official_facts,
+        "operating margin": _has_value(fundamentals, ["operating_margin"]) or "operating_margin" in official_facts,
+        "free cash flow": _has_value(fundamentals, ["free_cash_flow", "fcf_yield"]) or "free_cash_flow" in official_facts,
+        "capex": "capex" in official_facts,
+        "cash": "cash" in official_facts or _has_nested_value(financials, [("health", "cashAndCashEquivalents"), ("health", "cash")]),
+        "debt": _has_value(fundamentals, ["debt_to_equity", "net_debt_to_ebitda"]) or "debt" in official_facts,
+        "share count": "shares" in official_facts,
+        "price": has_price,
+        "current price": has_price,
+        "volume": has_volume,
+        "price/volume and technicals": has_price or has_volume or has_confirmation,
+        "technical levels": has_confirmation,
+        "reported institutional activity": bool(primary.get("institutional_activity")),
+        "insider activity": bool(primary.get("insider_activity")),
+        "congress activity": bool(primary.get("congress_activity")),
+        "government contracts": bool((government_contracts or {}).get("recent_count") or (government_contracts or {}).get("items")),
+        "valuation data": _has_value(fundamentals, ["forward_pe", "trailing_pe", "price_to_sales", "ev_to_ebitda"])
+        or _has_nested_value(financials, [("valuation", "forwardPE"), ("valuation", "trailingPE"), ("valuation", "forward_pe")]),
+        "peer comparison data": False,
+    }
+
+
+def _missing_note_field(note: str) -> str:
+    return str(note or "").split(":", 1)[0].strip().lower()
+
+
+def _filter_missing_data_notes(notes: list[str], availability: dict[str, bool]) -> list[str]:
+    filtered: list[str] = []
+    for note in notes:
+        field = _missing_note_field(note)
+        if field and availability.get(field):
+            continue
+        filtered.append(note)
+    return _dedupe_strings(filtered)
+
+
 def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     symbol, identity = normalize_supported_symbol(db, payload.get("ticker"))
     comparison_symbols = normalize_comparison_tickers(payload, primary_ticker=symbol)
@@ -665,6 +799,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
     symbols = [symbol] + list(comparison_identities.keys())
     fundamentals = {item: _latest_fundamentals(db, item) for item in symbols}
     quotes = {item: _quote(db, item) for item in symbols}
+    financials = {item: _cached_financials_snapshot(db, item) for item in symbols}
     try:
         confirmation = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=30)
     except Exception:
@@ -679,39 +814,43 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         if not confirmation.get(item):
             missing.append(f"{item}: confirmation score unavailable")
     external_research = discover_external_research(symbol, identity, mode=payload.get("external_research_mode") or "Standard")
+    primary_context = {
+        "identity": identity,
+        "quote": quotes.get(symbol),
+        "fundamentals": fundamentals.get(symbol),
+        "financials": financials.get(symbol),
+        "confirmation": _compact(confirmation.get(symbol)),
+        "congress_activity": _recent_events(db, symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
+        "insider_activity": _recent_events(db, symbol, ["insider_trade"]),
+        "institutional_activity": _recent_events(
+            db,
+            symbol,
+            [
+                "institutional_accumulation",
+                "institutional_distribution",
+                "new_institutional_position",
+                "major_holder_reduction",
+                "major_holder_exit",
+                "cluster_accumulation",
+                "cluster_distribution",
+                "smart_money_confirmation",
+                "crowded_long",
+                "contrarian_accumulation",
+            ],
+        ),
+        "government_contracts": _government_contracts(db, symbol),
+    }
+    data_availability = _research_data_availability(primary_context, external_research)
     if external_research.get("missing_data_notes"):
-        missing.extend(external_research["missing_data_notes"])
+        missing.extend(_filter_missing_data_notes(external_research["missing_data_notes"], data_availability))
 
     context = {
         "generated_at": _now(),
         "external_research_mode": payload.get("external_research_mode") or "Standard",
         "section_format": payload.get("section_format") or "Walnut Research Brief",
-        "primary": {
-            "identity": identity,
-            "quote": quotes.get(symbol),
-            "fundamentals": fundamentals.get(symbol),
-            "confirmation": _compact(confirmation.get(symbol)),
-            "congress_activity": _recent_events(db, symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
-            "insider_activity": _recent_events(db, symbol, ["insider_trade"]),
-            "institutional_activity": _recent_events(
-                db,
-                symbol,
-                [
-                    "institutional_accumulation",
-                    "institutional_distribution",
-                    "new_institutional_position",
-                    "major_holder_reduction",
-                    "major_holder_exit",
-                    "cluster_accumulation",
-                    "cluster_distribution",
-                    "smart_money_confirmation",
-                    "crowded_long",
-                    "contrarian_accumulation",
-                ],
-            ),
-            "government_contracts": _government_contracts(db, symbol),
-        },
+        "primary": primary_context,
         "external_research": external_research,
+        "data_availability": data_availability,
         "comparison": None,
         "comparisons": [],
         "missing_data_notes": _dedupe_strings(missing),
@@ -726,6 +865,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             "identity": comparison_identity,
             "quote": quotes.get(comparison_symbol),
             "fundamentals": fundamentals.get(comparison_symbol),
+            "financials": financials.get(comparison_symbol),
             "confirmation": _compact(confirmation.get(comparison_symbol)),
             "congress_activity": _recent_events(db, comparison_symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
             "insider_activity": _recent_events(db, comparison_symbol, ["insider_trade"]),
@@ -1566,6 +1706,8 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
             "Use supplied Walnut research context plus the attached external research notes and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
+            "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
+            "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "Separate underlying data from Walnut confirmation score. Missing data is unavailable, not zero and not bearish.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
@@ -1732,6 +1874,16 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if "confirmation score equals" in lowered or "confirmation stack" in lowered:
         warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
         blocking = True
+    contradicted_fields = _available_data_missing_claims(lowered, context)
+    if contradicted_fields:
+        warnings.append(
+            _warning(
+                "available_data_marked_missing",
+                f"Draft says available Walnut data is missing: {', '.join(contradicted_fields)}.",
+                blocking=True,
+            )
+        )
+        blocking = True
     numeric_claims = sorted(set(re.findall(r"(?<![A-Za-z])(?:\$?\d[\d,]*(?:\.\d+)?%?|\d+\s?bps)(?![A-Za-z])", body)))[:80]
     if numeric_claims and not _context_has_numbers(context):
         warnings.append(_warning("numeric_claims_without_context", "Numeric claims detected while source context has few numeric fields.", blocking=True))
@@ -1748,6 +1900,34 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "source_link_count": source_link_count,
         "estimated_reading_minutes": max(1, round(len(body.split()) / 220)),
     }
+
+
+def _available_data_missing_claims(lowered_text: str, context: dict[str, Any]) -> list[str]:
+    availability = context.get("data_availability") if isinstance(context.get("data_availability"), dict) else {}
+    missing_terms = r"(?:not found|not available|unavailable|missing|could not find|couldn't find|not directly reviewed)"
+    checks = {
+        "current price": [r"current\s+\w*\s*price", r"share\s+price", r"stock\s+price"],
+        "volume": [r"\bvolume\b"],
+        "price/volume and technicals": [r"price\s*/\s*volume", r"\btechnicals?\b", r"technical\s+levels?"],
+        "revenue consensus": [r"revenue\s+consensus", r"q[1-4]\s+revenue"],
+        "eps consensus": [r"eps\s+consensus", r"q[1-4]\s+eps"],
+        "gross margin": [r"gross\s+margin"],
+        "free cash flow": [r"free\s+cash\s+flow", r"\bfcf\b"],
+        "reported institutional activity": [r"reported\s+institutional\s+activity", r"institutional\s+activity"],
+        "insider activity": [r"insider\s+activity"],
+        "congress activity": [r"congress\s+activity"],
+        "government contracts": [r"government\s+contracts?"],
+        "valuation data": [r"valuation\s+data", r"\bvaluation\b"],
+    }
+    contradicted: list[str] = []
+    for field, synonyms in checks.items():
+        if not availability.get(field):
+            continue
+        for synonym in synonyms:
+            if re.search(rf"{synonym}.{{0,90}}{missing_terms}|{missing_terms}.{{0,90}}{synonym}", lowered_text):
+                contradicted.append(field)
+                break
+    return contradicted
 
 
 def _source_link_count(article: dict[str, Any], body: str) -> int:
@@ -2036,10 +2216,12 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
         context["external_research"] = external
         context["external_research_mode"] = external.get("mode")
         context["generated_at"] = _now()
+        context["data_availability"] = _research_data_availability(context.get("primary") or {}, external)
+        filtered_missing = _filter_missing_data_notes(external.get("missing_data_notes") or [], context["data_availability"])
         existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
-        context["missing_data_notes"] = _dedupe_strings([*existing_missing, *(external.get("missing_data_notes") or [])])
+        context["missing_data_notes"] = _filter_missing_data_notes([*existing_missing, *filtered_missing], context["data_availability"])
         article = draft.setdefault("article", {})
-        article["missing_data_notes"] = _dedupe_strings([*(article.get("missing_data_notes") or []), *(external.get("missing_data_notes") or [])])
+        article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
         draft["validation"] = validate_article(article, context, draft_id=draft_id)
         draft["updated_at"] = _now()
@@ -2059,10 +2241,12 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
             context["external_research"] = external
             context["external_research_mode"] = external.get("mode")
             context["generated_at"] = _now()
+            context["data_availability"] = _research_data_availability(context.get("primary") or {}, external)
+            filtered_missing = _filter_missing_data_notes(external.get("missing_data_notes") or [], context["data_availability"])
             existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
-            context["missing_data_notes"] = _dedupe_strings([*existing_missing, *(external.get("missing_data_notes") or [])])
+            context["missing_data_notes"] = _filter_missing_data_notes([*existing_missing, *filtered_missing], context["data_availability"])
             article = draft.setdefault("article", {})
-            article["missing_data_notes"] = _dedupe_strings([*(article.get("missing_data_notes") or []), *(external.get("missing_data_notes") or [])])
+            article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
             article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
             draft["validation"] = validate_article(article, context, draft_id=draft_id)
             draft["updated_at"] = _now()

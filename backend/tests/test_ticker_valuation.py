@@ -230,3 +230,119 @@ def test_dcf_inputs_normalize_extreme_beta(monkeypatch):
 
     assert assumptions["beta"] == 1.0
     assert assumptions["costOfEquity"] == 9.15
+
+
+def test_dcf_inputs_use_conservative_ramp_for_pre_profit_ticker(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"beta": 0.5}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100, "ebitda": 50, "ebit": 0, "incomeBeforeTax": 0, "incomeTaxExpense": 0}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 22, "capitalExpenditure": -75, "depreciationAndAmortization": 35}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [{"cashAndShortTermInvestments": 100}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-12-31", "revenueAvg": 300}]
+        if endpoint in {
+            "price-target-consensus",
+            "custom-discounted-cash-flow",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    assumptions = valuation_module._walnut_dcf_assumptions("SPCX")
+
+    assert assumptions["revenueGrowthPct"] == 0.20
+    assert assumptions["ebitdaPct"] == 0.15
+    assert assumptions["ebitPct"] == 0.0
+    assert assumptions["operatingCashFlowPct"] == 0.05
+    assert assumptions["taxRate"] == 0.21
+    assert assumptions["beta"] == 1.8
+    assert round(assumptions["costOfEquity"], 4) == 12.926
+
+
+def test_dcf_inputs_lower_beta_ceiling_for_quality_compounder(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"beta": 2.2}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100, "ebitda": 75, "ebit": 65, "incomeBeforeTax": 65, "incomeTaxExpense": 10}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 50, "capitalExpenditure": -3, "depreciationAndAmortization": 1}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-12-31", "revenueAvg": 135}]
+        if endpoint in {
+            "price-target-consensus",
+            "custom-discounted-cash-flow",
+            "balance-sheet-statement-ttm",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    assumptions = valuation_module._walnut_dcf_assumptions("NVDA")
+
+    assert assumptions["beta"] == 1.35
+    assert assumptions["costOfEquity"] == 10.802
+
+
+def test_ticker_valuation_uses_asset_nav_for_asset_heavy_pre_profit_company(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "price-target-consensus":
+            return [{"targetConsensus": 30}]
+        if endpoint == "profile":
+            return [{"beta": 1.2, "sharesOutstanding": 100_000_000}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100_000_000, "ebitda": 0, "ebit": -5_000_000, "incomeBeforeTax": -5_000_000, "incomeTaxExpense": 0}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [
+                {
+                    "operatingCashFlow": 5_000_000,
+                    "capitalExpenditure": 0,
+                    "dividendsPaid": -1_000_000,
+                    "commonStockRepurchased": -1_000_000,
+                    "depreciationAndAmortization": 1_000_000,
+                }
+            ]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [{"totalAssets": 2_000_000_000, "totalLiabilities": 200_000_000, "cashAndShortTermInvestments": 1_700_000_000}]
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "stockPrice": 14.5, "dcf": 2}]
+        if endpoint in {
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    response = ticker_valuation("bmnr")
+
+    assert response["status"] == "ok"
+    assert round(response["dcf"]["fairValue"], 4) == 18.0266
+    assert response["dcf"]["method"] == "Asset / NAV"
+    assert response["dcf"]["rangeSource"] == "asset_nav"
+    assert response["dcf"]["judgment"] == "Undervalued"
+    assert response["dcf"]["methodSignals"][0] == {"method": "DCF", "signal": "Cash-flow limited"}
