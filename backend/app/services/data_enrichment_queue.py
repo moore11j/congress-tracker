@@ -790,7 +790,7 @@ def _process_one(db: Session, job: DataEnrichmentJob) -> None:
     if job.job_type == "quote":
         from app.services.quote_lookup import get_current_prices_meta_db
 
-        get_current_prices_meta_db(db, [job.symbol or ""], allow_cache_write=True)
+        get_current_prices_meta_db(db, [job.symbol or ""], allow_cache_write=True, stale_while_revalidate=False)
         return
     if job.job_type == "price_eod":
         from app.services.price_lookup import get_eod_close_with_meta

@@ -132,6 +132,31 @@ def test_enrichment_queue_summary_splits_ready_and_delayed_jobs():
         db.close()
 
 
+def test_quote_enrichment_refreshes_stale_cache_in_worker(monkeypatch):
+    Session = _session_factory()
+    monkeypatch.setattr(queue_module, "SessionLocal", Session)
+    monkeypatch.setenv("ENRICHMENT_QUEUE_ENABLED", "true")
+    captured: dict[str, object] = {}
+
+    def fake_get_current_prices_meta_db(db, symbols, **kwargs):
+        captured.update({"db": db, "symbols": symbols, **kwargs})
+        return {"AAPL": {"price": 200.0, "source": "live_provider"}}
+
+    monkeypatch.setattr(
+        "app.services.quote_lookup.get_current_prices_meta_db",
+        fake_get_current_prices_meta_db,
+    )
+
+    assert enqueue_data_enrichment_job(job_type="quote", symbol="AAPL", reason="stale_background_quote")
+
+    summary = process_data_enrichment_jobs(limit=1)
+
+    assert summary["succeeded"] == 1
+    assert captured["symbols"] == ["AAPL"]
+    assert captured["allow_cache_write"] is True
+    assert captured["stale_while_revalidate"] is False
+
+
 def test_timeout_result_is_retryable_failure_not_success(monkeypatch):
     Session = _session_factory()
     monkeypatch.setattr(queue_module, "SessionLocal", Session)
