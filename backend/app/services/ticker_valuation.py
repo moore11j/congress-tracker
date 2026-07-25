@@ -109,6 +109,8 @@ PRE_PROFIT_DCF_BETA = 1.8
 QUALITY_COMPOUNDER_DCF_BETA_MAX = 1.35
 CASH_RETURN_GROWTH_ADJUSTMENT_MAX = 0.06
 FAIR_VALUE_MODEL_WEIGHT = 0.5
+PROJECTED_CASH_FLOW_YEARS = 5
+DCF_METHOD_LABEL = "Discounted Cash Flow"
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -564,11 +566,54 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     return {
         "assumptions": assumptions,
         "assetValue": round(float(asset_value), 6) if is_asset_heavy and asset_value is not None else None,
+        "projectedCashFlows": _projected_cash_flow_points(revenue, assumptions),
     }
 
 
 def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
     return _walnut_valuation_model(symbol)["assumptions"]
+
+
+def _projected_cash_flow_points(base_revenue: float | None, assumptions: dict[str, float]) -> list[dict[str, Any]]:
+    if base_revenue is None or base_revenue <= 0:
+        return []
+    revenue_growth = assumptions.get("revenueGrowthPct")
+    cash_flow_margin = assumptions.get("operatingCashFlowPct")
+    discount_rate_pct = assumptions.get("costOfEquity")
+    if revenue_growth is None or cash_flow_margin is None or cash_flow_margin <= 0 or discount_rate_pct is None or discount_rate_pct <= 0:
+        return []
+
+    discount_rate = discount_rate_pct / 100
+    terminal_growth = max(0.0, (assumptions.get("longTermGrowthRate") or 0.0) / 100)
+    projected_revenue = float(base_revenue)
+    current_year = datetime.now(timezone.utc).year
+    points: list[dict[str, Any]] = []
+    last_cash_flow: float | None = None
+    for year_offset in range(1, PROJECTED_CASH_FLOW_YEARS + 1):
+        projected_revenue *= 1 + revenue_growth
+        cash_flow = projected_revenue * cash_flow_margin
+        discounted_cash_flow = cash_flow / ((1 + discount_rate) ** year_offset)
+        last_cash_flow = cash_flow
+        points.append(
+            {
+                "year": str(current_year + year_offset),
+                "actualCashFlow": round(cash_flow, 2),
+                "discountedCashFlow": round(discounted_cash_flow, 2),
+            }
+        )
+
+    if last_cash_flow is not None and discount_rate > terminal_growth:
+        terminal_value = last_cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
+        discounted_terminal_value = terminal_value / ((1 + discount_rate) ** PROJECTED_CASH_FLOW_YEARS)
+        points.append(
+            {
+                "year": "Terminal",
+                "actualCashFlow": round(terminal_value, 2),
+                "discountedCashFlow": round(discounted_terminal_value, 2),
+            }
+        )
+
+    return points
 
 
 def _target_consensus_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -628,7 +673,7 @@ def _judgment(upside_downside_pct: float | None) -> str:
     return "Fairly valued"
 
 
-def _method_signals(judgment: str, *, method: str = "Custom DCF Advanced") -> list[dict[str, str]]:
+def _method_signals(judgment: str, *, method: str = DCF_METHOD_LABEL) -> list[dict[str, str]]:
     final_signal = "Neutral"
     if judgment == "Undervalued":
         final_signal = "Bullish"
@@ -649,7 +694,14 @@ def _method_signals(judgment: str, *, method: str = "Custom DCF Advanced") -> li
     ]
 
 
-def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs: dict[str, float] | None = None, asset_value: float | None = None) -> dict[str, Any]:
+def _valuation_from_dcf_rows(
+    symbol: str,
+    rows: list[dict[str, Any]],
+    *,
+    inputs: dict[str, float] | None = None,
+    asset_value: float | None = None,
+    projected_cash_flows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     dcf_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
     nav_value = _non_negative_price(asset_value)
     model_value = nav_value if nav_value is not None and (dcf_value is None or nav_value > dcf_value) else dcf_value
@@ -662,8 +714,9 @@ def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs:
     bear_value = fair_value * 0.85 if fair_value is not None else None
     bull_value = fair_value * 1.15 if fair_value is not None else None
     judgment = _judgment(upside_downside_pct)
-    method = "Asset / NAV" if nav_value is not None and model_value == nav_value else "Custom DCF Advanced"
+    method = "Asset / NAV" if nav_value is not None and model_value == nav_value else DCF_METHOD_LABEL
     is_anchored = fair_value is not None and model_value is not None and current_price is not None
+    cash_flows = _cash_flow_points(rows) or (projected_cash_flows or [])
     return {
         "symbol": symbol,
         "fairValue": fair_value,
@@ -677,7 +730,7 @@ def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs:
         "judgment": judgment,
         "method": method,
         "rangeSource": "fair_value_anchor" if is_anchored else "asset_nav" if method == "Asset / NAV" else "dcf_sensitivity" if fair_value is not None else "unavailable",
-        "cashFlows": _cash_flow_points(rows),
+        "cashFlows": cash_flows,
         "assumptions": _assumptions(rows, inputs),
         "methodSignals": _method_signals(judgment, method=method),
     }
@@ -729,7 +782,13 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
     except FMPClientError:
         return _unavailable(normalized_symbol, consensus=consensus, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
 
-    dcf = _valuation_from_dcf_rows(normalized_symbol, dcf_rows, inputs=dcf_inputs, asset_value=valuation_model.get("assetValue"))
+    dcf = _valuation_from_dcf_rows(
+        normalized_symbol,
+        dcf_rows,
+        inputs=dcf_inputs,
+        asset_value=valuation_model.get("assetValue"),
+        projected_cash_flows=valuation_model.get("projectedCashFlows"),
+    )
     if dcf["fairValue"] is None and not dcf["cashFlows"] and not dcf["assumptions"]:
         return _unavailable(normalized_symbol, consensus=consensus)
 

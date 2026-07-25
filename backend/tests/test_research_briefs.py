@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -882,3 +883,29 @@ def test_publish_unpublish_delete_lifecycle_uses_local_store(tmp_path, monkeypat
 
     deleted = service.delete_draft(admin, draft["id"], confirm_text="DELETE")
     assert deleted["ok"] is True
+
+
+def test_republishing_edited_brief_updates_public_article_and_strips_bold_markers(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = service.generate_research_brief(db, admin, _payload().model_dump())
+    published = service.publish_draft(admin, draft["id"], confirm=True)
+    slug = published["article"]["slug"]
+
+    service.unpublish_draft(admin, draft["id"], confirm=True)
+    article = deepcopy(published["article"])
+    article["sections"][0]["body_markdown"] = (
+        "Edited **bold** article body. Research only. Not investment advice. "
+        "https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu "
+        + "word " * 220
+    )
+    service.update_draft(admin, draft["id"], article, status="unpublished")
+    service.publish_draft(admin, draft["id"], confirm=True)
+
+    public = service.published_article(slug)
+    body = "\n\n".join(section["body_markdown"] for section in public["article"]["sections"])
+    assert "Edited bold article body" in body
+    assert "**" not in body

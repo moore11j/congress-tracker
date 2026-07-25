@@ -94,6 +94,7 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
     assert round(response["dcf"]["bullValue"], 2) == 240.35
     assert round(response["dcf"]["upsideDownsidePct"], 2) == 10.0
     assert response["dcf"]["judgment"] == "Fairly valued"
+    assert response["dcf"]["method"] == "Discounted Cash Flow"
     assert response["dcf"]["rangeSource"] == "fair_value_anchor"
     assert response["dcf"]["cashFlows"][0] == {
         "year": "2026",
@@ -105,6 +106,55 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
     assumptions = {item["key"]: item["value"] for item in response["dcf"]["assumptions"]}
     assert assumptions["revenueGrowthPct"] == 0.2
     assert assumptions["capitalExpenditurePct"] == 0.05
+
+
+def test_ticker_valuation_projects_cash_flow_bridge_when_dcf_rows_omit_cash_flows(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "price-target-consensus":
+            return [{"targetConsensus": 135}]
+        if endpoint == "profile":
+            return [{"beta": 1.0}]
+        if endpoint == "income-statement-ttm":
+            return [
+                {
+                    "revenue": 1_000,
+                    "ebitda": 300,
+                    "ebit": 250,
+                    "incomeBeforeTax": 250,
+                    "incomeTaxExpense": 50,
+                }
+            ]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 200, "capitalExpenditure": -50, "depreciationAndAmortization": 30}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return []
+        if endpoint == "income-statement":
+            return [{"date": "2025-12-31", "revenue": 1_000}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-12-31", "revenueAvg": 1_100}]
+        if endpoint in {
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "stockPrice": 100, "dcf": 140}]
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    response = ticker_valuation("meta")
+    cash_flows = response["dcf"]["cashFlows"]
+
+    assert response["dcf"]["method"] == "Discounted Cash Flow"
+    assert len(cash_flows) == 6
+    assert cash_flows[0]["actualCashFlow"] == 220
+    assert 0 < cash_flows[0]["discountedCashFlow"] < cash_flows[0]["actualCashFlow"]
+    assert cash_flows[-1]["year"] == "Terminal"
+    assert 0 < cash_flows[-1]["discountedCashFlow"] < cash_flows[-1]["actualCashFlow"]
 
 
 def test_ticker_valuation_keeps_dcf_when_consensus_unavailable(monkeypatch):

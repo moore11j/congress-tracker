@@ -293,6 +293,7 @@ def sanitize_research_brief_copy(markdown: str) -> str:
     if not text:
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("**", "")
     repaired_blocks: list[str] = []
     for block in re.split(r"(\n{2,})", text):
         if not block or block.startswith("\n"):
@@ -2988,6 +2989,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
             draft["published_at"] = draft.get("published_at") or _now()
             draft["updated_at"] = _now()
             draft["validation"] = validation
+            _unpublish_other_db_drafts_for_slug(db, draft_id, str((draft.get("article") or {}).get("slug") or ""))
             _upsert_db_draft(db, draft)
             return deepcopy(draft)
     with _STORE_LOCK:
@@ -3004,6 +3006,7 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
                 draft["published_at"] = draft.get("published_at") or _now()
                 draft["updated_at"] = _now()
                 draft["validation"] = validation
+                _unpublish_other_store_drafts_for_slug(store, draft_id, str((draft.get("article") or {}).get("slug") or ""))
                 _append_audit(store, action="publish", admin=admin, draft_id=draft_id)
                 _write_store(store)
                 return deepcopy(draft)
@@ -3059,6 +3062,40 @@ def _normalize_status(status: str) -> str:
     return normalized
 
 
+def _unpublish_other_db_drafts_for_slug(db: Session, draft_id: str, slug: str) -> None:
+    if not slug:
+        return
+    ensure_research_brief_store_schema(db)
+    rows = db.execute(
+        text("SELECT id, payload_json FROM research_brief_drafts WHERE status = 'published' AND slug = :slug AND id != :id"),
+        {"slug": slug, "id": draft_id},
+    ).mappings().all()
+    now = _now()
+    for row in rows:
+        payload = _load_json(row["payload_json"])
+        if not isinstance(payload, dict):
+            continue
+        payload["status"] = "unpublished"
+        payload["updated_at"] = now
+        db.execute(
+            text("UPDATE research_brief_drafts SET status = 'unpublished', updated_at = :updated_at, payload_json = :payload_json WHERE id = :id"),
+            {"id": row["id"], "updated_at": now, "payload_json": _json_dump(payload)},
+        )
+
+
+def _unpublish_other_store_drafts_for_slug(store: dict[str, Any], draft_id: str, slug: str) -> None:
+    if not slug:
+        return
+    now = _now()
+    for draft in store.get("drafts", []):
+        if draft.get("id") == draft_id or draft.get("status") != "published":
+            continue
+        if (draft.get("article") or {}).get("slug") != slug:
+            continue
+        draft["status"] = "unpublished"
+        draft["updated_at"] = now
+
+
 def published_cards(db: Session | None = None) -> dict[str, Any]:
     if db is not None:
         try:
@@ -3068,13 +3105,16 @@ def published_cards(db: Session | None = None) -> dict[str, Any]:
             drafts = [draft for draft in _read_store().get("drafts", []) if draft.get("status") == "published"]
     else:
         drafts = [draft for draft in _read_store().get("drafts", []) if draft.get("status") == "published"]
+    drafts = sorted(drafts, key=lambda item: item.get("updated_at") or item.get("published_at") or "", reverse=True)
     cards = []
+    seen_slugs: set[str] = set()
     for draft in drafts:
         article = draft.get("article") or {}
         suggested = article.get("suggested_card") if isinstance(article.get("suggested_card"), dict) else {}
         slug = article.get("slug")
-        if not slug:
+        if not slug or slug in seen_slugs:
             continue
+        seen_slugs.add(slug)
         cards.append(
             {
                 "slug": slug,
@@ -3098,7 +3138,7 @@ def published_article(slug: str, db: Session | None = None) -> dict[str, Any]:
         try:
             ensure_research_brief_store_schema(db)
             row = db.execute(
-                text("SELECT payload_json FROM research_brief_drafts WHERE status = 'published' AND slug = :slug LIMIT 1"),
+                text("SELECT payload_json FROM research_brief_drafts WHERE status = 'published' AND slug = :slug ORDER BY updated_at DESC, published_at DESC LIMIT 1"),
                 {"slug": normalized},
             ).mappings().first()
             payload = _load_json(row["payload_json"]) if row else None
@@ -3106,7 +3146,8 @@ def published_article(slug: str, db: Session | None = None) -> dict[str, Any]:
                 return deepcopy(payload)
         except Exception as exc:
             logger.warning("research_brief_db_published_article_failed slug=%s error=%s", normalized, exc.__class__.__name__)
-    for draft in _read_store().get("drafts", []):
+    store_drafts = sorted(_read_store().get("drafts", []), key=lambda item: item.get("updated_at") or item.get("published_at") or "", reverse=True)
+    for draft in store_drafts:
         article = draft.get("article") or {}
         if draft.get("status") == "published" and article.get("slug") == normalized:
             return deepcopy(draft)

@@ -53,6 +53,8 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /getAdminResearchBriefGenerationJob/);
   assert.match(component, /getAdminResearchBriefGenerationDraft/);
   assert.match(component, /getAdminResearchBriefDraft/);
+  assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);
+  assert.match(component, /Draft saved and published\./);
   assert.match(component, /Generating research brief/);
   assert.match(component, /researchBriefJobTimedOut/);
   assert.match(component, /Research brief generation timed out/);

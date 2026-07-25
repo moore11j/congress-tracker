@@ -12,12 +12,16 @@ function paragraphs(markdown: string) {
     .filter(Boolean);
 }
 
+function cleanInlineText(value: string) {
+  return value.replace(/\*\*/g, "");
+}
+
 type MarkdownBlock =
   | { type: "paragraph"; key: string; text: string }
   | { type: "table"; key: string; header: string[]; rows: string[][] };
 
 function markdownBlocks(markdown: string): MarkdownBlock[] {
-  return paragraphs(markdown).map((part, index) => parsePipeTable(part, index) ?? { type: "paragraph", key: `paragraph-${index}`, text: part });
+  return paragraphs(markdown).map((part, index) => parsePipeTable(part, index) ?? { type: "paragraph", key: `paragraph-${index}`, text: cleanInlineText(part) });
 }
 
 function parsePipeTable(part: string, index: number): MarkdownBlock | null {
@@ -46,7 +50,7 @@ function parsePipeTable(part: string, index: number): MarkdownBlock | null {
 }
 
 function pipeCells(line: string) {
-  const cells = line.split("|").map((cell) => cell.trim());
+  const cells = line.split("|").map((cell) => cleanInlineText(cell.trim()));
   if (cells[0] === "") cells.shift();
   if (cells[cells.length - 1] === "") cells.pop();
   return cells;
@@ -113,8 +117,8 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
           </Link>
           <div className="mt-10 max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{article.category || "Research Brief"}</p>
-            <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{article.title}</h1>
-            <p className="mt-5 text-lg leading-8 text-slate-300">{article.subtitle || article.summary}</p>
+            <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
+            <p className="mt-5 text-lg leading-8 text-slate-300">{cleanInlineText(article.subtitle || article.summary)}</p>
             <div className="mt-7 flex flex-wrap gap-3">
               <Link href={signupHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
                 Create a free account
@@ -132,7 +136,7 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
         <article className="min-w-0 space-y-8">
           {article.sections.map((section) => (
             <section key={section.key} className="rounded-lg border border-white/10 bg-slate-950/50 p-5">
-              <h2 className="text-2xl font-semibold text-white">{section.heading}</h2>
+              <h2 className="text-2xl font-semibold text-white">{cleanInlineText(section.heading)}</h2>
               <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
                 {markdownBlocks(section.body_markdown).map((block) =>
                   block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{block.text}</p>,
@@ -146,7 +150,7 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
           <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Walnut Judgment</p>
             <p className="mt-2 text-lg font-semibold capitalize text-white">{article.judgment}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-400">{article.summary}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{cleanInlineText(article.summary)}</p>
           </div>
           <SideList title="Catalysts" items={article.catalysts} />
           <SideList title="Risks" items={article.risks} />
@@ -175,7 +179,7 @@ function ResearchDataTable({ header, rows }: { header: string[]; rows: string[][
             <tr key={`${rowIndex}-${row.join("|")}`} className={rowIndex % 2 === 0 ? "bg-slate-900/55" : "bg-slate-800/35"}>
               {header.map((_, cellIndex) => (
                 <td key={`${rowIndex}-${cellIndex}`} className="border-t border-white/10 px-3 py-3 align-top text-slate-300">
-                  {row[cellIndex] || ""}
+                  {cleanInlineText(row[cellIndex] || "")}
                 </td>
               ))}
             </tr>
@@ -192,7 +196,7 @@ function SideList({ title, items }: { title: string; items: string[] }) {
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>
       <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
         {(items || []).slice(0, 5).map((item) => (
-          <li key={item}>{item}</li>
+          <li key={item}>{cleanInlineText(item)}</li>
         ))}
       </ul>
     </div>

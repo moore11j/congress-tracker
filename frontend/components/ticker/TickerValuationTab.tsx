@@ -218,10 +218,10 @@ function CashFlowChart({ data }: { data: TickerValuationResponse }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Cash Flow Bridge</p>
-          <p className="mt-2 text-sm text-slate-400">Actual cash flows compared with discounted cash flows by projection year.</p>
+          <p className="mt-2 text-sm text-slate-400">Projected free cash flows compared with discounted cash flows by projection year.</p>
         </div>
         <div className="flex gap-3 text-[11px] text-slate-400">
-          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-teal-300" />Actual CF</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-teal-300" />Projected FCF</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-sky-300" />Discounted CF</span>
         </div>
       </div>
@@ -240,7 +240,7 @@ function CashFlowChart({ data }: { data: TickerValuationResponse }) {
               const discountedHeight = `${Math.max(4, ((Math.abs(discounted ?? 0) / maxAbs) * 100))}%`;
               return (
                 <div key={point.year} className="flex h-full min-w-0 items-end justify-center gap-1.5">
-                  <div title={`Actual CF ${formatMoney(actual, { compact: true })}`} className="w-full max-w-5 rounded-t bg-teal-300/85 shadow-[0_0_14px_rgba(45,212,191,0.22)]" style={{ height: actual === null ? 0 : actualHeight }} />
+                  <div title={`Projected FCF ${formatMoney(actual, { compact: true })}`} className="w-full max-w-5 rounded-t bg-teal-300/85 shadow-[0_0_14px_rgba(45,212,191,0.22)]" style={{ height: actual === null ? 0 : actualHeight }} />
                   <div title={`Discounted CF ${formatMoney(discounted, { compact: true })}`} className="w-full max-w-5 rounded-t bg-sky-300/85 shadow-[0_0_14px_rgba(125,211,252,0.18)]" style={{ height: discounted === null ? 0 : discountedHeight }} />
                 </div>
               );
@@ -366,14 +366,14 @@ export function TickerValuationTab({ data, symbol, canViewDetails = false }: Pro
               tone="text-sky-200"
             />
             <SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} />
-            <SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" />
+            <SummaryCard label="Method" value={dcf.method ?? "Discounted Cash Flow"} sub="fair value model" tone="text-slate-100" />
           </>
         ) : (
           <>
             <ProBlur><SummaryCard label="Upside / Downside" value={formatPercent(dcf.upsideDownsidePct, { signed: true })} sub="vs current price" tone={(dcf.upsideDownsidePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} /></ProBlur>
             <ProBlur><SummaryCard label="Walnut Fair Value" value={formatMoney(dcf.fairValue, { maximumFractionDigits: 0 })} sub="/ share" tone="text-teal-200" /></ProBlur>
             <ProBlur><SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} /></ProBlur>
-            <ProBlur><SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" /></ProBlur>
+            <ProBlur><SummaryCard label="Method" value={dcf.method ?? "Discounted Cash Flow"} sub="fair value model" tone="text-slate-100" /></ProBlur>
           </>
         )}
       </div>

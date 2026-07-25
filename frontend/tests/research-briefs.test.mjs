@@ -45,6 +45,8 @@ test("insights renders research briefs from the registry", () => {
 });
 
 test("generated research briefs render pipe-delimited data as production tables", () => {
+  assert.match(generatedBriefPage, /function cleanInlineText/);
+  assert.match(generatedBriefPage, /replace\(\/\\\*\\\*\/g, ""\)/);
   assert.match(generatedBriefPage, /function parsePipeTable/);
   assert.match(generatedBriefPage, /const columnCount = 3/);
   assert.match(generatedBriefPage, /isMarkdownDivider\(cells\.slice\(cursor, cursor \+ columnCount\)\)/);

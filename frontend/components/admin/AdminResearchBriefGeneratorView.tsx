@@ -446,7 +446,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setBusy("save");
     setError("");
     try {
-      const article = { ...articleDraft, sections: markdownToSections(bodyMarkdown) };
+      const article = currentEditedArticle();
+      if (!article) return;
       const draft = await updateAdminResearchBriefDraft(selectedDraft.id, { status, article });
       setSelectedDraft(draft);
       await refreshDrafts(draft);
@@ -489,14 +490,17 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   }
 
   async function publishSelected() {
-    if (!selectedDraft) return;
+    if (!selectedDraft || !articleDraft) return;
     setBusy("publish");
     try {
-      const draft = await publishAdminResearchBriefDraft(selectedDraft.id);
+      const article = currentEditedArticle();
+      if (!article) return;
+      const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article });
+      const draft = await publishAdminResearchBriefDraft(savedDraft.id);
       setSelectedDraft(draft);
       setPublishDialogOpen(false);
       await refreshDrafts(draft);
-      showToast?.("Draft published in local/test storage.", "success");
+      showToast?.("Draft saved and published.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to publish draft.";
       setError(message);
@@ -528,6 +532,11 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     if (!selectedDraft) return;
     setDeleteConfirmationText("");
     setDeleteDialogOpen(true);
+  }
+
+  function currentEditedArticle() {
+    if (!articleDraft) return null;
+    return { ...articleDraft, sections: markdownToSections(bodyMarkdown) };
   }
 
   function closeDeleteDialog() {
