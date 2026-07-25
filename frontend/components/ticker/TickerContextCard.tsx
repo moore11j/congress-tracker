@@ -10,6 +10,7 @@ import {
   getTickerOwnership,
   getTickerPressReleases,
   getTickerSecFilings,
+  getTickerValuation,
   type EventItem,
   type InsightsNewsResponse,
   type MacroPositioningResponse,
@@ -18,6 +19,7 @@ import {
   type SecFilingsResponse,
   type TickerFinancialsResponse,
   type TickerOwnershipResponse,
+  type TickerValuationResponse,
   type TickerValuationMetrics,
   type TickerValuationSection,
 } from "@/lib/api";
@@ -27,6 +29,7 @@ import { NewsArticleList } from "@/components/insights/NewsArticleList";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { TickerFinancialsPanel, TickerFinancialsSkeleton } from "@/components/ticker/TickerFinancialsPanel";
 import { TickerOwnershipPanel, TickerOwnershipSkeleton } from "@/components/ticker/TickerOwnershipPanel";
+import { TickerValuationSkeleton, TickerValuationTab } from "@/components/ticker/TickerValuationTab";
 
 type Props = {
   symbol: string;
@@ -35,7 +38,7 @@ type Props = {
   className?: string;
 };
 
-type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro";
+type ContextTab = "overview" | "news" | "financials" | "ownership" | "events" | "macro" | "valuation";
 
 const TAB_CLASS = "relative flex h-12 shrink-0 items-center px-5 text-sm font-semibold transition";
 const NEWS_UNAVAILABLE_MESSAGE = "News is temporarily unavailable.";
@@ -55,6 +58,7 @@ const EVENTS_EMPTY_MESSAGE = "No recent filings or disclosure activity found.";
 const TICKER_NEWS_PANEL_SOURCE = "TickerNewsPanel";
 const TICKER_FINANCIALS_PANEL_SOURCE = "TickerFinancialsPanel";
 const TICKER_OWNERSHIP_PANEL_SOURCE = "TickerOwnershipPanel";
+const TICKER_VALUATION_PANEL_SOURCE = "TickerValuationTab";
 const TICKER_PRESS_PANEL_SOURCE = "TickerPressPanel";
 const TICKER_FILINGS_PANEL_SOURCE = "TickerFilingsPanel";
 const TICKER_DISCLOSURE_PANEL_SOURCE = "TickerDisclosurePanel";
@@ -74,6 +78,7 @@ const FINANCIALS_REQUEST_TIMEOUT_MS = 15000;
 const OWNERSHIP_REQUEST_TIMEOUT_MS = 12000;
 const SEC_REQUEST_TIMEOUT_MS = 12000;
 const MACRO_REQUEST_TIMEOUT_MS = 12000;
+const VALUATION_REQUEST_TIMEOUT_MS = 15000;
 const SEC_FORM_TITLES: Record<string, string> = {
   "3": "Initial Statement of Beneficial Ownership",
   "4": "Statement of Changes in Beneficial Ownership",
@@ -458,6 +463,8 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const [loadingOwnership, setLoadingOwnership] = useState(false);
   const [macroPositioning, setMacroPositioning] = useState<MacroPositioningResponse | null>(null);
   const [loadingMacroPositioning, setLoadingMacroPositioning] = useState(false);
+  const [valuation, setValuation] = useState<TickerValuationResponse | null>(null);
+  const [loadingValuation, setLoadingValuation] = useState(false);
 
   const newsAbortRef = useRef<AbortController | null>(null);
   const pressAbortRef = useRef<AbortController | null>(null);
@@ -466,6 +473,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
   const financialsAbortRef = useRef<AbortController | null>(null);
   const ownershipAbortRef = useRef<AbortController | null>(null);
   const macroAbortRef = useRef<AbortController | null>(null);
+  const valuationAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     abortRequest(newsAbortRef);
@@ -475,6 +483,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     abortRequest(financialsAbortRef);
     abortRequest(ownershipAbortRef);
     abortRequest(macroAbortRef);
+    abortRequest(valuationAbortRef);
     setNewsPages([]);
     setPressPages([]);
     setSecPages([]);
@@ -483,6 +492,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     setFinancials(null);
     setOwnership(null);
     setMacroPositioning(null);
+    setValuation(null);
     setLoadingNews(false);
     setLoadingPress(false);
     setLoadingSec(false);
@@ -490,6 +500,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
     setLoadingFinancials(false);
     setLoadingOwnership(false);
     setLoadingMacroPositioning(false);
+    setLoadingValuation(false);
   }, [symbol]);
 
   useEffect(() => {
@@ -665,6 +676,69 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
       if (macroAbortRef.current === controller) macroAbortRef.current = null;
     };
   }, [activeTab, macroPositioning, symbol]);
+
+  useEffect(() => {
+    if (activeTab !== "valuation") {
+      abortRequest(valuationAbortRef);
+      setLoadingValuation(false);
+      return;
+    }
+    if (valuation || valuationAbortRef.current) return;
+
+    const controller = new AbortController();
+    abortRequest(valuationAbortRef);
+    valuationAbortRef.current = controller;
+    const timeoutGuard = startRequestTimeout(controller, VALUATION_REQUEST_TIMEOUT_MS);
+    setLoadingValuation(true);
+
+    getTickerValuation(symbol, { signal: controller.signal, source: TICKER_VALUATION_PANEL_SOURCE })
+      .then((response) => {
+        if (!controller.signal.aborted) setValuation(response);
+      })
+      .catch((error) => {
+        if (timeoutGuard.timedOut || !isAbortError(error)) {
+          setValuation({
+            symbol,
+            status: "unavailable",
+            message: "Valuation inputs are not available for this ticker yet.",
+            dcf: {
+              fairValue: null,
+              bearValue: null,
+              bullValue: null,
+              currentPrice: null,
+              upsideDownsidePct: null,
+              judgment: "Unavailable",
+              method: "Custom DCF Advanced",
+              rangeSource: "unavailable",
+              cashFlows: [],
+              assumptions: [],
+              methodSignals: [],
+            },
+            consensus: {
+              targetConsensus: null,
+              targetHigh: null,
+              targetLow: null,
+              targetMedian: null,
+              status: "unavailable",
+            },
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      })
+      .finally(() => {
+        timeoutGuard.clear();
+        if (valuationAbortRef.current === controller) {
+          valuationAbortRef.current = null;
+          setLoadingValuation(false);
+        }
+      });
+
+    return () => {
+      timeoutGuard.clear();
+      controller.abort();
+      if (valuationAbortRef.current === controller) valuationAbortRef.current = null;
+    };
+  }, [activeTab, symbol, valuation]);
 
   useEffect(() => {
     if (activeTab !== "events") {
@@ -969,9 +1043,16 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
           <button
             type="button"
             onClick={() => setActiveTab("macro")}
-            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "macro" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+            className={`${TAB_CLASS} ${activeTab === "macro" ? "text-amber-300 after:absolute after:bottom-0 after:left-5 after:right-5 after:h-0.5 after:bg-amber-300" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
           >
             <span>Macro Positioning</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("valuation")}
+            className={`${TAB_CLASS} mx-2 my-1 h-10 rounded-md border border-indigo-400/60 bg-indigo-500/10 text-violet-200 shadow-[0_0_18px_rgba(99,102,241,0.15)] ${activeTab === "valuation" ? "border-indigo-300 bg-indigo-500/20 text-violet-100" : "hover:bg-indigo-500/15 hover:text-white"}`}
+          >
+            <span>Valuation</span>
             <span className="ml-2 rounded bg-indigo-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-white">New</span>
           </button>
         </div>
@@ -1038,6 +1119,22 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
               {loadingFinancials || !financials ? <TickerFinancialsSkeleton /> : <TickerFinancialsPanel data={financials} />}
+            </div>
+          </div>
+        ) : null}
+        {activeTab === "valuation" ? (
+          <div className="absolute inset-0 flex min-h-0 flex-col space-y-4 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Valuation</p>
+                <p className="mt-2 text-sm text-slate-400">Custom DCF fair value, cash-flow bridge, and street target context for {symbol}.</p>
+              </div>
+              {valuation?.updatedAt ? (
+                <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Updated {formatDateShort(valuation.updatedAt)}</span>
+              ) : null}
+            </div>
+            <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${SCROLL_REGION_CLASS}`}>
+              {loadingValuation || !valuation ? <TickerValuationSkeleton /> : <TickerValuationTab data={valuation} symbol={symbol} />}
             </div>
           </div>
         ) : null}

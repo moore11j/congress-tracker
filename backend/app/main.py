@@ -271,6 +271,7 @@ from app.services.fundamentals_cache import (
     upsert_fundamentals_cache,
 )
 from app.services.ticker_financials import get_ticker_financials
+from app.services.ticker_valuation import get_ticker_valuation
 from app.services.ticker_hydration import request_ticker_hydration, ticker_hydration_status
 from app.services.ticker_content_cache import db_ticker_content_cache_get, ticker_content_cache_summary
 from app.services.provider_usage import (
@@ -12107,6 +12108,17 @@ def ticker_financials(symbol: str):
     started_at = perf_counter()
     payload = _normalize_ticker_financials_payload(get_ticker_financials(normalized_symbol))
     _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="financials", payload=payload, started_at=started_at)
+    return payload
+
+
+@app.get("/api/tickers/{symbol}/valuation", dependencies=[Depends(rate_limit_provider_backed)])
+def ticker_valuation(symbol: str):
+    normalized_symbol = normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Ticker symbol is required.")
+    started_at = perf_counter()
+    payload = get_ticker_valuation(normalized_symbol)
+    _log_ticker_endpoint_payload(symbol=normalized_symbol, endpoint="valuation", payload=payload, started_at=started_at)
     return payload
 
 

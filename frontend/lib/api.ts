@@ -3655,6 +3655,51 @@ export type TickerValuationSection = TickerValuationMetrics & {
   valuation_metrics?: TickerValuationMetrics;
 };
 
+export type TickerValuationCashFlowPoint = {
+  year: string;
+  actualCashFlow?: number | null;
+  discountedCashFlow?: number | null;
+};
+
+export type TickerValuationAssumption = {
+  label: string;
+  value: number;
+  key?: string;
+};
+
+export type TickerValuationMethodSignal = {
+  method: string;
+  signal: string;
+};
+
+export type TickerValuationResponse = {
+  symbol: string;
+  status: "ok" | "partial" | "unavailable" | string;
+  message?: string | null;
+  dcf: {
+    symbol?: string | null;
+    fairValue?: number | null;
+    bearValue?: number | null;
+    bullValue?: number | null;
+    currentPrice?: number | null;
+    upsideDownsidePct?: number | null;
+    judgment?: string | null;
+    method?: string | null;
+    rangeSource?: string | null;
+    cashFlows?: TickerValuationCashFlowPoint[];
+    assumptions?: TickerValuationAssumption[];
+    methodSignals?: TickerValuationMethodSignal[];
+  };
+  consensus?: {
+    targetConsensus?: number | null;
+    targetHigh?: number | null;
+    targetLow?: number | null;
+    targetMedian?: number | null;
+    status?: "ok" | "unavailable" | string;
+  } | null;
+  updatedAt?: string | null;
+};
+
 export type TickerFinancialsResponse = {
   symbol: string;
   companyName?: string | null;
@@ -6154,6 +6199,23 @@ export async function getTickerFinancials(
       next: { revalidate: 0 },
       signal,
       source: params?.source ?? "TickerPage",
+    }),
+  );
+}
+
+export async function getTickerValuation(
+  symbol: string,
+  params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
+): Promise<TickerValuationResponse> {
+  const url = buildApiUrl(`/api/tickers/${tickerPathSymbol(symbol)}/valuation`);
+  return clientCachedJson<TickerValuationResponse>(
+    `ticker-valuation:${url}`,
+    params?.signal,
+    (signal) => fetchPublicJson<TickerValuationResponse>(url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal,
+      source: params?.source ?? "TickerValuationTab",
     }),
   );
 }
