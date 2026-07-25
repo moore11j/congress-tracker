@@ -120,6 +120,18 @@ def _first_row_number(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> floa
     return None
 
 
+def _positive_price(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return value if value > 0 else None
+
+
+def _non_negative_price(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return max(value, 0.0)
+
+
 def _year(row: dict[str, Any]) -> str | None:
     raw = _text(row.get("year") or row.get("fiscalYear") or row.get("calendarYear") or row.get("date"))
     if not raw:
@@ -131,12 +143,13 @@ def _year(row: dict[str, Any]) -> str | None:
 
 def _target_consensus_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
     row = rows[0] if rows else {}
+    target_consensus = _positive_price(_number(row.get("targetConsensus")))
     return {
-        "targetConsensus": _number(row.get("targetConsensus")),
-        "targetHigh": _number(row.get("targetHigh")),
-        "targetLow": _number(row.get("targetLow")),
-        "targetMedian": _number(row.get("targetMedian")),
-        "status": "ok" if _number(row.get("targetConsensus")) is not None else "unavailable",
+        "targetConsensus": target_consensus,
+        "targetHigh": _positive_price(_number(row.get("targetHigh"))),
+        "targetLow": _positive_price(_number(row.get("targetLow"))),
+        "targetMedian": _positive_price(_number(row.get("targetMedian"))),
+        "status": "ok" if target_consensus is not None else "unavailable",
     }
 
 
@@ -169,6 +182,8 @@ def _assumptions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         value = _number(merged.get(key))
         if value is None:
             continue
+        if key == "taxRate":
+            value = max(0.0, min(value, 100.0))
         items.append({"label": label, "value": value, "key": key})
     return items
 
@@ -198,8 +213,8 @@ def _method_signals(judgment: str) -> list[dict[str, str]]:
 
 
 def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    fair_value = _first_row_number(rows, DCF_VALUE_KEYS)
-    current_price = _first_row_number(rows, CURRENT_PRICE_KEYS)
+    fair_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
+    current_price = _positive_price(_first_row_number(rows, CURRENT_PRICE_KEYS))
     upside_downside_pct = None
     if fair_value is not None and current_price not in (None, 0):
         upside_downside_pct = ((fair_value - float(current_price)) / abs(float(current_price))) * 100
@@ -268,7 +283,7 @@ def get_ticker_valuation(symbol: str) -> dict[str, Any]:
         return _unavailable(normalized_symbol, consensus=consensus, message=TEMPORARILY_UNAVAILABLE_MESSAGE)
 
     dcf = _valuation_from_dcf_rows(normalized_symbol, dcf_rows)
-    if dcf["fairValue"] is None and not dcf["cashFlows"]:
+    if dcf["fairValue"] is None and not dcf["cashFlows"] and not dcf["assumptions"]:
         return _unavailable(normalized_symbol, consensus=consensus)
 
     return {

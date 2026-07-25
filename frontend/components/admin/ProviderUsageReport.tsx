@@ -20,6 +20,15 @@ function planAssumptionValue(data?: AdminProviderUsageResponse | null) {
   return `${plan} / ${calls} calls per minute`;
 }
 
+function queuedEnrichmentValue(data: AdminProviderUsageResponse) {
+  const derivedTotal = (data.enrichment_queue?.by_type_status ?? [])
+    .filter((row) => row.status === "queued")
+    .reduce((sum, row) => sum + (row.count ?? 0), 0);
+  const total = data.enrichment_queue?.total_queued_count ?? derivedTotal;
+  const eligible = data.enrichment_queue?.eligible_queued_count ?? total;
+  return `${eligible} ready / ${total} total`;
+}
+
 export function ProviderUsageReport() {
   const [data, setData] = useState<AdminProviderUsageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +106,7 @@ export function ProviderUsageReport() {
             <Metric label="Technical symbols" value={String(data.cache_coverage?.technical_price_history_symbols ?? "n/a")} />
             <Metric
               label="Queued enrichments"
-              value={String((data.enrichment_queue?.by_type_status ?? []).filter((row) => row.status === "queued").reduce((sum, row) => sum + (row.count ?? 0), 0))}
+              value={queuedEnrichmentValue(data)}
             />
           </div>
 

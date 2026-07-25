@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, select
@@ -12,6 +12,7 @@ from app.models import DataEnrichmentJob
 from app.services.data_enrichment_queue import (
     enqueue_data_enrichment_job,
     enqueue_priority_ticker_prewarm_jobs,
+    enrichment_queue_summary,
     is_valid_enrichment_symbol,
     process_data_enrichment_jobs,
     skip_invalid_symbol_jobs,
@@ -82,6 +83,51 @@ def test_skip_invalid_symbol_jobs_marks_existing_pending_rows():
         assert rows["[SYMBOL]"].status == "skipped"
         assert rows["[SYMBOL]"].reason == "invalid_symbol"
         assert rows["NBIS"].status == "queued"
+    finally:
+        db.close()
+
+
+def test_enrichment_queue_summary_splits_ready_and_delayed_jobs():
+    Session = _session_factory()
+    db = Session()
+    now = datetime.now(timezone.utc)
+    try:
+        db.add_all(
+            [
+                DataEnrichmentJob(
+                    job_type="ticker_meta",
+                    symbol="AAPL",
+                    dedupe_key="ticker_meta|AAPL||",
+                    priority=10,
+                    status="queued",
+                    attempts=0,
+                    max_attempts=3,
+                    source="test",
+                    reason="ready",
+                    next_run_at=now - timedelta(minutes=1),
+                ),
+                DataEnrichmentJob(
+                    job_type="ticker_meta",
+                    symbol="MSFT",
+                    dedupe_key="ticker_meta|MSFT||",
+                    priority=10,
+                    status="queued",
+                    attempts=1,
+                    max_attempts=3,
+                    source="test",
+                    reason="retry_later",
+                    next_run_at=now + timedelta(minutes=30),
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = enrichment_queue_summary(db)
+
+        assert summary["total_queued_count"] == 2
+        assert summary["eligible_queued_count"] == 1
+        assert summary["delayed_queued_count"] == 1
+        assert summary["oldest_eligible_job"]["symbol"] == "AAPL"
     finally:
         db.close()
 

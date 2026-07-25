@@ -256,11 +256,34 @@ def _job_completed_recently(job: DataEnrichmentJob, now: datetime) -> bool:
 
 
 def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
     status_rows = db.execute(
         select(DataEnrichmentJob.job_type, DataEnrichmentJob.status, func.count(DataEnrichmentJob.id))
         .group_by(DataEnrichmentJob.job_type, DataEnrichmentJob.status)
         .order_by(DataEnrichmentJob.job_type.asc(), DataEnrichmentJob.status.asc())
     ).all()
+    total_queued = int(
+        db.execute(
+            select(func.count(DataEnrichmentJob.id)).where(DataEnrichmentJob.status == "queued")
+        ).scalar_one()
+        or 0
+    )
+    eligible_queued = int(
+        db.execute(
+            select(func.count(DataEnrichmentJob.id))
+            .where(DataEnrichmentJob.status == "queued")
+            .where(DataEnrichmentJob.next_run_at <= now)
+        ).scalar_one()
+        or 0
+    )
+    delayed_queued = int(
+        db.execute(
+            select(func.count(DataEnrichmentJob.id))
+            .where(DataEnrichmentJob.status == "queued")
+            .where(DataEnrichmentJob.next_run_at > now)
+        ).scalar_one()
+        or 0
+    )
     failed_rows = db.execute(
         select(DataEnrichmentJob.job_type, DataEnrichmentJob.reason, DataEnrichmentJob.error, func.count(DataEnrichmentJob.id))
         .where(DataEnrichmentJob.status == "failed")
@@ -276,6 +299,13 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
     oldest_pending = db.execute(
         select(DataEnrichmentJob)
         .where(DataEnrichmentJob.status == "queued")
+        .order_by(DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    oldest_eligible = db.execute(
+        select(DataEnrichmentJob)
+        .where(DataEnrichmentJob.status == "queued")
+        .where(DataEnrichmentJob.next_run_at <= now)
         .order_by(DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
         .limit(1)
     ).scalar_one_or_none()
@@ -318,7 +348,11 @@ def enrichment_queue_summary(db: Session, *, limit: int = 20) -> dict[str, Any]:
             }
             for row in recent
         ],
+        "total_queued_count": total_queued,
+        "eligible_queued_count": eligible_queued,
+        "delayed_queued_count": delayed_queued,
         "oldest_pending_job": _job_summary(oldest_pending) if oldest_pending is not None else None,
+        "oldest_eligible_job": _job_summary(oldest_eligible) if oldest_eligible is not None else None,
         "recent_successes_by_type": [
             {"job_type": job_type, "count": int(count or 0)}
             for job_type, count in recent_success_rows

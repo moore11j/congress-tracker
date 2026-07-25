@@ -1598,7 +1598,20 @@ export type AdminProviderUsageResponse = {
   enrichment_queue?: {
     by_type_status: AdminEnrichmentQueueRow[];
     failed_by_reason: AdminEnrichmentQueueRow[];
+    total_queued_count?: number;
+    eligible_queued_count?: number;
+    delayed_queued_count?: number;
     oldest_pending_job?: {
+      id: number;
+      job_type: string;
+      symbol?: string | null;
+      status: string;
+      source?: string | null;
+      reason?: string | null;
+      created_at?: string | null;
+      updated_at?: string | null;
+    } | null;
+    oldest_eligible_job?: {
       id: number;
       job_type: string;
       symbol?: string | null;

@@ -24,8 +24,8 @@ case "${DATA_ENRICHMENT_QUEUE_ENABLED:-false}" in
     ;;
 esac
 
-batch_size="${DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-10}"
-max_seconds="${DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-20}"
+batch_size="${DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-120}"
+max_seconds="${DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-180}"
 
 case "$batch_size" in
   ""|*[!0-9]*)

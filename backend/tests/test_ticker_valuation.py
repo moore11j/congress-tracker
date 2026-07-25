@@ -67,3 +67,31 @@ def test_ticker_valuation_keeps_dcf_when_consensus_unavailable(monkeypatch):
     assert response["dcf"]["fairValue"] == 115
     assert response["consensus"]["status"] == "unavailable"
     assert response["consensus"]["targetConsensus"] is None
+
+
+def test_ticker_valuation_rejects_negative_fair_value_and_clamps_tax_rate(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "price-target-consensus":
+            return [{"targetConsensus": 227}]
+        return [
+            {
+                "year": "2026",
+                "stockPrice": 187.77,
+                "dcf": -65,
+                "taxRate": -208.18,
+                "longTermGrowthRate": 2,
+            }
+        ]
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    response = ticker_valuation("nbis")
+    assumptions = {item["key"]: item["value"] for item in response["dcf"]["assumptions"]}
+
+    assert response["status"] == "ok"
+    assert response["dcf"]["fairValue"] == 0
+    assert response["dcf"]["bearValue"] == 0
+    assert response["dcf"]["bullValue"] == 0
+    assert round(response["dcf"]["upsideDownsidePct"], 2) == -100
+    assert assumptions["taxRate"] == 0
+    assert response["consensus"]["targetConsensus"] == 227

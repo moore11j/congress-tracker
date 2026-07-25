@@ -13,14 +13,17 @@ def test_fly_cron_process_is_separate_from_web_process():
     assert fly_config["processes"]["app"] == "uvicorn app.main:app --host 0.0.0.0 --port 8080"
     assert fly_config["processes"]["cron"] == "supercronic /app/crontab"
     assert fly_config["http_service"]["processes"] == ["app"]
-    assert fly_config["env"]["ENRICHMENT_QUEUE_ENABLED"] == "false"
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "false"
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "10"
-    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "20"
-    assert fly_config["env"]["FEED_PNL_REPAIR_ENABLED"] == "false"
-    assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "3"
-    assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "150"
-    assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "30"
+    assert fly_config["env"]["ENRICHMENT_QUEUE_ENABLED"] == "true"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_ENABLED"] == "true"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_BATCH_SIZE"] == "120"
+    assert fly_config["env"]["DATA_ENRICHMENT_QUEUE_MAX_SECONDS"] == "180"
+    assert fly_config["env"]["FMP_PLAN_CALLS_PER_MINUTE"] == "500"
+    assert fly_config["env"]["FMP_SOFT_LIMIT_PER_MINUTE"] == "400"
+    assert fly_config["env"]["FMP_HARD_LIMIT_PER_MINUTE"] == "500"
+    assert fly_config["env"]["FEED_PNL_REPAIR_ENABLED"] == "true"
+    assert fly_config["env"]["FEED_PNL_REPAIR_DAYS"] == "30"
+    assert fly_config["env"]["FEED_PNL_REPAIR_LIMIT"] == "300"
+    assert fly_config["env"]["FEED_PNL_REPAIR_MAX_SECONDS"] == "240"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_ENABLED"] == "false"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_SYMBOL_LIMIT"] == "25"
     assert fly_config["env"]["PRIORITY_TICKER_PREWARM_PER_USER_LIMIT"] == "5"
@@ -50,10 +53,10 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
     assert "run_email_digest_schedule.sh signals" not in crontab
-    assert "*/15 * * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
+    assert "5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
-    assert "17 * * * * cd /app && sh /app/scripts/run_institutional_latest_job.sh" in crontab
+    assert "17 * * * * cd /app && python -m app.ingest_run --job institutional-latest-daily" in crontab
     assert "20 5,12 * * 1-5 cd /app && python -m app.jobs.refresh_fred_macro_cache" in crontab
     assert "*/15 6-13 * * 1-5 cd /app && python -m app.jobs.refresh_insights_snapshot --kind all" in crontab
     assert "30 6 * * 1-5 cd /app && sh /app/scripts/run_email_intraday_alert_sweep.sh" in crontab
@@ -96,8 +99,8 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     assert "FMP_BACKGROUND_REFRESH_ENABLED:-true" in script
     assert "ENRICHMENT_QUEUE_ENABLED:-false" in script
     assert "DATA_ENRICHMENT_QUEUE_ENABLED:-false" in script
-    assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-10" in script
-    assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-20" in script
+    assert "DATA_ENRICHMENT_QUEUE_BATCH_SIZE:-120" in script
+    assert "DATA_ENRICHMENT_QUEUE_MAX_SECONDS:-180" in script
     assert "python -m app.background_job_guard --job enrichment-queue" in script
     assert "reason=db_pressure_guard" in script
     assert "mkdir \"$lock_dir\"" in script
