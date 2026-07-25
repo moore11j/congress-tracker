@@ -5807,6 +5807,13 @@ export async function clearAdminAiGrowthDraftHistory(): Promise<{ ok: boolean; c
   });
 }
 
+export async function deleteAdminAiGrowthDraftAsset(draftId: number, assetIndex: number): Promise<AdminAiMarketingOpportunity> {
+  return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/assets/${assetIndex}`), {
+    method: "DELETE",
+    source: "AdminAiGrowth",
+  });
+}
+
 export async function regenerateAdminAiGrowthDraft(
   draftId: number,
   payload: {

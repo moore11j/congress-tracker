@@ -33,6 +33,10 @@ test("AI Growth Engine exposes the new top-level IA", () => {
   assert.match(apiSource, /openai_credits_left_usd/);
   assert.match(apiSource, /clearAdminAiGrowthDraftHistory/);
   assert.match(apiSource, /\/api\/admin\/ai-growth\/drafts\/clear-history/);
+  assert.match(apiSource, /deleteAdminAiGrowthDraftAsset/);
+  assert.match(apiSource, /\/api\/admin\/ai-growth\/drafts\/\$\{draftId\}\/assets\/\$\{assetIndex\}/);
+  assert.match(viewSource, /Delete this asset from the AI Growth dashboard\?/);
+  assert.match(viewSource, /Delete asset/);
   assert.doesNotMatch(viewSource, /getAdminProviderUsageFmp/);
   assert.doesNotMatch(viewSource, /apiCreditsMetric/);
   assert.doesNotMatch(viewSource, /OPENAI_CREDITS_LEFT_USD/);
@@ -116,11 +120,30 @@ test("content draft cards include copy and manual lifecycle actions", () => {
     "Archive",
     "Delete",
     "Regenerate",
+    "Check all",
+    "Uncheck all",
+    "Email selected",
+    "Approve selected",
+    "Reject selected",
+    "Archive selected",
+    "Delete selected",
+    "Previous",
+    "Next",
   ]) {
     assert.match(viewSource, new RegExp(label.replace(/[/-]/g, "\\$&")));
   }
   assert.match(viewSource, /Requested draft changes/);
-  assert.match(viewSource, /Are you sure you want to delete this draft\?/);
+  assert.match(viewSource, /WalnutConfirmDialog/);
+  assert.match(viewSource, /title="Delete this draft\?"/);
+  assert.match(viewSource, /title="Delete selected drafts\?"/);
+  assert.match(viewSource, /DRAFTS_PAGE_SIZE/);
+  assert.match(viewSource, /selectedIds/);
+  assert.match(viewSource, /onBulkAction/);
+  assert.match(viewSource, /bulk:approve/);
+  assert.match(viewSource, /bulk:delete/);
+  assert.match(viewSource, /Created \{createdAtLabel\}/);
+  assert.match(viewSource, /Created \{formatDateTime\(draftDeleteTarget\.created_at \?\? draftDeleteTarget\.updated_at\)\}/);
+  assert.doesNotMatch(viewSource, /window\.confirm\("Are you sure you want to delete this draft\?/);
   assert.match(viewSource, /regenerateAdminAiGrowthDraft/);
   assert.match(viewSource, /emailAdminAiGrowthDraft/);
   assert.match(viewSource, /markAdminAiGrowthDraftCopied/);

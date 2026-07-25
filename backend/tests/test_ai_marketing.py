@@ -39,6 +39,7 @@ from app.routers.ai_marketing import (
     admin_ai_growth_drafts,
     admin_ai_growth_clear_draft_history,
     admin_ai_growth_create_draft,
+    admin_ai_growth_delete_asset,
     admin_ai_growth_email_draft,
     admin_ai_growth_mark_copied,
     admin_ai_growth_mark_posted,
@@ -538,6 +539,57 @@ def test_ai_growth_clear_draft_history_hides_generated_assets():
         assert cleared == {"ok": True, "cleared": 2}
         assert admin_ai_growth_drafts(request, db, status="all", limit=50)["items"] == []
         assert db.query(AiMarketingOpportunity).filter(AiMarketingOpportunity.status == "dismissed").count() == 2
+    finally:
+        db.close()
+
+
+def test_ai_growth_delete_asset_removes_only_selected_asset():
+    db = _session()
+    try:
+        admin = _user(db, "admin-assets@example.com", role="admin")
+        request = _request_for_user(admin)
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="x_chart_drop",
+                content_type="x_post",
+                source_platform="x",
+                title="TSM asset draft",
+                text="TSM context",
+                generate=False,
+                assets=[
+                    {
+                        "title": "TSM thumbnail",
+                        "asset_type": "image",
+                        "url": "https://walnutmarkets.com/assets/tsm.png",
+                        "thumbnail_url": "https://walnutmarkets.com/assets/tsm.png",
+                        "suggested_caption": "TSM confirmation card.",
+                        "source_data_notes": "Signals monitor.",
+                    },
+                    {
+                        "title": "JPM thumbnail",
+                        "asset_type": "image",
+                        "url": "https://walnutmarkets.com/assets/jpm.png",
+                        "thumbnail_url": "https://walnutmarkets.com/assets/jpm.png",
+                        "suggested_caption": "JPM institutional card.",
+                        "source_data_notes": "Institutional monitor.",
+                    },
+                ],
+            ),
+            request,
+            db,
+        )
+        draft_id = result["opportunity"]["id"]
+
+        updated = admin_ai_growth_delete_asset(draft_id, 0, request, db)
+
+        assert [asset["title"] for asset in updated["assets"]] == ["JPM thumbnail"]
+        stored = db.get(AiMarketingOpportunity, draft_id)
+        assert stored is not None
+        stored_assets = json.loads(stored.asset_refs_json)
+        assert [asset["title"] for asset in stored_assets] == ["JPM thumbnail"]
+        with pytest.raises(HTTPException) as exc:
+            admin_ai_growth_delete_asset(draft_id, 5, request, db)
+        assert exc.value.status_code == 404
     finally:
         db.close()
 

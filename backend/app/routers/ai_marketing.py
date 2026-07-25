@@ -28,6 +28,7 @@ from app.services.ai_marketing import (
     create_campaign,
     create_growth_draft,
     create_manual_opportunity,
+    delete_ai_growth_asset,
     delete_campaign,
     generate_suggestion,
     latest_suggestions_by_opportunity,
@@ -568,6 +569,23 @@ def admin_ai_growth_download_asset(
             "Cache-Control": "private, max-age=3600",
         },
     )
+
+
+@router.delete("/admin/ai-growth/drafts/{draft_id}/assets/{asset_index}", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_ai_growth_delete_asset(
+    draft_id: int,
+    asset_index: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin_user(db, request)
+    opportunity = _opportunity_or_404(db, draft_id)
+    try:
+        updated = delete_ai_growth_asset(db, opportunity, asset_index)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    latest = latest_suggestions_by_opportunity(db, [updated.id]).get(updated.id)
+    return opportunity_to_dict(updated, suggestion=latest)
 
 
 @router.patch("/admin/ai-growth/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])

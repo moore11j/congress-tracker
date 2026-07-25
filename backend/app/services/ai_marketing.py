@@ -1401,6 +1401,51 @@ def ai_growth_asset_download(
     return payload
 
 
+def delete_ai_growth_asset(
+    db: Session,
+    opportunity: AiMarketingOpportunity,
+    asset_index: int,
+) -> AiMarketingOpportunity:
+    latest = latest_suggestions_by_opportunity(db, [opportunity.id]).get(opportunity.id)
+    assets = _opportunity_assets(opportunity, suggestion=latest)
+    if asset_index < 0 or asset_index >= len(assets):
+        raise ValueError("Asset not found.")
+    selected = assets[asset_index]
+    selected_key = _asset_identity_key(selected)
+    remove_legacy_generated_cards = str(selected.get("template") or "") == "generated_thumbnail"
+
+    removed = 0
+    removed_selected = False
+
+    def filter_assets(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        nonlocal removed, removed_selected
+        filtered: list[dict[str, Any]] = []
+        for item in _normalize_assets(items):
+            if _asset_identity_key(item) == selected_key:
+                removed += 1
+                removed_selected = True
+                continue
+            if remove_legacy_generated_cards and _is_legacy_generated_draft_card(item):
+                removed += 1
+                continue
+            filtered.append(item)
+        return filtered
+
+    opportunity.asset_refs_json = _dump_json_list(filter_assets(_load_json_list(opportunity.asset_refs_json)))
+    if latest:
+        latest.assets_json = _dump_json_list(filter_assets(_load_json_list(latest.assets_json)))
+    if not removed_selected:
+        raise ValueError("Asset not found.")
+    opportunity.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(opportunity)
+    return opportunity
+
+
+def _asset_identity_key(asset: dict[str, Any]) -> str:
+    return json.dumps(asset, sort_keys=True, separators=(",", ":"), default=str)
+
+
 def suggestion_to_dict(suggestion: AiMarketingSuggestion | None) -> dict[str, Any] | None:
     if suggestion is None:
         return None

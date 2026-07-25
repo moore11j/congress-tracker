@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
   clearAdminAiGrowthDraftHistory,
   createAdminAiMarketingCampaign,
   createAdminAiGrowthDraft,
+  deleteAdminAiGrowthDraftAsset,
   deleteAdminAiMarketingCampaign,
   emailAdminAiGrowthDraft,
   getAdminAiGrowthDrafts,
@@ -49,6 +51,7 @@ type TabKey =
   | "settings";
 
 type DraftAction = "archive" | "reject" | "delete";
+type BulkDraftAction = "email" | "approve" | "reject" | "archive" | "delete";
 type SocialCardControls = {
   card_template: string;
   card_tone: string;
@@ -94,6 +97,8 @@ const STATUS_FILTERS: Array<{ value: "all" | AdminAiMarketingStatus; label: stri
   { value: "archived", label: "Archived" },
   { value: "rejected", label: "Denied" },
 ];
+
+const DRAFTS_PAGE_SIZE = 10;
 
 const SETTING_KEYS = [
   "OPENAI_API_KEY",
@@ -248,6 +253,7 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
   const [voiceCharacteristics, setVoiceCharacteristics] = useState(DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS);
   const [newVoiceCharacteristic, setNewVoiceCharacteristic] = useState("");
   const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
+  const [draftDeleteTarget, setDraftDeleteTarget] = useState<AdminAiMarketingOpportunity | null>(null);
 
   const pendingReviewCount = useMemo(
     () => drafts.filter((draft) => ["new", "draft", "needs_review", "emailed", "approved"].includes(draft.status)).length,
@@ -390,17 +396,12 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     draft: AdminAiMarketingOpportunity,
     action: DraftAction,
   ) => {
-    if (action === "delete" && !window.confirm("Are you sure you want to delete this draft? It will be removed from the Draft Queue.")) {
+    if (action === "delete") {
+      setDraftDeleteTarget(draft);
       return;
     }
     setBusy(`${action}:${draft.id}`);
     try {
-      if (action === "delete") {
-        await updateAdminAiGrowthDraftStatus(draft.id, { status: "dismissed" });
-        removeDraft(draft.id);
-        notify("Draft deleted.", "success");
-        return;
-      }
       const updated = action === "archive" ? await archiveAdminAiGrowthDraft(draft.id) : await rejectAdminAiGrowthDraft(draft.id);
       replaceDraft(updated);
       notify(action === "archive" ? "Draft archived." : "Draft denied.", "success");
@@ -480,6 +481,42 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
     }
   };
 
+  const runBulkDraftAction = async (selectedDrafts: AdminAiMarketingOpportunity[], action: BulkDraftAction) => {
+    if (!selectedDrafts.length) return;
+    setBusy(`bulk:${action}`);
+    try {
+      if (action === "delete") {
+        const deleteIds = new Set(selectedDrafts.map((draft) => draft.id));
+        for (const draft of selectedDrafts) {
+          await updateAdminAiGrowthDraftStatus(draft.id, { status: "dismissed" });
+        }
+        setDrafts((current) => current.filter((draft) => !deleteIds.has(draft.id)));
+        notify(`${selectedDrafts.length} drafts deleted.`, "success");
+        return;
+      }
+
+      for (const draft of selectedDrafts) {
+        const updated =
+          action === "email"
+            ? await (async () => {
+                await emailAdminAiGrowthDraft(draft.id);
+                return updateAdminAiGrowthDraftStatus(draft.id, { status: "emailed" });
+              })()
+            : action === "approve"
+              ? await updateAdminAiGrowthDraftStatus(draft.id, { status: "approved" })
+              : action === "archive"
+                ? await archiveAdminAiGrowthDraft(draft.id)
+                : await rejectAdminAiGrowthDraft(draft.id);
+        replaceDraft(updated);
+      }
+      notify(`${selectedDrafts.length} drafts ${bulkDraftActionPastLabel(action)}.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to update selected drafts.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const clearGeneratedAssetHistory = async () => {
     if (!drafts.length) return;
     if (!window.confirm("Clear all recent generated asset history from the AI Growth dashboard?")) return;
@@ -491,6 +528,36 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
       notify(`Cleared ${result.cleared} generated assets.`, "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Unable to clear generated asset history.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmDeleteDraft = async () => {
+    const draft = draftDeleteTarget;
+    if (!draft) return;
+    setBusy(`delete:${draft.id}`);
+    try {
+      await updateAdminAiGrowthDraftStatus(draft.id, { status: "dismissed" });
+      removeDraft(draft.id);
+      setDraftDeleteTarget(null);
+      notify("Draft deleted.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to delete draft.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteDraftAsset = async (draft: AdminAiMarketingOpportunity, assetIndex: number) => {
+    if (!window.confirm("Delete this asset from the AI Growth dashboard?")) return;
+    setBusy(`delete-asset:${draft.id}:${assetIndex}`);
+    try {
+      const updated = await deleteAdminAiGrowthDraftAsset(draft.id, assetIndex);
+      replaceDraft(updated);
+      notify("Asset deleted.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to delete asset.", "error");
     } finally {
       setBusy(null);
     }
@@ -1019,13 +1086,14 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onEmail={emailDraft}
           onMarkCopied={markDraftCopied}
           onMarkPosted={markDraftPosted}
+          onBulkAction={runBulkDraftAction}
           onChangeRequest={updateChangeRequest}
           onCardRequest={updateCardRequest}
           onRegenerate={regenerateDraft}
         />
       ) : null}
 
-      {activeTab === "assets" ? <AssetsView drafts={drafts} /> : null}
+      {activeTab === "assets" ? <AssetsView drafts={drafts} busy={busy} onDeleteAsset={deleteDraftAsset} /> : null}
 
       {activeTab === "article_reactive_x" ? (
         <ArticleReactiveCampaignsView
@@ -1112,6 +1180,26 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           onTest={testConnection}
         />
       ) : null}
+
+      <WalnutConfirmDialog
+        open={Boolean(draftDeleteTarget)}
+        eyebrow="DRAFT QUEUE"
+        title="Delete this draft?"
+        description="This removes the draft from the current queue and generated-asset history. It will not publish, archive, or reject anything."
+        confirmLabel={draftDeleteTarget && busy === `delete:${draftDeleteTarget.id}` ? "Deleting..." : "Delete draft"}
+        cancelLabel="Keep draft"
+        tone="danger"
+        isBusy={Boolean(draftDeleteTarget && busy === `delete:${draftDeleteTarget.id}`)}
+        onClose={() => setDraftDeleteTarget(null)}
+        onConfirm={() => void confirmDeleteDraft()}
+      >
+        {draftDeleteTarget ? (
+          <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3 text-sm text-slate-300">
+            <p className="font-semibold text-white">{draftDeleteTarget.title}</p>
+            <p className="mt-1 text-xs text-slate-500">Created {formatDateTime(draftDeleteTarget.created_at ?? draftDeleteTarget.updated_at)}</p>
+          </div>
+        ) : null}
+      </WalnutConfirmDialog>
     </div>
   );
 }
@@ -1238,6 +1326,7 @@ function DraftsView({
   onEmail,
   onMarkCopied,
   onMarkPosted,
+  onBulkAction,
   onChangeRequest,
   onCardRequest,
   onRegenerate,
@@ -1255,16 +1344,86 @@ function DraftsView({
   onEmail: (draft: AdminAiMarketingOpportunity) => void;
   onMarkCopied: (draft: AdminAiMarketingOpportunity) => void;
   onMarkPosted: (draft: AdminAiMarketingOpportunity) => void;
+  onBulkAction: (drafts: AdminAiMarketingOpportunity[], action: BulkDraftAction) => Promise<void>;
   onChangeRequest: (draftId: number, value: string) => void;
   onCardRequest: (draftId: number, patch: Partial<SocialCardControls>) => void;
   onRegenerate: (draft: AdminAiMarketingOpportunity) => void;
 }) {
+  const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const draftIdsKey = useMemo(() => drafts.map((draft) => draft.id).join(","), [drafts]);
+  const totalPages = Math.max(1, Math.ceil(drafts.length / DRAFTS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageDrafts = useMemo(
+    () => drafts.slice((currentPage - 1) * DRAFTS_PAGE_SIZE, currentPage * DRAFTS_PAGE_SIZE),
+    [drafts, currentPage],
+  );
+  const selectedDrafts = useMemo(
+    () => drafts.filter((draft) => selectedIds.has(draft.id)),
+    [drafts, selectedIds],
+  );
+  const visibleIds = pageDrafts.map((draft) => draft.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const selectionDisabled = Boolean(busy) || busy === "load";
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    const validIds = new Set(drafts.map((draft) => draft.id));
+    setSelectedIds((current) => new Set([...current].filter((id) => validIds.has(id))));
+  }, [draftIdsKey, drafts]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const checkAllVisible = () => {
+    setSelectedIds((current) => new Set([...current, ...visibleIds]));
+  };
+
+  const uncheckAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const toggleDraftSelected = (draftId: number, selected: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(draftId);
+      } else {
+        next.delete(draftId);
+      }
+      return next;
+    });
+  };
+
+  const runSelectedAction = async (action: BulkDraftAction) => {
+    if (!selectedDrafts.length) return;
+    if (action === "delete") {
+      setBulkDeleteOpen(true);
+      return;
+    }
+    await onBulkAction(selectedDrafts, action);
+    setSelectedIds(new Set());
+  };
+
+  const confirmBulkDelete = async () => {
+    await onBulkAction(selectedDrafts, "delete");
+    setBulkDeleteOpen(false);
+    setSelectedIds(new Set());
+  };
+
   return (
     <section className="rounded-lg border border-white/10 bg-slate-900/70 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold text-white">Content Drafts</h3>
-          <p className="mt-1 text-sm text-slate-400">{drafts.length} drafts in the current filter.</p>
+          <p className="mt-1 text-sm text-slate-400">
+            {drafts.length} drafts in the current filter. Showing {drafts.length ? (currentPage - 1) * DRAFTS_PAGE_SIZE + 1 : 0}-{Math.min(currentPage * DRAFTS_PAGE_SIZE, drafts.length)}.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {STATUS_FILTERS.map((filter) => (
@@ -1284,17 +1443,53 @@ function DraftsView({
         </div>
       </div>
 
+      <div className="mt-5 rounded-lg border border-white/10 bg-slate-950/40 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={selectionDisabled || allVisibleSelected || !pageDrafts.length} onClick={checkAllVisible}>Check all</Button>
+            <Button disabled={selectionDisabled || !selectedIds.size} onClick={uncheckAll}>Uncheck all</Button>
+            <span className="text-sm font-medium text-slate-300">{selectedDrafts.length} selected</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={selectionDisabled || !selectedDrafts.length} onClick={() => void runSelectedAction("email")}>
+              {busy === "bulk:email" ? "Emailing..." : "Email selected"}
+            </Button>
+            <Button disabled={selectionDisabled || !selectedDrafts.length} onClick={() => void runSelectedAction("approve")}>
+              {busy === "bulk:approve" ? "Approving..." : "Approve selected"}
+            </Button>
+            <Button disabled={selectionDisabled || !selectedDrafts.length} onClick={() => void runSelectedAction("reject")}>
+              {busy === "bulk:reject" ? "Rejecting..." : "Reject selected"}
+            </Button>
+            <Button disabled={selectionDisabled || !selectedDrafts.length} onClick={() => void runSelectedAction("archive")}>
+              {busy === "bulk:archive" ? "Archiving..." : "Archive selected"}
+            </Button>
+            <Button disabled={selectionDisabled || !selectedDrafts.length} onClick={() => void runSelectedAction("delete")}>
+              {busy === "bulk:delete" ? "Deleting..." : "Delete selected"}
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+          <span>Page {currentPage} of {totalPages}</span>
+          <div className="flex gap-2">
+            <Button disabled={selectionDisabled || currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
+            <Button disabled={selectionDisabled || currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</Button>
+          </div>
+        </div>
+      </div>
+
       <div className="mt-5 space-y-4">
         {busy === "load" ? (
           <div className="rounded-lg border border-white/10 bg-slate-950/40 p-5 text-sm text-slate-400">Loading AI Growth drafts...</div>
         ) : drafts.length ? (
-          drafts.map((draft) => (
+          pageDrafts.map((draft) => (
             <DraftCard
               key={draft.id}
               draft={draft}
               busy={busy}
+              selected={selectedIds.has(draft.id)}
               changeRequest={changeRequests[draft.id] ?? ""}
               cardControls={cardRequests[draft.id] ?? defaultCardControls(draft)}
+              onSelectedChange={(selected) => toggleDraftSelected(draft.id, selected)}
               onCopy={onCopy}
               onStatus={onStatus}
               onAction={onAction}
@@ -1310,6 +1505,19 @@ function DraftsView({
           <p className="rounded-lg border border-white/10 bg-slate-950/40 p-5 text-sm text-slate-400">No content drafts match this filter.</p>
         )}
       </div>
+
+      <WalnutConfirmDialog
+        open={bulkDeleteOpen}
+        eyebrow="DRAFT QUEUE"
+        title="Delete selected drafts?"
+        description={`This removes ${selectedDrafts.length} selected drafts from the current queue and generated-asset history.`}
+        confirmLabel={busy === "bulk:delete" ? "Deleting..." : "Delete selected"}
+        cancelLabel="Keep drafts"
+        tone="danger"
+        isBusy={busy === "bulk:delete"}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void confirmBulkDelete()}
+      />
     </section>
   );
 }
@@ -1317,8 +1525,10 @@ function DraftsView({
 function DraftCard({
   draft,
   busy,
+  selected,
   changeRequest,
   cardControls,
+  onSelectedChange,
   onCopy,
   onStatus,
   onAction,
@@ -1331,8 +1541,10 @@ function DraftCard({
 }: {
   draft: AdminAiMarketingOpportunity;
   busy: string | null;
+  selected: boolean;
   changeRequest: string;
   cardControls: SocialCardControls;
+  onSelectedChange: (selected: boolean) => void;
   onCopy: (draft: AdminAiMarketingOpportunity, label: string, value?: string | null) => void;
   onStatus: (draft: AdminAiMarketingOpportunity, status: AdminAiMarketingStatus) => void;
   onAction: (draft: AdminAiMarketingOpportunity, action: DraftAction) => void;
@@ -1360,21 +1572,36 @@ function DraftCard({
   const hashtagCashtagBlock = textFromUnknown(alternateVersions.copy_hashtags_cashtags) || draft.matched_tickers.map((ticker) => `$${ticker}`).join(" ");
   const xComposeLink = links.open_x_compose;
   const openXLink = links.open_x || (draft.content_type === "x_post" ? "https://x.com/home" : "");
+  const createdAtLabel = formatDateTime(draft.created_at ?? draft.updated_at);
 
   return (
-    <article className="rounded-lg border border-white/10 bg-slate-950/40 p-4">
+    <article className={`rounded-lg border p-4 ${selected ? "border-emerald-300/40 bg-emerald-300/[0.06]" : "border-white/10 bg-slate-950/40"}`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap gap-2">
-            <Badge label={platformLabel(draft.source_platform ?? draft.platform)} />
-            <Badge label={contentTypeLabel(draft.content_type)} />
-            <Badge label={draft.status} tone={statusTone(draft.status)} />
-            <ScoreBadge label="Fit" value={draft.fit_score ?? draft.relevance_score} />
-            <ScoreBadge label="Spam" value={draft.spam_risk_score} invert />
-            {draft.content_type === "reddit_thread" ? <QualityBadges scores={draft.quality_scores} /> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex h-8 items-center gap-2 rounded-md border border-white/10 bg-slate-950/50 px-2 text-xs font-semibold text-slate-200">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(event) => onSelectedChange(event.target.checked)}
+                disabled={Boolean(busy)}
+                aria-label={`Select draft: ${draft.title}`}
+                className="h-4 w-4 accent-emerald-300"
+              />
+              Select
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Badge label={platformLabel(draft.source_platform ?? draft.platform)} />
+              <Badge label={contentTypeLabel(draft.content_type)} />
+              <Badge label={draft.status} tone={statusTone(draft.status)} />
+              <ScoreBadge label="Fit" value={draft.fit_score ?? draft.relevance_score} />
+              <ScoreBadge label="Spam" value={draft.spam_risk_score} invert />
+              {draft.content_type === "reddit_thread" ? <QualityBadges scores={draft.quality_scores} /> : null}
+            </div>
           </div>
           <h4 className="mt-3 text-base font-semibold text-white">{draft.title}</h4>
           <p className="mt-1 text-sm text-slate-400">{draft.ticker_theme || draft.community || draft.source_platform || "AI Growth draft"}</p>
+          <p className="mt-1 text-xs font-medium text-slate-500">Created {createdAtLabel}</p>
           {draft.excerpt ? <p className="mt-3 line-clamp-3 text-sm text-slate-300">{draft.excerpt}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1910,8 +2137,12 @@ function RedditThreadForm({
 
 function AssetsView({
   drafts,
+  busy,
+  onDeleteAsset,
 }: {
   drafts: AdminAiMarketingOpportunity[];
+  busy: string | null;
+  onDeleteAsset: (draft: AdminAiMarketingOpportunity, assetIndex: number) => void;
 }) {
   const assetDrafts = drafts.filter((draft) => (draft.assets?.length ?? 0) > 0);
   return (
@@ -1923,7 +2154,13 @@ function AssetsView({
             <p className="mb-3 text-sm font-semibold text-slate-100">{draft.title}</p>
             <div className="space-y-3">
               {(draft.assets ?? []).map((asset, index) => (
-                <AssetPreview key={`${draft.id}-${index}-${asset.url ?? asset.thumbnail_url ?? asset.title}`} asset={asset} />
+                <AssetPreview
+                  key={`${draft.id}-${index}-${asset.url ?? asset.thumbnail_url ?? asset.title}`}
+                  asset={asset}
+                  deleteLabel={busy === `delete-asset:${draft.id}:${index}` ? "Deleting..." : "Delete asset"}
+                  deleteDisabled={busy === `delete-asset:${draft.id}:${index}`}
+                  onDelete={() => onDeleteAsset(draft, index)}
+                />
               ))}
             </div>
           </div>
@@ -2085,6 +2322,14 @@ function formatDateTime(value?: string | null) {
   return date.toLocaleString();
 }
 
+function bulkDraftActionPastLabel(action: BulkDraftAction) {
+  if (action === "email") return "emailed";
+  if (action === "approve") return "approved";
+  if (action === "reject") return "rejected";
+  if (action === "archive") return "archived";
+  return "deleted";
+}
+
 function buildGrowthPayload(
   kind: TabKey,
   forms: {
@@ -2220,7 +2465,17 @@ function AssistLink({ href, label }: { href?: string | null; label: string }) {
   return <a href={href} target="_blank" rel="noreferrer" className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200">{label}</a>;
 }
 
-function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
+function AssetPreview({
+  asset,
+  deleteLabel,
+  deleteDisabled,
+  onDelete,
+}: {
+  asset: AdminAiGrowthAsset;
+  deleteLabel?: string;
+  deleteDisabled?: boolean;
+  onDelete?: () => void;
+}) {
   const url = asset.download_url || (isAssetFileUrl(asset.url) ? asset.url || "" : "");
   const imageUrl = isAssetImageUrl(asset.thumbnail_url) ? asset.thumbnail_url || "" : isAssetImageUrl(asset.url) ? asset.url || "" : "";
   return (
@@ -2235,7 +2490,19 @@ function AssetPreview({ asset }: { asset: AdminAiGrowthAsset }) {
             </p>
           ) : null}
         </div>
-        <AssistLink href={url} label="Open/download asset" />
+        <div className="flex flex-wrap justify-end gap-2">
+          <AssistLink href={url} label="Open/download asset" />
+          {onDelete ? (
+            <button
+              type="button"
+              disabled={deleteDisabled}
+              onClick={onDelete}
+              className="rounded-md border border-rose-300/30 px-3 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-300/10 disabled:opacity-50"
+            >
+              {deleteLabel ?? "Delete asset"}
+            </button>
+          ) : null}
+        </div>
       </div>
       {imageUrl ? <img src={imageUrl} alt={asset.title || "Asset thumbnail"} className="mt-3 max-h-44 w-full rounded-md object-cover" /> : null}
       {asset.suggested_caption ? <p className="mt-3 text-sm text-slate-300">{asset.suggested_caption}</p> : null}
