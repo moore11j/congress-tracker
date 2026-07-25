@@ -331,7 +331,6 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       try {
         const job = await getAdminResearchBriefGenerationJob(activeJob.job_id);
         if (!alive) return;
-        setActiveJob(job);
         if ((job.status === "queued" || job.status === "running") && researchBriefJobTimedOut(job)) {
           const message = "Research brief generation timed out. Please start a fresh draft.";
           setActiveJob({ ...job, status: "failed", progress_step: "failed", progress_message: message, error_message_safe: message });
@@ -347,6 +346,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             if (!alive) return;
             setSelectedDraft(draft);
             await refreshDrafts(draft);
+            setActiveJob(job);
             setBusy(null);
             showToast?.("Research brief draft generated.", "success");
           } catch {
@@ -357,6 +357,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 if (!alive) return;
                 setSelectedDraft(draft);
                 await refreshDrafts(draft);
+                setActiveJob(job);
                 setBusy(null);
                 showToast?.("Research brief draft generated.", "success");
                 return;
@@ -365,13 +366,17 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
               }
             }
             setError("Research brief generated, but the draft could not be loaded yet. Open Drafts or try again in a moment.");
+            setActiveJob(job);
             setBusy(null);
           }
         } else if (job.status === "failed") {
+          setActiveJob(job);
           const message = job.error_message_safe || "Research brief generation failed. Try again or reduce research depth.";
           setError(message);
           setBusy(null);
           showToast?.(message, "error");
+        } else {
+          setActiveJob(job);
         }
       } catch {
         if (!alive) return;

@@ -90,7 +90,7 @@ RATIO_ASSUMPTION_KEYS = {
     "taxRate",
 }
 RATIO_ASSUMPTION_LIMITS = {
-    "revenueGrowthPct": (-0.30, 0.60),
+    "revenueGrowthPct": (-0.30, 0.35),
     "ebitdaPct": (0.0, 0.75),
     "depreciationAndAmortizationPct": (0.0, 0.35),
     "cashAndShortTermInvestmentsPct": (0.0, 1.0),
@@ -103,6 +103,8 @@ RATIO_ASSUMPTION_LIMITS = {
     "sellingGeneralAndAdministrativeExpensesPct": (0.0, 1.0),
     "taxRate": (0.0, 0.50),
 }
+DCF_BETA_MIN = 1.0
+DCF_BETA_MAX = 1.8
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -374,7 +376,7 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
 
     risk_free_rate = _clamp(_env_float("WALNUT_DCF_RISK_FREE_RATE", DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]
     market_risk_premium = _clamp(_env_float("WALNUT_DCF_MARKET_RISK_PREMIUM", DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]
-    beta = _clamp(_number(profile.get("beta")), 0.5, 2.5) or DEFAULT_DCF_ASSUMPTIONS["beta"]
+    beta = _clamp(_number(profile.get("beta")), DCF_BETA_MIN, DCF_BETA_MAX) or DEFAULT_DCF_ASSUMPTIONS["beta"]
     cost_of_equity = _clamp(risk_free_rate + beta * market_risk_premium, 0.0, 30.0) or DEFAULT_DCF_ASSUMPTIONS["costOfEquity"]
 
     debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)

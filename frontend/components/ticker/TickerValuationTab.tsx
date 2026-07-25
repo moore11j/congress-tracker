@@ -1,6 +1,7 @@
 import type { TickerValuationResponse } from "@/lib/api";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 type Props = {
   data: TickerValuationResponse;
@@ -103,14 +104,14 @@ function SummaryCard({
 function ProBlur({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div className={`relative overflow-hidden rounded-lg ${className}`}>
-      <div className="pointer-events-none select-none blur-[3px]" aria-hidden="true">
+      <div className="pointer-events-none select-none blur-[7px] saturate-50 opacity-45" aria-hidden="true">
         {children}
       </div>
-      <div className="absolute inset-0 grid place-items-center bg-slate-950/45 backdrop-blur-[1px]">
-        <div className="rounded-lg border border-indigo-300/30 bg-indigo-500/15 px-3 py-2 text-center shadow-[0_0_22px_rgba(99,102,241,0.16)]">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-200">Pro</p>
+      <div className="absolute inset-0 grid place-items-center bg-slate-950/70 backdrop-blur-[4px]">
+        <Link href="/pricing" className="rounded-lg border border-indigo-300/30 bg-indigo-500/15 px-3 py-2 text-center shadow-[0_0_22px_rgba(99,102,241,0.16)] transition hover:border-indigo-200/50 hover:bg-indigo-500/20">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-200">Upgrade to Pro</p>
           <p className="mt-1 text-xs font-semibold text-slate-100">Full valuation details</p>
-        </div>
+        </Link>
       </div>
     </div>
   );
@@ -340,7 +341,12 @@ export function TickerValuationTab({ data, symbol, canViewDetails = false }: Pro
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard label="Walnut Fair Value" value={formatMoney(dcf.fairValue, { maximumFractionDigits: 0 })} sub="/ share" tone="text-teal-200" />
+        <SummaryCard
+          label={canViewDetails ? "Walnut Fair Value" : "Street Consensus"}
+          value={formatMoney(canViewDetails ? dcf.fairValue : consensus?.targetConsensus, { maximumFractionDigits: 0 })}
+          sub={canViewDetails ? "/ share" : consensus?.status === "ok" ? "analyst target" : "unavailable"}
+          tone={canViewDetails ? "text-teal-200" : "text-sky-200"}
+        />
         {canViewDetails ? (
           <>
             <SummaryCard
@@ -361,7 +367,7 @@ export function TickerValuationTab({ data, symbol, canViewDetails = false }: Pro
         ) : (
           <>
             <ProBlur><SummaryCard label="Upside / Downside" value={formatPercent(dcf.upsideDownsidePct, { signed: true })} sub="vs current price" tone={(dcf.upsideDownsidePct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"} /></ProBlur>
-            <ProBlur><SummaryCard label="Street Consensus" value={formatMoney(consensus?.targetConsensus, { maximumFractionDigits: 0 })} sub={consensus?.status === "ok" ? "analyst target" : "unavailable"} tone="text-sky-200" /></ProBlur>
+            <ProBlur><SummaryCard label="Walnut Fair Value" value={formatMoney(dcf.fairValue, { maximumFractionDigits: 0 })} sub="/ share" tone="text-teal-200" /></ProBlur>
             <ProBlur><SummaryCard label="Valuation Judgment" value={dcf.judgment ?? "Unavailable"} sub={symbol.toUpperCase()} tone={toneForJudgment(dcf.judgment)} /></ProBlur>
             <ProBlur><SummaryCard label="Method" value={dcf.method ?? "Custom DCF"} sub="advanced model" tone="text-slate-100" /></ProBlur>
           </>

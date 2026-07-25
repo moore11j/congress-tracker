@@ -183,14 +183,14 @@ def test_forward_revenue_growth_uses_financial_estimate_horizon_cagr():
     growth = valuation_module._forward_revenue_growth_pct(
         [{"date": "2025-09-30", "revenue": 100}],
         [
-            {"date": "2030-09-27", "revenueLow": 626, "revenueHigh": 691, "revenueAvg": 648},
-            {"date": "2027-09-30", "revenueAvg": 300},
-            {"date": "2026-09-30", "revenueAvg": 220},
+            {"date": "2030-09-27", "revenueLow": 230, "revenueHigh": 260, "revenueAvg": 248.832},
+            {"date": "2027-09-30", "revenueAvg": 144},
+            {"date": "2026-09-30", "revenueAvg": 120},
             {"date": "2025-09-30", "revenueAvg": 105},
         ],
     )
 
-    assert round(growth, 4) == 0.4532
+    assert round(growth, 4) == 0.2
 
 
 def test_forward_revenue_growth_caps_unsustainable_single_year_estimate():
@@ -199,4 +199,34 @@ def test_forward_revenue_growth_caps_unsustainable_single_year_estimate():
         [{"date": "2026-09-30", "revenueAvg": 1_000}],
     )
 
-    assert growth == 0.6
+    assert growth == 0.35
+
+
+def test_dcf_inputs_normalize_extreme_beta(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"beta": 0.5}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100, "ebitda": 20, "ebit": 15, "incomeBeforeTax": 10, "incomeTaxExpense": 2}]
+        if endpoint in {
+            "price-target-consensus",
+            "custom-discounted-cash-flow",
+            "cash-flow-statement-ttm",
+            "balance-sheet-statement-ttm",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    assumptions = valuation_module._walnut_dcf_assumptions("SPCX")
+
+    assert assumptions["beta"] == 1.0
+    assert assumptions["costOfEquity"] == 9.15

@@ -320,7 +320,7 @@ function LockedState() {
       <p className="text-sm font-semibold text-amber-100">Ownership breakdown requires Pro.</p>
       <p className="mt-2 text-sm leading-6 text-amber-100/75">Institutional holder percentages and ownership trends use 13F filings.</p>
       <Link href="/pricing" className="mt-4 inline-flex rounded-xl border border-amber-200/30 px-3 py-2 text-sm font-semibold text-amber-50 hover:bg-amber-200/10">
-        View Pro
+        Upgrade to Pro
       </Link>
     </div>
   );
