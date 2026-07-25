@@ -46,6 +46,8 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /getAdminResearchBriefGenerationDraft/);
   assert.match(component, /getAdminResearchBriefDraft/);
   assert.match(component, /Generating research brief/);
+  assert.match(component, /researchBriefJobTimedOut/);
+  assert.match(component, /Research brief generation timed out/);
   assert.match(component, /generationJobActive/);
   assert.match(component, /Research brief generation failed\. Try again or reduce research depth\./);
   assert.match(component, /Research brief generated, but the draft could not be loaded yet/);

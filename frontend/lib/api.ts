@@ -5716,6 +5716,7 @@ export type AdminResearchBriefJob = {
   error_message_safe?: string | null;
   created_at?: string | null;
   started_at?: string | null;
+  updated_at?: string | null;
   completed_at?: string | null;
   failed_at?: string | null;
 };

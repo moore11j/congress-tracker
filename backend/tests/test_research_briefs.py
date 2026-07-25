@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException, Response
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 
@@ -214,6 +214,33 @@ def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):
     assert failed["status"] == "failed"
     assert failed["error_message_safe"] == service.RESEARCH_BRIEF_JOB_SAFE_ERROR
     assert "provider" not in failed["error_message_safe"].lower()
+
+
+def test_stale_running_research_brief_job_fails_on_poll(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.RESEARCH_BRIEF_JOB_STALE_SECONDS, "1")
+    monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    job = admin_research_brief_generate(_payload(client_request_id="stale-request"), _request_for_user(admin), Response(), db=db)
+    stale_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    db.execute(
+        text(
+            """
+            UPDATE research_brief_generation_jobs
+            SET status = 'running', started_at = :stale_at, updated_at = :stale_at, progress_step = 'calling_openai'
+            WHERE id = :job_id
+            """
+        ),
+        {"stale_at": stale_at, "job_id": job["job_id"]},
+    )
+    db.commit()
+
+    polled = service.get_research_brief_generation_job(job["job_id"], db)
+
+    assert polled["status"] == "failed"
+    assert polled["error_message_safe"] == service.RESEARCH_BRIEF_JOB_STALE_ERROR
 
 
 def test_thumbnail_failure_does_not_fail_text_draft(tmp_path, monkeypatch):

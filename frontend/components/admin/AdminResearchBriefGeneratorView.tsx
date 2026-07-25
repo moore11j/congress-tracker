@@ -78,6 +78,8 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   hero_image: "",
 };
 
+const GENERATION_POLL_TIMEOUT_MS = 6 * 60 * 1000;
+
 const fallbackOptions: ResearchBriefOptions = {
   angles: [
     "Full company DD",
@@ -163,6 +165,13 @@ function Button({
 
 function articleToMarkdown(article: AdminResearchBriefArticle) {
   return (article.sections || []).map((section) => `## ${section.heading}\n\n${section.body_markdown}`).join("\n\n");
+}
+
+function researchBriefJobTimedOut(job: AdminResearchBriefJob) {
+  const timestamp = job.updated_at || job.started_at || job.created_at;
+  if (!timestamp) return false;
+  const startedAt = Date.parse(timestamp);
+  return Number.isFinite(startedAt) && Date.now() - startedAt > GENERATION_POLL_TIMEOUT_MS;
 }
 
 function markdownToSections(markdown: string): AdminResearchBriefArticle["sections"] {
@@ -323,6 +332,14 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         const job = await getAdminResearchBriefGenerationJob(activeJob.job_id);
         if (!alive) return;
         setActiveJob(job);
+        if ((job.status === "queued" || job.status === "running") && researchBriefJobTimedOut(job)) {
+          const message = "Research brief generation timed out. Please start a fresh draft.";
+          setActiveJob({ ...job, status: "failed", progress_step: "failed", progress_message: message, error_message_safe: message });
+          setError(message);
+          setBusy(null);
+          showToast?.(message, "error");
+          return;
+        }
         if (job.status === "completed") {
           setError("");
           try {

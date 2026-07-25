@@ -46,8 +46,8 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
             return []
         if endpoint == "analyst-estimates":
             return [
-                {"date": "2027-09-30", "revenueAvg": 260},
-                {"date": "2026-09-30", "revenueAvg": 220},
+                {"date": "2027-09-30", "revenueAvg": 144},
+                {"date": "2026-09-30", "revenueAvg": 120},
                 {"date": "2025-09-30", "revenueAvg": 105},
             ]
         if endpoint == "profile":
@@ -55,7 +55,7 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
         if endpoint == "custom-discounted-cash-flow":
             for key in valuation_module.DCF_INPUT_PARAM_KEYS:
                 assert key in params
-            assert params["revenueGrowthPct"] == 1.2
+            assert params["revenueGrowthPct"] == 0.2
             assert params["ebitdaPct"] == 0.3
             assert params["taxRate"] == 0.2
             assert params["beta"] == 1.5
@@ -99,7 +99,7 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
     assert response["consensus"]["targetConsensus"] == 205
     assert "custom-discounted-cash-flow" in [call[0] for call in calls]
     assumptions = {item["key"]: item["value"] for item in response["dcf"]["assumptions"]}
-    assert assumptions["revenueGrowthPct"] == 1.2
+    assert assumptions["revenueGrowthPct"] == 0.2
     assert assumptions["capitalExpenditurePct"] == 0.05
 
 
@@ -179,7 +179,7 @@ def test_ticker_valuation_rejects_negative_fair_value_and_clamps_tax_rate(monkey
     assert response["consensus"]["targetConsensus"] == 227
 
 
-def test_forward_revenue_growth_uses_next_financial_estimate_after_latest_actual():
+def test_forward_revenue_growth_uses_financial_estimate_horizon_cagr():
     growth = valuation_module._forward_revenue_growth_pct(
         [{"date": "2025-09-30", "revenue": 100}],
         [
@@ -190,4 +190,13 @@ def test_forward_revenue_growth_uses_next_financial_estimate_after_latest_actual
         ],
     )
 
-    assert growth == 1.2
+    assert round(growth, 4) == 0.4532
+
+
+def test_forward_revenue_growth_caps_unsustainable_single_year_estimate():
+    growth = valuation_module._forward_revenue_growth_pct(
+        [{"date": "2025-09-30", "revenue": 100}],
+        [{"date": "2026-09-30", "revenueAvg": 1_000}],
+    )
+
+    assert growth == 0.6

@@ -50,8 +50,10 @@ RESEARCH_BRIEF_MODEL_LABELS = {
 }
 logger = logging.getLogger(__name__)
 RESEARCH_BRIEF_JOB_SAFE_ERROR = "Research brief generation failed. Try again or reduce research depth."
+RESEARCH_BRIEF_JOB_STALE_ERROR = "Research brief generation timed out. Please start a fresh draft."
 RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS = "RESEARCH_BRIEF_OPENAI_TIMEOUT_SECONDS"
 RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS = "RESEARCH_BRIEF_THUMBNAIL_TIMEOUT_SECONDS"
+RESEARCH_BRIEF_JOB_STALE_SECONDS = "RESEARCH_BRIEF_JOB_STALE_SECONDS"
 RESEARCH_BRIEF_MODEL_DESCRIPTIONS = {
     "gpt-5.6-luna": "Fast / cheaper",
     "gpt-5.6-terra": "Balanced",
@@ -297,6 +299,7 @@ def ensure_research_brief_store_schema(db: Session) -> None:
                 duration_ms INTEGER,
                 created_at TEXT,
                 started_at TEXT,
+                updated_at TEXT,
                 completed_at TEXT,
                 failed_at TEXT
             )
@@ -322,6 +325,13 @@ def ensure_research_brief_store_schema(db: Session) -> None:
     db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_brief_jobs_admin_request ON research_brief_generation_jobs (created_by_admin_id, client_request_id)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
+    try:
+        db.execute(text("ALTER TABLE research_brief_generation_jobs ADD COLUMN IF NOT EXISTS updated_at TEXT"))
+    except Exception:
+        try:
+            db.execute(text("ALTER TABLE research_brief_generation_jobs ADD COLUMN updated_at TEXT"))
+        except Exception:
+            pass
     db.commit()
 
 
@@ -351,10 +361,12 @@ def _upsert_db_job(db: Session, job: dict[str, Any]) -> None:
         "error_details_internal": None,
         "duration_ms": None,
         "started_at": None,
+        "updated_at": None,
         "completed_at": None,
         "failed_at": None,
     }
     normalized_job = {**defaults, **job}
+    normalized_job["updated_at"] = _now()
     params = {
         **normalized_job,
         "request_payload_json": _json_dump(normalized_job.get("request_payload_json") or {}),
@@ -369,13 +381,13 @@ def _upsert_db_job(db: Session, job: dict[str, Any]) -> None:
                 request_payload_json, model, external_research_mode, section_format, generate_thumbnail,
                 progress_step, progress_message, source_links_count, numeric_claims_count, validation_status,
                 draft_id, draft_payload_json, error_message_safe, error_details_internal, duration_ms,
-                created_at, started_at, completed_at, failed_at
+                created_at, started_at, updated_at, completed_at, failed_at
             ) VALUES (
                 :id, :status, :client_request_id, :created_by_admin_id, :created_by_admin_email, :ticker,
                 :request_payload_json, :model, :external_research_mode, :section_format, :generate_thumbnail,
                 :progress_step, :progress_message, :source_links_count, :numeric_claims_count, :validation_status,
                 :draft_id, :draft_payload_json, :error_message_safe, :error_details_internal, :duration_ms,
-                :created_at, :started_at, :completed_at, :failed_at
+                :created_at, :started_at, :updated_at, :completed_at, :failed_at
             )
             ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status,
@@ -390,6 +402,7 @@ def _upsert_db_job(db: Session, job: dict[str, Any]) -> None:
                 error_details_internal = excluded.error_details_internal,
                 duration_ms = excluded.duration_ms,
                 started_at = excluded.started_at,
+                updated_at = excluded.updated_at,
                 completed_at = excluded.completed_at,
                 failed_at = excluded.failed_at
             """
@@ -1074,6 +1087,7 @@ def enqueue_research_brief_generation_job(db: Session, admin: UserAccount, confi
             "error_details_internal": None,
             "created_at": now,
             "started_at": None,
+            "updated_at": now,
             "completed_at": None,
             "failed_at": None,
         }
@@ -1097,6 +1111,7 @@ def get_research_brief_generation_job(job_id: str, db: Session | None = None) ->
     if db is not None:
         job = _db_job(db, job_id)
         if job:
+            job = _fail_stale_running_job(job_id, job, db)
             payload = _job_response_payload(job)
             if payload["status"] == "queued":
                 _start_research_brief_job_worker(job_id)
@@ -1105,6 +1120,14 @@ def get_research_brief_generation_job(job_id: str, db: Session | None = None) ->
         job = _find_job(_read_store(), job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Research brief generation job not found.")
+        if _job_is_stale_running(job):
+            job["status"] = "failed"
+            job["progress_step"] = "failed"
+            job["progress_message"] = RESEARCH_BRIEF_JOB_STALE_ERROR
+            job["error_message_safe"] = RESEARCH_BRIEF_JOB_STALE_ERROR
+            job["error_details_internal"] = "Stale running research brief job heartbeat expired."
+            job["failed_at"] = _now()
+            _write_store(store)
         payload = _job_response_payload(job)
     if payload["status"] == "queued":
         _start_research_brief_job_worker(job_id)
@@ -1194,6 +1217,8 @@ def _mark_job_running(job_id: str, db: Session | None = None) -> dict[str, Any]:
             return deepcopy(job)
         if job.get("status") in {"failed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Research brief generation job is not active.")
+        if job.get("status") == "running" and _job_is_stale_running(job):
+            raise TimeoutError("Stale running research brief job heartbeat expired.")
         if job.get("status") == "running":
             payload = deepcopy(job)
             payload["_skip_worker"] = True
@@ -1222,8 +1247,11 @@ def _mark_job_running(job_id: str, db: Session | None = None) -> dict[str, Any]:
             return deepcopy(job)
         if job.get("status") in {"failed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Research brief generation job is not active.")
+        if job.get("status") == "running" and _job_is_stale_running(job):
+            raise TimeoutError("Stale running research brief job heartbeat expired.")
         job["status"] = "running"
         job["started_at"] = job.get("started_at") or _now()
+        job["updated_at"] = _now()
         job["progress_step"] = "loading_walnut_data"
         job["progress_message"] = "Starting research brief generation."
         _write_store(store)
@@ -1247,6 +1275,7 @@ def _update_job_progress(job_id: str, step: str, message: str, db: Session | Non
         job["status"] = "running"
         job["progress_step"] = step
         job["progress_message"] = message
+        job["updated_at"] = _now()
         _upsert_db_job(db, job)
         payload = deepcopy(job)
         logger.info(
@@ -1267,6 +1296,7 @@ def _update_job_progress(job_id: str, step: str, message: str, db: Session | Non
         job["status"] = "running"
         job["progress_step"] = step
         job["progress_message"] = message
+        job["updated_at"] = _now()
         _write_store(store)
         payload = deepcopy(job)
     logger.info(
@@ -1295,6 +1325,7 @@ def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int, db: S
         job["numeric_claims_count"] = len(validation.get("numeric_claims") or [])
         job["validation_status"] = validation.get("status")
         job["completed_at"] = _now()
+        job["updated_at"] = job["completed_at"]
         job["failed_at"] = None
         job["error_message_safe"] = None
         job["error_details_internal"] = None
@@ -1315,6 +1346,7 @@ def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int, db: S
         job["numeric_claims_count"] = len(validation.get("numeric_claims") or [])
         job["validation_status"] = validation.get("status")
         job["completed_at"] = _now()
+        job["updated_at"] = job["completed_at"]
         job["failed_at"] = None
         job["error_message_safe"] = None
         job["error_details_internal"] = None
@@ -1333,6 +1365,7 @@ def _fail_job(job_id: str, exc: Exception, *, duration_ms: int, db: Session | No
             job["error_message_safe"] = safe_error
             job["error_details_internal"] = f"{exc.__class__.__name__}: {str(exc)[:1000]}"
             job["failed_at"] = _now()
+            job["updated_at"] = job["failed_at"]
             job["duration_ms"] = duration_ms
             _upsert_db_job(db, job)
             payload = deepcopy(job)
@@ -1359,6 +1392,7 @@ def _fail_job(job_id: str, exc: Exception, *, duration_ms: int, db: Session | No
             job["error_message_safe"] = safe_error
             job["error_details_internal"] = f"{exc.__class__.__name__}: {str(exc)[:1000]}"
             job["failed_at"] = _now()
+            job["updated_at"] = job["failed_at"]
             job["duration_ms"] = duration_ms
             _write_store(store)
             payload = deepcopy(job)
@@ -1377,11 +1411,59 @@ def _fail_job(job_id: str, exc: Exception, *, duration_ms: int, db: Session | No
 
 
 def _safe_job_error(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return RESEARCH_BRIEF_JOB_STALE_ERROR
     if isinstance(exc, HTTPException) and exc.status_code == 422:
         detail = str(exc.detail or "").strip()
         if detail and not re.search(r"\b(provider|internal|cache|raw|token|credential|diagnostic)s?\b", detail, flags=re.IGNORECASE):
             return detail[:300]
     return RESEARCH_BRIEF_JOB_SAFE_ERROR
+
+
+def _fail_stale_running_job(job_id: str, job: dict[str, Any], db: Session) -> dict[str, Any]:
+    if not _job_is_stale_running(job):
+        return job
+    job = deepcopy(job)
+    job["status"] = "failed"
+    job["progress_step"] = "failed"
+    job["progress_message"] = RESEARCH_BRIEF_JOB_STALE_ERROR
+    job["error_message_safe"] = RESEARCH_BRIEF_JOB_STALE_ERROR
+    job["error_details_internal"] = "Stale running research brief job heartbeat expired."
+    job["failed_at"] = _now()
+    job["updated_at"] = job["failed_at"]
+    _upsert_db_job(db, job)
+    logger.warning(
+        "research_brief_job_failed job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s duration_ms=%s error=%s",
+        job_id,
+        job.get("ticker"),
+        job.get("model"),
+        job.get("external_research_mode"),
+        job.get("generate_thumbnail"),
+        job.get("duration_ms"),
+        "StaleRunningJob",
+    )
+    return job
+
+
+def _job_is_stale_running(job: dict[str, Any]) -> bool:
+    if job.get("status") != "running":
+        return False
+    heartbeat = _parse_iso_datetime(job.get("updated_at") or job.get("started_at") or job.get("created_at"))
+    if heartbeat is None:
+        return True
+    return (datetime.now(timezone.utc) - heartbeat).total_seconds() > _env_float(RESEARCH_BRIEF_JOB_STALE_SECONDS, 300.0)
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _find_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
@@ -1410,6 +1492,7 @@ def _job_response_payload(job: dict[str, Any]) -> dict[str, Any]:
         "error_message_safe": job.get("error_message_safe"),
         "created_at": job.get("created_at"),
         "started_at": job.get("started_at"),
+        "updated_at": job.get("updated_at"),
         "completed_at": job.get("completed_at"),
         "failed_at": job.get("failed_at"),
     }

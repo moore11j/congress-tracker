@@ -89,6 +89,20 @@ RATIO_ASSUMPTION_KEYS = {
     "sellingGeneralAndAdministrativeExpensesPct",
     "taxRate",
 }
+RATIO_ASSUMPTION_LIMITS = {
+    "revenueGrowthPct": (-0.30, 0.60),
+    "ebitdaPct": (0.0, 0.75),
+    "depreciationAndAmortizationPct": (0.0, 0.35),
+    "cashAndShortTermInvestmentsPct": (0.0, 1.0),
+    "receivablesPct": (0.0, 1.0),
+    "inventoriesPct": (0.0, 1.0),
+    "payablePct": (0.0, 1.0),
+    "ebitPct": (0.0, 0.65),
+    "capitalExpenditurePct": (0.0, 0.75),
+    "operatingCashFlowPct": (0.0, 0.75),
+    "sellingGeneralAndAdministrativeExpensesPct": (0.0, 1.0),
+    "taxRate": (0.0, 0.50),
+}
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -240,41 +254,50 @@ def _fiscal_year(row: dict[str, Any]) -> int | None:
     return None
 
 
-def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows: list[dict[str, Any]]) -> float | None:
-    latest_income = _latest_row(income_rows)
-    base_revenue = _first_number(latest_income, ("revenue", "totalRevenue"))
-    if base_revenue is not None and base_revenue > 0:
-        base_year = _fiscal_year(latest_income)
-        candidates = []
-        for row in estimate_rows:
-            estimate = _revenue_estimate(row)
-            year = _fiscal_year(row)
-            if estimate is None or estimate <= 0:
-                continue
-            if base_year is not None and year is not None and year <= base_year:
-                continue
-            candidates.append((year if year is not None else 9999, estimate))
-        if candidates:
-            _, next_revenue = sorted(candidates, key=lambda item: item[0])[0]
-            growth = (next_revenue - base_revenue) / base_revenue
-            if math.isfinite(growth):
-                return _clamp(growth, -0.50, 5.00)
-
-    estimate_candidates = []
+def _revenue_estimate_points(estimate_rows: list[dict[str, Any]]) -> list[tuple[int, float]]:
+    by_year: dict[int, float] = {}
     for row in estimate_rows:
         estimate = _revenue_estimate(row)
         year = _fiscal_year(row)
         if estimate is None or estimate <= 0 or year is None:
             continue
-        estimate_candidates.append((year, estimate))
-    estimate_candidates = sorted(estimate_candidates, key=lambda item: item[0])
-    if len(estimate_candidates) >= 2:
-        base_estimate = estimate_candidates[0][1]
-        next_estimate = estimate_candidates[1][1]
-        if base_estimate > 0:
-            growth = (next_estimate - base_estimate) / base_estimate
-            if math.isfinite(growth):
-                return _clamp(growth, -0.50, 5.00)
+        by_year.setdefault(year, estimate)
+    return sorted(by_year.items(), key=lambda item: item[0])
+
+
+def _annualized_revenue_growth(start_revenue: float | None, end_revenue: float | None, years: int) -> float | None:
+    if start_revenue is None or end_revenue is None or start_revenue <= 0 or end_revenue <= 0 or years <= 0:
+        return None
+    if years == 1:
+        growth = (end_revenue - start_revenue) / start_revenue
+    else:
+        growth = (end_revenue / start_revenue) ** (1 / years) - 1
+    if not math.isfinite(growth):
+        return None
+    low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+    return _clamp(growth, low, high)
+
+
+def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows: list[dict[str, Any]]) -> float | None:
+    latest_income = _latest_row(income_rows)
+    base_revenue = _first_number(latest_income, ("revenue", "totalRevenue"))
+    estimate_points = _revenue_estimate_points(estimate_rows)
+    if base_revenue is not None and base_revenue > 0:
+        base_year = _fiscal_year(latest_income)
+        candidates = [(year, estimate) for year, estimate in estimate_points if base_year is None or year > base_year]
+        if candidates:
+            target_year, target_revenue = candidates[-1]
+            years = target_year - base_year if base_year is not None else len(candidates)
+            growth = _annualized_revenue_growth(base_revenue, target_revenue, max(years, 1))
+            if growth is not None:
+                return growth
+
+    if len(estimate_points) >= 2:
+        base_year, base_estimate = estimate_points[0]
+        target_year, target_estimate = estimate_points[-1]
+        growth = _annualized_revenue_growth(base_estimate, target_estimate, max(target_year - base_year, 1))
+        if growth is not None:
+            return growth
 
     ordered = _latest_rows(income_rows)
     if len(ordered) >= 2:
@@ -283,7 +306,8 @@ def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows
         if previous is not None and previous > 0 and latest is not None:
             growth = (latest - previous) / previous
             if math.isfinite(growth):
-                return _clamp(growth, -0.50, 5.00)
+                low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+                return _clamp(growth, low, high)
     return None
 
 
@@ -291,7 +315,8 @@ def _statement_growth(row: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     value = _first_number(row, keys)
     if value is None:
         return None
-    return _clamp(value, -0.50, 5.00)
+    low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+    return _clamp(value, low, high)
 
 
 def _first_present(*values: float | None) -> float | None:
@@ -382,8 +407,9 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
         value = computed.get(key)
         if value is None or not math.isfinite(value):
             value = DEFAULT_DCF_ASSUMPTIONS[key]
-        if key in RATIO_ASSUMPTION_KEYS and key != "revenueGrowthPct":
-            value = _clamp(value, 0.0, 2.0) or 0.0
+        limits = RATIO_ASSUMPTION_LIMITS.get(key)
+        if limits is not None:
+            value = _clamp(value, limits[0], limits[1]) or 0.0
         assumptions[key] = round(float(value), 6)
     return assumptions
 
