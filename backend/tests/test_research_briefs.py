@@ -145,7 +145,8 @@ def test_research_brief_generation_requires_admin(tmp_path, monkeypatch):
 
 
 def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monkeypatch):
-    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    store_path = tmp_path / "drafts.json"
+    monkeypatch.setenv(service.STORE_ENV, str(store_path))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setattr(service.requests, "post", _fake_openai_response)
     monkeypatch.setattr(service, "_start_research_brief_job_worker", lambda job_id: None)
@@ -159,11 +160,12 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert response.status_code == 202
     assert job["status"] == "queued"
     assert job["job_id"]
-    assert service.list_generation_jobs()["items"][0]["job_id"] == job["job_id"]
+    assert service.list_generation_jobs(db=db)["items"][0]["job_id"] == job["job_id"]
 
     service.run_research_brief_generation_job(job["job_id"], db)
-    completed = service.get_research_brief_generation_job(job["job_id"])
-    draft = service.get_research_brief_generation_job_draft(job["job_id"])
+    store_path.unlink(missing_ok=True)
+    completed = service.get_research_brief_generation_job(job["job_id"], db)
+    draft = service.get_research_brief_generation_job_draft(job["job_id"], db)
 
     assert completed["status"] == "completed"
     assert completed["draft_id"] == draft["id"]
@@ -173,7 +175,7 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
     assert draft["validation"]["status"] == "passed"
     assert draft["validation"]["source_link_count"] >= 2
     assert draft["model"] == "gpt-5.6-sol"
-    saved = service.list_drafts()["items"]
+    saved = service.list_drafts(db=db)["items"]
     assert saved[0]["id"] == draft["id"]
 
 
@@ -189,7 +191,7 @@ def test_research_brief_generation_dedupes_client_request_id(tmp_path, monkeypat
     second = admin_research_brief_generate(_payload(client_request_id="same-request"), request, Response(), db=db)
 
     assert second["job_id"] == first["job_id"]
-    assert len(service.list_generation_jobs()["items"]) == 1
+    assert len(service.list_generation_jobs(db=db)["items"]) == 1
 
 
 def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):
@@ -207,7 +209,7 @@ def test_research_brief_job_failure_returns_safe_error(tmp_path, monkeypatch):
 
     job = admin_research_brief_generate(_payload(client_request_id="fail-request"), _request_for_user(admin), Response(), db=db)
     service.run_research_brief_generation_job(job["job_id"], db)
-    failed = service.get_research_brief_generation_job(job["job_id"])
+    failed = service.get_research_brief_generation_job(job["job_id"], db)
 
     assert failed["status"] == "failed"
     assert failed["error_message_safe"] == service.RESEARCH_BRIEF_JOB_SAFE_ERROR
@@ -397,7 +399,7 @@ def test_research_prompt_receives_comparison_tickers_array(tmp_path, monkeypatch
 
     job = admin_research_brief_generate(_payload(comparison_tickers=["googl,amzn,msft"]), _request_for_user(admin), Response(), db=db)
     service.run_research_brief_generation_job(job["job_id"], db)
-    draft = service.get_research_brief_generation_job_draft(job["job_id"])
+    draft = service.get_research_brief_generation_job_draft(job["job_id"], db)
 
     assert draft["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]
     assert draft["config"]["comparison_tickers"] == ["GOOGL", "AMZN", "MSFT"]

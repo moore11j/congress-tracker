@@ -14,7 +14,7 @@ from typing import Any
 
 import requests
 from fastapi import HTTPException
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -263,6 +263,193 @@ def _write_store(payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(path)
+
+
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def ensure_research_brief_store_schema(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS research_brief_generation_jobs (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                client_request_id TEXT,
+                created_by_admin_id INTEGER,
+                created_by_admin_email TEXT,
+                ticker TEXT,
+                request_payload_json TEXT,
+                model TEXT,
+                external_research_mode TEXT,
+                section_format TEXT,
+                generate_thumbnail BOOLEAN,
+                progress_step TEXT,
+                progress_message TEXT,
+                source_links_count INTEGER DEFAULT 0,
+                numeric_claims_count INTEGER DEFAULT 0,
+                validation_status TEXT,
+                draft_id TEXT,
+                draft_payload_json TEXT,
+                error_message_safe TEXT,
+                error_details_internal TEXT,
+                duration_ms INTEGER,
+                created_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                failed_at TEXT
+            )
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS research_brief_drafts (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                created_by INTEGER,
+                primary_ticker TEXT,
+                slug TEXT,
+                updated_at TEXT,
+                published_at TEXT,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+    )
+    db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_research_brief_jobs_admin_request ON research_brief_generation_jobs (created_by_admin_id, client_request_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_jobs_status_created ON research_brief_generation_jobs (status, created_at)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_research_brief_drafts_status_updated ON research_brief_drafts (status, updated_at)"))
+    db.commit()
+
+
+def _job_from_row(row: Any) -> dict[str, Any]:
+    data = dict(row or {})
+    data["request_payload_json"] = _load_json(data.get("request_payload_json")) or {}
+    data["draft_payload_json"] = _load_json(data.get("draft_payload_json")) if data.get("draft_payload_json") else None
+    data["generate_thumbnail"] = bool(data.get("generate_thumbnail"))
+    return data
+
+
+def _db_job(db: Session, job_id: str) -> dict[str, Any] | None:
+    ensure_research_brief_store_schema(db)
+    row = db.execute(text("SELECT * FROM research_brief_generation_jobs WHERE id = :id"), {"id": job_id}).mappings().first()
+    return _job_from_row(row) if row else None
+
+
+def _upsert_db_job(db: Session, job: dict[str, Any]) -> None:
+    ensure_research_brief_store_schema(db)
+    defaults = {
+        "source_links_count": 0,
+        "numeric_claims_count": 0,
+        "validation_status": None,
+        "draft_id": None,
+        "draft_payload_json": None,
+        "error_message_safe": None,
+        "error_details_internal": None,
+        "duration_ms": None,
+        "started_at": None,
+        "completed_at": None,
+        "failed_at": None,
+    }
+    normalized_job = {**defaults, **job}
+    params = {
+        **normalized_job,
+        "request_payload_json": _json_dump(normalized_job.get("request_payload_json") or {}),
+        "draft_payload_json": _json_dump(normalized_job.get("draft_payload_json")) if normalized_job.get("draft_payload_json") else None,
+        "generate_thumbnail": bool(normalized_job.get("generate_thumbnail")),
+    }
+    db.execute(
+        text(
+            """
+            INSERT INTO research_brief_generation_jobs (
+                id, status, client_request_id, created_by_admin_id, created_by_admin_email, ticker,
+                request_payload_json, model, external_research_mode, section_format, generate_thumbnail,
+                progress_step, progress_message, source_links_count, numeric_claims_count, validation_status,
+                draft_id, draft_payload_json, error_message_safe, error_details_internal, duration_ms,
+                created_at, started_at, completed_at, failed_at
+            ) VALUES (
+                :id, :status, :client_request_id, :created_by_admin_id, :created_by_admin_email, :ticker,
+                :request_payload_json, :model, :external_research_mode, :section_format, :generate_thumbnail,
+                :progress_step, :progress_message, :source_links_count, :numeric_claims_count, :validation_status,
+                :draft_id, :draft_payload_json, :error_message_safe, :error_details_internal, :duration_ms,
+                :created_at, :started_at, :completed_at, :failed_at
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                progress_step = excluded.progress_step,
+                progress_message = excluded.progress_message,
+                source_links_count = excluded.source_links_count,
+                numeric_claims_count = excluded.numeric_claims_count,
+                validation_status = excluded.validation_status,
+                draft_id = excluded.draft_id,
+                draft_payload_json = excluded.draft_payload_json,
+                error_message_safe = excluded.error_message_safe,
+                error_details_internal = excluded.error_details_internal,
+                duration_ms = excluded.duration_ms,
+                started_at = excluded.started_at,
+                completed_at = excluded.completed_at,
+                failed_at = excluded.failed_at
+            """
+        ),
+        params,
+    )
+    db.commit()
+
+
+def _upsert_db_draft(db: Session, draft: dict[str, Any]) -> None:
+    ensure_research_brief_store_schema(db)
+    article = draft.get("article") or {}
+    params = {
+        "id": draft.get("id"),
+        "status": draft.get("status"),
+        "created_by": draft.get("created_by"),
+        "primary_ticker": draft.get("primary_ticker"),
+        "slug": article.get("slug"),
+        "updated_at": draft.get("updated_at"),
+        "published_at": draft.get("published_at"),
+        "payload_json": _json_dump(draft),
+    }
+    db.execute(
+        text(
+            """
+            INSERT INTO research_brief_drafts (id, status, created_by, primary_ticker, slug, updated_at, published_at, payload_json)
+            VALUES (:id, :status, :created_by, :primary_ticker, :slug, :updated_at, :published_at, :payload_json)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                primary_ticker = excluded.primary_ticker,
+                slug = excluded.slug,
+                updated_at = excluded.updated_at,
+                published_at = excluded.published_at,
+                payload_json = excluded.payload_json
+            """
+        ),
+        params,
+    )
+    db.commit()
+
+
+def _db_draft(db: Session, draft_id: str) -> dict[str, Any] | None:
+    ensure_research_brief_store_schema(db)
+    row = db.execute(text("SELECT payload_json FROM research_brief_drafts WHERE id = :id"), {"id": draft_id}).mappings().first()
+    payload = _load_json(row["payload_json"]) if row else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _db_drafts(db: Session, status: str | None = None) -> list[dict[str, Any]]:
+    ensure_research_brief_store_schema(db)
+    if status and status != "all":
+        rows = db.execute(text("SELECT payload_json FROM research_brief_drafts WHERE status = :status ORDER BY updated_at DESC"), {"status": status}).mappings().all()
+    else:
+        rows = db.execute(text("SELECT payload_json FROM research_brief_drafts ORDER BY updated_at DESC")).mappings().all()
+    drafts: list[dict[str, Any]] = []
+    for row in rows:
+        payload = _load_json(row["payload_json"])
+        if isinstance(payload, dict):
+            drafts.append(payload)
+    return drafts
 
 
 def _append_audit(store: dict[str, Any], *, action: str, admin: UserAccount, draft_id: str | None, metadata: dict[str, Any] | None = None) -> None:
@@ -824,6 +1011,10 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
             store["drafts"].append(draft)
             _append_audit(store, action="generate", admin=admin, draft_id=draft["id"], metadata={"ticker": normalized_config["ticker"]})
             _write_store(store)
+        try:
+            _upsert_db_draft(db, draft)
+        except Exception as exc:
+            logger.warning("research_brief_draft_db_persist_failed draft_id=%s error=%s", draft.get("id"), exc.__class__.__name__)
         return draft
     finally:
         _ACTIVE_GENERATIONS.discard(actor_key)
@@ -834,6 +1025,24 @@ def enqueue_research_brief_generation_job(db: Session, admin: UserAccount, confi
     normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
     client_request_id = str(config.get("client_request_id") or uuid.uuid4()).strip()[:120]
     now = _now()
+    ensure_research_brief_store_schema(db)
+    existing = db.execute(
+        text(
+            """
+            SELECT * FROM research_brief_generation_jobs
+            WHERE created_by_admin_id = :admin_id AND client_request_id = :client_request_id
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ),
+        {"admin_id": admin.id, "client_request_id": client_request_id},
+    ).mappings().first()
+    if existing:
+        existing_job = _job_from_row(existing)
+        payload = _job_response_payload(existing_job)
+        if payload.get("status") == "queued":
+            _start_research_brief_job_worker(str(payload["job_id"]))
+        return payload
     with _STORE_LOCK:
         store = _read_store()
         jobs = store.setdefault("jobs", [])
@@ -870,6 +1079,7 @@ def enqueue_research_brief_generation_job(db: Session, admin: UserAccount, confi
         }
         jobs.append(job)
         _write_store(store)
+        _upsert_db_job(db, job)
         payload = _job_response_payload(job)
     logger.info(
         "research_brief_job_created job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s",
@@ -883,7 +1093,14 @@ def enqueue_research_brief_generation_job(db: Session, admin: UserAccount, confi
     return payload
 
 
-def get_research_brief_generation_job(job_id: str) -> dict[str, Any]:
+def get_research_brief_generation_job(job_id: str, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        job = _db_job(db, job_id)
+        if job:
+            payload = _job_response_payload(job)
+            if payload["status"] == "queued":
+                _start_research_brief_job_worker(job_id)
+            return payload
     with _STORE_LOCK:
         job = _find_job(_read_store(), job_id)
         if not job:
@@ -894,7 +1111,14 @@ def get_research_brief_generation_job(job_id: str) -> dict[str, Any]:
     return payload
 
 
-def list_generation_jobs(status: str | None = None) -> dict[str, Any]:
+def list_generation_jobs(status: str | None = None, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        ensure_research_brief_store_schema(db)
+        if status and status != "all":
+            rows = db.execute(text("SELECT * FROM research_brief_generation_jobs WHERE status = :status ORDER BY created_at DESC"), {"status": status}).mappings().all()
+        else:
+            rows = db.execute(text("SELECT * FROM research_brief_generation_jobs ORDER BY created_at DESC")).mappings().all()
+        return {"items": [_job_response_payload(_job_from_row(row)) for row in rows]}
     with _STORE_LOCK:
         jobs = [_job_response_payload(job) for job in (_read_store().get("jobs") or [])]
     if status and status != "all":
@@ -902,11 +1126,16 @@ def list_generation_jobs(status: str | None = None) -> dict[str, Any]:
     return {"items": sorted(jobs, key=lambda item: item.get("created_at") or "", reverse=True)}
 
 
-def get_research_brief_generation_job_draft(job_id: str) -> dict[str, Any]:
-    job = get_research_brief_generation_job(job_id)
+def get_research_brief_generation_job_draft(job_id: str, db: Session | None = None) -> dict[str, Any]:
+    job = get_research_brief_generation_job(job_id, db)
     if job["status"] != "completed" or not job.get("draft_id"):
         raise HTTPException(status_code=409, detail="Research brief generation is not complete yet.")
-    return get_draft(str(job["draft_id"]))
+    if db is not None:
+        db_job = _db_job(db, job_id)
+        draft_payload = (db_job or {}).get("draft_payload_json")
+        if isinstance(draft_payload, dict):
+            return _draft_with_comparison_tickers(deepcopy(draft_payload))
+    return get_draft(str(job["draft_id"]), db=db)
 
 
 def run_research_brief_generation_job(job_id: str, db: Session | None = None) -> None:
@@ -914,19 +1143,19 @@ def run_research_brief_generation_job(job_id: str, db: Session | None = None) ->
     session = db or SessionLocal()
     started = time.perf_counter()
     try:
-        job = _mark_job_running(job_id)
-        if job.get("status") == "completed":
+        job = _mark_job_running(job_id, session)
+        if job.get("status") == "completed" or job.get("_skip_worker"):
             return
         admin = session.get(UserAccount, job.get("created_by_admin_id"))
         if not admin:
             raise HTTPException(status_code=404, detail="Admin account not found for research brief generation job.")
 
         def progress(step: str, message: str) -> None:
-            _update_job_progress(job_id, step, message)
+            _update_job_progress(job_id, step, message, session)
 
         draft = generate_research_brief(session, admin, dict(job.get("request_payload_json") or {}), progress_callback=progress)
         validation = draft.get("validation") or {}
-        _complete_job(job_id, draft, duration_ms=int((time.perf_counter() - started) * 1000))
+        _complete_job(job_id, draft, duration_ms=int((time.perf_counter() - started) * 1000), db=session)
         logger.info(
             "research_brief_job_completed job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s duration_ms=%s source_links_count=%s numeric_claims_count=%s validation_status=%s",
             job_id,
@@ -940,7 +1169,7 @@ def run_research_brief_generation_job(job_id: str, db: Session | None = None) ->
             validation.get("status"),
         )
     except Exception as exc:
-        _fail_job(job_id, exc, duration_ms=int((time.perf_counter() - started) * 1000))
+        _fail_job(job_id, exc, duration_ms=int((time.perf_counter() - started) * 1000), db=session)
     finally:
         if owns_db:
             session.close()
@@ -956,7 +1185,34 @@ def _start_research_brief_job_worker(job_id: str) -> None:
         thread.start()
 
 
-def _mark_job_running(job_id: str) -> dict[str, Any]:
+def _mark_job_running(job_id: str, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        job = _db_job(db, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Research brief generation job not found.")
+        if job.get("status") == "completed":
+            return deepcopy(job)
+        if job.get("status") in {"failed", "cancelled"}:
+            raise HTTPException(status_code=409, detail="Research brief generation job is not active.")
+        if job.get("status") == "running":
+            payload = deepcopy(job)
+            payload["_skip_worker"] = True
+            return payload
+        job["status"] = "running"
+        job["started_at"] = job.get("started_at") or _now()
+        job["progress_step"] = "loading_walnut_data"
+        job["progress_message"] = "Starting research brief generation."
+        _upsert_db_job(db, job)
+        payload = deepcopy(job)
+        logger.info(
+            "research_brief_job_started job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s",
+            job_id,
+            payload.get("ticker"),
+            payload.get("model"),
+            payload.get("external_research_mode"),
+            payload.get("generate_thumbnail"),
+        )
+        return payload
     with _STORE_LOCK:
         store = _read_store()
         job = _find_job(store, job_id)
@@ -983,7 +1239,26 @@ def _mark_job_running(job_id: str) -> dict[str, Any]:
     return payload
 
 
-def _update_job_progress(job_id: str, step: str, message: str) -> None:
+def _update_job_progress(job_id: str, step: str, message: str, db: Session | None = None) -> None:
+    if db is not None:
+        job = _db_job(db, job_id)
+        if not job or job.get("status") not in {"queued", "running"}:
+            return
+        job["status"] = "running"
+        job["progress_step"] = step
+        job["progress_message"] = message
+        _upsert_db_job(db, job)
+        payload = deepcopy(job)
+        logger.info(
+            "research_brief_job_step job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s progress_step=%s",
+            job_id,
+            payload.get("ticker"),
+            payload.get("model"),
+            payload.get("external_research_mode"),
+            payload.get("generate_thumbnail"),
+            step,
+        )
+        return
     with _STORE_LOCK:
         store = _read_store()
         job = _find_job(store, job_id)
@@ -1005,8 +1280,28 @@ def _update_job_progress(job_id: str, step: str, message: str) -> None:
     )
 
 
-def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int) -> None:
+def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int, db: Session | None = None) -> None:
     validation = draft.get("validation") or {}
+    if db is not None:
+        job = _db_job(db, job_id)
+        if not job:
+            return
+        job["status"] = "completed"
+        job["progress_step"] = "completed"
+        job["progress_message"] = "Research brief draft generated."
+        job["draft_id"] = draft.get("id")
+        job["draft_payload_json"] = draft
+        job["source_links_count"] = validation.get("source_link_count") or 0
+        job["numeric_claims_count"] = len(validation.get("numeric_claims") or [])
+        job["validation_status"] = validation.get("status")
+        job["completed_at"] = _now()
+        job["failed_at"] = None
+        job["error_message_safe"] = None
+        job["error_details_internal"] = None
+        job["duration_ms"] = duration_ms
+        _upsert_db_draft(db, draft)
+        _upsert_db_job(db, job)
+        return
     with _STORE_LOCK:
         store = _read_store()
         job = _find_job(store, job_id)
@@ -1027,8 +1322,33 @@ def _complete_job(job_id: str, draft: dict[str, Any], *, duration_ms: int) -> No
         _write_store(store)
 
 
-def _fail_job(job_id: str, exc: Exception, *, duration_ms: int) -> None:
+def _fail_job(job_id: str, exc: Exception, *, duration_ms: int, db: Session | None = None) -> None:
     safe_error = _safe_job_error(exc)
+    if db is not None:
+        job = _db_job(db, job_id)
+        if job:
+            job["status"] = "failed"
+            job["progress_step"] = "failed"
+            job["progress_message"] = safe_error
+            job["error_message_safe"] = safe_error
+            job["error_details_internal"] = f"{exc.__class__.__name__}: {str(exc)[:1000]}"
+            job["failed_at"] = _now()
+            job["duration_ms"] = duration_ms
+            _upsert_db_job(db, job)
+            payload = deepcopy(job)
+        else:
+            payload = {"ticker": None, "model": None, "external_research_mode": None, "generate_thumbnail": None}
+        logger.warning(
+            "research_brief_job_failed job_id=%s ticker=%s model=%s external_research_mode=%s generate_thumbnail=%s duration_ms=%s error=%s",
+            job_id,
+            payload.get("ticker"),
+            payload.get("model"),
+            payload.get("external_research_mode"),
+            payload.get("generate_thumbnail"),
+            duration_ms,
+            exc.__class__.__name__,
+        )
+        return
     with _STORE_LOCK:
         store = _read_store()
         job = _find_job(store, job_id)
@@ -1545,7 +1865,13 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
     }
 
 
-def list_drafts(status: str | None = None) -> dict[str, Any]:
+def list_drafts(status: str | None = None, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        try:
+            drafts = [_draft_with_comparison_tickers(draft) for draft in _db_drafts(db, status=status)]
+            return {"items": sorted(drafts, key=lambda item: item.get("updated_at") or "", reverse=True)}
+        except Exception as exc:
+            logger.warning("research_brief_db_list_drafts_failed error=%s", exc.__class__.__name__)
     with _STORE_LOCK:
         drafts = deepcopy(_read_store().get("drafts", []))
     drafts = [_draft_with_comparison_tickers(draft) for draft in drafts]
@@ -1554,7 +1880,14 @@ def list_drafts(status: str | None = None) -> dict[str, Any]:
     return {"items": sorted(drafts, key=lambda item: item.get("updated_at") or "", reverse=True)}
 
 
-def get_draft(draft_id: str) -> dict[str, Any]:
+def get_draft(draft_id: str, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        try:
+            draft = _db_draft(db, draft_id)
+            if draft:
+                return _draft_with_comparison_tickers(deepcopy(draft))
+        except Exception as exc:
+            logger.warning("research_brief_db_get_draft_failed draft_id=%s error=%s", draft_id, exc.__class__.__name__)
     for draft in _read_store().get("drafts", []):
         if draft.get("id") == draft_id:
             return _draft_with_comparison_tickers(deepcopy(draft))
@@ -1579,7 +1912,19 @@ def _draft_with_comparison_tickers(draft: dict[str, Any]) -> dict[str, Any]:
     return draft
 
 
-def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any], status: str | None = None) -> dict[str, Any]:
+def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any], status: str | None = None, db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        draft = _db_draft(db, draft_id)
+        if draft:
+            article = draft.setdefault("article", {})
+            article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
+            article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
+            if status:
+                draft["status"] = _normalize_status(status)
+            draft["validation"] = validate_article(article, draft.get("research_context") or {}, draft_id=draft_id)
+            draft["updated_at"] = _now()
+            _upsert_db_draft(db, draft)
+            return deepcopy(draft)
     with _STORE_LOCK:
         store = _read_store()
         for draft in store.get("drafts", []):
@@ -1598,6 +1943,26 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
 
 
 def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
+    draft = _db_draft(db, draft_id)
+    if draft:
+        config = validate_config(draft.get("config") or {})
+        symbol = str(draft.get("primary_ticker") or config.get("ticker") or "").upper()
+        identity = ((draft.get("research_context") or {}).get("primary") or {}).get("identity") or {"symbol": symbol}
+        external = discover_external_research(symbol, identity, mode=config.get("external_research_mode") or "Standard")
+        context = draft.setdefault("research_context", {})
+        context["external_research"] = external
+        context["external_research_mode"] = external.get("mode")
+        context["generated_at"] = _now()
+        existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
+        context["missing_data_notes"] = _dedupe_strings([*existing_missing, *(external.get("missing_data_notes") or [])])
+        article = draft.setdefault("article", {})
+        article["missing_data_notes"] = _dedupe_strings([*(article.get("missing_data_notes") or []), *(external.get("missing_data_notes") or [])])
+        article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
+        draft["validation"] = validate_article(article, context, draft_id=draft_id)
+        draft["updated_at"] = _now()
+        _upsert_db_draft(db, draft)
+        return deepcopy(draft)
+
     with _STORE_LOCK:
         store = _read_store()
         for draft in store.get("drafts", []):
@@ -1644,9 +2009,23 @@ def _dedupe_source_links(values: list[Any]) -> list[dict[str, str]]:
     return links[:12]
 
 
-def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool) -> dict[str, Any]:
+def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Session | None = None) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=422, detail="Publish requires explicit confirmation.")
+    if db is not None:
+        draft = _db_draft(db, draft_id)
+        if draft:
+            validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
+            if validation["status"] != "passed":
+                draft["validation"] = validation
+                _upsert_db_draft(db, draft)
+                raise HTTPException(status_code=422, detail="Resolve validation failures before publishing.")
+            draft["status"] = "published"
+            draft["published_at"] = draft.get("published_at") or _now()
+            draft["updated_at"] = _now()
+            draft["validation"] = validation
+            _upsert_db_draft(db, draft)
+            return deepcopy(draft)
     with _STORE_LOCK:
         store = _read_store()
         for draft in store.get("drafts", []):
@@ -1666,9 +2045,16 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool) -> dict[s
     raise HTTPException(status_code=404, detail="Research brief draft not found.")
 
 
-def unpublish_draft(admin: UserAccount, draft_id: str, *, confirm: bool) -> dict[str, Any]:
+def unpublish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Session | None = None) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=422, detail="Unpublish requires explicit confirmation.")
+    if db is not None:
+        draft = _db_draft(db, draft_id)
+        if draft:
+            draft["status"] = "unpublished"
+            draft["updated_at"] = _now()
+            _upsert_db_draft(db, draft)
+            return deepcopy(draft)
     with _STORE_LOCK:
         store = _read_store()
         for draft in store.get("drafts", []):
@@ -1681,9 +2067,15 @@ def unpublish_draft(admin: UserAccount, draft_id: str, *, confirm: bool) -> dict
     raise HTTPException(status_code=404, detail="Research brief draft not found.")
 
 
-def delete_draft(admin: UserAccount, draft_id: str, *, confirm_text: str) -> dict[str, Any]:
+def delete_draft(admin: UserAccount, draft_id: str, *, confirm_text: str, db: Session | None = None) -> dict[str, Any]:
     if confirm_text != "DELETE":
         raise HTTPException(status_code=422, detail="Delete requires typing DELETE.")
+    if db is not None:
+        ensure_research_brief_store_schema(db)
+        result = db.execute(text("DELETE FROM research_brief_drafts WHERE id = :id"), {"id": draft_id})
+        db.commit()
+        if getattr(result, "rowcount", 0):
+            return {"ok": True, "deleted": draft_id}
     with _STORE_LOCK:
         store = _read_store()
         before = len(store.get("drafts", []))
@@ -1702,8 +2094,15 @@ def _normalize_status(status: str) -> str:
     return normalized
 
 
-def published_cards() -> dict[str, Any]:
-    drafts = [draft for draft in _read_store().get("drafts", []) if draft.get("status") == "published"]
+def published_cards(db: Session | None = None) -> dict[str, Any]:
+    if db is not None:
+        try:
+            drafts = [draft for draft in _db_drafts(db, status="published") if draft.get("status") == "published"]
+        except Exception as exc:
+            logger.warning("research_brief_db_published_cards_failed error=%s", exc.__class__.__name__)
+            drafts = [draft for draft in _read_store().get("drafts", []) if draft.get("status") == "published"]
+    else:
+        drafts = [draft for draft in _read_store().get("drafts", []) if draft.get("status") == "published"]
     cards = []
     for draft in drafts:
         article = draft.get("article") or {}
@@ -1728,8 +2127,20 @@ def published_cards() -> dict[str, Any]:
     return {"items": cards}
 
 
-def published_article(slug: str) -> dict[str, Any]:
+def published_article(slug: str, db: Session | None = None) -> dict[str, Any]:
     normalized = _slugify(slug, fallback=slug)
+    if db is not None:
+        try:
+            ensure_research_brief_store_schema(db)
+            row = db.execute(
+                text("SELECT payload_json FROM research_brief_drafts WHERE status = 'published' AND slug = :slug LIMIT 1"),
+                {"slug": normalized},
+            ).mappings().first()
+            payload = _load_json(row["payload_json"]) if row else None
+            if isinstance(payload, dict):
+                return deepcopy(payload)
+        except Exception as exc:
+            logger.warning("research_brief_db_published_article_failed slug=%s error=%s", normalized, exc.__class__.__name__)
     for draft in _read_store().get("drafts", []):
         article = draft.get("article") or {}
         if draft.get("status") == "published" and article.get("slug") == normalized:

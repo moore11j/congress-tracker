@@ -5777,6 +5777,14 @@ export async function getAdminResearchBriefGenerationDraft(jobId: string): Promi
   });
 }
 
+export async function getAdminResearchBriefDraft(draftId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}`), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminResearchBriefs",
+  });
+}
+
 export async function getAdminResearchBriefDrafts(status = "all"): Promise<{ items: AdminResearchBriefDraft[] }> {
   return fetchJson<{ items: AdminResearchBriefDraft[] }>(buildApiUrl("/api/admin/research-briefs/drafts", { status }), {
     cache: "no-store",

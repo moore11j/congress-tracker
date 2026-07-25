@@ -126,31 +126,31 @@ def admin_research_brief_generate(payload: ResearchBriefGeneratePayload, request
 @router.get("/admin/research-briefs/jobs/{job_id}")
 def admin_research_brief_job(job_id: str, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    return get_research_brief_generation_job(job_id)
+    return get_research_brief_generation_job(job_id, db)
 
 
 @router.get("/admin/research-briefs/jobs/{job_id}/draft")
 def admin_research_brief_job_draft(job_id: str, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    return get_research_brief_generation_job_draft(job_id)
+    return get_research_brief_generation_job_draft(job_id, db)
 
 
 @router.get("/admin/research-briefs/drafts")
 def admin_research_brief_drafts(status: str | None = None, request: Request = None, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    return list_drafts(status=status)
+    return list_drafts(status=status, db=db)
 
 
 @router.get("/admin/research-briefs/drafts/{draft_id}")
 def admin_research_brief_draft(draft_id: str, request: Request, db: Session = Depends(get_db)):
     require_admin_user(db, request)
-    return get_draft(draft_id)
+    return get_draft(draft_id, db=db)
 
 
 @router.patch("/admin/research-briefs/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_research_brief_update(draft_id: str, payload: ResearchBriefUpdatePayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return update_draft(admin, draft_id, payload.article, status=payload.status)
+    return update_draft(admin, draft_id, payload.article, status=payload.status, db=db)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/refresh-sources", dependencies=[Depends(rate_limit_admin_mutation)])
@@ -162,26 +162,26 @@ def admin_research_brief_refresh_sources(draft_id: str, request: Request, db: Se
 @router.post("/admin/research-briefs/drafts/{draft_id}/publish", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_research_brief_publish(draft_id: str, payload: ConfirmPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return publish_draft(admin, draft_id, confirm=payload.confirm)
+    return publish_draft(admin, draft_id, confirm=payload.confirm, db=db)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/unpublish", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_research_brief_unpublish(draft_id: str, payload: ConfirmPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return unpublish_draft(admin, draft_id, confirm=payload.confirm)
+    return unpublish_draft(admin, draft_id, confirm=payload.confirm, db=db)
 
 
 @router.delete("/admin/research-briefs/drafts/{draft_id}", dependencies=[Depends(rate_limit_admin_mutation)])
 def admin_research_brief_delete(draft_id: str, payload: ConfirmPayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
-    return delete_draft(admin, draft_id, confirm_text=payload.confirm_text or "")
+    return delete_draft(admin, draft_id, confirm_text=payload.confirm_text or "", db=db)
 
 
 @router.get("/research/briefs")
-def public_research_brief_cards():
-    return published_cards()
+def public_research_brief_cards(db: Session = Depends(get_db)):
+    return published_cards(db=db)
 
 
 @router.get("/research/briefs/{slug}")
-def public_research_brief(slug: str):
-    return published_article(slug)
+def public_research_brief(slug: str, db: Session = Depends(get_db)):
+    return published_article(slug, db=db)

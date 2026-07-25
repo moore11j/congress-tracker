@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deleteAdminResearchBriefDraft,
+  getAdminResearchBriefDraft,
   getAdminResearchBriefGenerationDraft,
   getAdminResearchBriefGenerationJob,
   getAdminResearchBriefDrafts,
@@ -323,12 +324,32 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         if (!alive) return;
         setActiveJob(job);
         if (job.status === "completed") {
-          const draft = await getAdminResearchBriefGenerationDraft(job.job_id);
-          if (!alive) return;
-          setSelectedDraft(draft);
-          await refreshDrafts(draft);
-          setBusy(null);
-          showToast?.("Research brief draft generated.", "success");
+          setError("");
+          try {
+            let draft = await getAdminResearchBriefGenerationDraft(job.job_id);
+            if (!alive) return;
+            setSelectedDraft(draft);
+            await refreshDrafts(draft);
+            setBusy(null);
+            showToast?.("Research brief draft generated.", "success");
+          } catch {
+            if (!alive) return;
+            if (job.draft_id) {
+              try {
+                const draft = await getAdminResearchBriefDraft(job.draft_id);
+                if (!alive) return;
+                setSelectedDraft(draft);
+                await refreshDrafts(draft);
+                setBusy(null);
+                showToast?.("Research brief draft generated.", "success");
+                return;
+              } catch {
+                // Fall through to the load-specific error below.
+              }
+            }
+            setError("Research brief generated, but the draft could not be loaded yet. Open Drafts or try again in a moment.");
+            setBusy(null);
+          }
         } else if (job.status === "failed") {
           const message = job.error_message_safe || "Research brief generation failed. Try again or reduce research depth.";
           setError(message);

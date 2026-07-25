@@ -44,9 +44,11 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /startAdminResearchBriefGeneration/);
   assert.match(component, /getAdminResearchBriefGenerationJob/);
   assert.match(component, /getAdminResearchBriefGenerationDraft/);
+  assert.match(component, /getAdminResearchBriefDraft/);
   assert.match(component, /Generating research brief/);
   assert.match(component, /generationJobActive/);
   assert.match(component, /Research brief generation failed\. Try again or reduce research depth\./);
+  assert.match(component, /Research brief generated, but the draft could not be loaded yet/);
   assert.match(api, /comparison_tickers: string\[\]/);
   assert.match(api, /AdminResearchBriefJob/);
   assert.match(api, /\/api\/admin\/research-briefs\/jobs\/\$\{encodeURIComponent\(jobId\)\}/);
