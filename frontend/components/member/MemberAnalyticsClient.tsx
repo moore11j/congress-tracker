@@ -542,6 +542,18 @@ function MemberHoldingsPanel({
   locked: boolean;
 }) {
   const diagnostics = portfolio?.warmup_diagnostics ?? null;
+  const snapshotCount =
+    portfolio?.annual_disclosure_snapshot_positions_count ??
+    diagnostics?.annual_disclosure_snapshot_positions_count ??
+    0;
+  const snapshotSymbols =
+    portfolio?.annual_disclosure_snapshot_symbols ??
+    diagnostics?.annual_disclosure_snapshot_symbols ??
+    [];
+  const snapshotValue =
+    portfolio?.annual_disclosure_snapshot_value ??
+    diagnostics?.annual_disclosure_snapshot_value ??
+    null;
   const annualCount =
     portfolio?.opening_holdings_from_annual_disclosure ??
     diagnostics?.opening_holdings_from_annual_disclosure ??
@@ -566,15 +578,16 @@ function MemberHoldingsPanel({
     portfolio?.estimated_opening_positions_symbols ??
     diagnostics?.estimated_opening_positions_symbols ??
     [];
-  const symbols = annualSymbols.length > 0 ? annualSymbols : estimatedSymbols;
-  const displayCount = annualCount > 0 ? annualCount : estimatedCount > 0 ? estimatedCount : symbols.length;
-  const displayValue = annualCount > 0 ? annualValue : estimatedValue ?? annualValue;
-  const basisLabel = annualCount > 0 ? "Annual disclosure" : "Estimated";
-  const sectionDetail = annualCount > 0 ? "Annual disclosures" : "Estimated positions";
+  const symbols = snapshotSymbols.length > 0 ? snapshotSymbols : annualSymbols.length > 0 ? annualSymbols : estimatedSymbols;
+  const displayCount = snapshotCount > 0 ? snapshotCount : annualCount > 0 ? annualCount : estimatedCount > 0 ? estimatedCount : symbols.length;
+  const displayValue = snapshotCount > 0 ? snapshotValue : annualCount > 0 ? annualValue : estimatedValue ?? annualValue;
+  const basisLabel = snapshotCount > 0 || annualCount > 0 ? "Annual disclosure" : "Estimated";
+  const sectionDetail = snapshotCount > 0 ? "Annual snapshot" : annualCount > 0 ? "Simulated openings" : "Estimated positions";
+  const positionLabel = snapshotCount > 0 || annualCount > 0 ? "Reported positions" : "Estimated positions";
 
   return (
     <section id="member-holdings" className={`${CARD} scroll-mt-6 p-3`}>
-      <SectionTitle title="Estimated Holdings" detail={sectionDetail} />
+      <SectionTitle title="Reported Holdings" detail={sectionDetail} />
       {loading ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => <SkeletonBlock key={idx} className="h-14 w-full" />)}
@@ -587,7 +600,7 @@ function MemberHoldingsPanel({
         <>
           <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-white/8 bg-white/8 md:grid-cols-4">
             <div className="bg-[#081321] px-3 py-2.5">
-              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">Estimated positions</p>
+              <p className="text-[9px] font-medium uppercase leading-none tracking-[0.12em] text-slate-500">{positionLabel}</p>
               <p className="mt-1.5 text-base font-semibold leading-none text-white tabular-nums">{numberOrDash(displayCount)}</p>
             </div>
             <div className="bg-[#081321] px-3 py-2.5">
@@ -851,7 +864,7 @@ export function MemberAnalyticsClient({
     { label: "Buy / Sell Ratio", value: `${activityStats.buyCount} / ${activityStats.sellCount}`, sub: activityStats.buyCount >= activityStats.sellCount ? "Net buyer" : "Net seller", valueClass: activityStats.buyCount >= activityStats.sellCount ? "text-emerald-300" : "text-rose-300" },
     { label: "Most Active Sector", value: activityStats.sectorRows[0]?.label ?? "—", sub: `${Math.round(((activityStats.sectorRows[0]?.value ?? 0) / Math.max(1, activityStats.totalCount)) * 100)}% of activity` },
     { label: "Top Ticker", value: topTickers[0]?.symbol ?? "—", sub: `${topTickers[0]?.trades ?? 0} disclosures` },
-    { label: "Est. Value", value: compactUSD(activityStats.totalValue), sub: `${lookbackDays}D disclosed range` },
+    { label: "Disclosed Value", value: compactUSD(activityStats.totalValue), sub: `${lookbackDays}D trade ranges` },
   ];
   const hasAlphaMetrics =
     (alphaSummary.trades_analyzed ?? 0) > 0 ||

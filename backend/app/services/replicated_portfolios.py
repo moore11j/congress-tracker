@@ -257,6 +257,12 @@ class PortfolioWarmupDiagnostics:
     annual_disclosure_source_year: int | None = None
     annual_disclosure_source_url: str | None = None
     annual_disclosure_source_document_id: str | None = None
+    annual_disclosure_snapshot_positions_count: int = 0
+    annual_disclosure_snapshot_symbols: list[str] | None = None
+    annual_disclosure_snapshot_value: float = 0.0
+    annual_disclosure_snapshot_source_year: int | None = None
+    annual_disclosure_snapshot_source_url: str | None = None
+    annual_disclosure_snapshot_source_document_id: str | None = None
     sale_without_position_before_estimation: int = 0
     sale_without_position_after_estimation: int = 0
 
@@ -417,6 +423,12 @@ def warmup_diagnostics_payload(diagnostics: PortfolioWarmupDiagnostics | None) -
         "annual_disclosure_source_year": diagnostics.annual_disclosure_source_year,
         "annual_disclosure_source_url": diagnostics.annual_disclosure_source_url,
         "annual_disclosure_source_document_id": diagnostics.annual_disclosure_source_document_id,
+        "annual_disclosure_snapshot_positions_count": diagnostics.annual_disclosure_snapshot_positions_count,
+        "annual_disclosure_snapshot_symbols": diagnostics.annual_disclosure_snapshot_symbols or [],
+        "annual_disclosure_snapshot_value": _round(diagnostics.annual_disclosure_snapshot_value) or 0.0,
+        "annual_disclosure_snapshot_source_year": diagnostics.annual_disclosure_snapshot_source_year,
+        "annual_disclosure_snapshot_source_url": diagnostics.annual_disclosure_snapshot_source_url,
+        "annual_disclosure_snapshot_source_document_id": diagnostics.annual_disclosure_snapshot_source_document_id,
         "sale_without_position_before_estimation": diagnostics.sale_without_position_before_estimation,
         "sale_without_position_after_estimation": diagnostics.sale_without_position_after_estimation,
     }
@@ -468,6 +480,28 @@ def _annual_disclosure_holdings_by_symbol(
         ):
             by_symbol[symbol] = holding
     return by_symbol
+
+
+def _annual_disclosure_snapshot_diagnostics(
+    holdings: list[PortfolioAnnualDisclosureHolding] | None,
+) -> dict[str, Any]:
+    holdings = holdings or []
+    source_years = {holding.filing_year for holding in holdings if holding.filing_year is not None}
+    source_urls = {holding.report_url for holding in holdings if holding.report_url}
+    source_document_ids = {holding.document_id for holding in holdings if holding.document_id}
+    return {
+        "annual_disclosure_snapshot_positions_count": len(holdings),
+        "annual_disclosure_snapshot_symbols": sorted({holding.symbol for holding in holdings if holding.symbol}),
+        "annual_disclosure_snapshot_value": sum(
+            float(value)
+            for holding in holdings
+            for value in [_annual_disclosure_holding_midpoint(holding)]
+            if value is not None and value > 0
+        ),
+        "annual_disclosure_snapshot_source_year": max(source_years) if source_years else None,
+        "annual_disclosure_snapshot_source_url": sorted(source_urls)[-1] if source_urls else None,
+        "annual_disclosure_snapshot_source_document_id": sorted(source_document_ids)[-1] if source_document_ids else None,
+    }
 
 
 def _find_effective_point_index(points: list[PortfolioPoint]) -> int | None:
@@ -2097,6 +2131,7 @@ def simulate_replicated_portfolio(
                 estimated_opening_exposure_pct=0.0,
                 estimated_opening_method=None,
                 estimated_opening_cap=starting_value,
+                **_annual_disclosure_snapshot_diagnostics(annual_disclosure_holdings),
                 sale_without_position_before_estimation=0,
                 sale_without_position_after_estimation=0,
             ),
@@ -2543,6 +2578,7 @@ def simulate_replicated_portfolio(
         annual_disclosure_source_document_id=(
             sorted(annual_disclosure_source_document_ids)[-1] if annual_disclosure_source_document_ids else None
         ),
+        **_annual_disclosure_snapshot_diagnostics(annual_disclosure_holdings),
         sale_without_position_before_estimation=sale_without_position_before_estimation,
         sale_without_position_after_estimation=sale_without_position_after_estimation,
     )
@@ -2617,32 +2653,38 @@ def load_annual_disclosure_opening_holdings(
     db: Session,
     *,
     member_bioguide_id: str,
-    symbols: list[str],
     visible_start_date: date,
+    symbols: list[str] | None = None,
 ) -> list[PortfolioAnnualDisclosureHolding]:
-    normalized_symbols = sorted({symbol for symbol in (normalize_symbol(item) for item in symbols) if symbol})
-    if not normalized_symbols:
-        return []
-    latest_row = db.execute(
+    normalized_symbols = sorted({symbol for symbol in (normalize_symbol(item) for item in (symbols or [])) if symbol})
+    latest_query = (
         select(HouseAnnualDisclosureHolding)
         .where(func.lower(func.coalesce(HouseAnnualDisclosureHolding.member_bioguide_id, "")) == member_bioguide_id.strip().lower())
         .where(HouseAnnualDisclosureHolding.filing_date.is_not(None))
         .where(HouseAnnualDisclosureHolding.filing_date < visible_start_date)
-        .where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
+        .where(HouseAnnualDisclosureHolding.symbol.is_not(None))
+        .where(func.length(func.trim(HouseAnnualDisclosureHolding.symbol)) > 0)
         .order_by(
             HouseAnnualDisclosureHolding.filing_date.desc(),
             HouseAnnualDisclosureHolding.filing_year.desc(),
             HouseAnnualDisclosureHolding.document_id.desc(),
         )
         .limit(1)
-    ).scalar_one_or_none()
+    )
+    if normalized_symbols:
+        latest_query = latest_query.where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
+    latest_row = db.execute(latest_query).scalar_one_or_none()
     if latest_row is None:
         return []
-    rows = db.execute(
+    rows_query = (
         select(HouseAnnualDisclosureHolding)
         .where(HouseAnnualDisclosureHolding.document_id == latest_row.document_id)
-        .where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
-    ).scalars().all()
+        .where(HouseAnnualDisclosureHolding.symbol.is_not(None))
+        .where(func.length(func.trim(HouseAnnualDisclosureHolding.symbol)) > 0)
+    )
+    if normalized_symbols:
+        rows_query = rows_query.where(HouseAnnualDisclosureHolding.symbol.in_(normalized_symbols))
+    rows = db.execute(rows_query).scalars().all()
     return [
         PortfolioAnnualDisclosureHolding(
             symbol=str(row.symbol),
@@ -2692,7 +2734,6 @@ def run_replicated_portfolio_simulation(
         load_annual_disclosure_opening_holdings(
             db,
             member_bioguide_id=entity_id,
-            symbols=symbols,
             visible_start_date=start,
         )
         if entity_type == "congress_member"
@@ -2996,6 +3037,12 @@ def _persisted_warmup_diagnostics_payload(
             "annual_disclosure_source_year": payload.get("annual_disclosure_source_year"),
             "annual_disclosure_source_url": payload.get("annual_disclosure_source_url"),
             "annual_disclosure_source_document_id": payload.get("annual_disclosure_source_document_id"),
+            "annual_disclosure_snapshot_positions_count": int(payload.get("annual_disclosure_snapshot_positions_count") or 0),
+            "annual_disclosure_snapshot_symbols": list(payload.get("annual_disclosure_snapshot_symbols") or []),
+            "annual_disclosure_snapshot_value": float(payload.get("annual_disclosure_snapshot_value") or 0.0),
+            "annual_disclosure_snapshot_source_year": payload.get("annual_disclosure_snapshot_source_year"),
+            "annual_disclosure_snapshot_source_url": payload.get("annual_disclosure_snapshot_source_url"),
+            "annual_disclosure_snapshot_source_document_id": payload.get("annual_disclosure_snapshot_source_document_id"),
             "sale_without_position_before_estimation": int(payload.get("sale_without_position_before_estimation") or 0),
             "sale_without_position_after_estimation": int(payload.get("sale_without_position_after_estimation") or payload.get("sale_without_position_after_warmup") or 0),
         }
@@ -3032,6 +3079,12 @@ def _persisted_warmup_diagnostics_payload(
         "annual_disclosure_source_year": None,
         "annual_disclosure_source_url": None,
         "annual_disclosure_source_document_id": None,
+        "annual_disclosure_snapshot_positions_count": 0,
+        "annual_disclosure_snapshot_symbols": [],
+        "annual_disclosure_snapshot_value": 0.0,
+        "annual_disclosure_snapshot_source_year": None,
+        "annual_disclosure_snapshot_source_url": None,
+        "annual_disclosure_snapshot_source_document_id": None,
         "sale_without_position_before_estimation": 0,
         "sale_without_position_after_estimation": 0,
     }
@@ -3079,6 +3132,20 @@ def _event_context_by_id(db: Session, positions: list[ReplicatedPortfolioPositio
             "report_date": public_date.isoformat() if public_date else None,
         }
     return context
+
+
+def _annual_disclosure_snapshot_diagnostics_for_run(
+    db: Session,
+    run: ReplicatedPortfolioRun,
+) -> dict[str, Any]:
+    if run.entity_type != "congress_member" or run.start_date is None:
+        return _annual_disclosure_snapshot_diagnostics([])
+    holdings = load_annual_disclosure_opening_holdings(
+        db,
+        member_bioguide_id=run.entity_id,
+        visible_start_date=run.start_date,
+    )
+    return _annual_disclosure_snapshot_diagnostics(holdings)
 
 
 def latest_replicated_portfolio_payload(
@@ -3168,6 +3235,12 @@ def latest_replicated_portfolio_payload(
                 "annual_disclosure_source_year": None,
                 "annual_disclosure_source_url": None,
                 "annual_disclosure_source_document_id": None,
+                "annual_disclosure_snapshot_positions_count": 0,
+                "annual_disclosure_snapshot_symbols": [],
+                "annual_disclosure_snapshot_value": 0.0,
+                "annual_disclosure_snapshot_source_year": None,
+                "annual_disclosure_snapshot_source_url": None,
+                "annual_disclosure_snapshot_source_document_id": None,
                 "sale_without_position_before_estimation": 0,
                 "sale_without_position_after_estimation": 0,
             },
@@ -3196,6 +3269,7 @@ def latest_replicated_portfolio_payload(
     status_payload = _status_message_payload(run.status_message)
     effective_window = _persisted_effective_window_payload(run, points, status_payload)
     warmup_diagnostics = _persisted_warmup_diagnostics_payload(run, status_payload, positions)
+    warmup_diagnostics.update(_annual_disclosure_snapshot_diagnostics_for_run(db, run))
     return {
         "status": run.status,
         "persisted_only": True,
@@ -3238,6 +3312,12 @@ def latest_replicated_portfolio_payload(
         "annual_disclosure_source_year": warmup_diagnostics["annual_disclosure_source_year"],
         "annual_disclosure_source_url": warmup_diagnostics["annual_disclosure_source_url"],
         "annual_disclosure_source_document_id": warmup_diagnostics["annual_disclosure_source_document_id"],
+        "annual_disclosure_snapshot_positions_count": warmup_diagnostics["annual_disclosure_snapshot_positions_count"],
+        "annual_disclosure_snapshot_symbols": warmup_diagnostics["annual_disclosure_snapshot_symbols"],
+        "annual_disclosure_snapshot_value": warmup_diagnostics["annual_disclosure_snapshot_value"],
+        "annual_disclosure_snapshot_source_year": warmup_diagnostics["annual_disclosure_snapshot_source_year"],
+        "annual_disclosure_snapshot_source_url": warmup_diagnostics["annual_disclosure_snapshot_source_url"],
+        "annual_disclosure_snapshot_source_document_id": warmup_diagnostics["annual_disclosure_snapshot_source_document_id"],
         "sale_without_position_before_estimation": warmup_diagnostics["sale_without_position_before_estimation"],
         "sale_without_position_after_estimation": warmup_diagnostics["sale_without_position_after_estimation"],
         "computed_at": run.computed_at.isoformat() if run.computed_at else None,

@@ -240,10 +240,12 @@ test("member page action buttons use compact mobile labels", () => {
 test("member tabs point to real profile sections", () => {
   assert.match(memberAnalyticsClient, /id="member-activity-trend"/);
   assert.match(memberAnalyticsClient, /id="member-holdings"/);
-  assert.match(memberAnalyticsClient, /Estimated Holdings/);
+  assert.match(memberAnalyticsClient, /Reported Holdings/);
+  assert.match(memberAnalyticsClient, /annual_disclosure_snapshot_symbols/);
+  assert.match(memberAnalyticsClient, /annual_disclosure_snapshot_positions_count/);
   assert.match(memberAnalyticsClient, /annual_disclosure_opening_positions_symbols/);
   assert.match(memberAnalyticsClient, /estimated_opening_positions_count/);
-  assert.match(memberAnalyticsClient, /displayCount = annualCount > 0 \? annualCount : estimatedCount > 0 \? estimatedCount : symbols\.length/);
+  assert.match(memberAnalyticsClient, /displayCount = snapshotCount > 0 \? snapshotCount : annualCount > 0 \? annualCount : estimatedCount > 0 \? estimatedCount : symbols\.length/);
   assert.match(memberPage, /id="member-committees"/);
   assert.match(memberPage, /MEMBER_COMMITTEE_ASSIGNMENTS/);
   assert.match(memberPage, /Committee on Armed Services/);

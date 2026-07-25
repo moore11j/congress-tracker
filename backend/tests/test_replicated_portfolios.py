@@ -850,6 +850,21 @@ def test_run_simulation_loads_latest_annual_disclosure_before_visible_start():
                     value_min=15_001.0,
                     value_max=50_000.0,
                 ),
+                HouseAnnualDisclosureHolding(
+                    document_row_id=1,
+                    member_name="Nancy Pelosi",
+                    member_bioguide_id="P000197",
+                    filing_year=2024,
+                    filing_type="O",
+                    filing_date=date(2025, 5, 15),
+                    report_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024/10066169.pdf",
+                    document_id="10066169",
+                    asset_name="NVIDIA Corporation",
+                    symbol="NVDA",
+                    value_range="$1,000,001 - $5,000,000",
+                    value_min=1_000_001.0,
+                    value_max=5_000_000.0,
+                ),
             ]
         )
         db.commit()
@@ -867,6 +882,10 @@ def test_run_simulation_loads_latest_annual_disclosure_before_visible_start():
         assert simulation.positions[0].source_type == "annual_disclosure_holding"
         assert simulation.warmup_diagnostics is not None
         assert simulation.warmup_diagnostics.annual_disclosure_source_document_id == "10066169"
+        assert simulation.warmup_diagnostics.annual_disclosure_snapshot_source_document_id == "10066169"
+        assert simulation.warmup_diagnostics.annual_disclosure_snapshot_positions_count == 2
+        assert simulation.warmup_diagnostics.annual_disclosure_snapshot_symbols == ["MSFT", "NVDA"]
+        assert round(simulation.warmup_diagnostics.annual_disclosure_snapshot_value, 2) == 3_032_501.0
         assert simulation.warmup_diagnostics.estimated_opening_positions_count == 0
     finally:
         db.close()

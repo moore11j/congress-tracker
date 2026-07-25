@@ -5147,6 +5147,9 @@ export type MemberPortfolioPerformance = {
     opening_holdings_from_annual_disclosure?: number | null;
     annual_disclosure_opening_positions_symbols?: string[];
     annual_disclosure_opening_positions_value?: number | null;
+    annual_disclosure_snapshot_positions_count?: number | null;
+    annual_disclosure_snapshot_symbols?: string[];
+    annual_disclosure_snapshot_value?: number | null;
     sale_without_position_before_estimation?: number | null;
     sale_without_position_after_estimation?: number | null;
   } | null;
@@ -5169,6 +5172,9 @@ export type MemberPortfolioPerformance = {
   opening_holdings_from_annual_disclosure?: number | null;
   annual_disclosure_opening_positions_symbols?: string[];
   annual_disclosure_opening_positions_value?: number | null;
+  annual_disclosure_snapshot_positions_count?: number | null;
+  annual_disclosure_snapshot_symbols?: string[];
+  annual_disclosure_snapshot_value?: number | null;
   sale_without_position_before_estimation?: number | null;
   sale_without_position_after_estimation?: number | null;
   curve_quality_status?: "good" | "warning" | "poor" | string | null;
