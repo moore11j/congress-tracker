@@ -134,7 +134,7 @@ DEFAULT_SECTIONS = [
     "Final Walnut judgment",
     "Data freshness and limitations",
 ]
-CONFIRMATION_SCORE_SECTION_HEADING = "Walnut confirmation score"
+CONFIRMATION_SCORE_SECTION_HEADING = "Our confirmation score"
 CROSS_SOURCE_CONFIRMATIONS_SECTION_HEADING = "Cross-source confirmations"
 PUBLISHED_STATIC_SLUGS = {"mu-dd"}
 UNSUPPORTED_LANGUAGE = [
@@ -302,7 +302,39 @@ def sanitize_research_brief_copy(markdown: str) -> str:
     cleaned = "".join(repaired_blocks)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
+    return _rewrite_public_walnut_voice(cleaned).strip()
+
+
+def _rewrite_public_walnut_voice(text: str) -> str:
+    replacements = (
+        (r"\bWalnut[’']s proprietary confirmation score\b", "our proprietary confirmation score"),
+        (r"\bWalnut[’']s confirmation score\b", "our confirmation score"),
+        (r"\bWalnut confirmation score\b", "our confirmation score"),
+        (r"\bWalnut[’']s take\b", "our take"),
+        (r"\bWalnut take\b", "our take"),
+        (r"\bWalnut[’']s view\b", "our view"),
+        (r"\bWalnut[’']s read\b", "our read"),
+        (r"\bWalnut[’']s judgment\b", "our judgment"),
+        (r"\bWalnut[’']s cross-source evidence\b", "our cross-source evidence"),
+        (r"\bWalnut[’']s cross-source confirmation\b", "our cross-source confirmation"),
+        (r"\bWalnut[’']s cross-source confirmations\b", "our cross-source confirmations"),
+        (r"\bWalnut[’']s data\b", "our data"),
+        (r"\bWalnut[’']s signal\b", "our signal"),
+        (r"\bWalnut[’']s signals\b", "our signals"),
+        (r"\bWalnut data\b", "our data"),
+        (r"\bWalnut signal\b", "our signal"),
+        (r"\bWalnut signals\b", "our signals"),
+    )
+    rewritten = str(text or "")
+    for pattern, replacement in replacements:
+        def replace_match(match: re.Match[str], repl: str = replacement) -> str:
+            prefix = rewritten[: match.start()]
+            line_prefix = prefix[prefix.rfind("\n") + 1 :]
+            starts_sentence = not prefix.strip() or not line_prefix.strip() or line_prefix.lstrip().startswith("#") or prefix.rstrip().endswith((".", "!", "?", ":"))
+            return repl[:1].upper() + repl[1:] if starts_sentence else repl
+
+        rewritten = re.sub(pattern, replace_match, rewritten, flags=re.IGNORECASE)
+    return rewritten
 
 
 def _sanitize_copy_block(block: str) -> str:
@@ -701,7 +733,7 @@ def _confirmation_score_sentence(context: dict[str, Any]) -> str:
     confirmation = _primary_confirmation(context)
     direction = str(confirmation.get("direction") or confirmation.get("confirmation_direction") or "").strip().lower()
     direction_text = f" The score direction is {direction}." if direction in {"bullish", "bearish", "neutral", "mixed"} else ""
-    return f"Walnut's proprietary confirmation score is {score}/100.{direction_text} This score is separate from the underlying data."
+    return f"Our proprietary confirmation score is {score}/100.{direction_text} This score is separate from the underlying data."
 
 
 def _cross_source_confirmation_commentary(context: dict[str, Any]) -> str:
@@ -2235,18 +2267,19 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
-            "Only include Walnut's proprietary confirmation score if include_confirmation_score is true. Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep these concepts separate.",
-            "The confirmation score is Walnut's proprietary score. Cross-source confirmations are qualitative supporting or contradicting data categories such as price/volume, fundamentals, reported institutional activity, Congress activity, insider activity, government contracts, options flow, and macro positioning. Use 'data,' not 'stack.'",
+            "Only include our proprietary confirmation score if include_confirmation_score is true. Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep these concepts separate.",
+            "The confirmation score is our proprietary score. Cross-source confirmations are qualitative supporting or contradicting data categories such as price/volume, fundamentals, reported institutional activity, Congress activity, insider activity, government contracts, options flow, and macro positioning. Use 'data,' not 'stack.'",
             "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
-            "Separate underlying data from Walnut confirmation score. Missing data is unavailable, not zero and not bearish.",
+            "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
             "Write directly, specifically, and professionally. Avoid generic AI phrasing and marketing filler.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
-            "End with a clear Walnut judgment plus a brief research-only disclaimer.",
+            "End with a clear judgment plus a brief research-only disclaimer.",
+            "Use first-person plural for our own views, data, takes, and confirmation score. Say 'our take' or 'our confirmation score,' not 'Walnut's take' or 'Walnut's confirmation score.'",
             "The JSON summary is the Insights preview body. Keep it 1-3 sentences and do not duplicate the full post body.",
             "Section format instructions:",
             section_format,

@@ -85,12 +85,16 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
 
     assert response["symbol"] == "AAPL"
     assert response["status"] == "ok"
-    assert response["dcf"]["fairValue"] == 228
+    assert response["dcf"]["fairValue"] == 209
+    assert response["dcf"]["modelValue"] == 228
+    assert response["dcf"]["valuationAnchor"] == 190
+    assert response["dcf"]["anchorWeight"] == 0.5
     assert response["dcf"]["currentPrice"] == 190
-    assert round(response["dcf"]["bearValue"], 2) == 193.8
-    assert round(response["dcf"]["bullValue"], 2) == 262.2
-    assert round(response["dcf"]["upsideDownsidePct"], 2) == 20.0
-    assert response["dcf"]["judgment"] == "Undervalued"
+    assert round(response["dcf"]["bearValue"], 2) == 177.65
+    assert round(response["dcf"]["bullValue"], 2) == 240.35
+    assert round(response["dcf"]["upsideDownsidePct"], 2) == 10.0
+    assert response["dcf"]["judgment"] == "Fairly valued"
+    assert response["dcf"]["rangeSource"] == "fair_value_anchor"
     assert response["dcf"]["cashFlows"][0] == {
         "year": "2026",
         "actualCashFlow": 100_000_000_000,
@@ -131,7 +135,9 @@ def test_ticker_valuation_keeps_dcf_when_consensus_unavailable(monkeypatch):
     response = ticker_valuation("msft")
 
     assert response["status"] == "ok"
-    assert response["dcf"]["fairValue"] == 115
+    assert response["dcf"]["fairValue"] == 107.5
+    assert response["dcf"]["modelValue"] == 115
+    assert response["dcf"]["valuationAnchor"] == 100
     assert response["consensus"]["status"] == "unavailable"
     assert response["consensus"]["targetConsensus"] is None
 
@@ -171,10 +177,11 @@ def test_ticker_valuation_rejects_negative_fair_value_and_clamps_tax_rate(monkey
     assumptions = {item["key"]: item["value"] for item in response["dcf"]["assumptions"]}
 
     assert response["status"] == "ok"
-    assert response["dcf"]["fairValue"] == 0
-    assert response["dcf"]["bearValue"] == 0
-    assert response["dcf"]["bullValue"] == 0
-    assert round(response["dcf"]["upsideDownsidePct"], 2) == -100
+    assert response["dcf"]["fairValue"] == 93.885
+    assert response["dcf"]["modelValue"] == 0
+    assert round(response["dcf"]["bearValue"], 4) == 79.8022
+    assert round(response["dcf"]["bullValue"], 4) == 107.9678
+    assert round(response["dcf"]["upsideDownsidePct"], 2) == -50
     assert assumptions["taxRate"] == 0
     assert response["consensus"]["targetConsensus"] == 227
 
@@ -373,8 +380,9 @@ def test_ticker_valuation_uses_asset_nav_for_asset_heavy_pre_profit_company(monk
     response = ticker_valuation("bmnr")
 
     assert response["status"] == "ok"
-    assert round(response["dcf"]["fairValue"], 4) == 18.0266
+    assert round(response["dcf"]["fairValue"], 4) == 16.2633
+    assert round(response["dcf"]["modelValue"], 4) == 18.0266
     assert response["dcf"]["method"] == "Asset / NAV"
-    assert response["dcf"]["rangeSource"] == "asset_nav"
-    assert response["dcf"]["judgment"] == "Undervalued"
+    assert response["dcf"]["rangeSource"] == "fair_value_anchor"
+    assert response["dcf"]["judgment"] == "Fairly valued"
     assert response["dcf"]["methodSignals"][0] == {"method": "DCF", "signal": "Cash-flow limited"}

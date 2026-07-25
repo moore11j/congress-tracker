@@ -137,3 +137,22 @@ def test_decision_layer_reports_unavailable_as_unavailable_not_locked():
 
     assert "Fundamentals unavailable." in payload["missing_data_notes"]
     assert not any("locked" in note.lower() for note in payload["missing_data_notes"])
+
+
+def test_decision_layer_does_not_call_neutral_scores_exceptional_neutral():
+    bundle = _bundle(
+        price_volume=_source(present=True, direction="bearish", label="Bearish tape"),
+        fundamentals=_source(present=True, direction="bullish", label="Fundamental strength"),
+    )
+    bundle["score"] = 80
+    bundle["band"] = "exceptional"
+    bundle["direction"] = "neutral"
+
+    payload = build_ticker_decision_layer(
+        "META",
+        confirmation_bundle=bundle,
+        source_contexts={},
+        generated_at="2026-07-25T00:00:00Z",
+    )
+
+    assert payload["confirmation"]["label"] == "No clear direction"

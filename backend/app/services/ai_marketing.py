@@ -128,7 +128,7 @@ DEFAULT_AI_GROWTH_VOICE_CHARACTERISTICS = "\n".join(
         "For X replies, mimic the strongest Walnut reply behavior: concise market judgment under high-reach posts.",
         "Prefer a one-line or two-line take that names the actual business driver, disclosure event, operating change, valuation issue, or data question.",
         "Use data, not stack, as the public-facing language: price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
-        "Keep the distinction clear: confirmation score is Walnut's proprietary score; underlying data is the evidence behind the situation.",
+        "Keep the distinction clear: confirmation score is our proprietary score; underlying data is the evidence behind the situation.",
         "Posting formula: assess the situation, identify the issues, analyze the data, then conclude.",
         "Do not say cross-check this on Walnut pages; state what the data says, then provide the ticker link only when it adds useful context.",
         "Avoid generic one-word replies unless the prompt explicitly calls for a one-word answer.",
@@ -141,7 +141,7 @@ AI_GROWTH_SEO_KEYWORD_GUIDANCE = " ".join(
     [
         "Use search-led Walnut language consistently across AI Growth emails, X campaigns, X replies, Reddit drafts, and social cards.",
         "Prioritize phrases people already search for: Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research, ticker intelligence, market signals, options flow, institutional activity, government contracts, fundamentals, technicals, confirmation score, and underlying data.",
-        "Use confirmation score only for Walnut's proprietary score; use underlying data for price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
+        "Use confirmation score only for our proprietary score; use underlying data for price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, and technicals.",
         "Do not use stack as public-facing campaign language when data, underlying data, or data sources is clearer.",
         "Avoid the headline phrase 'Confirmation-Stack Market Intelligence' and the stale phrase 'Market Intelligence from Political Trades and Insider Activity'.",
         "Prefer title and hook patterns like 'Congress Trades & Insider Activity Research', 'Congressional Stock Trades and Insider Signals', and 'Stock Research from Congress Trades, Insider Activity, and Market Signals'.",
@@ -6321,13 +6321,13 @@ def _suggestion_system_prompt(db: Session | None = None) -> str:
         "For article-reactive X, do not call something the setup, the real setup, a tell, or the market tell. Name the actual business driver, disclosure event, operating change, valuation issue, or data question. "
         "For example, say whether AI/networking expansion may change revenue mix, margin profile, capex demand, competitive position, insider-supply interpretation, or price/volume confirmation; do not hide that mechanism behind setup/tell language. "
         "Use data, underlying data, or data sources as the public-facing language; do not use stack as shorthand in public X copy. "
-        "Keep this distinction clear: confirmation score is Walnut's proprietary score, while underlying data means price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, and other cited evidence. "
+        "Keep this distinction clear: confirmation score is our proprietary score, while underlying data means price/volume, fundamentals, reported institutional activity, Congress/insider activity, contracts, technicals, and other cited evidence. "
         "Double-check numbers and dates against the provided context before using them; do not use stale figures, and say what freshness is missing when the context does not establish recency. "
         "For all X campaign types, including manual X drafts, scheduled X campaigns, article-reactive X, and X reply campaigns, apply the saved Walnut voice characteristics while staying market-native and terse. "
         "Draft X posts like high-signal market commentary: one factual hook, one sourced stat or event, and Walnut-native context only when it adds something concrete. "
         "Prefer this shape: '[Ticker/company/stat/event], per [source].' Add a second sentence only for Walnut signal context, a material caveat, or a data-backed why-it-matters line. "
         "Use BREAKING only when the source event is truly breaking. Prefer cashtags over hashtags and avoid hashtags by default. "
-        "Do not force first-person plural; use 'we' or 'our' only when describing Walnut's own signal process. Do not add promotional CTA language to X posts. "
+        "Use first-person plural for our own views, data, takes, signals, and confirmation score. Say 'our take' or 'our confirmation score,' not 'Walnut's take' or 'Walnut's confirmation score.' Do not add promotional CTA language to X posts. "
         "High-quality X output should pair concise analysis with a real Walnut-generated thumbnail: a premium finance-media visual, not a dashboard screenshot or generic chart card. "
         "For x_post and reddit_thread, fill social_card as compact art direction for a generated thumbnail, not final post copy and not a text-heavy layout. "
         "The social_card should describe one scroll-stopping finance-media visual idea with a short hook, primary ticker, tone, and visual emphasis. Avoid source/footer text, bullets, evidence panels, cramped UI, charts as the main design, and long copy. "
@@ -6647,6 +6647,11 @@ def _normalize_suggestion_payload(
             alternate_reply = _clean_article_reactive_x_language(alternate_reply)
         suggested_post = _fit_x_post_text(suggested_post)
         alternate_hooks = [_fit_x_post_text(item) for item in alternate_hooks]
+    suggested_reply = _rewrite_public_walnut_voice(suggested_reply)
+    alternate_reply = _rewrite_public_walnut_voice(alternate_reply)
+    suggested_post = _rewrite_public_walnut_voice(suggested_post)
+    ad_variants = [_rewrite_public_walnut_voice(item) for item in ad_variants]
+    alternate_hooks = [_rewrite_public_walnut_voice(item) for item in alternate_hooks]
     content_values = [suggested_reply, alternate_reply, suggested_post, *ad_variants]
     if any(_contains_direct_trade_advice(value) or _contains_hype_or_guarantee(value) for value in content_values):
         recommended_action = "monitor"
@@ -6661,7 +6666,11 @@ def _normalize_suggestion_payload(
     if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
         value_added_insight = _clean_article_reactive_x_language(value_added_insight)
         content_angle = _clean_article_reactive_x_language(content_angle)
-    assets = _normalize_assets(payload.get("assets"))
+    value_added_insight = _rewrite_public_walnut_voice(value_added_insight)
+    walnut_feature = _rewrite_public_walnut_voice(walnut_feature)
+    content_angle = _rewrite_public_walnut_voice(content_angle)
+    assets = _rewrite_public_walnut_voice_in_object(_normalize_assets(payload.get("assets")))
+    visual_brief = _rewrite_public_walnut_voice_in_object(payload.get("visual_brief"))
     if reddit_structured and reddit_structured["suggested_image_asset"]:
         assets = _normalize_assets([*assets, reddit_structured["suggested_image_asset"]])
     if content_type in {"x_post", "reddit_thread"}:
@@ -6673,22 +6682,23 @@ def _normalize_suggestion_payload(
             fallback_tickers=detected_tickers,
             fallback_url=destination or destination_hint,
             preferences=preferences,
-            visual_brief=payload.get("visual_brief"),
+            visual_brief=visual_brief,
         )
         if campaign_type == ARTICLE_REACTIVE_CAMPAIGN_TYPE:
             card_spec = _clean_article_reactive_card_spec(card_spec)
+        card_spec = _rewrite_public_walnut_voice_in_object(card_spec)
         generated_asset = (
             _generated_thumbnail_asset(
                 api_key=openai_api_key,
                 card_spec=card_spec,
                 suggested_post=suggested_post,
-                visual_brief=payload.get("visual_brief"),
+                visual_brief=visual_brief,
             )
             if openai_api_key
             else None
         )
         generated_assets = [generated_asset] if generated_asset else []
-        assets = _normalize_assets([*generated_assets, *assets])
+        assets = _rewrite_public_walnut_voice_in_object(_normalize_assets([*generated_assets, *assets]))
     generated_content = _generated_content_from_structured(
         content_type=content_type,
         suggested_reply=suggested_reply,
@@ -6778,6 +6788,48 @@ def _ensure_walnut_affiliation_disclosure(reply: str) -> str:
     if any(marker in lowered for marker in disclosure_markers):
         return cleaned
     return _truncate(f"Bias disclosed: I'm building Walnut. {cleaned}", 3000) or cleaned
+
+
+def _rewrite_public_walnut_voice(text: str) -> str:
+    replacements = (
+        (r"\bWalnut[’']s proprietary confirmation score\b", "our proprietary confirmation score"),
+        (r"\bWalnut[’']s confirmation score\b", "our confirmation score"),
+        (r"\bWalnut confirmation score\b", "our confirmation score"),
+        (r"\bWalnut[’']s take\b", "our take"),
+        (r"\bWalnut take\b", "our take"),
+        (r"\bWalnut[’']s view\b", "our view"),
+        (r"\bWalnut[’']s read\b", "our read"),
+        (r"\bWalnut[’']s judgment\b", "our judgment"),
+        (r"\bWalnut[’']s cross-source evidence\b", "our cross-source evidence"),
+        (r"\bWalnut[’']s cross-source confirmations\b", "our cross-source confirmations"),
+        (r"\bWalnut[’']s cross-source confirmation\b", "our cross-source confirmation"),
+        (r"\bWalnut[’']s data\b", "our data"),
+        (r"\bWalnut data\b", "our data"),
+        (r"\bWalnut[’']s signals\b", "our signals"),
+        (r"\bWalnut[’']s signal\b", "our signal"),
+        (r"\bWalnut signals\b", "our signals"),
+        (r"\bWalnut signal\b", "our signal"),
+    )
+    rewritten = text
+    for pattern, replacement in replacements:
+        def replace_match(match: re.Match[str], repl: str = replacement) -> str:
+            prefix = rewritten[: match.start()]
+            line_prefix = prefix[prefix.rfind("\n") + 1 :]
+            starts_sentence = not prefix.strip() or not line_prefix.strip() or line_prefix.lstrip().startswith("#") or prefix.rstrip().endswith((".", "!", "?", ":"))
+            return repl[:1].upper() + repl[1:] if starts_sentence else repl
+
+        rewritten = re.sub(pattern, replace_match, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _rewrite_public_walnut_voice_in_object(value: Any) -> Any:
+    if isinstance(value, str):
+        return _rewrite_public_walnut_voice(value)
+    if isinstance(value, list):
+        return [_rewrite_public_walnut_voice_in_object(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _rewrite_public_walnut_voice_in_object(item) for key, item in value.items()}
+    return value
 
 
 def _contains_direct_trade_advice(reply: str) -> bool:

@@ -384,7 +384,8 @@ def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_p
 
     assert '"include_confirmation_score": true' in captured["input"]
     assert '"include_cross_source_confirmations": true' in captured["input"]
-    assert "Walnut's proprietary confirmation score is 79/100" in body
+    assert "Our proprietary confirmation score is 79/100" in body
+    assert "Walnut's proprietary confirmation score" not in body
     assert "Cross-source confirmations" in body
     assert "supported by fundamentals, reported institutional activity" in body
     assert "mixed in price/volume" in body
@@ -650,6 +651,20 @@ def test_research_brief_markdown_cleanup_repairs_meta_draft_structure_and_langua
     assert "$7.18" not in cleaned
     assert "Current EPS consensus estimates were not verified in reviewed sources" in cleaned
     assert not service._markdown_structure_issues(cleaned)
+
+
+def test_research_brief_copy_uses_first_person_walnut_voice():
+    cleaned = service.sanitize_research_brief_copy(
+        "### Walnut's take\n\n"
+        "Walnut's confirmation score is 79/100. Walnut data is supportive, but Walnut's view is mixed."
+    )
+
+    assert "### Our take" in cleaned
+    assert "Our confirmation score is 79/100." in cleaned
+    assert "Our data is supportive" in cleaned
+    assert "our view is mixed" in cleaned
+    assert "Walnut's" not in cleaned
+    assert "Walnut data" not in cleaned
 
 
 def test_research_brief_article_sanitizer_marks_repaired_and_blocks_no_internal_language():

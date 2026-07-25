@@ -218,6 +218,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const [bodyMarkdown, setBodyMarkdown] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [activeJob, setActiveJob] = useState<AdminResearchBriefJob | null>(null);
@@ -477,13 +478,23 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     }
   }
 
+  function requestPublishSelected() {
+    if (!selectedDraft) return;
+    setPublishDialogOpen(true);
+  }
+
+  function closePublishDialog() {
+    if (busy === "publish") return;
+    setPublishDialogOpen(false);
+  }
+
   async function publishSelected() {
     if (!selectedDraft) return;
-    if (!window.confirm("Publish this research brief from local/test storage into public Research Briefs?")) return;
     setBusy("publish");
     try {
       const draft = await publishAdminResearchBriefDraft(selectedDraft.id);
       setSelectedDraft(draft);
+      setPublishDialogOpen(false);
       await refreshDrafts(draft);
       showToast?.("Draft published in local/test storage.", "success");
     } catch (err) {
@@ -771,7 +782,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onBodyChange={setBodyMarkdown}
             onSave={() => saveDraft("draft")}
             onReady={() => saveDraft("ready_for_review")}
-            onPublish={publishSelected}
+            onPublish={requestPublishSelected}
             onUnpublish={unpublishSelected}
             onDelete={requestDeleteSelected}
             onRefreshSources={refreshSources}
@@ -876,6 +887,12 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
         onCancel={closeDeleteDialog}
         onConfirm={() => void deleteSelected()}
       />
+      <PublishDraftDialog
+        open={publishDialogOpen}
+        busy={busy === "publish"}
+        onCancel={closePublishDialog}
+        onConfirm={() => void publishSelected()}
+      />
     </div>
   );
 }
@@ -923,6 +940,39 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function PublishDraftDialog({
+  open,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="publish-draft-title">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-emerald-300/25 bg-slate-950 shadow-2xl shadow-emerald-950/30">
+        <div className="border-b border-white/10 bg-emerald-300/10 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200">Publish brief</p>
+          <h3 id="publish-draft-title" className="mt-1 text-lg font-semibold text-white">Confirm publish</h3>
+        </div>
+        <div className="px-5 py-5">
+          <p className="text-sm leading-6 text-slate-300">
+            Double-check the confirmation score with the admin account before publishing because it was updated manually.
+          </p>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-white/10 bg-slate-950/80 px-5 py-4 sm:flex-row sm:justify-end">
+          <Button disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button tone="primary" disabled={busy} onClick={onConfirm}>{busy ? "Publishing..." : "Publish"}</Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -37,13 +37,47 @@ type CategoryFilter = (typeof categoryFilters)[number];
 type ImpactFilter = (typeof impactFilters)[number];
 const WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 125;
 
+const bullishReadPhrases = [
+  "stabilize trade",
+  "stabilise trade",
+  "stabilize relations",
+  "stabilise relations",
+  "trade relations",
+  "opposite of an ai slowdown",
+  "opposite of ai slowdown",
+  "coming next in ai",
+  "lisa su",
+] as const;
+
+const bearishReadPhrases = [
+  "beyond stretched",
+  "stretched valuation",
+  "stretched valuations",
+  "weak cash flow",
+  "weaker cash flow",
+  "cash flow is weakening",
+  "bond market anxiety",
+  "capex budget",
+  "capex budgets",
+  "spending worries",
+  "spending concern",
+  "investors worry",
+  "growing uneasy",
+  "massive attack",
+  "geopolitical risk",
+] as const;
+
 function categoryLabel(value: CategoryFilter): string {
   if (value === "all") return "All";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function itemText(item: NewsItem): string {
-  return `${item.title} ${item.summary ?? ""} ${item.walnut_summary ?? ""} ${item.symbol ?? ""}`.toLowerCase();
+  return `${item.title} ${item.summary ?? ""} ${item.walnut_summary ?? ""} ${item.symbol ?? ""} ${item.market_read ?? ""}`.toLowerCase();
+}
+
+function containsPhrase(text: string, phrases: readonly string[]): boolean {
+  return phrases.some((phrase) => text.includes(phrase));
 }
 
 function itemCategory(item: NewsItem): Exclude<CategoryFilter, "all"> {
@@ -63,6 +97,9 @@ function marketReadLabel(value?: string | null): string {
 }
 
 function effectiveMarketRead(item: NewsItem): string | null | undefined {
+  const text = itemText(item);
+  if (containsPhrase(text, bearishReadPhrases)) return "bearish";
+  if (containsPhrase(text, bullishReadPhrases)) return "bullish";
   return item.walnut_take_bias || item.market_read;
 }
 
@@ -87,9 +124,12 @@ function freshnessText(value?: string | null): string {
 }
 
 function walnutTake(item: NewsItem): string {
-  if (item.walnut_take?.trim()) return compactVisibleText(item.walnut_take, WALNUT_TAKE_VISIBLE_CHAR_LIMIT);
-  const category = itemCategory(item);
   const read = effectiveMarketRead(item);
+  const concise = conciseWalnutTake(item, read);
+  const cached = item.walnut_take?.replace(/\s+/g, " ").trim();
+  if (cached && isCompleteVisibleSentence(cached) && cached.length <= WALNUT_TAKE_VISIBLE_CHAR_LIMIT && read === item.walnut_take_bias) return cached;
+  if (concise) return concise;
+  const category = itemCategory(item);
   if (read === "bullish") {
     if (category === "earnings") return "Positive operating signal. Check whether guidance and margins support follow-through.";
     if (category === "commodities") return "Supportive for exposed producers, but demand and inventory data still matter.";
@@ -104,13 +144,33 @@ function walnutTake(item: NewsItem): string {
   return "Current impact is unclear from available article data.";
 }
 
-function compactVisibleText(value: string, limit: number): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (text.length <= limit) return text;
-  const clipped = text.slice(0, Math.max(0, limit - 3)).replace(/[\s,;:.!?-]+$/, "");
-  const lastBreak = clipped.lastIndexOf(" ");
-  const trimmed = lastBreak > limit * 0.7 ? clipped.slice(0, lastBreak) : clipped;
-  return `${trimmed}...`;
+function conciseWalnutTake(item: NewsItem, read?: string | null): string {
+  const text = itemText(item);
+  if (/(beyond stretched|stretched valuation|stretched valuations|weak cash flow|weaker cash flow|cash flow is weakening)/.test(text)) {
+    return "Stretched valuations and weaker cash flow are bearish for risk assets.";
+  }
+  if (/(bond market anxiety|capex budget|capex budgets|growing uneasy)/.test(text)) {
+    return "AI capex anxiety is bearish for credit and risk appetite.";
+  }
+  if (/(spending worries|spending concern|investors worry)/.test(text)) {
+    return "Tech spending worries are bearish until demand offsets the pressure.";
+  }
+  if (/(massive attack|geopolitical risk|shipping|escalation)/.test(text)) {
+    return "Geopolitical escalation is bearish for broad risk sentiment.";
+  }
+  if (/(stabilize trade|stabilise trade|stabilize relations|stabilise relations|trade relations)/.test(text)) {
+    return "Stabilizing trade ties is bullish for policy risk and sentiment.";
+  }
+  if (/(lisa su|opposite of an ai slowdown|opposite of ai slowdown|coming next in ai)/.test(text)) {
+    return "Resilient AI demand is bullish for AMD and the AI buildout.";
+  }
+  if (read === "bullish") return "The headline is bullish, but follow-through needs confirmation.";
+  if (read === "bearish") return "The headline is bearish unless the pressure proves isolated.";
+  return "The market impact is mixed until clearer data arrives.";
+}
+
+function isCompleteVisibleSentence(value: string): boolean {
+  return value.length > 0 && value.length <= WALNUT_TAKE_VISIBLE_CHAR_LIMIT && /[.!?]$/.test(value) && !value.includes("...");
 }
 
 function EmptyState({ text }: { text: string }) {

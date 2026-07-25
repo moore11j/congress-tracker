@@ -27,6 +27,12 @@ test("ticker overview keeps one confirmation score and removes old watch sentenc
   assert.doesNotMatch(page, /Signal conviction is reinforcing this move\./);
 });
 
+test("ticker overview does not label neutral scores as exceptional neutral", () => {
+  assert.match(page, /function confirmationSignalLabel/);
+  assert.match(page, /if \(direction === "neutral"\) return "No clear direction";/);
+  assert.doesNotMatch(page, /\$\{capitalizeWord\(bundle\.band\)\} \$\{confirmationDirectionDisplay\(bundle\.direction\)\}/);
+});
+
 test("macro positioning is a real lazy ticker tab", () => {
   assert.match(card, /type ContextTab = "overview" \| "news" \| "financials" \| "ownership" \| "events" \| "macro"/);
   assert.match(card, /onClick=\{\(\) => setActiveTab\("macro"\)\}/);

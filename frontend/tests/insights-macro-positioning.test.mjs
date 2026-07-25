@@ -86,4 +86,8 @@ test("insights sentiment labels render as colored text instead of pills", () => 
 test("walnut take copy is capped to fit the insights row", () => {
   assert.match(insightsNews, /WALNUT_TAKE_VISIBLE_CHAR_LIMIT = 125/);
   assert.match(insightsNews, /break-words text-xs leading-5 text-slate-400/);
+  assert.doesNotMatch(insightsNews, /\$\{trimmed\}\.\.\./);
+  assert.match(insightsNews, /Stretched valuations and weaker cash flow are bearish for risk assets\./);
+  assert.match(insightsNews, /if \(containsPhrase\(text, bearishReadPhrases\)\) return "bearish"/);
+  assert.match(insightsNews, /isCompleteVisibleSentence/);
 });

@@ -1156,10 +1156,7 @@ function inactiveConfirmationBundle(ticker: string, lookbackDays = 30): Confirma
 }
 
 function fallbackDecisionLayer(bundle: ConfirmationScoreBundle): TickerDecisionLayer {
-  const directionLabel = bundle.direction === "mixed" ? "Conflicted" : capitalizeWord(bundle.direction);
-  const label = bundle.band === "inactive" && bundle.direction === "neutral"
-    ? "Inactive"
-    : `${capitalizeWord(bundle.band)} ${directionLabel}`;
+  const label = confirmationSignalLabel(bundle.band, bundle.direction, bundle.score);
   const activeItems = confirmationSourceOrder
     .filter((key) => bundle.sources[key].present)
     .map((key) => ({
@@ -1746,11 +1743,20 @@ function confirmationDirectionDisplay(value: string): string {
   return value === "mixed" ? "Conflicted" : capitalizeWord(value);
 }
 
+function confirmationSignalLabel(
+  band: ConfirmationScoreBundle["band"],
+  direction: ConfirmationScoreBundle["direction"],
+  score: number | null | undefined,
+): string {
+  if (score === null || score === undefined) return "Unavailable";
+  if (band === "inactive" && direction === "neutral") return "Inactive";
+  if (direction === "neutral") return "No clear direction";
+  if (direction === "mixed") return "Conflicted confirmation";
+  return `${capitalizeWord(band)} ${confirmationDirectionDisplay(direction)}`;
+}
+
 function overviewScoreLine(bundle: ConfirmationScoreBundle): string {
-  if (bundle.band === "inactive" && bundle.direction === "neutral") {
-    return `${Math.round(bundle.score)} / 100 · Inactive`;
-  }
-  return `${Math.round(bundle.score)} / 100 · ${capitalizeWord(bundle.band)} ${confirmationDirectionDisplay(bundle.direction)}`;
+  return `${Math.round(bundle.score)} / 100 · ${confirmationSignalLabel(bundle.band, bundle.direction, bundle.score)}`;
 }
 
 function overviewBullets({

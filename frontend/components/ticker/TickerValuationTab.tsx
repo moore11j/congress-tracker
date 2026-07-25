@@ -148,9 +148,13 @@ function ValuationRange({ data }: { data: TickerValuationResponse }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Valuation Range</p>
-          <p className="mt-2 text-sm text-slate-400">DCF fair value, scenario sensitivity, current price, and street consensus.</p>
+          <p className="mt-2 text-sm text-slate-400">Anchored fair value, scenario sensitivity, current price, and street consensus.</p>
         </div>
-        {dcf.rangeSource === "dcf_sensitivity" ? (
+        {dcf.rangeSource === "fair_value_anchor" ? (
+          <span className="rounded-md border border-teal-300/20 bg-teal-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-teal-100">
+            Anchored FMV
+          </span>
+        ) : dcf.rangeSource === "dcf_sensitivity" ? (
           <span className="rounded-md border border-teal-300/20 bg-teal-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-teal-100">
             DCF sensitivity
           </span>

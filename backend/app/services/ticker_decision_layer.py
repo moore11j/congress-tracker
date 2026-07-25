@@ -223,6 +223,10 @@ def _confirmation_label(band: str, direction: str, score: int | None) -> str:
         return "Unavailable"
     if band == "inactive" and direction == "neutral":
         return "Inactive"
+    if direction == "neutral":
+        return "No clear direction"
+    if direction == "mixed":
+        return "Conflicted confirmation"
     direction_label = "Conflicted" if direction == "mixed" else direction.title()
     return f"{band.title()} {direction_label}"
 

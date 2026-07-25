@@ -65,7 +65,9 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Reddit DD - Issue \/ Risk \/ Data \/ Conclusion/);
   assert.match(component, /Find Sources \/ Refresh Research/);
   assert.match(component, /This draft has no source links/);
-  assert.match(component, /window\.confirm\("Publish this research brief/);
+  assert.doesNotMatch(component, /window\.confirm\("Publish this research brief/);
+  assert.match(component, /PublishDraftDialog/);
+  assert.match(component, /Double-check the confirmation score with the admin account before publishing because it was updated manually\./);
   assert.doesNotMatch(component, /window\.prompt\("Type DELETE/);
   assert.match(component, /DeleteDraftDialog/);
   assert.match(component, /Destructive action/);

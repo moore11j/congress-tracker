@@ -12,6 +12,50 @@ function paragraphs(markdown: string) {
     .filter(Boolean);
 }
 
+type MarkdownBlock =
+  | { type: "paragraph"; key: string; text: string }
+  | { type: "table"; key: string; header: string[]; rows: string[][] };
+
+function markdownBlocks(markdown: string): MarkdownBlock[] {
+  return paragraphs(markdown).map((part, index) => parsePipeTable(part, index) ?? { type: "paragraph", key: `paragraph-${index}`, text: part });
+}
+
+function parsePipeTable(part: string, index: number): MarkdownBlock | null {
+  const lines = part.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!lines.length || lines.some((line) => !line.includes("|"))) return null;
+
+  if (lines.length === 1) {
+    const cells = pipeCells(lines[0]);
+    const columnCount = 3;
+    if (cells.length < columnCount * 2) return null;
+    const header = cells.slice(0, columnCount);
+    let cursor = columnCount;
+    if (isMarkdownDivider(cells.slice(cursor, cursor + columnCount))) cursor += columnCount;
+    const rows: string[][] = [];
+    for (; cursor + columnCount <= cells.length; cursor += columnCount) {
+      rows.push(cells.slice(cursor, cursor + columnCount));
+    }
+    return rows.length ? { type: "table", key: `table-${index}`, header, rows } : null;
+  }
+
+  const parsedRows = lines.map(pipeCells).filter((cells) => cells.length >= 2);
+  if (parsedRows.length < 2) return null;
+  const header = parsedRows[0];
+  const rows = parsedRows.slice(1).filter((cells) => !isMarkdownDivider(cells)).map((cells) => cells.slice(0, header.length));
+  return rows.length ? { type: "table", key: `table-${index}`, header, rows } : null;
+}
+
+function pipeCells(line: string) {
+  const cells = line.split("|").map((cell) => cell.trim());
+  if (cells[0] === "") cells.shift();
+  if (cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+function isMarkdownDivider(cells: string[]) {
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+}
+
 export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
   const [draft, setDraft] = useState<AdminResearchBriefDraft | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "error">("loading");
@@ -90,9 +134,9 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
             <section key={section.key} className="rounded-lg border border-white/10 bg-slate-950/50 p-5">
               <h2 className="text-2xl font-semibold text-white">{section.heading}</h2>
               <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
-                {paragraphs(section.body_markdown).map((part) => (
-                  <p key={part.slice(0, 80)}>{part}</p>
-                ))}
+                {markdownBlocks(section.body_markdown).map((block) =>
+                  block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{block.text}</p>,
+                )}
               </div>
             </section>
           ))}
@@ -110,6 +154,35 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
         </aside>
       </section>
     </main>
+  );
+}
+
+function ResearchDataTable({ header, rows }: { header: string[]; rows: string[][] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-white/10">
+      <table className="min-w-full border-collapse text-left text-sm">
+        <thead className="bg-emerald-300/10 text-slate-100">
+          <tr>
+            {header.map((cell) => (
+              <th key={cell} className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em]">
+                {cell}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`${rowIndex}-${row.join("|")}`} className={rowIndex % 2 === 0 ? "bg-slate-900/55" : "bg-slate-800/35"}>
+              {header.map((_, cellIndex) => (
+                <td key={`${rowIndex}-${cellIndex}`} className="border-t border-white/10 px-3 py-3 align-top text-slate-300">
+                  {row[cellIndex] || ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

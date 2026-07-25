@@ -108,6 +108,7 @@ DCF_BETA_MAX = 1.8
 PRE_PROFIT_DCF_BETA = 1.8
 QUALITY_COMPOUNDER_DCF_BETA_MAX = 1.35
 CASH_RETURN_GROWTH_ADJUSTMENT_MAX = 0.06
+FAIR_VALUE_MODEL_WEIGHT = 0.5
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -300,6 +301,14 @@ def _positive_price(value: float | None) -> float | None:
     if value is None:
         return None
     return value if value > 0 else None
+
+
+def _anchored_fair_value(model_value: float | None, current_price: float | None) -> float | None:
+    if model_value is None:
+        return None
+    if current_price is None:
+        return model_value
+    return (model_value * FAIR_VALUE_MODEL_WEIGHT) + (float(current_price) * (1 - FAIR_VALUE_MODEL_WEIGHT))
 
 
 def _non_negative_price(value: float | None) -> float | None:
@@ -643,8 +652,9 @@ def _method_signals(judgment: str, *, method: str = "Custom DCF Advanced") -> li
 def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs: dict[str, float] | None = None, asset_value: float | None = None) -> dict[str, Any]:
     dcf_value = _non_negative_price(_first_row_number(rows, DCF_VALUE_KEYS))
     nav_value = _non_negative_price(asset_value)
-    fair_value = nav_value if nav_value is not None and (dcf_value is None or nav_value > dcf_value) else dcf_value
+    model_value = nav_value if nav_value is not None and (dcf_value is None or nav_value > dcf_value) else dcf_value
     current_price = _positive_price(_first_row_number(rows, CURRENT_PRICE_KEYS))
+    fair_value = _anchored_fair_value(model_value, current_price)
     upside_downside_pct = None
     if fair_value is not None and current_price not in (None, 0):
         upside_downside_pct = ((fair_value - float(current_price)) / abs(float(current_price))) * 100
@@ -652,17 +662,21 @@ def _valuation_from_dcf_rows(symbol: str, rows: list[dict[str, Any]], *, inputs:
     bear_value = fair_value * 0.85 if fair_value is not None else None
     bull_value = fair_value * 1.15 if fair_value is not None else None
     judgment = _judgment(upside_downside_pct)
-    method = "Asset / NAV" if nav_value is not None and fair_value == nav_value else "Custom DCF Advanced"
+    method = "Asset / NAV" if nav_value is not None and model_value == nav_value else "Custom DCF Advanced"
+    is_anchored = fair_value is not None and model_value is not None and current_price is not None
     return {
         "symbol": symbol,
         "fairValue": fair_value,
+        "modelValue": model_value,
+        "valuationAnchor": current_price if is_anchored else None,
+        "anchorWeight": FAIR_VALUE_MODEL_WEIGHT if is_anchored else None,
         "bearValue": bear_value,
         "bullValue": bull_value,
         "currentPrice": current_price,
         "upsideDownsidePct": upside_downside_pct,
         "judgment": judgment,
         "method": method,
-        "rangeSource": "asset_nav" if method == "Asset / NAV" else "dcf_sensitivity" if fair_value is not None else "unavailable",
+        "rangeSource": "fair_value_anchor" if is_anchored else "asset_nav" if method == "Asset / NAV" else "dcf_sensitivity" if fair_value is not None else "unavailable",
         "cashFlows": _cash_flow_points(rows),
         "assumptions": _assumptions(rows, inputs),
         "methodSignals": _method_signals(judgment, method=method),

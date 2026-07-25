@@ -3692,6 +3692,9 @@ export type TickerValuationResponse = {
   dcf: {
     symbol?: string | null;
     fairValue?: number | null;
+    modelValue?: number | null;
+    valuationAnchor?: number | null;
+    anchorWeight?: number | null;
     bearValue?: number | null;
     bullValue?: number | null;
     currentPrice?: number | null;

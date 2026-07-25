@@ -56,9 +56,9 @@ export function getResearchBriefBySlug(slug: string): ResearchBriefCard | undefi
 
 export function getPublishedResearchBriefs(): ResearchBriefCard[] {
   return [...researchBriefs].sort((left, right) => {
-    if (left.featured !== right.featured) return left.featured ? -1 : 1;
     const dateDelta = new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
     if (dateDelta !== 0) return dateDelta;
+    if (left.featured !== right.featured) return left.featured ? -1 : 1;
     return researchBriefs.indexOf(left) - researchBriefs.indexOf(right);
   });
 }

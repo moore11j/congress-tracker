@@ -190,7 +190,7 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         payload = admin_ai_marketing_settings(request, db)
         items = _items_by_key(payload)
         assert items[AI_GROWTH_EMAIL_TONE]["value"] == "market-native"
-        assert "The market has tells. We help find them." in items[AI_GROWTH_VOICE_CHARACTERISTICS]["value"]
+        assert "Markets leave evidence. Walnut helps organize it." in items[AI_GROWTH_VOICE_CHARACTERISTICS]["value"]
         assert payload["config"]["ai_growth_email_tone"] == "market-native"
 
         updated = admin_ai_marketing_update_settings(
@@ -210,10 +210,10 @@ def test_ai_growth_voice_settings_default_save_and_prompt(monkeypatch):
         prompt = _suggestion_system_prompt(db)
         assert "Default email and campaign tone: sharp." in prompt
         assert "Lead with the ticker." in prompt
-        assert "Do not force first-person plural" in prompt
+        assert "Use first-person plural for our own views, data, takes, signals, and confirmation score." in prompt
         assert "State what the data says" in prompt
         assert "Congress trades, congressional stock trades, insider activity, insider trading tracker, stock research" in prompt
-        assert "confirmation score is Walnut's proprietary score" in prompt
+        assert "confirmation score is our proprietary score" in prompt
         assert "do not use stack as shorthand in public X copy" in prompt
         assert "Options Flow is still coming soon" in prompt
         assert "For X campaigns, use the same keyword language naturally" in prompt

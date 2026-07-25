@@ -67,6 +67,7 @@ from app.services.ai_marketing import (
     X_CURRENT_REFRESH_TOKEN_SETTING,
     X_POST_CHARACTER_LIMIT,
     X_REFRESH_TOKEN,
+    _normalize_suggestion_payload,
     _normalize_social_card_spec,
     _ensure_x_hashtags,
     _matched_tickers,
@@ -205,6 +206,39 @@ def _growth_openai_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def test_ai_growth_public_copy_uses_first_person_walnut_voice():
+    payload = _growth_openai_payload(
+        suggested_reply="Walnut's take is that confirmation is mixed.",
+        alternate_reply_more_direct="Walnut data is mixed.",
+        suggested_post="Walnut's confirmation score is 79/100. Walnut's take is mixed. $NVDA",
+        suggested_ad_variants=["Walnut's signal improved while Walnut's data stayed mixed."],
+        alternate_hooks=["Walnut's view is less clean than the headline."],
+        value_added_insight="Walnut's cross-source evidence is mixed.",
+        walnut_feature_to_mention="Walnut's confirmation score",
+        content_angle="Walnut's read",
+    )
+
+    normalized = _normalize_suggestion_payload(payload, "https://walnutmarkets.com", "x", 1)
+    public_text = " ".join(
+        [
+            normalized["suggested_reply"],
+            normalized["alternate_reply_more_direct"],
+            normalized["suggested_post"],
+            " ".join(normalized["suggested_ad_variants"]),
+            " ".join(normalized["alternate_hooks"]),
+            normalized["value_added_insight"],
+            normalized["walnut_feature_to_mention"],
+            normalized["content_angle"],
+        ]
+    )
+
+    assert "Our confirmation score is 79/100" in public_text
+    assert "Our take is mixed" in public_text
+    assert "Our cross-source evidence is mixed" in public_text
+    assert "Walnut's" not in public_text
+    assert "Walnut data" not in public_text
 
 
 def _reddit_dd_payload(**overrides):

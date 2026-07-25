@@ -12,6 +12,7 @@ from app.services.ai_marketing import (
     AI_MARKETING_MODEL,
     OPENAI_API_KEY,
     _record_openai_usage_cost,
+    _rewrite_public_walnut_voice,
     resolved_setting_value,
 )
 
@@ -22,7 +23,7 @@ DEFAULT_WALNUT_TAKE_MODEL = "gpt-5.6-sol"
 VALID_BIASES = {"bullish", "bearish", "neutral"}
 WALNUT_TAKE_MAX_CHARS = 125
 WALNUT_SUMMARY_MAX_CHARS = 190
-WALNUT_TAKE_PROMPT_VERSION = "market_read_v3"
+WALNUT_TAKE_PROMPT_VERSION = "market_read_v4"
 
 BULLISH_READ_PHRASES = (
     "stabilize trade",
@@ -131,7 +132,7 @@ def enrich_walnut_takes(
                 **item,
                 "walnut_summary": _clean_text(generated_item.get("summary"), limit=WALNUT_SUMMARY_MAX_CHARS) or item.get("walnut_summary"),
                 "walnut_take_bias": _calibrated_bias(item, generated_item.get("bias"), generated_item=generated_item),
-                "walnut_take": _clean_text(generated_item.get("take"), limit=WALNUT_TAKE_MAX_CHARS) or item.get("walnut_take"),
+                "walnut_take": _clean_take_text(item, generated_item=generated_item) or item.get("walnut_take"),
                 "walnut_take_source": "openai",
                 "walnut_take_model": _walnut_take_model(db),
                 "walnut_take_prompt_version": WALNUT_TAKE_PROMPT_VERSION,
@@ -188,11 +189,14 @@ def _prompt(articles: list[dict[str, Any]]) -> str:
             "For each article, return a concise factual summary and a market-impact bias.",
             "Allowed bias values: bullish, bearish, neutral.",
             f"The take must be one compact sentence of {WALNUT_TAKE_MAX_CHARS} characters or fewer.",
+            "The take must be a complete sentence ending with a period. Never use ellipses or trail off.",
+            "Do not fill the character budget. Prefer 45-90 characters when possible.",
             "For broad market articles, bullish means supportive for risk assets; bearish means pressure, risk-off, higher discount-rate concern, or margin/cash-flow risk.",
             "Valuation stretch, spending worries, falling prices, weak cash flow, bond-market anxiety, or AI capex-budget concerns are bearish unless the article gives a clear positive offset.",
             "Constructive trade stabilization, tariff relief, resilient AI demand, or evidence that AI spending is not slowing are bullish unless the article says the benefit failed or reversed.",
             "Neutral is only for genuinely mixed or unclear impact, not for obvious caution or pressure headlines.",
             "The provider_market_read is weak context only; override it when the title or summary implies a different read.",
+            "Use first-person plural for our own views. Say 'our take' if needed, not 'Walnut's take.'",
             "Do not provide trading instructions, price targets, guarantees, or hype.",
             "Do not invent facts beyond the title, summary, ticker, source, and existing market read.",
             "Return only valid JSON with this exact shape:",
@@ -215,14 +219,14 @@ def _fallback_take(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fallback_take_text(item: dict[str, Any], *, bias: str) -> str:
-    summary = _clean_text(item.get("summary"), limit=WALNUT_TAKE_MAX_CHARS)
-    if summary:
-        return summary
+    concise = _concise_take_text(item, bias=bias)
+    if concise:
+        return concise
     if bias == "bullish":
-        return "Positive operating signal, but follow-through needs confirmation from fundamentals and broader market context."
+        return "The headline is bullish, but follow-through needs confirmation."
     if bias == "bearish":
-        return "Negative market signal, but the durability depends on whether the pressure spreads beyond the initial headline."
-    return "The market impact is not clear from the available article data."
+        return "The headline is bearish unless the pressure proves isolated."
+    return "The market impact is mixed until clearer data arrives."
 
 
 def _has_openai_take(item: dict[str, Any] | None) -> bool:
@@ -269,10 +273,10 @@ def _clean_bias(value: Any) -> str:
 
 def _calibrated_bias(item: dict[str, Any], value: Any, *, generated_item: dict[str, Any] | None = None) -> str:
     text = _market_read_text(item, generated_item=generated_item)
-    if _contains_any(text, BULLISH_READ_PHRASES):
-        return "bullish"
     if _contains_any(text, BEARISH_READ_PHRASES):
         return "bearish"
+    if _contains_any(text, BULLISH_READ_PHRASES):
+        return "bullish"
     return _clean_bias(value)
 
 
@@ -295,15 +299,64 @@ def _contains_any(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _clean_take_text(item: dict[str, Any], *, generated_item: dict[str, Any]) -> str:
+    bias = _calibrated_bias(item, generated_item.get("bias"), generated_item=generated_item)
+    text = _rewrite_public_walnut_voice(" ".join(str(generated_item.get("take") or "").split()))
+    if _is_complete_sentence(text) and len(text) <= WALNUT_TAKE_MAX_CHARS and "..." not in text:
+        return text
+    concise = _concise_take_text(item, bias=bias)
+    return concise or _complete_sentence_under_limit(text, limit=WALNUT_TAKE_MAX_CHARS)
+
+
+def _concise_take_text(item: dict[str, Any], *, bias: str) -> str:
+    text = _market_read_text(item)
+    if _contains_any(text, ("beyond stretched", "stretched valuation", "stretched valuations", "weak cash flow", "weaker cash flow", "cash flow is weakening")):
+        return "Stretched valuations and weaker cash flow are bearish for risk assets."
+    if _contains_any(text, ("bond market anxiety", "capex budget", "capex budgets", "growing uneasy")):
+        return "AI capex anxiety is bearish for credit and risk appetite."
+    if _contains_any(text, ("spending worries", "spending concern", "investors worry")):
+        return "Tech spending worries are bearish until demand offsets the pressure."
+    if _contains_any(text, ("massive attack", "geopolitical risk", "shipping", "escalation")):
+        return "Geopolitical escalation is bearish for broad risk sentiment."
+    if _contains_any(text, ("stabilize trade", "stabilise trade", "stabilize relations", "stabilise relations", "trade relations")):
+        return "Stabilizing trade ties is bullish for policy risk and sentiment."
+    if _contains_any(text, ("lisa su", "opposite of an ai slowdown", "opposite of ai slowdown", "coming next in ai")):
+        return "Resilient AI demand is bullish for AMD and the AI buildout."
+    if bias == "bullish":
+        return "The headline is bullish, but follow-through needs confirmation."
+    if bias == "bearish":
+        return "The headline is bearish unless the pressure proves isolated."
+    return "The market impact is mixed until clearer data arrives."
+
+
+def _is_complete_sentence(text: str) -> bool:
+    return bool(text) and text[-1] in ".!?" and "..." not in text
+
+
+def _complete_sentence_under_limit(value: str, *, limit: int) -> str:
+    text = " ".join(str(value or "").split()).replace("...", "")
+    if not text:
+        return "The market impact is mixed until clearer data arrives."
+    sentence_end = max(text.rfind(".", 0, limit + 1), text.rfind("!", 0, limit + 1), text.rfind("?", 0, limit + 1))
+    if sentence_end >= 20:
+        return text[: sentence_end + 1]
+    clipped = text[: max(0, limit - 1)].rstrip()
+    last_break = clipped.rfind(" ")
+    if last_break > limit * 0.6:
+        clipped = clipped[:last_break].rstrip()
+    clipped = clipped.rstrip(" ,;:-.!?")
+    return f"{clipped}." if clipped else "The market impact is mixed until clearer data arrives."
+
+
 def _clean_text(value: Any, *, limit: int) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
-    clipped = text[: max(0, limit - 3)].rstrip()
+    clipped = text[: max(0, limit - 1)].rstrip()
     last_break = clipped.rfind(" ")
     if last_break > limit * 0.7:
         clipped = clipped[:last_break].rstrip()
-    return clipped + "..."
+    return clipped.rstrip(" ,;:-.!?") + "."
 
 
 def _extract_responses_text(data: dict[str, Any]) -> str:

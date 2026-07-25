@@ -10,6 +10,7 @@ const registry = read("lib/researchBriefs.ts");
 const muPage = read("app/research/mu-dd/page.tsx");
 const insightsPage = read("app/insights/page.tsx");
 const researchSection = read("components/insights/ResearchBriefsSection.tsx");
+const generatedBriefPage = read("components/research/GeneratedResearchBriefPage.tsx");
 
 test("mu dd brief remains a canonical research brief", () => {
   assert.match(registry, /slug: "mu-dd"/);
@@ -33,6 +34,21 @@ test("insights renders research briefs from the registry", () => {
   assert.match(researchSection, /getPublishedResearchBriefs/);
   assert.match(researchSection, /brief\.route/);
   assert.match(researchSection, /Read brief/);
+  assert.match(researchSection, /const BRIEFS_PER_PAGE = 6/);
+  assert.match(researchSection, /sortBriefsNewestFirst\(\[\.\.\.staticBriefs, \.\.\.generated\]\)/);
+  assert.match(researchSection, /briefs\.slice\(pageIndex \* BRIEFS_PER_PAGE, pageIndex \* BRIEFS_PER_PAGE \+ BRIEFS_PER_PAGE\)/);
+  assert.match(researchSection, /xl:grid-cols-3/);
+  assert.match(researchSection, /Show more/);
+  assert.match(researchSection, /setPageIndex\(\(current\) => Math\.min\(totalPages - 1, current \+ 1\)\)/);
   assert.doesNotMatch(researchSection, /NVDA vs MU: Quality vs Cycle Torque/);
   assert.doesNotMatch(researchSection, /View all briefs/);
+});
+
+test("generated research briefs render pipe-delimited data as production tables", () => {
+  assert.match(generatedBriefPage, /function parsePipeTable/);
+  assert.match(generatedBriefPage, /const columnCount = 3/);
+  assert.match(generatedBriefPage, /isMarkdownDivider\(cells\.slice\(cursor, cursor \+ columnCount\)\)/);
+  assert.match(generatedBriefPage, /<ResearchDataTable key=\{block\.key\} header=\{block\.header\} rows=\{block\.rows\} \/>/);
+  assert.match(generatedBriefPage, /<table className="min-w-full border-collapse text-left text-sm">/);
+  assert.match(generatedBriefPage, /rowIndex % 2 === 0/);
 });

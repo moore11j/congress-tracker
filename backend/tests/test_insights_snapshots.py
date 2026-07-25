@@ -242,7 +242,7 @@ def test_insights_headlines_refresh_reuses_cached_walnut_takes_without_openai(mo
                                 "walnut_take": "Supportive for energy exposure while oil supply risk remains elevated.",
                                 "walnut_take_source": "openai",
                                 "walnut_take_model": "gpt-5.6-sol",
-                                "walnut_take_prompt_version": "market_read_v3",
+                                "walnut_take_prompt_version": "market_read_v4",
                                 "walnut_take_generated_at": "2026-07-21T12:00:00+00:00",
                             }
                         ],
@@ -365,7 +365,7 @@ def test_insights_headlines_refresh_regenerates_old_walnut_take_prompt_versions(
         item = payload["items"][0]
         assert item["walnut_take_bias"] == "bearish"
         assert item["walnut_take"] == "Stretched valuations and weaker cash flow make this a bearish risk-asset read."
-        assert item["walnut_take_prompt_version"] == "market_read_v3"
+        assert item["walnut_take_prompt_version"] == "market_read_v4"
     finally:
         db.close()
 
@@ -435,6 +435,9 @@ def test_insights_headlines_refresh_calibrates_walnut_take_reads(monkeypatch):
         assert reads["https://example.com/ireland-trade"] == "bullish"
         assert reads["https://example.com/lisa-su-ai"] == "bullish"
         assert all(len(item["walnut_take"]) <= WALNUT_TAKE_MAX_CHARS for item in payload["items"])
+        assert all(item["walnut_take"].endswith(".") for item in payload["items"])
+        assert all("..." not in item["walnut_take"] for item in payload["items"])
+        assert payload["items"][0]["walnut_take"] == "Stretched valuations and weaker cash flow are bearish for risk assets."
     finally:
         db.close()
 
