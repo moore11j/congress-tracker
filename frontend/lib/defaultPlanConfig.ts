@@ -309,8 +309,8 @@ const featureDefinitions: FeatureDefinition[] = [
     kind: "limit",
     description: "Member, insider, and department follow capacity inside each watchlist.",
     required_tier: "premium",
-    unit_singular: "",
-    unit_plural: "",
+    unit_singular: "name",
+    unit_plural: "names",
     sort_order: 51,
   },
   {
@@ -319,8 +319,8 @@ const featureDefinitions: FeatureDefinition[] = [
     kind: "limit",
     description: "Institution follow capacity inside each watchlist.",
     required_tier: "pro",
-    unit_singular: "",
-    unit_plural: "",
+    unit_singular: "name",
+    unit_plural: "names",
     sort_order: 52,
   },
   {

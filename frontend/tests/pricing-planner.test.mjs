@@ -199,6 +199,8 @@ test("fallback plan config starts with current public headline limits", () => {
   assert.match(defaultPlanConfig, /pro:\s*\{[\s\S]*?screener_saved_screens:\s*25,[\s\S]*?screener_results:\s*100,[\s\S]*?watchlists:\s*25,[\s\S]*?watchlist_tickers:\s*100,[\s\S]*?watchlist_people_departments:\s*25,[\s\S]*?watchlist_institutions:\s*25,[\s\S]*?saved_views:\s*25,[\s\S]*?monitoring_sources:\s*25,/);
   assert.match(defaultPlanConfig, /label:\s*"Members\/Insiders\/Departments per watchlist"/);
   assert.match(defaultPlanConfig, /label:\s*"Institutions per watchlist"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_people_departments"[\s\S]*?unit_singular:\s*"name"[\s\S]*?unit_plural:\s*"names"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_institutions"[\s\S]*?unit_singular:\s*"name"[\s\S]*?unit_plural:\s*"names"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"signals"[\s\S]*?required_tier:\s*"premium"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"screener_csv_export"[\s\S]*?required_tier:\s*"pro"/);
 });
