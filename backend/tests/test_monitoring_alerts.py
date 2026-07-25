@@ -194,6 +194,73 @@ def test_watchlist_insider_target_matches_reporting_cik_without_ticker_watch():
         db.close()
 
 
+def test_non_ticker_watchlist_targets_do_not_require_security_id():
+    db = _session()
+    try:
+        user, watchlist, _now = _seed_watchlist(db)
+        request = _request_for_user(user)
+        user.entitlement_tier = "premium"
+        db.commit()
+
+        add_to_watchlist(
+            watchlist.id,
+            request,
+            target_type="member",
+            target_value="P000197",
+            target_label="Nancy Pelosi",
+            db=db,
+        )
+        add_to_watchlist(
+            watchlist.id,
+            request,
+            target_type="insider",
+            target_value="0000320193",
+            target_label="Apple Insider",
+            db=db,
+        )
+        add_to_watchlist(
+            watchlist.id,
+            request,
+            target_type="department",
+            target_value="Department of Defense",
+            target_label="Department of Defense",
+            db=db,
+        )
+
+        user.entitlement_tier = "pro"
+        db.commit()
+        add_to_watchlist(
+            watchlist.id,
+            request,
+            target_type="institution",
+            target_value="0001067983",
+            target_label="Berkshire Hathaway",
+            db=db,
+        )
+
+        rows = (
+            db.query(WatchlistItem)
+            .filter(WatchlistItem.watchlist_id == watchlist.id)
+            .filter(WatchlistItem.target_type.in_(["member", "insider", "department", "institution"]))
+            .order_by(WatchlistItem.target_type.asc())
+            .all()
+        )
+        assert [(row.target_type, row.security_id) for row in rows] == [
+            ("department", None),
+            ("insider", None),
+            ("institution", None),
+            ("member", None),
+        ]
+        assert {row.target_type: row.target_value for row in rows} == {
+            "department": "Department of Defense",
+            "insider": "0000320193",
+            "institution": "0001067983",
+            "member": "P000197",
+        }
+    finally:
+        db.close()
+
+
 def test_member_insider_department_watchlist_targets_are_premium_only_and_limited():
     db = _session()
     try:
