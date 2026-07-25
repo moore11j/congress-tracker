@@ -2305,6 +2305,7 @@ def ensure_watchlist_item_target_schema(bind=engine) -> None:
             conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'ticker'"))
             conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_value TEXT"))
             conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS target_label TEXT"))
+            conn.execute(text("ALTER TABLE watchlist_items ALTER COLUMN security_id DROP NOT NULL"))
             conn.execute(
                 text(
                     """
