@@ -9,6 +9,9 @@ import { WatchlistTickerAutocomplete } from "@/components/watchlists/WatchlistTi
 import { formatInteger } from "@/lib/accountDisplay";
 import { defaultEntitlements, hasEntitlement, limitFor, type Entitlements } from "@/lib/entitlements";
 import { formatCompanyName } from "@/lib/companyName";
+import { departmentHref } from "@/lib/departments";
+import { insiderHref } from "@/lib/insider";
+import { memberHref } from "@/lib/memberSlug";
 import { ghostButtonClassName, subtlePrimaryButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import type { WatchlistTarget } from "@/lib/types";
@@ -20,6 +23,17 @@ type TargetSection = {
   empty: string;
   items: WatchlistTarget[];
 };
+
+function watchlistTargetHref(target: WatchlistTarget): string | null {
+  const value = target.value?.trim() || null;
+  const label = target.label?.trim() || value;
+  if (!label && !value) return null;
+
+  if (target.type === "member") return memberHref({ name: label, memberId: value });
+  if (target.type === "insider") return insiderHref(label, value);
+  if (target.type === "department") return departmentHref(label ?? value);
+  return null;
+}
 
 export function WatchlistTickerManager({
   watchlistId,
@@ -243,22 +257,32 @@ export function WatchlistTickerManager({
               <p className="text-sm text-slate-500">{section.empty}</p>
             ) : (
               <div className="space-y-2">
-                {section.items.map((target) => (
-                  <div key={`${target.type}-${target.value}`} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-100">{target.label ?? target.value}</p>
-                      <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{target.type}</p>
+                {section.items.map((target) => {
+                  const href = watchlistTargetHref(target);
+                  const label = target.label ?? target.value;
+                  return (
+                    <div key={`${target.type}-${target.value}`} className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="min-w-0">
+                        {href ? (
+                          <Link href={href} prefetch={false} className={`${tickerLinkClassName} block truncate`}>
+                            {label}
+                          </Link>
+                        ) : (
+                          <p className="truncate text-sm font-semibold text-slate-100">{label}</p>
+                        )}
+                        <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{target.type}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className={ghostButtonClassName}
+                        onClick={() => handleRemoveTarget(target)}
+                        disabled={isPending}
+                      >
+                        Remove
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className={ghostButtonClassName}
-                      onClick={() => handleRemoveTarget(target)}
-                      disabled={isPending}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

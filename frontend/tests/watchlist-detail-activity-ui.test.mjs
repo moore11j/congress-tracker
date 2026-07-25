@@ -7,12 +7,14 @@ const confirmationPanelPath = path.join(process.cwd(), "components", "watchlists
 const watchlistPagePath = path.join(process.cwd(), "app", "watchlists", "[id]", "page.tsx");
 const watchlistClientPath = path.join(process.cwd(), "components", "watchlists", "WatchlistDetailClient.tsx");
 const recentActivityPath = path.join(process.cwd(), "components", "watchlists", "WatchlistRecentActivity.tsx");
+const tickerManagerPath = path.join(process.cwd(), "components", "watchlists", "WatchlistTickerManager.tsx");
 const feedCardPath = path.join(process.cwd(), "components", "feed", "FeedCard.tsx");
 
 const confirmationPanelSource = fs.readFileSync(confirmationPanelPath, "utf8");
 const watchlistPageSource = fs.readFileSync(watchlistPagePath, "utf8");
 const watchlistClientSource = fs.readFileSync(watchlistClientPath, "utf8");
 const recentActivitySource = fs.readFileSync(recentActivityPath, "utf8");
+const tickerManagerSource = fs.readFileSync(tickerManagerPath, "utf8");
 const feedCardSource = fs.readFileSync(feedCardPath, "utf8");
 
 test("confirmation monitor clears through the shared confirmation dialog", () => {
@@ -37,4 +39,15 @@ test("watchlist trade cards use disclosure-safe labels plus filed-after placemen
   assert.match(feedCardSource, /institutionalSecuritySecondaryLabel/);
   assert.match(feedCardSource, /Filed after:/);
   assert.match(feedCardSource, /tradeSide \? <span className="inline-flex justify-start">\{badge\}<\/span> : null/);
+});
+
+test("watchlist non-ticker targets link to their profile pages", () => {
+  assert.match(tickerManagerSource, /import \{ departmentHref \} from "@\/lib\/departments"/);
+  assert.match(tickerManagerSource, /import \{ insiderHref \} from "@\/lib\/insider"/);
+  assert.match(tickerManagerSource, /import \{ memberHref \} from "@\/lib\/memberSlug"/);
+  assert.match(tickerManagerSource, /function watchlistTargetHref\(target: WatchlistTarget\): string \| null/);
+  assert.match(tickerManagerSource, /if \(target\.type === "member"\) return memberHref\(\{ name: label, memberId: value \}\)/);
+  assert.match(tickerManagerSource, /if \(target\.type === "insider"\) return insiderHref\(label, value\)/);
+  assert.match(tickerManagerSource, /if \(target\.type === "department"\) return departmentHref\(label \?\? value\)/);
+  assert.match(tickerManagerSource, /className=\{`\$\{tickerLinkClassName\} block truncate`\}/);
 });

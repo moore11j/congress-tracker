@@ -19,7 +19,7 @@ import { ShareLinks } from "@/components/member/ShareLinks";
 import { ResearchActions } from "@/components/research/ResearchActions";
 import { AddTickerToWatchlist } from "@/components/watchlists/AddTickerToWatchlist";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
-import { entitlementsFromTierHint, hasEntitlement, type Entitlements } from "@/lib/entitlements";
+import { entitlementsFromTierHint, hasEntitlement, isAdminEntitlement, type Entitlements } from "@/lib/entitlements";
 import {
   cardClassName,
   compactInteractiveSurfaceClassName,
@@ -3901,6 +3901,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
     ? hasEntitlement(entitlements, "premium_feed_metrics")
     : false;
   const canViewProContext = hasAuthForEntitlementDisplay && canUseProTickerContext(entitlements);
+  const canCreateResearch = Boolean(authToken) && isAdminEntitlement(entitlements);
   const fallbackSourceEntitlements = tickerContextSourceEntitlements(entitlements, hasAuthForEntitlementDisplay);
   const signalGateState = !shouldLoadSignals || signalActivityAuthPending
     ? null
@@ -4098,11 +4099,9 @@ export default async function TickerPage({ params, searchParams }: Props) {
           ) : null}
         </div>
         <div className="grid w-[calc(100vw-2rem)] flex-none grid-cols-2 gap-2 [&>*]:w-full [&>*>button]:w-full [&>a]:justify-center [&>button]:justify-center sm:flex sm:w-auto sm:flex-initial sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:w-auto sm:[&>*>button]:w-auto">
-          <AddTickerToWatchlist symbol={normalizedSymbol} />
-          <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
-          {canViewProContext ? (
+          {canCreateResearch ? (
             <ResearchActions
-              canCreateResearch={canViewProContext}
+              canCreateResearch={canCreateResearch}
               subject={{
                 kind: "ticker",
                 symbol: normalizedSymbol,
@@ -4114,6 +4113,8 @@ export default async function TickerPage({ params, searchParams }: Props) {
               }}
             />
           ) : null}
+          <AddTickerToWatchlist symbol={normalizedSymbol} />
+          <Link href={`/compare/${encodeURIComponent(normalizedSymbol)}/_`} className={ghostButtonClassName}>Compare</Link>
           <ShareLinks canonicalUrl={canonicalTickerUrl} />
           <Link href="/?mode=all" className={ghostButtonClassName}>Back to feed</Link>
         </div>

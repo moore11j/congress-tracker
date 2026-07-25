@@ -243,6 +243,10 @@ export function hasEntitlement(entitlements: Entitlements, feature: EntitlementF
   return entitlements.features.includes(feature);
 }
 
+export function isAdminEntitlement(entitlements: Entitlements | null | undefined) {
+  return Boolean(entitlements && (entitlements.tier === "admin" || entitlements.effective_tier === "admin" || entitlements.is_admin || entitlements.user?.is_admin));
+}
+
 export function limitFor(entitlements: Entitlements, feature: EntitlementFeature) {
   if (entitlements.tier === "admin" || entitlements.effective_tier === "admin" || entitlements.is_admin || entitlements.user?.is_admin) {
     return Math.max(entitlements.limits[feature] ?? 0, proEntitlements.limits[feature] ?? 1);

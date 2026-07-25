@@ -6,7 +6,7 @@ import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
 import { optionalPageAuthState } from "@/lib/serverAuth";
-import { hasEntitlement } from "@/lib/entitlements";
+import { isAdminEntitlement } from "@/lib/entitlements";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -236,7 +236,7 @@ export default async function PeerComparePage({ params }: PageProps) {
   const entitlements = authState.token
     ? await getEntitlements(authState.token, { source: "PeerCompareResearchGate" }).catch(() => null)
     : null;
-  const canCreateResearch = entitlements ? hasEntitlement(entitlements, "institutional_feed") : false;
+  const canCreateResearch = isAdminEntitlement(entitlements);
   let data: PeerCompareResponse | null = null;
   let errorMessage = "This comparison could not be loaded.";
 
