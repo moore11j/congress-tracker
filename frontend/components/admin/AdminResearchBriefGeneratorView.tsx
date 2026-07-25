@@ -789,7 +789,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             busy={busy}
             onArticleChange={updateArticle}
             onBodyChange={setBodyMarkdown}
-            onSave={() => saveDraft("draft")}
+            onSave={() => saveDraft(selectedDraft?.status === "published" ? "published" : "draft")}
             onReady={() => saveDraft("ready_for_review")}
             onPublish={requestPublishSelected}
             onUnpublish={unpublishSelected}
@@ -1158,7 +1158,7 @@ function EditorPanel({
           </div>
         ) : null}
         <div className="grid gap-2">
-          <Button disabled={Boolean(busy)} onClick={onSave}>Save Draft</Button>
+          <Button disabled={Boolean(busy)} onClick={onSave}>{draft.status === "published" ? "Save Published Changes" : "Save Draft"}</Button>
           <Button disabled={Boolean(busy)} onClick={onReady}>Ready for Review</Button>
           <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into an X post.")}>Convert to X post</Button>

@@ -909,3 +909,26 @@ def test_republishing_edited_brief_updates_public_article_and_strips_bold_marker
     body = "\n\n".join(section["body_markdown"] for section in public["article"]["sections"])
     assert "Edited bold article body" in body
     assert "**" not in body
+
+
+def test_saving_published_brief_keeps_public_article_updated(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = service.generate_research_brief(db, admin, _payload().model_dump())
+    published = service.publish_draft(admin, draft["id"], confirm=True)
+    article = deepcopy(published["article"])
+    article["sections"][0]["body_markdown"] = (
+        "Published edit should stay public. Research only. Not investment advice. "
+        "https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu "
+        + "word " * 220
+    )
+
+    saved = service.update_draft(admin, draft["id"], article, status="draft")
+    public = service.published_article(published["article"]["slug"])
+
+    assert saved["status"] == "published"
+    assert public["status"] == "published"
+    assert "Published edit should stay public" in public["article"]["sections"][0]["body_markdown"]

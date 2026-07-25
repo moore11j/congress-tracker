@@ -2877,7 +2877,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
             draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
             if status:
-                draft["status"] = _normalize_status(status)
+                draft["status"] = _normalize_update_status(draft.get("status"), status)
             draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
             draft["updated_at"] = _now()
             _upsert_db_draft(db, draft)
@@ -2891,7 +2891,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
                 draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
                 if status:
-                    draft["status"] = _normalize_status(status)
+                    draft["status"] = _normalize_update_status(draft.get("status"), status)
                 draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
                 draft["updated_at"] = _now()
                 _append_audit(store, action="save", admin=admin, draft_id=draft_id)
@@ -3060,6 +3060,14 @@ def _normalize_status(status: str) -> str:
     if normalized not in STATUS_OPTIONS:
         raise HTTPException(status_code=422, detail="Unsupported draft status.")
     return normalized
+
+
+def _normalize_update_status(current_status: Any, requested_status: str) -> str:
+    requested = _normalize_status(requested_status)
+    current = str(current_status or "").strip().lower()
+    if current == "published" and requested in {"draft", "ready_for_review"}:
+        return "published"
+    return requested
 
 
 def _unpublish_other_db_drafts_for_slug(db: Session, draft_id: str, slug: str) -> None:
