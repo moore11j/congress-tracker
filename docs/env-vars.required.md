@@ -41,6 +41,8 @@ Required for production runtime:
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
 | `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6`; do not store in admin DB settings. |
+| `RESEARCH_BRIEF_MODEL_DEFAULT` | Research Brief Generator default model | Optional. Overrides the legacy `RESEARCH_BRIEF_GENERATOR_MODEL` for admin research briefs. |
+| `RESEARCH_BRIEF_MODEL_OPTIONS` | Research Brief Generator selectable models | Optional comma-separated allowlist shown in the admin model selector, for example `gpt-5.4-mini,gpt-5.4,gpt-5.5-thinking`. |
 | `AI_MARKETING_IMAGE_GENERATION_ENABLED` | Enables real AI-generated AI Growth thumbnails | Optional; set `true` in production when generated X/Reddit thumbnails should be attached. Configured in `backend/fly.toml`. |
 | `AI_MARKETING_IMAGE_MODEL` | AI Growth thumbnail model override | Optional; defaults to `gpt-image-2`. Configured in `backend/fly.toml`. |
 | `AI_MARKETING_IMAGE_SIZE` | AI Growth thumbnail size | Optional; defaults to `1536x1024`. Configured in `backend/fly.toml`. |

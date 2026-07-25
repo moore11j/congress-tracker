@@ -5548,8 +5548,12 @@ export type AdminResearchBriefConfig = {
   include_sections: string[];
   length: string;
   tone: string;
+  external_research_mode: string;
+  section_format: string;
+  selected_model?: string | null;
   include_charts: boolean;
   include_source_links: boolean;
+  generate_thumbnail: boolean;
   hero_image?: string | null;
 };
 
@@ -5558,6 +5562,7 @@ export type AdminResearchBriefArticle = {
   slug: string;
   subtitle: string;
   summary: string;
+  preview_body?: string;
   judgment: string;
   confidence?: string;
   primary_ticker: string;
@@ -5572,6 +5577,16 @@ export type AdminResearchBriefArticle = {
   watch_items: string[];
   data_freshness: string[];
   missing_data_notes: string[];
+  source_links?: Array<{ label: string; url: string; source_type: string }>;
+  thumbnail_asset?: {
+    image_title: string;
+    image_prompt: string;
+    asset_type: string;
+    url: string;
+    thumbnail_url: string;
+    source_notes: string;
+    created_at: string;
+  };
   suggested_card: {
     title: string;
     description: string;
@@ -5636,6 +5651,11 @@ export async function getAdminResearchBriefOptions(): Promise<{
   judgment_preferences: string[];
   lengths: string[];
   tones: string[];
+  external_research_modes: string[];
+  section_formats: string[];
+  model_options: string[];
+  model_default: string;
+  model_descriptions: Record<string, string>;
   sections: string[];
   publication_default: string;
   storage: string;
@@ -5680,6 +5700,14 @@ export async function updateAdminResearchBriefDraft(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    source: "AdminResearchBriefs",
+  });
+}
+
+export async function refreshAdminResearchBriefSources(draftId: string): Promise<AdminResearchBriefDraft> {
+  return fetchJson<AdminResearchBriefDraft>(buildApiUrl(`/api/admin/research-briefs/drafts/${encodeURIComponent(draftId)}/refresh-sources`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     source: "AdminResearchBriefs",
   });
 }

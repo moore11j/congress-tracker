@@ -7,6 +7,7 @@ import {
   getAdminResearchBriefDrafts,
   getAdminResearchBriefOptions,
   publishAdminResearchBriefDraft,
+  refreshAdminResearchBriefSources,
   unpublishAdminResearchBriefDraft,
   updateAdminResearchBriefDraft,
   validateAdminResearchBriefTicker,
@@ -17,6 +18,20 @@ import {
 import { normalizeTickerSymbol } from "@/lib/ticker";
 
 type Toast = (message: string, tone?: "success" | "error" | "info") => void;
+type ResearchBriefOptions = {
+  angles: string[];
+  time_horizons: string[];
+  audiences: string[];
+  judgment_preferences: string[];
+  lengths: string[];
+  tones: string[];
+  external_research_modes: string[];
+  section_formats: string[];
+  model_options: string[];
+  model_default: string;
+  model_descriptions: Record<string, string>;
+  sections: string[];
+};
 
 const DEFAULT_SECTIONS = [
   "Executive thesis",
@@ -48,12 +63,16 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   include_sections: DEFAULT_SECTIONS,
   length: "Standard: 1,500-2,500 words",
   tone: "Walnut market-native",
+  external_research_mode: "Standard",
+  section_format: "Walnut Research Brief",
+  selected_model: "",
   include_charts: false,
   include_source_links: true,
+  generate_thumbnail: true,
   hero_image: "",
 };
 
-const fallbackOptions = {
+const fallbackOptions: ResearchBriefOptions = {
   angles: [
     "Full company DD",
     "Bull case",
@@ -77,6 +96,18 @@ const fallbackOptions = {
   judgment_preferences: ["Let the data decide", "Bull case", "Bear case", "Balanced debate"],
   lengths: ["Short: 800-1,200 words", "Standard: 1,500-2,500 words", "Deep dive: 3,000-5,000 words"],
   tones: ["Walnut market-native", "Institutional research", "Reddit DD", "Concise executive brief"],
+  external_research_modes: ["Off", "Standard", "Deep"],
+  section_formats: [
+    "Walnut Research Brief",
+    "Reddit DD - Issue / Risk / Data / Conclusion",
+    "Reddit DD - Bull Case / Bear Case / The Data / The Call",
+    "ValueInvesting - Business / Valuation / Risks / Margin of Safety",
+    "X Thread",
+    "Internal Analyst Note",
+  ],
+  model_options: ["gpt-5.4-mini"],
+  model_default: "gpt-5.4-mini",
+  model_descriptions: { "gpt-5.4-mini": "Fast / cheaper" },
   sections: DEFAULT_SECTIONS,
 };
 
@@ -162,9 +193,18 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           judgment_preferences: payload.judgment_preferences,
           lengths: payload.lengths,
           tones: payload.tones,
+          external_research_modes: payload.external_research_modes,
+          section_formats: payload.section_formats,
+          model_options: payload.model_options,
+          model_default: payload.model_default,
+          model_descriptions: payload.model_descriptions,
           sections: payload.sections,
         });
-        setConfig((current) => ({ ...current, include_sections: payload.sections.length ? payload.sections : current.include_sections }));
+        setConfig((current) => ({
+          ...current,
+          selected_model: current.selected_model || payload.model_options?.[payload.model_options.length - 1] || payload.model_default || "",
+          include_sections: payload.sections.length ? payload.sections : current.include_sections,
+        }));
       })
       .catch(() => undefined);
     getAdminResearchBriefDrafts().then((payload) => alive && setDrafts(payload.items)).catch(() => undefined);
@@ -246,6 +286,24 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       showToast?.("Draft saved.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save draft.";
+      setError(message);
+      showToast?.(message, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function refreshSources() {
+    if (!selectedDraft) return;
+    setBusy("refresh-sources");
+    setError("");
+    try {
+      const draft = await refreshAdminResearchBriefSources(selectedDraft.id);
+      setSelectedDraft(draft);
+      await refreshDrafts(draft);
+      showToast?.("Source notes refreshed.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to refresh sources.";
       setError(message);
       showToast?.(message, "error");
     } finally {
@@ -377,6 +435,19 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 <Select label="Judgment preference" value={config.judgment_preference} options={options.judgment_preferences} onChange={(value) => updateConfig("judgment_preference", value)} />
               </div>
 
+              <div className="grid gap-4 md:grid-cols-2">
+                <Select
+                  label="Model"
+                  value={config.selected_model || options.model_options[options.model_options.length - 1] || options.model_default}
+                  options={options.model_options}
+                  descriptions={options.model_descriptions}
+                  onChange={(value) => updateConfig("selected_model", value)}
+                />
+                <Select label="External research mode" value={config.external_research_mode} options={options.external_research_modes} onChange={(value) => updateConfig("external_research_mode", value)} />
+                <Select label="Section format" value={config.section_format} options={options.section_formats} onChange={(value) => updateConfig("section_format", value)} />
+                <Toggle label="Generate thumbnail / hero image" checked={config.generate_thumbnail} onChange={(value) => updateConfig("generate_thumbnail", value)} />
+              </div>
+
               <label className="block">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Comparison ticker</span>
                 <input
@@ -452,6 +523,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onPublish={publishSelected}
             onUnpublish={unpublishSelected}
             onDelete={deleteSelected}
+            onRefreshSources={refreshSources}
             onRegenerate={regenerateWith}
             blockingWarnings={blockingWarnings.length}
           />
@@ -532,14 +604,26 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   );
 }
 
-function Select({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+function Select({
+  label,
+  value,
+  options,
+  descriptions,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  descriptions?: Record<string, string>;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="block">
       <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className={fieldClassName("mt-2")}>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {descriptions?.[option] ? `${option} - ${descriptions[option]}` : option}
           </option>
         ))}
       </select>
@@ -577,6 +661,7 @@ function EditorPanel({
   onPublish,
   onUnpublish,
   onDelete,
+  onRefreshSources,
   onRegenerate,
   blockingWarnings,
 }: {
@@ -591,6 +676,7 @@ function EditorPanel({
   onPublish: () => void;
   onUnpublish: () => void;
   onDelete: () => void;
+  onRefreshSources: () => void;
   onRegenerate: (change: string) => void;
   blockingWarnings: number;
 }) {
@@ -609,19 +695,44 @@ function EditorPanel({
           <h3 className="text-base font-semibold text-white">Draft Review</h3>
           <span className="rounded-md border border-white/10 px-2 py-1 text-xs font-semibold uppercase text-slate-300">{draft.status}</span>
         </div>
-        <input value={article.title} onChange={(event) => onArticleChange("title", event.target.value)} className={fieldClassName()} />
-        <input value={article.subtitle} onChange={(event) => onArticleChange("subtitle", event.target.value)} className={fieldClassName()} placeholder="Subtitle" />
-        <textarea value={article.summary} onChange={(event) => onArticleChange("summary", event.target.value)} className={fieldClassName("min-h-20")} placeholder="Summary" />
-        <div className="grid gap-3 md:grid-cols-3">
-          <input value={article.judgment} onChange={(event) => onArticleChange("judgment", event.target.value)} className={fieldClassName()} placeholder="Judgment" />
-          <input value={article.category} onChange={(event) => onArticleChange("category", event.target.value)} className={fieldClassName()} placeholder="Category" />
-          <input value={String(article.reading_minutes || "")} onChange={(event) => onArticleChange("reading_minutes", Number(event.target.value) || 1)} className={fieldClassName()} placeholder="Reading time" />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <input value={article.slug} onChange={(event) => onArticleChange("slug", event.target.value)} className={fieldClassName()} placeholder="Slug" />
-          <input value={article.hero_image || ""} onChange={(event) => onArticleChange("hero_image", event.target.value)} className={fieldClassName()} placeholder="Hero image" />
-        </div>
-        <textarea value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("min-h-[32rem] font-mono text-xs leading-6")} />
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Title</span>
+          <input value={article.title} onChange={(event) => onArticleChange("title", event.target.value)} className={fieldClassName("mt-2")} />
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Insights preview body</span>
+          <textarea
+            value={article.preview_body || article.summary || ""}
+            onChange={(event) => {
+              onArticleChange("preview_body", event.target.value);
+              onArticleChange("summary", event.target.value);
+            }}
+            className={fieldClassName("mt-2 min-h-24")}
+            placeholder="1-3 sentences for the Insights card."
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Full post body</span>
+          <textarea value={bodyMarkdown} onChange={(event) => onBodyChange(event.target.value)} className={fieldClassName("mt-2 min-h-[34rem] font-mono text-xs leading-6")} />
+        </label>
+        <details className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-emerald-200">Advanced metadata</summary>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <input value={article.slug} onChange={(event) => onArticleChange("slug", event.target.value)} className={fieldClassName()} placeholder="Slug" />
+            <input value={article.hero_image || ""} onChange={(event) => onArticleChange("hero_image", event.target.value)} className={fieldClassName()} placeholder="Hero image URL/path" />
+            <input value={article.subtitle} onChange={(event) => onArticleChange("subtitle", event.target.value)} className={fieldClassName()} placeholder="Hero title / subtitle" />
+            <input value={article.judgment} onChange={(event) => onArticleChange("judgment", event.target.value)} className={fieldClassName()} placeholder="Judgment" />
+            <input value={article.category} onChange={(event) => onArticleChange("category", event.target.value)} className={fieldClassName()} placeholder="Category / tone" />
+            <input value={String(article.reading_minutes || "")} onChange={(event) => onArticleChange("reading_minutes", Number(event.target.value) || 1)} className={fieldClassName()} placeholder="Reading time" />
+          </div>
+          {article.thumbnail_asset ? (
+            <div className="mt-4 rounded-lg border border-white/10 bg-slate-950/50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Hero image prompt</p>
+              <p className="mt-2 text-xs leading-5 text-slate-300">{article.thumbnail_asset.image_prompt}</p>
+              {article.thumbnail_asset.thumbnail_url ? <img src={article.thumbnail_asset.thumbnail_url} alt={article.thumbnail_asset.image_title || "Generated thumbnail"} className="mt-3 max-h-44 w-full rounded-md object-cover" /> : null}
+            </div>
+          ) : null}
+        </details>
       </div>
 
       <aside className="space-y-3">
@@ -630,9 +741,39 @@ function EditorPanel({
         <Metric label="Source links" value={String(draft.validation?.source_link_count || 0)} />
         <Metric label="Reading time" value={`${draft.validation?.estimated_reading_minutes || article.reading_minutes || 1} min`} />
         <Metric label="Model" value={draft.model || "OpenAI"} />
+        <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
+        {draft.validation?.source_link_count === 0 ? (
+          <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
+            This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.
+          </div>
+        ) : null}
+        {article.source_links?.length ? (
+          <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Sources</p>
+            <div className="mt-2 space-y-2">
+              {article.source_links.slice(0, 5).map((source) => (
+                <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-emerald-200 hover:text-emerald-100">
+                  {source.label || source.url}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {article.missing_data_notes?.length ? (
+          <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing data notes</p>
+            <p className="mt-2 text-xs leading-5 text-slate-300">{article.missing_data_notes.slice(0, 6).join("; ")}</p>
+          </div>
+        ) : null}
         <div className="grid gap-2">
           <Button disabled={Boolean(busy)} onClick={onSave}>Save Draft</Button>
           <Button disabled={Boolean(busy)} onClick={onReady}>Ready for Review</Button>
+          <Button disabled={Boolean(busy)} onClick={onRefreshSources}>{busy === "refresh-sources" ? "Refreshing..." : "Find Sources / Refresh Research"}</Button>
+          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into an X post.")}>Convert to X post</Button>
+          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into Reddit DD.")}>Convert to Reddit DD</Button>
+          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into a WallStreetBets version without changing facts.")}>Convert to WSB version</Button>
+          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Convert this source-backed brief into a ValueInvesting version without changing facts.")}>Convert to ValueInvesting version</Button>
+          <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Generate or regenerate the thumbnail prompt and hero image from the final post conclusion.")}>Generate thumbnail</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Regenerate the entire brief with the same data.")}>Regenerate Entire Brief</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Shorten the brief while preserving all supported evidence.")}>Shorten</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Expand the brief with more detail from supplied Walnut data only.")}>Expand</Button>
@@ -641,7 +782,7 @@ function EditorPanel({
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more balanced without weakening the final judgment.")}>Make More Neutral</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the title.")}>Improve Title</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the final Walnut judgment.")}>Improve Walnut Judgment</Button>
-          <Button tone="primary" disabled={Boolean(busy) || blockingWarnings > 0} onClick={onPublish}>Publish</Button>
+          <Button tone="primary" disabled={Boolean(busy) || blockingWarnings > 0 || draft.validation?.status === "failed" || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
           <Button disabled={Boolean(busy) || draft.status !== "published"} onClick={onUnpublish}>Unpublish</Button>
           <Button tone="danger" disabled={Boolean(busy)} onClick={onDelete}>Delete Draft</Button>
         </div>

@@ -13,8 +13,10 @@ from app.services.research_briefs import (
     DEFAULT_SECTIONS,
     ANGLE_OPTIONS,
     AUDIENCE_OPTIONS,
+    EXTERNAL_RESEARCH_MODE_OPTIONS,
     JUDGMENT_OPTIONS,
     LENGTH_OPTIONS,
+    SECTION_FORMAT_OPTIONS,
     TIME_HORIZON_OPTIONS,
     TONE_OPTIONS,
     assemble_research_context,
@@ -26,6 +28,10 @@ from app.services.research_briefs import (
     publish_draft,
     published_article,
     published_cards,
+    refresh_research_sources,
+    research_brief_model_descriptions,
+    research_brief_model_options,
+    research_brief_model,
     unpublish_draft,
     update_draft,
     validate_config,
@@ -46,8 +52,12 @@ class ResearchBriefGeneratePayload(BaseModel):
     include_sections: list[str] = Field(default_factory=lambda: list(DEFAULT_SECTIONS))
     length: str = "Standard: 1,500-2,500 words"
     tone: str = "Walnut market-native"
+    external_research_mode: str = "Standard"
+    section_format: str = "Walnut Research Brief"
+    selected_model: str | None = Field(default=None, max_length=120)
     include_charts: bool = False
     include_source_links: bool = True
+    generate_thumbnail: bool = True
     hero_image: str | None = Field(default=None, max_length=1000)
 
 
@@ -71,6 +81,11 @@ def admin_research_brief_options(request: Request, db: Session = Depends(get_db)
         "judgment_preferences": sorted(JUDGMENT_OPTIONS),
         "lengths": sorted(LENGTH_OPTIONS),
         "tones": sorted(TONE_OPTIONS),
+        "external_research_modes": sorted(EXTERNAL_RESEARCH_MODE_OPTIONS),
+        "section_formats": list(SECTION_FORMAT_OPTIONS),
+        "model_options": research_brief_model_options(db),
+        "model_default": research_brief_model(db),
+        "model_descriptions": research_brief_model_descriptions(db),
         "sections": list(DEFAULT_SECTIONS),
         "publication_default": "draft",
         "storage": "local_json",
@@ -117,6 +132,12 @@ def admin_research_brief_draft(draft_id: str, request: Request, db: Session = De
 def admin_research_brief_update(draft_id: str, payload: ResearchBriefUpdatePayload, request: Request, db: Session = Depends(get_db)):
     admin = require_admin_user(db, request)
     return update_draft(admin, draft_id, payload.article, status=payload.status)
+
+
+@router.post("/admin/research-briefs/drafts/{draft_id}/refresh-sources", dependencies=[Depends(rate_limit_admin_mutation)])
+def admin_research_brief_refresh_sources(draft_id: str, request: Request, db: Session = Depends(get_db)):
+    admin = require_admin_user(db, request)
+    return refresh_research_sources(db, admin, draft_id)
 
 
 @router.post("/admin/research-briefs/drafts/{draft_id}/publish", dependencies=[Depends(rate_limit_admin_mutation)])

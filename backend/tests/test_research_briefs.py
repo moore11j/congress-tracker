@@ -67,6 +67,7 @@ def _payload(**overrides) -> ResearchBriefGeneratePayload:
         "time_horizon": "Near term",
         "intended_audience": "Walnut Research Brief",
         "judgment_preference": "Let the data decide",
+        "external_research_mode": "Off",
         "include_source_links": True,
     }
     data.update(overrides)
@@ -83,6 +84,7 @@ def _fake_openai_response(*_args, **kwargs):
                 "slug": "mu-generated-test",
                 "subtitle": "A grounded Walnut research brief.",
                 "summary": "MU has supportive data, but this is research only. Not investment advice.",
+                "preview_body": "MU has supportive data, but this is research only. Not investment advice.",
                 "judgment": "mixed",
                 "confidence": "medium",
                 "primary_ticker": "MU",
@@ -97,7 +99,7 @@ def _fake_openai_response(*_args, **kwargs):
                             "MU's setup is still tied to observable data. Revenue growth of 42.5 and gross margin of 61.2 "
                             "support the constructive side, while cycle risk remains real.\n\n"
                             "The Walnut confirmation score is separate from the underlying fundamentals and tape. "
-                            "Research only. Not investment advice. "
+                            "Research only. Not investment advice. Sources: https://www.sec.gov/edgar/search/#/q=MU and https://www.nasdaq.com/market-activity/stocks/mu. "
                             + " ".join(["Evidence remains specific."] * 120)
                         ),
                     }
@@ -108,6 +110,10 @@ def _fake_openai_response(*_args, **kwargs):
                 "watch_items": ["Revenue growth", "Gross margin"],
                 "data_freshness": ["2026-07-20"],
                 "missing_data_notes": [],
+                "source_links": [
+                    {"label": "SEC EDGAR company search", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+                    {"label": "MU Nasdaq market activity", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+                ],
                 "suggested_card": {
                     "title": "MU fundamentals still matter",
                     "description": "A Walnut DD draft for MU.",
@@ -150,9 +156,115 @@ def test_research_brief_generation_uses_responses_and_saves_draft(tmp_path, monk
 
     assert draft["status"] == "draft"
     assert draft["article"]["slug"] == "mu-generated-test"
+    assert draft["article"]["preview_body"]
     assert draft["validation"]["status"] == "passed"
+    assert draft["validation"]["source_link_count"] >= 2
+    assert draft["model"] == service.research_brief_model(None)
     saved = service.list_drafts()["items"]
     assert saved[0]["id"] == draft["id"]
+
+
+def test_model_selector_passes_selected_model_and_rejects_invalid(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_DEFAULT, "gpt-fast")
+    monkeypatch.setenv(service.RESEARCH_BRIEF_MODEL_OPTIONS, "gpt-fast,gpt-deep")
+    captured = {}
+
+    def fake_post(*_args, **kwargs):
+        captured["model"] = kwargs["json"]["model"]
+        return _fake_openai_response(*_args, **kwargs)
+
+    monkeypatch.setattr(service.requests, "post", fake_post)
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+
+    draft = admin_research_brief_generate(_payload(selected_model="gpt-deep"), _request_for_user(admin), db)
+
+    assert captured["model"] == "gpt-deep"
+    assert draft["model"] == "gpt-deep"
+    with pytest.raises(HTTPException) as exc:
+        service.validate_config(_payload(selected_model="not-configured").model_dump())
+    assert exc.value.status_code == 422
+
+
+def test_source_links_zero_blocks_publish_validation(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    context = {"primary": {"identity": {"symbol": "MU"}}}
+    article = {
+        "title": "MU source test",
+        "slug": "mu-source-test",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [{"body_markdown": "Research only. Not investment advice. " + "word " * 220}],
+        "source_links": [],
+    }
+
+    validation = service.validate_article(article, context)
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "missing_source_links" for warning in validation["warnings"])
+
+
+def test_external_research_mode_attaches_source_discovery(monkeypatch):
+    def fake_get(url, **_kwargs):
+        class Response:
+            status_code = 200
+
+            def json(self):
+                if "company_tickers" in url:
+                    return {"0": {"ticker": "MU", "title": "MICRON TECHNOLOGY INC", "cik_str": 723125}}
+                return {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [{"val": 1_000_000, "end": "2026-01-01", "filed": "2026-02-01", "form": "10-Q"}]}}}}}
+
+        return Response()
+
+    monkeypatch.setattr(service.requests, "get", fake_get)
+
+    research = service.discover_external_research("MU", {"company_name": "Micron"}, mode="Standard")
+
+    assert research["mode"] == "Standard"
+    assert any("sec.gov" in source["url"] for source in research["reviewed_sources"])
+    assert research["official_facts"]["revenue"]["value"] == 1_000_000
+
+
+def test_missing_data_and_internal_terms_fail_validation(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    context = {"primary": {"identity": {"symbol": "MU"}}}
+    article = {
+        "title": "MU bad wording",
+        "slug": "mu-bad-wording",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "body_markdown": (
+                    "Gross margin: not supplied for MU. EBITDA: not supplied for MU. The provider cache says confirmation score equals fundamentals. "
+                    "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu "
+                    + "word " * 220
+                )
+            }
+        ],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=MU", "source_type": "filing_search"},
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/mu", "source_type": "reputable_market_source"},
+        ],
+    }
+
+    validation = service.validate_article(article, context)
+
+    codes = {warning["code"] for warning in validation["warnings"]}
+    assert {"not_supplied_language", "internal_wording", "confirmation_score_blended"}.issubset(codes)
+
+
+def test_reddit_dd_section_format_prompt_contains_required_sections():
+    config = service.validate_config(_payload(section_format="Reddit DD - Issue / Risk / Data / Conclusion").model_dump())
+    prompt = service._prompt(config, {"primary": {"identity": {"symbol": "MU"}}, "missing_data_notes": []})
+
+    assert "The issue" in prompt
+    assert "The risk / opportunity" in prompt
+    assert "The data" in prompt
+    assert "Conclusion" in prompt
 
 
 def test_context_marks_missing_data_without_treating_it_as_zero(tmp_path, monkeypatch):

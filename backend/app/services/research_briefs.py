@@ -17,7 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.models import Event, FundamentalsCache, GovernmentContract, QuoteCache, Security, TickerMeta, UserAccount
 from app.services.ai_marketing import (
+    AI_MARKETING_IMAGE_GENERATION_ENABLED,
+    AI_MARKETING_IMAGE_MODEL,
+    AI_MARKETING_IMAGE_QUALITY,
+    AI_MARKETING_IMAGE_SIZE,
     AI_MARKETING_MODEL,
+    DEFAULT_AI_MARKETING_IMAGE_MODEL,
+    DEFAULT_AI_MARKETING_IMAGE_QUALITY,
+    DEFAULT_AI_MARKETING_IMAGE_SIZE,
     DEFAULT_AI_MARKETING_MODEL,
     OPENAI_API_KEY,
     resolved_setting_value,
@@ -27,7 +34,10 @@ from app.utils.symbols import normalize_symbol
 
 RESEARCH_BRIEF_PROMPT_VERSION = "research_brief_v1"
 RESEARCH_BRIEF_GENERATOR_MODEL = "RESEARCH_BRIEF_GENERATOR_MODEL"
+RESEARCH_BRIEF_MODEL_DEFAULT = "RESEARCH_BRIEF_MODEL_DEFAULT"
+RESEARCH_BRIEF_MODEL_OPTIONS = "RESEARCH_BRIEF_MODEL_OPTIONS"
 RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
+IMAGES_ENDPOINT = "https://api.openai.com/v1/images/generations"
 STORE_ENV = "RESEARCH_BRIEF_DRAFT_STORE_PATH"
 MOCK_ENV = "RESEARCH_BRIEF_GENERATOR_MOCK"
 
@@ -54,8 +64,39 @@ AUDIENCE_OPTIONS = {"General investors", "Active traders", "Long-term investors"
 JUDGMENT_OPTIONS = {"Let the data decide", "Bull case", "Bear case", "Balanced debate"}
 LENGTH_OPTIONS = {"Short: 800-1,200 words", "Standard: 1,500-2,500 words", "Deep dive: 3,000-5,000 words"}
 TONE_OPTIONS = {"Walnut market-native", "Institutional research", "Reddit DD", "Concise executive brief"}
+EXTERNAL_RESEARCH_MODE_OPTIONS = {"Off", "Standard", "Deep"}
+SECTION_FORMAT_OPTIONS = [
+    "Walnut Research Brief",
+    "Reddit DD - Issue / Risk / Data / Conclusion",
+    "Reddit DD - Bull Case / Bear Case / The Data / The Call",
+    "ValueInvesting - Business / Valuation / Risks / Margin of Safety",
+    "X Thread",
+    "Internal Analyst Note",
+]
 STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
+KEY_RESEARCH_FIELDS = [
+    "revenue",
+    "revenue growth",
+    "guidance",
+    "gross margin",
+    "operating margin",
+    "EBITDA / adjusted EBITDA",
+    "free cash flow",
+    "capex",
+    "cash",
+    "debt",
+    "share count",
+    "backlog / orders / RPO",
+    "dilution / ATM / offering history",
+    "major customer concentration",
+    "government contracts",
+    "reported institutional activity",
+    "insider activity",
+    "Congress activity",
+    "price/volume and technicals",
+    "peer comparison data",
+]
 DEFAULT_SECTIONS = [
     "Executive thesis",
     "What changed",
@@ -90,10 +131,45 @@ _ACTIVE_GENERATIONS: set[str] = set()
 
 
 def research_brief_model(db: Session | None = None) -> str:
-    configured = os.getenv(RESEARCH_BRIEF_GENERATOR_MODEL, "").strip()
+    configured = os.getenv(RESEARCH_BRIEF_MODEL_DEFAULT, "").strip() or os.getenv(RESEARCH_BRIEF_GENERATOR_MODEL, "").strip()
     if configured:
         return configured
     return resolved_setting_value(db, AI_MARKETING_MODEL) or DEFAULT_AI_MARKETING_MODEL
+
+
+def research_brief_model_options(db: Session | None = None) -> list[str]:
+    configured = [item.strip() for item in os.getenv(RESEARCH_BRIEF_MODEL_OPTIONS, "").split(",") if item.strip()]
+    default = research_brief_model(db)
+    options = configured or [default]
+    if default not in options:
+        options.insert(0, default)
+    return list(dict.fromkeys(options))
+
+
+def research_brief_model_descriptions(db: Session | None = None) -> dict[str, str]:
+    options = research_brief_model_options(db)
+    labels = ["Fast / cheaper", "Balanced", "Deep research / highest quality"]
+    return {model: labels[min(index, len(labels) - 1)] for index, model in enumerate(options)}
+
+
+def _selected_research_model(config: dict[str, Any], db: Session | None = None) -> str:
+    options = research_brief_model_options(db)
+    selected = str(config.get("selected_model") or "").strip()
+    if selected:
+        if selected not in options:
+            raise HTTPException(status_code=422, detail="Selected research model is not configured for this environment.")
+        return selected
+    serious = (
+        str(config.get("section_format") or "") != "X Thread"
+        and str(config.get("intended_audience") or "") != "General investors"
+        and (
+            "valuation" in str(config.get("desired_angle") or "").lower()
+            or "dcf" in str(config.get("research_question") or "").lower()
+            or "dd" in str(config.get("section_format") or "").lower()
+            or str(config.get("intended_audience") or "") in {"Reddit DD", "Walnut Research Brief", "Professional / advanced"}
+        )
+    )
+    return options[-1] if serious else research_brief_model(db)
 
 
 def draft_store_path() -> Path:
@@ -344,9 +420,14 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             missing.append(f"{item}: quote unavailable")
         if not confirmation.get(item):
             missing.append(f"{item}: confirmation score unavailable")
+    external_research = discover_external_research(symbol, identity, mode=payload.get("external_research_mode") or "Standard")
+    if external_research.get("missing_data_notes"):
+        missing.extend(external_research["missing_data_notes"])
 
     context = {
         "generated_at": _now(),
+        "external_research_mode": payload.get("external_research_mode") or "Standard",
+        "section_format": payload.get("section_format") or "Walnut Research Brief",
         "primary": {
             "identity": identity,
             "quote": quotes.get(symbol),
@@ -372,8 +453,9 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             ),
             "government_contracts": _government_contracts(db, symbol),
         },
+        "external_research": external_research,
         "comparison": None,
-        "missing_data_notes": missing,
+        "missing_data_notes": _dedupe_strings(missing),
         "limitations": [
             "13F activity is reported with filing lag and is not real-time.",
             "Congress and insider activity should not be interpreted as intent or wrongdoing.",
@@ -391,6 +473,171 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             "government_contracts": _government_contracts(db, comparison_symbol),
         }
     return context
+
+
+def discover_external_research(symbol: str, identity: dict[str, Any], *, mode: str) -> dict[str, Any]:
+    normalized_mode = _choice(mode, EXTERNAL_RESEARCH_MODE_OPTIONS, "Standard")
+    if normalized_mode == "Off":
+        return {
+            "mode": "Off",
+            "reviewed_sources": [],
+            "source_notes": ["External research mode is off; only Walnut data was reviewed."],
+            "official_facts": {},
+            "missing_data_notes": [],
+        }
+    reviewed_sources = [
+        {
+            "label": "SEC EDGAR company search",
+            "url": f"https://www.sec.gov/edgar/search/#/q={symbol}&dateRange=all",
+            "source_type": "filing_search",
+        },
+        {
+            "label": f"{symbol} Nasdaq market activity",
+            "url": f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}",
+            "source_type": "reputable_market_source",
+        }
+    ]
+    source_notes = [
+        "Reviewed Walnut data and public/official source discovery. Report missing values as 'Not found in reviewed sources' when they cannot be supported.",
+    ]
+    official_facts: dict[str, Any] = {}
+    sec_record = _sec_company_record(symbol)
+    if sec_record:
+        cik = str(sec_record.get("cik_str") or "").zfill(10)
+        company = str(sec_record.get("title") or identity.get("company_name") or symbol).strip()
+        reviewed_sources.extend(
+            [
+                {
+                    "label": f"{company} SEC company filings",
+                    "url": f"https://www.sec.gov/edgar/browse/?CIK={cik}&owner=exclude",
+                    "source_type": "official_filing",
+                },
+                {
+                    "label": f"{company} SEC company facts",
+                    "url": f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+                    "source_type": "official_filing_data",
+                },
+            ]
+        )
+        official_facts = _sec_company_facts(cik)
+        source_notes.append(f"Matched {symbol} to SEC CIK {cik} for official filings and company-facts review.")
+    else:
+        source_notes.append(f"SEC ticker mapping did not return a CIK for {symbol}; EDGAR symbol search remains attached for manual review.")
+    if normalized_mode == "Deep":
+        source_notes.append("Deep mode also attaches a reputable public market reference for price/volume review.")
+    missing_fields = _missing_key_fields(official_facts)
+    return {
+        "mode": normalized_mode,
+        "reviewed_sources": reviewed_sources,
+        "source_notes": source_notes,
+        "official_facts": official_facts,
+        "missing_data_notes": [f"{field}: Not found in reviewed sources" for field in missing_fields],
+    }
+
+
+def _sec_company_record(symbol: str) -> dict[str, Any] | None:
+    try:
+        response = requests.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers={"User-Agent": "Walnut Markets research generator contact@walnutmarkets.com"},
+            timeout=8,
+        )
+    except requests.RequestException:
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    records = payload.values() if isinstance(payload, dict) else payload if isinstance(payload, list) else []
+    for record in records:
+        if isinstance(record, dict) and str(record.get("ticker") or "").upper() == symbol.upper():
+            return record
+    return None
+
+
+def _sec_company_facts(cik: str) -> dict[str, Any]:
+    try:
+        response = requests.get(
+            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+            headers={"User-Agent": "Walnut Markets research generator contact@walnutmarkets.com"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return {}
+    if response.status_code >= 400:
+        return {}
+    try:
+        payload = response.json()
+    except ValueError:
+        return {}
+    us_gaap = ((payload.get("facts") or {}).get("us-gaap") or {}) if isinstance(payload, dict) else {}
+    facts = {
+        "revenue": _latest_sec_fact(us_gaap, ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"]),
+        "gross_profit": _latest_sec_fact(us_gaap, ["GrossProfit"]),
+        "operating_income": _latest_sec_fact(us_gaap, ["OperatingIncomeLoss"]),
+        "net_income": _latest_sec_fact(us_gaap, ["NetIncomeLoss"]),
+        "operating_cash_flow": _latest_sec_fact(us_gaap, ["NetCashProvidedByUsedInOperatingActivities"]),
+        "capex": _latest_sec_fact(us_gaap, ["PaymentsToAcquirePropertyPlantAndEquipment"]),
+        "cash": _latest_sec_fact(us_gaap, ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"]),
+        "debt": _latest_sec_fact(us_gaap, ["LongTermDebt", "LongTermDebtAndFinanceLeaseObligationsCurrentAndNoncurrent"]),
+        "shares": _latest_sec_fact(us_gaap, ["EntityCommonStockSharesOutstanding", "CommonStocksIncludingAdditionalPaidInCapital"]),
+    }
+    revenue = facts.get("revenue", {}).get("value") if isinstance(facts.get("revenue"), dict) else None
+    gross_profit = facts.get("gross_profit", {}).get("value") if isinstance(facts.get("gross_profit"), dict) else None
+    operating_income = facts.get("operating_income", {}).get("value") if isinstance(facts.get("operating_income"), dict) else None
+    if revenue:
+        if gross_profit is not None:
+            facts["gross_margin"] = {"value": round((float(gross_profit) / float(revenue)) * 100, 2), "unit": "%", "derived_from": ["gross_profit", "revenue"]}
+        if operating_income is not None:
+            facts["operating_margin"] = {"value": round((float(operating_income) / float(revenue)) * 100, 2), "unit": "%", "derived_from": ["operating_income", "revenue"]}
+    ocf = facts.get("operating_cash_flow", {}).get("value") if isinstance(facts.get("operating_cash_flow"), dict) else None
+    capex = facts.get("capex", {}).get("value") if isinstance(facts.get("capex"), dict) else None
+    if ocf is not None and capex is not None:
+        facts["free_cash_flow"] = {"value": float(ocf) - abs(float(capex)), "unit": "USD", "derived_from": ["operating_cash_flow", "capex"]}
+    return {key: value for key, value in facts.items() if value}
+
+
+def _latest_sec_fact(us_gaap: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    for name in names:
+        units = ((us_gaap.get(name) or {}).get("units") or {}) if isinstance(us_gaap.get(name), dict) else {}
+        rows: list[dict[str, Any]] = []
+        for unit, values in units.items():
+            if isinstance(values, list):
+                rows.extend({**row, "unit": unit, "taxonomy": name} for row in values if isinstance(row, dict) and row.get("val") is not None)
+        if rows:
+            row = sorted(rows, key=lambda item: (str(item.get("end") or ""), str(item.get("filed") or "")), reverse=True)[0]
+            return {
+                "value": row.get("val"),
+                "unit": row.get("unit"),
+                "period_end": row.get("end"),
+                "filed": row.get("filed"),
+                "form": row.get("form"),
+                "taxonomy": row.get("taxonomy"),
+            }
+    return None
+
+
+def _missing_key_fields(facts: dict[str, Any]) -> list[str]:
+    fact_keys = set(facts.keys())
+    required = {
+        "revenue",
+        "gross_margin",
+        "operating_margin",
+        "free_cash_flow",
+        "capex",
+        "cash",
+        "debt",
+        "shares",
+    }
+    missing = [field for field in required if field not in fact_keys]
+    missing.extend(["guidance", "EBITDA / adjusted EBITDA", "backlog / orders / RPO", "dilution / ATM / offering history", "major customer concentration"])
+    return missing
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
 
 def validate_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -412,10 +659,15 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "include_sections": _sections(config.get("include_sections")),
         "length": _choice(config.get("length"), LENGTH_OPTIONS, "Standard: 1,500-2,500 words"),
         "tone": _choice(config.get("tone"), TONE_OPTIONS, "Walnut market-native"),
+        "external_research_mode": _choice(config.get("external_research_mode"), EXTERNAL_RESEARCH_MODE_OPTIONS, "Standard"),
+        "section_format": _choice_from_list(config.get("section_format"), SECTION_FORMAT_OPTIONS, "Walnut Research Brief"),
         "include_charts": bool(config.get("include_charts")),
         "include_source_links": bool(config.get("include_source_links")),
+        "generate_thumbnail": bool(config.get("generate_thumbnail", _default_generate_thumbnail(config))),
+        "selected_model": str(config.get("selected_model") or "").strip(),
         "hero_image": config.get("hero_image") or "",
     }
+    normalized["selected_model"] = _selected_research_model(normalized)
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_ticker"]:
         raise HTTPException(status_code=422, detail="Comparison ticker is required for peer comparison briefs.")
     return normalized
@@ -424,6 +676,18 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
 def _choice(value: Any, choices: set[str], fallback: str) -> str:
     text = str(value or "").strip()
     return text if text in choices else fallback
+
+
+def _choice_from_list(value: Any, choices: list[str], fallback: str) -> str:
+    text = str(value or "").strip()
+    return text if text in choices else fallback
+
+
+def _default_generate_thumbnail(config: dict[str, Any]) -> bool:
+    text = " ".join(str(config.get(key) or "") for key in ("section_format", "intended_audience", "tone"))
+    if "Internal Analyst Note" in text:
+        return False
+    return True
 
 
 def _sections(value: Any) -> list[str]:
@@ -435,6 +699,7 @@ def _sections(value: Any) -> list[str]:
 
 def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, Any]) -> dict[str, Any]:
     normalized_config = validate_config(config)
+    normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
     context = assemble_research_context(db, normalized_config)
     actor_key = f"admin:{admin.id}"
     if actor_key in _ACTIVE_GENERATIONS:
@@ -443,6 +708,10 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
     try:
         started = time.perf_counter()
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
+        if normalized_config.get("generate_thumbnail"):
+            article["thumbnail_asset"] = generate_thumbnail_asset(db, normalized_config, article)
+            if article["thumbnail_asset"].get("url") and not article.get("hero_image"):
+                article["hero_image"] = article["thumbnail_asset"]["url"]
         validation = validate_article(article, context)
         draft = _new_draft(admin, normalized_config, context, article, validation, elapsed_ms=int((time.perf_counter() - started) * 1000))
         with _STORE_LOCK:
@@ -459,7 +728,7 @@ def _call_openai(db: Session, config: dict[str, Any], context: dict[str, Any]) -
     api_key = resolved_setting_value(db, OPENAI_API_KEY)
     if not api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key missing. Configure OPENAI_API_KEY before generating.")
-    model = research_brief_model(db)
+    model = _selected_research_model(config, db)
     response = requests.post(
         RESPONSES_ENDPOINT,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -508,14 +777,25 @@ def _max_output_tokens(length: str) -> int:
 
 
 def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
+    section_format = _section_format_instructions(config.get("section_format") or "Walnut Research Brief")
     return "\n".join(
         [
             "You are Walnut's senior market research editor writing a publishable due-diligence brief.",
-            "Use only the supplied Walnut research context. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
+            "Use supplied Walnut research context plus the attached external research notes and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
+            "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
+            "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "Separate underlying data from Walnut confirmation score. Missing data is unavailable, not zero and not bearish.",
+            "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
+            "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
+            "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
             "Write directly, specifically, and professionally. Avoid generic AI phrasing and marketing filler.",
             "End with a clear Walnut judgment plus a brief research-only disclaimer.",
+            "The JSON summary is the Insights preview body. Keep it 1-3 sentences and do not duplicate the full post body.",
+            "Section format instructions:",
+            section_format,
+            "Key missing-field search checklist:",
+            json.dumps(KEY_RESEARCH_FIELDS, indent=2),
             "Return only JSON matching the provided schema.",
             "Admin configuration:",
             json.dumps(config, indent=2, sort_keys=True),
@@ -523,6 +803,24 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             json.dumps(context, indent=2, sort_keys=True, default=str)[:18000],
         ]
     )
+
+
+def _section_format_instructions(section_format: str) -> str:
+    if section_format == "Reddit DD - Issue / Risk / Data / Conclusion":
+        return (
+            "Use this markdown structure: Intro / hook; The issue; The risk / opportunity; The data; Conclusion; Sources; optional What to watch next. "
+            "The issue explains what the market is debating and why now. The risk / opportunity names what can go right, what can go wrong, what kills the thesis, and what confirms it. "
+            "The data uses concrete sourced numbers without burying unavailable fields. Conclusion makes a bullish, bearish, mixed, or insufficient-data call. Research only. Not investment advice."
+        )
+    if section_format == "Reddit DD - Bull Case / Bear Case / The Data / The Call":
+        return "Use this markdown structure: Intro / hook; Bull case; Bear case; The data; The call; Sources; What to watch next."
+    if section_format == "ValueInvesting - Business / Valuation / Risks / Margin of Safety":
+        return "Use this markdown structure: Business; Valuation; Risks; Margin of safety; Sources; What to watch next. Emphasize cash flow, downside case, assumptions, and valuation limits."
+    if section_format == "X Thread":
+        return "Write as a concise X thread draft with numbered posts, each source-backed and readable without hype."
+    if section_format == "Internal Analyst Note":
+        return "Write as an internal analyst note. Thumbnail generation is optional and the tone can be more terse, but unsupported claims still fail validation."
+    return "Use Walnut Research Brief sections with a clear thesis, data, risks, catalysts, conclusion, sources, and data limitations."
 
 
 def article_schema() -> dict[str, Any]:
@@ -534,6 +832,7 @@ def article_schema() -> dict[str, Any]:
             "slug",
             "subtitle",
             "summary",
+            "preview_body",
             "judgment",
             "confidence",
             "primary_ticker",
@@ -547,6 +846,7 @@ def article_schema() -> dict[str, Any]:
             "watch_items",
             "data_freshness",
             "missing_data_notes",
+            "source_links",
             "suggested_card",
             "seo",
         ],
@@ -555,6 +855,7 @@ def article_schema() -> dict[str, Any]:
             "slug": {"type": "string"},
             "subtitle": {"type": "string"},
             "summary": {"type": "string"},
+            "preview_body": {"type": "string"},
             "judgment": {"type": "string", "enum": sorted(JUDGMENT_VALUES)},
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
             "primary_ticker": {"type": "string"},
@@ -576,6 +877,19 @@ def article_schema() -> dict[str, Any]:
             "watch_items": {"type": "array", "items": {"type": "string"}},
             "data_freshness": {"type": "array", "items": {"type": "string"}},
             "missing_data_notes": {"type": "array", "items": {"type": "string"}},
+            "source_links": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["label", "url", "source_type"],
+                    "properties": {
+                        "label": {"type": "string"},
+                        "url": {"type": "string"},
+                        "source_type": {"type": "string"},
+                    },
+                },
+            },
             "suggested_card": {
                 "type": "object",
                 "additionalProperties": False,
@@ -609,14 +923,31 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if len(body) < 800:
         warnings.append(_warning("thin_body", "Article body appears too short for a professional research brief.", blocking=True))
         blocking = True
-    if "not investment advice" not in body.lower() and "not investment advice" not in str(article.get("summary") or "").lower():
+    summary_text = f"{article.get('summary') or ''}\n{article.get('preview_body') or ''}"
+    if "not investment advice" not in body.lower() and "not investment advice" not in summary_text.lower():
         warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing.", blocking=True))
         blocking = True
     lowered = f"{title}\n{body}".lower()
+    source_link_count = _source_link_count(article, body)
+    if source_link_count == 0:
+        warnings.append(_warning("missing_source_links", "This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.", blocking=True))
+        blocking = True
+    elif source_link_count < 2:
+        warnings.append(_warning("insufficient_source_links", "Research briefs need at least 2 credible source links before publishing.", blocking=True))
+        blocking = True
     for phrase in UNSUPPORTED_LANGUAGE:
         if phrase in lowered:
             warnings.append(_warning("unsupported_language", f"Unsupported language detected: {phrase}", blocking=True))
             blocking = True
+    if "not supplied" in lowered:
+        warnings.append(_warning("not_supplied_language", "Use 'Not found in reviewed sources' once in Data limitations instead of repeated 'not supplied' language.", blocking=True))
+        blocking = True
+    if re.search(r"\b(provider|internal|cache|raw|token|credential|diagnostic)s?\b", lowered):
+        warnings.append(_warning("internal_wording", "Provider/internal/cache/source-system wording must not appear in user-facing output.", blocking=True))
+        blocking = True
+    if "confirmation score equals" in lowered or "confirmation stack" in lowered:
+        warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
+        blocking = True
     numeric_claims = sorted(set(re.findall(r"(?<![A-Za-z])(?:\$?\d[\d,]*(?:\.\d+)?%?|\d+\s?bps)(?![A-Za-z])", body)))[:80]
     if numeric_claims and not _context_has_numbers(context):
         warnings.append(_warning("numeric_claims_without_context", "Numeric claims detected while source context has few numeric fields.", blocking=True))
@@ -630,9 +961,18 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "status": "failed" if blocking else "passed",
         "warnings": warnings,
         "numeric_claims": numeric_claims,
-        "source_link_count": body.count("http://") + body.count("https://"),
+        "source_link_count": source_link_count,
         "estimated_reading_minutes": max(1, round(len(body.split()) / 220)),
     }
+
+
+def _source_link_count(article: dict[str, Any], body: str) -> int:
+    urls = set(re.findall(r"https?://[^\s)\]>\"']+", body))
+    source_links = article.get("source_links") if isinstance(article.get("source_links"), list) else []
+    for item in source_links:
+        if isinstance(item, dict) and str(item.get("url") or "").startswith(("http://", "https://")):
+            urls.add(str(item["url"]))
+    return len(urls)
 
 
 def _warning(code: str, message: str, *, blocking: bool) -> dict[str, Any]:
@@ -668,7 +1008,7 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
         "created_at": created,
         "updated_at": created,
         "published_at": None,
-        "model": article.get("_model") or research_brief_model(None),
+        "model": article.get("_model") or config.get("selected_model") or research_brief_model(None),
         "prompt_version": RESEARCH_BRIEF_PROMPT_VERSION,
         "research_context_timestamp": context.get("generated_at"),
         "primary_ticker": context["primary"]["identity"]["symbol"],
@@ -685,21 +1025,117 @@ def _new_draft(admin: UserAccount, config: dict[str, Any], context: dict[str, An
     }
 
 
+def generate_thumbnail_asset(db: Session, config: dict[str, Any], article: dict[str, Any]) -> dict[str, Any]:
+    title = str(article.get("title") or config.get("ticker") or "Walnut research").strip()
+    conclusion = _article_conclusion(article)
+    asset_type = _thumbnail_asset_type(config)
+    prompt = _research_thumbnail_prompt(title=title, ticker=str(config.get("ticker") or ""), conclusion=conclusion, asset_type=asset_type)
+    model = os.getenv(AI_MARKETING_IMAGE_MODEL, "").strip() or DEFAULT_AI_MARKETING_IMAGE_MODEL
+    asset = {
+        "image_title": title[:120],
+        "image_prompt": prompt,
+        "asset_type": asset_type,
+        "url": "",
+        "thumbnail_url": "",
+        "source_notes": f"Prompt generated from final post conclusion. Image model: {model}. Official Walnut logo should be overlaid or preserved.",
+        "created_at": _now(),
+    }
+    if not _env_flag_enabled(AI_MARKETING_IMAGE_GENERATION_ENABLED):
+        return asset
+    api_key = resolved_setting_value(db, OPENAI_API_KEY)
+    if not api_key:
+        asset["source_notes"] += " Image generation skipped because OPENAI_API_KEY is not configured."
+        return asset
+    try:
+        response = requests.post(
+            IMAGES_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "prompt": prompt,
+                "size": os.getenv(AI_MARKETING_IMAGE_SIZE, "").strip() or DEFAULT_AI_MARKETING_IMAGE_SIZE,
+                "quality": os.getenv(AI_MARKETING_IMAGE_QUALITY, "").strip() or DEFAULT_AI_MARKETING_IMAGE_QUALITY,
+                "output_format": "jpeg",
+            },
+            timeout=130,
+        )
+    except requests.RequestException:
+        asset["source_notes"] += " Image generation request failed; prompt is saved for retry."
+        return asset
+    if response.status_code >= 400:
+        asset["source_notes"] += " Image generation failed; prompt is saved for retry."
+        return asset
+    data = response.json()
+    image_data = (data.get("data") or [{}])[0] if isinstance(data, dict) else {}
+    b64_image = str(image_data.get("b64_json") or "").strip()
+    if b64_image:
+        data_uri = f"data:image/jpeg;base64,{b64_image}"
+        asset["url"] = data_uri
+        asset["thumbnail_url"] = data_uri
+    return asset
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _article_conclusion(article: dict[str, Any]) -> str:
+    sections = article.get("sections") if isinstance(article.get("sections"), list) else []
+    for section in sections:
+        heading = str((section or {}).get("heading") or "").lower()
+        if "conclusion" in heading or "judgment" in heading or "call" in heading:
+            return str((section or {}).get("body_markdown") or "")[:700]
+    if sections:
+        return str((sections[-1] or {}).get("body_markdown") or "")[:700]
+    return str(article.get("summary") or article.get("preview_body") or "")[:700]
+
+
+def _thumbnail_asset_type(config: dict[str, Any]) -> str:
+    section_format = str(config.get("section_format") or "")
+    audience = str(config.get("intended_audience") or "")
+    if "X Thread" in section_format:
+        return "X thumbnail"
+    if "Reddit" in section_format or "Reddit" in audience:
+        return "Reddit DD cover image"
+    if "Internal Analyst Note" in section_format:
+        return "research hero image"
+    return "Insights card image"
+
+
+def _research_thumbnail_prompt(*, title: str, ticker: str, conclusion: str, asset_type: str) -> str:
+    ticker_text = f"${ticker.upper()}" if ticker else "the ticker"
+    return (
+        f"Create a clean, readable dark Walnut Markets {asset_type} for {ticker_text}. "
+        "Use the real Walnut logo area only; do not invent a Walnut logo, company logo, fake data, fake chart, source footer, or tiny unreadable text. "
+        "Branding: dark finance editorial background, emerald/teal accents, generous negative space, mobile-readable title. "
+        f"Readable title: {title}. "
+        f"Generate the image from this final post conclusion, not the raw prompt: {conclusion[:600]}. "
+        "The image should look premium and specific to the market story without generic AI finance art or clutter."
+    )
+
+
 def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     symbol = context["primary"]["identity"]["symbol"]
     company = context["primary"]["identity"].get("company_name") or symbol
     question = config["research_question"]
+    source_links = (context.get("external_research") or {}).get("reviewed_sources") or [
+        {"label": "SEC EDGAR company search", "url": f"https://www.sec.gov/edgar/search/#/q={symbol}&dateRange=all", "source_type": "filing_search"},
+        {"label": f"{symbol} Nasdaq market activity", "url": f"https://www.nasdaq.com/market-activity/stocks/{symbol.lower()}", "source_type": "reputable_market_source"},
+    ]
     body = (
         f"{company} ({symbol}) deserves a focused research review because the current question is specific: {question}\n\n"
         "The available Walnut context should be read as evidence, not as a recommendation. The confirmation score is a separate Walnut signal, while fundamentals, price context, public filings, reported institutional activity, government contracts, and event history are the underlying data.\n\n"
         "The strongest constructive case is that available company and market data still support a credible thesis. The strongest risk case is that missing or stale data can hide a change in the cycle, and unavailable data should not be treated as bearish or bullish by itself.\n\n"
-        "What matters next is whether the observable data improves or deteriorates: fundamentals, tape confirmation, public filings, reported activity, catalysts, and risk signals. Research only. Not investment advice."
+        "What matters next is whether the observable data improves or deteriorates: fundamentals, tape confirmation, public filings, reported activity, catalysts, and risk signals. Research only. Not investment advice.\n\n"
+        "Sources:\n"
+        + "\n".join(f"- [{item.get('label')}]({item.get('url')})" for item in source_links[:2])
     )
     return {
         "title": f"{symbol} DD: {question.rstrip('?')}",
         "slug": f"{symbol.lower()}-dd-draft",
         "subtitle": f"A Walnut research brief on {company}.",
         "summary": f"Draft research brief for {symbol}. Research only. Not investment advice.",
+        "preview_body": f"{symbol} has a mixed setup: available data supports review, but missing fields keep the conclusion cautious. Research only. Not investment advice.",
         "judgment": "mixed",
         "confidence": "medium",
         "primary_ticker": symbol,
@@ -716,6 +1152,7 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
         "watch_items": ["Fundamentals refresh", "Price/volume confirmation", "Public filings"],
         "data_freshness": [context.get("generated_at") or ""],
         "missing_data_notes": context.get("missing_data_notes") or [],
+        "source_links": source_links[:4],
         "suggested_card": {
             "title": f"{symbol} DD research brief",
             "description": f"A research-only Walnut DD brief for {symbol}.",
@@ -747,7 +1184,7 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
                 article = draft.setdefault("article", {})
-                article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k == "hero_image"})
+                article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
                 if status:
                     draft["status"] = _normalize_status(status)
@@ -757,6 +1194,53 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
                 _write_store(store)
                 return deepcopy(draft)
     raise HTTPException(status_code=404, detail="Research brief draft not found.")
+
+
+def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> dict[str, Any]:
+    with _STORE_LOCK:
+        store = _read_store()
+        for draft in store.get("drafts", []):
+            if draft.get("id") != draft_id:
+                continue
+            config = validate_config(draft.get("config") or {})
+            symbol = str(draft.get("primary_ticker") or config.get("ticker") or "").upper()
+            identity = ((draft.get("research_context") or {}).get("primary") or {}).get("identity") or {"symbol": symbol}
+            external = discover_external_research(symbol, identity, mode=config.get("external_research_mode") or "Standard")
+            context = draft.setdefault("research_context", {})
+            context["external_research"] = external
+            context["external_research_mode"] = external.get("mode")
+            context["generated_at"] = _now()
+            existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
+            context["missing_data_notes"] = _dedupe_strings([*existing_missing, *(external.get("missing_data_notes") or [])])
+            article = draft.setdefault("article", {})
+            article["missing_data_notes"] = _dedupe_strings([*(article.get("missing_data_notes") or []), *(external.get("missing_data_notes") or [])])
+            article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
+            draft["validation"] = validate_article(article, context, draft_id=draft_id)
+            draft["updated_at"] = _now()
+            _append_audit(store, action="refresh_sources", admin=admin, draft_id=draft_id, metadata={"mode": external.get("mode")})
+            _write_store(store)
+            return deepcopy(draft)
+    raise HTTPException(status_code=404, detail="Research brief draft not found.")
+
+
+def _dedupe_source_links(values: list[Any]) -> list[dict[str, str]]:
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        links.append(
+            {
+                "label": str(item.get("label") or url).strip()[:180],
+                "url": url,
+                "source_type": str(item.get("source_type") or "source").strip()[:80],
+            }
+        )
+    return links[:12]
 
 
 def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool) -> dict[str, Any]:
