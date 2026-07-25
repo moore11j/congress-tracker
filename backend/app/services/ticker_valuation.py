@@ -107,6 +107,7 @@ DCF_BETA_MIN = 1.0
 DCF_BETA_MAX = 1.8
 PRE_PROFIT_DCF_BETA = 1.8
 QUALITY_COMPOUNDER_DCF_BETA_MAX = 1.35
+CASH_RETURN_GROWTH_ADJUSTMENT_MAX = 0.06
 DEFAULT_DCF_ASSUMPTIONS = {
     "revenueGrowthPct": 0.03,
     "ebitdaPct": 0.20,
@@ -268,6 +269,31 @@ def _retained_cash_flow_per_share(cash: dict[str, Any], balance: dict[str, Any],
     retained_cash_flow = free_cash_flow - dividends - buybacks
     value = retained_cash_flow / shares
     return value if math.isfinite(value) else None
+
+
+def _market_cap(balance: dict[str, Any], profile: dict[str, Any]) -> float | None:
+    market_cap = _first_number(profile, ("marketCap", "mktCap"))
+    if market_cap is not None and market_cap > 0:
+        return market_cap
+    shares = _shares_outstanding(balance, profile)
+    price = _first_number(profile, ("price", "currentPrice"))
+    if shares is None or price is None or price <= 0:
+        return None
+    value = shares * price
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def _shareholder_return_yield(cash: dict[str, Any], balance: dict[str, Any], profile: dict[str, Any]) -> float | None:
+    market_cap = _market_cap(balance, profile)
+    if market_cap is None:
+        return None
+    dividends = abs(_first_number(cash, ("dividendsPaid", "commonDividendsPaid")) or 0.0)
+    buybacks = abs(_first_number(cash, ("commonStockRepurchased", "repurchasesOfCommonStock", "stockRepurchased")) or 0.0)
+    total_return = dividends + buybacks
+    if total_return <= 0:
+        return None
+    value = total_return / market_cap
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def _positive_price(value: float | None) -> float | None:
@@ -438,6 +464,7 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     cash_and_investments = _first_number(balance, ("cashAndShortTermInvestments", "cashAndCashEquivalents", "shortTermInvestments"))
     nav_per_share = _asset_nav_per_share(balance, profile)
     retained_cash_flow_per_share = _retained_cash_flow_per_share(cash, balance, profile)
+    shareholder_return_yield = _shareholder_return_yield(cash, balance, profile)
     asset_to_revenue = _ratio(total_assets, revenue)
     cash_asset_ratio = _ratio(cash_and_investments, total_assets)
     is_asset_heavy = bool(
@@ -452,6 +479,13 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
         and (ebit_pct or 0) >= 0.40
         and (operating_cash_flow_pct or 0) >= 0.30
         and (capital_expenditure_pct or 1) <= 0.10
+    )
+    is_cash_return_compounder = (
+        not is_pre_profit
+        and (ebit_pct or 0) >= 0.20
+        and (operating_cash_flow_pct or 0) >= 0.20
+        and (capital_expenditure_pct or 1) <= 0.08
+        and (shareholder_return_yield or 0) >= 0.02
     )
 
     risk_free_rate = _clamp(_env_float("WALNUT_DCF_RISK_FREE_RATE", DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]
@@ -502,6 +536,12 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
         computed["ebitPct"] = 0.0
         computed["operatingCashFlowPct"] = min(computed["operatingCashFlowPct"] or 0.0, 0.05)
         computed["taxRate"] = max(computed["taxRate"] or 0.0, DEFAULT_DCF_ASSUMPTIONS["taxRate"])
+    elif is_cash_return_compounder:
+        buyback_adjusted_growth = (computed["revenueGrowthPct"] or DEFAULT_DCF_ASSUMPTIONS["revenueGrowthPct"]) + min(
+            shareholder_return_yield or 0.0,
+            CASH_RETURN_GROWTH_ADJUSTMENT_MAX,
+        )
+        computed["revenueGrowthPct"] = buyback_adjusted_growth
 
     assumptions: dict[str, float] = {}
     for key in DCF_INPUT_PARAM_KEYS:

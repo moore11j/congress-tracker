@@ -302,6 +302,38 @@ def test_dcf_inputs_lower_beta_ceiling_for_quality_compounder(monkeypatch):
     assert assumptions["costOfEquity"] == 10.802
 
 
+def test_dcf_inputs_credit_shareholder_yield_for_cash_return_compounder(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"beta": 1.1, "sharesOutstanding": 1_000_000_000, "price": 100}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100_000_000_000, "ebitda": 35_000_000_000, "ebit": 32_000_000_000, "incomeBeforeTax": 32_000_000_000, "incomeTaxExpense": 5_000_000_000}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 31_000_000_000, "capitalExpenditure": -2_000_000_000, "dividendsPaid": -500_000_000, "commonStockRepurchased": -3_500_000_000}]
+        if endpoint == "income-statement":
+            return [{"date": "2025-09-30", "revenue": 100_000_000_000}]
+        if endpoint == "analyst-estimates":
+            return [{"date": "2026-09-30", "revenueAvg": 110_000_000_000}]
+        if endpoint in {
+            "price-target-consensus",
+            "custom-discounted-cash-flow",
+            "balance-sheet-statement-ttm",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    assumptions = valuation_module._walnut_dcf_assumptions("AAPL")
+
+    assert round(assumptions["revenueGrowthPct"], 4) == 0.14
+
+
 def test_ticker_valuation_uses_asset_nav_for_asset_heavy_pre_profit_company(monkeypatch):
     def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
         if endpoint == "price-target-consensus":
