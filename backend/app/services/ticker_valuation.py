@@ -167,6 +167,14 @@ def _first_row_number(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> floa
     return None
 
 
+def _first_available_row(*row_groups: list[dict[str, Any]]) -> dict[str, Any]:
+    for rows in row_groups:
+        row = _latest_row(rows)
+        if row:
+            return row
+    return {}
+
+
 def _latest_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: _text(row.get("date") or row.get("calendarYear") or row.get("fiscalYear") or row.get("year")) or "")
 
@@ -182,6 +190,15 @@ def _ratio(numerator: float | None, denominator: float | None, *, absolute: bool
     value = abs(numerator) if absolute else numerator
     ratio = value / abs(denominator)
     return ratio if math.isfinite(ratio) else None
+
+
+def _sum_numbers(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    values = [_number(row.get(key)) for key in keys]
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    total = sum(present)
+    return total if math.isfinite(total) else None
 
 
 def _positive_price(value: float | None) -> float | None:
@@ -254,12 +271,32 @@ def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows
     return None
 
 
+def _statement_growth(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    value = _first_number(row, keys)
+    if value is None:
+        return None
+    return _clamp(value, -0.50, 5.00)
+
+
+def _first_present(*values: float | None) -> float | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
     specs: dict[str, tuple[str, dict[str, Any]]] = {
+        "ttm_income": ("income-statement-ttm", {"symbol": symbol}),
+        "ttm_cash": ("cash-flow-statement-ttm", {"symbol": symbol}),
+        "ttm_balance": ("balance-sheet-statement-ttm", {"symbol": symbol}),
         "annual_income": ("income-statement", {"symbol": symbol, "period": "annual", "page": 0, "limit": 6}),
         "annual_cash": ("cash-flow-statement", {"symbol": symbol, "period": "annual", "page": 0, "limit": 6}),
         "annual_balance": ("balance-sheet-statement", {"symbol": symbol, "period": "annual", "page": 0, "limit": 6}),
         "annual_estimates": ("analyst-estimates", {"symbol": symbol, "period": "annual", "page": 0, "limit": 10}),
+        "income_growth": ("income-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
+        "cash_growth": ("cash-flow-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
+        "balance_growth": ("balance-sheet-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
         "profile": ("profile", {"symbol": symbol}),
     }
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
@@ -280,24 +317,31 @@ def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
 
 def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
     rows = _fetch_dcf_input_rows(symbol)
-    income = _latest_row(rows["annual_income"])
-    cash = _latest_row(rows["annual_cash"])
-    balance = _latest_row(rows["annual_balance"])
+    income = _first_available_row(rows["ttm_income"], rows["annual_income"])
+    cash = _first_available_row(rows["ttm_cash"], rows["annual_cash"])
+    balance = _first_available_row(rows["ttm_balance"], rows["annual_balance"])
+    income_growth = _latest_row(rows["income_growth"])
     profile = rows["profile"][0] if rows["profile"] else {}
 
     revenue = _first_number(income, ("revenue", "totalRevenue"))
-    pretax_income = _first_number(income, ("incomeBeforeTax", "incomeBeforeTaxRatio"))
+    pretax_income = _first_number(income, ("incomeBeforeTax", "incomeBeforeTaxTtm"))
     tax_expense = _first_number(income, ("incomeTaxExpense", "taxProvision"))
     interest_expense = _first_number(income, ("interestExpense", "interestAndDebtExpense"))
-    total_debt = _first_number(balance, ("totalDebt", "shortTermDebtAndCapitalLeaseObligations", "longTermDebt"))
+    total_debt = _first_number(balance, ("totalDebt", "totalDebtTtm"))
+    if total_debt is None:
+        total_debt = _sum_numbers(balance, ("shortTermDebtAndCapitalLeaseObligations", "shortTermDebt", "longTermDebt"))
 
     risk_free_rate = _clamp(_env_float("WALNUT_DCF_RISK_FREE_RATE", DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["riskFreeRate"]
     market_risk_premium = _clamp(_env_float("WALNUT_DCF_MARKET_RISK_PREMIUM", DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]), 0.0, 12.0) or DEFAULT_DCF_ASSUMPTIONS["marketRiskPremium"]
     beta = _clamp(_number(profile.get("beta")), 0.5, 2.5) or DEFAULT_DCF_ASSUMPTIONS["beta"]
     cost_of_equity = _clamp(risk_free_rate + beta * market_risk_premium, 0.0, 30.0) or DEFAULT_DCF_ASSUMPTIONS["costOfEquity"]
 
+    debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)
     computed: dict[str, float | None] = {
-        "revenueGrowthPct": _forward_revenue_growth_pct(rows["annual_income"], rows["annual_estimates"]),
+        "revenueGrowthPct": _first_present(
+            _forward_revenue_growth_pct(rows["annual_income"], rows["annual_estimates"]),
+            _statement_growth(income_growth, ("growthRevenue", "revenueGrowth", "growthRevenueTtm")),
+        ),
         "ebitdaPct": _ratio(_first_number(income, ("ebitda", "EBITDA")), revenue),
         "depreciationAndAmortizationPct": _ratio(_first_number(cash, ("depreciationAndAmortization", "depreciationAndAmortizationExpense")), revenue, absolute=True),
         "cashAndShortTermInvestmentsPct": _ratio(_first_number(balance, ("cashAndShortTermInvestments", "cashAndCashEquivalents")), revenue),
@@ -310,7 +354,7 @@ def _walnut_dcf_assumptions(symbol: str) -> dict[str, float]:
         "sellingGeneralAndAdministrativeExpensesPct": _ratio(_first_number(income, ("sellingGeneralAndAdministrativeExpenses", "sellingAndMarketingExpenses")), revenue, absolute=True),
         "taxRate": _clamp(_ratio(tax_expense, pretax_income, absolute=False), 0.0, 1.0),
         "longTermGrowthRate": _clamp(_env_float("WALNUT_DCF_LONG_TERM_GROWTH_RATE", DEFAULT_DCF_ASSUMPTIONS["longTermGrowthRate"]), 0.0, 6.0),
-        "costOfDebt": _clamp(_ratio(interest_expense, total_debt, absolute=True) * 100 if _ratio(interest_expense, total_debt, absolute=True) is not None else None, 0.0, 25.0),
+        "costOfDebt": _clamp(debt_cost_ratio * 100 if debt_cost_ratio is not None else None, 0.0, 25.0),
         "costOfEquity": cost_of_equity,
         "marketRiskPremium": market_risk_premium,
         "beta": beta,

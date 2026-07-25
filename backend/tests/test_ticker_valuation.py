@@ -12,7 +12,50 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
         assert allow_user_request is True
         if endpoint == "price-target-consensus":
             return [{"targetConsensus": 205, "targetHigh": 250, "targetLow": 175, "targetMedian": 210}]
+        if endpoint == "income-statement-ttm":
+            return [
+                {
+                    "date": "2026-09-30",
+                    "revenue": 220,
+                    "ebitda": 66,
+                    "ebit": 48.4,
+                    "sellingGeneralAndAdministrativeExpenses": 24.2,
+                    "incomeBeforeTax": 40,
+                    "incomeTaxExpense": 8,
+                    "interestExpense": 2,
+                }
+            ]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"date": "2026-09-30", "operatingCashFlow": 55, "capitalExpenditure": -11, "depreciationAndAmortization": 8.8}]
+        if endpoint == "balance-sheet-statement-ttm":
+            return [
+                {
+                    "date": "2026-09-30",
+                    "cashAndShortTermInvestments": 17.6,
+                    "netReceivables": 30.8,
+                    "inventory": 39.6,
+                    "accountPayables": 19.8,
+                    "totalDebt": 40,
+                }
+            ]
+        if endpoint in {"income-statement-growth", "cash-flow-statement-growth", "balance-sheet-statement-growth"}:
+            return []
+        if endpoint == "income-statement":
+            return [{"date": "2025-09-30", "fiscalYear": "2025", "revenue": 100}]
+        if endpoint in {"cash-flow-statement", "balance-sheet-statement"}:
+            return []
+        if endpoint == "analyst-estimates":
+            return [{"fiscalYear": "2026", "revenueAvg": 220}]
+        if endpoint == "profile":
+            return [{"beta": 1.5}]
         if endpoint == "custom-discounted-cash-flow":
+            for key in valuation_module.DCF_INPUT_PARAM_KEYS:
+                assert key in params
+            assert params["revenueGrowthPct"] == 1.2
+            assert params["ebitdaPct"] == 0.3
+            assert params["taxRate"] == 0.2
+            assert params["beta"] == 1.5
+            assert params["costOfEquity"] == 11.51
             return [
                 {
                     "year": "2026",
@@ -50,13 +93,33 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
         "discountedCashFlow": 92_000_000_000,
     }
     assert response["consensus"]["targetConsensus"] == 205
-    assert [call[0] for call in calls] == ["price-target-consensus", "custom-discounted-cash-flow"]
+    assert "custom-discounted-cash-flow" in [call[0] for call in calls]
+    assumptions = {item["key"]: item["value"] for item in response["dcf"]["assumptions"]}
+    assert assumptions["revenueGrowthPct"] == 1.2
+    assert assumptions["capitalExpenditurePct"] == 0.05
 
 
 def test_ticker_valuation_keeps_dcf_when_consensus_unavailable(monkeypatch):
     def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
         if endpoint == "price-target-consensus":
             raise valuation_module.FMPClientError("temporary")
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "stockPrice": 100, "equityValuePerShare": 115}]
+        if endpoint == "profile":
+            return [{"beta": 1.0}]
+        if endpoint in {
+            "income-statement-ttm",
+            "cash-flow-statement-ttm",
+            "balance-sheet-statement-ttm",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
         return [{"year": "2026", "stockPrice": 100, "equityValuePerShare": 115}]
 
     monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
@@ -73,6 +136,21 @@ def test_ticker_valuation_rejects_negative_fair_value_and_clamps_tax_rate(monkey
     def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
         if endpoint == "price-target-consensus":
             return [{"targetConsensus": 227}]
+        if endpoint == "income-statement-ttm":
+            return [{"revenue": 100, "incomeBeforeTax": 50, "incomeTaxExpense": -104.09}]
+        if endpoint in {
+            "cash-flow-statement-ttm",
+            "balance-sheet-statement-ttm",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+            "profile",
+        }:
+            return []
         return [
             {
                 "year": "2026",

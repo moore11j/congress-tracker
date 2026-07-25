@@ -10,6 +10,20 @@ type Props = {
 
 const cardSurface = "rounded-lg border border-white/10 bg-slate-950/55";
 const muted = "text-slate-400";
+const ratioAssumptionKeys = new Set([
+  "revenueGrowthPct",
+  "ebitdaPct",
+  "depreciationAndAmortizationPct",
+  "cashAndShortTermInvestmentsPct",
+  "receivablesPct",
+  "inventoriesPct",
+  "payablePct",
+  "ebitPct",
+  "capitalExpenditurePct",
+  "operatingCashFlowPct",
+  "sellingGeneralAndAdministrativeExpensesPct",
+  "taxRate",
+]);
 
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -38,7 +52,9 @@ function formatAssumption(value: number, key?: string): string {
   if ((key ?? "").toLowerCase() === "beta") {
     return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
   }
-  if (Math.abs(value) <= 1) return formatPercent(value, { ratio: true });
+  if (key && ratioAssumptionKeys.has(key)) {
+    return formatPercent(value, { ratio: Math.abs(value) <= 5 });
+  }
   if (Math.abs(value) <= 100) return formatPercent(value);
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
@@ -266,7 +282,7 @@ function Assumptions({ data }: { data: TickerValuationResponse }) {
     <section className={`${cardSurface} p-5`}>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Key Inputs</p>
       <div className="mt-4 grid gap-2">
-        {assumptions.slice(0, 8).map((item) => (
+        {assumptions.map((item) => (
           <div key={item.key ?? item.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2.5 text-sm">
             <span className="min-w-0 truncate text-slate-300">{item.label}</span>
             <span className="font-semibold tabular-nums text-teal-200">{formatAssumption(item.value, item.key)}</span>
