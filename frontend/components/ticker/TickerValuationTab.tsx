@@ -82,8 +82,9 @@ function toneForJudgment(value: string | null | undefined): string {
 function signalTone(value: string | null | undefined): string {
   const normalized = (value ?? "").toLowerCase();
   if (normalized.includes("bear") || normalized.includes("not cheap") || normalized.includes("expensive")) return "text-rose-300";
-  if (normalized.includes("bull") || normalized.includes("cheap")) return "text-emerald-300";
-  if (normalized.includes("mixed") || normalized.includes("moderate")) return "text-amber-300";
+  if (normalized.includes("elevated") || normalized.includes("negative")) return "text-rose-300";
+  if (normalized.includes("bull") || normalized.includes("cheap") || normalized.includes("expanding") || normalized.includes("healthy") || normalized.includes("low")) return "text-emerald-300";
+  if (normalized.includes("mixed") || normalized.includes("moderate") || normalized.includes("developing")) return "text-amber-300";
   return "text-slate-300";
 }
 
@@ -104,11 +105,36 @@ function compactMethodLabel(value: string): string {
   return value;
 }
 
+function isStreetComparisonMethod(value: string | null | undefined): boolean {
+  const normalized = (value ?? "").toLowerCase();
+  return normalized.includes("street") || normalized.includes("consensus") || normalized.includes("analyst");
+}
+
 function methodPills(data: TickerValuationResponse): string[] {
-  const methods = (data.dcf.methodSignals ?? []).map((item) => compactMethodLabel(item.method)).filter(Boolean);
+  const methods = (data.dcf.methodSignals ?? [])
+    .filter((item) => !isStreetComparisonMethod(item.method))
+    .map((item) => compactMethodLabel(item.method))
+    .filter(Boolean);
   const currentMethod = data.dcf.method ? compactMethodLabel(data.dcf.method) : null;
   const ordered = [currentMethod, ...methods, "DCF", "Multiples", "Asset / NAV"].filter((item): item is string => Boolean(item));
   return Array.from(new Set(ordered)).slice(0, 3);
+}
+
+function verdictCopy(upside: number | null, fallback: string | null | undefined): { title: string; subtitle: string; tone: string } {
+  if (upside === null) {
+    const title = fallback ?? "Unavailable";
+    return { title, subtitle: "Valuation confidence unavailable", tone: toneForJudgment(title) };
+  }
+  const magnitude = Math.abs(upside);
+  if (magnitude < 5) {
+    return { title: "Fairly valued", subtitle: "Near fair value", tone: "text-slate-200" };
+  }
+  if (upside > 0) {
+    const subtitle = magnitude >= 50 ? "Deeply undervalued" : magnitude >= 25 ? "Highly undervalued" : "Moderately undervalued";
+    return { title: "Still cheap", subtitle, tone: "text-emerald-300" };
+  }
+  const subtitle = magnitude >= 50 ? "Highly overvalued" : magnitude >= 15 ? "Moderately overvalued" : "Slightly overvalued";
+  return { title: "Still expensive", subtitle, tone: "text-rose-300" };
 }
 
 function marginPathLabel(value: number | null): string {
@@ -190,37 +216,48 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
           Valuation range (USD / share)
           <InlineInfoIcon />
         </p>
-        <div className="grid grid-cols-3 gap-8 text-right text-sm font-semibold tabular-nums">
-          <span className="text-rose-300">{formatMoney(dcf.bearValue, { maximumFractionDigits: 0 }).replace("$", "")}</span>
-          <span className="text-teal-300">{formatMoney(dcf.fairValue, { maximumFractionDigits: 0 }).replace("$", "")}</span>
-          <span className="text-emerald-300">{formatMoney(dcf.bullValue, { maximumFractionDigits: 0 }).replace("$", "")}</span>
-        </div>
       </div>
-      <div className="mt-5 px-3 pb-10 pt-5">
+      <div className="mt-8 px-8 pb-14 pt-8">
         <div className="relative h-1 rounded-full bg-slate-300/80">
           <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-rose-300 via-teal-300 to-emerald-300" style={{ width: "100%" }} />
           {markers.map((marker) => {
             if (marker.value === null) return null;
             const left = markerPosition(marker.value, min, max);
+            const isScenario = marker.key === "bear" || marker.key === "base" || marker.key === "bull";
+            const scenarioTone = marker.key === "bear" ? "text-rose-300" : marker.key === "bull" ? "text-emerald-300" : "text-teal-300";
             return (
               <div key={marker.key} className="absolute top-1/2" style={{ left: `${left}%` }}>
                 {marker.shape === "triangle" ? (
-                  <div className="-translate-x-1/2 translate-y-3">
+                  <div className="absolute left-0 top-3 -translate-x-1/2">
                     <div className="mx-auto h-0 w-0 border-x-[6px] border-b-[10px] border-x-transparent border-b-white" />
                   </div>
                 ) : (
                   <div
-                    className={`-translate-x-1/2 -translate-y-1/2 border border-slate-950 shadow-[0_0_18px_rgba(45,212,191,0.22)] ${marker.className} ${
+                    className={`absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 border border-slate-950 shadow-[0_0_18px_rgba(45,212,191,0.22)] ${marker.className} ${
                       marker.shape === "square" ? "h-3 w-3 rounded-[3px]" : "h-3.5 w-3.5 rounded-full"
                     }`}
                   />
                 )}
-                <div className="mt-4 -translate-x-1/2 whitespace-nowrap text-center">
-                  <p className={`text-[11px] font-semibold ${marker.key === "consensus" ? "text-sky-200" : marker.key === "current" ? "text-white" : marker.key === "bear" ? "text-rose-200" : "text-teal-200"}`}>
-                    {marker.label}
-                  </p>
-                  <p className="mt-1 text-[11px] tabular-nums text-slate-500">{formatMoney(marker.value, { maximumFractionDigits: 0 })}</p>
-                </div>
+                {isScenario ? (
+                  <>
+                    <div className={`absolute left-0 -top-8 -translate-x-1/2 whitespace-nowrap text-center text-sm font-semibold tabular-nums ${scenarioTone}`}>
+                      {formatMoney(marker.value, { maximumFractionDigits: 0 }).replace("$", "")}
+                    </div>
+                    <div className="absolute left-0 top-4 -translate-x-1/2 whitespace-nowrap text-center">
+                      <p className={`text-[11px] font-semibold ${marker.key === "bear" ? "text-rose-200" : "text-teal-200"}`}>{marker.label}</p>
+                    </div>
+                  </>
+                ) : marker.key === "consensus" ? (
+                  <div className="absolute left-0 top-3 -translate-x-1/2 whitespace-nowrap text-center">
+                    <p className="text-[10px] font-semibold text-sky-200">Analyst consensus</p>
+                    <p className="mt-0.5 text-[10px] tabular-nums text-slate-500">{formatMoney(marker.value, { maximumFractionDigits: 0 })}</p>
+                  </div>
+                ) : (
+                  <div className="absolute left-0 top-8 -translate-x-1/2 whitespace-nowrap text-center">
+                    <p className="text-[11px] font-semibold text-white">{marker.label}</p>
+                    <p className="mt-1 text-[11px] tabular-nums text-slate-500">{formatMoney(marker.value, { maximumFractionDigits: 0 })}</p>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -237,12 +274,13 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
   );
 }
 
-function ValuationOverview({ data, symbol }: { data: TickerValuationResponse; symbol: string }) {
+function ValuationOverview({ data }: { data: TickerValuationResponse }) {
   const dcf = data.dcf ?? {};
   const currentPrice = asNumber(dcf.currentPrice);
   const fairValue = asNumber(dcf.fairValue);
   const upside = asNumber(dcf.upsideDownsidePct);
   const methods = methodPills(data);
+  const verdict = verdictCopy(upside, dcf.judgment);
 
   return (
     <section className={`${cardSurface} p-5`}>
@@ -279,8 +317,8 @@ function ValuationOverview({ data, symbol }: { data: TickerValuationResponse; sy
           </div>
           <div className="border-white/10 xl:border-l xl:pl-6">
             <p className="text-sm text-slate-400">Verdict</p>
-            <p className={`mt-4 text-2xl font-semibold ${toneForJudgment(dcf.judgment)}`}>{dcf.judgment ?? "Unavailable"}</p>
-            <p className="mt-2 text-sm text-slate-400">{symbol.toUpperCase()}</p>
+            <p className={`mt-4 text-2xl font-semibold ${verdict.tone}`}>{verdict.title}</p>
+            <p className="mt-2 text-sm text-slate-400">{verdict.subtitle}</p>
           </div>
           <div className="border-white/10 xl:border-l xl:pl-6">
             <ValuationRange data={data} compact />
@@ -390,12 +428,12 @@ function KeyInputs({ data }: { data: TickerValuationResponse }) {
 }
 
 function MethodSignals({ data }: { data: TickerValuationResponse }) {
-  const signals = data.dcf.methodSignals?.length
-    ? data.dcf.methodSignals
+  const visibleMethodSignals = (data.dcf.methodSignals ?? []).filter((item) => !isStreetComparisonMethod(item.method));
+  const signals = visibleMethodSignals.length
+    ? visibleMethodSignals
     : [
         { method: "DCF", signal: data.dcf.dcfValue ? "Active" : "Unavailable" },
         { method: "Multiples", signal: data.dcf.multiplesValue ? "Active" : "Unavailable" },
-        { method: "Street consensus", signal: data.consensus?.targetConsensus ? "Context" : "Unavailable" },
         { method: "Final valuation", signal: data.dcf.judgment ?? "Unavailable" },
       ];
   return (
@@ -535,7 +573,7 @@ export function TickerValuationSkeleton() {
   );
 }
 
-export function TickerValuationTab({ data, symbol, canViewDetails = false }: Props) {
+export function TickerValuationTab({ data, canViewDetails = false }: Props) {
   const dcf = data.dcf ?? {};
   const consensus = data.consensus ?? null;
   const hasAnyValuation = asNumber(dcf.fairValue) !== null || asNumber(dcf.currentPrice) !== null || asNumber(consensus?.targetConsensus) !== null;
@@ -559,7 +597,7 @@ export function TickerValuationTab({ data, symbol, canViewDetails = false }: Pro
 
   return (
     <div className="space-y-4">
-      <ValuationOverview data={data} symbol={symbol} />
+      <ValuationOverview data={data} />
       {canViewDetails ? detailRows : <ProBlur>{detailRows}</ProBlur>}
       {canViewDetails ? <WhatToWatchNext /> : <ProBlur><WhatToWatchNext /></ProBlur>}
       <p className={`py-1 text-center text-xs italic leading-5 ${muted}`}>
