@@ -425,6 +425,23 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setArticleDraft((current) => (current ? { ...current, [key]: value } : current));
   }
 
+  function updateSuggestedCard(updates: Partial<AdminResearchBriefArticle["suggested_card"]>) {
+    setArticleDraft((current) => {
+      if (!current) return current;
+      const currentCard = current.suggested_card || {};
+      return {
+        ...current,
+        suggested_card: {
+          title: currentCard.title || current.title || "",
+          description: currentCard.description || current.preview_body || current.summary || "",
+          judgment: currentCard.judgment || current.judgment || "mixed",
+          tickers: currentCard.tickers?.length ? currentCard.tickers : [current.primary_ticker].filter(Boolean),
+          ...updates,
+        },
+      };
+    });
+  }
+
   async function refreshDrafts(nextSelected?: AdminResearchBriefDraft) {
     const payload = await getAdminResearchBriefDrafts();
     if (nextSelected) {
@@ -832,6 +849,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             bodyMarkdown={bodyMarkdown}
             busy={busy}
             onArticleChange={updateArticle}
+            onSuggestedCardChange={updateSuggestedCard}
             onBodyChange={setBodyMarkdown}
             onSave={() => saveDraft(selectedDraft?.status === "published" ? "published" : "draft")}
             onReady={() => saveDraft("ready_for_review")}
@@ -1138,6 +1156,7 @@ function EditorPanel({
   bodyMarkdown,
   busy,
   onArticleChange,
+  onSuggestedCardChange,
   onBodyChange,
   onSave,
   onReady,
@@ -1154,6 +1173,7 @@ function EditorPanel({
   bodyMarkdown: string;
   busy: string | null;
   onArticleChange: <K extends keyof AdminResearchBriefArticle>(key: K, value: AdminResearchBriefArticle[K]) => void;
+  onSuggestedCardChange: (updates: Partial<AdminResearchBriefArticle["suggested_card"]>) => void;
   onBodyChange: (value: string) => void;
   onSave: () => void;
   onReady: () => void;
@@ -1185,12 +1205,22 @@ function EditorPanel({
           <input value={article.title} onChange={(event) => onArticleChange("title", event.target.value)} className={fieldClassName("mt-2")} />
         </label>
         <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Insights card title</span>
+          <input
+            value={article.suggested_card?.title || ""}
+            onChange={(event) => onSuggestedCardChange({ title: event.target.value })}
+            className={fieldClassName("mt-2")}
+            placeholder="Short title for Insights cards"
+          />
+        </label>
+        <label className="block">
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Insights preview body</span>
           <textarea
             value={article.preview_body || article.summary || ""}
             onChange={(event) => {
               onArticleChange("preview_body", event.target.value);
               onArticleChange("summary", event.target.value);
+              onSuggestedCardChange({ description: event.target.value });
             }}
             className={fieldClassName("mt-2 min-h-24")}
             placeholder="1-3 sentences for the Insights card."

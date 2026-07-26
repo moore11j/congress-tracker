@@ -24,6 +24,11 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /Save Draft/);
   assert.match(component, /Ready for Review/);
   assert.match(component, /Title/);
+  assert.match(component, /Insights card title/);
+  assert.match(component, /Short title for Insights cards/);
+  assert.match(component, /updateSuggestedCard/);
+  assert.match(component, /onSuggestedCardChange\(\{ title: event\.target\.value \}\)/);
+  assert.match(component, /onSuggestedCardChange\(\{ description: event\.target\.value \}\)/);
   assert.match(component, /Insights preview body/);
   assert.match(component, /Full post body/);
   assert.match(component, /Advanced metadata/);
