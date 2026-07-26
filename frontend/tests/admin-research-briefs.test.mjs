@@ -69,6 +69,9 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /getAdminResearchBriefDraft/);
   assert.match(component, /setSelectedDraft\(nextSelected\)/);
   assert.match(component, /setDrafts\(items\)/);
+  assert.match(component, /function applySavedDraft\(draft: AdminResearchBriefDraft\)/);
+  assert.match(component, /applySavedDraft\(draft\);[\s\S]*Draft saved\./);
+  assert.doesNotMatch(component, /const draft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ status, article \}\);[\s\S]{0,120}await refreshDrafts\(draft\)/);
   assert.match(component, /saveDraft\(selectedDraft\?\.status === "published" \? "published" : "draft"\)/);
   assert.match(component, /Save Published Changes/);
   assert.match(component, /const savedDraft = await updateAdminResearchBriefDraft\(selectedDraft\.id, \{ article \}\);[\s\S]*publishAdminResearchBriefDraft\(savedDraft\.id\)/);

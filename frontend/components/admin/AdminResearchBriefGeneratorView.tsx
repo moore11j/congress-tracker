@@ -444,6 +444,16 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setDrafts(payload.items);
   }
 
+  function applySavedDraft(draft: AdminResearchBriefDraft) {
+    setSelectedDraft(draft);
+    setDrafts((current) => {
+      const withoutDraft = current.filter((item) => item.id !== draft.id);
+      return [draft, ...withoutDraft].sort((left, right) =>
+        String(right.updated_at || right.published_at || "").localeCompare(String(left.updated_at || left.published_at || "")),
+      );
+    });
+  }
+
   async function generateDraft() {
     if (generationJobActive) return;
     setBusy("generate");
@@ -475,8 +485,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       const article = currentEditedArticle();
       if (!article) return;
       const draft = await updateAdminResearchBriefDraft(selectedDraft.id, { status, article });
-      setSelectedDraft(draft);
-      await refreshDrafts(draft);
+      applySavedDraft(draft);
       showToast?.("Draft saved.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save draft.";
@@ -493,8 +502,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setError("");
     try {
       const draft = await refreshAdminResearchBriefSources(selectedDraft.id);
-      setSelectedDraft(draft);
-      await refreshDrafts(draft);
+      applySavedDraft(draft);
       showToast?.("Source notes refreshed.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to refresh sources.";
@@ -523,9 +531,8 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
       if (!article) return;
       const savedDraft = await updateAdminResearchBriefDraft(selectedDraft.id, { article });
       const draft = await publishAdminResearchBriefDraft(savedDraft.id);
-      setSelectedDraft(draft);
+      applySavedDraft(draft);
       setPublishDialogOpen(false);
-      await refreshDrafts(draft);
       showToast?.("Draft saved and published.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to publish draft.";
@@ -542,8 +549,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
     setBusy("unpublish");
     try {
       const draft = await unpublishAdminResearchBriefDraft(selectedDraft.id);
-      setSelectedDraft(draft);
-      await refreshDrafts(draft);
+      applySavedDraft(draft);
       showToast?.("Draft unpublished.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to unpublish draft.";
