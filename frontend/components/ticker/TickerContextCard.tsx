@@ -1128,7 +1128,7 @@ export function TickerContextCard({ symbol, overview, canViewOwnership = false, 
             <div className="flex flex-wrap items-center justify-between gap-3 xl:shrink-0">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Valuation</p>
-                <p className="mt-2 text-sm text-slate-400">Custom DCF fair value, cash-flow bridge, and street target context for {symbol}.</p>
+                <p className="mt-2 text-sm text-slate-400">Discounted cash-flow fair value, cash-flow bridge, and street target context for {symbol}.</p>
               </div>
               {valuation?.updatedAt ? (
                 <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Updated {formatDateShort(valuation.updatedAt)}</span>
