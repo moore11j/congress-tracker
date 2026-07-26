@@ -247,6 +247,15 @@ def event_entry_date(event: Event, payload: dict[str, Any]) -> date | None:
     )
 
 
+def congress_entry_date(event: Event, payload: dict[str, Any], *, portfolio_model: str) -> date | None:
+    if portfolio_model == "trade_date":
+        return (
+            parse_iso_date(first_text(payload, "transaction_date", "transactionDate", "trade_date", "tradeDate"))
+            or event_entry_date(event, payload)
+        )
+    return event_entry_date(event, payload)
+
+
 def event_reporting_cik(payload: dict[str, Any]) -> str | None:
     return normalize_cik(
         first_text(payload, "reporting_cik", "reportingCik", "reportingCIK", "rptOwnerCik")
@@ -518,12 +527,9 @@ def _event_window(config: BacktestStrategyConfig) -> tuple[datetime, datetime]:
 
 def load_congress_signals(db: Session, config: BacktestStrategyConfig) -> list[BacktestSignal]:
     window_start, window_end = _event_window(config)
-    query = (
-        select(Event)
-        .where(Event.event_type == "congress_trade")
-        .where(Event.ts >= window_start)
-        .where(Event.ts < window_end)
-    )
+    query = select(Event).where(Event.event_type == "congress_trade")
+    if config.portfolio_model != "trade_date":
+        query = query.where(Event.ts >= window_start).where(Event.ts < window_end)
     if config.source_scope == "house":
         query = query.where(func.lower(func.coalesce(Event.chamber, "")) == "house")
     elif config.source_scope == "senate":
@@ -543,8 +549,10 @@ def load_congress_signals(db: Session, config: BacktestStrategyConfig) -> list[B
         if side not in VISIBLE_SIGNAL_TRADE_SIDES:
             continue
         symbol = normalize_symbol(row.symbol or first_text(payload, "symbol", "ticker"))
-        entry_date = event_entry_date(row, payload)
+        entry_date = congress_entry_date(row, payload, portfolio_model=config.portfolio_model)
         if not symbol or entry_date is None:
+            continue
+        if entry_date < window_start.date() or entry_date >= window_end.date():
             continue
         signals.append(
             BacktestSignal(

@@ -31,6 +31,11 @@ const PORTFOLIO_LOOKBACK_OPTIONS = [
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
 const PERFORMANCE_MODEL_OPTIONS: CongressTraderLeaderboardPerformanceModel[] = ["outcomes", "portfolio"];
 const INSIDER_PORTFOLIO_DISABLED_TITLE = "Portfolio Simulation is currently available for Congress only.";
+const PORTFOLIO_MODE_OPTIONS = [
+  { value: "realistic_disclosure_lag", label: "Disclosure Date" },
+  { value: "theoretical_transaction_date", label: "Trade Date" },
+] as const;
+type CongressTraderLeaderboardPortfolioMode = (typeof PORTFOLIO_MODE_OPTIONS)[number]["value"];
 const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = [
   "alpha_pct",
@@ -67,6 +72,7 @@ type LeaderboardFilters = {
   chamber: CongressTraderLeaderboardChamber;
   sourceMode: CongressTraderLeaderboardSourceMode;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  portfolioMode: CongressTraderLeaderboardPortfolioMode;
   sort: CongressTraderLeaderboardSort;
   minTrades: number;
   limit: number;
@@ -77,10 +83,17 @@ const DEFAULT_LEADERBOARD_FILTERS: LeaderboardFilters = {
   chamber: "all",
   sourceMode: "congress",
   performanceModel: "portfolio",
+  portfolioMode: "realistic_disclosure_lag",
   sort: "alpha_pct",
   minTrades: 3,
   limit: 10,
 };
+
+function normalizePortfolioMode(value: string): CongressTraderLeaderboardPortfolioMode {
+  return PORTFOLIO_MODE_OPTIONS.some((option) => option.value === value)
+    ? (value as CongressTraderLeaderboardPortfolioMode)
+    : "realistic_disclosure_lag";
+}
 
 function normalizePortfolioLookback(lookbackDays: number): number {
   return PORTFOLIO_LOOKBACK_OPTIONS.some((option) => option.days === lookbackDays) ? lookbackDays : 365;
@@ -92,6 +105,7 @@ function normalizeTradeLookback(lookbackDays: number): number {
 
 function normalizeFilters(filters: LeaderboardFilters): LeaderboardFilters {
   const performanceModel = filters.sourceMode === "congress" ? filters.performanceModel : "outcomes";
+  const portfolioMode = performanceModel === "portfolio" ? normalizePortfolioMode(filters.portfolioMode) : "realistic_disclosure_lag";
   const lookbackDays =
     performanceModel === "portfolio" ? normalizePortfolioLookback(filters.lookbackDays) : normalizeTradeLookback(filters.lookbackDays);
   const chamber = filters.sourceMode === "insiders" ? "all" : filters.chamber;
@@ -102,7 +116,7 @@ function normalizeFilters(filters: LeaderboardFilters): LeaderboardFilters {
   if (performanceModel !== "portfolio" && !TRADE_SORT_OPTIONS.includes(sort as CongressTraderLeaderboardTradeSort)) {
     sort = "avg_alpha";
   }
-  return { ...filters, lookbackDays, chamber, performanceModel, sort };
+  return { ...filters, lookbackDays, chamber, performanceModel, portfolioMode, sort };
 }
 
 function filtersSignature(filters: LeaderboardFilters): string {
@@ -111,6 +125,7 @@ function filtersSignature(filters: LeaderboardFilters): string {
     filters.chamber,
     filters.sourceMode,
     filters.performanceModel,
+    filters.portfolioMode,
     filters.sort,
     filters.minTrades,
     filters.limit,
@@ -129,7 +144,7 @@ function buildLeaderboardHref(pathname: string, searchParamsString: string, filt
   params.set("source_mode", nextFilters.sourceMode);
   params.set("performance_model", nextFilters.performanceModel);
   if (nextFilters.performanceModel === "portfolio") {
-    params.set("mode", "realistic_disclosure_lag");
+    params.set("mode", nextFilters.portfolioMode);
   }
   params.set("sort", nextFilters.sort);
   if (nextFilters.performanceModel !== "portfolio") {
@@ -170,6 +185,10 @@ function performanceModelLabel(value: CongressTraderLeaderboardPerformanceModel)
   return value === "portfolio" ? "Portfolio Simulation" : "Trade Outcomes";
 }
 
+function portfolioModeLabel(value: CongressTraderLeaderboardPortfolioMode) {
+  return PORTFOLIO_MODE_OPTIONS.find((option) => option.value === value)?.label ?? "Disclosure Date";
+}
+
 function lookbackLabel(value: number, isPortfolioMode: boolean) {
   const options = isPortfolioMode ? PORTFOLIO_LOOKBACK_OPTIONS : TRADE_LOOKBACK_OPTIONS;
   return options.find((option) => option.days === value)?.label ?? `${value}D`;
@@ -180,6 +199,7 @@ export function CongressTraderLeaderboardFiltersClient({
   chamber,
   sourceMode,
   performanceModel,
+  portfolioMode,
   sort,
   minTrades,
   limit,
@@ -189,8 +209,8 @@ export function CongressTraderLeaderboardFiltersClient({
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
   const initialFilters = useMemo(
-    () => normalizeFilters({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit }),
-    [chamber, limit, lookbackDays, minTrades, performanceModel, sort, sourceMode],
+    () => normalizeFilters({ lookbackDays, chamber, sourceMode, performanceModel, portfolioMode, sort, minTrades, limit }),
+    [chamber, limit, lookbackDays, minTrades, performanceModel, portfolioMode, sort, sourceMode],
   );
   const initialFiltersKey = useMemo(() => filtersSignature(initialFilters), [initialFilters]);
   const [draftFilters, setDraftFilters] = useState<LeaderboardFilters>(() => initialFilters);
@@ -265,6 +285,7 @@ export function CongressTraderLeaderboardFiltersClient({
                         chamber: targetChamber,
                         sourceMode: option,
                         performanceModel: targetPerformanceModel,
+                        portfolioMode: targetPerformanceModel === "portfolio" ? draftFilters.portfolioMode : "realistic_disclosure_lag",
                         sort: active ? draftFilters.sort : targetSort,
                       })
                     }
@@ -309,6 +330,7 @@ export function CongressTraderLeaderboardFiltersClient({
                         lookbackDays: targetLookbackDays,
                         sourceMode: targetSourceMode,
                         performanceModel: option,
+                        portfolioMode: option === "portfolio" ? draftFilters.portfolioMode : "realistic_disclosure_lag",
                         sort: active ? draftFilters.sort : targetSort,
                         chamber: targetSourceMode === "insiders" ? "all" : draftFilters.chamber,
                       })
@@ -322,33 +344,61 @@ export function CongressTraderLeaderboardFiltersClient({
             </div>
           </div>
           {draftIsPortfolioMode ? (
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
-              <div className="flex flex-wrap items-center gap-1">
-                {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
-                  const active = draftFilters.lookbackDays === option.days;
-                  return (
-                    <button
-                      key={option.days}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() =>
-                        updateDraftFilters({
-                          lookbackDays: option.days,
-                          chamber: "all",
-                          sourceMode: "congress",
-                          performanceModel: "portfolio",
-                          sort: "alpha_pct",
-                        })
-                      }
-                      className={pillClassName(active)}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
+            <>
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Portfolio Simulation</div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {PORTFOLIO_MODE_OPTIONS.map((option) => {
+                    const active = draftFilters.portfolioMode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          updateDraftFilters({
+                            chamber: "all",
+                            sourceMode: "congress",
+                            performanceModel: "portfolio",
+                            portfolioMode: option.value,
+                          })
+                        }
+                        className={pillClassName(active)}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulation Window</div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {PORTFOLIO_LOOKBACK_OPTIONS.map((option) => {
+                    const active = draftFilters.lookbackDays === option.days;
+                    return (
+                      <button
+                        key={option.days}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          updateDraftFilters({
+                            lookbackDays: option.days,
+                            chamber: "all",
+                            sourceMode: "congress",
+                            performanceModel: "portfolio",
+                            sort: "alpha_pct",
+                          })
+                        }
+                        className={pillClassName(active)}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           ) : (
             <div className="space-y-1.5">
               <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Trade Outcomes Window</div>
@@ -418,6 +468,7 @@ export function CongressTraderLeaderboardFiltersClient({
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           {statusPill("mode", sourceModeLabel(appliedFilters.sourceMode))}
           {statusPill("model", performanceModelLabel(appliedFilters.performanceModel))}
+          {appliedIsPortfolioMode ? statusPill("basis", portfolioModeLabel(appliedFilters.portfolioMode)) : null}
           {statusPill("window", lookbackLabel(appliedFilters.lookbackDays, appliedIsPortfolioMode))}
           {statusPill("rows", String(appliedFilters.limit))}
           {hasPendingChanges ? statusPill("status", "Pending") : null}

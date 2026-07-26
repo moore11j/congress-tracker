@@ -94,6 +94,15 @@ def _coerce_signal_freshness_summary(value: SignalFreshnessOut | dict | None, sy
     return SignalFreshnessOut.model_validate(candidate)
 
 
+def _signal_display_date_key(item: UnifiedSignalOut) -> str:
+    display_date = item.trade_date or item.transaction_date
+    if isinstance(display_date, str) and display_date.strip():
+        return display_date.strip()
+    if item.ts:
+        return item.ts.date().isoformat()
+    return ""
+
+
 def _baseline_median_subquery(baseline_since: datetime, symbols: list[str] | None = None):
     symbol_values = sorted({value.strip().upper() for value in (symbols or []) if value and value.strip()})
     symbol_filter = "\n          AND upper(symbol) IN :symbol_values" if symbol_values else ""
@@ -589,6 +598,8 @@ def _query_unified_signals(
         fetch_limit = (
             MAX_LIMIT
             if confirmation_filter_active
+            else min(MAX_LIMIT, max(limit + offset, candidate_floor))
+            if sort == "recent" and min_smart_score is None and mode == "congress"
             else min(MAX_LIMIT, max(limit + offset, 1))
             if sort == "recent" and min_smart_score is None
             else min(MAX_LIMIT, max(limit + offset, limit * 3, candidate_floor))
@@ -739,7 +750,7 @@ def _query_unified_signals(
         )
 
     if sort == "recent":
-        items.sort(key=lambda item: (item.ts, item.unusual_multiple), reverse=True)
+        items.sort(key=lambda item: (_signal_display_date_key(item), item.ts, item.unusual_multiple), reverse=True)
     elif sort == "amount":
         items.sort(
             key=lambda item: (item.amount_max if item.amount_max is not None else -1, item.unusual_multiple, item.ts),

@@ -38,6 +38,8 @@ const PORTFOLIO_LOOKBACK_OPTIONS = [
 ] as const;
 const CHAMBER_OPTIONS: CongressTraderLeaderboardChamber[] = ["all", "house", "senate"];
 const SOURCE_MODE_OPTIONS: CongressTraderLeaderboardSourceMode[] = ["congress", "insiders"];
+const PORTFOLIO_MODE_OPTIONS = ["realistic_disclosure_lag", "theoretical_transaction_date"] as const;
+type CongressTraderLeaderboardPortfolioMode = (typeof PORTFOLIO_MODE_OPTIONS)[number];
 const TRADE_SORT_OPTIONS: CongressTraderLeaderboardTradeSort[] = ["avg_alpha", "avg_return", "win_rate", "trade_count"];
 const PORTFOLIO_SORT_OPTIONS: CongressTraderLeaderboardPortfolioSort[] = [
   "alpha_pct",
@@ -106,6 +108,12 @@ function parsePerformanceModel(raw: string, sourceMode: CongressTraderLeaderboar
   return "portfolio";
 }
 
+function parsePortfolioMode(raw: string): CongressTraderLeaderboardPortfolioMode {
+  return PORTFOLIO_MODE_OPTIONS.includes(raw as CongressTraderLeaderboardPortfolioMode)
+    ? (raw as CongressTraderLeaderboardPortfolioMode)
+    : "realistic_disclosure_lag";
+}
+
 function parseSort(raw: string, performanceModel: CongressTraderLeaderboardPerformanceModel): CongressTraderLeaderboardSort {
   if (performanceModel === "portfolio") {
     return PORTFOLIO_SORT_OPTIONS.includes(raw as CongressTraderLeaderboardPortfolioSort)
@@ -132,6 +140,7 @@ function buildUrl(params: {
   chamber: CongressTraderLeaderboardChamber;
   source_mode: CongressTraderLeaderboardSourceMode;
   performance_model?: CongressTraderLeaderboardPerformanceModel;
+  mode?: CongressTraderLeaderboardPortfolioMode;
   sort: CongressTraderLeaderboardSort;
   min_trades: number;
   limit: number;
@@ -146,7 +155,7 @@ function buildUrl(params: {
   url.searchParams.set("source_mode", params.source_mode);
   url.searchParams.set("performance_model", performanceModel);
   if (performanceModel === "portfolio") {
-    url.searchParams.set("mode", "realistic_disclosure_lag");
+    url.searchParams.set("mode", params.mode ?? "realistic_disclosure_lag");
   }
   url.searchParams.set("sort", params.sort);
   if (performanceModel !== "portfolio") url.searchParams.set("min_trades", String(params.min_trades));
@@ -159,6 +168,7 @@ function buildSortHrefs(params: {
   chamber: CongressTraderLeaderboardChamber;
   source_mode: CongressTraderLeaderboardSourceMode;
   performance_model: CongressTraderLeaderboardPerformanceModel;
+  mode: CongressTraderLeaderboardPortfolioMode;
   min_trades: number;
   limit: number;
 }) {
@@ -205,6 +215,7 @@ async function LeaderboardResultsSection({
   chamber,
   sourceMode,
   performanceModel,
+  portfolioMode,
   sort,
   minTrades,
   limit,
@@ -215,6 +226,7 @@ async function LeaderboardResultsSection({
   chamber: CongressTraderLeaderboardChamber;
   sourceMode: CongressTraderLeaderboardSourceMode;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  portfolioMode: CongressTraderLeaderboardPortfolioMode;
   sort: CongressTraderLeaderboardSort;
   minTrades: number;
   limit: number;
@@ -228,6 +240,7 @@ async function LeaderboardResultsSection({
     chamber,
     source_mode: sourceMode,
     performance_model: performanceModel,
+    mode: portfolioMode,
     min_trades: minTrades,
     limit,
   });
@@ -239,6 +252,7 @@ async function LeaderboardResultsSection({
         chamber={chamber}
         sourceMode={sourceMode}
         performanceModel={performanceModel}
+        portfolioMode={portfolioMode}
         sort={sort}
         minTrades={minTrades}
         limit={limit}
@@ -253,7 +267,7 @@ async function LeaderboardResultsSection({
         chamber: performanceModel === "portfolio" ? undefined : chamber,
         source_mode: sourceMode,
         performance_model: performanceModel,
-        mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,
+        mode: performanceModel === "portfolio" ? portfolioMode : undefined,
         sort,
         min_trades: performanceModel === "portfolio" ? undefined : minTrades,
         limit,
@@ -341,6 +355,7 @@ export default async function CongressTraderLeaderboardPage({
   const authToken = authState.token;
   const performanceModel = parsePerformanceModel(rawPerformanceModel, sourceMode);
   const isPortfolioMode = performanceModel === "portfolio";
+  const portfolioMode = isPortfolioMode ? parsePortfolioMode(getParam(sp, "mode")) : "realistic_disclosure_lag";
   const lookbackDays = performanceModel === "portfolio" ? parsePortfolioLookback(getParam(sp, "lookback_days")) : parseLookback(getParam(sp, "lookback_days"));
   const chamber = parseChamber(getParam(sp, "chamber"));
   const sort = parseSort(getParam(sp, "sort"), performanceModel);
@@ -355,9 +370,11 @@ export default async function CongressTraderLeaderboardPage({
   const leaderboardDescription = isInsiderMode
     ? "Rankings compare insider trading performance by historical returns and alpha versus the S&P 500."
     : isPortfolioMode
-      ? "Rankings compare replicated congressional portfolios using realistic disclosure lag."
+      ? portfolioMode === "theoretical_transaction_date"
+        ? "Rankings compare replicated congressional portfolios using actual transaction dates."
+        : "Rankings compare replicated congressional portfolios using realistic disclosure lag."
       : "Rankings compare congressional trading performance by historical returns and alpha versus the S&P 500.";
-  const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit });
+  const resultsKey = JSON.stringify({ lookbackDays, chamber, sourceMode, performanceModel, portfolioMode, sort, minTrades, limit });
 
   return (
     <VerifiedSessionGuard returnTo={returnTo} initiallyAuthorized={Boolean(authToken)}>
@@ -375,6 +392,7 @@ export default async function CongressTraderLeaderboardPage({
         chamber={chamber}
         sourceMode={sourceMode}
         performanceModel={performanceModel}
+        portfolioMode={portfolioMode}
         sort={sort}
         minTrades={minTrades}
         limit={limit}
@@ -386,6 +404,7 @@ export default async function CongressTraderLeaderboardPage({
           chamber={chamber}
           sourceMode={sourceMode}
           performanceModel={performanceModel}
+          portfolioMode={portfolioMode}
           sort={sort}
           minTrades={minTrades}
           limit={limit}

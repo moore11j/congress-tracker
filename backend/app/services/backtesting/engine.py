@@ -935,6 +935,11 @@ def run_backtest(db: Session, config: BacktestStrategyConfig, *, user_id: int | 
                 )
     else:
         signals = load_congress_signals(db, config) if config.strategy_type == "congress" else load_insider_signals(db, config)
+        if config.strategy_type == "congress":
+            if config.portfolio_model == "trade_date":
+                assumptions.append("Congress portfolio model: Trade Date. Entries are simulated from reported transaction dates.")
+            else:
+                assumptions.append("Congress portfolio model: Disclosure Date. Entries are simulated from public filing or report dates.")
         signal_symbols = sorted({signal.symbol for signal in signals})
         history_start = min((signal.signal_date for signal in signals), default=config.start_date)
         trade_count = len(signals)

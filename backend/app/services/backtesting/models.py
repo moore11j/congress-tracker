@@ -11,6 +11,7 @@ SourceScope = Literal["all_congress", "house", "senate", "member", "member_list"
 ContributionFrequency = Literal["none", "monthly", "quarterly", "annually"]
 RebalancingFrequency = Literal["monthly", "quarterly", "semi_annually", "annually"]
 WeightingMode = Literal["equal"]
+PortfolioModel = Literal["disclosure_date", "trade_date"]
 
 LOOKBACK_PRESET_DAYS: tuple[int, ...] = (30, 90, 180, 365, 1095)
 HOLD_DAY_OPTIONS: tuple[int, ...] = (30, 60, 90, 180, 365)
@@ -119,6 +120,7 @@ class BacktestStrategyConfig(BaseModel):
     max_position_weight: float = Field(default=1.0, gt=0, le=1)
     weighting: WeightingMode = "equal"
     benchmark: str = DEFAULT_BENCHMARK
+    portfolio_model: PortfolioModel = "disclosure_date"
     include_exempt_acquisitions: bool = False
     buy_and_hold: bool = False
 

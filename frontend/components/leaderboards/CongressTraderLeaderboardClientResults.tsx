@@ -13,6 +13,8 @@ import {
 } from "@/lib/api";
 import { cardClassName } from "@/lib/styles";
 
+type CongressTraderLeaderboardPortfolioMode = "realistic_disclosure_lag" | "theoretical_transaction_date";
+
 function cleanLeaderboardError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Sign in required.";
@@ -29,6 +31,7 @@ export function CongressTraderLeaderboardClientResults({
   chamber,
   sourceMode,
   performanceModel,
+  portfolioMode,
   sort,
   minTrades,
   limit,
@@ -39,6 +42,7 @@ export function CongressTraderLeaderboardClientResults({
   chamber: CongressTraderLeaderboardChamber;
   sourceMode: CongressTraderLeaderboardSourceMode;
   performanceModel: CongressTraderLeaderboardPerformanceModel;
+  portfolioMode: CongressTraderLeaderboardPortfolioMode;
   sort: CongressTraderLeaderboardSort;
   minTrades: number;
   limit: number;
@@ -59,7 +63,7 @@ export function CongressTraderLeaderboardClientResults({
       chamber: performanceModel === "portfolio" ? undefined : chamber,
       source_mode: sourceMode,
       performance_model: performanceModel,
-      mode: performanceModel === "portfolio" ? "realistic_disclosure_lag" : undefined,
+      mode: performanceModel === "portfolio" ? portfolioMode : undefined,
       sort,
       min_trades: performanceModel === "portfolio" ? undefined : minTrades,
       limit,
@@ -78,7 +82,7 @@ export function CongressTraderLeaderboardClientResults({
       alive = false;
       controller.abort();
     };
-  }, [lookbackDays, chamber, sourceMode, performanceModel, sort, minTrades, limit, retryNonce]);
+  }, [lookbackDays, chamber, sourceMode, performanceModel, portfolioMode, sort, minTrades, limit, retryNonce]);
 
   return (
     <div className={`${cardClassName} min-h-[32rem] overflow-hidden p-0`}>

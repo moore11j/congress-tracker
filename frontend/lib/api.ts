@@ -1153,6 +1153,7 @@ export type BacktestSourceScope = "all_congress" | "house" | "senate" | "member"
 export type BacktestContributionFrequency = "none" | "monthly" | "quarterly" | "annually";
 export type BacktestRebalancingFrequency = "monthly" | "quarterly" | "semi_annually" | "annually";
 export type BacktestBenchmarkSymbol = "SPY" | "QQQ" | "IWM" | "VT" | "SPY_TLT_60_40" | "BOGLEHEADS_3_FUND";
+export type BacktestPortfolioModel = "disclosure_date" | "trade_date";
 
 export type BacktestTickerInput = {
   symbol: string;
@@ -1179,6 +1180,7 @@ export type BacktestRunRequest = {
   max_position_weight?: number;
   weighting: "equal";
   benchmark: BacktestBenchmarkSymbol;
+  portfolio_model?: BacktestPortfolioModel;
   include_exempt_acquisitions?: boolean;
   buy_and_hold?: boolean;
 };

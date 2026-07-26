@@ -10,6 +10,7 @@ import { SkeletonBlock, SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import type {
   BacktestContributionFrequency,
   BacktestBenchmarkSymbol,
+  BacktestPortfolioModel,
   BacktestPresetsResponse,
   BacktestRebalancingFrequency,
   BacktestRunRequest,
@@ -85,8 +86,14 @@ const SIGNAL_PRESET_OPTIONS: { key: SignalPreset; label: string }[] = [
 const SIGNAL_LIMIT_OPTIONS = [10, 25] as const;
 const CONGRESS_COUNT_OPTIONS = [5, 10, 25] as const;
 const CUSTOM_TICKER_LIMIT = 10;
+const PORTFOLIO_MODEL_OPTIONS: { key: BacktestPortfolioModel; label: string }[] = [
+  { key: "disclosure_date", label: "Disclosure" },
+  { key: "trade_date", label: "Trade" },
+];
 const BUY_AND_HOLD_HELPER =
   "Buy and hold keeps qualifying entries open through the end of the backtest period. For event-driven modes, this overrides the default planned hold period.";
+const PORTFOLIO_MODEL_HELPER =
+  "Disclosure uses the public filing or report date, approximating what investors could have known at the time. Trade uses the reported transaction date, a theoretical hindsight model that measures what happened from when the member actually traded.";
 const FALLBACK_BENCHMARK_OPTIONS: BacktestPresetsResponse["benchmark_options"] = [{ symbol: "SPY", label: "S&P 500" }];
 
 const CONGRESS_STRATEGY_OPTIONS: {
@@ -408,6 +415,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
   const [customRows, setCustomRows] = useState<CustomTickerRow[]>(initialTickerRows);
   const [tickerProfiles, setTickerProfiles] = useState<TickerProfilesMap>({});
   const [lookbackDays, setLookbackDays] = useState<number>(parsePositiveInt(initialQuery?.lookback_days, initialPresets.defaults.lookback_days));
+  const [portfolioModel, setPortfolioModel] = useState<BacktestPortfolioModel>("disclosure_date");
   const holdDays = parseHoldDays(initialQuery?.hold_days, initialPresets.defaults.hold_days);
   const [benchmark, setBenchmark] = useState<BacktestBenchmarkSymbol>(initialPresets.defaults.benchmark);
   const [startBalanceInput, setStartBalanceInput] = useState<string>(String(initialPresets.defaults.start_balance));
@@ -587,6 +595,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       max_position_weight: presets.defaults.max_position_weight,
       weighting: "equal",
       benchmark: selectedBenchmark,
+      portfolio_model: view === "congress" ? portfolioModel : undefined,
       include_exempt_acquisitions: view === "insider" ? includeExemptAcquisitions : false,
       buy_and_hold: buyAndHold,
     };
@@ -618,7 +627,7 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
       strategy_type: "custom_tickers",
       tickers: customRows.map((row) => ({ symbol: row.symbol, allocation_pct: parseAllocationInput(row.allocationInput) })),
     };
-  }, [buyAndHold, congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, includeExemptAcquisitions, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, selectedBenchmark, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
+  }, [buyAndHold, congressStrategy, contributionAmountInput, contributionFrequency, customAllocationState.hasInvalid, customAllocationState.isValidTotal, customRows, holdDays, includeExemptAcquisitions, portfolioModel, presets.defaults.max_position_weight, insiderCik, insiderScope, leaderboardMemberIds, memberId, rebalancingFrequency, savedScreenId, selectedBenchmark, signalPreset, signalTickers, startBalanceInput, startDate, today, view, watchlistId]);
 
   const helperText =
     entitlementsLoading ? null
@@ -729,7 +738,60 @@ export function BacktestingWorkbench({ initialEntitlements, initialPresets, init
               </div>
             ) : null}
 
-            <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 md:col-span-2">Lookback<div className="flex flex-wrap gap-2">{presets.lookback_options.map((option) => <button key={option.days} type="button" onClick={() => setLookbackDays(option.days)} className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`} disabled={!canRun}>{option.label}</button>)}</div></div>
+            <div className={`grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 ${view === "congress" ? "" : "md:col-span-2"}`}>
+              Lookback
+              <div className="flex flex-wrap gap-2">
+                {presets.lookback_options.map((option) => (
+                  <button
+                    key={option.days}
+                    type="button"
+                    onClick={() => setLookbackDays(option.days)}
+                    className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${lookbackDays === option.days ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`}
+                    disabled={!canRun}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {view === "congress" ? (
+              <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <span className="flex items-center gap-1">
+                  Portfolio Model
+                  <span className="group relative inline-flex">
+                    <button
+                      type="button"
+                      aria-describedby="portfolio-model-helper"
+                      title={PORTFOLIO_MODEL_HELPER}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] font-semibold text-slate-400 transition hover:border-emerald-300/40 hover:text-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
+                    >
+                      ?
+                    </button>
+                    <span
+                      id="portfolio-model-helper"
+                      role="tooltip"
+                      className="pointer-events-none absolute left-1/2 top-6 z-30 hidden w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-left text-xs font-medium normal-case leading-5 tracking-normal text-slate-200 shadow-2xl shadow-black/40 group-focus-within:block group-hover:block"
+                    >
+                      {PORTFOLIO_MODEL_HELPER}
+                    </span>
+                  </span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {PORTFOLIO_MODEL_OPTIONS.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setPortfolioModel(option.key)}
+                      aria-pressed={portfolioModel === option.key}
+                      className={`rounded-2xl border px-3 py-2 text-sm font-semibold normal-case transition ${portfolioModel === option.key ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-slate-950/50 text-slate-300 hover:border-white/20 hover:text-white"}`}
+                      disabled={!canRun}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="grid gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               <span className="flex items-center gap-1">
                 Hold Period

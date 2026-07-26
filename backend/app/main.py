@@ -5039,7 +5039,7 @@ def congress_trader_leaderboard(
         normalized_performance_model = "trade_outcomes"
 
     normalized_portfolio_mode = (mode or "realistic_disclosure_lag").strip().lower()
-    if normalized_performance_model == "portfolio" and normalized_portfolio_mode not in {"realistic_disclosure_lag"}:
+    if normalized_performance_model == "portfolio" and normalized_portfolio_mode not in {"realistic_disclosure_lag", "theoretical_transaction_date"}:
         raise HTTPException(status_code=400, detail="Unsupported portfolio mode.")
 
     normalized_sort = (sort or "avg_alpha").strip().lower()
