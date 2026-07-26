@@ -54,6 +54,13 @@ DISCOUNTED_CASH_FLOW_KEYS = (
     "pvFreeCashFlow",
     "pv_fcf",
 )
+DCF_REVENUE_GROWTH_KEYS = (
+    "revenuePercentage",
+    "revenue_percentage",
+    "Revenue Percentage",
+    "revenueGrowthPct",
+    "revenueGrowth",
+)
 ASSUMPTION_KEYS: tuple[tuple[str, str], ...] = (
     ("Revenue growth", "revenueGrowthPct"),
     ("EBITDA margin", "ebitdaPct"),
@@ -495,6 +502,42 @@ def _statement_growth(row: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     return _clamp(value, low, high)
 
 
+def _normalized_growth_value(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    if abs(value) > 1:
+        value = value / 100
+    return value if math.isfinite(value) else None
+
+
+def _dcf_baseline_revenue_growth(rows: list[dict[str, Any]]) -> float | None:
+    values: list[float] = []
+    for row in rows:
+        year = _fiscal_year(row)
+        if year is not None and year < datetime.now(timezone.utc).year - 1:
+            continue
+        value = _normalized_growth_value(_first_number(row, DCF_REVENUE_GROWTH_KEYS))
+        if value is None or value <= 0:
+            continue
+        values.append(value)
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+
+def _reconcile_forward_revenue_growth(estimate_growth: float | None, dcf_baseline_growth: float | None) -> tuple[float | None, str | None]:
+    if estimate_growth is not None and dcf_baseline_growth is not None:
+        if estimate_growth > max(0.60, dcf_baseline_growth * 2):
+            return dcf_baseline_growth, "dcf_baseline"
+        return estimate_growth, "estimates"
+    if estimate_growth is not None:
+        return estimate_growth, "estimates"
+    if dcf_baseline_growth is not None:
+        return dcf_baseline_growth, "dcf_baseline"
+    return None, None
+
+
 def _first_present(*values: float | None) -> float | None:
     for value in values:
         if value is not None:
@@ -515,6 +558,7 @@ def _fetch_dcf_input_rows(symbol: str) -> dict[str, list[dict[str, Any]]]:
         "cash_growth": ("cash-flow-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
         "balance_growth": ("balance-sheet-statement-growth", {"symbol": symbol, "period": "annual", "limit": 2}),
         "profile": ("profile", {"symbol": symbol}),
+        "dcf_baseline": ("custom-discounted-cash-flow", {"symbol": symbol}),
     }
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in specs}
     for key, (endpoint, params) in specs.items():
@@ -612,10 +656,12 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
     debt_cost_ratio = _ratio(interest_expense, total_debt, absolute=True)
     revenue_base_rows = rows["annual_income"] or rows["ttm_income"]
     forward_revenue_growth = _forward_revenue_growth_from_estimates(revenue_base_rows, rows["annual_estimates"])
-    revenue_growth_from_estimates = forward_revenue_growth is not None
+    dcf_baseline_revenue_growth = _dcf_baseline_revenue_growth(rows["dcf_baseline"])
+    reconciled_revenue_growth, revenue_growth_source = _reconcile_forward_revenue_growth(forward_revenue_growth, dcf_baseline_revenue_growth)
+    revenue_growth_from_estimates = revenue_growth_source == "estimates"
     computed: dict[str, float | None] = {
         "revenueGrowthPct": _first_present(
-            forward_revenue_growth,
+            reconciled_revenue_growth,
             _statement_growth(income_growth, ("growthRevenue", "revenueGrowth", "growthRevenueTtm")),
         ),
         "ebitdaPct": ebitda_pct,

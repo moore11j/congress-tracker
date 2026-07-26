@@ -53,6 +53,8 @@ def test_ticker_valuation_uses_custom_dcf_and_consensus(monkeypatch):
         if endpoint == "profile":
             return [{"beta": 1.5}]
         if endpoint == "custom-discounted-cash-flow":
+            if category == "valuation:dcf-inputs:custom-discounted-cash-flow":
+                return []
             for key in valuation_module.DCF_INPUT_PARAM_KEYS:
                 assert key in params
             assert params["revenueGrowthPct"] == 0.2
@@ -332,6 +334,28 @@ def test_forward_revenue_growth_uses_uncapped_financial_estimate():
     )
 
     assert growth == 9.0
+
+
+def test_revenue_growth_uses_dcf_baseline_when_estimate_is_extreme_outlier():
+    estimate_growth, source = valuation_module._reconcile_forward_revenue_growth(0.964569, 0.3011)
+
+    assert round(estimate_growth, 4) == 0.3011
+    assert source == "dcf_baseline"
+
+
+def test_dcf_baseline_revenue_growth_uses_median_projection_percentage():
+    growth = valuation_module._dcf_baseline_revenue_growth(
+        [
+            {"year": "2030", "Revenue Percentage": 25.96},
+            {"year": "2029", "Revenue Percentage": 27.28},
+            {"year": "2028", "Revenue Percentage": 28.66},
+            {"year": "2027", "Revenue Percentage": 30.11},
+            {"year": "2026", "Revenue Percentage": 31.64},
+            {"year": "2025", "Revenue Percentage": 33.24},
+        ]
+    )
+
+    assert growth == 0.3011
 
 
 def test_dcf_inputs_normalize_extreme_beta(monkeypatch):
