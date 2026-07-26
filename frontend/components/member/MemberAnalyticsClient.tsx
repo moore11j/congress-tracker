@@ -18,7 +18,7 @@ import { TickerPill } from "@/components/ui/TickerPill";
 import { PerformanceChart } from "@/components/member/PerformanceChart";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
-import { formatDateShort, formatTransactionLabel, transactionTone } from "@/lib/format";
+import { formatDateShort, formatTransactionLabel } from "@/lib/format";
 import {
   defaultEntitlements,
   entitlementsFromTierHint,
@@ -119,6 +119,13 @@ function tradeDirection(tradeType?: string | null): "buy" | "sell" | null {
   if (["sale", "sell", "disposition", "dispose"].some((token) => normalized.includes(token))) return "sell";
   if (["buy", "purchase", "acquire", "acquisition"].some((token) => normalized.includes(token))) return "buy";
   return null;
+}
+
+function tradeTextTone(tradeType?: string | null) {
+  const direction = tradeDirection(tradeType);
+  if (direction === "sell") return "text-rose-300";
+  if (direction === "buy") return "text-emerald-300";
+  return "text-slate-300";
 }
 
 function latestActivePositions(points: Array<{ active_positions?: number | null }> | null | undefined) {
@@ -440,6 +447,9 @@ function MemberPortfolioPanel({
   const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
   const showNoActiveHoldings = hasPersistedRun && portfolio?.no_active_holdings === true;
   const showLimitedPriceHistory = hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
+  const unavailableSimulationMessage = isTradeDateMode
+    ? "Trade-date portfolio simulation has not been calculated for this lookback yet."
+    : "Portfolio simulation is not available for this lookback yet.";
   const metrics = summary ? [
     { label: "Portfolio Return", value: pct(summary.total_return_pct), valueClass: tone(summary.total_return_pct) },
     { label: "SPY Benchmark", value: pct(summary.benchmark_return_pct), valueClass: tone(summary.benchmark_return_pct) },
@@ -510,7 +520,7 @@ function MemberPortfolioPanel({
         </p>
       ) : !hasPersistedRun ? (
         <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-          Portfolio simulation is not available for this lookback yet.
+          {unavailableSimulationMessage}
         </p>
       ) : (
         <>
@@ -549,7 +559,7 @@ function MemberPortfolioPanel({
             />
           ) : (
             <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-              Portfolio simulation is not available for this lookback yet.
+              {unavailableSimulationMessage}
             </p>
           )}
         </>
@@ -1072,7 +1082,7 @@ export function MemberAnalyticsClient({
             ) : recentTrades.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>
             ) : (
-              <table className="w-full min-w-[680px] text-left text-sm">
+              <table className="w-full min-w-[560px] text-left text-xs">
                 <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
                   <tr>
                     <th className="pb-3 font-medium">Date disclosed</th>
@@ -1088,13 +1098,22 @@ export function MemberAnalyticsClient({
                   {visibleRecentTrades.map((trade) => {
                     const signal = resolveSmartSignalValue(trade as Record<string, unknown>);
                     const sideLabel = formatTransactionLabel(trade.transaction_type ?? "") ?? "Trade";
-                    const sideTone = transactionTone(trade.transaction_type ?? "");
+                    const symbol = String(trade.symbol ?? "").trim().toUpperCase();
+                    const symbolHref = symbol ? tickerHref(symbol) : null;
                     return (
                       <tr key={trade.event_id ?? trade.id}>
                         <td className="py-2.5 text-slate-300">{trade.report_date ? formatDateShort(trade.report_date) : "—"}</td>
                         <td className="py-2.5 text-slate-300">{trade.trade_date ? formatDateShort(trade.trade_date) : "—"}</td>
-                        <td className="py-2.5"><Badge tone={sideTone}>{sideLabel}</Badge></td>
-                        <td className="py-2.5"><TickerPill symbol={trade.symbol ?? "—"} href={trade.symbol ? tickerHref(trade.symbol) ?? undefined : undefined} /></td>
+                        <td className={`py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${tradeTextTone(trade.transaction_type)}`}>{sideLabel}</td>
+                        <td className="py-2.5">
+                          {symbolHref ? (
+                            <Link href={symbolHref} prefetch={false} className="font-mono text-[11px] font-semibold text-emerald-200 hover:text-emerald-100">
+                              {symbol}
+                            </Link>
+                          ) : (
+                            <span className="font-mono text-[11px] text-slate-500">—</span>
+                          )}
+                        </td>
                         <td className="py-2.5 text-slate-300">
                           {rangeLabel(trade.amount_range_min, trade.amount_range_max)}
                           <span className="hidden">
