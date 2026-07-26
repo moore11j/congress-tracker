@@ -958,6 +958,8 @@ def test_earnings_setup_keeps_admin_edited_call_copy_plain_and_rounded():
     body = (
         "**Walnut call: Mixed with capex risk**\n\n"
         "Manual admin edit should survive. Revenue growth was 6.425511782832739% and gross margin was 47.862405358827935%. "
+        "Walnut call: Mixed with capex risk\n\n"
+        "Walnut call: Bullish with capex risk\n\n"
         "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/ "
         + "word " * 220
     )
@@ -967,6 +969,8 @@ def test_earnings_setup_keeps_admin_edited_call_copy_plain_and_rounded():
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
     assert "Our call:" in text
+    assert text.count("Our call:") == 1
+    assert "Walnut call:" not in text
     assert "Manual admin edit should survive." in text
     assert "**" not in text
     assert "6.425511782832739%" not in text

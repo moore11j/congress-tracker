@@ -911,10 +911,12 @@ def _replace_earnings_judgment_block(body: str, call_line: str, fallback_judgmen
         output_lines: list[str] = []
         saw_call = False
         for line in cleaned.splitlines():
-            if re.match(r"(?i)^\s*Our call:\s*", line):
+            if re.match(r"(?i)^\s*(?:Walnut|Our) call:\s*", line):
                 if saw_call:
                     continue
                 saw_call = True
+            else:
+                line = re.sub(r"(?i)\s*\b(?:Walnut|Our) call:\s*[^\n.]+\.?", "", line).rstrip()
             output_lines.append(line)
         cleaned = "\n".join(output_lines).strip()
         return format_research_numeric_claims(cleaned.replace("**", "")).strip()
