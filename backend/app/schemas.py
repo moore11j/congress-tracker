@@ -166,6 +166,9 @@ class UnifiedSignalOut(BaseModel):
     party: str | None
     chamber: str | None
     trade_type: str | None
+    trade_date: str | None = None
+    transaction_date: str | None = None
+    report_date: str | None = None
     amount_min: float | None
     amount_max: float | None
     baseline_median_amount_max: float

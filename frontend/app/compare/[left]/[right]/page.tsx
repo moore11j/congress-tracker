@@ -126,22 +126,22 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
       </div>
       {category.metrics.length ? (
         <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
-          <table className="w-full text-left text-sm">
+          <table className="w-full table-fixed text-left text-xs sm:text-sm">
             <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.16em] text-slate-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">Metric</th>
-                <th className="px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.left }}>{data.left.symbol}</th>
-                <th className="px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.right }}>{data.right.symbol}</th>
+                <th className="w-[34%] px-3 py-2 font-semibold">Metric</th>
+                <th className="w-[33%] px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.left }}>{data.left.symbol}</th>
+                <th className="w-[33%] px-3 py-2 text-right font-semibold" style={{ color: TICKER_COLORS.right }}>{data.right.symbol}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {category.metrics.map((metric) => (
                 <tr key={metric.key} className={metric.edge === "even" ? "" : "bg-white/[0.012]"}>
-                  <td className="px-3 py-2 text-slate-300">{metric.label}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "left")}>
+                  <td className="break-words px-3 py-2 text-slate-300">{metric.label}</td>
+                  <td className="break-words px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "left")}>
                     {formatValue(metric, "left", { categoryKey: category.key, metrics: category.metrics })}
                   </td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "right")}>
+                  <td className="break-words px-3 py-2 text-right font-semibold text-slate-300" style={metricValueStyle(metric, "right")}>
                     {formatValue(metric, "right", { categoryKey: category.key, metrics: category.metrics })}
                   </td>
                 </tr>

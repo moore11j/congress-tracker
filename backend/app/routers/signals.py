@@ -643,6 +643,8 @@ def _query_unified_signals(
             payload=payload,
             outcome_entry_price=row.outcome_entry_price,
         )
+        trade_date = _first_payload_text(payload, "trade_date", "tradeDate", "transaction_date", "transactionDate")
+        report_date = _first_payload_text(payload, "report_date", "reportDate", "filing_date", "filingDate", "disclosure_date", "disclosureDate")
         pnl_pct = _normalized_signal_pnl(
             payload,
             row.outcome_return_pct,
@@ -685,6 +687,9 @@ def _query_unified_signals(
                 party=row.party,
                 chamber=row.chamber,
                 trade_type=row.trade_type,
+                trade_date=trade_date,
+                transaction_date=trade_date,
+                report_date=report_date,
                 amount_min=row.amount_min,
                 amount_max=row.amount_max,
                 baseline_median_amount_max=row.baseline_median_amount_max,

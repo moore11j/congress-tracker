@@ -94,14 +94,18 @@ SECTION_FORMAT_OPTIONS = [
 ]
 STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
-EARNINGS_SETUP_JUDGMENT_LABELS = [
-    "clean bullish setup",
-    "constructive but expensive",
-    "expensive defensive setup",
-    "capex-risk setup",
-    "mixed / wait for the print",
-    "bearish setup",
-    "insufficient data",
+WALNUT_CALL_VALUES = [
+    "Very bullish",
+    "Bullish",
+    "Bullish but expensive",
+    "Neutral",
+    "Neutral but expensive",
+    "Neutral with capex risk",
+    "Mixed with capex risk",
+    "Mixed",
+    "Bearish",
+    "Very bearish",
+    "Insufficient data to make a call",
 ]
 MAX_COMPARISON_TICKERS = 5
 KEY_RESEARCH_FIELDS = [
@@ -176,6 +180,7 @@ PUBLISH_COPY_FORBIDDEN_PATTERNS = [
     r"\bgenerated from\b",
     r"\bthe prompt\b",
     r"\bprompt\b",
+    r"\bwe do not publish our proprietary confirmation score\b",
 ]
 PUBLISH_COPY_FORBIDDEN_RE = re.compile("|".join(PUBLISH_COPY_FORBIDDEN_PATTERNS), re.IGNORECASE)
 MISSING_DATA_AWKWARD_RE = re.compile(
@@ -312,7 +317,52 @@ def sanitize_research_brief_copy(markdown: str) -> str:
     cleaned = "".join(repaired_blocks)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = format_research_numeric_claims(cleaned)
     return _rewrite_public_walnut_voice(cleaned).strip()
+
+
+def format_research_numeric_claims(markdown: str) -> str:
+    text = str(markdown or "")
+
+    def percentage(match: re.Match[str]) -> str:
+        value = _safe_float(match.group(1).replace(",", ""))
+        if value is None:
+            return match.group(0)
+        return f"{value:.1f}%"
+
+    def ratio(match: re.Match[str]) -> str:
+        value = _safe_float(match.group(1).replace(",", ""))
+        if value is None:
+            return match.group(0)
+        return f"{value:.1f}x"
+
+    def currency(match: re.Match[str]) -> str:
+        raw = match.group(1).replace(",", "")
+        value = _safe_float(raw)
+        if value is None:
+            return match.group(0)
+        if abs(value) >= 1_000_000_000_000:
+            return f"${value / 1_000_000_000_000:.1f} trillion"
+        if abs(value) >= 1_000_000_000:
+            return f"${value / 1_000_000_000:.1f} billion"
+        if abs(value) >= 1_000_000:
+            return f"${value / 1_000_000:.1f} million"
+        if "." in raw:
+            return f"${value:.2f}".rstrip("0").rstrip(".")
+        return match.group(0)
+
+    text = re.sub(r"(?<![\w/])(-?\d[\d,]*\.\d{2,})\s*%", percentage, text)
+    text = re.sub(r"(?<![\w/])(-?\d[\d,]*\.\d{2,})\s*x\b", ratio, text, flags=re.IGNORECASE)
+    text = re.sub(r"\$(-?\d{7,}(?:\.\d+)?)\b", currency, text)
+    text = re.sub(r"\$(-?\d+\.\d{3,})\b", currency, text)
+    return text
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _rewrite_public_walnut_voice(text: str) -> str:
@@ -602,6 +652,7 @@ def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, A
     sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
     sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
     sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
+    sanitized = _apply_walnut_call_metadata(sanitized)
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -669,10 +720,13 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
     include_score = bool(config.get("include_confirmation_score"))
     include_cross_source = bool(config.get("include_cross_source_confirmations"))
     sanitized = deepcopy(article)
+    if not include_score:
+        sanitized = _strip_confirmation_score_from_article(sanitized)
     sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
     sections = [_strip_confirmation_content_from_section(section, include_score=include_score, include_cross_source=include_cross_source) for section in sections if isinstance(section, dict)]
     sections = [section for section in sections if str(section.get("body_markdown") or "").strip()]
     sanitized["sections"] = sections
+    sanitized["confirmation_score_included"] = bool(include_score and _confirmation_score_value(context) is not None)
 
     if include_score:
         score_text = _confirmation_score_sentence(context)
@@ -695,6 +749,27 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
     return sanitized
 
 
+def _strip_confirmation_score_from_article(article: dict[str, Any]) -> dict[str, Any]:
+    cleaned = deepcopy(article)
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(cleaned.get(key), str):
+            stripped = _remove_sentences_matching(str(cleaned[key]), r"\bconfirmation score\b").strip()
+            cleaned[key] = stripped
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(cleaned.get(key), list):
+            cleaned[key] = [
+                item
+                for item in cleaned[key]
+                if not re.search(r"\bconfirmation score\b", str(item), flags=re.IGNORECASE)
+            ]
+    suggested = cleaned.get("suggested_card") if isinstance(cleaned.get("suggested_card"), dict) else None
+    if suggested:
+        for key in ("title", "description"):
+            if isinstance(suggested.get(key), str):
+                suggested[key] = _remove_sentences_matching(str(suggested[key]), r"\bconfirmation score\b").strip()
+    return cleaned
+
+
 def _is_earnings_setup_config(config: dict[str, Any]) -> bool:
     text = " ".join(str(config.get(key) or "") for key in ("desired_angle", "research_question", "section_format")).lower()
     return "earnings setup" in text or ("earnings" in text and "setup" in text)
@@ -704,31 +779,65 @@ def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, An
     if not _is_earnings_setup_config(config):
         return article
     sanitized = deepcopy(article)
-    label = _infer_earnings_setup_judgment_label(sanitized, context)
-    explanation = _earnings_setup_judgment_explanation(label, sanitized, context)
-    judgment_block = "\n".join([f"Walnut judgment: {label}", "", explanation]).strip()
+    walnut_call = _infer_earnings_walnut_call(sanitized, context)
+    explanation = _earnings_setup_judgment_explanation(walnut_call, sanitized, context)
+    judgment_block = "\n".join([f"**Walnut call: {walnut_call}**", "", explanation]).strip()
     sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
     if not sections:
-        sanitized["sections"] = [{"key": "final_walnut_judgment", "heading": "Final Walnut judgment", "body_markdown": judgment_block}]
-        return sanitized
-
-    target_index = _earnings_judgment_section_index(sections)
-    if target_index is None:
-        sections.append({"key": "final_walnut_judgment", "heading": "Final Walnut judgment", "body_markdown": judgment_block})
+        sanitized["sections"] = [{"key": "the_call", "heading": "The call", "body_markdown": judgment_block}]
     else:
-        target = dict(sections[target_index])
-        target["heading"] = _canonical_heading(str(target.get("heading") or "Final Walnut judgment"))
-        target["body_markdown"] = _replace_earnings_judgment_block(str(target.get("body_markdown") or ""), judgment_block)
-        sections[target_index] = target
-    sanitized["sections"] = sections
-    sanitized["confidence"] = _earnings_setup_confidence(label, str(sanitized.get("confidence") or ""), context)
-    if label == "bearish setup":
+        target_index = _earnings_judgment_section_index(sections)
+        if target_index is None:
+            sections.append({"key": "the_call", "heading": "The call", "body_markdown": judgment_block})
+        else:
+            target = dict(sections[target_index])
+            target["heading"] = "The call"
+            target["key"] = "the_call"
+            target["body_markdown"] = _replace_earnings_judgment_block(str(target.get("body_markdown") or ""), judgment_block)
+            sections[target_index] = target
+        sanitized["sections"] = sections
+
+    sanitized["walnut_call"] = walnut_call
+    sanitized["confirmation_score_included"] = bool(config.get("include_confirmation_score"))
+    sanitized["confidence"] = _earnings_setup_confidence(walnut_call, str(sanitized.get("confidence") or ""), context)
+    if walnut_call in {"Bearish", "Very bearish"}:
         sanitized["judgment"] = "bearish"
-    elif label in {"mixed / wait for the print", "insufficient data"}:
+    elif walnut_call in {"Mixed", "Mixed with capex risk", "Neutral", "Neutral but expensive", "Neutral with capex risk", "Insufficient data to make a call"}:
         sanitized["judgment"] = "mixed"
     else:
         sanitized["judgment"] = "bullish"
     return sanitized
+
+
+def _apply_walnut_call_metadata(article: dict[str, Any]) -> dict[str, Any]:
+    sanitized = deepcopy(article)
+    call = _normalize_walnut_call(sanitized.get("walnut_call"))
+    if call is None:
+        call = _walnut_call_from_judgment(str(sanitized.get("judgment") or ""))
+    sanitized["walnut_call"] = call
+    sanitized.pop("setup_label", None)
+    if "confirmation_score_included" not in sanitized:
+        sanitized["confirmation_score_included"] = False
+    return sanitized
+
+
+def _normalize_walnut_call(value: Any) -> str | None:
+    text = re.sub(r"\s+", " ", str(value or "").strip()).lower()
+    for allowed in WALNUT_CALL_VALUES:
+        if text == allowed.lower():
+            return allowed
+    return None
+
+
+def _walnut_call_from_judgment(value: str) -> str:
+    lowered = str(value or "").lower()
+    if lowered == "bullish":
+        return "Bullish"
+    if lowered == "bearish":
+        return "Bearish"
+    if lowered in {"neutral", "macro", "policy"}:
+        return "Neutral"
+    return "Mixed"
 
 
 def _earnings_judgment_section_index(sections: list[dict[str, Any]]) -> int | None:
@@ -744,20 +853,22 @@ def _earnings_judgment_section_index(sections: list[dict[str, Any]]) -> int | No
 
 def _replace_earnings_judgment_block(body: str, judgment_block: str) -> str:
     cleaned = re.sub(
-        r"(?is)Walnut judgment:\s*(?:clean bullish setup|constructive but expensive|expensive defensive setup|capex-risk setup|mixed\s*/\s*wait for the print|bearish setup|insufficient data)\.?(?:\s+.*?)(?=\n{2,}|$)",
+        r"(?is)(?:\*\*)?Walnut judgment:\s*(?:clean bullish setup|constructive but expensive|expensive defensive setup|capex-risk setup|mixed\s*/\s*wait for the print|bearish setup|insufficient data)(?:\*\*)?\.?(?:\s+.*?)(?=\n{2,}|$)",
         "",
         body,
     ).strip()
+    cleaned = re.sub(r"(?im)^\*\*Walnut call:\s*.*?\*\*\s*$", "", cleaned).strip()
+    cleaned = re.sub(r"(?im)^\*\*Setup:\s*.*?\*\*\s*$", "", cleaned).strip()
     cleaned = re.sub(r"(?im)^#+\s*The call:\s*.*wait for the print.*$", "", cleaned).strip()
     cleaned = re.sub(r"(?im)^The call:\s*.*wait for the print.*$", "", cleaned).strip()
     if not cleaned:
         return judgment_block
-    if "wait for the print" in cleaned.lower() and "mixed / wait for the print" not in judgment_block.lower():
+    if "wait for the print" in cleaned.lower() and "Mixed" not in judgment_block:
         cleaned = _remove_sentences_matching(cleaned, r"\bwait for the print\b")
     return _merge_markdown_bodies(judgment_block, cleaned)
 
 
-def _infer_earnings_setup_judgment_label(article: dict[str, Any], context: dict[str, Any]) -> str:
+def _infer_earnings_walnut_call(article: dict[str, Any], context: dict[str, Any]) -> str:
     text = f"{_article_body_text(article)}\n{json.dumps(context, default=str)}".lower()
     primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
     fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
@@ -767,7 +878,7 @@ def _infer_earnings_setup_judgment_label(article: dict[str, Any], context: dict[
 
     has_required_primary = bool(primary.get("quote") or primary.get("market_state")) and bool(fundamentals or financials or confirmation)
     if not has_required_primary:
-        return "insufficient data"
+        return "Insufficient data to make a call"
 
     bullish_business = _earnings_business_strength(fundamentals, confirmation, text)
     bearish_business = _earnings_business_weakness(fundamentals, confirmation, text)
@@ -777,20 +888,20 @@ def _infer_earnings_setup_judgment_label(article: dict[str, Any], context: dict[
     balanced = bool(re.search(r"\bgenuinely balanced\b|balanced evidence|two-sided|offsetting evidence", text))
 
     if bearish_business and not bullish_business:
-        return "bearish setup"
+        return "Very bearish" if _earnings_business_very_weak(fundamentals, confirmation, text) else "Bearish"
     if bullish_business and capex_risk:
-        return "capex-risk setup"
+        return "Mixed with capex risk"
     if bullish_business and expensive and defensive:
-        return "expensive defensive setup"
+        return "Neutral but expensive"
     if bullish_business and expensive:
-        return "constructive but expensive"
+        return "Bullish but expensive"
     if bullish_business:
-        return "clean bullish setup"
+        return "Very bullish" if _earnings_business_very_strong(fundamentals, confirmation, text) else "Bullish"
     if balanced or _missing_required_earnings_data(availability):
-        return "mixed / wait for the print"
+        return "Mixed"
     if bearish_business:
-        return "bearish setup"
-    return "mixed / wait for the print"
+        return "Bearish"
+    return "Neutral"
 
 
 def _earnings_business_strength(fundamentals: dict[str, Any], confirmation: dict[str, Any], text: str) -> bool:
@@ -822,6 +933,29 @@ def _earnings_business_weakness(fundamentals: dict[str, Any], confirmation: dict
     return bool(re.search(r"\bdeteriorat\w+|negative growth|margin pressure|demand weakness|bearish setup\b", text))
 
 
+def _earnings_business_very_strong(fundamentals: dict[str, Any], confirmation: dict[str, Any], text: str) -> bool:
+    try:
+        revenue_growth = fundamentals.get("revenue_growth")
+        gross_margin = fundamentals.get("gross_margin")
+        if revenue_growth is not None and gross_margin is not None and float(revenue_growth) >= 15 and float(gross_margin) >= 45:
+            return True
+    except (TypeError, ValueError):
+        pass
+    score = _safe_float(confirmation.get("score") or confirmation.get("confirmation_score"))
+    return bool(score is not None and score >= 85 and re.search(r"\b(strong|accelerat\w+|upside|beat and raise)\b", text))
+
+
+def _earnings_business_very_weak(fundamentals: dict[str, Any], confirmation: dict[str, Any], text: str) -> bool:
+    try:
+        revenue_growth = fundamentals.get("revenue_growth")
+        if revenue_growth is not None and float(revenue_growth) <= -15:
+            return True
+    except (TypeError, ValueError):
+        pass
+    score = _safe_float(confirmation.get("score") or confirmation.get("confirmation_score"))
+    return bool(score is not None and score <= 25 and re.search(r"\b(deteriorat\w+|guide down|demand weakness|margin collapse)\b", text))
+
+
 def _earnings_setup_expensive(fundamentals: dict[str, Any], financials: dict[str, Any], text: str) -> bool:
     for key, threshold in (("forward_pe", 25), ("trailing_pe", 30), ("price_to_sales", 6), ("ev_to_ebitda", 20)):
         try:
@@ -839,38 +973,46 @@ def _missing_required_earnings_data(availability: dict[str, Any]) -> bool:
     return missing_count >= 3
 
 
-def _earnings_setup_confidence(label: str, current: str, context: dict[str, Any]) -> str:
+def _earnings_setup_confidence(walnut_call: str, current: str, context: dict[str, Any]) -> str:
     current = current if current in {"low", "medium", "high"} else "medium"
     missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
-    if label == "insufficient data" or len(missing) >= 4:
+    if walnut_call == "Insufficient data to make a call" or len(missing) >= 4:
         return "low"
     if missing:
         return "medium" if current == "high" else current
     return current
 
 
-def _earnings_setup_judgment_explanation(label: str, article: dict[str, Any], context: dict[str, Any]) -> str:
+def _earnings_setup_judgment_explanation(walnut_call: str, article: dict[str, Any], context: dict[str, Any]) -> str:
     symbol = (((context.get("primary") or {}).get("identity") or {}).get("symbol") or article.get("primary_ticker") or "The company")
     symbol = str(symbol).upper()
     business_sentence = _earnings_business_sentence(symbol, context)
     issue = {
-        "clean bullish setup": "The market issue is whether results and guidance can confirm that strength without a valuation reset.",
-        "constructive but expensive": "The market issue is that valuation and expectations already price in a lot of the resilience.",
-        "expensive defensive setup": "The market issue is that investors are already paying for resilience, recurring revenue quality, buybacks, and institutional safety.",
-        "capex-risk setup": "The market issue is whether capex intensity and free cash flow conversion can keep pace with the core business strength.",
-        "mixed / wait for the print": "The market issue is that bull and bear evidence are close enough that the print needs to resolve the setup.",
-        "bearish setup": "The market issue is that the available data leans negative into the print rather than merely uncertain.",
-        "insufficient data": "The market issue is that required primary data is unavailable, so a directional setup would be false precision.",
-    }[label]
+        "Very bullish": "The market issue is whether results and guidance can confirm an already strong operating read.",
+        "Bullish": "The market issue is whether results and guidance can confirm that strength without a valuation reset.",
+        "Bullish but expensive": "The market issue is that valuation and expectations already price in a lot of the resilience.",
+        "Neutral": "The market issue is that the business is not broken, but the setup does not justify a cleaner directional call.",
+        "Neutral but expensive": "The market issue is that investors are already paying for resilience, recurring revenue quality, buybacks, and institutional safety.",
+        "Neutral with capex risk": "The market issue is whether capex intensity and free cash flow conversion can keep pace with the core business strength.",
+        "Mixed with capex risk": "The market issue is whether capex intensity and free cash flow conversion overwhelm the stronger parts of the business.",
+        "Mixed": "The market issue is that bull and bear evidence are close enough that the print needs to resolve the setup.",
+        "Bearish": "The market issue is that the available data leans negative into the print rather than merely uncertain.",
+        "Very bearish": "The market issue is that both operating evidence and market setup lean against the stock into the print.",
+        "Insufficient data to make a call": "The market issue is that required primary data is unavailable, so a directional call would be false precision.",
+    }[walnut_call]
     confirm = {
-        "capex-risk setup": "Confirmation would be stronger ad or revenue momentum with capex and free cash flow guidance that does not worsen; the setup breaks if spending absorbs the upside.",
-        "expensive defensive setup": "Confirmation would be durable growth, margin discipline, and measurable AI or product contribution; the setup breaks if the print shows safety was already fully priced.",
-        "constructive but expensive": "Confirmation would be upside to growth or margins that justifies the multiple; the setup breaks if guidance is merely in line while expectations stay high.",
-        "clean bullish setup": "Confirmation would be upside in the core operating metrics plus supportive guidance; the setup breaks if demand or margins roll over.",
-        "mixed / wait for the print": "Confirmation would require the print to break the tie in growth, margins, guidance, or cash flow; a weak guide would tilt it bearish.",
-        "bearish setup": "Confirmation would require management to reverse the weak operating signal with guidance or margin improvement; otherwise the bear case remains in control.",
-        "insufficient data": "The setup can be revisited once official results, estimate context, current market state, and our confirmation context are available.",
-    }[label]
+        "Very bullish": "Confirmation would be upside in the core operating metrics plus guidance that extends the strength; the call breaks if demand or margins roll over.",
+        "Bullish": "Confirmation would be upside in the core operating metrics plus supportive guidance; the call breaks if demand or margins roll over.",
+        "Bullish but expensive": "Confirmation would be upside to growth or margins that justifies the multiple; the call breaks if guidance is merely in line while expectations stay high.",
+        "Neutral": "Confirmation would require a cleaner growth, margin, or guidance signal; the call breaks lower if the print shows demand or margin pressure.",
+        "Neutral but expensive": "Confirmation would be durable growth, margin discipline, and measurable AI or product contribution; the call breaks if the print shows safety was already fully priced.",
+        "Neutral with capex risk": "Confirmation would be stronger revenue momentum with capex and free cash flow guidance that does not worsen; the call breaks if spending absorbs the upside.",
+        "Mixed with capex risk": "Confirmation would be stronger revenue momentum with capex and free cash flow guidance that does not worsen; the call breaks if spending absorbs the upside.",
+        "Mixed": "Confirmation would require the print to break the tie in growth, margins, guidance, or cash flow; a weak guide would tilt it bearish.",
+        "Bearish": "Confirmation would require management to reverse the weak operating signal with guidance or margin improvement; otherwise the bear case remains in control.",
+        "Very bearish": "Confirmation would require a material reversal in operating trends or guidance; otherwise the bear case remains in control.",
+        "Insufficient data to make a call": "The call can be revisited once official results, estimate context, current market state, and our confirmation context are available.",
+    }[walnut_call]
     return " ".join([business_sentence, issue, confirm])
 
 
@@ -1025,8 +1167,24 @@ def _article_body_text(article: dict[str, Any]) -> str:
     )
 
 
+def _article_public_text(article: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("title", "subtitle", "summary", "preview_body"):
+        if isinstance(article.get(key), str):
+            parts.append(str(article[key]))
+    for key in ("key_points", "catalysts", "risks", "watch_items", "data_freshness", "missing_data_notes"):
+        if isinstance(article.get(key), list):
+            parts.extend(str(item) for item in article[key])
+    suggested = article.get("suggested_card") if isinstance(article.get("suggested_card"), dict) else {}
+    for key in ("title", "description"):
+        if isinstance(suggested.get(key), str):
+            parts.append(str(suggested[key]))
+    parts.append(_article_body_text(article))
+    return "\n".join(parts)
+
+
 def _article_mentions_confirmation_score(article: dict[str, Any]) -> bool:
-    return bool(re.search(r"\bconfirmation score\b", _article_body_text(article), flags=re.IGNORECASE))
+    return bool(re.search(r"\bconfirmation score\b", _article_public_text(article), flags=re.IGNORECASE))
 
 
 def _article_mentions_cross_source_confirmations(article: dict[str, Any]) -> bool:
@@ -1042,11 +1200,15 @@ def _is_earnings_setup_context(context: dict[str, Any]) -> bool:
 
 
 def _article_earnings_judgment_label(article: dict[str, Any]) -> str | None:
-    match = re.search(r"\bWalnut judgment:\s*([^\n.]+)", _article_body_text(article), flags=re.IGNORECASE)
-    if not match:
-        return None
-    label = re.sub(r"\s+", " ", match.group(1).strip().lower())
-    return label if label in EARNINGS_SETUP_JUDGMENT_LABELS else None
+    return _article_walnut_call(article)
+
+
+def _article_walnut_call(article: dict[str, Any]) -> str | None:
+    call = _normalize_walnut_call(article.get("walnut_call"))
+    if call:
+        return call
+    match = re.search(r"\bWalnut call:\s*([^\n*]+)", _article_body_text(article), flags=re.IGNORECASE)
+    return _normalize_walnut_call(match.group(1) if match else None)
 
 
 def _read_store() -> dict[str, Any]:
@@ -1616,6 +1778,25 @@ def _filter_missing_data_notes(notes: list[str], availability: dict[str, bool]) 
     return _dedupe_strings(filtered)
 
 
+def _primary_ticker_prompt_context(primary: dict[str, Any]) -> dict[str, Any]:
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    sources = confirmation.get("sources") if isinstance(confirmation.get("sources"), dict) else {}
+    return _compact(
+        {
+            "confirmation_score": confirmation.get("score") or confirmation.get("confirmation_score"),
+            "confirmation_score_label": confirmation.get("status") or confirmation.get("label") or confirmation.get("direction"),
+            "confirmation_score_window": "30 days",
+            "price_volume_summary": sources.get("price_volume") or (primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}),
+            "fundamentals_summary": primary.get("fundamentals"),
+            "reported_institutional_summary": primary.get("institutional_activity"),
+            "congress_summary": primary.get("congress_activity"),
+            "insider_summary": primary.get("insider_activity"),
+            "options_flow_summary": sources.get("options_flow"),
+        },
+        limit=2500,
+    )
+
+
 def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     symbol, identity = normalize_supported_symbol(db, payload.get("ticker"))
     comparison_symbols = normalize_comparison_tickers(payload, primary_ticker=symbol)
@@ -1687,6 +1868,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         "include_confirmation_score": bool(payload.get("include_confirmation_score")),
         "include_cross_source_confirmations": bool(payload.get("include_cross_source_confirmations")),
         "primary": primary_context,
+        "primary_ticker_context": _primary_ticker_prompt_context(primary_context),
         "external_research": external_research,
         "data_availability": data_availability,
         "comparison": None,
@@ -2551,18 +2733,18 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
             "Do not say an item was 'not independently verified in reviewed primary sources' when the item is present in Walnut context or marked available in data_availability.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
-            "Only include our proprietary confirmation score if include_confirmation_score is true. Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep these concepts separate.",
+            "Only include our proprietary confirmation score if include_confirmation_score is true. If include_confirmation_score is true, publish the primary ticker score from Walnut context; do not look for it in external reviewed sources. If include_confirmation_score is false, omit it entirely and do not explain that we do not publish it.",
+            "Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep confirmation score and cross-source confirmations separate.",
             "The confirmation score is our proprietary score. Cross-source confirmations are qualitative supporting or contradicting data categories such as price/volume, fundamentals, reported institutional activity, Congress activity, insider activity, government contracts, options flow, and macro positioning. Use 'data,' not 'stack.'",
             "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "For external research, verify official company data, estimates, and guidance with official company materials, SEC filings, or credible market/estimate sources before using them.",
             "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
             "For earnings setup briefs, do not default to 'mixed / wait for the print.' Missing one or two data categories should lower confidence, not automatically force a no-call judgment.",
-            "For earnings setup briefs, the final judgment line must use this exact format: 'Walnut judgment: [label]'. The allowed labels are: "
-            + ", ".join(EARNINGS_SETUP_JUDGMENT_LABELS)
-            + ". Use 'mixed / wait for the print' only when bull and bear evidence is genuinely balanced or required primary data is unavailable.",
-            "For earnings setup briefs, if the business is strong but valuation or expectations are high, use 'constructive but expensive' or 'expensive defensive setup'. If the business is strong but capex/free cash flow is the main market risk, use 'capex-risk setup'. If data leans directionally, make a call.",
-            "After the earnings setup judgment line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the setup.",
+            "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
+            "For earnings setup briefs, use this call format in the final call section: '**Walnut call: [allowed call]**'. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
+            "For earnings setup briefs, if the business is strong but valuation or expectations are high, use Bullish but expensive or Neutral but expensive. If the business is strong but capex/free cash flow is the main market risk, use Neutral with capex risk or Mixed with capex risk. Use Insufficient data to make a call only when required primary data is unavailable.",
+            "After the Walnut call line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the call.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
@@ -2574,6 +2756,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "End with a clear judgment plus a brief research-only disclaimer.",
             "Use first-person plural for our own views, data, takes, and confirmation score. Say 'our take' or 'our confirmation score,' not 'Walnut's take' or 'Walnut's confirmation score.'",
             "The JSON summary is the Insights preview body. Keep it 1-3 sentences and do not duplicate the full post body.",
+            "Return metadata fields walnut_call and confirmation_score_included. confirmation_score_included must reflect whether the score appears in the body.",
             "Section format instructions:",
             section_format,
             "Key missing-field search checklist:",
@@ -2616,7 +2799,9 @@ def article_schema() -> dict[str, Any]:
             "summary",
             "preview_body",
             "judgment",
+            "walnut_call",
             "confidence",
+            "confirmation_score_included",
             "primary_ticker",
             "comparison_tickers",
             "category",
@@ -2639,7 +2824,9 @@ def article_schema() -> dict[str, Any]:
             "summary": {"type": "string"},
             "preview_body": {"type": "string"},
             "judgment": {"type": "string", "enum": sorted(JUDGMENT_VALUES)},
+            "walnut_call": {"type": "string", "enum": WALNUT_CALL_VALUES},
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "confirmation_score_included": {"type": "boolean"},
             "primary_ticker": {"type": "string"},
             "comparison_tickers": {"type": "array", "items": {"type": "string"}},
             "category": {"type": "string"},
@@ -2764,10 +2951,11 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
         blocking = True
     if include_confirmation_score and _confirmation_score_value(context) is None:
-        warnings.append(_warning("confirmation_score_unavailable", "Walnut confirmation score was requested but could not be loaded for the primary ticker.", blocking=True))
+        symbol = (((context.get("primary") or {}).get("identity") or {}).get("symbol") or "the primary ticker")
+        warnings.append(_warning("confirmation_score_unavailable", f"Primary ticker confirmation score could not be loaded for {symbol}.", blocking=True))
         blocking = True
-    if not include_confirmation_score and re.search(r"\bconfirmation score\b", lowered):
-        warnings.append(_warning("confirmation_score_not_requested", "Walnut confirmation score is unchecked, but the post body mentions the confirmation score.", blocking=True))
+    if not include_confirmation_score and _article_mentions_confirmation_score(article):
+        warnings.append(_warning("confirmation_score_not_requested", "Walnut confirmation score is unchecked, but the article mentions the confirmation score.", blocking=True))
         blocking = True
     if not include_cross_source_confirmations and _article_mentions_cross_source_confirmations(article):
         warnings.append(_warning("cross_source_confirmations_not_requested", "Cross-source confirmations are unchecked, but the post body includes cross-source confirmation commentary.", blocking=True))
@@ -2775,13 +2963,20 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if include_cross_source_confirmations and _conflates_confirmation_score_with_data(lowered):
         warnings.append(_warning("confirmation_score_conflated", "Cross-source data categories must not be described as the proprietary confirmation score.", blocking=True))
         blocking = True
+    has_call_metadata = "walnut_call" in article or _is_earnings_setup_context(context)
+    if has_call_metadata and _normalize_walnut_call(article.get("walnut_call")) is None:
+        warnings.append(_warning("invalid_walnut_call", f"Walnut call must be one of: {', '.join(WALNUT_CALL_VALUES)}.", blocking=True))
+        blocking = True
+    if str(article.get("walnut_call") or "").strip().lower().endswith(" setup"):
+        warnings.append(_warning("setup_label_used_as_call", "Do not use setup labels; Walnut call must be the full final judgment.", blocking=True))
+        blocking = True
     if _is_earnings_setup_context(context):
-        earnings_label = _article_earnings_judgment_label(article)
-        if earnings_label not in EARNINGS_SETUP_JUDGMENT_LABELS:
+        earnings_call = _article_walnut_call(article)
+        if earnings_call not in WALNUT_CALL_VALUES:
             warnings.append(
                 _warning(
-                    "earnings_judgment_label",
-                    "Earnings setup briefs must include 'Walnut judgment: [label]' with an allowed earnings setup label.",
+                    "earnings_walnut_call",
+                    "Earnings setup briefs must include a single expanded Walnut call.",
                     blocking=True,
                 )
             )
@@ -2797,6 +2992,10 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         )
         blocking = True
     numeric_claims = sorted(set(re.findall(r"(?<![A-Za-z])(?:\$?\d[\d,]*(?:\.\d+)?%?|\d+\s?bps)(?![A-Za-z])", body)))[:80]
+    numeric_format_issues = _numeric_format_issues(body)
+    if numeric_format_issues:
+        warnings.append(_warning("numeric_formatting", f"Numeric formatting needs cleanup: {', '.join(numeric_format_issues)}.", blocking=True))
+        blocking = True
     if numeric_claims and not _context_has_numbers(context):
         warnings.append(_warning("numeric_claims_without_context", "Numeric claims detected while source context has few numeric fields.", blocking=True))
         labels["source_support"] = "failed"
@@ -2829,6 +3028,7 @@ def _internal_language_hits(lowered_text: str) -> list[str]:
         ("prompt", r"\bprompt\b"),
         ("generated from", r"\bgenerated from\b"),
         ("model was asked", r"\bmodel was asked\b"),
+        ("confirmation score publish filler", r"\bwe do not publish our proprietary confirmation score\b"),
     ]
     for label, pattern in labels:
         if re.search(pattern, lowered_text):
@@ -2914,6 +3114,20 @@ def _available_data_missing_claims(lowered_text: str, context: dict[str, Any]) -
                 contradicted.append(field)
                 break
     return contradicted
+
+
+def _numeric_format_issues(body: str) -> list[str]:
+    text = re.sub(r"https?://\S+", "", str(body or ""))
+    issues: list[str] = []
+    if re.search(r"(?<![\w/])-?\d[\d,]*\.\d{3,}\s*%", text):
+        issues.append("percentage has more than 2 decimal places")
+    if re.search(r"(?<![\w/])-?\d[\d,]*\.\d{3,}\s*x\b", text, flags=re.IGNORECASE):
+        issues.append("ratio has raw decimal precision")
+    if re.search(r"\$-?\d{7,}(?:\.\d+)?\b", text):
+        issues.append("large currency value should be compacted")
+    if re.search(r"(?<![\w/])-?\d+\.\d{6,}(?![\w/])", text):
+        issues.append("raw floating point artifact")
+    return _dedupe_strings(issues)
 
 
 def _conflates_confirmation_score_with_data(lowered_text: str) -> bool:
@@ -3098,7 +3312,9 @@ def _mock_article(config: dict[str, Any], context: dict[str, Any]) -> dict[str, 
         "summary": f"Draft research brief for {symbol}. Research only. Not investment advice.",
         "preview_body": f"{symbol} has a mixed setup: available data supports review, but missing fields keep the conclusion cautious. Research only. Not investment advice.",
         "judgment": "mixed",
+        "walnut_call": "Mixed",
         "confidence": "medium",
+        "confirmation_score_included": False,
         "primary_ticker": symbol,
         "comparison_tickers": list(config.get("comparison_tickers") or []),
         "category": context["primary"]["identity"].get("sector") or "Research",

@@ -297,6 +297,13 @@ function markerSecondaryLine(event: TickerChartMarker): string {
       : "";
     return `${formatDate(event.meta.transaction_date ?? event.date)}${filing} / ${event.action} / ${shares ? `${shares}${price}` : value}${signal}`;
   }
+  if ((event.kind === "congress" || event.kind === "signals") && event.meta?.transaction_date) {
+    const disclosed = event.meta.report_date ? ` / Disclosed ${formatDate(event.meta.report_date)}` : "";
+    const signal = event.meta.signal_label || typeof event.meta.signal_score === "number"
+      ? ` / ${event.meta.signal_label ?? "Signal"}${typeof event.meta.signal_score === "number" ? ` ${event.meta.signal_score.toFixed(0)}` : ""}`
+      : "";
+    return `Trade ${formatDate(event.meta.transaction_date)}${disclosed} / ${event.action} / ${formatAmountRange(event.amount_min, event.amount_max)}${signal}`;
+  }
   if (event.kind === "government_contract") {
     const amount = formatCurrencyCompact(event.meta?.amount ?? event.amount_max ?? event.amount_min);
     const agency = event.meta?.agency?.trim() || "Agency unavailable";

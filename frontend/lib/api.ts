@@ -4073,6 +4073,9 @@ export type SignalItem = {
   chamber?: string;
   state?: string | null;
   trade_type?: string;
+  trade_date?: string | null;
+  transaction_date?: string | null;
+  report_date?: string | null;
   amount_min?: number;
   amount_max?: number;
   baseline_median_amount_max?: number;
@@ -5638,7 +5641,9 @@ export type AdminResearchBriefArticle = {
   summary: string;
   preview_body?: string;
   judgment: string;
+  walnut_call?: string;
   confidence?: string;
+  confirmation_score_included?: boolean;
   primary_ticker: string;
   comparison_tickers: string[];
   category: string;

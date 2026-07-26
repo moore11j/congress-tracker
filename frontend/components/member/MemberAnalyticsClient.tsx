@@ -1040,13 +1040,13 @@ export function MemberAnalyticsClient({
             ) : recentTrades.length === 0 ? (
               <p className="text-sm text-slate-400">No recent trades for this member.</p>
             ) : (
-              <table className="w-full min-w-[620px] text-left text-sm">
+              <table className="w-full min-w-[680px] text-left text-sm">
                 <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
                   <tr>
                     <th className="pb-3 font-medium">Date disclosed</th>
-                    <th className="pb-3 font-medium">Ticker</th>
+                    <th className="pb-3 font-medium">Trade date</th>
                     <th className="pb-3 font-medium">Type</th>
-                    <th className="pb-3 font-medium">Asset type</th>
+                    <th className="pb-3 font-medium">Ticker</th>
                     <th className="pb-3 font-medium">Est. range</th>
                     <th className="pb-3 font-medium">Gain/Loss</th>
                     <th className="pb-3 font-medium">Signal</th>
@@ -1060,9 +1060,9 @@ export function MemberAnalyticsClient({
                     return (
                       <tr key={trade.event_id ?? trade.id}>
                         <td className="py-2.5 text-slate-300">{trade.report_date ? formatDateShort(trade.report_date) : "—"}</td>
-                        <td className="py-2.5"><TickerPill symbol={trade.symbol ?? "—"} href={trade.symbol ? tickerHref(trade.symbol) ?? undefined : undefined} /></td>
+                        <td className="py-2.5 text-slate-300">{trade.trade_date ? formatDateShort(trade.trade_date) : "—"}</td>
                         <td className="py-2.5"><Badge tone={sideTone}>{sideLabel}</Badge></td>
-                        <td className="py-2.5 text-slate-300">{trade.asset_class || trade.instrument_type || "Security"}</td>
+                        <td className="py-2.5"><TickerPill symbol={trade.symbol ?? "—"} href={trade.symbol ? tickerHref(trade.symbol) ?? undefined : undefined} /></td>
                         <td className="py-2.5 text-slate-300">
                           {rangeLabel(trade.amount_range_min, trade.amount_range_max)}
                           <span className="hidden">

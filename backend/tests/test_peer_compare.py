@@ -191,3 +191,65 @@ def test_peer_compare_pro_tier_unlocks_pro_sources(monkeypatch):
     assert by_key["confirmation_score"]["edge"] == "left"
     assert by_key["institutional_activity"]["edge"] == "left"
     assert by_key["options_flow"]["edge"] == "left"
+
+
+def test_peer_compare_hides_removed_activity_metrics_and_weights_confirmation(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _fundamentals("MU", revenue_growth=49, roe=24, forward_pe=20),
+                _fundamentals("TSM", revenue_growth=33, roe=18, forward_pe=20),
+            ]
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda _db, _symbol: {"direction": "neutral", "change_pct_1d": 0.0, "volume_vs_avg": 1.0},
+        )
+        monkeypatch.setattr(
+            main_module,
+            "get_government_contracts_summary",
+            lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0},
+        )
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_confirmation_context",
+            lambda _db, symbol: {
+                "confirmation_score_bundle": {
+                    "score": 59 if symbol == "MU" else 89,
+                    "direction": "mixed" if symbol == "MU" else "bullish",
+                    "sources": {},
+                },
+                "institutional_activity_summary": {
+                    "status": "ok",
+                    "direction": "bullish",
+                    "net_activity": 14_389_039_618 if symbol == "MU" else 24_399_276_572,
+                    "holder_breadth": 100 if symbol == "MU" else 1,
+                },
+                "options_flow_summary": {"status": "ok", "direction": "neutral", "score": None, "total_premium": None},
+            },
+        )
+
+        payload = main_module._build_peer_compare_payload(
+            db,
+            "MU",
+            "TSM",
+            entitlements=ENTITLEMENTS["pro"],
+            authenticated=True,
+        )
+
+    by_key = {category["key"]: category for category in payload["categories"]}
+    congress_metric_keys = {metric["key"] for metric in by_key["congress_activity"]["metrics"]}
+    insider_metric_keys = {metric["key"] for metric in by_key["insider_activity"]["metrics"]}
+    institutional_metric_keys = {metric["key"] for metric in by_key["institutional_activity"]["metrics"]}
+
+    assert "unique_traders" not in congress_metric_keys
+    assert "unique_traders" not in insider_metric_keys
+    assert "holder_breadth" not in institutional_metric_keys
+    assert by_key["institutional_activity"]["edge"] == "right"
+    assert by_key["confirmation_score"]["edge"] == "right"
+    assert payload["call"]["winner"] == "right"
+    assert payload["call"]["symbol"] == "TSM"

@@ -8830,7 +8830,7 @@ _PEER_COMPARE_CATEGORY_WEIGHTS = {
     "government_contracts": 1.0,
     "institutional_activity": 1.5,
     "options_flow": 1.5,
-    "confirmation_score": 1.0,
+    "confirmation_score": 2.0,
 }
 
 
@@ -9133,7 +9133,6 @@ def _peer_compare_trade_category(key: str, label: str, left: dict[str, Any], rig
     metrics = [
         _peer_compare_metric("buy_count", "Buys", left.get("buy_count"), right.get("buy_count"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("buy_count")), _peer_compare_num(right.get("buy_count")), higher_better=True, abs_threshold=1.0)),
         _peer_compare_metric("sell_count", "Sells", left.get("sell_count"), right.get("sell_count"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("sell_count")), _peer_compare_num(right.get("sell_count")), higher_better=False, abs_threshold=1.0)),
-        _peer_compare_metric("unique_traders", "Unique Traders", left.get("unique_traders"), right.get("unique_traders"), unit="integer", edge=_peer_compare_edge_from_metric(_peer_compare_num(left.get("unique_traders")), _peer_compare_num(right.get("unique_traders")), higher_better=True, abs_threshold=1.0)),
         _peer_compare_metric("net_skew", "Buy / Sell Skew", left_skew, right_skew, unit="integer", edge=edge),
     ]
     return {"key": key, "label": label, "edge": edge, "score": 1 if edge == "left" else -1 if edge == "right" else 0, "metrics": metrics}
@@ -9170,8 +9169,7 @@ def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dic
     right = right if isinstance(right, dict) else {}
     dir_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
     net_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), higher_better=True, rel_threshold=0.1)
-    breadth_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("holder_breadth")), _peer_compare_num(right.get("holder_breadth")), higher_better=True, abs_threshold=1.0)
-    score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, net_edge, breadth_edge))
+    score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, net_edge))
     return {
         "key": "institutional_activity",
         "label": "Reported Institutional Activity",
@@ -9180,7 +9178,6 @@ def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dic
         "metrics": [
             _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=dir_edge),
             _peer_compare_metric("net_activity", "Net Activity", _peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), unit="number", edge=net_edge),
-            _peer_compare_metric("holder_breadth", "Holder Breadth", _peer_compare_num(left.get("holder_breadth")), _peer_compare_num(right.get("holder_breadth")), unit="integer", edge=breadth_edge),
         ],
     }
 
@@ -9237,7 +9234,12 @@ def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dic
         if edge not in {"left", "right"}:
             continue
         weight = float(_PEER_COMPARE_CATEGORY_WEIGHTS.get(str(category.get("key")), 1.0))
-        weighted += weight if edge == "left" else -weight
+        direction = 1.0 if edge == "left" else -1.0
+        if category.get("key") == "confirmation_score":
+            score_units = max(1.0, abs(_peer_compare_num(category.get("score")) or 0.0))
+            weighted += direction * weight * score_units
+        else:
+            weighted += direction * weight
         used.append(category)
     if weighted >= 2.0:
         winner = "left"
@@ -9258,7 +9260,7 @@ def _peer_compare_call(left_symbol: str, right_symbol: str, categories: list[dic
         "score": round(weighted, 2),
         "summary": summary,
         "drivers": drivers,
-        "methodology": "Weighted category call with materiality thresholds; gated categories are excluded until entitled.",
+        "methodology": "Weighted category call with materiality thresholds; confirmation score uses score and direction strength, and gated categories are excluded until entitled.",
     }
 
 
@@ -10067,7 +10069,58 @@ def _ticker_chart_contract_day(event: Event, payload: dict) -> str | None:
 def _ticker_chart_event_day(event: Event, payload: dict) -> str | None:
     if event.event_type in GOVERNMENT_CONTRACT_EVENT_TYPES:
         return _ticker_chart_contract_day(event, payload)
+    if event.event_type == "congress_trade":
+        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+        for value in (
+            payload.get("trade_date"),
+            payload.get("tradeDate"),
+            payload.get("transaction_date"),
+            payload.get("transactionDate"),
+            nested_payload.get("trade_date"),
+            nested_payload.get("tradeDate"),
+            nested_payload.get("transaction_date"),
+            nested_payload.get("transactionDate"),
+            raw.get("trade_date"),
+            raw.get("tradeDate"),
+            raw.get("transaction_date"),
+            raw.get("transactionDate"),
+        ):
+            day = _ticker_chart_date_key(value)
+            if day:
+                return day
     return ticker_event_date_key(event)
+
+
+def _ticker_chart_report_day(event: Event, payload: dict) -> str | None:
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    for value in (
+        payload.get("report_date"),
+        payload.get("reportDate"),
+        payload.get("filing_date"),
+        payload.get("filingDate"),
+        payload.get("disclosure_date"),
+        payload.get("disclosureDate"),
+        nested_payload.get("report_date"),
+        nested_payload.get("reportDate"),
+        nested_payload.get("filing_date"),
+        nested_payload.get("filingDate"),
+        nested_payload.get("disclosure_date"),
+        nested_payload.get("disclosureDate"),
+        raw.get("report_date"),
+        raw.get("reportDate"),
+        raw.get("filing_date"),
+        raw.get("filingDate"),
+        raw.get("disclosure_date"),
+        raw.get("disclosureDate"),
+        event.event_date,
+        event.ts,
+    ):
+        day = _ticker_chart_date_key(value)
+        if day:
+            return day
+    return None
 
 
 def _ticker_chart_insider_actor(event: Event, payload: dict) -> str:
@@ -10161,12 +10214,23 @@ def _ticker_chart_event_marker(event: Event, *, start_key: str, end_key: str) ->
         "score": None,
         "band": None,
         "label": None,
-        "meta": None,
+        "meta": {
+            "trade_date": day,
+            "transaction_date": day,
+            "report_date": _ticker_chart_report_day(event, payload),
+        } if kind == "congress" else None,
     }
 
 
 def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict | None:
-    day = _ticker_chart_date_key(getattr(signal, "ts", None))
+    kind = getattr(signal, "kind", None)
+    trade_day = None
+    if kind == "congress":
+        trade_day = _ticker_chart_date_key(
+            getattr(signal, "trade_date", None)
+            or getattr(signal, "transaction_date", None)
+        )
+    day = trade_day or _ticker_chart_date_key(getattr(signal, "ts", None))
     if not day or day < start_key or day > end_key:
         return None
     event_id = getattr(signal, "event_id", None)
@@ -10191,7 +10255,14 @@ def _ticker_chart_signal_marker(signal, *, start_key: str, end_key: str) -> dict
         "score": score,
         "band": band,
         "label": None,
-        "meta": None,
+        "meta": {
+            "trade_date": trade_day,
+            "transaction_date": trade_day,
+            "report_date": _ticker_chart_date_key(getattr(signal, "report_date", None)) or _ticker_chart_date_key(getattr(signal, "ts", None)),
+            "signal_score": score,
+            "signal_label": action,
+            "source_event_id": event_id,
+        } if kind == "congress" else None,
     }
 
 

@@ -52,6 +52,10 @@ function formatSignalDate(value?: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function signalDisplayDate(item: SignalItem): string {
+  return item.trade_date ?? item.transaction_date ?? item.ts;
+}
+
 function titleCase(value?: string | null): string {
   const normalized = (value ?? "").replace(/_/g, " ").trim();
   if (!normalized) return "--";
@@ -303,6 +307,7 @@ export function SignalsResultsClient({
               const roleTone = insiderRoleBadgeTone(roleCode);
               const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(item.who, rawPosition));
               const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(item));
+              const displayDate = signalDisplayDate(item);
 
               return (
                 <article key={item.event_id} className="px-4 py-4">
@@ -329,7 +334,7 @@ export function SignalsResultsClient({
                   </div>
 
                   <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 text-xs text-slate-400">
-                    <span className="font-mono text-[12px] text-slate-300" title={item.ts}>{formatSignalDate(item.ts)}</span>
+                    <span className="font-mono text-[12px] text-slate-300" title={displayDate}>{formatSignalDate(displayDate)}</span>
                     <div className="min-w-0">
                       {isInsider ? (
                         <div className="flex min-w-0 items-center gap-2">
@@ -434,9 +439,10 @@ export function SignalsResultsClient({
                 const roleTone = insiderRoleBadgeTone(roleCode);
                 const insiderName = getInsiderDisplayName(resolveInsiderDisplayName(item.who, rawPosition));
                 const insiderProfileHref = insiderHref(insiderName, resolveSignalReportingCik(item));
+                const displayDate = signalDisplayDate(item);
                 return (
                   <tr key={item.event_id} className="hover:bg-slate-900/20">
-                    <td className="px-2 py-3 text-slate-300 xl:px-3"><span className="font-mono text-[12px]" title={item.ts}>{formatSignalDate(item.ts)}</span></td>
+                    <td className="px-2 py-3 text-slate-300 xl:px-3"><span className="font-mono text-[12px]" title={displayDate}>{formatSignalDate(displayDate)}</span></td>
                     <td className="px-2 py-3 xl:px-3">
                       <div className="flex min-w-0 items-center gap-1.5 xl:gap-2">
                         {item.symbol ? <AddTickerToWatchlist symbol={item.symbol} variant="compact" align="left" /> : null}

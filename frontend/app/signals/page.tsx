@@ -44,6 +44,9 @@ type SignalItem = {
   party?: string;
   chamber?: string;
   trade_type?: string;
+  trade_date?: string | null;
+  transaction_date?: string | null;
+  report_date?: string | null;
   amount_min?: number;
   amount_max?: number;
   baseline_median_amount_max?: number;
@@ -189,6 +192,10 @@ function formatSignalDate(value?: string): string {
   if (!trimmed) return "--";
   const dateOnly = trimmed.split("T")[0]?.split(" ")[0];
   return dateOnly || trimmed;
+}
+
+function signalDisplayDate(item: SignalItem): string {
+  return item.trade_date ?? item.transaction_date ?? item.ts;
 }
 
 function normalizeSide(tradeType?: string | null): "buy" | "sell" | "buy_or_sell" | "award" | "inkind" | "exempt" | "return" | null {
@@ -481,6 +488,7 @@ async function SignalsResultsSection({
               const institutionProfileHref = isInstitutional
                 ? institutionHref(it.reporting_cik ?? it.reportingCik ?? it.member_bioguide_id)
                 : null;
+              const displayDate = signalDisplayDate(it);
 
               return (
                 <article key={it.event_id} className="px-4 py-4">
@@ -507,7 +515,7 @@ async function SignalsResultsSection({
                   </div>
 
                   <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 text-xs text-slate-400">
-                    <span className="font-mono text-[12px] text-slate-300" title={it.ts}>{formatSignalDate(it.ts)}</span>
+                    <span className="font-mono text-[12px] text-slate-300" title={displayDate}>{formatSignalDate(displayDate)}</span>
                     <div className="min-w-0">
                       {isInsider ? (
                         <div className="flex min-w-0 items-center gap-2">
@@ -619,10 +627,11 @@ async function SignalsResultsSection({
                 const institutionProfileHref = isInstitutional
                   ? institutionHref(it.reporting_cik ?? it.reportingCik ?? it.member_bioguide_id)
                   : null;
+                const displayDate = signalDisplayDate(it);
                 return (
                   <tr key={it.event_id} className="hover:bg-slate-900/20">
                     <td className="px-2 py-3 text-slate-300 xl:px-3">
-                      <span className="font-mono text-[12px]" title={it.ts}>{formatSignalDate(it.ts)}</span>
+                      <span className="font-mono text-[12px]" title={displayDate}>{formatSignalDate(displayDate)}</span>
                     </td>
                     <td className="px-2 py-3 xl:px-3">
                       <div className="flex min-w-0 items-center gap-1.5 xl:gap-2">

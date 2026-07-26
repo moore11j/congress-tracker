@@ -81,6 +81,19 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
 };
 
 const GENERATION_POLL_TIMEOUT_MS = 6 * 60 * 1000;
+const WALNUT_CALL_VALUES = [
+  "Very bullish",
+  "Bullish",
+  "Bullish but expensive",
+  "Neutral",
+  "Neutral but expensive",
+  "Neutral with capex risk",
+  "Mixed with capex risk",
+  "Mixed",
+  "Bearish",
+  "Very bearish",
+  "Insufficient data to make a call",
+];
 
 const fallbackOptions: ResearchBriefOptions = {
   angles: [
@@ -235,6 +248,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
   const comparisonTickerLimitError = comparisonTickers.length > 5 ? "Comparison tickers are limited to 5 symbols." : "";
   const hasComparisonTickerErrors = Boolean(comparisonTickerLimitError || Object.keys(comparisonTickerErrors).length);
   const generationJobActive = activeJob?.status === "queued" || activeJob?.status === "running";
+  const walnutCallInvalid = Boolean(articleDraft?.walnut_call && !WALNUT_CALL_VALUES.includes(articleDraft.walnut_call));
 
   useEffect(() => {
     let alive = true;
@@ -797,6 +811,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
             onRefreshSources={refreshSources}
             onRegenerate={regenerateWith}
             blockingWarnings={blockingWarnings.length}
+            walnutCallInvalid={walnutCallInvalid}
           />
         </div>
       ) : null}
@@ -876,7 +891,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
           <h3 className="text-base font-semibold text-white">Research Brief Card Preview</h3>
           <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/60 p-4">
             <span className="rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-200">
-              {selectedCard?.judgment || articleDraft?.judgment || "Draft"}
+              {articleDraft?.walnut_call || selectedCard?.judgment || articleDraft?.judgment || "Draft"}
             </span>
             <p className="mt-3 text-lg font-semibold text-white">{selectedCard?.title || articleDraft?.title || "No draft selected"}</p>
             <p className="mt-2 text-sm leading-6 text-slate-400">{selectedCard?.description || articleDraft?.summary || "Generated card copy will appear here."}</p>
@@ -1056,6 +1071,7 @@ function EditorPanel({
   onRefreshSources,
   onRegenerate,
   blockingWarnings,
+  walnutCallInvalid,
 }: {
   draft: AdminResearchBriefDraft | null;
   article: AdminResearchBriefArticle | null;
@@ -1071,6 +1087,7 @@ function EditorPanel({
   onRefreshSources: () => void;
   onRegenerate: (change: string) => void;
   blockingWarnings: number;
+  walnutCallInvalid: boolean;
 }) {
   if (!draft || !article) {
     return (
@@ -1114,6 +1131,10 @@ function EditorPanel({
             <input value={article.hero_image || ""} onChange={(event) => onArticleChange("hero_image", event.target.value)} className={fieldClassName()} placeholder="Hero image URL/path" />
             <input value={article.subtitle} onChange={(event) => onArticleChange("subtitle", event.target.value)} className={fieldClassName()} placeholder="Hero title / subtitle" />
             <input value={article.judgment} onChange={(event) => onArticleChange("judgment", event.target.value)} className={fieldClassName()} placeholder="Judgment" />
+            <select value={article.walnut_call || ""} onChange={(event) => onArticleChange("walnut_call", event.target.value)} className={fieldClassName()}>
+              <option value="">Walnut call</option>
+              {WALNUT_CALL_VALUES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
             <input value={article.category} onChange={(event) => onArticleChange("category", event.target.value)} className={fieldClassName()} placeholder="Category / tone" />
             <input value={String(article.reading_minutes || "")} onChange={(event) => onArticleChange("reading_minutes", Number(event.target.value) || 1)} className={fieldClassName()} placeholder="Reading time" />
           </div>
@@ -1137,6 +1158,11 @@ function EditorPanel({
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
             This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.
+          </div>
+        ) : null}
+        {walnutCallInvalid ? (
+          <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
+            Walnut call must use the approved expanded call taxonomy.
           </div>
         ) : null}
         {article.source_links?.length ? (
@@ -1174,7 +1200,7 @@ function EditorPanel({
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Make the framing more balanced without weakening the final judgment.")}>Make More Neutral</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the title.")}>Improve Title</Button>
           <Button disabled={Boolean(busy)} onClick={() => onRegenerate("Improve the final Walnut judgment.")}>Improve Walnut Judgment</Button>
-          <Button tone="primary" disabled={Boolean(busy) || blockingWarnings > 0 || draft.validation?.status === "failed" || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
+          <Button tone="primary" disabled={Boolean(busy) || walnutCallInvalid || blockingWarnings > 0 || draft.validation?.status === "failed" || (draft.validation?.source_link_count || 0) === 0} onClick={onPublish}>Publish</Button>
           <Button disabled={Boolean(busy) || draft.status !== "published"} onClick={onUnpublish}>Unpublish</Button>
           <Button tone="danger" disabled={Boolean(busy)} onClick={onDelete}>Delete Draft</Button>
         </div>

@@ -2683,6 +2683,19 @@ function ActivityCardGrid({
   );
 }
 
+function CongressDateLabel({ disclosedDate, tradeDate }: { disclosedDate: string | null; tradeDate: string | null }) {
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="text-slate-500">Disclosed</span> {formatDateShort(disclosedDate)}
+      </div>
+      <div>
+        <span className="text-slate-500">Trade</span> {formatDateShort(tradeDate)}
+      </div>
+    </div>
+  );
+}
+
 function DeferredTickerSummarySkeleton() {
   return (
     <div className="space-y-6">
@@ -2822,6 +2835,10 @@ async function resolveTickerActivityData({
   ].join("|")).filter((signal) => {
     const key = toDateKey(signal.ts);
     return Boolean(key && key >= lookbackStartKey);
+  }).sort((a, b) => {
+    const left = toDateKey(a.report_date ?? a.ts) ?? "";
+    const right = toDateKey(b.report_date ?? b.ts) ?? "";
+    return right.localeCompare(left) || Number(b.event_id ?? 0) - Number(a.event_id ?? 0);
   });
 
   const filteredEvents = side === "all"
@@ -3358,7 +3375,12 @@ async function DeferredTickerContent({
                                 </div>
                               }
                               sideBadge={<Badge tone={transactionTone(event.trade_type)}>{formatTransactionLabel(event.trade_type)}</Badge>}
-                              dateLabel={formatDateShort(resolveCongressReportDate(event))}
+                              dateLabel={
+                                <CongressDateLabel
+                                  disclosedDate={resolveCongressReportDate(event)}
+                                  tradeDate={resolveCongressTradeDate(event)}
+                                />
+                              }
                               price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
                               tradeValue={formatCurrencyRange(event.amount_min ?? null, event.amount_max ?? null)}
                               pnl={pnl !== null ? formatPnl(pnl) : "-"}
@@ -3581,7 +3603,16 @@ async function DeferredTickerContent({
                             </div>
                           }
                           sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
-                          dateLabel={formatDateShort(signal.ts)}
+                          dateLabel={
+                            isCongressSignal ? (
+                              <CongressDateLabel
+                                disclosedDate={signal.report_date ?? signal.ts}
+                                tradeDate={signal.trade_date ?? signal.transaction_date ?? null}
+                              />
+                            ) : (
+                              formatDateShort(signal.ts)
+                            )
+                          }
                           price={displayPrice !== null ? formatCurrency(displayPrice) : "-"}
                           tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
                           pnl={pnl !== null ? formatPnl(pnl) : "-"}

@@ -386,6 +386,7 @@ def test_confirmation_preferences_pass_booleans_and_add_requested_sections(tmp_p
     assert '"include_confirmation_score": true' in captured["input"]
     assert '"include_cross_source_confirmations": true' in captured["input"]
     assert "Our proprietary confirmation score is 79/100" in body
+    assert draft["article"]["confirmation_score_included"] is True
     assert "Walnut's proprietary confirmation score" not in body
     assert "Cross-source confirmations" in body
     assert "supported by fundamentals, reported institutional activity" in body
@@ -411,6 +412,8 @@ def test_confirmation_preferences_omit_unchecked_score_and_cross_source(tmp_path
     body = "\n\n".join(f"{section['heading']}\n{section['body_markdown']}" for section in draft["article"]["sections"])
 
     assert "confirmation score" not in body.lower()
+    assert "we do not publish our proprietary confirmation score" not in body.lower()
+    assert draft["article"]["confirmation_score_included"] is False
     assert "cross-source confirmation" not in body.lower()
     assert draft["config"]["include_confirmation_score"] is False
     assert draft["config"]["include_cross_source_confirmations"] is False
@@ -452,6 +455,36 @@ def test_confirmation_score_disabled_blocks_score_language():
 
     assert validation["status"] == "failed"
     assert any(warning["code"] == "confirmation_score_not_requested" for warning in validation["warnings"])
+
+
+def test_confirmation_score_publish_filler_is_removed_when_score_requested():
+    cleaned = service.sanitize_research_brief_article(
+        {
+            "title": "AAPL score filler",
+            "slug": "aapl-score-filler",
+            "subtitle": "Research only. Not investment advice.",
+            "summary": "Research only. Not investment advice.",
+            "preview_body": "Research only. Not investment advice.",
+            "judgment": "mixed",
+            "sections": [
+                {
+                    "key": "body",
+                    "heading": "Executive thesis",
+                    "body_markdown": "We do not publish our proprietary confirmation score for AAPL in this brief. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/ " + "word " * 220,
+                }
+            ],
+            "source_links": [
+                {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
+                {"label": "IR", "url": "https://investor.example.com/", "source_type": "company"},
+            ],
+        },
+        {"include_confirmation_score": True},
+        {"primary": {"identity": {"symbol": "AAPL"}, "confirmation": _confirmation_bundle(74)}, "include_confirmation_score": True},
+    )
+    body = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "we do not publish our proprietary confirmation score" not in body.lower()
+    assert "Our proprietary confirmation score is 74/100" in body
 
 
 def test_cross_source_confirmation_validation_keeps_score_separate():
@@ -616,7 +649,9 @@ def _earnings_article(body: str, symbol: str = "AAPL") -> dict:
         "summary": "Research only. Not investment advice.",
         "preview_body": "Research only. Not investment advice.",
         "judgment": "mixed",
+        "walnut_call": "Mixed",
         "confidence": "medium",
+        "confirmation_score_included": False,
         "primary_ticker": symbol,
         "comparison_tickers": [],
         "category": "Technology",
@@ -681,9 +716,10 @@ def test_aapl_earnings_setup_uses_expensive_defensive_not_wait():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("AAPL"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut judgment: expensive defensive setup" in text
+    assert "Walnut call: Neutral but expensive" in text
+    assert "Setup:" not in text
     assert "mixed / wait for the print" not in text
-    assert cleaned["judgment"] == "bullish"
+    assert cleaned["walnut_call"] == "Neutral but expensive"
 
 
 def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
@@ -697,7 +733,8 @@ def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("META"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut judgment: capex-risk setup" in text
+    assert "Walnut call: Mixed with capex risk" in text
+    assert "Setup:" not in text
     assert "free cash flow" in text
 
 
@@ -716,21 +753,23 @@ def test_earnings_setup_missing_some_data_lowers_confidence_without_forcing_wait
     )
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut judgment: mixed / wait for the print" not in text
-    assert "Walnut judgment:" in text
+    assert "Walnut call:" in text
+    assert "Setup:" not in text
     assert cleaned["confidence"] == "medium"
 
 
-def test_earnings_setup_validation_requires_allowed_walnut_judgment_label():
+def test_earnings_setup_validation_rejects_old_setup_label_as_call():
     article = _earnings_article(
         "Walnut judgment: vibes only\n\nResearch only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/",
         "AAPL",
     )
+    article["walnut_call"] = "Capex-risk setup"
 
     validation = service.validate_article(article, _earnings_context("AAPL"))
 
     assert validation["status"] == "failed"
-    assert any(warning["code"] == "earnings_judgment_label" for warning in validation["warnings"])
+    codes = {warning["code"] for warning in validation["warnings"]}
+    assert {"invalid_walnut_call", "setup_label_used_as_call", "earnings_walnut_call"}.issubset(codes)
 
 
 META_BAD_DRAFT_MARKDOWN = """
@@ -811,6 +850,44 @@ def test_research_brief_copy_removes_stiff_ai_transitions():
     assert "The setup is constructive but expensive." in cleaned
     assert "This brief examines the revenue base." in cleaned
     assert "Watch guidance and free cash flow." in cleaned
+
+
+def test_research_numeric_claims_are_publication_formatted():
+    cleaned = service.sanitize_research_brief_copy(
+        "Revenue growth was 6.425511782832739%. Gross margin was 47.862405358827935%. "
+        "Operating margin was 32.643396050876966%. The multiple was 2.394827x and revenue was $95400000000."
+    )
+
+    assert "6.4%" in cleaned
+    assert "47.9%" in cleaned
+    assert "32.6%" in cleaned
+    assert "2.4x" in cleaned
+    assert "$95.4 billion" in cleaned
+    assert "6.425511782832739%" not in cleaned
+
+
+def test_numeric_formatting_validation_blocks_raw_float_artifacts():
+    article = {
+        "title": "Bad numeric formatting",
+        "slug": "bad-numeric-formatting",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": "Revenue growth was 6.425511782832739%. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/ " + "word " * 220,
+            }
+        ],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
+            {"label": "IR", "url": "https://investor.example.com/", "source_type": "company"},
+        ],
+    }
+
+    validation = service.validate_article(article, {"primary": {"identity": {"symbol": "AAPL"}}})
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "numeric_formatting" for warning in validation["warnings"])
 
 
 def test_research_brief_article_sanitizer_marks_repaired_and_blocks_no_internal_language():

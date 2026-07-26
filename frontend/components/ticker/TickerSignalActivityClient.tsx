@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { SmartSignalPill } from "@/components/ui/SmartSignalPill";
@@ -38,6 +38,25 @@ function formatSignalStrengthText(band?: string | null): string {
   if (!cleaned) return "Signal";
   const label = cleaned.replace(/\b\w/g, (letter) => letter.toUpperCase());
   return `${label} signal`;
+}
+
+function dateSortValue(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function CongressDateLabel({ disclosedDate, tradeDate }: { disclosedDate: string | null; tradeDate: string | null }) {
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="text-slate-500">Disclosed</span> {formatDateShort(disclosedDate)}
+      </div>
+      <div>
+        <span className="text-slate-500">Trade</span> {formatDateShort(tradeDate)}
+      </div>
+    </div>
+  );
 }
 
 function gateFromError(error: unknown): { reason: GateReason; message: string } {
@@ -233,7 +252,10 @@ export function TickerSignalActivityClient({
     };
   }, [hasInitialItems, initialItems, initialState, initialTotal, lookbackDays, side, symbol]);
 
-  const visibleItems = items;
+  const visibleItems = useMemo(
+    () => [...items].sort((a, b) => dateSortValue(b.report_date ?? b.ts) - dateSortValue(a.report_date ?? a.ts) || Number(b.event_id ?? 0) - Number(a.event_id ?? 0)),
+    [items],
+  );
   const gateHref = gate?.reason === "unavailable" ? returnTo : "/pricing";
   const gateLabel = "View Premium";
   const gateTitle = "Signal activity requires premium";
@@ -309,7 +331,16 @@ export function TickerSignalActivityClient({
                       </div>
                     }
                     sideBadge={<Badge tone={transactionTone(signal.trade_type)}>{formatTransactionLabel(signal.trade_type)}</Badge>}
-                    dateLabel={formatDateShort(signal.ts)}
+                    dateLabel={
+                      isCongressSignal ? (
+                        <CongressDateLabel
+                          disclosedDate={signal.report_date ?? signal.ts}
+                          tradeDate={signal.trade_date ?? signal.transaction_date ?? null}
+                        />
+                      ) : (
+                        formatDateShort(signal.ts)
+                      )
+                    }
                     price={price !== null ? formatCurrency(price) : "-"}
                     tradeValue={formatCurrencyRange(signal.amount_min ?? null, signal.amount_max ?? null)}
                     signal={<SmartSignalPill score={signal.smart_score ?? null} band={signal.smart_band ?? null} size="compact" />}
