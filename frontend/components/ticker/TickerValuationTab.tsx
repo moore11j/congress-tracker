@@ -120,7 +120,7 @@ function methodPills(data: TickerValuationResponse): string[] {
     .map((item) => compactMethodLabel(item.method))
     .filter(Boolean);
   const currentMethod = data.dcf.method ? compactMethodLabel(data.dcf.method) : null;
-  const ordered = [currentMethod, ...methods, "DCF", "Multiples", "Asset / NAV"].filter((item): item is string => Boolean(item));
+  const ordered = [currentMethod, ...methods].filter((item): item is string => Boolean(item));
   return Array.from(new Set(ordered)).slice(0, 3);
 }
 
@@ -178,10 +178,19 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{children}</p>;
 }
 
-function InlineInfoIcon() {
+function InfoHint({ text }: { text: string }) {
   return (
-    <span className="ml-1 inline-grid h-4 w-4 place-items-center rounded-full border border-slate-500/60 text-[10px] font-semibold text-slate-500">
-      i
+    <span className="group relative ml-1 inline-flex align-middle">
+      <span
+        tabIndex={0}
+        className="inline-grid h-4 w-4 cursor-help place-items-center rounded-full border border-slate-500/60 text-[10px] font-semibold text-slate-500 transition hover:border-teal-300/70 hover:text-teal-200 focus:border-teal-300/70 focus:text-teal-200 focus:outline-none"
+        aria-label={text}
+      >
+        i
+      </span>
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-56 -translate-x-1/2 rounded-md border border-teal-300/20 bg-slate-950/95 px-3 py-2 text-left text-[11px] font-medium leading-4 text-slate-200 shadow-2xl shadow-slate-950/60 group-hover:block group-focus-within:block">
+        {text}
+      </span>
     </span>
   );
 }
@@ -206,6 +215,11 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
   const padding = Math.max((rawMax - rawMin) * 0.12, Math.abs(rawMax) * 0.04, 1);
   const min = rawMin - padding;
   const max = rawMax + padding;
+  const scenarioPositions = markers
+    .filter((marker) => marker.value !== null && (marker.key === "bear" || marker.key === "base" || marker.key === "bull"))
+    .map((marker) => markerPosition(marker.value as number, min, max));
+  const currentPosition = dcf.currentPrice !== null && dcf.currentPrice !== undefined ? markerPosition(dcf.currentPrice, min, max) : null;
+  const currentNearScenario = currentPosition !== null && scenarioPositions.some((position) => Math.abs(position - currentPosition) <= 16);
 
   return (
     <div className={compact ? "" : `${cardSurface} p-5`}>
@@ -218,10 +232,10 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-slate-300">
           Valuation range (USD / share)
-          <InlineInfoIcon />
+          <InfoHint text="Shows bear, base, bull, current price, and analyst consensus on the same per-share scale." />
         </p>
       </div>
-      <div className="mt-8 px-8 pb-14 pt-8">
+      <div className={`mt-8 px-8 pt-8 ${currentNearScenario ? "pb-[4.75rem]" : "pb-14"}`}>
         <div className="relative h-1 rounded-full bg-slate-300/80">
           <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-rose-300 via-teal-300 to-emerald-300" style={{ width: "100%" }} />
           {markers.map((marker) => {
@@ -257,7 +271,7 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
                     <p className="mt-0.5 text-[10px] tabular-nums text-slate-500">{formatMoney(marker.value, { maximumFractionDigits: 0 })}</p>
                   </div>
                 ) : (
-                  <div className="absolute left-0 top-8 -translate-x-1/2 whitespace-nowrap text-center">
+                  <div className={`absolute left-0 -translate-x-1/2 whitespace-nowrap text-center ${currentNearScenario ? "top-14" : "top-8"}`}>
                     <p className="text-[11px] font-semibold text-white">{marker.label}</p>
                     <p className="mt-1 text-[11px] tabular-nums text-slate-500">{formatMoney(marker.value, { maximumFractionDigits: 0 })}</p>
                   </div>
@@ -293,7 +307,7 @@ function ValuationOverview({ data }: { data: TickerValuationResponse }) {
         <div>
           <p className="text-lg font-semibold text-slate-100">
             Fair Value
-            <InlineInfoIcon />
+            <InfoHint text="Walnut fair value is the blended model output, anchored to market price when appropriate." />
           </p>
           <div className="mt-3 flex items-end gap-2">
             <span className="text-5xl font-semibold leading-none tracking-normal text-teal-200 tabular-nums">{formatMoney(fairValue, { maximumFractionDigits: 0 })}</span>
@@ -416,7 +430,7 @@ function KeyInputs({ data }: { data: TickerValuationResponse }) {
     <section className={`${cardSurface} p-5`}>
       <SectionLabel>
         Key Inputs
-        <InlineInfoIcon />
+        <InfoHint text="Primary model assumptions used to frame the valuation: growth, discount rate, margin path, and dilution risk." />
       </SectionLabel>
       <div className="mt-4 divide-y divide-white/10 rounded-lg border border-white/10 bg-slate-950/45">
         {items.map((item) => (
@@ -444,7 +458,7 @@ function MethodSignals({ data }: { data: TickerValuationResponse }) {
     <section className={`${cardSurface} p-5`}>
       <SectionLabel>
         Method Signals
-        <InlineInfoIcon />
+        <InfoHint text="Directional read from each valuation method used in the final fair value view." />
       </SectionLabel>
       <div className="mt-4 grid gap-2">
         {signals.slice(0, 4).map((item) => (
