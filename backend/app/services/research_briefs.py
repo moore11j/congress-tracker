@@ -94,6 +94,15 @@ SECTION_FORMAT_OPTIONS = [
 ]
 STATUS_OPTIONS = {"generating", "draft", "ready_for_review", "published", "unpublished", "failed"}
 JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
+EARNINGS_SETUP_JUDGMENT_LABELS = [
+    "clean bullish setup",
+    "constructive but expensive",
+    "expensive defensive setup",
+    "capex-risk setup",
+    "mixed / wait for the print",
+    "bearish setup",
+    "insufficient data",
+]
 MAX_COMPARISON_TICKERS = 5
 KEY_RESEARCH_FIELDS = [
     "revenue",
@@ -564,6 +573,7 @@ def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, A
         cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
     sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
     sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
+    sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
         sanitized["_copy_sanitizer_repairs"] = 1 + int(sanitized.get("_copy_sanitizer_repairs") or 0)
@@ -655,6 +665,203 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
                 key="cross_source_confirmations",
             )
     return sanitized
+
+
+def _is_earnings_setup_config(config: dict[str, Any]) -> bool:
+    text = " ".join(str(config.get(key) or "") for key in ("desired_angle", "research_question", "section_format")).lower()
+    return "earnings setup" in text or ("earnings" in text and "setup" in text)
+
+
+def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    if not _is_earnings_setup_config(config):
+        return article
+    sanitized = deepcopy(article)
+    label = _infer_earnings_setup_judgment_label(sanitized, context)
+    explanation = _earnings_setup_judgment_explanation(label, sanitized, context)
+    judgment_block = "\n".join([f"Walnut judgment: {label}", "", explanation]).strip()
+    sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
+    if not sections:
+        sanitized["sections"] = [{"key": "final_walnut_judgment", "heading": "Final Walnut judgment", "body_markdown": judgment_block}]
+        return sanitized
+
+    target_index = _earnings_judgment_section_index(sections)
+    if target_index is None:
+        sections.append({"key": "final_walnut_judgment", "heading": "Final Walnut judgment", "body_markdown": judgment_block})
+    else:
+        target = dict(sections[target_index])
+        target["heading"] = _canonical_heading(str(target.get("heading") or "Final Walnut judgment"))
+        target["body_markdown"] = _replace_earnings_judgment_block(str(target.get("body_markdown") or ""), judgment_block)
+        sections[target_index] = target
+    sanitized["sections"] = sections
+    sanitized["confidence"] = _earnings_setup_confidence(label, str(sanitized.get("confidence") or ""), context)
+    if label == "bearish setup":
+        sanitized["judgment"] = "bearish"
+    elif label in {"mixed / wait for the print", "insufficient data"}:
+        sanitized["judgment"] = "mixed"
+    else:
+        sanitized["judgment"] = "bullish"
+    return sanitized
+
+
+def _earnings_judgment_section_index(sections: list[dict[str, Any]]) -> int | None:
+    fallback: int | None = None
+    for index, section in enumerate(sections):
+        heading_key = _heading_key(str(section.get("heading") or ""))
+        if "final walnut judgment" in heading_key:
+            return index
+        if heading_key in {"the call", "conclusion"} or "judgment" in heading_key:
+            fallback = index
+    return fallback
+
+
+def _replace_earnings_judgment_block(body: str, judgment_block: str) -> str:
+    cleaned = re.sub(
+        r"(?is)Walnut judgment:\s*(?:clean bullish setup|constructive but expensive|expensive defensive setup|capex-risk setup|mixed\s*/\s*wait for the print|bearish setup|insufficient data)\.?(?:\s+.*?)(?=\n{2,}|$)",
+        "",
+        body,
+    ).strip()
+    cleaned = re.sub(r"(?im)^#+\s*The call:\s*.*wait for the print.*$", "", cleaned).strip()
+    cleaned = re.sub(r"(?im)^The call:\s*.*wait for the print.*$", "", cleaned).strip()
+    if not cleaned:
+        return judgment_block
+    if "wait for the print" in cleaned.lower() and "mixed / wait for the print" not in judgment_block.lower():
+        cleaned = _remove_sentences_matching(cleaned, r"\bwait for the print\b")
+    return _merge_markdown_bodies(judgment_block, cleaned)
+
+
+def _infer_earnings_setup_judgment_label(article: dict[str, Any], context: dict[str, Any]) -> str:
+    text = f"{_article_body_text(article)}\n{json.dumps(context, default=str)}".lower()
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
+    financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
+    confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
+    availability = context.get("data_availability") if isinstance(context.get("data_availability"), dict) else {}
+
+    has_required_primary = bool(primary.get("quote") or primary.get("market_state")) and bool(fundamentals or financials or confirmation)
+    if not has_required_primary:
+        return "insufficient data"
+
+    bullish_business = _earnings_business_strength(fundamentals, confirmation, text)
+    bearish_business = _earnings_business_weakness(fundamentals, confirmation, text)
+    expensive = _earnings_setup_expensive(fundamentals, financials, text)
+    capex_risk = bool(re.search(r"\bcapex\b|capital expenditures?|free cash flow|fcf|reality labs|ai spend|ai infrastructure", text))
+    defensive = bool(re.search(r"\bdefensive\b|resilien\w+|services|buybacks?|institutional safety|safe-haven|installed base|franchise", text))
+    balanced = bool(re.search(r"\bgenuinely balanced\b|balanced evidence|two-sided|offsetting evidence", text))
+
+    if bearish_business and not bullish_business:
+        return "bearish setup"
+    if bullish_business and capex_risk:
+        return "capex-risk setup"
+    if bullish_business and expensive and defensive:
+        return "expensive defensive setup"
+    if bullish_business and expensive:
+        return "constructive but expensive"
+    if bullish_business:
+        return "clean bullish setup"
+    if balanced or _missing_required_earnings_data(availability):
+        return "mixed / wait for the print"
+    if bearish_business:
+        return "bearish setup"
+    return "mixed / wait for the print"
+
+
+def _earnings_business_strength(fundamentals: dict[str, Any], confirmation: dict[str, Any], text: str) -> bool:
+    direction = str(confirmation.get("direction") or "").lower()
+    sources = confirmation.get("sources") if isinstance(confirmation.get("sources"), dict) else {}
+    fundamentals_source = sources.get("fundamentals") if isinstance(sources.get("fundamentals"), dict) else {}
+    if direction == "bullish" or str(fundamentals_source.get("direction") or "").lower() == "bullish":
+        return True
+    for key, threshold in (("revenue_growth", 5), ("gross_margin", 35), ("operating_margin", 20), ("roe", 15), ("roic", 10)):
+        try:
+            value = fundamentals.get(key)
+            if value is not None and float(value) >= threshold:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return bool(re.search(r"\b(strong|constructive|high-quality|quality franchise|resilient|core business|ad business is strong|services growth)\b", text))
+
+
+def _earnings_business_weakness(fundamentals: dict[str, Any], confirmation: dict[str, Any], text: str) -> bool:
+    direction = str(confirmation.get("direction") or "").lower()
+    if direction == "bearish":
+        return True
+    try:
+        revenue_growth = fundamentals.get("revenue_growth")
+        if revenue_growth is not None and float(revenue_growth) <= -5:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(re.search(r"\bdeteriorat\w+|negative growth|margin pressure|demand weakness|bearish setup\b", text))
+
+
+def _earnings_setup_expensive(fundamentals: dict[str, Any], financials: dict[str, Any], text: str) -> bool:
+    for key, threshold in (("forward_pe", 25), ("trailing_pe", 30), ("price_to_sales", 6), ("ev_to_ebitda", 20)):
+        try:
+            value = fundamentals.get(key)
+            if value is not None and float(value) >= threshold:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return bool(re.search(r"\b(expensive|valuation|multiple|priced for|high expectations|bar is high|earnings bar|premium)\b", text))
+
+
+def _missing_required_earnings_data(availability: dict[str, Any]) -> bool:
+    required = ["current price", "revenue", "eps consensus"]
+    missing_count = sum(1 for field in required if availability.get(field) is False)
+    return missing_count >= 3
+
+
+def _earnings_setup_confidence(label: str, current: str, context: dict[str, Any]) -> str:
+    current = current if current in {"low", "medium", "high"} else "medium"
+    missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
+    if label == "insufficient data" or len(missing) >= 4:
+        return "low"
+    if missing:
+        return "medium" if current == "high" else current
+    return current
+
+
+def _earnings_setup_judgment_explanation(label: str, article: dict[str, Any], context: dict[str, Any]) -> str:
+    symbol = (((context.get("primary") or {}).get("identity") or {}).get("symbol") or article.get("primary_ticker") or "The company")
+    symbol = str(symbol).upper()
+    business_sentence = _earnings_business_sentence(symbol, context)
+    issue = {
+        "clean bullish setup": "The market issue is whether results and guidance can confirm that strength without a valuation reset.",
+        "constructive but expensive": "The market issue is that valuation and expectations already price in a lot of the resilience.",
+        "expensive defensive setup": "The market issue is that investors are already paying for resilience, recurring revenue quality, buybacks, and institutional safety.",
+        "capex-risk setup": "The market issue is whether capex intensity and free cash flow conversion can keep pace with the core business strength.",
+        "mixed / wait for the print": "The market issue is that bull and bear evidence are close enough that the print needs to resolve the setup.",
+        "bearish setup": "The market issue is that the available data leans negative into the print rather than merely uncertain.",
+        "insufficient data": "The market issue is that required primary data is unavailable, so a directional setup would be false precision.",
+    }[label]
+    confirm = {
+        "capex-risk setup": "Confirmation would be stronger ad or revenue momentum with capex and free cash flow guidance that does not worsen; the setup breaks if spending absorbs the upside.",
+        "expensive defensive setup": "Confirmation would be durable growth, margin discipline, and measurable AI or product contribution; the setup breaks if the print shows safety was already fully priced.",
+        "constructive but expensive": "Confirmation would be upside to growth or margins that justifies the multiple; the setup breaks if guidance is merely in line while expectations stay high.",
+        "clean bullish setup": "Confirmation would be upside in the core operating metrics plus supportive guidance; the setup breaks if demand or margins roll over.",
+        "mixed / wait for the print": "Confirmation would require the print to break the tie in growth, margins, guidance, or cash flow; a weak guide would tilt it bearish.",
+        "bearish setup": "Confirmation would require management to reverse the weak operating signal with guidance or margin improvement; otherwise the bear case remains in control.",
+        "insufficient data": "The setup can be revisited once official results, estimate context, current market state, and our confirmation context are available.",
+    }[label]
+    return " ".join([business_sentence, issue, confirm])
+
+
+def _earnings_business_sentence(symbol: str, context: dict[str, Any]) -> str:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
+    pieces: list[str] = []
+    for key, label, suffix in (
+        ("revenue_growth", "revenue growth", "%"),
+        ("gross_margin", "gross margin", "%"),
+        ("operating_margin", "operating margin", "%"),
+        ("forward_pe", "forward P/E", "x"),
+    ):
+        value = fundamentals.get(key)
+        if value is not None:
+            pieces.append(f"{label} {value}{suffix}")
+    if pieces:
+        return f"The business data for {symbol} is anchored by {', '.join(pieces[:3])}."
+    return f"The business data for {symbol} points to the core operating setup, but confidence depends on the available earnings, guidance, margin, and cash flow evidence."
 
 
 def _strip_confirmation_content_from_section(section: dict[str, Any], *, include_score: bool, include_cross_source: bool) -> dict[str, Any]:
@@ -796,6 +1003,22 @@ def _article_mentions_confirmation_score(article: dict[str, Any]) -> bool:
 
 def _article_mentions_cross_source_confirmations(article: dict[str, Any]) -> bool:
     return bool(re.search(r"\bcross[- ]source confirmations?\b", _article_body_text(article), flags=re.IGNORECASE))
+
+
+def _is_earnings_setup_context(context: dict[str, Any]) -> bool:
+    text = " ".join(str(context.get(key) or "") for key in ("desired_angle", "research_question", "section_format")).lower()
+    if "earnings setup" in text or ("earnings" in text and "setup" in text):
+        return True
+    config = context.get("config") if isinstance(context.get("config"), dict) else {}
+    return _is_earnings_setup_config(config)
+
+
+def _article_earnings_judgment_label(article: dict[str, Any]) -> str | None:
+    match = re.search(r"\bWalnut judgment:\s*([^\n.]+)", _article_body_text(article), flags=re.IGNORECASE)
+    if not match:
+        return None
+    label = re.sub(r"\s+", " ", match.group(1).strip().lower())
+    return label if label in EARNINGS_SETUP_JUDGMENT_LABELS else None
 
 
 def _read_store() -> dict[str, Any]:
@@ -1145,6 +1368,32 @@ def _quote(db: Session, symbol: str) -> dict[str, Any] | None:
     return {"price": row.price, "market_cap": row.market_cap, "as_of": _iso(row.asof_ts)}
 
 
+def _current_market_state(quote: dict[str, Any] | None, fundamentals: dict[str, Any] | None) -> dict[str, Any]:
+    quote = quote if isinstance(quote, dict) else {}
+    fundamentals = fundamentals if isinstance(fundamentals, dict) else {}
+    price = quote.get("price")
+    if price is None:
+        price = fundamentals.get("price")
+    volume = fundamentals.get("volume")
+    avg_volume = fundamentals.get("avg_volume")
+    volume_vs_avg = None
+    try:
+        if volume is not None and avg_volume not in (None, 0):
+            volume_vs_avg = round(float(volume) / float(avg_volume), 4)
+    except (TypeError, ValueError, ZeroDivisionError):
+        volume_vs_avg = None
+    return _compact(
+        {
+            "price": price,
+            "market_cap": quote.get("market_cap") if quote.get("market_cap") is not None else fundamentals.get("market_cap"),
+            "price_as_of": quote.get("as_of") or fundamentals.get("as_of"),
+            "volume": volume,
+            "avg_volume": avg_volume,
+            "volume_vs_avg": volume_vs_avg,
+        }
+    )
+
+
 def _cached_financials_snapshot(db: Session, symbol: str) -> dict[str, Any] | None:
     row = (
         db.execute(
@@ -1273,14 +1522,15 @@ def _has_nested_value(mapping: Any, paths: list[tuple[str, ...]]) -> bool:
 
 def _research_data_availability(primary: dict[str, Any], external_research: dict[str, Any]) -> dict[str, bool]:
     quote = primary.get("quote") if isinstance(primary.get("quote"), dict) else {}
+    market_state = primary.get("market_state") if isinstance(primary.get("market_state"), dict) else {}
     fundamentals = primary.get("fundamentals") if isinstance(primary.get("fundamentals"), dict) else {}
     financials = primary.get("financials") if isinstance(primary.get("financials"), dict) else {}
     confirmation = primary.get("confirmation") if isinstance(primary.get("confirmation"), dict) else {}
     official_facts = (external_research.get("official_facts") or {}) if isinstance(external_research, dict) else {}
     government_contracts = primary.get("government_contracts") if isinstance(primary.get("government_contracts"), dict) else {}
 
-    has_price = _has_value(quote, ["price"]) or _has_value(fundamentals, ["price"])
-    has_volume = _has_value(fundamentals, ["volume", "avg_volume"])
+    has_price = _has_value(quote, ["price"]) or _has_value(market_state, ["price"]) or _has_value(fundamentals, ["price"])
+    has_volume = _has_value(market_state, ["volume", "avg_volume"]) or _has_value(fundamentals, ["volume", "avg_volume"])
     has_confirmation = bool(confirmation)
     has_forecast_revenue = _has_nested_value(
         financials,
@@ -1372,6 +1622,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
     primary_context = {
         "identity": identity,
         "quote": quotes.get(symbol),
+        "market_state": _current_market_state(quotes.get(symbol), fundamentals.get(symbol)),
         "fundamentals": fundamentals.get(symbol),
         "financials": financials.get(symbol),
         "confirmation": _compact(confirmation.get(symbol)),
@@ -1402,6 +1653,8 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
     context = {
         "generated_at": _now(),
         "external_research_mode": payload.get("external_research_mode") or "Standard",
+        "desired_angle": payload.get("desired_angle") or "",
+        "research_question": payload.get("research_question") or "",
         "section_format": payload.get("section_format") or "Walnut Research Brief",
         "include_confirmation_score": bool(payload.get("include_confirmation_score")),
         "include_cross_source_confirmations": bool(payload.get("include_cross_source_confirmations")),
@@ -1421,6 +1674,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         comparison_context = {
             "identity": comparison_identity,
             "quote": quotes.get(comparison_symbol),
+            "market_state": _current_market_state(quotes.get(comparison_symbol), fundamentals.get(comparison_symbol)),
             "fundamentals": fundamentals.get(comparison_symbol),
             "financials": financials.get(comparison_symbol),
             "confirmation": _compact(confirmation.get(comparison_symbol)),
@@ -2267,12 +2521,20 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Use Walnut data, external research notes, and reviewed public source links. Do not invent metrics, quotes, filings, historical changes, catalysts, or source links.",
             "When Walnut data misses a key field, use official/public reviewed sources first. If still unavailable, say 'Not found in reviewed sources' once in Data limitations, not repeatedly field by field.",
             "Treat data_availability as authoritative. Do not say price, volume, price/volume and technicals, revenue consensus, EPS consensus, gross margin, free cash flow, valuation, reported institutional activity, insider activity, Congress activity, or government contracts are missing when data_availability marks that field available.",
+            "Do not say an item was 'not independently verified in reviewed primary sources' when the item is present in Walnut context or marked available in data_availability.",
             "Only list fields from missing_data_notes as missing. If a dataset is available but empty or limited, describe the actual availability/result instead of calling the whole category not found.",
             "Only include our proprietary confirmation score if include_confirmation_score is true. Only include cross-source confirmation commentary if include_cross_source_confirmations is true. Keep these concepts separate.",
             "The confirmation score is our proprietary score. Cross-source confirmations are qualitative supporting or contradicting data categories such as price/volume, fundamentals, reported institutional activity, Congress activity, insider activity, government contracts, options flow, and macro positioning. Use 'data,' not 'stack.'",
             "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
+            "For external research, verify official company data, estimates, and guidance with official company materials, SEC filings, or credible market/estimate sources before using them.",
             "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
+            "For earnings setup briefs, do not default to 'mixed / wait for the print.' Missing one or two data categories should lower confidence, not automatically force a no-call judgment.",
+            "For earnings setup briefs, the final judgment line must use this exact format: 'Walnut judgment: [label]'. The allowed labels are: "
+            + ", ".join(EARNINGS_SETUP_JUDGMENT_LABELS)
+            + ". Use 'mixed / wait for the print' only when bull and bear evidence is genuinely balanced or required primary data is unavailable.",
+            "For earnings setup briefs, if the business is strong but valuation or expectations are high, use 'constructive but expensive' or 'expensive defensive setup'. If the business is strong but capex/free cash flow is the main market risk, use 'capex-risk setup'. If data leans directionally, make a call.",
+            "After the earnings setup judgment line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the setup.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
@@ -2483,6 +2745,17 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if include_cross_source_confirmations and _conflates_confirmation_score_with_data(lowered):
         warnings.append(_warning("confirmation_score_conflated", "Cross-source data categories must not be described as the proprietary confirmation score.", blocking=True))
         blocking = True
+    if _is_earnings_setup_context(context):
+        earnings_label = _article_earnings_judgment_label(article)
+        if earnings_label not in EARNINGS_SETUP_JUDGMENT_LABELS:
+            warnings.append(
+                _warning(
+                    "earnings_judgment_label",
+                    "Earnings setup briefs must include 'Walnut judgment: [label]' with an allowed earnings setup label.",
+                    blocking=True,
+                )
+            )
+            blocking = True
     contradicted_fields = _available_data_missing_claims(lowered, context)
     if contradicted_fields:
         warnings.append(
@@ -2587,7 +2860,7 @@ def _markdown_h2_sections(markdown: str) -> list[dict[str, str]]:
 
 def _available_data_missing_claims(lowered_text: str, context: dict[str, Any]) -> list[str]:
     availability = context.get("data_availability") if isinstance(context.get("data_availability"), dict) else {}
-    missing_terms = r"(?:not found|not available|unavailable|missing|could not find|couldn't find|not directly reviewed)"
+    missing_terms = r"(?:not found|not available|unavailable|missing|could not find|couldn't find|not directly reviewed|not independently verified(?: in reviewed primary sources)?)"
     checks = {
         "current price": [r"current\s+\w*\s*price", r"share\s+price", r"stock\s+price"],
         "volume": [r"\bvolume\b"],

@@ -606,6 +606,131 @@ def test_validation_fails_when_draft_marks_available_data_missing():
     assert "reported institutional activity" in warning["message"]
 
 
+def _earnings_article(body: str, symbol: str = "AAPL") -> dict:
+    return {
+        "title": f"{symbol} earnings setup",
+        "slug": f"{symbol.lower()}-earnings-setup",
+        "subtitle": "Research only. Not investment advice.",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "judgment": "mixed",
+        "confidence": "medium",
+        "primary_ticker": symbol,
+        "comparison_tickers": [],
+        "category": "Technology",
+        "reading_minutes": 6,
+        "sections": [{"key": "call", "heading": "The call", "body_markdown": body + " " + "word " * 220}],
+        "key_points": [],
+        "catalysts": [],
+        "risks": [],
+        "watch_items": [],
+        "data_freshness": [],
+        "missing_data_notes": [],
+        "source_links": [
+            {"label": "SEC", "url": f"https://www.sec.gov/edgar/search/#/q={symbol}", "source_type": "filing_search"},
+            {"label": "Investor relations", "url": "https://investor.example.com/", "source_type": "company"},
+        ],
+        "suggested_card": {"title": f"{symbol} earnings setup", "description": "Research only.", "judgment": "mixed", "tickers": [symbol]},
+        "seo": {"title": f"{symbol} earnings setup", "description": "Research only."},
+    }
+
+
+def _earnings_context(symbol: str, *, missing_notes: list[str] | None = None, fundamentals: dict | None = None) -> dict:
+    fundamentals = fundamentals or {
+        "revenue_growth": 6.0,
+        "gross_margin": 46.0,
+        "operating_margin": 31.0,
+        "forward_pe": 31.0,
+        "volume": 50_000_000,
+        "avg_volume": 48_000_000,
+    }
+    return {
+        "desired_angle": "Earnings setup",
+        "research_question": f"{symbol} earnings setup",
+        "section_format": "Walnut Research Brief",
+        "primary": {
+            "identity": {"symbol": symbol},
+            "quote": {"price": 220.0, "market_cap": 3_000_000_000_000, "as_of": "2026-07-20T20:00:00+00:00"},
+            "market_state": {"price": 220.0, "volume": fundamentals.get("volume"), "avg_volume": fundamentals.get("avg_volume")},
+            "fundamentals": fundamentals,
+            "financials": {},
+            "confirmation": {"score": 74, "direction": "bullish", "sources": {"fundamentals": {"present": True, "direction": "bullish"}}},
+        },
+        "data_availability": {
+            "current price": True,
+            "volume": True,
+            "revenue": True,
+            "eps consensus": False,
+            "valuation data": True,
+        },
+        "missing_data_notes": missing_notes or [],
+    }
+
+
+def test_aapl_earnings_setup_uses_expensive_defensive_not_wait():
+    body = (
+        "Walnut judgment: mixed / wait for the print\n\n"
+        "Apple is a high-quality franchise with Services growth, buybacks, resilience, and institutional safety. "
+        "The market is already paying a premium multiple, while AI contribution remains less measurable than peers. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/"
+    )
+    article = _earnings_article(body, "AAPL")
+
+    cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("AAPL"))
+    text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Walnut judgment: expensive defensive setup" in text
+    assert "mixed / wait for the print" not in text
+    assert cleaned["judgment"] == "bullish"
+
+
+def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
+    body = (
+        "Meta's ad business is strong and the core business still looks constructive. "
+        "The market debate is AI capex, free cash flow conversion, and Reality Labs losses. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=META https://investor.example.com/"
+    )
+    article = _earnings_article(body, "META")
+
+    cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("META"))
+    text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Walnut judgment: capex-risk setup" in text
+    assert "free cash flow" in text
+
+
+def test_earnings_setup_missing_some_data_lowers_confidence_without_forcing_wait():
+    body = (
+        "The business is constructive with strong revenue growth and gross margin. "
+        "The main issue is valuation, not unavailable data. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=TEST https://investor.example.com/"
+    )
+    article = _earnings_article(body, "TEST")
+
+    cleaned = service.sanitize_research_brief_article(
+        article,
+        {"desired_angle": "Earnings setup"},
+        _earnings_context("TEST", missing_notes=["TEST: EPS consensus unavailable", "TEST: guidance unavailable"]),
+    )
+    text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Walnut judgment: mixed / wait for the print" not in text
+    assert "Walnut judgment:" in text
+    assert cleaned["confidence"] == "medium"
+
+
+def test_earnings_setup_validation_requires_allowed_walnut_judgment_label():
+    article = _earnings_article(
+        "Walnut judgment: vibes only\n\nResearch only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/",
+        "AAPL",
+    )
+
+    validation = service.validate_article(article, _earnings_context("AAPL"))
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "earnings_judgment_label" for warning in validation["warnings"])
+
+
 META_BAD_DRAFT_MARKDOWN = """
 ## Intro / hook
 
@@ -848,6 +973,26 @@ def test_context_marks_missing_data_without_treating_it_as_zero(tmp_path, monkey
 
     assert "TINY: fundamentals unavailable" in context["missing_data_notes"]
     assert context["primary"]["fundamentals"] is None
+
+
+def test_context_fetches_primary_confirmation_and_current_market_state(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    calls = []
+
+    def fake_confirmation(db, symbols, lookback_days):
+        calls.append((symbols, lookback_days))
+        return {"AAPL": _confirmation_bundle(72)}
+
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", fake_confirmation)
+    db = _session()
+    _seed_ticker(db, "AAPL")
+
+    context = service.assemble_research_context(db, service.validate_config(_payload(ticker="AAPL", desired_angle="Earnings setup").model_dump()))
+
+    assert calls == [(["AAPL"], 30)]
+    assert context["primary"]["confirmation"]["score"] == 72
+    assert context["primary"]["market_state"]["price"] == 125.0
+    assert context["primary"]["market_state"]["volume"] == 50_000_000
 
 
 def test_duplicate_static_mu_slug_blocks_publication(tmp_path, monkeypatch):
