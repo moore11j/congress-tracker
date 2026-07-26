@@ -222,12 +222,14 @@ REPLY_ANGLES = {
     "general_market_context",
     "other",
 }
-ARTICLE_REACTIVE_PROVIDER = "fmp_articles"
+ARTICLE_REACTIVE_PROVIDER = "fmp_general_news"
+ARTICLE_REACTIVE_LEGACY_PROVIDERS = {"fmp_articles"}
+ARTICLE_REACTIVE_SOURCE_PROVIDERS = {ARTICLE_REACTIVE_PROVIDER, *ARTICLE_REACTIVE_LEGACY_PROVIDERS}
 ARTICLE_REACTIVE_CAMPAIGN_TYPE = "article_reactive_x"
 SCHEDULED_X_CAMPAIGN_TYPE = "scheduled_x_campaign"
 X_REPLY_CAMPAIGN_TYPE = "x_reply_campaign"
 X_REPLY_PROVIDER = "x_api"
-FMP_ARTICLES_URL = "https://financialmodelingprep.com/stable/fmp-articles"
+FMP_GENERAL_NEWS_URL = "https://financialmodelingprep.com/stable/news/general-latest"
 DISALLOWED_ARTICLE_SOURCE_NAMES = {"fmp", "financialmodelingprep", "financial modeling prep"}
 ARTICLE_RUN_DEFAULT_LIMIT = 20
 ARTICLE_DEDUPE_DAYS = 14
@@ -1329,7 +1331,7 @@ def opportunity_to_dict(
 
 
 def _public_opportunity_source_provider(opportunity: AiMarketingOpportunity) -> str | None:
-    if opportunity.source_provider == ARTICLE_REACTIVE_PROVIDER:
+    if opportunity.source_provider in ARTICLE_REACTIVE_SOURCE_PROVIDERS:
         return "article_feed"
     return opportunity.source_provider
 
@@ -1554,7 +1556,7 @@ def fetch_fmp_articles(db: Session | None = None, *, page: int = 0, limit: int =
     if not api_key:
         raise MissingMarketingCredential("Article feed credentials missing. Configure the server article feed credentials.")
     response = requests.get(
-        FMP_ARTICLES_URL,
+        FMP_GENERAL_NEWS_URL,
         params={"page": page, "limit": limit, "apikey": api_key},
         timeout=25,
     )
@@ -1977,7 +1979,7 @@ def _recent_article_draft_exists(db: Session, candidate: AiMarketingArticleCandi
         db.execute(
             select(AiMarketingOpportunity.id)
             .where(
-                AiMarketingOpportunity.source_provider == ARTICLE_REACTIVE_PROVIDER,
+                AiMarketingOpportunity.source_provider.in_(sorted(ARTICLE_REACTIVE_SOURCE_PROVIDERS)),
                 AiMarketingOpportunity.source_id == source_id,
                 AiMarketingOpportunity.created_at >= since,
             )

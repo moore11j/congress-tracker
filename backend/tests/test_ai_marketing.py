@@ -2739,7 +2739,7 @@ def _article_campaign_payload(**overrides):
         "run_time": "07:35",
         "timezone": "America/Los_Angeles",
         "recipient_email": "jarod@walnutmarkets.com",
-        "source_type": "fmp_articles",
+        "source_type": "fmp_general_news",
         "output_preferences": {"include_image_card": True, "include_walnut_link": True},
         "platforms": ["x"],
         "minimum_relevance_score": 58,
@@ -2850,7 +2850,7 @@ def test_article_reactive_campaign_only_reacts_to_third_party_article_sources(mo
         db.close()
 
 
-def test_fmp_articles_fetcher_uses_env_key_without_storing_or_returning_it(monkeypatch):
+def test_article_reactive_fetcher_uses_general_news_endpoint_and_env_key(monkeypatch):
     monkeypatch.setenv(FMP_API_KEY, "fmp-secret-test")
     captured = {}
 
@@ -2873,7 +2873,8 @@ def test_fmp_articles_fetcher_uses_env_key_without_storing_or_returning_it(monke
         articles = fetch_fmp_articles(db)
         settings = admin_ai_marketing_settings(_request_for_user(admin), db)
         assert articles[0]["title"].startswith("Nvidia")
-        assert captured["url"].endswith("/stable/fmp-articles")
+        assert captured["url"].endswith("/stable/news/general-latest")
+        assert "/stable/fmp-articles" not in captured["url"]
         assert captured["params"]["apikey"] == "fmp-secret-test"
         assert db.query(AiMarketingSetting).filter(AiMarketingSetting.key == FMP_API_KEY).count() == 0
         assert "fmp-secret-test" not in json.dumps(settings)
