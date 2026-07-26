@@ -39,6 +39,13 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /updateConfig\("include_confirmation_score", event\.target\.checked\)/);
   assert.match(component, /Cross-source confirmations/);
   assert.match(component, /Mention which data categories support or contradict the thesis\./);
+  assert.match(component, /Add source URL manually/);
+  assert.match(component, /manual_source_url: ""/);
+  assert.match(component, /updateConfig\("manual_source_url", event\.target\.value\)/);
+  assert.match(component, /Use when official source discovery misses a company earnings release or filing\./);
+  assert.match(component, /Source discovery/);
+  assert.match(component, /Official earnings release/);
+  assert.match(component, /Primary ticker context match/);
   assert.match(component, /include_confirmation_score: false/);
   assert.match(component, /include_cross_source_confirmations: false/);
   assert.match(component, /updateConfig\("include_cross_source_confirmations", event\.target\.checked\)/);
@@ -87,6 +94,8 @@ test("research brief generator uses Responses-backed admin APIs and defaults to 
   assert.match(component, /include_charts: false/);
   assert.match(api, /include_confirmation_score: boolean/);
   assert.match(api, /include_cross_source_confirmations: boolean/);
+  assert.match(api, /manual_source_url\?: string \| null/);
+  assert.match(api, /source_discovery\?: Record<string, unknown>/);
   assert.match(api, /walnut_call\?: string/);
   assert.match(api, /confirmation_score_included\?: boolean/);
   assert.match(api, /refresh-sources/);

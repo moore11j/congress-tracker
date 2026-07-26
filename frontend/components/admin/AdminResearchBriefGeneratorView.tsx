@@ -78,6 +78,7 @@ const DEFAULT_CONFIG: AdminResearchBriefConfig = {
   include_cross_source_confirmations: false,
   generate_thumbnail: true,
   hero_image: "",
+  manual_source_url: "",
 };
 
 const GENERATION_POLL_TIMEOUT_MS = 6 * 60 * 1000;
@@ -712,6 +713,17 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
                 />
               </label>
 
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Add source URL manually</span>
+                <input
+                  value={config.manual_source_url || ""}
+                  onChange={(event) => updateConfig("manual_source_url", event.target.value)}
+                  className={fieldClassName("mt-2")}
+                  placeholder="https://www.apple.com/ca/newsroom/2026/04/apple-reports-second-quarter-results/"
+                />
+                <span className="mt-1 block text-xs leading-5 text-slate-500">Use when official source discovery misses a company earnings release or filing.</span>
+              </label>
+
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Include sections</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -959,6 +971,52 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function sourceStatus(value: unknown) {
+  const data = objectValue(value);
+  return String(data.status || "unknown");
+}
+
+function statusTone(value: string) {
+  if (value === "found" || value === "passed") return "text-emerald-200";
+  if (value === "missing" || value === "failed") return "text-rose-200";
+  return "text-slate-300";
+}
+
+function SourceDiscoveryDiagnostics({ draft }: { draft: AdminResearchBriefDraft }) {
+  const context = objectValue(draft.research_context);
+  const discovery = objectValue(context.source_discovery || draft.validation?.source_discovery);
+  const primary = objectValue(context.primary);
+  const identity = objectValue(primary.identity);
+  const confirmation = objectValue(primary.confirmation);
+  const expectedSymbol = String(identity.symbol || draft.primary_ticker || "").toUpperCase();
+  const contextSymbol = String(confirmation.symbol || expectedSymbol || "").toUpperCase();
+  const rows = [
+    ["Official earnings release", sourceStatus(discovery.official_earnings_release)],
+    ["SEC filing", sourceStatus(discovery.sec_filing)],
+    ["Walnut ticker context", primary && Object.keys(primary).length ? "found" : "missing"],
+    ["Primary ticker context match", expectedSymbol && contextSymbol && expectedSymbol !== contextSymbol ? "failed" : "passed"],
+    ["Confirmation score", confirmation.score || confirmation.confirmation_score ? "found" : "missing"],
+    ["Comparison tickers loaded", (draft.comparison_tickers || draft.config?.comparison_tickers || []).join(", ") || "None"],
+  ];
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Source discovery</p>
+      <div className="mt-2 space-y-1.5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 text-xs">
+            <span className="text-slate-400">{label}</span>
+            <span className={`text-right font-semibold capitalize ${statusTone(value)}`}>{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
@@ -1155,6 +1213,7 @@ function EditorPanel({
         <Metric label="Reading time" value={`${draft.validation?.estimated_reading_minutes || article.reading_minutes || 1} min`} />
         <Metric label="Model" value={draft.model || "OpenAI"} />
         <Metric label="Generated at" value={(draft.updated_at || draft.created_at || "").slice(0, 16)} />
+        <SourceDiscoveryDiagnostics draft={draft} />
         {draft.validation?.source_link_count === 0 ? (
           <div className="rounded-lg border border-rose-300/30 bg-rose-950/25 px-3 py-2 text-sm text-rose-100">
             This draft has no source links. Regenerate with External Research Mode enabled or add sources manually.

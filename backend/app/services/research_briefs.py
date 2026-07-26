@@ -108,6 +108,47 @@ WALNUT_CALL_VALUES = [
     "Insufficient data to make a call",
 ]
 MAX_COMPARISON_TICKERS = 5
+MAJOR_EARNINGS_SOURCE_TICKERS = {"AAPL", "META", "MSFT", "GOOGL", "GOOG", "AMZN", "NVDA", "MU", "JPM"}
+OFFICIAL_SOURCE_PROFILES: dict[str, dict[str, Any]] = {
+    "AAPL": {
+        "company_earnings_sources": [
+            {
+                "label": "Apple Newsroom Q2 FY2026 results",
+                "url": "https://www.apple.com/ca/newsroom/2026/04/apple-reports-second-quarter-results/",
+                "source_type": "official_company_earnings",
+            },
+            {
+                "label": "Apple Investor Relations earnings",
+                "url": "https://investor.apple.com/earnings-results/default.aspx",
+                "source_type": "official_company_ir",
+            },
+            {
+                "label": "Apple SEC filings",
+                "url": "https://investor.apple.com/sec-filings/default.aspx",
+                "source_type": "official_company_filings",
+            },
+        ],
+        "source_notes": [
+            "For AAPL earnings setup, use Apple official Q2 FY2026 results and SEC filings before generic market sources.",
+        ],
+        "official_facts": {
+            "latest_official_quarter": "Q2 FY2026",
+            "quarter_end": "2026-03-28",
+            "revenue": {"value": 111.2, "unit": "USD billions", "period": "Q2 FY2026", "source": "Apple official Q2 FY2026 results release"},
+            "revenue_growth": {"value": 17, "unit": "% YoY", "period": "Q2 FY2026", "source": "Apple official Q2 FY2026 results release"},
+            "diluted_eps": {"value": 2.01, "unit": "USD", "period": "Q2 FY2026", "source": "Apple official Q2 FY2026 results release"},
+            "eps_growth": {"value": 22, "unit": "% YoY", "period": "Q2 FY2026", "source": "Apple official Q2 FY2026 results release"},
+        },
+    },
+    "META": {"company_earnings_sources": [{"label": "Meta Investor Relations earnings", "url": "https://investor.fb.com/financials/default.aspx", "source_type": "official_company_earnings"}]},
+    "MSFT": {"company_earnings_sources": [{"label": "Microsoft Investor Relations earnings", "url": "https://www.microsoft.com/en-us/Investor/earnings", "source_type": "official_company_earnings"}]},
+    "GOOGL": {"company_earnings_sources": [{"label": "Alphabet Investor Relations earnings", "url": "https://abc.xyz/investor/", "source_type": "official_company_earnings"}]},
+    "GOOG": {"company_earnings_sources": [{"label": "Alphabet Investor Relations earnings", "url": "https://abc.xyz/investor/", "source_type": "official_company_earnings"}]},
+    "AMZN": {"company_earnings_sources": [{"label": "Amazon Investor Relations quarterly results", "url": "https://ir.aboutamazon.com/quarterly-results/default.aspx", "source_type": "official_company_earnings"}]},
+    "NVDA": {"company_earnings_sources": [{"label": "NVIDIA Investor Relations financial reports", "url": "https://investor.nvidia.com/financial-info/financial-reports/default.aspx", "source_type": "official_company_earnings"}]},
+    "MU": {"company_earnings_sources": [{"label": "Micron Investor Relations financial releases", "url": "https://investors.micron.com/news-releases", "source_type": "official_company_earnings"}]},
+    "JPM": {"company_earnings_sources": [{"label": "JPMorgan Chase Investor Relations earnings", "url": "https://www.jpmorganchase.com/ir/quarterly-earnings", "source_type": "official_company_earnings"}]},
+}
 KEY_RESEARCH_FIELDS = [
     "revenue",
     "revenue growth",
@@ -1739,9 +1780,10 @@ def _research_data_availability(primary: dict[str, Any], external_research: dict
     )
     return {
         "revenue": _has_value(fundamentals, ["revenue_growth"]) or "revenue" in official_facts or has_forecast_revenue,
-        "revenue growth": _has_value(fundamentals, ["revenue_growth"]),
+        "revenue growth": _has_value(fundamentals, ["revenue_growth"]) or "revenue_growth" in official_facts,
         "revenue consensus": has_forecast_revenue,
         "eps consensus": has_forecast_eps,
+        "diluted eps": "diluted_eps" in official_facts,
         "gross margin": _has_value(fundamentals, ["gross_margin"]) or "gross_margin" in official_facts,
         "operating margin": _has_value(fundamentals, ["operating_margin"]) or "operating_margin" in official_facts,
         "free cash flow": _has_value(fundamentals, ["free_cash_flow", "fcf_yield"]) or "free_cash_flow" in official_facts,
@@ -1783,6 +1825,7 @@ def _primary_ticker_prompt_context(primary: dict[str, Any]) -> dict[str, Any]:
     sources = confirmation.get("sources") if isinstance(confirmation.get("sources"), dict) else {}
     return _compact(
         {
+            "symbol": ((primary.get("identity") or {}).get("symbol") if isinstance(primary.get("identity"), dict) else None),
             "confirmation_score": confirmation.get("score") or confirmation.get("confirmation_score"),
             "confirmation_score_label": confirmation.get("status") or confirmation.get("label") or confirmation.get("direction"),
             "confirmation_score_window": "30 days",
@@ -1795,6 +1838,20 @@ def _primary_ticker_prompt_context(primary: dict[str, Any]) -> dict[str, Any]:
         },
         limit=2500,
     )
+
+
+def _validated_confirmation_context(symbol: str, value: Any, *, role: str, strict: bool = True) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    embedded_symbol = normalize_symbol(value.get("symbol") or value.get("ticker") or value.get("primary_ticker"))
+    if embedded_symbol and embedded_symbol != symbol:
+        if strict:
+            raise HTTPException(status_code=422, detail=f"Primary ticker context mismatch: expected {symbol}, received {embedded_symbol}.")
+        return {}
+    cleaned = dict(value)
+    cleaned.setdefault("symbol", symbol)
+    cleaned["context_role"] = role
+    return cleaned
 
 
 def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1818,6 +1875,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         confirmation = get_confirmation_score_bundles_for_tickers(db, symbols, lookback_days=30)
     except Exception:
         confirmation = {}
+    primary_confirmation = _validated_confirmation_context(symbol, confirmation.get(symbol), role="primary")
 
     missing: list[str] = []
     for item in symbols:
@@ -1827,14 +1885,21 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
             missing.append(f"{item}: quote unavailable")
         if not confirmation.get(item):
             missing.append(f"{item}: confirmation score unavailable")
-    external_research = discover_external_research(symbol, identity, mode=payload.get("external_research_mode") or "Standard")
+    external_research = discover_external_research(
+        symbol,
+        identity,
+        mode=payload.get("external_research_mode") or "Standard",
+        manual_source_url=payload.get("manual_source_url"),
+        desired_angle=payload.get("desired_angle"),
+        research_question=payload.get("research_question"),
+    )
     primary_context = {
         "identity": identity,
         "quote": quotes.get(symbol),
         "market_state": _current_market_state(quotes.get(symbol), fundamentals.get(symbol)),
         "fundamentals": fundamentals.get(symbol),
         "financials": financials.get(symbol),
-        "confirmation": _compact(confirmation.get(symbol)),
+        "confirmation": _compact(primary_confirmation),
         "congress_activity": _recent_events(db, symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
         "insider_activity": _recent_events(db, symbol, ["insider_trade"]),
         "institutional_activity": _recent_events(
@@ -1874,6 +1939,7 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         "comparison": None,
         "comparisons": [],
         "missing_data_notes": _dedupe_strings(missing),
+        "source_discovery": external_research.get("source_discovery") or {},
         "limitations": [
             "13F activity is reported with filing lag and is not real-time.",
             "Congress and insider activity should not be interpreted as intent or wrongdoing.",
@@ -1881,13 +1947,14 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
         ],
     }
     for comparison_symbol, comparison_identity in comparison_identities.items():
+        comparison_confirmation = _validated_confirmation_context(comparison_symbol, confirmation.get(comparison_symbol), role="comparison", strict=False)
         comparison_context = {
             "identity": comparison_identity,
             "quote": quotes.get(comparison_symbol),
             "market_state": _current_market_state(quotes.get(comparison_symbol), fundamentals.get(comparison_symbol)),
             "fundamentals": fundamentals.get(comparison_symbol),
             "financials": financials.get(comparison_symbol),
-            "confirmation": _compact(confirmation.get(comparison_symbol)),
+            "confirmation": _compact(comparison_confirmation),
             "congress_activity": _recent_events(db, comparison_symbol, ["congress_trade", "congress_treasury_trade", "congress_crypto_trade"]),
             "insider_activity": _recent_events(db, comparison_symbol, ["insider_trade"]),
             "institutional_activity": _recent_events(
@@ -1914,15 +1981,31 @@ def assemble_research_context(db: Session, payload: dict[str, Any]) -> dict[str,
     return context
 
 
-def discover_external_research(symbol: str, identity: dict[str, Any], *, mode: str) -> dict[str, Any]:
+def discover_external_research(
+    symbol: str,
+    identity: dict[str, Any],
+    *,
+    mode: str,
+    manual_source_url: str | None = None,
+    desired_angle: str | None = None,
+    research_question: str | None = None,
+) -> dict[str, Any]:
     normalized_mode = _choice(mode, EXTERNAL_RESEARCH_MODE_OPTIONS, "Standard")
+    manual_source = _normalize_manual_source_url(manual_source_url)
+    source_discovery = _source_discovery_status(symbol, [], {}, desired_angle=desired_angle, research_question=research_question)
     if normalized_mode == "Off":
+        reviewed_sources = []
+        if manual_source:
+            reviewed_sources.append({"label": "Admin-added source URL", "url": manual_source, "source_type": "manual_official_source"})
+            source_discovery = _source_discovery_status(symbol, reviewed_sources, {}, desired_angle=desired_angle, research_question=research_question)
+            source_discovery["manual_source_url"] = {"status": "found", "url": manual_source}
         return {
             "mode": "Off",
-            "reviewed_sources": [],
+            "reviewed_sources": reviewed_sources,
             "source_notes": ["External research mode is off; only Walnut data was reviewed."],
             "official_facts": {},
             "missing_data_notes": [],
+            "source_discovery": source_discovery,
         }
     reviewed_sources = [
         {
@@ -1940,6 +2023,15 @@ def discover_external_research(symbol: str, identity: dict[str, Any], *, mode: s
         "Reviewed Walnut data and public/official source discovery. Report missing values as 'Not found in reviewed sources' when they cannot be supported.",
     ]
     official_facts: dict[str, Any] = {}
+    profile = OFFICIAL_SOURCE_PROFILES.get(symbol.upper()) or {}
+    profile_sources = profile.get("company_earnings_sources") if isinstance(profile.get("company_earnings_sources"), list) else []
+    reviewed_sources.extend([source for source in profile_sources if isinstance(source, dict)])
+    profile_facts = profile.get("official_facts") if isinstance(profile.get("official_facts"), dict) else {}
+    official_facts.update(profile_facts)
+    source_notes.extend(str(note) for note in profile.get("source_notes") or [] if str(note).strip())
+    if manual_source:
+        reviewed_sources.insert(0, {"label": "Admin-added source URL", "url": manual_source, "source_type": "manual_official_source"})
+        source_notes.append("Admin-added manual source URL is included for extraction and citation.")
     sec_record = _sec_company_record(symbol)
     if sec_record:
         cik = str(sec_record.get("cik_str") or "").zfill(10)
@@ -1958,19 +2050,62 @@ def discover_external_research(symbol: str, identity: dict[str, Any], *, mode: s
                 },
             ]
         )
-        official_facts = _sec_company_facts(cik)
+        official_facts = {**_sec_company_facts(cik), **official_facts}
         source_notes.append(f"Matched {symbol} to SEC CIK {cik} for official filings and company-facts review.")
     else:
         source_notes.append(f"SEC ticker mapping did not return a CIK for {symbol}; EDGAR symbol search remains attached for manual review.")
     if normalized_mode == "Deep":
         source_notes.append("Deep mode also attaches a reputable public market reference for price/volume review.")
     missing_fields = _missing_key_fields(official_facts)
+    source_discovery = _source_discovery_status(symbol, reviewed_sources, official_facts, desired_angle=desired_angle, research_question=research_question)
     return {
         "mode": normalized_mode,
-        "reviewed_sources": reviewed_sources,
+        "reviewed_sources": _dedupe_source_links(reviewed_sources),
         "source_notes": source_notes,
         "official_facts": official_facts,
         "missing_data_notes": [f"{field}: Not found in reviewed sources" for field in missing_fields],
+        "source_discovery": source_discovery,
+    }
+
+
+def _is_earnings_setup_text(*values: Any) -> bool:
+    text = " ".join(str(value or "") for value in values).lower()
+    return "earnings setup" in text or ("earnings" in text and "setup" in text)
+
+
+def _source_discovery_status(
+    symbol: str,
+    reviewed_sources: list[dict[str, Any]],
+    official_facts: dict[str, Any],
+    *,
+    desired_angle: str | None = None,
+    research_question: str | None = None,
+) -> dict[str, Any]:
+    sources = [source for source in reviewed_sources if isinstance(source, dict)]
+    source_types = {str(source.get("source_type") or "") for source in sources}
+    urls = [str(source.get("url") or "") for source in sources]
+    official_earnings = any(source_type in {"official_company_earnings", "official_company_ir", "manual_official_source"} for source_type in source_types)
+    sec_filing = any(source_type in {"official_filing", "official_filing_data", "filing_search", "official_company_filings"} for source_type in source_types)
+    profile = OFFICIAL_SOURCE_PROFILES.get(symbol.upper()) or {}
+    required = symbol.upper() in MAJOR_EARNINGS_SOURCE_TICKERS and _is_earnings_setup_text(desired_angle, research_question)
+    latest_quarter = official_facts.get("latest_official_quarter") if isinstance(official_facts, dict) else None
+    return {
+        "official_earnings_release": {
+            "status": "found" if official_earnings else "missing",
+            "required": required,
+            "url": next((url for url in urls if url and ("earnings" in url.lower() or "newsroom" in url.lower() or "quarterly" in url.lower())), None),
+        },
+        "sec_filing": {
+            "status": "found" if sec_filing else "missing",
+            "required": required,
+            "url": next((url for url in urls if "sec.gov" in url.lower() or "sec-filings" in url.lower()), None),
+        },
+        "company_ir": {
+            "status": "found" if profile.get("company_earnings_sources") or any("investor" in url.lower() or "ir." in url.lower() for url in urls) else "missing",
+            "required": required,
+        },
+        "latest_official_quarter": latest_quarter,
+        "required_for_major_earnings_setup": required,
     }
 
 
@@ -2110,6 +2245,7 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         "generate_thumbnail": bool(config.get("generate_thumbnail", _default_generate_thumbnail(config))),
         "selected_model": str(config.get("selected_model") or "").strip(),
         "hero_image": config.get("hero_image") or "",
+        "manual_source_url": _normalize_manual_source_url(config.get("manual_source_url")),
     }
     normalized["selected_model"] = _selected_research_model(normalized)
     if normalized["desired_angle"] == "Peer comparison" and not normalized["comparison_tickers"]:
@@ -2141,6 +2277,17 @@ def _sections(value: Any) -> list[str]:
     return cleaned or list(DEFAULT_SECTIONS)
 
 
+def _normalize_manual_source_url(value: Any) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    if not url.startswith(("https://", "http://")):
+        raise HTTPException(status_code=422, detail="Manual source URL must start with https:// or http://.")
+    if len(url) > 1000:
+        raise HTTPException(status_code=422, detail="Manual source URL is too long.")
+    return url
+
+
 def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, Any], progress_callback: Any | None = None) -> dict[str, Any]:
     normalized_config = validate_config(config)
     normalized_config["selected_model"] = _selected_research_model(normalized_config, db)
@@ -2159,6 +2306,8 @@ def generate_research_brief(db: Session, admin: UserAccount, config: dict[str, A
             progress_callback("generating_brief", "Generating research brief.")
         article = _mock_article(normalized_config, context) if os.getenv(MOCK_ENV) == "1" else _call_openai(db, normalized_config, context)
         article = sanitize_research_brief_article(article, normalized_config, context)
+        article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *((context.get("external_research") or {}).get("reviewed_sources") or [])])
+        article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *(context.get("missing_data_notes") or [])], context.get("data_availability") or {})
         if normalized_config.get("generate_thumbnail"):
             if progress_callback:
                 progress_callback("generating_thumbnail", "Generating thumbnail.")
@@ -2739,6 +2888,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Never cite the admin prompt, user request, research request, supplied materials, supplied context, research configuration, or model instructions as a source. User-provided numbers are leads to verify, not sources.",
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "For external research, verify official company data, estimates, and guidance with official company materials, SEC filings, or credible market/estimate sources before using them.",
+            "For major-ticker earnings setup briefs, official company earnings and SEC/IR sources in source_discovery are required. If official_facts includes a latest_official_quarter, use those reported values first and do not substitute stale prior-year data.",
             "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
             "For earnings setup briefs, do not default to 'mixed / wait for the print.' Missing one or two data categories should lower confidence, not automatically force a no-call judgment.",
             "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
@@ -2898,6 +3048,21 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "source_support": "passed",
         "missing_data_language": "repaired" if repair_count else "passed",
     }
+    source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
+    source_diagnostic_warnings = _source_discovery_validation_warnings(context)
+    if source_diagnostic_warnings:
+        warnings.extend(source_diagnostic_warnings)
+        labels["source_support"] = "failed"
+        blocking = True
+    if _required_official_source_omitted(article, context):
+        warnings.append(_warning("official_source_link_omitted", "Official company earnings source must remain in source links before publishing.", blocking=True))
+        labels["source_support"] = "failed"
+        blocking = True
+    primary_match_warning = _primary_context_match_warning(context)
+    if primary_match_warning:
+        warnings.append(primary_match_warning)
+        labels["source_support"] = "failed"
+        blocking = True
     if not title:
         warnings.append(_warning("missing_title", "Title is required.", blocking=True))
         blocking = True
@@ -2981,6 +3146,10 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
                 )
             )
             blocking = True
+        if _uses_stale_earnings_year(lowered, context):
+            warnings.append(_warning("stale_year_substitution", "Draft appears to use stale earnings-year data while newer official earnings data is available.", blocking=True))
+            labels["source_support"] = "failed"
+            blocking = True
     contradicted_fields = _available_data_missing_claims(lowered, context)
     if contradicted_fields:
         warnings.append(
@@ -3012,7 +3181,61 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         "source_link_count": source_link_count,
         "estimated_reading_minutes": max(1, round(len(body.split()) / 220)),
         "labels": labels,
+        "source_discovery": source_discovery,
     }
+
+
+def _source_discovery_validation_warnings(context: dict[str, Any]) -> list[dict[str, Any]]:
+    source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    symbol = str(((primary.get("identity") or {}).get("symbol") or "")).upper()
+    if not source_discovery.get("required_for_major_earnings_setup"):
+        return []
+    warnings: list[dict[str, Any]] = []
+    official = source_discovery.get("official_earnings_release") if isinstance(source_discovery.get("official_earnings_release"), dict) else {}
+    sec = source_discovery.get("sec_filing") if isinstance(source_discovery.get("sec_filing"), dict) else {}
+    if official.get("status") != "found":
+        warnings.append(_warning("missing_official_earnings_source", "Official company earnings source was not found. Regenerate or add source manually.", blocking=True))
+        if symbol:
+            warnings.append(_warning("official_earnings_retrieval_failed", f"Official earnings release could not be retrieved for {symbol}.", blocking=True))
+    if sec.get("status") != "found":
+        warnings.append(_warning("missing_sec_or_ir_source", "At least one SEC or company IR source is required for earnings setup briefs.", blocking=True))
+    official_facts = ((context.get("external_research") or {}).get("official_facts") or {}) if isinstance(context.get("external_research"), dict) else {}
+    if symbol == "AAPL" and official_facts.get("latest_official_quarter") != "Q2 FY2026":
+        warnings.append(_warning("stale_official_earnings_source", "AAPL earnings setup must use Apple Q2 FY2026 official results when available.", blocking=True))
+    return warnings
+
+
+def _required_official_source_omitted(article: dict[str, Any], context: dict[str, Any]) -> bool:
+    source_discovery = context.get("source_discovery") if isinstance(context.get("source_discovery"), dict) else {}
+    if not source_discovery.get("required_for_major_earnings_setup"):
+        return False
+    source_links = article.get("source_links") if isinstance(article.get("source_links"), list) else []
+    return not any(
+        isinstance(source, dict)
+        and str(source.get("source_type") or "") in {"official_company_earnings", "official_company_ir", "manual_official_source"}
+        for source in source_links
+    )
+
+
+def _uses_stale_earnings_year(lowered_text: str, context: dict[str, Any]) -> bool:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    symbol = str(((primary.get("identity") or {}).get("symbol") or "")).upper()
+    official_facts = ((context.get("external_research") or {}).get("official_facts") or {}) if isinstance(context.get("external_research"), dict) else {}
+    latest_quarter = str(official_facts.get("latest_official_quarter") or "")
+    if symbol == "AAPL" and latest_quarter == "Q2 FY2026":
+        return "q2 2025" in lowered_text or "fy2025" in lowered_text
+    return False
+
+
+def _primary_context_match_warning(context: dict[str, Any]) -> dict[str, Any] | None:
+    primary = context.get("primary") if isinstance(context.get("primary"), dict) else {}
+    identity = primary.get("identity") if isinstance(primary.get("identity"), dict) else {}
+    expected = normalize_symbol(identity.get("symbol"))
+    embedded = normalize_symbol((primary.get("confirmation") or {}).get("symbol") if isinstance(primary.get("confirmation"), dict) else None)
+    if expected and embedded and expected != embedded:
+        return _warning("primary_ticker_context_mismatch", f"Primary ticker context mismatch: expected {expected}, received {embedded}.", blocking=True)
+    return None
 
 
 def _internal_language_hits(lowered_text: str) -> list[str]:
@@ -3425,12 +3648,20 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
         config = validate_config(draft.get("config") or {})
         symbol = str(draft.get("primary_ticker") or config.get("ticker") or "").upper()
         identity = ((draft.get("research_context") or {}).get("primary") or {}).get("identity") or {"symbol": symbol}
-        external = discover_external_research(symbol, identity, mode=config.get("external_research_mode") or "Standard")
+        external = discover_external_research(
+            symbol,
+            identity,
+            mode=config.get("external_research_mode") or "Standard",
+            manual_source_url=config.get("manual_source_url"),
+            desired_angle=config.get("desired_angle"),
+            research_question=config.get("research_question"),
+        )
         context = draft.setdefault("research_context", {})
         context["external_research"] = external
         context["external_research_mode"] = external.get("mode")
         context["generated_at"] = _now()
         context["data_availability"] = _research_data_availability(context.get("primary") or {}, external)
+        context["source_discovery"] = external.get("source_discovery") or {}
         filtered_missing = _filter_missing_data_notes(external.get("missing_data_notes") or [], context["data_availability"])
         existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
         context["missing_data_notes"] = _filter_missing_data_notes([*existing_missing, *filtered_missing], context["data_availability"])
@@ -3451,12 +3682,20 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
             config = validate_config(draft.get("config") or {})
             symbol = str(draft.get("primary_ticker") or config.get("ticker") or "").upper()
             identity = ((draft.get("research_context") or {}).get("primary") or {}).get("identity") or {"symbol": symbol}
-            external = discover_external_research(symbol, identity, mode=config.get("external_research_mode") or "Standard")
+            external = discover_external_research(
+                symbol,
+                identity,
+                mode=config.get("external_research_mode") or "Standard",
+                manual_source_url=config.get("manual_source_url"),
+                desired_angle=config.get("desired_angle"),
+                research_question=config.get("research_question"),
+            )
             context = draft.setdefault("research_context", {})
             context["external_research"] = external
             context["external_research_mode"] = external.get("mode")
             context["generated_at"] = _now()
             context["data_availability"] = _research_data_availability(context.get("primary") or {}, external)
+            context["source_discovery"] = external.get("source_discovery") or {}
             filtered_missing = _filter_missing_data_notes(external.get("missing_data_notes") or [], context["data_availability"])
             existing_missing = context.get("missing_data_notes") if isinstance(context.get("missing_data_notes"), list) else []
             context["missing_data_notes"] = _filter_missing_data_notes([*existing_missing, *filtered_missing], context["data_availability"])

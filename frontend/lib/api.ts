@@ -5633,6 +5633,7 @@ export type AdminResearchBriefConfig = {
   include_cross_source_confirmations: boolean;
   generate_thumbnail: boolean;
   hero_image?: string | null;
+  manual_source_url?: string | null;
   client_request_id?: string | null;
 };
 
@@ -5687,6 +5688,7 @@ export type AdminResearchBriefValidation = {
   source_link_count: number;
   estimated_reading_minutes: number;
   labels?: Record<"structure" | "internal_language" | "source_support" | "missing_data_language", "passed" | "repaired" | "failed" | string>;
+  source_discovery?: Record<string, unknown>;
 };
 
 export type AdminResearchBriefDraft = {

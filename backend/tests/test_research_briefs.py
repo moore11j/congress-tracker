@@ -419,6 +419,148 @@ def test_confirmation_preferences_omit_unchecked_score_and_cross_source(tmp_path
     assert draft["config"]["include_cross_source_confirmations"] is False
 
 
+def test_aapl_earnings_setup_discovers_official_q2_2026_sources(monkeypatch):
+    monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 320193, "title": "Apple Inc."})
+    monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
+
+    external = service.discover_external_research(
+        "AAPL",
+        {"symbol": "AAPL", "company_name": "Apple Inc."},
+        mode="Standard",
+        desired_angle="Earnings setup",
+        research_question="Build an AAPL earnings setup.",
+    )
+
+    urls = {source["url"] for source in external["reviewed_sources"]}
+    facts = external["official_facts"]
+
+    assert "https://www.apple.com/ca/newsroom/2026/04/apple-reports-second-quarter-results/" in urls
+    assert "https://investor.apple.com/earnings-results/default.aspx" in urls
+    assert "https://investor.apple.com/sec-filings/default.aspx" in urls
+    assert facts["latest_official_quarter"] == "Q2 FY2026"
+    assert facts["revenue"]["value"] == 111.2
+    assert facts["diluted_eps"]["value"] == 2.01
+    assert external["source_discovery"]["official_earnings_release"]["status"] == "found"
+    assert external["source_discovery"]["sec_filing"]["status"] == "found"
+
+
+def test_aapl_context_uses_primary_ticker_confirmation_and_sources(monkeypatch):
+    monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 320193, "title": "Apple Inc."})
+    monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"AAPL": {**_confirmation_bundle(74), "symbol": "AAPL"}, "MSFT": {**_confirmation_bundle(88), "symbol": "MSFT"}})
+    db = _session()
+    _seed_ticker(db, "AAPL")
+    _seed_ticker(db, "MSFT")
+
+    context = service.assemble_research_context(
+        db,
+        _payload(
+            ticker="AAPL",
+            desired_angle="Earnings setup",
+            research_question="Build an AAPL earnings setup for the latest official quarter.",
+            comparison_tickers=["MSFT"],
+            external_research_mode="Standard",
+            include_confirmation_score=True,
+        ).model_dump(),
+    )
+
+    assert context["primary"]["identity"]["symbol"] == "AAPL"
+    assert context["primary"]["confirmation"]["symbol"] == "AAPL"
+    assert context["primary_ticker_context"]["symbol"] == "AAPL"
+    assert context["primary_ticker_context"]["confirmation_score"] == 74
+    assert context["comparisons"][0]["identity"]["symbol"] == "MSFT"
+    assert context["comparisons"][0]["confirmation"]["symbol"] == "MSFT"
+    assert context["external_research"]["official_facts"]["revenue"]["value"] == 111.2
+    assert context["external_research"]["official_facts"]["diluted_eps"]["value"] == 2.01
+
+
+def test_primary_ticker_context_mismatch_fails_before_generation(monkeypatch):
+    monkeypatch.setattr(service, "get_confirmation_score_bundles_for_tickers", lambda *_args, **_kwargs: {"AAPL": {**_confirmation_bundle(88), "symbol": "MSFT"}})
+    db = _session()
+    _seed_ticker(db, "AAPL")
+
+    with pytest.raises(HTTPException) as exc:
+        service.assemble_research_context(
+            db,
+            _payload(
+                ticker="AAPL",
+                desired_angle="Earnings setup",
+                research_question="Build an AAPL earnings setup.",
+                external_research_mode="Off",
+            ).model_dump(),
+        )
+
+    assert exc.value.status_code == 422
+    assert "Primary ticker context mismatch: expected AAPL, received MSFT" in exc.value.detail
+
+
+def test_major_earnings_setup_validation_fails_missing_official_source():
+    article = {
+        "title": "AAPL source failure",
+        "slug": "aapl-source-failure",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "walnut_call": "Mixed",
+        "sections": [{"heading": "Executive thesis", "body_markdown": "AAPL setup. Research only. Not investment advice. https://www.nasdaq.com/market-activity/stocks/aapl https://example.com/source " + "word " * 220}],
+        "source_links": [
+            {"label": "Nasdaq", "url": "https://www.nasdaq.com/market-activity/stocks/aapl", "source_type": "reputable_market_source"},
+            {"label": "Example", "url": "https://example.com/source", "source_type": "reputable_market_source"},
+        ],
+    }
+    context = {
+        "desired_angle": "Earnings setup",
+        "research_question": "Build an AAPL earnings setup.",
+        "primary": {"identity": {"symbol": "AAPL"}, "confirmation": _confirmation_bundle(74), "quote": {"price": 200}, "fundamentals": {"revenue_growth": 10}},
+        "source_discovery": {
+            "required_for_major_earnings_setup": True,
+            "official_earnings_release": {"status": "missing", "required": True},
+            "sec_filing": {"status": "missing", "required": True},
+        },
+        "external_research": {"official_facts": {}},
+    }
+
+    validation = service.validate_article(article, context)
+    codes = {warning["code"] for warning in validation["warnings"]}
+
+    assert validation["status"] == "failed"
+    assert "missing_official_earnings_source" in codes
+    assert "official_earnings_retrieval_failed" in codes
+    assert "missing_sec_or_ir_source" in codes
+
+
+def test_aapl_earnings_setup_validation_blocks_stale_year_substitution(monkeypatch):
+    monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 320193, "title": "Apple Inc."})
+    monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
+    external = service.discover_external_research(
+        "AAPL",
+        {"symbol": "AAPL", "company_name": "Apple Inc."},
+        mode="Standard",
+        desired_angle="Earnings setup",
+        research_question="Build an AAPL earnings setup.",
+    )
+    article = {
+        "title": "AAPL stale setup",
+        "slug": "aapl-stale-setup",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "walnut_call": "Mixed",
+        "sections": [{"heading": "Executive thesis", "body_markdown": "This uses Q2 2025 instead. Research only. Not investment advice. https://www.apple.com/ca/newsroom/2026/04/apple-reports-second-quarter-results/ https://investor.apple.com/sec-filings/default.aspx " + "word " * 220}],
+        "source_links": external["reviewed_sources"],
+    }
+    context = {
+        "desired_angle": "Earnings setup",
+        "research_question": "Build an AAPL earnings setup.",
+        "primary": {"identity": {"symbol": "AAPL"}, "confirmation": _confirmation_bundle(74), "quote": {"price": 200}, "fundamentals": {"revenue_growth": 10}},
+        "source_discovery": external["source_discovery"],
+        "external_research": external,
+    }
+
+    validation = service.validate_article(article, context)
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "stale_year_substitution" for warning in validation["warnings"])
+
+
 def test_confirmation_score_requested_requires_loaded_score():
     article = {
         "title": "MU score missing",
