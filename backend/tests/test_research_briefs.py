@@ -909,7 +909,8 @@ def test_aapl_earnings_setup_uses_expensive_defensive_not_wait():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("AAPL"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut call: Neutral but expensive" in text
+    assert "Our call: Neutral but expensive" in text
+    assert "**" not in text
     assert "Setup:" not in text
     assert "mixed / wait for the print" not in text
     assert cleaned["walnut_call"] == "Neutral but expensive"
@@ -926,7 +927,8 @@ def test_meta_earnings_setup_uses_capex_risk_when_core_ads_are_strong():
     cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("META"))
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut call: Mixed with capex risk" in text
+    assert "Our call: Mixed with capex risk" in text
+    assert "**" not in text
     assert "Setup:" not in text
     assert "free cash flow" in text
 
@@ -946,9 +948,31 @@ def test_earnings_setup_missing_some_data_lowers_confidence_without_forcing_wait
     )
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
-    assert "Walnut call:" in text
+    assert "Our call:" in text
+    assert "**" not in text
     assert "Setup:" not in text
     assert cleaned["confidence"] == "medium"
+
+
+def test_earnings_setup_keeps_admin_edited_call_copy_plain_and_rounded():
+    body = (
+        "**Walnut call: Mixed with capex risk**\n\n"
+        "Manual admin edit should survive. Revenue growth was 6.425511782832739% and gross margin was 47.862405358827935%. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/ "
+        + "word " * 220
+    )
+    article = _earnings_article(body, "AAPL")
+
+    cleaned = service.sanitize_research_brief_article(article, {"desired_angle": "Earnings setup"}, _earnings_context("AAPL"))
+    text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Our call:" in text
+    assert "Manual admin edit should survive." in text
+    assert "**" not in text
+    assert "6.425511782832739%" not in text
+    assert "47.862405358827935%" not in text
+    assert "6.4%" in text
+    assert "47.9%" in text
 
 
 def test_earnings_setup_validation_rejects_old_setup_label_as_call():

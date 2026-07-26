@@ -828,7 +828,8 @@ def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, An
     sanitized = deepcopy(article)
     walnut_call = _infer_earnings_walnut_call(sanitized, context)
     explanation = _earnings_setup_judgment_explanation(walnut_call, sanitized, context)
-    judgment_block = "\n".join([f"**Walnut call: {walnut_call}**", "", explanation]).strip()
+    call_line = f"Our call: {walnut_call}"
+    judgment_block = format_research_numeric_claims("\n".join([call_line, "", explanation]).strip())
     sections = sanitized.get("sections") if isinstance(sanitized.get("sections"), list) else []
     if not sections:
         sanitized["sections"] = [{"key": "the_call", "heading": "The call", "body_markdown": judgment_block}]
@@ -840,7 +841,7 @@ def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, An
             target = dict(sections[target_index])
             target["heading"] = "The call"
             target["key"] = "the_call"
-            target["body_markdown"] = _replace_earnings_judgment_block(str(target.get("body_markdown") or ""), judgment_block)
+            target["body_markdown"] = _replace_earnings_judgment_block(str(target.get("body_markdown") or ""), call_line, judgment_block)
             sections[target_index] = target
         sanitized["sections"] = sections
 
@@ -898,21 +899,33 @@ def _earnings_judgment_section_index(sections: list[dict[str, Any]]) -> int | No
     return fallback
 
 
-def _replace_earnings_judgment_block(body: str, judgment_block: str) -> str:
+def _replace_earnings_judgment_block(body: str, call_line: str, fallback_judgment_block: str) -> str:
     cleaned = re.sub(
         r"(?is)(?:\*\*)?Walnut judgment:\s*(?:clean bullish setup|constructive but expensive|expensive defensive setup|capex-risk setup|mixed\s*/\s*wait for the print|bearish setup|insufficient data)(?:\*\*)?\.?(?:\s+.*?)(?=\n{2,}|$)",
         "",
         body,
     ).strip()
-    cleaned = re.sub(r"(?im)^\*\*Walnut call:\s*.*?\*\*\s*$", "", cleaned).strip()
+    call_pattern = r"(?im)^(?:\*\*)?(?:Walnut|Our) call:\s*.*?(?:\*\*)?\s*$"
+    if re.search(call_pattern, cleaned):
+        cleaned = re.sub(call_pattern, call_line, cleaned, count=1).strip()
+        output_lines: list[str] = []
+        saw_call = False
+        for line in cleaned.splitlines():
+            if re.match(r"(?i)^\s*Our call:\s*", line):
+                if saw_call:
+                    continue
+                saw_call = True
+            output_lines.append(line)
+        cleaned = "\n".join(output_lines).strip()
+        return format_research_numeric_claims(cleaned.replace("**", "")).strip()
     cleaned = re.sub(r"(?im)^\*\*Setup:\s*.*?\*\*\s*$", "", cleaned).strip()
     cleaned = re.sub(r"(?im)^#+\s*The call:\s*.*wait for the print.*$", "", cleaned).strip()
     cleaned = re.sub(r"(?im)^The call:\s*.*wait for the print.*$", "", cleaned).strip()
     if not cleaned:
-        return judgment_block
-    if "wait for the print" in cleaned.lower() and "Mixed" not in judgment_block:
+        return fallback_judgment_block
+    if "wait for the print" in cleaned.lower() and "Mixed" not in fallback_judgment_block:
         cleaned = _remove_sentences_matching(cleaned, r"\bwait for the print\b")
-    return _merge_markdown_bodies(judgment_block, cleaned)
+    return format_research_numeric_claims(_merge_markdown_bodies(fallback_judgment_block, cleaned).replace("**", "")).strip()
 
 
 def _infer_earnings_walnut_call(article: dict[str, Any], context: dict[str, Any]) -> str:
@@ -1075,7 +1088,9 @@ def _earnings_business_sentence(symbol: str, context: dict[str, Any]) -> str:
     ):
         value = fundamentals.get(key)
         if value is not None:
-            pieces.append(f"{label} {value}{suffix}")
+            numeric_value = _safe_float(value)
+            formatted = _format_compact_decimal(numeric_value, max_decimals=1) if numeric_value is not None else str(value)
+            pieces.append(f"{label} {formatted}{suffix}")
     if pieces:
         return f"The business data for {symbol} is anchored by {', '.join(pieces[:3])}."
     return f"The business data for {symbol} points to the core operating setup, but confidence depends on the available earnings, guidance, margin, and cash flow evidence."
@@ -1265,7 +1280,7 @@ def _article_walnut_call(article: dict[str, Any]) -> str | None:
     call = _normalize_walnut_call(article.get("walnut_call"))
     if call:
         return call
-    match = re.search(r"\bWalnut call:\s*([^\n*]+)", _article_body_text(article), flags=re.IGNORECASE)
+    match = re.search(r"\b(?:Walnut|Our) call:\s*([^\n*]+)", _article_body_text(article), flags=re.IGNORECASE)
     return _normalize_walnut_call(match.group(1) if match else None)
 
 
@@ -2910,9 +2925,9 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
             "For earnings setup briefs, do not default to 'mixed / wait for the print.' Missing one or two data categories should lower confidence, not automatically force a no-call judgment.",
             "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
-            "For earnings setup briefs, use this call format in the final call section: '**Walnut call: [allowed call]**'. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
+            "For earnings setup briefs, use this plain-text call format in the final call section: 'Our call: [allowed call]'. Do not wrap it in markdown bold markers. Mixed should be rare; use a more specific call such as Bullish but expensive, Neutral but expensive, Neutral with capex risk, or Mixed with capex risk when that is what the evidence says.",
             "For earnings setup briefs, if the business is strong but valuation or expectations are high, use Bullish but expensive or Neutral but expensive. If the business is strong but capex/free cash flow is the main market risk, use Neutral with capex risk or Mixed with capex risk. Use Insufficient data to make a call only when required primary data is unavailable.",
-            "After the Walnut call line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the call.",
+            "After the call line, write 2-4 sentences covering what the business data says, what the market issue is, and what would confirm or break the call.",
             "Use 'data', not 'stack'. Use 'reported' or 'disclosed' for Congress, insider, and institutional activity. For 13F data, say 'reported institutional activity', 'filing date', and 'quarter-end holdings'; never imply live institutional buying.",
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
