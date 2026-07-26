@@ -988,6 +988,18 @@ def test_manual_article_save_does_not_rewrite_admin_body_or_confirmation_score()
         + "word " * 220
     )
     article = _earnings_article(body, "AAPL")
+    article["sections"] = [
+        {
+            "key": "executive_summary_tldr",
+            "heading": "Executive summary (tldr)",
+            "body_markdown": "Apple's core business enters fiscal Q3 from a position of strength.",
+        },
+        {
+            "key": "the_call",
+            "heading": "The call",
+            "body_markdown": body,
+        },
+    ]
     article["walnut_call"] = "Mixed with capex risk"
 
     cleaned = service.sanitize_research_brief_article(
@@ -998,6 +1010,7 @@ def test_manual_article_save_does_not_rewrite_admin_body_or_confirmation_score()
     )
     text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
 
+    assert cleaned["sections"][0]["heading"] == "Executive summary (tldr)"
     assert "Our call: Bullish with capex risk" in text
     assert "Our proprietary confirmation score is 83/100" in text
     assert "Manual admin edit should be treated as authoritative after generation." in text

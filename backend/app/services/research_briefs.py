@@ -696,6 +696,19 @@ def sanitize_research_brief_article(
         if not isinstance(section, dict):
             continue
         heading = sanitize_research_brief_copy(str(section.get("heading") or "")).lstrip("# ").strip() or f"Section {index + 1}"
+        if not repair_generated_sections:
+            body = sanitize_research_brief_copy(str(section.get("body_markdown") or ""))
+            if not body:
+                continue
+            cleaned_sections.append(
+                {
+                    **section,
+                    "heading": heading,
+                    "key": str(section.get("key") or _slugify(heading, fallback=f"section-{index + 1}")),
+                    "body_markdown": body,
+                }
+            )
+            continue
         heading = _canonical_heading(heading)
         if _is_placeholder_heading(heading):
             heading = "Executive thesis"
@@ -703,7 +716,7 @@ def sanitize_research_brief_article(
         if not body:
             continue
         cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
-    sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
+    sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format) if repair_generated_sections else cleaned_sections
     if repair_generated_sections:
         sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
         sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
