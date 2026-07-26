@@ -110,9 +110,13 @@ function isStreetComparisonMethod(value: string | null | undefined): boolean {
   return normalized.includes("street") || normalized.includes("consensus") || normalized.includes("analyst");
 }
 
+function isValuationSummaryMethod(value: string | null | undefined): boolean {
+  return (value ?? "").toLowerCase().includes("final valuation");
+}
+
 function methodPills(data: TickerValuationResponse): string[] {
   const methods = (data.dcf.methodSignals ?? [])
-    .filter((item) => !isStreetComparisonMethod(item.method))
+    .filter((item) => !isStreetComparisonMethod(item.method) && !isValuationSummaryMethod(item.method))
     .map((item) => compactMethodLabel(item.method))
     .filter(Boolean);
   const currentMethod = data.dcf.method ? compactMethodLabel(data.dcf.method) : null;
@@ -243,7 +247,7 @@ function ValuationRange({ data, compact = false }: { data: TickerValuationRespon
                     <div className={`absolute left-0 -top-8 -translate-x-1/2 whitespace-nowrap text-center text-sm font-semibold tabular-nums ${scenarioTone}`}>
                       {formatMoney(marker.value, { maximumFractionDigits: 0 }).replace("$", "")}
                     </div>
-                    <div className="absolute left-0 top-4 -translate-x-1/2 whitespace-nowrap text-center">
+                    <div className="absolute left-0 top-7 -translate-x-1/2 whitespace-nowrap text-center">
                       <p className={`text-[11px] font-semibold ${marker.key === "bear" ? "text-rose-200" : "text-teal-200"}`}>{marker.label}</p>
                     </div>
                   </>
