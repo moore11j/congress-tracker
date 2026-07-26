@@ -358,6 +358,37 @@ def test_dcf_baseline_revenue_growth_uses_median_projection_percentage():
     assert growth == 0.3011
 
 
+def test_custom_dcf_revenue_growth_input_is_not_capped_at_35(monkeypatch):
+    def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
+        if endpoint == "profile":
+            return [{"beta": 1.2}]
+        if endpoint == "income-statement-ttm":
+            return [{"date": "2025-12-31", "revenue": 100, "ebitda": 20, "ebit": 15, "incomeBeforeTax": 15, "incomeTaxExpense": 3}]
+        if endpoint == "cash-flow-statement-ttm":
+            return [{"operatingCashFlow": 10, "capitalExpenditure": -5, "depreciationAndAmortization": 2}]
+        if endpoint == "custom-discounted-cash-flow":
+            return [{"year": "2026", "Revenue Percentage": 96}]
+        if endpoint in {
+            "price-target-consensus",
+            "balance-sheet-statement-ttm",
+            "income-statement",
+            "cash-flow-statement",
+            "balance-sheet-statement",
+            "analyst-estimates",
+            "income-statement-growth",
+            "cash-flow-statement-growth",
+            "balance-sheet-statement-growth",
+        }:
+            return []
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(valuation_module, "_request_stable_rows", fake_request)
+
+    valuation_model = valuation_module._walnut_valuation_model("NBIS")
+
+    assert valuation_model["assumptions"]["revenueGrowthPct"] == 0.96
+
+
 def test_dcf_inputs_normalize_extreme_beta(monkeypatch):
     def fake_request(endpoint, *, params, category, symbol=None, timeout_s=30, allow_user_request=False):
         if endpoint == "profile":

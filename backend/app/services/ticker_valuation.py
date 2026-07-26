@@ -97,7 +97,6 @@ RATIO_ASSUMPTION_KEYS = {
     "taxRate",
 }
 RATIO_ASSUMPTION_LIMITS = {
-    "revenueGrowthPct": (-0.30, 0.35),
     "ebitdaPct": (0.0, 0.75),
     "depreciationAndAmortizationPct": (0.0, 0.35),
     "cashAndShortTermInvestmentsPct": (0.0, 1.0),
@@ -110,6 +109,7 @@ RATIO_ASSUMPTION_LIMITS = {
     "sellingGeneralAndAdministrativeExpensesPct": (0.0, 1.0),
     "taxRate": (0.0, 0.50),
 }
+HISTORICAL_REVENUE_GROWTH_LIMITS = (-0.30, 0.35)
 DCF_BETA_MIN = 1.0
 DCF_BETA_MAX = 1.8
 PRE_PROFIT_DCF_BETA = 1.8
@@ -451,7 +451,7 @@ def _annualized_revenue_growth(start_revenue: float | None, end_revenue: float |
         return None
     if not cap:
         return growth
-    low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+    low, high = HISTORICAL_REVENUE_GROWTH_LIMITS
     return _clamp(growth, low, high)
 
 
@@ -489,7 +489,7 @@ def _forward_revenue_growth_pct(income_rows: list[dict[str, Any]], estimate_rows
         if previous is not None and previous > 0 and latest is not None:
             growth = (latest - previous) / previous
             if math.isfinite(growth):
-                low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+                low, high = HISTORICAL_REVENUE_GROWTH_LIMITS
                 return _clamp(growth, low, high)
     return None
 
@@ -498,7 +498,7 @@ def _statement_growth(row: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     value = _first_number(row, keys)
     if value is None:
         return None
-    low, high = RATIO_ASSUMPTION_LIMITS["revenueGrowthPct"]
+    low, high = HISTORICAL_REVENUE_GROWTH_LIMITS
     return _clamp(value, low, high)
 
 
@@ -700,13 +700,12 @@ def _walnut_valuation_model(symbol: str) -> dict[str, Any]:
         computed["revenueGrowthPct"] = buyback_adjusted_growth
 
     assumptions: dict[str, float] = {}
-    uncapped_assumption_keys = {"revenueGrowthPct"} if revenue_growth_from_estimates else set()
     for key in DCF_INPUT_PARAM_KEYS:
         value = computed.get(key)
         if value is None or not math.isfinite(value):
             value = DEFAULT_DCF_ASSUMPTIONS[key]
         limits = RATIO_ASSUMPTION_LIMITS.get(key)
-        if limits is not None and key not in uncapped_assumption_keys:
+        if limits is not None:
             value = _clamp(value, limits[0], limits[1]) or 0.0
         assumptions[key] = round(float(value), 6)
     return {
