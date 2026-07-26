@@ -1,5 +1,18 @@
 export const PORTFOLIO_MODE = "realistic_disclosure_lag";
 
+export const PORTFOLIO_MODE_OPTIONS = [
+  {
+    label: "Disclosure date",
+    value: "realistic_disclosure_lag",
+    detail: "Realistic disclosure lag",
+  },
+  {
+    label: "Trade date",
+    value: "theoretical_transaction_date",
+    detail: "Actual trade date",
+  },
+];
+
 export const PORTFOLIO_LOOKBACK_OPTIONS = [
   { label: "30D", value: 30 },
   { label: "90D", value: 90 },

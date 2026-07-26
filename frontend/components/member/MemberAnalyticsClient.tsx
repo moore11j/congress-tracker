@@ -29,7 +29,7 @@ import {
 import { tickerHref } from "@/lib/ticker";
 import { resolveSmartSignalValue } from "@/lib/smartSignal";
 import {
-  PORTFOLIO_MODE,
+  PORTFOLIO_MODE_OPTIONS,
   normalizeMemberPortfolioChartData,
   normalizeMemberPortfolioEventMarkers,
 } from "@/lib/portfolioPerformance.mjs";
@@ -392,6 +392,8 @@ function MemberPortfolioPanel({
   locked,
   selectedLookbackDays,
   lookbackLinks,
+  selectedMode,
+  modeLinks,
   simulatedTradesCount,
 }: {
   portfolio: MemberPortfolioPerformance | null;
@@ -400,15 +402,19 @@ function MemberPortfolioPanel({
   locked: boolean;
   selectedLookbackDays: number;
   lookbackLinks: Array<{ label: string; value: number; href: string }>;
+  selectedMode: string;
+  modeLinks: Array<{ label: string; value: string; detail: string; href: string }>;
   simulatedTradesCount: number | null;
 }) {
   if (loading) return <PortfolioSkeleton />;
+  const selectedModeOption = PORTFOLIO_MODE_OPTIONS.find((option) => option.value === selectedMode) ?? PORTFOLIO_MODE_OPTIONS[0];
+  const isTradeDateMode = selectedMode === "theoretical_transaction_date";
   if (locked) {
     return (
       <section id="member-performance" className={`${CARD} p-3`}>
         <SectionTitle title="Performance" detail="Premium simulation" />
         <h3 className="mt-3 text-lg font-semibold text-white">Portfolio Performance</h3>
-        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
+        <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-300">{selectedModeOption.detail}</p>
         <p className="mt-2 max-w-3xl text-sm text-white/45">
           The member profile, trade analytics, top tickers, and recent disclosures remain visible. Portfolio simulation is available with Premium and Pro.
         </p>
@@ -454,13 +460,33 @@ function MemberPortfolioPanel({
     <section id="member-performance" className={`${CARD} p-3`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <SectionTitle title="Performance" detail="Realistic disclosure lag" />
-          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300">Disclosure-lag realistic portfolio</p>
+          <SectionTitle title="Performance" detail={selectedModeOption.detail} />
+          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-300">
+            {isTradeDateMode ? "Trade-date theoretical portfolio" : "Disclosure-lag realistic portfolio"}
+          </p>
           <p className="mt-2 max-w-3xl text-sm text-white/45">
-            Trades are simulated after public disclosure, not transaction date. Open positions are carried forward through the selected window.
+            {isTradeDateMode
+              ? "Trades are simulated from the transaction date. Open positions are carried forward through the selected window."
+              : "Trades are simulated after public disclosure, not transaction date. Open positions are carried forward through the selected window."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex rounded-md border border-white/10 bg-slate-950/30 p-0.5">
+            {modeLinks.map((option) => (
+              <Link
+                key={option.value}
+                href={option.href}
+                prefetch={false}
+                className={`rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  option.value === selectedMode
+                    ? "bg-emerald-400/15 text-emerald-100"
+                    : "text-white/55 hover:bg-white/[0.04] hover:text-white/85"
+                }`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
           {lookbackLinks.map((option) => (
             <Link
               key={option.value}
@@ -638,6 +664,8 @@ export function MemberAnalyticsClient({
   lookbackDays,
   portfolioLookbackDays,
   portfolioLookbackLinks,
+  portfolioMode,
+  portfolioModeLinks,
   initialTopTickers,
   initialAlphaSummary,
   initialTrades,
@@ -648,6 +676,8 @@ export function MemberAnalyticsClient({
   lookbackDays: number;
   portfolioLookbackDays: number;
   portfolioLookbackLinks: Array<{ label: string; value: number; href: string }>;
+  portfolioMode: string;
+  portfolioModeLinks: Array<{ label: string; value: string; detail: string; href: string }>;
   initialTopTickers: Array<{ symbol: string; trades: number }>;
   initialAlphaSummary?: MemberAlphaSummary;
   initialTrades?: MemberTradesResponse;
@@ -778,7 +808,7 @@ export function MemberAnalyticsClient({
 
     const portfolioRequest = getMemberPortfolioPerformance(memberId, {
       lookback_days: portfolioLookbackDays,
-      mode: PORTFOLIO_MODE,
+      mode: portfolioMode,
       source: "MemberAnalytics",
       signal: controller.signal,
     })
@@ -810,7 +840,7 @@ export function MemberAnalyticsClient({
       cancelled = true;
       controller.abort();
     };
-  }, [canViewPortfolio, entitlementsLoaded, loading, lookbackDays, memberId, portfolioLookbackDays]);
+  }, [canViewPortfolio, entitlementsLoaded, loading, lookbackDays, memberId, portfolioLookbackDays, portfolioMode]);
 
   const recentTrades = useMemo(() => sortedTrades(trades.items), [trades.items]);
   const recentTradesTotalPages = Math.max(1, Math.ceil(recentTrades.length / RECENT_TRADES_PAGE_SIZE));
@@ -1023,6 +1053,8 @@ export function MemberAnalyticsClient({
           locked={entitlementsLoaded && !canViewPortfolio}
           selectedLookbackDays={portfolioLookbackDays}
           lookbackLinks={portfolioLookbackLinks}
+          selectedMode={portfolioMode}
+          modeLinks={portfolioModeLinks}
           simulatedTradesCount={simulatedTradesCount}
         />
 

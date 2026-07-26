@@ -16,6 +16,8 @@ import { isBioguideId, nameToSlug } from "@/lib/memberSlug";
 import {
   DEFAULT_PORTFOLIO_LOOKBACK_DAYS,
   PORTFOLIO_LOOKBACK_OPTIONS,
+  PORTFOLIO_MODE,
+  PORTFOLIO_MODE_OPTIONS,
   isPortfolioLookbackDays,
 } from "@/lib/portfolioPerformance.mjs";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
@@ -92,11 +94,17 @@ function getPortfolioLookbackParam(sp: Record<string, string | string[] | undefi
   return isPortfolioLookbackDays(raw) ? raw : DEFAULT_PORTFOLIO_LOOKBACK_DAYS;
 }
 
+function getPortfolioModeParam(sp: Record<string, string | string[] | undefined>) {
+  const raw = getParam(sp, "portfolio_mode").trim();
+  return raw === "theoretical_transaction_date" ? raw : PORTFOLIO_MODE;
+}
+
 function buildMemberPath(
   prettySlug: string,
   lbParam: string,
   chartMetric?: "return" | "alpha",
   portfolioLookbackDays?: number,
+  portfolioMode?: string,
 ) {
   const path = `/member/${prettySlug}`;
   const query = new URLSearchParams();
@@ -104,6 +112,9 @@ function buildMemberPath(
   if (chartMetric && chartMetric !== "return") query.set("am", chartMetric);
   if (portfolioLookbackDays && portfolioLookbackDays !== DEFAULT_PORTFOLIO_LOOKBACK_DAYS) {
     query.set("portfolio_lb", String(portfolioLookbackDays));
+  }
+  if (portfolioMode && portfolioMode !== PORTFOLIO_MODE) {
+    query.set("portfolio_mode", portfolioMode);
   }
   const qs = query.toString();
   return qs ? `${path}?${qs}` : path;
@@ -175,8 +186,9 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const fallbackName = slug.replace(/-/g, " ");
   const chartMetric = getChartMetricParam(sp);
   const portfolioLookbackDays = getPortfolioLookbackParam(sp);
+  const portfolioMode = getPortfolioModeParam(sp);
   const prettySlug = await resolveMetadataMemberSlug(slug);
-  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric, portfolioLookbackDays);
+  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric, portfolioLookbackDays, portfolioMode);
   const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
   const title = `${fallbackName || "Member"} - Member Profile`;
 
@@ -195,6 +207,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
   const lbRaw = getLookbackParam(sp);
   const chartMetric = getChartMetricParam(sp);
   const portfolioLookbackDays = getPortfolioLookbackParam(sp);
+  const portfolioMode = getPortfolioModeParam(sp);
   const lb = lbRaw === "90" || lbRaw === "180" ? Number(lbRaw) : 365;
 
   const upperSlug = slug.toUpperCase();
@@ -213,12 +226,16 @@ export default async function MemberPage({ params, searchParams }: Props) {
     redirect(`/member/${canonicalSlug}${query ? `?${query}` : ""}`);
   }
 
-  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays);
+  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays, portfolioMode);
   const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
   const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
     ...option,
-    href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value),
+    href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, option.value, portfolioMode),
+  }));
+  const portfolioModeLinks = PORTFOLIO_MODE_OPTIONS.map((option) => ({
+    ...option,
+    href: buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays, option.value),
   }));
   const chamber = chamberBadge(data.member.chamber);
   const party = partyBadge(data.member.party);
@@ -330,6 +347,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
           lookbackDays={lb}
           portfolioLookbackDays={portfolioLookbackDays}
           portfolioLookbackLinks={portfolioLookbackLinks}
+          portfolioMode={portfolioMode}
+          portfolioModeLinks={portfolioModeLinks}
           initialTopTickers={data.top_tickers}
           initialAlphaSummary={initialAlphaSummary}
           initialTrades={initialTrades}
