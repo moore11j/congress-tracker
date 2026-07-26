@@ -387,7 +387,7 @@ def _sanitize_copy_text_block(block: str) -> str:
                 output.append(replacement)
                 output.append(separator)
         else:
-            output.append(_rewrite_internal_phrases(sentence))
+            output.append(_rewrite_human_research_phrases(_rewrite_internal_phrases(sentence)))
             output.append(separator)
         index += 2
     return "".join(output).strip()
@@ -434,6 +434,34 @@ def _rewrite_internal_phrases(sentence: str) -> str:
     rewritten = sentence
     for pattern, replacement in replacements.items():
         rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _rewrite_human_research_phrases(sentence: str) -> str:
+    original = sentence
+    replacements = {
+        r"\bIt is important to note that\s+": "",
+        r"\bIt should be noted that\s+": "",
+        r"\bIn conclusion,\s+": "",
+        r"\bOverall,\s+": "",
+        r"\bThis article will examine\b": "This brief examines",
+        r"\bThis section will examine\b": "This section examines",
+        r"\bThis brief will examine\b": "This brief examines",
+        r"\bIt remains to be seen whether\b": "The open question is whether",
+        r"\bInvestors should monitor\b": "Watch",
+        r"\bInvestors should watch\b": "Watch",
+        r"\bInvestors should keep an eye on\b": "Watch",
+        r"\bThere are several factors that\b": "Several factors",
+        r"\bplays a crucial role in\b": "matters for",
+        r"\bis a key factor in determining\b": "helps determine",
+    }
+    rewritten = sentence
+    for pattern, replacement in replacements.items():
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    if rewritten != original:
+        match = re.search(r"[A-Za-z]", rewritten)
+        if match and rewritten[match.start()].islower():
+            rewritten = rewritten[: match.start()] + rewritten[match.start()].upper() + rewritten[match.start() + 1 :]
     return rewritten
 
 
@@ -2539,7 +2567,9 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Never expose provider, internal, cache, raw, token, credential, or diagnostic wording in user-facing copy.",
             "For DCF/valuation briefs, do not produce a fake DCF when inputs are missing. Separate reported numbers from assumptions and say when a DCF cannot be anchored.",
             "Do not imply financial advice, guaranteed returns, congressional intent, insider wrongdoing, or real-time 13F activity.",
-            "Write directly, specifically, and professionally. Avoid generic AI phrasing and marketing filler.",
+            "Write in a professional but human analyst voice: concrete, varied, and plain-spoken, with a clear point of view when the evidence supports one.",
+            "Avoid generic AI phrasing, throat-clearing, and template transitions such as 'It is important to note,' 'Overall,' 'In conclusion,' 'This article will examine,' and repeated 'investors should monitor.'",
+            "Prefer active sentences that sound like a senior analyst wrote them after reading the data. Do not become casual, promotional, cute, or chatty.",
             "Use comparison_tickers only where relevant. Do not force every comparison ticker into every section. If comparison data is unavailable, say so clearly. Do not invent data. Use the comparisons to compare growth, margins, capex, valuation, cash flow, and market setup where available.",
             "End with a clear judgment plus a brief research-only disclaimer.",
             "Use first-person plural for our own views, data, takes, and confirmation score. Say 'our take' or 'our confirmation score,' not 'Walnut's take' or 'Walnut's confirmation score.'",

@@ -564,6 +564,8 @@ def test_prompt_restricts_missing_limitations_to_filtered_notes():
 
     assert "Treat data_availability as authoritative" in prompt
     assert "Only list fields from missing_data_notes as missing" in prompt
+    assert "professional but human analyst voice" in prompt
+    assert "Avoid generic AI phrasing" in prompt
 
 
 def test_validation_fails_when_draft_marks_available_data_missing():
@@ -791,6 +793,24 @@ def test_research_brief_copy_uses_first_person_walnut_voice():
     assert "our view is mixed" in cleaned
     assert "Walnut's" not in cleaned
     assert "Walnut data" not in cleaned
+
+
+def test_research_brief_copy_removes_stiff_ai_transitions():
+    cleaned = service.sanitize_research_brief_copy(
+        "It is important to note that margin quality matters. "
+        "Overall, the setup is constructive but expensive. "
+        "This article will examine the revenue base. "
+        "Investors should monitor guidance and free cash flow."
+    )
+
+    assert "It is important to note" not in cleaned
+    assert "Overall," not in cleaned
+    assert "This article will examine" not in cleaned
+    assert "Investors should monitor" not in cleaned
+    assert "Margin quality matters." in cleaned
+    assert "The setup is constructive but expensive." in cleaned
+    assert "This brief examines the revenue base." in cleaned
+    assert "Watch guidance and free cash flow." in cleaned
 
 
 def test_research_brief_article_sanitizer_marks_repaired_and_blocks_no_internal_language():
