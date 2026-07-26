@@ -419,6 +419,57 @@ def test_confirmation_preferences_omit_unchecked_score_and_cross_source(tmp_path
     assert draft["config"]["include_cross_source_confirmations"] is False
 
 
+def test_confirmation_score_generic_mention_still_appends_actual_score():
+    article = {
+        "title": "AAPL generic score",
+        "slug": "aapl-generic-score",
+        "subtitle": "Research only. Not investment advice.",
+        "summary": "The confirmation score is separate from underlying data.",
+        "preview_body": "Research only. Not investment advice.",
+        "judgment": "mixed",
+        "sections": [
+            {
+                "key": "body",
+                "heading": "Executive thesis",
+                "body_markdown": "The confirmation score is separate from the underlying data. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.apple.com/earnings-results/default.aspx " + "word " * 220,
+            }
+        ],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
+            {"label": "Apple IR", "url": "https://investor.apple.com/earnings-results/default.aspx", "source_type": "official_company_ir"},
+        ],
+    }
+
+    cleaned = service.sanitize_research_brief_article(
+        article,
+        {"include_confirmation_score": True},
+        {"primary": {"identity": {"symbol": "AAPL"}, "confirmation": _confirmation_bundle(74)}, "include_confirmation_score": True},
+    )
+    body = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Our proprietary confirmation score is 74/100" in body
+    assert cleaned["confirmation_score_included"] is True
+
+
+def test_confirmation_score_checked_requires_score_value_in_body():
+    article = {
+        "title": "AAPL missing score body",
+        "slug": "aapl-missing-score-body",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [{"heading": "Executive thesis", "body_markdown": "The confirmation score is separate from underlying data. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.apple.com/earnings-results/default.aspx " + "word " * 220}],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
+            {"label": "Apple IR", "url": "https://investor.apple.com/earnings-results/default.aspx", "source_type": "official_company_ir"},
+        ],
+    }
+
+    validation = service.validate_article(article, {"primary": {"identity": {"symbol": "AAPL"}, "confirmation": _confirmation_bundle(74)}, "include_confirmation_score": True})
+
+    assert validation["status"] == "failed"
+    assert any(warning["code"] == "confirmation_score_missing_from_body" for warning in validation["warnings"])
+
+
 def test_aapl_earnings_setup_discovers_official_q2_2026_sources(monkeypatch):
     monkeypatch.setattr(service, "_sec_company_record", lambda symbol: {"ticker": symbol, "cik_str": 320193, "title": "Apple Inc."})
     monkeypatch.setattr(service, "_sec_company_facts", lambda _cik: {})
@@ -1127,6 +1178,46 @@ def test_missing_data_and_internal_terms_fail_validation(tmp_path, monkeypatch):
 
     codes = {warning["code"] for warning in validation["warnings"]}
     assert {"not_supplied_language", "internal_wording", "confirmation_score_blended"}.issubset(codes)
+
+
+def test_numeric_formatter_rounds_raw_percentage_decimals_without_damaging_clean_values():
+    cleaned = service.sanitize_research_brief_copy(
+        "Revenue grew +17.123456% YoY, EPS grew 22.000000%, margin was 44.25%, and FCF yield was 2.01%."
+    )
+
+    assert "+17.1%" in cleaned
+    assert "22%" in cleaned
+    assert "44.25%" in cleaned
+    assert "2.01%" in cleaned
+    assert "17.123456%" not in cleaned
+
+
+def test_generated_article_numeric_precision_is_repaired_before_validation():
+    article = {
+        "title": "AAPL decimal cleanup",
+        "slug": "aapl-decimal-cleanup",
+        "summary": "Research only. Not investment advice.",
+        "preview_body": "Research only. Not investment advice.",
+        "sections": [
+            {
+                "heading": "Executive thesis",
+                "body_markdown": "Revenue grew 17.123456% while EPS rose 22.000000%. Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.apple.com/earnings-results/default.aspx " + "word " * 220,
+            }
+        ],
+        "source_links": [
+            {"label": "SEC", "url": "https://www.sec.gov/edgar/search/#/q=AAPL", "source_type": "filing_search"},
+            {"label": "Apple IR", "url": "https://investor.apple.com/earnings-results/default.aspx", "source_type": "official_company_ir"},
+        ],
+    }
+
+    cleaned = service.sanitize_research_brief_article(article, {}, {"primary": {"identity": {"symbol": "AAPL"}}})
+    body = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+    validation = service.validate_article(cleaned, {"primary": {"identity": {"symbol": "AAPL"}}})
+
+    assert "17.1%" in body
+    assert "22%" in body
+    assert "17.123456%" not in body
+    assert not any(warning["code"] == "numeric_formatting" for warning in validation["warnings"])
 
 
 def test_reddit_dd_section_format_prompt_contains_required_sections():

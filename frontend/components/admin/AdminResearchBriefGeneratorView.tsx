@@ -426,11 +426,22 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   async function refreshDrafts(nextSelected?: AdminResearchBriefDraft) {
     const payload = await getAdminResearchBriefDrafts();
-    setDrafts(payload.items);
     if (nextSelected) {
-      const match = payload.items.find((draft) => draft.id === nextSelected.id) ?? nextSelected;
-      setSelectedDraft(match);
+      const seen = new Set<string>();
+      const items = payload.items.map((draft) => {
+        if (draft.id !== nextSelected.id) {
+          seen.add(draft.id);
+          return draft;
+        }
+        seen.add(nextSelected.id);
+        return nextSelected;
+      });
+      if (!seen.has(nextSelected.id)) items.unshift(nextSelected);
+      setDrafts(items);
+      setSelectedDraft(nextSelected);
+      return;
     }
+    setDrafts(payload.items);
   }
 
   async function generateDraft() {

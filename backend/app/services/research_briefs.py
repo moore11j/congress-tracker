@@ -366,16 +366,18 @@ def format_research_numeric_claims(markdown: str) -> str:
     text = str(markdown or "")
 
     def percentage(match: re.Match[str]) -> str:
-        value = _safe_float(match.group(1).replace(",", ""))
+        prefix = match.group(1) or ""
+        value = _safe_float(match.group(2).replace(",", ""))
         if value is None:
             return match.group(0)
-        return f"{value:.1f}%"
+        return f"{prefix}{_format_compact_decimal(value, max_decimals=1)}%"
 
     def ratio(match: re.Match[str]) -> str:
-        value = _safe_float(match.group(1).replace(",", ""))
+        prefix = match.group(1) or ""
+        value = _safe_float(match.group(2).replace(",", ""))
         if value is None:
             return match.group(0)
-        return f"{value:.1f}x"
+        return f"{prefix}{_format_compact_decimal(value, max_decimals=1)}x"
 
     def currency(match: re.Match[str]) -> str:
         raw = match.group(1).replace(",", "")
@@ -392,11 +394,15 @@ def format_research_numeric_claims(markdown: str) -> str:
             return f"${value:.2f}".rstrip("0").rstrip(".")
         return match.group(0)
 
-    text = re.sub(r"(?<![\w/])(-?\d[\d,]*\.\d{2,})\s*%", percentage, text)
-    text = re.sub(r"(?<![\w/])(-?\d[\d,]*\.\d{2,})\s*x\b", ratio, text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<![\w/])([+−-]?)(\d[\d,]*\.\d{3,})\s*%", percentage, text)
+    text = re.sub(r"(?<![\w/])([+−-]?)(\d[\d,]*\.\d{3,})\s*x\b", ratio, text, flags=re.IGNORECASE)
     text = re.sub(r"\$(-?\d{7,}(?:\.\d+)?)\b", currency, text)
     text = re.sub(r"\$(-?\d+\.\d{3,})\b", currency, text)
     return text
+
+
+def _format_compact_decimal(value: float, *, max_decimals: int) -> str:
+    return f"{value:.{max_decimals}f}".rstrip("0").rstrip(".")
 
 
 def _safe_float(value: Any) -> float | None:
@@ -771,7 +777,7 @@ def _apply_confirmation_preferences(article: dict[str, Any], config: dict[str, A
 
     if include_score:
         score_text = _confirmation_score_sentence(context)
-        if score_text and not _article_mentions_confirmation_score(sanitized):
+        if score_text and not _article_includes_confirmation_score_value(sanitized, context):
             sanitized["sections"] = _append_or_merge_generated_section(
                 sanitized["sections"],
                 CONFIRMATION_SCORE_SECTION_HEADING,
@@ -1226,6 +1232,17 @@ def _article_public_text(article: dict[str, Any]) -> str:
 
 def _article_mentions_confirmation_score(article: dict[str, Any]) -> bool:
     return bool(re.search(r"\bconfirmation score\b", _article_public_text(article), flags=re.IGNORECASE))
+
+
+def _article_includes_confirmation_score_value(article: dict[str, Any], context: dict[str, Any]) -> bool:
+    score = _confirmation_score_value(context)
+    if score is None:
+        return False
+    text = _article_public_text(article)
+    score_pattern = rf"\b{score}\s*/\s*100\b"
+    if not re.search(score_pattern, text):
+        return False
+    return bool(re.search(rf"confirmation score.{{0,160}}{score_pattern}|{score_pattern}.{{0,160}}confirmation score", text, flags=re.IGNORECASE | re.DOTALL))
 
 
 def _article_mentions_cross_source_confirmations(article: dict[str, Any]) -> bool:
@@ -2889,6 +2906,7 @@ def _prompt(config: dict[str, Any], context: dict[str, Any]) -> str:
             "Any publishable research/DD post must include at least two credible source links, and valuation/DD work should include an official/company/filing source when possible.",
             "For external research, verify official company data, estimates, and guidance with official company materials, SEC filings, or credible market/estimate sources before using them.",
             "For major-ticker earnings setup briefs, official company earnings and SEC/IR sources in source_discovery are required. If official_facts includes a latest_official_quarter, use those reported values first and do not substitute stale prior-year data.",
+            "Write numeric claims cleanly. Round percentages and ratios to at most two decimal places, strip useless trailing zeros, and never output raw provider decimals such as 17.123456%.",
             "Separate underlying data from our confirmation score. Missing data is unavailable, not zero and not bearish.",
             "For earnings setup briefs, do not default to 'mixed / wait for the print.' Missing one or two data categories should lower confidence, not automatically force a no-call judgment.",
             "The Walnut call must be the full final judgment. Do not output a separate setup label. Allowed Walnut calls are: " + ", ".join(WALNUT_CALL_VALUES) + ".",
@@ -3118,6 +3136,9 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if include_confirmation_score and _confirmation_score_value(context) is None:
         symbol = (((context.get("primary") or {}).get("identity") or {}).get("symbol") or "the primary ticker")
         warnings.append(_warning("confirmation_score_unavailable", f"Primary ticker confirmation score could not be loaded for {symbol}.", blocking=True))
+        blocking = True
+    elif include_confirmation_score and not _article_includes_confirmation_score_value(article, context):
+        warnings.append(_warning("confirmation_score_missing_from_body", "Walnut confirmation score is checked, but the post body does not include the primary ticker score.", blocking=True))
         blocking = True
     if not include_confirmation_score and _article_mentions_confirmation_score(article):
         warnings.append(_warning("confirmation_score_not_requested", "Walnut confirmation score is unchecked, but the article mentions the confirmation score.", blocking=True))
