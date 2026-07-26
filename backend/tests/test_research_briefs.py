@@ -1407,3 +1407,28 @@ def test_saving_published_brief_keeps_public_article_updated(tmp_path, monkeypat
     assert saved["status"] == "published"
     assert public["status"] == "published"
     assert "Published edit should stay public" in public["article"]["sections"][0]["body_markdown"]
+
+
+def test_db_backed_saving_published_brief_keeps_edited_body(tmp_path, monkeypatch):
+    monkeypatch.setenv(service.STORE_ENV, str(tmp_path / "drafts.json"))
+    monkeypatch.setenv(service.MOCK_ENV, "1")
+    db = _session()
+    _seed_ticker(db)
+    admin = _user(db, "admin@example.com", role="admin")
+    draft = service.generate_research_brief(db, admin, _payload().model_dump())
+    published = service.publish_draft(admin, draft["id"], confirm=True, db=db)
+    article = deepcopy(published["article"])
+    article["sections"][0]["body_markdown"] = (
+        "DB-backed published edit should stay saved. Research only. Not investment advice. "
+        "https://www.sec.gov/edgar/search/#/q=MU https://www.nasdaq.com/market-activity/stocks/mu "
+        + "word " * 220
+    )
+
+    saved = service.update_draft(admin, draft["id"], article, status="published", db=db)
+    reloaded = service.get_draft(draft["id"], db=db)
+    listed = service.list_drafts(db=db)["items"][0]
+
+    assert saved["status"] == "published"
+    assert "DB-backed published edit should stay saved" in saved["article"]["sections"][0]["body_markdown"]
+    assert "DB-backed published edit should stay saved" in reloaded["article"]["sections"][0]["body_markdown"]
+    assert "DB-backed published edit should stay saved" in listed["article"]["sections"][0]["body_markdown"]
