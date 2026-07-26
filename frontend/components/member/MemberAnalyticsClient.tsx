@@ -447,9 +447,6 @@ function MemberPortfolioPanel({
   const curveQualityStatus = portfolio?.curve_quality_status ?? "good";
   const showNoActiveHoldings = hasPersistedRun && portfolio?.no_active_holdings === true;
   const showLimitedPriceHistory = hasPersistedRun && positionsCount > 0 && (curveQualityStatus === "warning" || curveQualityStatus === "poor");
-  const unavailableSimulationMessage = isTradeDateMode
-    ? "Trade-date portfolio simulation has not been calculated for this lookback yet."
-    : "Portfolio simulation is not available for this lookback yet.";
   const metrics = summary ? [
     { label: "Portfolio Return", value: pct(summary.total_return_pct), valueClass: tone(summary.total_return_pct) },
     { label: "SPY Benchmark", value: pct(summary.benchmark_return_pct), valueClass: tone(summary.benchmark_return_pct) },
@@ -520,7 +517,7 @@ function MemberPortfolioPanel({
         </p>
       ) : !hasPersistedRun ? (
         <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-          {unavailableSimulationMessage}
+          Portfolio simulation is not available for this lookback yet.
         </p>
       ) : (
         <>
@@ -559,7 +556,7 @@ function MemberPortfolioPanel({
             />
           ) : (
             <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-400">
-              {unavailableSimulationMessage}
+              Portfolio simulation is not available for this lookback yet.
             </p>
           )}
         </>
