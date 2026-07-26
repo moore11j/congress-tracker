@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { getGeneratedResearchBrief, type AdminResearchBriefDraft } from "@/lib/api";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
@@ -14,6 +15,71 @@ function paragraphs(markdown: string) {
 
 function cleanInlineText(value: string) {
   return value.replace(/\*\*/g, "");
+}
+
+function safeLinkHref(value: string) {
+  const href = value.trim();
+  if (href.startsWith("https://") || href.startsWith("http://") || href.startsWith("/")) return href;
+  return "";
+}
+
+function linkClassName() {
+  return "font-semibold text-emerald-200 underline decoration-emerald-300/40 underline-offset-4 transition hover:text-emerald-100 hover:decoration-emerald-200";
+}
+
+function inlineMarkdown(text: string): ReactNode[] {
+  const cleaned = cleanInlineText(text);
+  const nodes: ReactNode[] = [];
+  const markdownLinkPattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^)\s]+)\)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let nodeIndex = 0;
+
+  while ((match = markdownLinkPattern.exec(cleaned)) !== null) {
+    if (match.index > cursor) {
+      nodes.push(...autoLinkUrls(cleaned.slice(cursor, match.index), `text-${nodeIndex++}`));
+    }
+    const href = safeLinkHref(match[2]);
+    nodes.push(
+      href ? (
+        <a key={`link-${nodeIndex++}`} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel={href.startsWith("http") ? "noreferrer" : undefined} className={linkClassName()}>
+          {match[1]}
+        </a>
+      ) : (
+        match[1]
+      ),
+    );
+    cursor = markdownLinkPattern.lastIndex;
+  }
+
+  if (cursor < cleaned.length) {
+    nodes.push(...autoLinkUrls(cleaned.slice(cursor), `text-${nodeIndex++}`));
+  }
+  return nodes;
+}
+
+function autoLinkUrls(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const urlPattern = /https?:\/\/[^\s<>()]+/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let nodeIndex = 0;
+
+  while ((match = urlPattern.exec(text)) !== null) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const href = safeLinkHref(match[0].replace(/[.,;:!?]+$/, ""));
+    const trailing = match[0].slice(href.length);
+    nodes.push(
+      <a key={`${keyPrefix}-url-${nodeIndex++}`} href={href} target="_blank" rel="noreferrer" className={linkClassName()}>
+        {href}
+      </a>,
+    );
+    if (trailing) nodes.push(trailing);
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
 }
 
 type MarkdownBlock =
@@ -139,7 +205,7 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
               <h2 className="text-2xl font-semibold text-white">{cleanInlineText(section.heading)}</h2>
               <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
                 {markdownBlocks(section.body_markdown).map((block) =>
-                  block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{block.text}</p>,
+                  block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{inlineMarkdown(block.text)}</p>,
                 )}
               </div>
             </section>
@@ -179,7 +245,7 @@ function ResearchDataTable({ header, rows }: { header: string[]; rows: string[][
             <tr key={`${rowIndex}-${row.join("|")}`} className={rowIndex % 2 === 0 ? "bg-slate-900/55" : "bg-slate-800/35"}>
               {header.map((_, cellIndex) => (
                 <td key={`${rowIndex}-${cellIndex}`} className="border-t border-white/10 px-3 py-3 align-top text-slate-300">
-                  {cleanInlineText(row[cellIndex] || "")}
+                  {inlineMarkdown(row[cellIndex] || "")}
                 </td>
               ))}
             </tr>
@@ -196,7 +262,7 @@ function SideList({ title, items }: { title: string; items: string[] }) {
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>
       <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
         {(items || []).slice(0, 5).map((item) => (
-          <li key={item}>{cleanInlineText(item)}</li>
+          <li key={item}>{inlineMarkdown(item)}</li>
         ))}
       </ul>
     </div>

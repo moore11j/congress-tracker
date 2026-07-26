@@ -54,3 +54,12 @@ test("generated research briefs render pipe-delimited data as production tables"
   assert.match(generatedBriefPage, /<table className="min-w-full border-collapse text-left text-sm">/);
   assert.match(generatedBriefPage, /rowIndex % 2 === 0/);
 });
+
+test("generated research briefs render markdown links and bare urls as anchors", () => {
+  assert.match(generatedBriefPage, /function inlineMarkdown/);
+  assert.match(generatedBriefPage, /markdownLinkPattern/);
+  assert.match(generatedBriefPage, /function autoLinkUrls/);
+  assert.match(generatedBriefPage, /target=\{href\.startsWith\("http"\) \? "_blank" : undefined\}/);
+  assert.match(generatedBriefPage, /<p key=\{block\.key\}>\{inlineMarkdown\(block\.text\)\}<\/p>/);
+  assert.match(generatedBriefPage, /\{inlineMarkdown\(row\[cellIndex\] \|\| ""\)\}/);
+});
