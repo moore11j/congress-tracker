@@ -1017,6 +1017,25 @@ def test_manual_article_save_does_not_rewrite_admin_body_or_confirmation_score()
     assert cleaned["walnut_call"] == "Bullish with capex risk"
 
 
+def test_validation_allows_manual_confirmation_score_when_config_flag_is_stale():
+    article = _earnings_article(
+        "Our call: Bullish with capex risk\n\n"
+        "Our proprietary confirmation score is 83/100. This score is separate from the underlying data. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/",
+        "AAPL",
+    )
+    article["confirmation_score_included"] = True
+    article["walnut_call"] = "Bullish with capex risk"
+    context = _earnings_context("AAPL")
+    context["include_confirmation_score"] = False
+
+    validation = service.validate_article(article, context)
+    codes = {warning["code"] for warning in validation["warnings"]}
+
+    assert "confirmation_score_not_requested" not in codes
+    assert "confirmation_score_missing_from_body" not in codes
+
+
 def test_earnings_setup_validation_rejects_old_setup_label_as_call():
     article = _earnings_article(
         "Walnut judgment: vibes only\n\nResearch only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/",

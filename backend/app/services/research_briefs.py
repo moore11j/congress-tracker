@@ -886,7 +886,9 @@ def _apply_walnut_call_metadata(article: dict[str, Any]) -> dict[str, Any]:
     sanitized["walnut_call"] = call
     sanitized.pop("setup_label", None)
     if "confirmation_score_included" not in sanitized:
-        sanitized["confirmation_score_included"] = False
+        sanitized["confirmation_score_included"] = _article_confirmation_score_value(sanitized) is not None
+    elif _article_confirmation_score_value(sanitized) is not None:
+        sanitized["confirmation_score_included"] = True
     return sanitized
 
 
@@ -1272,10 +1274,26 @@ def _article_mentions_confirmation_score(article: dict[str, Any]) -> bool:
     return bool(re.search(r"\bconfirmation score\b", _article_public_text(article), flags=re.IGNORECASE))
 
 
+def _article_confirmation_score_value(article: dict[str, Any]) -> int | None:
+    text = _article_public_text(article)
+    match = re.search(
+        r"\bconfirmation score\b.{0,200}?\b([1-9][0-9]?|100)\s*/\s*100\b|\b([1-9][0-9]?|100)\s*/\s*100\b.{0,200}?\bconfirmation score\b",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    value = match.group(1) or match.group(2)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _article_includes_confirmation_score_value(article: dict[str, Any], context: dict[str, Any]) -> bool:
     score = _confirmation_score_value(context)
     if score is None:
-        return False
+        return _article_confirmation_score_value(article) is not None
     text = _article_public_text(article)
     score_pattern = rf"\b{score}\s*/\s*100\b"
     if not re.search(score_pattern, text):
@@ -3134,7 +3152,8 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
         warnings.append(_warning("missing_disclaimer", "Research-only / not-investment-advice language is missing.", blocking=True))
         blocking = True
     lowered = f"{title}\n{body}".lower()
-    include_confirmation_score = bool(context.get("include_confirmation_score"))
+    article_score_value = _article_confirmation_score_value(article)
+    include_confirmation_score = bool(context.get("include_confirmation_score") or article.get("confirmation_score_included"))
     include_cross_source_confirmations = bool(context.get("include_cross_source_confirmations"))
     source_link_count = _source_link_count(article, body)
     if source_link_count == 0:
@@ -3175,11 +3194,11 @@ def validate_article(article: dict[str, Any], context: dict[str, Any], draft_id:
     if "confirmation score equals" in lowered or "confirmation stack" in lowered:
         warnings.append(_warning("confirmation_score_blended", "Confirmation score must remain separate from underlying data.", blocking=True))
         blocking = True
-    if include_confirmation_score and _confirmation_score_value(context) is None:
+    if include_confirmation_score and _confirmation_score_value(context) is None and article_score_value is None:
         symbol = (((context.get("primary") or {}).get("identity") or {}).get("symbol") or "the primary ticker")
         warnings.append(_warning("confirmation_score_unavailable", f"Primary ticker confirmation score could not be loaded for {symbol}.", blocking=True))
         blocking = True
-    elif include_confirmation_score and not _article_includes_confirmation_score_value(article, context):
+    elif include_confirmation_score and not (_article_includes_confirmation_score_value(article, context) or article_score_value is not None):
         warnings.append(_warning("confirmation_score_missing_from_body", "Walnut confirmation score is checked, but the post body does not include the primary ticker score.", blocking=True))
         blocking = True
     if not include_confirmation_score and _article_mentions_confirmation_score(article):
