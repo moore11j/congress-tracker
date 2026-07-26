@@ -979,6 +979,31 @@ def test_earnings_setup_keeps_admin_edited_call_copy_plain_and_rounded():
     assert "47.9%" in text
 
 
+def test_manual_article_save_does_not_rewrite_admin_body_or_confirmation_score():
+    body = (
+        "Our call: Bullish with capex risk\n\n"
+        "Manual admin edit should be treated as authoritative after generation. "
+        "Our proprietary confirmation score is 83/100. This score is separate from the underlying data. "
+        "Research only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/ "
+        + "word " * 220
+    )
+    article = _earnings_article(body, "AAPL")
+    article["walnut_call"] = "Mixed with capex risk"
+
+    cleaned = service.sanitize_research_brief_article(
+        article,
+        {"desired_angle": "Earnings setup", "include_confirmation_score": False},
+        _earnings_context("AAPL"),
+        repair_generated_sections=False,
+    )
+    text = "\n\n".join(section["body_markdown"] for section in cleaned["sections"])
+
+    assert "Our call: Bullish with capex risk" in text
+    assert "Our proprietary confirmation score is 83/100" in text
+    assert "Manual admin edit should be treated as authoritative after generation." in text
+    assert cleaned["walnut_call"] == "Bullish with capex risk"
+
+
 def test_earnings_setup_validation_rejects_old_setup_label_as_call():
     article = _earnings_article(
         "Walnut judgment: vibes only\n\nResearch only. Not investment advice. https://www.sec.gov/edgar/search/#/q=AAPL https://investor.example.com/",

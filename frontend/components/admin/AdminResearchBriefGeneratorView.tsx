@@ -85,6 +85,7 @@ const GENERATION_POLL_TIMEOUT_MS = 6 * 60 * 1000;
 const WALNUT_CALL_VALUES = [
   "Very bullish",
   "Bullish",
+  "Bullish with capex risk",
   "Bullish but expensive",
   "Neutral",
   "Neutral but expensive",

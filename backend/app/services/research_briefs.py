@@ -97,6 +97,7 @@ JUDGMENT_VALUES = {"bullish", "bearish", "mixed", "macro", "policy", "neutral"}
 WALNUT_CALL_VALUES = [
     "Very bullish",
     "Bullish",
+    "Bullish with capex risk",
     "Bullish but expensive",
     "Neutral",
     "Neutral but expensive",
@@ -673,7 +674,13 @@ def _merge_intro_into_first_section(intro: str, sections: list[dict[str, str]]) 
     return intro
 
 
-def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, Any], context: dict[str, Any] | None = None) -> dict[str, Any]:
+def sanitize_research_brief_article(
+    article: dict[str, Any],
+    config: dict[str, Any],
+    context: dict[str, Any] | None = None,
+    *,
+    repair_generated_sections: bool = True,
+) -> dict[str, Any]:
     section_format = str(config.get("section_format") or "Walnut Research Brief")
     sanitized = deepcopy(article)
     before = json.dumps(sanitized, sort_keys=True, default=str)
@@ -697,8 +704,9 @@ def sanitize_research_brief_article(article: dict[str, Any], config: dict[str, A
             continue
         cleaned_sections.extend(_article_sections_from_clean_markdown(body, heading, section, index))
     sanitized["sections"] = _merge_article_sections(cleaned_sections, section_format)
-    sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
-    sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
+    if repair_generated_sections:
+        sanitized = _apply_confirmation_preferences(sanitized, config, context or {})
+        sanitized = _apply_earnings_setup_judgment(sanitized, config, context or {})
     sanitized = _apply_walnut_call_metadata(sanitized)
     after = json.dumps(sanitized, sort_keys=True, default=str)
     if after != before:
@@ -859,7 +867,7 @@ def _apply_earnings_setup_judgment(article: dict[str, Any], config: dict[str, An
 
 def _apply_walnut_call_metadata(article: dict[str, Any]) -> dict[str, Any]:
     sanitized = deepcopy(article)
-    call = _normalize_walnut_call(sanitized.get("walnut_call"))
+    call = _walnut_call_from_body(sanitized) or _normalize_walnut_call(sanitized.get("walnut_call"))
     if call is None:
         call = _walnut_call_from_judgment(str(sanitized.get("judgment") or ""))
     sanitized["walnut_call"] = call
@@ -1282,6 +1290,10 @@ def _article_walnut_call(article: dict[str, Any]) -> str | None:
     call = _normalize_walnut_call(article.get("walnut_call"))
     if call:
         return call
+    return _walnut_call_from_body(article)
+
+
+def _walnut_call_from_body(article: dict[str, Any]) -> str | None:
     match = re.search(r"\b(?:Walnut|Our) call:\s*([^\n*]+)", _article_body_text(article), flags=re.IGNORECASE)
     return _normalize_walnut_call(match.group(1) if match else None)
 
@@ -3655,7 +3667,12 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
             article = draft.setdefault("article", {})
             article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
             article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
-            draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
+            draft["article"] = sanitize_research_brief_article(
+                article,
+                draft.get("config") or {},
+                draft.get("research_context") or {},
+                repair_generated_sections=False,
+            )
             if status:
                 draft["status"] = _normalize_update_status(draft.get("status"), status)
             draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
@@ -3669,7 +3686,12 @@ def update_draft(admin: UserAccount, draft_id: str, article_patch: dict[str, Any
                 article = draft.setdefault("article", {})
                 article.update({k: v for k, v in article_patch.items() if k in article_schema()["properties"] or k in {"hero_image", "thumbnail_asset"}})
                 article["slug"] = _slugify(str(article.get("slug") or article.get("title") or draft.get("primary_ticker")), fallback=f"{draft.get('primary_ticker', 'brief').lower()}-research-brief")
-                draft["article"] = sanitize_research_brief_article(article, draft.get("config") or {}, draft.get("research_context") or {})
+                draft["article"] = sanitize_research_brief_article(
+                    article,
+                    draft.get("config") or {},
+                    draft.get("research_context") or {},
+                    repair_generated_sections=False,
+                )
                 if status:
                     draft["status"] = _normalize_update_status(draft.get("status"), status)
                 draft["validation"] = validate_article(draft["article"], draft.get("research_context") or {}, draft_id=draft_id)
@@ -3706,7 +3728,7 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
         article = draft.setdefault("article", {})
         article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
         article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-        draft["article"] = sanitize_research_brief_article(article, config, context)
+        draft["article"] = sanitize_research_brief_article(article, config, context, repair_generated_sections=False)
         draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
         draft["updated_at"] = _now()
         _upsert_db_draft(db, draft)
@@ -3740,7 +3762,7 @@ def refresh_research_sources(db: Session, admin: UserAccount, draft_id: str) -> 
             article = draft.setdefault("article", {})
             article["missing_data_notes"] = _filter_missing_data_notes([*(article.get("missing_data_notes") or []), *filtered_missing], context["data_availability"])
             article["source_links"] = _dedupe_source_links([*(article.get("source_links") or []), *(external.get("reviewed_sources") or [])])
-            draft["article"] = sanitize_research_brief_article(article, config, context)
+            draft["article"] = sanitize_research_brief_article(article, config, context, repair_generated_sections=False)
             draft["validation"] = validate_article(draft["article"], context, draft_id=draft_id)
             draft["updated_at"] = _now()
             _append_audit(store, action="refresh_sources", admin=admin, draft_id=draft_id, metadata={"mode": external.get("mode")})
@@ -3775,7 +3797,12 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
     if db is not None:
         draft = _db_draft(db, draft_id)
         if draft:
-            draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {}, draft.get("research_context") or {})
+            draft["article"] = sanitize_research_brief_article(
+                draft.get("article") or {},
+                draft.get("config") or {},
+                draft.get("research_context") or {},
+                repair_generated_sections=False,
+            )
             validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
             if validation["status"] != "passed":
                 draft["validation"] = validation
@@ -3792,7 +3819,12 @@ def publish_draft(admin: UserAccount, draft_id: str, *, confirm: bool, db: Sessi
         store = _read_store()
         for draft in store.get("drafts", []):
             if draft.get("id") == draft_id:
-                draft["article"] = sanitize_research_brief_article(draft.get("article") or {}, draft.get("config") or {}, draft.get("research_context") or {})
+                draft["article"] = sanitize_research_brief_article(
+                    draft.get("article") or {},
+                    draft.get("config") or {},
+                    draft.get("research_context") or {},
+                    repair_generated_sections=False,
+                )
                 validation = validate_article(draft.get("article") or {}, draft.get("research_context") or {}, draft_id=draft_id)
                 if validation["status"] != "passed":
                     draft["validation"] = validation
