@@ -75,85 +75,85 @@ const navLinks = [
 const signalCards = [
   {
     title: "Congress Activity",
-    body: "Monitor House and Senate activity with ticker, filing, party, chamber, and trade context.",
+    body: "See when public officials' activity adds support, conflict, or useful context to the investment case.",
     label: "Public disclosures",
   },
   {
     title: "Insider Activity",
-    body: "Track executive and director purchases, sales, ownership changes, and role-weighted activity.",
+    body: "Evaluate executive and director activity to understand whether insiders are adding, reducing, or standing aside.",
     label: "Insider filings",
   },
   {
     title: "Institutional Activity",
-    body: "See whether newly filed institutional positioning is accumulating, reducing, or staying quiet.",
+    body: "See whether newly filed institutional positioning suggests conviction is building, fading, or still unclear.",
     label: "Pro layer",
   },
   {
     title: "Options Flow",
-    body: "Options activity will add another confirmation layer when flow supports or contradicts the setup.",
+    body: "Options activity will add another evidence layer when flow supports or contradicts the setup.",
     label: "Coming soon",
   },
   {
     title: "Macro Positioning",
-    body: "Understand whether institutional futures positioning supports or contradicts your investment thesis.",
+    body: "Understand whether institutional futures positioning strengthens or weakens the broader investment backdrop.",
     label: "Pro layer",
     href: `${appUrl}/insights#macro-positioning`,
   },
   {
     title: "Government Contracts",
-    body: "Connect contract awards and modifications to ticker-level confirmation when the exposure is material.",
+    body: "Connect contract awards and modifications to ticker-level evidence when the exposure is material.",
     label: "Public awards",
   },
   {
     title: "Technical indicator filters",
-    body: "Screen for RSI, relative volume, price momentum, MACD state, trend state, beta, and liquidity conditions.",
+    body: "Screen for price action, relative volume, momentum, trend state, beta, and liquidity conditions.",
     label: "Technicals",
   },
   {
     title: "Fundamental indicator filters",
-    body: "Filter by valuation, margins, growth, leverage, cash flow, earnings yield, ROE, ROIC, and balance-sheet quality.",
+    body: "Evaluate valuation, margins, growth, leverage, cash flow, earnings yield, ROE, ROIC, and balance-sheet quality.",
     label: "Fundamentals",
   },
 ] as const;
 
 const whyWalnut = [
   {
-    title: "Bullish trends",
+    title: "Stronger setups",
     icon: "trendUp",
     cardClassName: "border-emerald-300/20 bg-emerald-300/[0.045]",
     iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
     glowClassName: "bg-emerald-300/15",
   },
   {
-    title: "Bearish trends",
+    title: "Weaker setups",
     icon: "trendDown",
     cardClassName: "border-rose-300/20 bg-rose-300/[0.04]",
     iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-200",
     glowClassName: "bg-rose-300/15",
   },
   {
-    title: "Trend confirmation",
+    title: "Evidence confirmation",
     icon: "confirmedTrend",
     cardClassName: "border-lime-300/20 bg-lime-300/[0.04]",
     iconClassName: "border-lime-300/25 bg-lime-300/10 text-lime-200",
     glowClassName: "bg-lime-300/15",
   },
   {
-    title: "Contradicting data",
+    title: "Conflicting evidence",
     icon: "splitData",
     cardClassName: "border-cyan-300/20 bg-cyan-300/[0.04]",
     iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
     glowClassName: "bg-cyan-300/15",
   },
   {
-    title: "Risk factors",
+    title: "Thesis risks",
     icon: "warning",
     cardClassName: "border-amber-300/20 bg-amber-300/[0.04]",
     iconClassName: "border-amber-300/25 bg-amber-300/10 text-amber-200",
     glowClassName: "bg-amber-300/15",
   },
   {
-    title: "Alerts & watchlists",
+    title: "What changed",
     icon: "alarm",
     cardClassName: "border-violet-300/20 bg-violet-300/[0.04]",
     iconClassName: "border-violet-300/25 bg-violet-300/10 text-violet-200",
@@ -166,19 +166,19 @@ type WhyWalnutIconKind = (typeof whyWalnut)[number]["icon"];
 const marketToolCategories = [
   {
     name: "Market snapshots",
-    body: "Fast scans across price, valuation, liquidity, and basic fundamentals.",
+    body: "Point-in-time price, valuation, liquidity, and fundamental context.",
   },
   {
     name: "Charting workspaces",
-    body: "Technical charts, indicators, alerts, and visual analysis.",
+    body: "Technical views that show price action but leave the broader case to the investor.",
   },
   {
     name: "Public data trackers",
-    body: "Disclosure feeds, alternative datasets, and event monitoring.",
+    body: "Disclosure feeds and alternative data that still need thesis-level interpretation.",
   },
   {
     name: "Flow and activity feeds",
-    body: "Options flow, volume spikes, dark-pool prints, and unusual activity.",
+    body: "Activity signals that are more useful when weighed against fundamentals and risk.",
   },
 ] as const;
 
@@ -207,13 +207,13 @@ const fallbackTrending: TrendingTicker[] = [
 
 const fallbackInsights: NewsItem[] = [
   {
-    title: "Congressional disclosures, insider trades, and ticker context update throughout the terminal.",
+    title: "Congressional disclosures, insider trades, and ticker context update as the evidence changes.",
     url: `${appUrl}/insights`,
     source: "walnut_landing",
     site: "Walnut",
   },
   {
-    title: "Government contracts, political exposure, and issuer-level intelligence are available in the live app.",
+    title: "Government contracts, political exposure, and issuer-level evidence are available in the live app.",
     url: `${appUrl}/feed?mode=government_contracts`,
     source: "walnut_landing",
     site: "Walnut",
@@ -859,11 +859,11 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              The market has tells. Walnut finds them.
+              Find stronger opportunities with more evidence.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Identify bullish and bearish trends with the data that confirms the move.</p>
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more of the evidence.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut helps investors identify and confirm bullish and bearish trends across technicals, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, and filings in one market intelligence terminal.
+              Walnut brings market, fundamental, and alternative data together to show what is strengthening, what is weakening, and what deserves your attention.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -871,11 +871,11 @@ export default async function LandingPage() {
                 href={appUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Launch Terminal
+                Find your next high-conviction setup
               </a>
             </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
-              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers unlock heavier research features such as trend confirmation, our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
+              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more evidence, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
             </p>
           </div>
 
@@ -884,7 +884,7 @@ export default async function LandingPage() {
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Market brief</p>
-                  <p className="mt-1 text-sm font-semibold text-white">A snapshot of what Walnut is watching now.</p>
+                  <p className="mt-1 text-sm font-semibold text-white">A snapshot of what changed and what to watch next.</p>
                 </div>
                 <span className="rounded border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-100">Updated</span>
               </div>
@@ -933,9 +933,9 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Ticker Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Track the data that can confirm the next trend.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with evidence that reinforces the case.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings market data together so investors can see whether a ticker&apos;s trend is supported, contradicted, or still unclear.
+              Walnut shows when fundamentals, price action, insiders, Congress activity, and other relevant evidence support the same conclusion.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -966,7 +966,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <SectionEyebrow>Daily Insights</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Access the latest insights and market data available inside the terminal.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Know what changed before the investment case moves against you.</h2>
             </div>
             <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
               <span>Open insights</span>
@@ -993,8 +993,8 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Congress and Insider Trade Profiles</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Go straight into the real research pages.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and transaction tables live inside the app.</p>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate the people behind the public disclosures.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and transaction tables help explain what the data says.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
@@ -1002,7 +1002,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and trade outcome context.
+                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and thesis-change context.
               </p>
               <span className="mt-5 inline-flex rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Open portfolio -&gt;</span>
             </a>
@@ -1011,7 +1011,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and performance readouts.
+                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and evidence readouts.
               </p>
               <span className="mt-5 inline-flex rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">Open insider profile -&gt;</span>
             </a>
@@ -1023,12 +1023,12 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better research starts with better trend confirmation.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better evidence.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one research workflow.
+              Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
             </p>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              We help investors identify bullish trends, bearish trends, confirming data, contradicting data, risk factors, and the next data points to watch.
+              We help investors identify stronger setups, avoid weaker entries, recognize conflicting evidence, and monitor whether the thesis is strengthening or weakening.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -1054,11 +1054,11 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Differentiation</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">How Walnut is different</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more of the evidence</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
               Market research usually starts with charts, screeners, data feeds, and alerts.
             </p>
-            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut turns raw market data into trend-driven ticker research: bullish trends, bearish trends, confirmation, risk, and what to watch next.</p>
+            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut helps investors judge whether the evidence supports the opportunity, contradicts it, or points to risks that deserve attention.</p>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1071,12 +1071,12 @@ export default async function LandingPage() {
             </div>
             <article className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.06] p-6 shadow-2xl shadow-emerald-950/15">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
-              <h3 className="mt-4 text-2xl font-semibold text-white">Intelligent investment decisions.</h3>
+              <h3 className="mt-4 text-2xl font-semibold text-white">Higher-conviction opportunities.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-300">
-                We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clearer read on whether the data points bullish, bearish, or mixed.
+                We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clearer read on whether the investment case is strengthening, weakening, or mixed.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {["Market take", "Recent changes", "Supporting data", "Risks", "What to watch next", "Research workflow"].map((item) => (
+                {["What changed", "Supporting evidence", "Confirmation", "Risks", "What could weaken the thesis", "What to watch next"].map((item) => (
                   <div key={item} className="rounded-lg border border-emerald-300/20 bg-slate-950/55 px-4 py-3 text-sm font-semibold text-emerald-50">
                     {item}
                   </div>
@@ -1090,7 +1090,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Available now, with new market intelligence datasets coming next.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate more evidence before putting capital at risk.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>
@@ -1128,9 +1128,9 @@ export default async function LandingPage() {
           <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
             <div>
               <SectionEyebrow>Stock Screener</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built for trend confirmation.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built to find stronger setups.</h2>
               <p className="mt-5 text-sm leading-6 text-slate-400">
-                Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation data from the same terminal experience.
+                Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation data to identify what deserves deeper review.
               </p>
             </div>
             <div>
@@ -1160,7 +1160,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to Premium or Pro when you need deeper insights.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade when decisions require more evidence.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
@@ -1179,7 +1179,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={premiumPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Unlock advanced screening, saved views, monitoring, alerts, exports, and deeper trend-confirmation workflows.
+                Make better stock decisions by evaluating fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, and Walnut&apos;s proprietary confirmation score.
               </p>
             </article>
             <article className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.035] p-6">
@@ -1191,7 +1191,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Higher limits and power-user capacity for serious research, watchlists, and multi-trend monitoring.
+                See the evidence most retail investors miss: institutional activity, options flow, and deeper positioning information that can show where conviction is building or weakening.
               </p>
             </article>
           </div>

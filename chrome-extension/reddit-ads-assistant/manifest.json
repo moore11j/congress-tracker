@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Walnut Reddit Ads Assistant",
+  "version": "0.1.0",
+  "description": "Internal Walnut workflow for reviewing approved Reddit ad drafts and assisting with manual Reddit Ads Manager form entry.",
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Walnut Reddit Ads Assistant"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://ads.reddit.com/*"],
+      "js": ["src/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["clipboardWrite", "storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://walnutmarkets.com/*",
+    "https://app.walnutmarkets.com/*",
+    "https://congress-tracker-api.fly.dev/*",
+    "https://ads.reddit.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/walnut-markets-logo-lockup.png"],
+      "matches": ["https://ads.reddit.com/*"]
+    }
+  ]
+}

@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
 export const WALNUT_MARKETING_TITLE = "Walnut Markets | Market Intelligence Terminal";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Walnut Markets is a stock research and market intelligence terminal that helps investors identify and confirm bullish and bearish trends across technicals, fundamentals, Congress trades, insider activity, contracts, reported institutional activity, news, and filings.";
+  "Walnut Markets helps investors find stronger investment opportunities, avoid weaker setups, and make stock decisions with more market, fundamental, and alternative evidence.";
 export const WALNUT_OG_DESCRIPTION =
-  "Walnut Markets helps investors identify and confirm bullish and bearish trends across technicals, fundamentals, Congress trades, insider activity, contracts, reported institutional activity, news, and filings.";
+  "Find stronger opportunities, avoid weaker setups, and make investment decisions with more of the evidence.";
 export const WALNUT_TWITTER_DESCRIPTION =
-  "We help investors understand what the data is saying. Built for research. Not investment advice.";
+  "We help investors understand what the data says, what changed, and what could weaken the thesis. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
-export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - The market has tells. Walnut finds them.";
+export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - Find stronger opportunities with more of the evidence.";
 export const WALNUT_X_HANDLE = "@Walnutmarkets";
 export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";

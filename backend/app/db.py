@@ -3618,6 +3618,61 @@ def ensure_ai_marketing_schema(bind=engine) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_growth_email_action_tokens_created ON ai_growth_email_action_tokens (created_at)"))
 
 
+def ensure_reddit_ads_assistant_schema(bind=engine) -> None:
+    with bind.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '10s'"))
+            id_column = "BIGSERIAL PRIMARY KEY"
+            timestamp_type = "TIMESTAMPTZ"
+            timestamp_default = "now()"
+        else:
+            id_column = "INTEGER PRIMARY KEY"
+            timestamp_type = "TIMESTAMP"
+            timestamp_default = "CURRENT_TIMESTAMP"
+
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS reddit_ad_drafts (
+                    id {id_column},
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    campaign_objective TEXT NOT NULL,
+                    audience TEXT NOT NULL,
+                    geography TEXT NOT NULL,
+                    product_angle TEXT NOT NULL,
+                    plan TEXT NOT NULL,
+                    tone TEXT NOT NULL,
+                    destination_type TEXT NOT NULL,
+                    destination_url TEXT NOT NULL,
+                    ticker_symbols_json TEXT NOT NULL DEFAULT '[]',
+                    research_urls_json TEXT NOT NULL DEFAULT '[]',
+                    input_settings_json TEXT NOT NULL DEFAULT '{{}}',
+                    generated_draft_json TEXT NOT NULL DEFAULT '{{}}',
+                    final_draft_json TEXT NOT NULL DEFAULT '{{}}',
+                    compliance_warnings_json TEXT NOT NULL DEFAULT '[]',
+                    creative_reference_json TEXT NOT NULL DEFAULT '{{}}',
+                    created_by INTEGER,
+                    updated_by INTEGER,
+                    approved_by INTEGER,
+                    approver_email TEXT,
+                    approved_at {timestamp_type},
+                    archived_at {timestamp_type},
+                    extension_token_hash TEXT,
+                    extension_token_expires_at {timestamp_type},
+                    raw_openai_response_json TEXT NOT NULL DEFAULT '{{}}',
+                    audit_log_json TEXT NOT NULL DEFAULT '[]',
+                    created_at {timestamp_type} DEFAULT {timestamp_default},
+                    updated_at {timestamp_type} DEFAULT {timestamp_default}
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reddit_ad_drafts_status_created ON reddit_ad_drafts (status, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reddit_ad_drafts_approver ON reddit_ad_drafts (approved_by, approved_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reddit_ad_drafts_token_hash ON reddit_ad_drafts (extension_token_hash)"))
+
+
 def get_db():
     context = get_request_context()
     session_started = perf_counter()

@@ -84,6 +84,7 @@ The production schedule lives in `backend/crontab`:
 
 - `monitoring`: `0 7 * * *` Pacific.
 - `watchlist_activity`: `5 7 * * *` Pacific.
+- AI Growth X drafts: every 5 minutes from 6:00 through 10:59 Pacific through `scripts/run_ai_growth_campaigns.sh`. The campaign scheduler is idempotent per local day, and the wrapper prevents overlapping runs, so the wider window lets a restarted cron Machine catch up after a missed early-morning start.
 - intraday sweep: every 30 minutes during market hours on weekdays.
 
 Each scheduled command calls `scripts/run_email_digest_schedule.sh`, which validates the digest kind and then calls `python -m app.jobs.send_email_digests` with `--lookback-days 1 --limit 100` by default. The digest engine remains idempotent for the midnight-to-midnight Pacific window, and the per-run limit bounds sends if a large backlog appears.
@@ -105,10 +106,11 @@ Deploy from the backend root:
 ```powershell
 cd backend
 fly deploy
-fly scale count app=1 cron=1 -a congress-tracker-api
+fly scale count app=3 cron=1 -a congress-tracker-api
+fly status -a congress-tracker-api
 ```
 
-Keep exactly one `cron` Machine running. More than one `cron` Machine can cause duplicate attempts; idempotency should skip already-delivered digests, but the intended operational shape is a single scheduler.
+Keep exactly one `cron` Machine running. More than one `cron` Machine can cause duplicate attempts; idempotency should skip already-delivered digests, but the intended operational shape is a single scheduler. If `fly status` shows the only `cron` Machine is stopped after scaling, start it with `fly machine start <machine-id> -a congress-tracker-api`.
 
 Before enabling or after schedule changes, run the dry-run CLI commands above or call the admin run-now endpoint with `"dry_run": true`. Review totals, skipped rows, and failures before sending manually or enabling the active schedule.
 

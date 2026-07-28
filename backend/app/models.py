@@ -1084,6 +1084,50 @@ class AiGrowthEmailActionToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class RedditAdDraft(Base):
+    __tablename__ = "reddit_ad_drafts"
+    __table_args__ = (
+        Index("ix_reddit_ad_drafts_status_created", "status", "created_at"),
+        Index("ix_reddit_ad_drafts_approver", "approved_by", "approved_at"),
+        Index("ix_reddit_ad_drafts_token_hash", "extension_token_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(Text, default="draft", server_default="draft", nullable=False)
+    campaign_objective: Mapped[str] = mapped_column(Text, nullable=False)
+    audience: Mapped[str] = mapped_column(Text, nullable=False)
+    geography: Mapped[str] = mapped_column(Text, nullable=False)
+    product_angle: Mapped[str] = mapped_column(Text, nullable=False)
+    plan: Mapped[str] = mapped_column(Text, nullable=False)
+    tone: Mapped[str] = mapped_column(Text, nullable=False)
+    destination_type: Mapped[str] = mapped_column(Text, nullable=False)
+    destination_url: Mapped[str] = mapped_column(Text, nullable=False)
+    ticker_symbols_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    research_urls_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    input_settings_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    generated_draft_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    final_draft_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    compliance_warnings_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    creative_reference_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    created_by: Mapped[Optional[int]]
+    updated_by: Mapped[Optional[int]]
+    approved_by: Mapped[Optional[int]]
+    approver_email: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    extension_token_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extension_token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_openai_response_json: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    audit_log_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class BillingTransaction(Base):
     __tablename__ = "billing_transactions"
     __table_args__ = (

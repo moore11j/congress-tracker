@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
+import { AdminRedditAdsAssistantView } from "@/components/admin/AdminRedditAdsAssistantView";
 import {
   analyzeAdminAiMarketingManualUrl,
   archiveAdminAiGrowthDraft,
@@ -48,6 +49,7 @@ type TabKey =
   | "scheduled_x_campaigns"
   | "x_reply_campaigns"
   | "reddit_threads"
+  | "reddit_ads_assistant"
   | "settings";
 
 type DraftAction = "archive" | "reject" | "delete";
@@ -84,6 +86,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "scheduled_x_campaigns", label: "Scheduled X Campaigns" },
   { key: "x_reply_campaigns", label: "X Reply Campaigns" },
   { key: "reddit_threads", label: "Reddit Research Threads" },
+  { key: "reddit_ads_assistant", label: "Reddit Ads Assistant" },
   { key: "drafts", label: "Draft Queue" },
   { key: "assets", label: "Assets" },
   { key: "settings", label: "Settings" },
@@ -1160,6 +1163,10 @@ export function AdminAiMarketingView({ showToast }: AdminAiMarketingViewProps) {
           setForm={setRedditThreadForm}
           onSubmit={() => void submitGrowthDraft("reddit_threads")}
         />
+      ) : null}
+
+      {activeTab === "reddit_ads_assistant" ? (
+        <AdminRedditAdsAssistantView showToast={showToast} />
       ) : null}
 
       {activeTab === "settings" ? (

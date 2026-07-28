@@ -2254,6 +2254,92 @@ export type AdminAiMarketingEmailDigestResponse = {
   };
 };
 
+export type RedditAdDraftStatus = "draft" | "needs_review" | "approved" | "rejected" | "archived";
+
+export type RedditAdVariation = {
+  headline: string;
+  primary_text: string;
+  cta: string;
+};
+
+export type RedditAdGeneratedDraft = {
+  headline: string;
+  primary_text: string;
+  short_description: string;
+  cta: string;
+  destination_url: string;
+  suggested_subreddit_interests: string[];
+  suggested_image_concept: string;
+  optional_disclosure: string;
+  variations: RedditAdVariation[];
+  prompt_version?: string;
+};
+
+export type RedditAdComplianceWarning = {
+  status: string;
+  severity: "error" | "warning" | string;
+  message: string;
+};
+
+export type RedditAdDraft = {
+  id: number;
+  status: RedditAdDraftStatus;
+  campaign_objective: string;
+  audience: string;
+  geography: string;
+  product_angle: string;
+  plan: string;
+  tone: string;
+  destination: string;
+  destination_url: string;
+  ticker_symbols: string[];
+  research_urls: string[];
+  input_settings?: Record<string, unknown>;
+  generated_draft: RedditAdGeneratedDraft;
+  final_draft: RedditAdGeneratedDraft;
+  compliance_warnings: RedditAdComplianceWarning[];
+  creative_reference?: Record<string, unknown>;
+  approver_email?: string | null;
+  approved_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  reddit_ads_manager_url?: string;
+  extension_open_url?: string;
+};
+
+export type RedditAdsOptions = {
+  campaign_objectives: string[];
+  audiences: string[];
+  geographies: string[];
+  product_angles: string[];
+  plans: string[];
+  tones: string[];
+  destinations: string[];
+  approved_walnut_domains: string[];
+  reddit_ads_manager_url: string;
+  official_logo: {
+    path: string;
+    sha256: string;
+    extension_asset: string;
+  };
+};
+
+export type RedditAdDraftPayload = {
+  campaign_objective: string;
+  audience: string;
+  geography: string;
+  custom_geography?: string;
+  product_angle: string;
+  plan: string;
+  tone: string;
+  destination: string;
+  destination_url?: string;
+  ticker_symbols?: string[];
+  research_urls?: string[];
+  creative_reference?: Record<string, unknown>;
+  generate?: boolean;
+};
+
 export type AdminEmailTemplate = {
   id: number;
   template_key: string;
@@ -5999,6 +6085,88 @@ export async function rejectAdminAiGrowthDraft(draftId: number): Promise<AdminAi
   return fetchJson<AdminAiMarketingOpportunity>(buildApiUrl(`/api/admin/ai-growth/drafts/${draftId}/reject`), {
     method: "POST",
     source: "AdminAiGrowth",
+  });
+}
+
+export async function getAdminRedditAdsOptions(): Promise<RedditAdsOptions> {
+  return fetchJson<RedditAdsOptions>(buildApiUrl("/api/admin/reddit-ads/options"), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminRedditAds",
+  });
+}
+
+export async function getAdminRedditAdDrafts(params: {
+  status?: string;
+  limit?: number;
+} = {}): Promise<{ items: RedditAdDraft[] }> {
+  return fetchJson<{ items: RedditAdDraft[] }>(buildApiUrl("/api/admin/reddit-ads/drafts", params), {
+    cache: "no-store",
+    next: { revalidate: 0 },
+    source: "AdminRedditAds",
+  });
+}
+
+export async function createAdminRedditAdDraft(payload: RedditAdDraftPayload): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl("/api/admin/reddit-ads/drafts"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminRedditAds",
+  });
+}
+
+export async function updateAdminRedditAdDraft(
+  draftId: number,
+  payload: Partial<RedditAdGeneratedDraft>,
+): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    source: "AdminRedditAds",
+  });
+}
+
+export async function approveAdminRedditAdDraft(draftId: number): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}/approve`), {
+    method: "POST",
+    source: "AdminRedditAds",
+  });
+}
+
+export async function duplicateAdminRedditAdDraft(draftId: number): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}/duplicate`), {
+    method: "POST",
+    source: "AdminRedditAds",
+  });
+}
+
+export async function regenerateAdminRedditAdDraft(draftId: number): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}/regenerate`), {
+    method: "POST",
+    source: "AdminRedditAds",
+  });
+}
+
+export async function archiveAdminRedditAdDraft(draftId: number): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}/archive`), {
+    method: "POST",
+    source: "AdminRedditAds",
+  });
+}
+
+export async function rejectAdminRedditAdDraft(draftId: number): Promise<RedditAdDraft> {
+  return fetchJson<RedditAdDraft>(buildApiUrl(`/api/admin/reddit-ads/drafts/${draftId}/reject`), {
+    method: "POST",
+    source: "AdminRedditAds",
+  });
+}
+
+export async function createAdminRedditAdsExtensionToken(): Promise<{ token: string; expires_at: string }> {
+  return fetchJson<{ token: string; expires_at: string }>(buildApiUrl("/api/admin/reddit-ads/extension-token"), {
+    method: "POST",
+    source: "AdminRedditAds",
   });
 }
 

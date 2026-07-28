@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Walnut Reddit Ads Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <img src="../assets/walnut-markets-logo-lockup.png" alt="Walnut Markets" class="logo">
+        <span class="pill">Internal</span>
+      </header>
+
+      <section class="auth">
+        <label>
+          Backend URL
+          <input id="backendUrl" type="url" value="https://congress-tracker-api.fly.dev">
+        </label>
+        <label>
+          Extension token
+          <textarea id="token" rows="3" placeholder="Paste the short-lived token from Walnut Admin"></textarea>
+        </label>
+        <button id="saveToken" type="button">Save token</button>
+      </section>
+
+      <section class="toolbar">
+        <button id="refresh" type="button">Refresh approved drafts</button>
+        <button id="openReddit" type="button">Open Reddit Ads Manager</button>
+      </section>
+
+      <section id="status" class="status"></section>
+      <section id="drafts" class="drafts"></section>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

@@ -52,6 +52,7 @@ from app.db import (
     ensure_provider_usage_schema,
     ensure_price_cache_volume_columns,
     ensure_quote_cache_market_cap_schema,
+    ensure_reddit_ads_assistant_schema,
     ensure_search_and_insights_schema,
     ensure_ticker_meta_identity_schema,
     ensure_ticker_content_cache_schema,
@@ -144,6 +145,7 @@ from app.routers.notifications import router as notifications_router
 from app.routers.admin_data_sources import router as admin_data_sources_router
 from app.routers.ai_marketing import router as ai_marketing_router
 from app.routers.research_briefs import router as research_briefs_router
+from app.routers.reddit_ads_assistant import router as reddit_ads_assistant_router
 from app.routers.saved_screens import router as saved_screens_router
 from app.routers.screener import router as screener_router
 from app.routers.events import (
@@ -3893,6 +3895,7 @@ def _startup_create_tables():
         ("schema_provider_control", lambda: ensure_provider_control_schema(engine)),
         ("schema_data_enrichment_jobs", lambda: ensure_data_enrichment_jobs_schema(engine)),
         ("schema_ai_marketing", lambda: ensure_ai_marketing_schema(engine)),
+        ("schema_reddit_ads_assistant", lambda: ensure_reddit_ads_assistant_schema(engine)),
         ("schema_institutional_activity", lambda: ensure_institutional_activity_schema(engine)),
         ("schema_event_columns", ensure_event_columns),
         ("schema_watchlist_item_targets", lambda: ensure_watchlist_item_target_schema(engine)),
@@ -13273,5 +13276,6 @@ app.include_router(notifications_router, prefix="/api")
 app.include_router(saved_screens_router, prefix="/api")
 app.include_router(admin_data_sources_router, prefix="/api")
 app.include_router(ai_marketing_router, prefix="/api")
+app.include_router(reddit_ads_assistant_router, prefix="/api")
 app.include_router(research_briefs_router, prefix="/api")
 app.include_router(accounts_router, prefix="/api")

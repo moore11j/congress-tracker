@@ -53,6 +53,9 @@ def test_crontab_schedules_bounded_daily_digest_and_intraday_jobs():
     assert "0 7 * * 1-5 cd /app && sh /app/scripts/run_email_digest_schedule.sh monitoring" in crontab
     assert "run_email_digest_schedule.sh watchlist_activity" not in crontab
     assert "run_email_digest_schedule.sh signals" not in crontab
+    assert "*/5 6-10 * * * cd /app && sh /app/scripts/run_ai_growth_campaigns.sh" in crontab
+    assert "*/5 6-8 * * * cd /app && python -m app.jobs.run_ai_growth_campaigns" not in crontab
+    assert "*/5 6-10 * * * cd /app && python -m app.jobs.run_ai_growth_campaigns" not in crontab
     assert "5 3,5,7,10 * * * cd /app && sh /app/scripts/run_feed_pnl_repair.sh" in crontab
     assert "*/15 * * * * cd /app && sh /app/scripts/run_enrichment_queue.sh" in crontab
     assert "*/30 * * * * cd /app && python -m app.ingest_run --job priority-ticker-prewarm" in crontab
@@ -108,6 +111,16 @@ def test_enrichment_queue_wrapper_is_gated_bounded_and_non_overlapping():
     assert "worker_already_running" in script
     assert "timeout \"$hard_timeout\" python -m app.ingest_run --job enrichment-queue" in script
     assert "processed=%s succeeded=%s failed=%s skipped=%s" in script
+
+
+def test_ai_growth_campaign_wrapper_is_bounded_and_non_overlapping():
+    script = (BACKEND_ROOT / "scripts" / "run_ai_growth_campaigns.sh").read_text()
+
+    assert "AI_GROWTH_CAMPAIGN_LOCK_DIR:-/tmp/ai_growth_campaigns.lock" in script
+    assert "AI_GROWTH_CAMPAIGN_MAX_SECONDS:-900" in script
+    assert "ai_growth_campaigns_already_running" in script
+    assert "mkdir \"$lock_dir\"" in script
+    assert "timeout \"$max_seconds\" python -m app.jobs.run_ai_growth_campaigns" in script
 
 
 def test_feed_pnl_repair_wrapper_is_gated_bounded_and_non_overlapping():
