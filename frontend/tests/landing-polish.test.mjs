@@ -51,14 +51,14 @@ test("landing SEO labels use insights and stock screener copy", () => {
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /Find stronger opportunities with more evidence\./);
-  assert.match(landingPage, /Find stronger opportunities\. Avoid weaker setups\. Make investment decisions with more of the evidence\./);
+  assert.match(landingPage, /Find stronger opportunities with more data\./);
+  assert.match(landingPage, /Find stronger opportunities\. Avoid weaker setups\. Make investment decisions with more data\./);
   assert.match(landingPage, /Find stronger setups with the data that reinforces the case\./);
   assert.match(landingPage, /Better investment decisions start with better data\./);
   assert.match(landingPage, /What changed/);
   assert.match(landingPage, /function WhyWalnutIcon/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals|The market has tells/);
-  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more of the evidence<\/h2>/);
+  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more data<\/h2>/);
   assert.match(landingPage, /Higher-conviction opportunities\./);
   assert.match(landingPage, /Market research usually starts with charts, screeners, data feeds, and alerts/);
   assert.match(landingPage, /our proprietary confirmation score/);

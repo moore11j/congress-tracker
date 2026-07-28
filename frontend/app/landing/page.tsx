@@ -90,7 +90,7 @@ const signalCards = [
   },
   {
     title: "Options Flow",
-    body: "Options activity will add another evidence layer when flow supports or contradicts the setup.",
+    body: "Options activity will add another data layer when flow supports or contradicts the setup.",
     label: "Coming soon",
   },
   {
@@ -101,7 +101,7 @@ const signalCards = [
   },
   {
     title: "Government Contracts",
-    body: "Connect contract awards and modifications to ticker-level evidence when the exposure is material.",
+    body: "Connect contract awards and modifications to ticker-level data when the exposure is material.",
     label: "Public awards",
   },
   {
@@ -132,14 +132,14 @@ const whyWalnut = [
     glowClassName: "bg-rose-300/15",
   },
   {
-    title: "Evidence confirmation",
+    title: "Data confirmation",
     icon: "confirmedTrend",
     cardClassName: "border-lime-300/20 bg-lime-300/[0.04]",
     iconClassName: "border-lime-300/25 bg-lime-300/10 text-lime-200",
     glowClassName: "bg-lime-300/15",
   },
   {
-    title: "Conflicting evidence",
+    title: "Conflicting data",
     icon: "splitData",
     cardClassName: "border-cyan-300/20 bg-cyan-300/[0.04]",
     iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
@@ -207,13 +207,13 @@ const fallbackTrending: TrendingTicker[] = [
 
 const fallbackInsights: NewsItem[] = [
   {
-    title: "Congressional disclosures, insider trades, and ticker context update as the evidence changes.",
+    title: "Congressional disclosures, insider trades, and ticker context update as the data changes.",
     url: `${appUrl}/insights`,
     source: "walnut_landing",
     site: "Walnut",
   },
   {
-    title: "Government contracts, political exposure, and issuer-level evidence are available in the live app.",
+    title: "Government contracts, political exposure, and issuer-level data are available in the live app.",
     url: `${appUrl}/feed?mode=government_contracts`,
     source: "walnut_landing",
     site: "Walnut",
@@ -859,9 +859,9 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Find stronger opportunities with more evidence.
+              Find stronger opportunities with more data.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more of the evidence.</p>
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more data.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
               Walnut brings macro, fundamental, technical, and alternative data together to show what is strengthening, what is weakening, and what deserves your attention.
             </p>
@@ -875,7 +875,7 @@ export default async function LandingPage() {
               </a>
             </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
-              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more evidence, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
+              Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more data, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
             </p>
           </div>
 
@@ -935,7 +935,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Ticker Research Data</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with the data that reinforces the case.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut shows when fundamentals, price action, insiders, Congress activity, and other relevant evidence support the same conclusion.
+              Walnut shows when fundamentals, price action, insiders, Congress activity, and other relevant data support the same conclusion.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1011,7 +1011,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Insider profile with ticker chart</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Tim Cook insider activity profile</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and evidence readouts.
+                Open the insider profile with Apple ticker chart context, transaction history, issuer details, and data readouts.
               </p>
               <span className="mt-5 inline-flex rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100">Open insider profile -&gt;</span>
             </a>
@@ -1028,7 +1028,7 @@ export default async function LandingPage() {
               Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
             </p>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              We help investors identify stronger setups, avoid weaker entries, recognize conflicting evidence, and monitor whether the thesis is strengthening or weakening.
+              We help investors identify stronger setups, avoid weaker entries, recognize conflicting data, and monitor whether the thesis is strengthening or weakening.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -1054,11 +1054,11 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Differentiation</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more of the evidence</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more data</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
               Market research usually starts with charts, screeners, data feeds, and alerts.
             </p>
-            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut helps investors judge whether the evidence supports the opportunity, contradicts it, or points to risks that deserve attention.</p>
+            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut helps investors judge whether the data supports the opportunity, contradicts it, or points to risks that deserve attention.</p>
           </div>
           <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1076,7 +1076,7 @@ export default async function LandingPage() {
                 We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clearer read on whether the investment case is strengthening, weakening, or mixed.
               </p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {["What changed", "Supporting evidence", "Confirmation", "Risks", "What could weaken the thesis", "What to watch next"].map((item) => (
+                {["What changed", "Supporting data", "Confirmation", "Risks", "What could weaken the thesis", "What to watch next"].map((item) => (
                   <div key={item} className="rounded-lg border border-emerald-300/20 bg-slate-950/55 px-4 py-3 text-sm font-semibold text-emerald-50">
                     {item}
                   </div>
@@ -1090,7 +1090,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate more evidence before putting capital at risk.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate more data before putting capital at risk.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>
@@ -1160,7 +1160,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade when decisions require more evidence.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade when decisions require more data.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
@@ -1191,7 +1191,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                See the evidence most retail investors miss: institutional activity, options flow, and deeper positioning information that can show where conviction is building or weakening.
+                See the data most retail investors miss: institutional activity, options flow, and deeper positioning information that can show where conviction is building or weakening.
               </p>
             </article>
           </div>

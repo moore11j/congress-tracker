@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
 export const WALNUT_MARKETING_TITLE = "Walnut Markets | Market Intelligence Terminal";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Walnut Markets helps investors find stronger investment opportunities, avoid weaker setups, and make stock decisions with more market, fundamental, and alternative evidence.";
+  "Walnut Markets helps investors find stronger investment opportunities, avoid weaker setups, and make stock decisions with more market, fundamental, and alternative data.";
 export const WALNUT_OG_DESCRIPTION =
-  "Find stronger opportunities, avoid weaker setups, and make investment decisions with more of the evidence.";
+  "Find stronger opportunities, avoid weaker setups, and make investment decisions with more data.";
 export const WALNUT_TWITTER_DESCRIPTION =
   "We help investors understand what the data says, what changed, and what could weaken the thesis. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
-export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - Find stronger opportunities with more of the evidence.";
+export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - Find stronger opportunities with more data.";
 export const WALNUT_X_HANDLE = "@Walnutmarkets";
 export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
