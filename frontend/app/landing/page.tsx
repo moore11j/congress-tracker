@@ -118,14 +118,14 @@ const signalCards = [
 
 const whyWalnut = [
   {
-    title: "Stronger setups",
+    title: "Bullish trends",
     icon: "trendUp",
     cardClassName: "border-emerald-300/20 bg-emerald-300/[0.045]",
     iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
     glowClassName: "bg-emerald-300/15",
   },
   {
-    title: "Weaker setups",
+    title: "Bearish trends",
     icon: "trendDown",
     cardClassName: "border-rose-300/20 bg-rose-300/[0.04]",
     iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-200",
@@ -863,7 +863,7 @@ export default async function LandingPage() {
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more of the evidence.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut brings market, fundamental, and alternative data together to show what is strengthening, what is weakening, and what deserves your attention.
+              Walnut brings macro, fundamental, technical, and alternative data together to show what is strengthening, what is weakening, and what deserves your attention.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -933,7 +933,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Ticker Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with evidence that reinforces the case.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with the data that reinforces the case.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
               Walnut shows when fundamentals, price action, insiders, Congress activity, and other relevant evidence support the same conclusion.
             </p>
@@ -966,7 +966,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <SectionEyebrow>Daily Insights</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Know what changed before the investment case moves against you.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Curated insights to keep you informed with what really matters.</h2>
             </div>
             <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
               <span>Open insights</span>
@@ -1023,7 +1023,7 @@ export default async function LandingPage() {
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better evidence.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better data.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
               Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
             </p>
@@ -1128,9 +1128,9 @@ export default async function LandingPage() {
           <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
             <div>
               <SectionEyebrow>Stock Screener</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built to find stronger setups.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built to find new opportunities.</h2>
               <p className="mt-5 text-sm leading-6 text-slate-400">
-                Screen across disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation data to identify what deserves deeper review.
+                Screen across multiple data sets: disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation data to identify the next big opportunity.
               </p>
             </div>
             <div>
