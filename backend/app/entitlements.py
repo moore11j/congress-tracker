@@ -21,6 +21,7 @@ EffectivePlanSource = Literal["stripe_subscription", "admin_subscription", "manu
 FeatureKey = Literal[
     "signals",
     "ticker_confirmation",
+    "peer_compare",
     "premium_feed_metrics",
     "leaderboards",
     "backtesting",
@@ -57,6 +58,7 @@ FeatureKey = Literal[
 PLAN_TIERS: tuple[PlanTierName, ...] = ("free", "premium", "pro")
 PLAN_RANKS: dict[TierName, int] = {"free": 0, "premium": 10, "pro": 20, "admin": 100}
 HARD_MINIMUM_FEATURE_TIERS: dict[FeatureKey, TierName] = {
+    "peer_compare": "premium",
     "watchlist_people_departments": "premium",
     "watchlist_institutions": "pro",
     "options_flow_feed": "pro",
@@ -89,6 +91,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 0,
             "ticker_confirmation": 0,
+            "peer_compare": 0,
             "premium_feed_metrics": 0,
             "leaderboards": 0,
             "backtesting": 0,
@@ -143,6 +146,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 1,
             "ticker_confirmation": 1,
+            "peer_compare": 1,
             "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
@@ -179,6 +183,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             {
                 "signals",
                 "ticker_confirmation",
+                "peer_compare",
                 "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
@@ -208,6 +213,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
         limits={
             "signals": 1,
             "ticker_confirmation": 1,
+            "peer_compare": 1,
             "premium_feed_metrics": 1,
             "leaderboards": 1,
             "backtesting": 1,
@@ -244,6 +250,7 @@ ENTITLEMENTS: dict[TierName, TierEntitlements] = {
             {
                 "signals",
                 "ticker_confirmation",
+                "peer_compare",
                 "premium_feed_metrics",
                 "leaderboards",
                 "backtesting",
@@ -287,6 +294,10 @@ DEFAULT_FEATURE_GATES: dict[FeatureKey, dict[str, str]] = {
     "ticker_confirmation": {
         "required_tier": "premium",
         "description": "Ticker confirmation score, active-source readout, and freshness setup details.",
+    },
+    "peer_compare": {
+        "required_tier": "premium",
+        "description": "Compare two stocks, see the stronger setup, and review the decision view.",
     },
     "premium_feed_metrics": {
         "required_tier": "premium",
@@ -438,12 +449,20 @@ PLAN_FEATURES: dict[FeatureKey, dict[str, Any]] = {
         "sort_order": 11,
         "pricing_description": "Ticker confirmation score, active-source readout, and freshness setup details.",
     },
+    "peer_compare": {
+        "label": "Compare",
+        "kind": "feature",
+        "unit_singular": "",
+        "unit_plural": "",
+        "sort_order": 12,
+        "pricing_description": "Compare two stocks, see which setup has stronger evidence, and monitor when the better case shifts.",
+    },
     "premium_feed_metrics": {
         "label": "Feed and watchlist metrics",
         "kind": "feature",
         "unit_singular": "",
         "unit_plural": "",
-        "sort_order": 12,
+        "sort_order": 13,
         "pricing_description": "Gain/loss percentages and signal scores in feed and watchlist activity cards.",
     },
     "leaderboards": {

@@ -64,6 +64,7 @@ test("free/core rows lead screener and monitoring pricing categories", () => {
     "screener_presets:",
     "signals:",
     "ticker_confirmation:",
+    "peer_compare:",
     "leaderboards:",
   ];
   const screenerPositions = screenerMarkers.map((marker) => screenerOrderSource.indexOf(marker));
@@ -111,6 +112,10 @@ test("advanced workflow rows mark future options flow without hiding active inst
     source,
     /"ticker_confirmation"[\s\S]*?return "Screener & signals";/,
   );
+  assert.match(
+    source,
+    /"peer_compare"[\s\S]*?return "Screener & signals";/,
+  );
   assert.match(source, /"premium_feed_metrics"[\s\S]*?return "Market feeds";/);
   assert.doesNotMatch(source, /"options_flow_feed", "institutional_feed"/);
   assert.match(source, /if \(\["options_flow_feed", "options_flow_filters", "api_webhooks"\]\.includes\(feature\.feature_key\)\) return "Coming soon";/);
@@ -125,6 +130,9 @@ test("advanced intelligence rows are Pro-only in frontend fallback config", () =
   assert.match(defaultPlanConfig, /feature_key:\s*"institutional_filters"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"macro_positioning"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"market_pressure"[\s\S]*?required_tier:\s*"pro"/);
+  assert.match(defaultPlanConfig, /feature_key:\s*"peer_compare"[\s\S]*?required_tier:\s*"premium"/);
+  assert.match(defaultPlanConfig, /label:\s*"Compare"/);
+  assert.match(defaultPlanConfig, /Compare two stocks, see which setup has stronger evidence/);
   assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_people_departments"[\s\S]*?required_tier:\s*"premium"/);
   assert.match(defaultPlanConfig, /feature_key:\s*"watchlist_institutions"[\s\S]*?required_tier:\s*"pro"/);
   assert.match(defaultPlanConfig, /label:\s*"Pressure Map"/);

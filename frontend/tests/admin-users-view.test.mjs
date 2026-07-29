@@ -117,6 +117,14 @@ test("admin reports include first-party page analytics", () => {
   assert.match(pageAnalyticsReport, /Page analytics/);
 });
 
+test("admin settings exposes Compare feature gate separately", () => {
+  assert.match(adminSettingsPanel, /const COMPARE_FEATURE_KEYS = \["peer_compare"\] as const;/);
+  assert.match(adminSettingsPanel, /const compareGates = useMemo/);
+  assert.match(adminSettingsPanel, /<h3 className="font-semibold text-white">Compare<\/h3>/);
+  assert.match(adminSettingsPanel, /updateGate\(gate, "premium"\)/);
+  assert.match(adminSettingsPanel, /updateGate\(gate, "pro"\)/);
+});
+
 test("admin provider usage uses Enterprise 500 calls per minute assumption", () => {
   assert.match(providerUsageReport, /FMP Enterprise guardrails/);
   assert.match(providerUsageReport, /function planAssumptionValue/);

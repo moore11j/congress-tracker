@@ -264,13 +264,15 @@ function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgra
 }
 
 function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { data: PeerCompareResponse; authenticated: boolean; upgradeHref: string; signInHref: string }) {
-  const categories = data.categories.filter((category) => category.required_plan === "premium").slice(0, 7);
+  const categories = data.categories.slice(0, 7);
+  const requiredPlan = data.access?.required_plan === "pro" ? "pro" : "premium";
+  const requiredPlanLabel = requiredPlan === "pro" ? "Pro" : "Premium";
   return (
     <div className="space-y-5">
       <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
         <SideHeader side={data.left} winner={false} tone={TICKER_COLORS.left} />
         <section className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Premium Feature</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">{requiredPlanLabel} Feature</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">One comparison answers today's question.</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">
             Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts. Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro.
@@ -278,12 +280,12 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
           <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
             <CompareTrackedLink
               href={upgradeHref}
-              eventName="compare_premium_upgrade_click"
+              eventName={requiredPlan === "pro" ? "compare_pro_upgrade_click" : "compare_premium_upgrade_click"}
               path={`/compare/${encodeURIComponent(data.left.symbol)}/${encodeURIComponent(data.right.symbol)}`}
               properties={{ ticker_pair: `${data.left.symbol}/${data.right.symbol}`, auth_state: authenticated ? "free" : "logged_out", cta_location: "locked_state" }}
               className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
             >
-              {authenticated ? "Upgrade to Premium" : "Unlock Compare with Premium"}
+              {authenticated ? `Upgrade to ${requiredPlanLabel}` : `Unlock Compare with ${requiredPlanLabel}`}
             </CompareTrackedLink>
             {!authenticated ? (
               <a href={signInHref} className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">

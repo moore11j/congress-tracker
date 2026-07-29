@@ -30,7 +30,8 @@ test("peer compare page renders report and selector recovery", () => {
 test("peer compare page renders compact locked state and pricing return CTAs", () => {
   assert.match(comparePage, /data\?\.status === "locked"/);
   assert.match(comparePage, /function LockedCompareState/);
-  assert.match(comparePage, /Unlock Compare with Premium/);
+  assert.match(comparePage, /const requiredPlan = data\.access\?\.required_plan === "pro" \? "pro" : "premium"/);
+  assert.match(comparePage, /Unlock Compare with \$\{requiredPlanLabel\}/);
   assert.match(comparePage, /One comparison answers today's question\./);
   assert.match(comparePage, /Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts\./);
   assert.match(comparePage, /Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro\./);

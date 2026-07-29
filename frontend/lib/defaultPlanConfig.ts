@@ -5,6 +5,7 @@ type BillingInterval = "monthly" | "annual";
 type FeatureKey =
   | "signals"
   | "ticker_confirmation"
+  | "peer_compare"
   | "premium_feed_metrics"
   | "leaderboards"
   | "backtesting"
@@ -48,6 +49,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   free: {
     signals: 0,
     ticker_confirmation: 0,
+    peer_compare: 0,
     premium_feed_metrics: 0,
     leaderboards: 0,
     backtesting: 0,
@@ -83,6 +85,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   premium: {
     signals: 1,
     ticker_confirmation: 1,
+    peer_compare: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -118,6 +121,7 @@ const defaultLimits: Record<PlanTier, Record<FeatureKey, number>> = {
   pro: {
     signals: 1,
     ticker_confirmation: 1,
+    peer_compare: 1,
     premium_feed_metrics: 1,
     leaderboards: 1,
     backtesting: 1,
@@ -174,6 +178,16 @@ const featureDefinitions: FeatureDefinition[] = [
     sort_order: 11,
   },
   {
+    feature_key: "peer_compare",
+    label: "Compare",
+    kind: "feature",
+    description: "Compare two stocks, see which setup has stronger evidence, and monitor when the better case shifts.",
+    required_tier: "premium",
+    unit_singular: "",
+    unit_plural: "",
+    sort_order: 12,
+  },
+  {
     feature_key: "premium_feed_metrics",
     label: "Feed and watchlist metrics",
     kind: "feature",
@@ -181,7 +195,7 @@ const featureDefinitions: FeatureDefinition[] = [
     required_tier: "premium",
     unit_singular: "",
     unit_plural: "",
-    sort_order: 12,
+    sort_order: 13,
   },
   {
     feature_key: "leaderboards",

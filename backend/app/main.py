@@ -72,6 +72,7 @@ from app.entitlements import (
     entitlement_payload,
     require_monitored_watchlist_source,
     require_feature,
+    required_tier_for_feature,
     monitored_source_ids,
     seed_plan_config,
 )
@@ -9260,12 +9261,17 @@ def _peer_compare_entitlement_rank(entitlements: Any, *, authenticated: bool) ->
     return {"free": 0, "premium": 10, "pro": 20, "admin": 100}.get(tier, 0)
 
 
+def _peer_compare_required_rank(required_plan: str | None) -> int:
+    return {"free": 0, "premium": 10, "pro": 20, "admin": 100}.get(str(required_plan or "").strip().lower(), 10)
+
+
 def _peer_compare_teaser_payload(
     db: Session,
     left: str,
     right: str,
     *,
     source_entitlements: dict[str, dict[str, Any]],
+    required_plan: str,
     authenticated: bool,
     entitlements: Any = None,
 ) -> dict[str, Any]:
@@ -9283,7 +9289,7 @@ def _peer_compare_teaser_payload(
         "status": "locked",
         "access": {
             "locked": True,
-            "required_plan": "premium",
+            "required_plan": required_plan,
             "authenticated": authenticated,
             "tier": tier,
         },
@@ -9295,25 +9301,25 @@ def _peer_compare_teaser_payload(
             "winner": "even",
             "symbol": None,
             "score": None,
-            "summary": "Compare is a Premium feature.",
+            "summary": f"Compare is a {required_plan.title()} feature.",
             "drivers": [],
-            "methodology": "Locked until Premium.",
+            "methodology": f"Locked until {required_plan.title()}.",
         },
         "categories": [
             {
                 "key": key,
                 "label": label,
                 "locked": True,
-                "required_plan": required_plan,
+                "required_plan": required_plan if plan == "premium" else plan,
                 "edge": "even",
                 "score": None,
                 "metrics": [],
             }
-            for key, label, required_plan in _PEER_COMPARE_TEASER_CATEGORIES
+            for key, label, plan in _PEER_COMPARE_TEASER_CATEGORIES
         ],
         "tradeoffs": [],
         "notes": [
-            "Premium unlocks the full comparison, Walnut verdict, and proprietary confirmation-score analysis.",
+            f"{required_plan.title()} unlocks the full comparison, Walnut verdict, and proprietary confirmation-score analysis.",
             "Pro adds institutional activity and options-flow evidence.",
         ],
     }
@@ -9375,12 +9381,14 @@ def _build_peer_compare_payload(
         raise HTTPException(status_code=422, detail="Choose two different ticker symbols.")
 
     source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=authenticated)
-    if _peer_compare_entitlement_rank(entitlements, authenticated=authenticated) < 10:
+    required_plan = required_tier_for_feature(db, "peer_compare")
+    if _peer_compare_entitlement_rank(entitlements, authenticated=authenticated) < _peer_compare_required_rank(required_plan):
         return _peer_compare_teaser_payload(
             db,
             left,
             right,
             source_entitlements=source_entitlements,
+            required_plan=required_plan,
             authenticated=authenticated,
             entitlements=entitlements,
         )

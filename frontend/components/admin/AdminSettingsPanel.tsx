@@ -77,6 +77,8 @@ const SCREENER_FEATURE_KEYS = [
   "screener_results",
 ] as const;
 
+const COMPARE_FEATURE_KEYS = ["peer_compare"] as const;
+
 const SCREENER_LIMIT_KEYS = ["screener_saved_screens", "saved_views", "screener_results"] as const;
 const MONITORING_LIMIT_KEYS = ["monitoring_sources"] as const;
 const WATCHLIST_LIMIT_KEYS = ["watchlists", "watchlist_tickers", "watchlist_people_departments", "watchlist_institutions"] as const;
@@ -244,8 +246,17 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
     () => gates.filter((gate) => SCREENER_FEATURE_KEYS.includes(gate.feature_key as (typeof SCREENER_FEATURE_KEYS)[number])),
     [gates],
   );
+  const compareGates = useMemo(
+    () => gates.filter((gate) => COMPARE_FEATURE_KEYS.includes(gate.feature_key as (typeof COMPARE_FEATURE_KEYS)[number])),
+    [gates],
+  );
   const generalGates = useMemo(
-    () => gates.filter((gate) => !SCREENER_FEATURE_KEYS.includes(gate.feature_key as (typeof SCREENER_FEATURE_KEYS)[number])),
+    () =>
+      gates.filter(
+        (gate) =>
+          !SCREENER_FEATURE_KEYS.includes(gate.feature_key as (typeof SCREENER_FEATURE_KEYS)[number]) &&
+          !COMPARE_FEATURE_KEYS.includes(gate.feature_key as (typeof COMPARE_FEATURE_KEYS)[number]),
+      ),
     [gates],
   );
 
@@ -858,6 +869,40 @@ export function AdminSettingsPanel({ initialTab = "settings" }: { initialTab?: A
                         >
                           Free
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "premium")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "premium" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Premium
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateGate(gate, "pro")}
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                            gate.required_tier === "pro" ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-200"
+                          }`}
+                        >
+                          Pro
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white">Compare</h3>
+                <div className="mt-3 grid gap-3">
+                  {compareGates.map((gate) => (
+                    <div key={gate.feature_key} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/40 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                      <div>
+                        <div className="font-semibold text-white">{featureLabels.get(gate.feature_key) ?? gate.feature_key}</div>
+                        <p className="text-sm text-slate-400">{gate.description}</p>
+                      </div>
+                      <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => updateGate(gate, "premium")}
