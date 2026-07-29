@@ -9,6 +9,7 @@ export type ResearchBriefCard = {
   publishedAt: string;
   readingMinutes: number;
   featured?: boolean;
+  thumbnailUrl?: string;
 };
 
 export const researchBriefs: ResearchBriefCard[] = [
@@ -23,6 +24,7 @@ export const researchBriefs: ResearchBriefCard[] = [
     publishedAt: "2026-07-23",
     readingMinutes: 9,
     featured: true,
+    thumbnailUrl: "/ad-thumbnails/nbis-crwv-neoclouds.jpg",
   },
   {
     slug: "ai-earnings-dd",
@@ -35,6 +37,7 @@ export const researchBriefs: ResearchBriefCard[] = [
     publishedAt: "2026-07-22",
     readingMinutes: 8,
     featured: true,
+    thumbnailUrl: "/ad-thumbnails/ai-earnings-dd-thumbnail.png",
   },
   {
     slug: "mu-dd",

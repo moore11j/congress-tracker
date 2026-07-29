@@ -862,11 +862,11 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Find stronger opportunities with more data.
+              The market has tells, Walnut finds them.
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more data.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut brings macro, fundamental, technical, and alternative data together to show what is strengthening, what is weakening, and what deserves your attention.
+              Walnut brings macro, fundamental, technical, and alternative data together into one terminal. Quickly find the setups that are strengthening, what is weakening, and undiscovered hidden gems.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -936,9 +936,9 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Ticker Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with the data that reinforces the case.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with all data that reinforces the case.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut shows when fundamentals, price action, insiders, Congress activity, and other relevant data support the same conclusion.
+              Walnut shows when fundamentals, price action, insiders, Congress activity, government contracts, institutions and other relevant data are moving in the same direction
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -997,7 +997,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Congress and Insider Trade Profiles</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate the people behind the public disclosures.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and transaction tables help explain what the data says.</p>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and and trade analytics help you find who you should be following.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
@@ -1110,7 +1110,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Differentiation</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Make decisions with more data</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Generational investments require the full picture, not just the chart.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
               Market research usually starts with charts, screeners, data feeds, and alerts.
             </p>
@@ -1146,7 +1146,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate more data before putting capital at risk.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate all the data in one terminal before putting capital at risk.</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>
@@ -1216,7 +1216,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade when decisions require more data.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade when decisions require deeper insights.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
