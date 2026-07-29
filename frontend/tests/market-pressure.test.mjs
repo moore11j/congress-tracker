@@ -13,12 +13,19 @@ const contract = read("lib/marketPressure.ts");
 const api = read("lib/api.ts");
 const middleware = read("middleware.ts");
 
-test("Maps appears before Pricing in the shared top navigation", () => {
+test("Compare appears between Backtesting and Maps in the shared top navigation", () => {
+  const backtestingIndex = nav.indexOf('{ href: "/backtesting", label: "Backtesting" }');
+  const compareIndex = nav.indexOf('{ href: "/compare/_/_", label: "Compare" }');
   const marketPressureIndex = nav.indexOf('{ href: "/market-pressure", label: "Maps" }');
   const pricingIndex = nav.indexOf('{ href: "/pricing", label: "Pricing" }');
+  assert.ok(backtestingIndex > -1, "Backtesting nav item is missing");
+  assert.ok(compareIndex > -1, "Compare nav item is missing");
   assert.ok(marketPressureIndex > -1, "Maps nav item is missing");
   assert.ok(pricingIndex > -1, "Pricing nav item is missing");
+  assert.ok(backtestingIndex < compareIndex, "Compare should appear after Backtesting");
+  assert.ok(compareIndex < marketPressureIndex, "Compare should appear before Maps");
   assert.ok(marketPressureIndex < pricingIndex, "Maps should appear before Pricing");
+  assert.match(nav, /basePath === "\/compare\/_\/_"/);
   assert.match(nav, /usePathname/);
 });
 

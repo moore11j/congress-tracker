@@ -120,8 +120,14 @@ function SuggestInput({
 
 export function PeerCompareSelector({ leftSymbol, rightSymbol }: Props) {
   const router = useRouter();
-  const left = useMemo(() => cleanSymbol(leftSymbol), [leftSymbol]);
-  const right = useMemo(() => cleanSymbol(rightSymbol), [rightSymbol]);
+  const left = useMemo(() => {
+    const symbol = cleanSymbol(leftSymbol);
+    return symbol === "_" ? "" : symbol;
+  }, [leftSymbol]);
+  const right = useMemo(() => {
+    const symbol = cleanSymbol(rightSymbol);
+    return symbol === "_" ? "" : symbol;
+  }, [rightSymbol]);
 
   function navigate(nextLeft: string, nextRight: string) {
     const normalizedLeft = cleanSymbol(nextLeft);
@@ -132,21 +138,23 @@ export function PeerCompareSelector({ leftSymbol, rightSymbol }: Props) {
 
   return (
     <div className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/55 p-3 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end">
-      <SuggestInput label="Ticker 1" value={left} otherValue={right} onCommit={(symbol) => navigate(symbol, right)} />
+      <SuggestInput label="Ticker 1" value={left} otherValue={right} onCommit={(symbol) => navigate(symbol, right || "_")} />
       <button
         type="button"
-        onClick={() => navigate(right, left)}
+        onClick={() => navigate(right || "_", left || "_")}
         className="h-11 rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-200 hover:border-cyan-300/40 hover:text-white"
       >
         Swap
       </button>
-      <SuggestInput label="Ticker 2" value={right === "_" ? "" : right} otherValue={left} onCommit={(symbol) => navigate(left, symbol)} />
-      <a
-        href={`/ticker/${encodeURIComponent(left)}`}
-        className="inline-flex h-11 items-center justify-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-200 hover:border-cyan-300/40 hover:text-white"
-      >
-        Ticker page
-      </a>
+      <SuggestInput label="Ticker 2" value={right} otherValue={left} onCommit={(symbol) => navigate(left || "_", symbol)} />
+      {left ? (
+        <a
+          href={`/ticker/${encodeURIComponent(left)}`}
+          className="inline-flex h-11 items-center justify-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-slate-200 hover:border-cyan-300/40 hover:text-white"
+        >
+          Ticker page
+        </a>
+      ) : null}
     </div>
   );
 }

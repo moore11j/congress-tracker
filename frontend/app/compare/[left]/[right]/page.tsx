@@ -327,6 +327,9 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
   const sp = (await searchParams) ?? {};
   const left = cleanSymbol(routeParams.left);
   const right = cleanSymbol(routeParams.right);
+  const hasLeft = left !== "_";
+  const hasRight = right !== "_";
+  const pageTitle = hasLeft || hasRight ? `${hasLeft ? left : "..."} vs ${hasRight ? right : "..."}` : "Compare two tickers";
   const currentQuery = searchParamsToString(sp);
   const currentPath = `/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}${currentQuery ? `?${currentQuery}` : ""}`;
   const authState = await optionalPageAuthState();
@@ -342,8 +345,12 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
   let errorMessage = "This comparison could not be loaded.";
 
   try {
-    if (right !== "_") {
+    if (hasLeft && hasRight) {
       data = await getPeerCompare(left, right, { authToken: authState.token ?? undefined, source: "PeerComparePage" });
+    } else if (!hasLeft && !hasRight) {
+      errorMessage = "Search for two tickers to compare.";
+    } else if (!hasLeft) {
+      errorMessage = "Search for a first ticker to compare.";
     } else {
       errorMessage = "Search for a second ticker to compare against.";
     }
@@ -359,11 +366,16 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">{left} vs {right === "_" ? "..." : right}</h1>
+            <h1 className="mt-2 text-3xl font-semibold text-white">{pageTitle}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+              Compare tickers to see which setup has stronger evidence across fundamentals, valuation, price action, catalysts, risks and Walnut&apos;s proprietary confirmation score.
+            </p>
           </div>
-          <Link href={tickerHref(left) || "/"} className={ghostButtonClassName}>
-            Back to ticker
-          </Link>
+          {hasLeft ? (
+            <Link href={tickerHref(left) || "/"} className={ghostButtonClassName}>
+              Back to ticker
+            </Link>
+          ) : null}
           {data && canCreateResearch ? (
             <ResearchActions canCreateResearch={canCreateResearch} subject={{ kind: "compare", data }} />
           ) : null}

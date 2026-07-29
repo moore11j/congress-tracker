@@ -21,9 +21,13 @@ test("ticker page exposes compare entry without silently choosing a peer", () =>
 
 test("peer compare page renders report and selector recovery", () => {
   assert.match(comparePage, /getPeerCompare\(left, right/);
-  assert.match(comparePage, /right !== "_"/);
+  assert.match(comparePage, /hasLeft && hasRight/);
   assert.match(comparePage, /<PeerCompareSelector leftSymbol=\{left\} rightSymbol=\{right\}/);
   assert.equal((comparePage.match(/<PeerCompareSelector/g) || []).length, 1);
+  assert.match(comparePage, /Compare two tickers/);
+  assert.match(comparePage, /Search for two tickers to compare\./);
+  assert.match(comparePage, /Search for a first ticker to compare\./);
+  assert.match(comparePage, /Compare tickers to see which setup has stronger evidence/);
   assert.match(comparePage, /Our Call/);
 });
 
@@ -62,5 +66,8 @@ test("peer compare selector reuses symbol suggestions", () => {
   assert.match(selectorSource, /const \[active, setActive\]/);
   assert.match(selectorSource, /if \(!active \|\| trimmed\.length < 1\)/);
   assert.match(selectorSource, /suggestSymbols\(trimmed, "all"/);
+  assert.match(selectorSource, /return symbol === "_" \? "" : symbol/);
+  assert.match(selectorSource, /placeholder="Search ticker or company"/);
+  assert.match(selectorSource, /onCommit=\{\(symbol\) => navigate\(symbol, right \|\| "_"\)\}/);
   assert.match(selectorSource, /router\.push\(`\/compare\/\$\{encodeURIComponent\(normalizedLeft\)\}\/\$\{encodeURIComponent\(normalizedRight\)\}`\)/);
 });
