@@ -1037,6 +1037,40 @@ def get_eod_close_series(db: Session, symbol: str, start_date: str, end_date: st
     return dict(sorted((str(row[0]), float(row[1])) for row in rows))
 
 
+def get_eod_volume_series(db: Session, symbol: str, start_date: str, end_date: str) -> dict[str, float]:
+    status, normalized_symbol, _ = classify_symbol(symbol)
+    if status != "eligible" or not normalized_symbol:
+        return {}
+
+    start_key = (start_date or "")[:10]
+    end_key = (end_date or "")[:10]
+    if not _is_valid_yyyy_mm_dd(start_key) or not _is_valid_yyyy_mm_dd(end_key):
+        return {}
+    if start_key > end_key:
+        start_key, end_key = end_key, start_key
+
+    rows = db.execute(
+        sqlalchemy_select(PriceCache.date, PriceCache.volume, PriceCache.day_volume)
+        .where(PriceCache.symbol == normalized_symbol)
+        .where(PriceCache.date >= start_key)
+        .where(PriceCache.date <= end_key)
+    ).all()
+    volume_map: dict[str, float] = {}
+    for day, volume, day_volume in rows:
+        raw_volume = volume if volume is not None else day_volume
+        try:
+            parsed = float(raw_volume)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            volume_map[str(day)] = parsed
+    return dict(sorted(volume_map.items()))
+
+
+def _price_series_missing_volumes(price_map: dict[str, float], volume_map: dict[str, float]) -> bool:
+    return bool(price_map) and any(day not in volume_map for day in price_map)
+
+
 def _fetch_provider_eod_payload(
     endpoint: str,
     candidate_symbol: str,
@@ -1352,15 +1386,22 @@ def get_daily_close_series_with_fallback(
         start_key, end_key = end_key, start_key
 
     cached_map = get_eod_close_series(db, normalized_symbol, start_key, end_key)
+    cached_volume_map = get_eod_volume_series(db, normalized_symbol, start_key, end_key) if cached_map else {}
+    cached_volume_incomplete = _price_series_missing_volumes(cached_map, cached_volume_map)
     cached_tail_stale = _series_has_stale_tail(cached_map, end_key)
-    if cached_map and not cached_tail_stale and not is_sparse_daily_close_series(cached_map, start_key, end_key):
+    if (
+        cached_map
+        and not cached_tail_stale
+        and not is_sparse_daily_close_series(cached_map, start_key, end_key)
+        and not cached_volume_incomplete
+    ):
         return cached_map
 
     if _is_foreground_request_context():
         _release_read_transaction(db, reason="price_series_foreground_enqueue")
         _enqueue_eod_refresh(
             normalized_symbol,
-            reason="stale_or_missing_series",
+            reason="missing_volume_series" if cached_volume_incomplete else "stale_or_missing_series",
             window_key=f"{start_key}:{end_key}",
         )
         return cached_map
@@ -1393,7 +1434,7 @@ def get_daily_close_series_with_fallback(
                     cache_symbol,
                     exc_info=True,
                 )
-        if len(provider_map) >= len(cached_map) or cached_tail_stale:
+        if len(provider_map) >= len(cached_map) or cached_tail_stale or cached_volume_incomplete:
             logger.info(
                 "price_lookup dense history hydrated symbol=%s provider_symbol=%s cached_points=%s provider_points=%s start=%s end=%s",
                 normalized_symbol,

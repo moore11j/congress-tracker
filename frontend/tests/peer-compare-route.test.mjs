@@ -31,7 +31,9 @@ test("peer compare page renders compact locked state and pricing return CTAs", (
   assert.match(comparePage, /data\?\.status === "locked"/);
   assert.match(comparePage, /function LockedCompareState/);
   assert.match(comparePage, /Unlock Compare with Premium/);
-  assert.match(comparePage, /Premium unlocks the full comparison, Walnut verdict and proprietary confirmation-score analysis\./);
+  assert.match(comparePage, /One comparison answers today's question\./);
+  assert.match(comparePage, /Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts\./);
+  assert.match(comparePage, /Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro\./);
   assert.match(comparePage, /Categories Walnut evaluates/);
   assert.match(comparePage, /Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case\./);
   assert.match(comparePage, /pricingHref\(currentPath\)/);

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
@@ -490,10 +490,58 @@ def test_ticker_chart_bundle_includes_volume_and_candle_series(monkeypatch):
     }
 
 
+def test_daily_close_series_hydrates_dense_cache_when_volumes_missing(monkeypatch):
+    db = _session()
+    monkeypatch.setenv("FMP_API_KEY", "test-key")
+
+    end = datetime(2026, 7, 28, tzinfo=timezone.utc).date()
+    start = end - timedelta(days=27)
+    rows = []
+    cursor = start
+    idx = 0
+    while cursor <= end:
+        if cursor.weekday() < 5:
+            rows.append(
+                {
+                    "date": cursor.isoformat(),
+                    "close": 180.0 + idx,
+                    "volume": 100_000_000 + idx,
+                }
+            )
+            idx += 1
+        cursor += timedelta(days=1)
+
+    for row in rows:
+        db.add(PriceCache(symbol="NVDA", date=row["date"], close=row["close"]))
+    db.commit()
+
+    calls = []
+
+    def fake_fetch(url, params, retries=2):
+        calls.append((url, params["symbol"]))
+        if params["symbol"] == "NVDA" and url.endswith("/historical-price-eod/full"):
+            return _FakeResponse(200, rows)
+        return _FakeResponse(200, [])
+
+    monkeypatch.setattr("app.services.price_lookup._fetch_with_backoff", fake_fetch)
+
+    series = get_daily_close_series_with_fallback(db, "NVDA", start.isoformat(), end.isoformat())
+
+    assert series == {row["date"]: row["close"] for row in rows}
+    assert any(url.endswith("/historical-price-eod/full") and symbol == "NVDA" for url, symbol in calls)
+    cached_volumes = db.execute(
+        select(PriceCache.date, PriceCache.volume)
+        .where(PriceCache.symbol == "NVDA")
+        .order_by(PriceCache.date.asc())
+    ).all()
+    assert len(cached_volumes) == len(rows)
+    assert all(volume is not None and volume > 0 for _, volume in cached_volumes)
+
+
 def test_ticker_chart_request_time_refreshes_stale_recent_history(monkeypatch):
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
-    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    expected = datetime.now(timezone.utc).date()
     stale_day = expected - timedelta(days=6)
     _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)
@@ -533,7 +581,7 @@ def test_ticker_chart_request_time_uses_alternate_source_when_dense_history_tail
     db = _session()
     monkeypatch.setenv("FMP_API_KEY", "test-key")
     monkeypatch.setenv("MASSIVE_API_KEY", "massive-test-key")
-    expected = datetime(2026, 6, 23, tzinfo=timezone.utc).date()
+    expected = datetime.now(timezone.utc).date()
     stale_day = expected - timedelta(days=6)
     _disable_chart_metric_fetches(monkeypatch)
     monkeypatch.setattr("app.main.get_expected_latest_market_date", lambda: expected)

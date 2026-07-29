@@ -271,11 +271,9 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
         <SideHeader side={data.left} winner={false} tone={TICKER_COLORS.left} />
         <section className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Premium Feature</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">Unlock Compare with Premium</h2>
+          <h2 className="mt-3 text-2xl font-semibold text-white">One comparison answers today's question.</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">
-            {authenticated
-              ? "Premium unlocks the full comparison, Walnut verdict and proprietary confirmation-score analysis."
-              : "Compare fundamentals, valuation, price action, catalysts, risks and Walnut's proprietary confirmation score in one decision view."}
+            Walnut helps you compare the rest of your portfolio, monitor what changes and see when the better setup shifts. Unlock deeper confirmation, institutional activity and options-flow context with Walnut Premium or Pro.
           </p>
           <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
             <CompareTrackedLink

@@ -10777,6 +10777,28 @@ def _ticker_chart_volume_and_candles(db: Session, symbol: str, price_points: lis
     return volumes, candles
 
 
+def _enqueue_chart_volume_backfill_if_needed(
+    symbol: str,
+    start_key: str,
+    end_key: str,
+    price_points: list[dict],
+    volume_points: list[dict],
+) -> None:
+    if not price_points or len(volume_points) >= len(price_points):
+        return
+    request_path = str((get_request_context() or {}).get("path") or "")
+    if not request_path or request_path == "background":
+        return
+    enqueue_data_enrichment_job(
+        job_type="price_series",
+        symbol=symbol,
+        source="page_load",
+        reason="incomplete_chart_volume",
+        window_key=f"{start_key}:{end_key}",
+        priority=30,
+    )
+
+
 def _allow_chart_volume_provider_fallback() -> bool:
     if (get_request_context() or {}).get("path"):
         return False
@@ -11262,6 +11284,7 @@ def _build_ticker_chart_bundle(symbol: str, days: int, db: Session) -> dict:
             benchmark_freshness = is_price_history_stale(db, _TICKER_BENCHMARK_SYMBOL, expected_date=expected_latest_date)
         price_points = [{"date": day, "close": close} for day, close in sorted(ticker_map.items())]
         volume_points, candle_points = _ticker_chart_volume_and_candles(db, sym, price_points)
+        _enqueue_chart_volume_backfill_if_needed(sym, start_key, end_key, price_points, volume_points)
         benchmark_points = [{"date": day, "close": close} for day, close in sorted(benchmark_map.items())]
 
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
@@ -11482,6 +11505,7 @@ def _build_insider_stock_chart_bundle(
 
     quote = _build_ticker_chart_quote(db, resolved_symbol, price_points)
     volume_points, candle_points = _ticker_chart_volume_and_candles(db, resolved_symbol, price_points)
+    _enqueue_chart_volume_backfill_if_needed(resolved_symbol, start_key, end_key, price_points, volume_points)
     if quote.get("average_volume") is None and _allow_chart_volume_provider_fallback():
         volume_by_day = get_daily_volume_series_from_provider(resolved_symbol, start_key, end_key)
         quote["average_volume"] = _average_last_volumes(volume_by_day, 30)
