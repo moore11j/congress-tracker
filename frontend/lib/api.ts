@@ -576,7 +576,7 @@ async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T
 async function fetchSearchSuggestJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, withRequestAttribution({ cache: "no-store", ...init, routeFamily: "search" }, url));
+    response = await fetch(url, { cache: "no-store", signal: init?.signal });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
