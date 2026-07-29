@@ -89,6 +89,7 @@ def classify_request(path: str, query_params: Mapping[str, str]) -> RoutePriorit
     critical_exact = {
         "/api/auth/me",
         "/api/search/global",
+        "/api/search/suggest",
         "/api/admin/settings",
         "/api/entitlements",
         "/api/monitoring/unread-count",

@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError, createCheckoutSession, createCustomerPortalSession, type AccountUser } from "@/lib/api";
 import type { Entitlements } from "@/lib/entitlements";
+import { safeAppReturnPath } from "@/lib/returnPaths";
 
 type PricingActionsProps = {
   billingInterval?: "monthly" | "annual";
@@ -62,6 +64,8 @@ function checkoutConflictRedirectPath(error: unknown): string | null {
 }
 
 export function PricingActions({ billingInterval = "monthly", tier = "premium", ctaLabel, user, entitlements, accountLoading = false }: PricingActionsProps) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -79,6 +83,9 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
     : accountLoading
       ? "Checking plan"
       : labelForAction(planAction, tier);
+  const pricingPath = `${pathname || "/pricing"}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+  const returnTo = safeAppReturnPath(searchParams.get("returnTo") ?? searchParams.get("return_to"), "");
+  const loginHref = `/login?return_to=${encodeURIComponent(pricingPath)}`;
 
   const runAction = async () => {
     if (user?.email_verification_required || user?.email_verified === false) {
@@ -101,7 +108,7 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
         window.location.href = "/account/billing";
         return;
       }
-      const session = await createCheckoutSession(billingInterval, tier);
+      const session = await createCheckoutSession(billingInterval, tier, returnTo || undefined);
       if (session.url) {
         window.location.href = session.url;
         return;
@@ -134,7 +141,7 @@ export function PricingActions({ billingInterval = "monthly", tier = "premium", 
   if (!user) {
     return (
       <Link
-        href="/login?return_to=/pricing"
+        href={loginHref}
         className="inline-flex w-full items-center justify-center rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/20"
       >
         {ctaLabel ?? "Login / Register"}

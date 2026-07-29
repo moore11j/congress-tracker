@@ -162,9 +162,21 @@ test("pricing actions render current plan states from fresh account entitlements
   assert.match(actions, /: isDowngrade\s*\?\s*"border-white\/10 bg-slate-900\/70 text-slate-200 hover:border-white\/20 hover:text-white"/);
   assert.match(actions, /createCustomerPortalSession/);
   assert.match(actions, /checkoutConflictRedirectPath/);
+  assert.match(actions, /searchParams\.get\("returnTo"\) \?\? searchParams\.get\("return_to"\)/);
+  assert.match(actions, /createCheckoutSession\(billingInterval, tier, returnTo \|\| undefined\)/);
+  assert.match(actions, /href=\{loginHref\}/);
   assert.match(actions, /payload\.code !== "active_subscription_exists"/);
   assert.match(actions, /window\.location\.href = redirectPath/);
   assert.match(actions, /disabled=\{disabled\}/);
+});
+
+test("billing checkout return flow redirects to preserved Compare path after sync", () => {
+  const billingPanel = fs.readFileSync(path.join(process.cwd(), "components", "billing", "BillingAccountPanel.tsx"), "utf8");
+  assert.match(apiSource, /export async function createCheckoutSession\([\s\S]*?returnTo\?: string \| null/);
+  assert.match(apiSource, /body: JSON\.stringify\(\{ interval: billingInterval, plan, returnTo: returnTo \|\| undefined \}\)/);
+  assert.match(billingPanel, /safeAppReturnPath\(new URLSearchParams\(search\)\.get\("returnTo"\), ""\)/);
+  assert.match(billingPanel, /appendCompareUpgradeFlag\(returnTo\)/);
+  assert.match(billingPanel, /params\.set\("compare_upgraded", "1"\)/);
 });
 
 test("pricing page renders a static public shell and refreshes live config client-side", () => {

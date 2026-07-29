@@ -2852,6 +2852,7 @@ def _analytics_panel_name(path: str) -> str:
 
 
 _ATTRIBUTION_ROUTE_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("/api/search", "search"),
     ("/api/market/quotes", "market_quotes"),
     ("/api/tickers/", "ticker"),
     ("/api/insiders/", "insider"),
@@ -2867,6 +2868,7 @@ _ATTRIBUTION_ROUTE_FAMILIES: tuple[tuple[str, str], ...] = (
     ("/api/feed", "feed"),
 )
 _ATTRIBUTION_FRONTEND_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("/search", "search"),
     ("/ticker/", "ticker"),
     ("/insider/", "insider"),
     ("/member/", "member"),
@@ -8851,6 +8853,8 @@ def _peer_compare_int(value: Any) -> int:
 
 def _peer_compare_label(value: Any) -> str:
     text = str(value or "").strip().lower()
+    if text in {"inactive", "unavailable", "no_data", "no data", "none"}:
+        return "unavailable"
     if text in {"bullish", "positive", "accumulation", "active"}:
         return "bullish"
     if text in {"bearish", "negative", "distribution"}:
@@ -9170,7 +9174,9 @@ def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dic
         return {"key": "institutional_activity", "label": "Reported Institutional Activity", "locked": True, "required_plan": "pro", "edge": "even", "score": 0, "metrics": []}
     left = left if isinstance(left, dict) else {}
     right = right if isinstance(right, dict) else {}
-    dir_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    left_direction = _peer_compare_label(left.get("direction"))
+    right_direction = _peer_compare_label(right.get("direction"))
+    dir_edge = _peer_compare_edge_from_direction(left_direction, right_direction)
     net_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), higher_better=True, rel_threshold=0.1)
     score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, net_edge))
     return {
@@ -9179,7 +9185,7 @@ def _peer_compare_institutional_category(left: dict[str, Any] | None, right: dic
         "edge": "left" if score > 0 else "right" if score < 0 else "even",
         "score": score,
         "metrics": [
-            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=dir_edge),
+            _peer_compare_metric("direction", "Direction", left_direction, right_direction, unit="text", edge=dir_edge),
             _peer_compare_metric("net_activity", "Net Activity", _peer_compare_num(left.get("net_activity")), _peer_compare_num(right.get("net_activity")), unit="number", edge=net_edge),
         ],
     }
@@ -9190,7 +9196,9 @@ def _peer_compare_options_category(left: dict[str, Any] | None, right: dict[str,
         return {"key": "options_flow", "label": "Options Flow", "locked": True, "required_plan": "pro", "edge": "even", "score": 0, "metrics": []}
     left = left if isinstance(left, dict) else {}
     right = right if isinstance(right, dict) else {}
-    dir_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    left_direction = _peer_compare_label(left.get("direction"))
+    right_direction = _peer_compare_label(right.get("direction"))
+    dir_edge = _peer_compare_edge_from_direction(left_direction, right_direction)
     score_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), higher_better=True, abs_threshold=5.0)
     premium_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("total_premium")), _peer_compare_num(right.get("total_premium")), higher_better=True, rel_threshold=0.1)
     score = sum(1 if edge == "left" else -1 if edge == "right" else 0 for edge in (dir_edge, score_edge, premium_edge))
@@ -9200,7 +9208,7 @@ def _peer_compare_options_category(left: dict[str, Any] | None, right: dict[str,
         "edge": "left" if score > 0 else "right" if score < 0 else "even",
         "score": score,
         "metrics": [
-            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=dir_edge),
+            _peer_compare_metric("direction", "Direction", left_direction, right_direction, unit="text", edge=dir_edge),
             _peer_compare_metric("score", "Flow Score", _peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), unit="integer", edge=score_edge),
             _peer_compare_metric("total_premium", "Premium", _peer_compare_num(left.get("total_premium")), _peer_compare_num(right.get("total_premium")), unit="currency", edge=premium_edge),
         ],
@@ -9213,7 +9221,9 @@ def _peer_compare_confirmation_category(left: dict[str, Any] | None, right: dict
     left = left if isinstance(left, dict) else {}
     right = right if isinstance(right, dict) else {}
     score_edge = _peer_compare_edge_from_metric(_peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), higher_better=True, abs_threshold=5.0)
-    direction_edge = _peer_compare_edge_from_direction(left.get("direction"), right.get("direction"))
+    left_direction = _peer_compare_label(left.get("direction"))
+    right_direction = _peer_compare_label(right.get("direction"))
+    direction_edge = _peer_compare_edge_from_direction(left_direction, right_direction)
     score = (1 if score_edge == "left" else -1 if score_edge == "right" else 0) + (1 if direction_edge == "left" else -1 if direction_edge == "right" else 0)
     return {
         "key": "confirmation_score",
@@ -9222,7 +9232,89 @@ def _peer_compare_confirmation_category(left: dict[str, Any] | None, right: dict
         "score": score,
         "metrics": [
             _peer_compare_metric("score", "Score", _peer_compare_num(left.get("score")), _peer_compare_num(right.get("score")), unit="score", edge=score_edge),
-            _peer_compare_metric("direction", "Direction", left.get("direction"), right.get("direction"), unit="text", edge=direction_edge),
+            _peer_compare_metric("direction", "Direction", left_direction, right_direction, unit="text", edge=direction_edge),
+        ],
+    }
+
+
+_PEER_COMPARE_TEASER_CATEGORIES = [
+    ("business_quality", "Business Quality", "premium"),
+    ("valuation", "Valuation", "premium"),
+    ("price_volume", "Price / Volume", "premium"),
+    ("congress_activity", "Congress Activity", "premium"),
+    ("insider_activity", "Insider Activity", "premium"),
+    ("government_contracts", "Government Contracts", "premium"),
+    ("confirmation_score", "Confirmation Score", "premium"),
+    ("institutional_activity", "Reported Institutional Activity", "pro"),
+    ("options_flow", "Options Flow", "pro"),
+]
+
+
+def _peer_compare_entitlement_rank(entitlements: Any, *, authenticated: bool) -> int:
+    if not authenticated:
+        return 0
+    rank = getattr(entitlements, "rank", None)
+    if isinstance(rank, int):
+        return rank
+    tier = str(getattr(entitlements, "tier", "") or "").strip().lower()
+    return {"free": 0, "premium": 10, "pro": 20, "admin": 100}.get(tier, 0)
+
+
+def _peer_compare_teaser_payload(
+    db: Session,
+    left: str,
+    right: str,
+    *,
+    source_entitlements: dict[str, dict[str, Any]],
+    authenticated: bool,
+    entitlements: Any = None,
+) -> dict[str, Any]:
+    left_f = _latest_compare_fundamentals_row(db, left)
+    right_f = _latest_compare_fundamentals_row(db, right)
+    unsupported = [
+        symbol
+        for symbol, fundamentals in ((left, left_f), (right, right_f))
+        if not _peer_compare_symbol_supported(db, symbol, fundamentals)
+    ]
+    if unsupported:
+        raise HTTPException(status_code=404, detail={"message": "Ticker symbol is not supported.", "symbols": unsupported})
+    tier = str(getattr(entitlements, "tier", "") or ("free" if authenticated else "logged_out")).strip().lower()
+    return {
+        "status": "locked",
+        "access": {
+            "locked": True,
+            "required_plan": "premium",
+            "authenticated": authenticated,
+            "tier": tier,
+        },
+        "left": _peer_compare_identity(db, left, left_f),
+        "right": _peer_compare_identity(db, right, right_f),
+        "lookback_days": 30,
+        "source_entitlements": source_entitlements,
+        "call": {
+            "winner": "even",
+            "symbol": None,
+            "score": None,
+            "summary": "Compare is a Premium feature.",
+            "drivers": [],
+            "methodology": "Locked until Premium.",
+        },
+        "categories": [
+            {
+                "key": key,
+                "label": label,
+                "locked": True,
+                "required_plan": required_plan,
+                "edge": "even",
+                "score": None,
+                "metrics": [],
+            }
+            for key, label, required_plan in _PEER_COMPARE_TEASER_CATEGORIES
+        ],
+        "tradeoffs": [],
+        "notes": [
+            "Premium unlocks the full comparison, Walnut verdict, and proprietary confirmation-score analysis.",
+            "Pro adds institutional activity and options-flow evidence.",
         ],
     }
 
@@ -9283,6 +9375,15 @@ def _build_peer_compare_payload(
         raise HTTPException(status_code=422, detail="Choose two different ticker symbols.")
 
     source_entitlements = _ticker_context_source_entitlements(entitlements, authenticated=authenticated)
+    if _peer_compare_entitlement_rank(entitlements, authenticated=authenticated) < 10:
+        return _peer_compare_teaser_payload(
+            db,
+            left,
+            right,
+            source_entitlements=source_entitlements,
+            authenticated=authenticated,
+            entitlements=entitlements,
+        )
     confirmation_locked = bool((source_entitlements.get("signals") or {}).get("locked"))
     institutional_locked = bool((source_entitlements.get("institutional_activity") or {}).get("locked"))
     options_locked = bool((source_entitlements.get("options_flow") or {}).get("locked"))

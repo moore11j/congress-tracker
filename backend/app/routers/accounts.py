@@ -296,6 +296,8 @@ class CheckoutSessionPayload(BaseModel):
     interval: Literal["monthly", "annual"] | None = None
     tier: Literal["premium", "pro"] | None = None
     plan: Literal["premium", "pro"] | None = None
+    return_to: str | None = Field(default=None, max_length=500)
+    returnTo: str | None = Field(default=None, max_length=500)
 
 
 CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = {"active", "trialing", "past_due"}
@@ -3439,12 +3441,20 @@ def _authenticated_app_frontend_base_url() -> str:
     return AUTH_APP_FRONTEND_DEFAULT_URL
 
 
-def _checkout_success_url() -> str:
-    return f"{_authenticated_app_frontend_base_url()}/account/billing?checkout=success"
+def _checkout_success_url(return_to: str | None = None) -> str:
+    params = {"checkout": "success"}
+    safe_return_to = _safe_app_return_path(return_to, fallback="")
+    if safe_return_to:
+        params["returnTo"] = safe_return_to
+    return f"{_authenticated_app_frontend_base_url()}/account/billing?{urlencode(params)}"
 
 
-def _checkout_cancel_url() -> str:
-    return f"{_authenticated_app_frontend_base_url()}/pricing?checkout=cancelled"
+def _checkout_cancel_url(return_to: str | None = None) -> str:
+    params = {"checkout": "cancelled"}
+    safe_return_to = _safe_app_return_path(return_to, fallback="")
+    if safe_return_to:
+        params["returnTo"] = safe_return_to
+    return f"{_authenticated_app_frontend_base_url()}/pricing?{urlencode(params)}"
 
 
 def _customer_portal_return_url() -> str:
@@ -4686,6 +4696,7 @@ def create_checkout_session(
         )
     billing_interval = (payload.interval or payload.billing_interval) if payload else "monthly"
     tier = (payload.plan or payload.tier) if payload else "premium"
+    return_to = (payload.returnTo or payload.return_to) if payload else None
     billing_interval = billing_interval or "monthly"
     tier = tier or "premium"
     if _has_checkout_blocking_subscription(user):
@@ -4710,8 +4721,8 @@ def create_checkout_session(
         "mode": "subscription",
         "line_items[0][price]": price_id,
         "line_items[0][quantity]": 1,
-        "success_url": _checkout_success_url(),
-        "cancel_url": _checkout_cancel_url(),
+        "success_url": _checkout_success_url(return_to),
+        "cancel_url": _checkout_cancel_url(return_to),
         "customer": customer_id,
         "client_reference_id": user_id,
         "metadata[user_id]": user_id,

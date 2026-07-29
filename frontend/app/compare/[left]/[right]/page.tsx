@@ -5,11 +5,13 @@ import { ResearchActions } from "@/components/research/ResearchActions";
 import { ghostButtonClassName } from "@/lib/styles";
 import { tickerHref } from "@/lib/ticker";
 import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
+import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { isAdminEntitlement } from "@/lib/entitlements";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 const TICKER_COLORS = {
@@ -23,6 +25,28 @@ export const metadata: Metadata = {
 
 function cleanSymbol(value: string) {
   return decodeURIComponent(value || "").trim().toUpperCase().replace(/\./g, "-");
+}
+
+function firstSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function searchParamsToString(searchParams: Record<string, string | string[] | undefined>) {
+  const params = new URLSearchParams();
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (key === "compare_upgraded") return;
+    if (value === undefined) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key, item));
+    } else {
+      params.set(key, value);
+    }
+  });
+  return params.toString();
+}
+
+function pricingHref(returnTo: string) {
+  return `/pricing?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function edgeLabel(edge: "left" | "right" | "even", data: PeerCompareResponse) {
@@ -112,7 +136,13 @@ function SideHeader({ side, winner, tone }: { side: PeerCompareResponse["left"];
   );
 }
 
-function CategoryCard({ category, data }: { category: PeerCompareCategory; data: PeerCompareResponse }) {
+function proLockCopy(category: PeerCompareCategory) {
+  if (category.key === "institutional_activity") return "See which ticker institutions are accumulating or reducing.";
+  if (category.key === "options_flow") return "See whether options positioning confirms or contradicts the comparison.";
+  return "Upgrade to see this additional evidence.";
+}
+
+function CategoryCard({ category, data, upgradeHref }: { category: PeerCompareCategory; data: PeerCompareResponse; upgradeHref: string }) {
   return (
     <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -124,6 +154,20 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
           {category.locked ? "Locked" : edgeLabel(category.edge, data)}
         </span>
       </div>
+      {category.locked ? (
+        <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <p className="text-sm leading-6 text-slate-300">{proLockCopy(category)}</p>
+          <CompareTrackedLink
+            href={upgradeHref}
+            eventName={category.required_plan === "pro" ? "compare_pro_upgrade_click" : "compare_premium_upgrade_click"}
+            path={`/compare/${encodeURIComponent(data.left.symbol)}/${encodeURIComponent(data.right.symbol)}`}
+            properties={{ ticker_pair: `${data.left.symbol}/${data.right.symbol}`, cta_location: `${category.key}_card` }}
+            className="mt-3 inline-flex rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
+          >
+            {category.required_plan === "pro" ? "Upgrade to Pro" : "Upgrade to Premium"}
+          </CompareTrackedLink>
+        </div>
+      ) : null}
       {category.metrics.length ? (
         <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
           <table className="w-full table-fixed text-left text-xs sm:text-sm">
@@ -154,7 +198,7 @@ function CategoryCard({ category, data }: { category: PeerCompareCategory; data:
   );
 }
 
-function CompareReport({ data }: { data: PeerCompareResponse }) {
+function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgradeHref: string }) {
   const winner = data.call.winner;
   const leftWinner = winner === "left";
   const rightWinner = winner === "right";
@@ -183,7 +227,7 @@ function CompareReport({ data }: { data: PeerCompareResponse }) {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {data.categories.map((category) => (
-          <CategoryCard key={category.key} category={category} data={data} />
+          <CategoryCard key={category.key} category={category} data={data} upgradeHref={upgradeHref} />
         ))}
       </div>
 
@@ -219,6 +263,56 @@ function CompareReport({ data }: { data: PeerCompareResponse }) {
   );
 }
 
+function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { data: PeerCompareResponse; authenticated: boolean; upgradeHref: string; signInHref: string }) {
+  const categories = data.categories.filter((category) => category.required_plan === "premium").slice(0, 7);
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
+        <SideHeader side={data.left} winner={false} tone={TICKER_COLORS.left} />
+        <section className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-5 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Premium Feature</p>
+          <h2 className="mt-3 text-2xl font-semibold text-white">Unlock Compare with Premium</h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">
+            {authenticated
+              ? "Premium unlocks the full comparison, Walnut verdict and proprietary confirmation-score analysis."
+              : "Compare fundamentals, valuation, price action, catalysts, risks and Walnut's proprietary confirmation score in one decision view."}
+          </p>
+          <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
+            <CompareTrackedLink
+              href={upgradeHref}
+              eventName="compare_premium_upgrade_click"
+              path={`/compare/${encodeURIComponent(data.left.symbol)}/${encodeURIComponent(data.right.symbol)}`}
+              properties={{ ticker_pair: `${data.left.symbol}/${data.right.symbol}`, auth_state: authenticated ? "free" : "logged_out", cta_location: "locked_state" }}
+              className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+            >
+              {authenticated ? "Upgrade to Premium" : "Unlock Compare with Premium"}
+            </CompareTrackedLink>
+            {!authenticated ? (
+              <a href={signInHref} className="inline-flex items-center justify-center rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:text-white">
+                Sign in
+              </a>
+            ) : null}
+          </div>
+        </section>
+        <SideHeader side={data.right} winner={false} tone={TICKER_COLORS.right} />
+      </div>
+      <section className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
+        <h2 className="text-sm font-semibold text-white">Categories Walnut evaluates</h2>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {categories.map((category) => (
+            <div key={category.key} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-medium text-slate-300">
+              {category.label}
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-400">
+          Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function CompareError({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-amber-300/20 bg-amber-300/10 p-4">
@@ -228,15 +322,22 @@ function CompareError({ message }: { message: string }) {
   );
 }
 
-export default async function PeerComparePage({ params }: PageProps) {
+export default async function PeerComparePage({ params, searchParams }: PageProps) {
   const routeParams = await params;
+  const sp = (await searchParams) ?? {};
   const left = cleanSymbol(routeParams.left);
   const right = cleanSymbol(routeParams.right);
+  const currentQuery = searchParamsToString(sp);
+  const currentPath = `/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}${currentQuery ? `?${currentQuery}` : ""}`;
   const authState = await optionalPageAuthState();
   const entitlements = authState.token
     ? await getEntitlements(authState.token, { source: "PeerCompareResearchGate" }).catch(() => null)
     : null;
   const canCreateResearch = isAdminEntitlement(entitlements);
+  const plan = entitlements?.effective_tier ?? entitlements?.tier ?? (authState.token ? "free" : "logged_out");
+  const upgradeHref = pricingHref(currentPath);
+  const signInHref = `/login?return_to=${encodeURIComponent(currentPath)}`;
+  const completedUpgrade = firstSearchParam(sp.compare_upgraded) === "1";
   let data: PeerCompareResponse | null = null;
   let errorMessage = "This comparison could not be loaded.";
 
@@ -268,7 +369,27 @@ export default async function PeerComparePage({ params }: PageProps) {
           ) : null}
         </div>
         <PeerCompareSelector leftSymbol={left} rightSymbol={right} />
-        {data ? <CompareReport data={data} /> : <CompareError message={errorMessage} />}
+        {data?.status === "locked" ? (
+          <>
+            <CompareEventOnMount
+              eventName="compare_locked_view"
+              path={`/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}`}
+              properties={{ ticker_pair: `${left}/${right}`, auth_state: authState.token ? "authenticated" : "logged_out", current_plan: plan }}
+            />
+            <LockedCompareState data={data} authenticated={Boolean(authState.token)} upgradeHref={upgradeHref} signInHref={signInHref} />
+          </>
+        ) : data ? (
+          <>
+            {completedUpgrade ? (
+              <CompareEventOnMount
+                eventName="compare_unlocked_after_upgrade"
+                path={`/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}`}
+                properties={{ ticker_pair: `${left}/${right}`, auth_state: "authenticated", current_plan: plan }}
+              />
+            ) : null}
+            <CompareReport data={data} upgradeHref={upgradeHref} />
+          </>
+        ) : <CompareError message={errorMessage} />}
       </div>
     </main>
   );

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
 import { API_BASE, type PlanConfig, type PlanPrice } from "@/lib/api";
 import {
   WALNUT_MARKETING_DESCRIPTION,
@@ -27,6 +28,8 @@ const loginUrl = `${appUrl}/login`;
 const pricingUrl = `${appUrl}/pricing`;
 const publicPricingUrl = `${WALNUT_MARKETING_URL}/pricing`;
 const timCookInsiderUrl = `${appUrl}/insider/tim-cook-0001214156`;
+const compareSamplePath = "/compare/NVDA/MU";
+const comparePricingUrl = `${pricingUrl}?returnTo=${encodeURIComponent(compareSamplePath)}`;
 
 type TrendingTicker = {
   symbol: string;
@@ -1020,32 +1023,85 @@ export default async function LandingPage() {
       </section>
 
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.85fr_1.15fr]">
-          <div>
-            <SectionEyebrow>Why Walnut</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better data.</h2>
-            <p className="mt-5 text-base leading-7 text-slate-400">
-              Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
-            </p>
-            <p className="mt-4 text-base leading-7 text-slate-400">
-              We help investors identify stronger setups, avoid weaker entries, recognize conflicting data, and monitor whether the thesis is strengthening or weakening.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {whyWalnut.map((item) => (
-              <div key={item.title} className={`relative min-h-[150px] overflow-hidden rounded-lg border p-5 ${item.cardClassName}`}>
-                <div className={`pointer-events-none absolute -bottom-8 -right-8 h-28 w-28 rounded-full blur-2xl ${item.glowClassName}`} />
-                <div className="relative flex h-full min-h-[110px] flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <h3 className="max-w-[9rem] text-sm font-semibold leading-6 text-slate-100">{item.title}</h3>
-                    <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border ${item.iconClassName}`}>
-                      <WhyWalnutIcon kind={item.icon} />
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
+            <div>
+              <SectionEyebrow>Why Walnut</SectionEyebrow>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better data.</h2>
+              <p className="mt-5 text-base leading-7 text-slate-400">
+                Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
+              </p>
+              <p className="mt-4 text-base leading-7 text-slate-400">
+                We help investors identify stronger setups, avoid weaker entries, recognize conflicting data, and monitor whether the thesis is strengthening or weakening.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {whyWalnut.map((item) => (
+                <div key={item.title} className={`relative min-h-[150px] overflow-hidden rounded-lg border p-5 ${item.cardClassName}`}>
+                  <div className={`pointer-events-none absolute -bottom-8 -right-8 h-28 w-28 rounded-full blur-2xl ${item.glowClassName}`} />
+                  <div className="relative flex h-full min-h-[110px] flex-col justify-between gap-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <h3 className="max-w-[9rem] text-sm font-semibold leading-6 text-slate-100">{item.title}</h3>
+                      <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border ${item.iconClassName}`}>
+                        <WhyWalnutIcon kind={item.icon} />
+                      </div>
                     </div>
+                    <div className="h-px w-full bg-gradient-to-r from-white/15 via-white/5 to-transparent" />
                   </div>
-                  <div className="h-px w-full bg-gradient-to-r from-white/15 via-white/5 to-transparent" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div id="compare" className="mt-10 grid gap-6 rounded-lg border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20 lg:grid-cols-[0.82fr_1.18fr] lg:items-center lg:p-6">
+            <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
+            <div>
+              <SectionEyebrow>Compare</SectionEyebrow>
+              <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which case is stronger.</h3>
+              <p className="mt-4 text-sm leading-6 text-slate-400">
+                Walnut compares fundamentals, valuation, price action, catalysts, risks and our proprietary confirmation score to show which investment case has stronger support.
+              </p>
+              <div className="mt-5 grid gap-3">
+                <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-4">
+                  <p className="text-sm font-semibold text-emerald-100">Premium unlocks the full verdict and decision view.</p>
+                </div>
+                <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
+                  <p className="text-sm font-semibold text-cyan-100">Pro adds institutional activity and options-flow evidence.</p>
                 </div>
               </div>
-            ))}
+              <p className="mt-5 text-sm leading-6 text-slate-400">
+                Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case.
+              </p>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <CompareTrackedLink
+                  href={comparePricingUrl}
+                  eventName="landing_compare_premium_click"
+                  path="/landing"
+                  properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }}
+                  className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
+                >
+                  Unlock Compare with Premium
+                </CompareTrackedLink>
+                <CompareTrackedLink
+                  href={comparePricingUrl}
+                  eventName="landing_compare_pro_click"
+                  path="/landing"
+                  properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }}
+                  className="inline-flex items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
+                >
+                  Explore Pro
+                </CompareTrackedLink>
+              </div>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-slate-900 p-2 shadow-2xl shadow-black/30">
+              <img src="/landing/compare-nvda-mu-production.png" alt="Walnut Compare page showing NVDA versus MU" className="w-full rounded-md border border-white/10" />
+              <div className="mt-3 flex items-center justify-between gap-3 px-1 text-xs text-slate-400">
+                <span className="inline-flex items-center gap-2">
+                  <img src="/walnut-intel-logo-mark.png" alt="" className="h-5 w-5 rounded" />
+                  Real Walnut comparison workflow
+                </span>
+                <span>Premium comparison shown. Pro adds institutional and options evidence.</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>

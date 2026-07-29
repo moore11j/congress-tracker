@@ -320,6 +320,7 @@ function safeHeaderValue(value: string, fallback = "unknown") {
 
 function routeFamilyFromPath(path: string) {
   const normalized = path.toLowerCase();
+  if (normalized.startsWith("/api/search")) return "search";
   if (normalized.startsWith("/api/market/quotes")) return "market_quotes";
   if (normalized.startsWith("/api/tickers/")) return "ticker";
   if (normalized.startsWith("/api/insiders/")) return "insider";
@@ -335,6 +336,7 @@ function routeFamilyFromPath(path: string) {
   if (normalized.startsWith("/insider/")) return "insider";
   if (normalized.startsWith("/member/")) return "member";
   if (normalized.startsWith("/institution/")) return "institution";
+  if (normalized.startsWith("/search")) return "search";
   if (normalized.startsWith("/feed")) return "feed";
   if (normalized.startsWith("/signals")) return "signals";
   if (normalized.startsWith("/screener")) return "screener";
@@ -571,10 +573,10 @@ async function fetchPublicJson<T>(url: string, init?: ApiRequestInit): Promise<T
   return (await response.json()) as T;
 }
 
-async function fetchSearchSuggestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function fetchSearchSuggestJson<T>(url: string, init?: ApiRequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, { cache: "no-store", signal });
+    response = await fetch(url, withRequestAttribution({ cache: "no-store", ...init, routeFamily: "search" }, url));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -2773,11 +2775,12 @@ export async function confirmPasswordReset(payload: { token: string; password: s
 export async function createCheckoutSession(
   billingInterval: "monthly" | "annual" = "monthly",
   plan: "premium" | "pro" = "premium",
+  returnTo?: string | null,
 ): Promise<{ id?: string | null; url?: string | null }> {
   return fetchJson(buildApiUrl("/api/billing/checkout-session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ interval: billingInterval, plan }),
+    body: JSON.stringify({ interval: billingInterval, plan, returnTo: returnTo || undefined }),
   });
 }
 
@@ -3460,7 +3463,7 @@ export type SymbolSuggestResponse = {
   items: SymbolSuggestion[];
 };
 
-export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "event";
+export type SearchSuggestKind = "ticker" | "member" | "insider" | "agency" | "institution" | "event";
 
 export type SearchSuggestResult = {
   kind: SearchSuggestKind;
@@ -3511,7 +3514,7 @@ export type FeedNameSuggestResponse = {
 };
 
 export type GlobalSearchResult = {
-  type: "ticker" | "member" | "insider" | "government_agency" | "event";
+  type: "ticker" | "member" | "insider" | "government_agency" | "institution" | "event";
   id: string;
   label: string;
   subtitle?: string | null;
@@ -4502,6 +4505,12 @@ export type PeerCompareCategory = {
 
 export type PeerCompareResponse = {
   status: "ok" | string;
+  access?: {
+    locked?: boolean;
+    required_plan?: string | null;
+    authenticated?: boolean;
+    tier?: string | null;
+  } | null;
   left: PeerCompareSide;
   right: PeerCompareSide;
   lookback_days: number;
@@ -4746,9 +4755,17 @@ function searchSuggestToGlobalResult(result: SearchSuggestResult): GlobalSearchR
   };
 }
 
-export async function searchSuggest(q: string, limit = 8, options?: { signal?: AbortSignal; source?: string }): Promise<SearchSuggestResponse> {
+export type SearchSuggestMode = "fast" | "deep";
+
+export async function searchSuggest(
+  q: string,
+  limit = 8,
+  options?: { signal?: AbortSignal; source?: string; includeEvents?: boolean; mode?: SearchSuggestMode },
+): Promise<SearchSuggestResponse> {
   const normalized = q.trim().toLowerCase();
-  const cacheKey = `${normalized}:${limit}`;
+  const includeEvents = options?.includeEvents ?? false;
+  const mode = options?.mode ?? "fast";
+  const cacheKey = `${normalized}:${limit}:${includeEvents ? "events" : "no-events"}:${mode}`;
   if (typeof window !== "undefined") {
     const cached = searchSuggestCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -4757,8 +4774,8 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
   }
 
   const request = fetchSearchSuggestJson<SearchSuggestResponse>(
-    buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit }),
-    options?.signal,
+    buildBackendApiUrl("/api/search/suggest", { q: normalized || q, limit, include_events: includeEvents ? 1 : undefined, mode: mode === "deep" ? "deep" : undefined }),
+    { signal: options?.signal, source: options?.source ?? "SearchSuggest" },
   ).then((response) => {
     const items = Array.isArray(response.items) ? response.items : Array.isArray(response.results) ? response.results : [];
     const normalizedResponse = { ...response, items };
@@ -4774,10 +4791,10 @@ export async function searchSuggest(q: string, limit = 8, options?: { signal?: A
   return raceWithAbort(request, options?.signal);
 }
 
-export function cachedSearchSuggest(q: string, limit = 8): SearchSuggestResponse | null {
+export function cachedSearchSuggest(q: string, limit = 8, options?: { includeEvents?: boolean; mode?: SearchSuggestMode }): SearchSuggestResponse | null {
   if (typeof window === "undefined") return null;
   const normalized = q.trim().toLowerCase();
-  const cached = searchSuggestCache.get(`${normalized}:${limit}`);
+  const cached = searchSuggestCache.get(`${normalized}:${limit}:${options?.includeEvents ? "events" : "no-events"}:${options?.mode ?? "fast"}`);
   if (!cached || cached.expiresAt <= Date.now()) return null;
   return cached.value;
 }

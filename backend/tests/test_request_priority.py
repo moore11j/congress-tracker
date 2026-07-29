@@ -53,6 +53,10 @@ def test_ticker_signals_summary_is_not_heavy_route_gated():
     assert classify_request("/api/tickers/NBIS/signals-summary", {}) == RoutePriority.NORMAL
 
 
+def test_search_suggest_is_critical_route():
+    assert classify_request("/api/search/suggest", {}) == RoutePriority.CRITICAL
+
+
 def test_insider_profile_identity_and_recent_trades_are_not_heavy_route_gated():
     assert classify_request("/api/insiders/0001824159/summary", {}) == RoutePriority.NORMAL
     assert classify_request("/api/insiders/0001824159/trades", {}) == RoutePriority.NORMAL
@@ -191,6 +195,8 @@ def test_request_attribution_sanitizes_referer_and_secrets():
 
 def test_request_attribution_route_family_fallbacks():
     assert _request_route_family("/api/events") == "feed"
+    assert _request_route_family("/api/search/suggest") == "search"
+    assert _request_route_family("/search") == "search"
     assert _request_route_family("/api/market/quotes") == "market_quotes"
     assert _request_route_family("/api/insiders/0001/trades") == "insider"
     assert _request_route_family("/institution/0001067983") == "institution"

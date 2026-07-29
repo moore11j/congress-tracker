@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Event, InsiderTransaction, InsiderTransactionNormalized, Member, Security, TickerMeta, Watchlist, WatchlistItem
+from app.models import Event, InsiderTransaction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 
@@ -211,9 +211,88 @@ def test_search_suggest_includes_low_priority_event_badge_result():
         )
         db.commit()
 
-        items = search_suggestions(db, "Orbital", limit=8)["items"]
+        items = search_suggestions(db, "Orbital", limit=8, include_events=True)["items"]
 
         assert any(item["kind"] == "event" and item["symbol"] == "ORBT" and item["href"] == "/feed?symbol=ORBT" for item in items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_skips_event_loader_by_default(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    called = {"event": False}
+
+    def fail_if_called(*args, **kwargs):
+        called["event"] = True
+        raise AssertionError("event suggestions should be opt-in")
+
+    monkeypatch.setattr(search_suggest_module, "_event_suggestions", fail_if_called)
+    try:
+        payload = search_suggestions(db, "Orbital", limit=8)
+
+        assert payload["items"] == []
+        assert called["event"] is False
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_includes_ticker_and_institution_pages_for_same_entity():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add_all(
+            [
+                Security(symbol="BRK-B", name="Berkshire Hathaway Inc.", asset_class="stock", sector="Financials"),
+                TickerMeta(symbol="BRK-B", company_name="Berkshire Hathaway Inc.", exchange="NYSE"),
+                InstitutionalHolder(
+                    cik="0001067983",
+                    holder_name="Berkshire Hathaway Inc.",
+                    normalized_holder_name="berkshire hathaway inc",
+                    holder_type="investment_manager",
+                    latest_report_year=2026,
+                    latest_report_quarter=1,
+                    quality_score=95,
+                ),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "Berkshire", limit=10)["items"]
+
+        assert any(item["kind"] == "ticker" and item["href"] == "/ticker/BRK-B" for item in items)
+        assert any(item["kind"] == "institution" and item["href"] == "/institution/0001067983" for item in items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_uses_institutional_transaction_name_when_holder_name_missing():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add_all(
+            [
+                InstitutionalHolder(cik="0001364742", holder_name=None, normalized_holder_name=None),
+                InstitutionalTransaction(
+                    source="test",
+                    external_id="blackrock-1",
+                    symbol="AAPL",
+                    institution_cik="0001364742",
+                    institution_name="BlackRock Inc.",
+                    filing_date=datetime(2026, 5, 15, tzinfo=timezone.utc).date(),
+                    report_date=datetime(2026, 3, 31, tzinfo=timezone.utc).date(),
+                    payload_json="{}",
+                ),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "blackrock", limit=5)["items"]
+
+        assert any(item["kind"] == "institution" and item["label"] == "BlackRock Inc." and item["href"] == "/institution/0001364742" for item in items)
     finally:
         search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()
@@ -364,7 +443,11 @@ def test_search_suggest_finds_legacy_payload_insider_with_null_name():
         )
         db.commit()
 
-        items = search_suggestions(db, "Tim Cook", limit=8)["items"]
+        fast_items = search_suggestions(db, "Tim Cook", limit=8)["items"]
+        assert [item for item in fast_items if item["kind"] == "insider"] == []
+
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        items = search_suggestions(db, "Tim Cook", limit=8, mode="deep")["items"]
 
         insider_items = [item for item in items if item["kind"] == "insider"]
         insider_hrefs = {item["href"] for item in insider_items}

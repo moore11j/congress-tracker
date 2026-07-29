@@ -72,6 +72,23 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.equal((landingPage.match(/<SectionEyebrow>Why Walnut<\/SectionEyebrow>/g) ?? []).length, 1);
 });
 
+test("landing page adds Compare under Why Walnut with real screenshot and plan positioning", () => {
+  assert.match(landingPage, /const compareSamplePath = "\/compare\/NVDA\/MU"/);
+  assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
+  assert.match(landingPage, /<SectionEyebrow>Compare<\/SectionEyebrow>/);
+  assert.match(landingPage, /Compare two stocks\. See which case is stronger\./);
+  assert.match(landingPage, /Walnut compares fundamentals, valuation, price action, catalysts, risks and our proprietary confirmation score/);
+  assert.match(landingPage, /Premium unlocks the full verdict and decision view\./);
+  assert.match(landingPage, /Pro adds institutional activity and options-flow evidence\./);
+  assert.match(landingPage, /\/landing\/compare-nvda-mu-production\.png/);
+  assert.match(landingPage, /\/walnut-intel-logo-mark\.png/);
+  assert.match(landingPage, /landing_compare_section_view/);
+  assert.match(landingPage, /landing_compare_premium_click/);
+  assert.match(landingPage, /landing_compare_pro_click/);
+  assert.ok(fs.existsSync(path.join(root, "public/landing/compare-nvda-mu-production.png")));
+  assert.ok(fs.statSync(path.join(root, "public/landing/compare-nvda-mu-production.png")).size > 10000);
+});
+
 test("landing quote cards render prices with two decimals", () => {
   assert.match(landingPage, /minimumFractionDigits:\s*2/);
   assert.match(landingPage, /maximumFractionDigits:\s*2/);

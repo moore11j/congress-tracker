@@ -2907,6 +2907,40 @@ def test_paid_user_cannot_create_second_checkout_subscription(monkeypatch):
         db.close()
 
 
+def test_checkout_session_preserves_safe_return_path(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_hidden")
+    monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_premium_monthly")
+    db = _session()
+    calls = []
+
+    def fake_stripe_post(path, data):
+        calls.append((path, dict(data)))
+        if path.startswith("customers/"):
+            return {"id": "cus_checkout_return"}
+        if path == "checkout/sessions":
+            return {"id": "cs_checkout_return", "url": "https://checkout.stripe.test/session"}
+        raise AssertionError(f"Unexpected Stripe path {path}")
+
+    monkeypatch.setattr("app.routers.accounts._stripe_post", fake_stripe_post)
+    try:
+        user = _user(db, "checkout-return@example.com")
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.stripe_customer_id = "cus_checkout_return"
+        db.commit()
+
+        create_checkout_session(
+            _request_for_user(user),
+            CheckoutSessionPayload(plan="premium", interval="monthly", returnTo="/compare/NVDA/MU?utm_source=test"),
+            db,
+        )
+
+        checkout_data = calls[-1][1]
+        assert checkout_data["success_url"] == "https://app.walnutmarkets.com/account/billing?checkout=success&returnTo=%2Fcompare%2FNVDA%2FMU%3Futm_source%3Dtest"
+        assert checkout_data["cancel_url"] == "https://app.walnutmarkets.com/pricing?checkout=cancelled&returnTo=%2Fcompare%2FNVDA%2FMU%3Futm_source%3Dtest"
+    finally:
+        db.close()
+
+
 def test_free_user_with_stale_test_customer_can_create_live_checkout(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_hidden")
     monkeypatch.setenv("STRIPE_PRICE_ID_PREMIUM_MONTHLY", "price_live_premium_monthly")

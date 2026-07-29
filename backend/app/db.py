@@ -1468,6 +1468,8 @@ def ensure_provider_control_schema(bind=engine) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_insider_txn_normalized_hash ON insider_transactions_normalized (normalized_hash)",
             "CREATE INDEX IF NOT EXISTS ix_insider_txn_symbol_date ON insider_transactions_normalized (ticker_normalized, transaction_date)",
             "CREATE INDEX IF NOT EXISTS ix_insider_txn_owner_date ON insider_transactions_normalized (reporting_owner_cik, transaction_date)",
+            "CREATE INDEX IF NOT EXISTS ix_insider_transactions_name_lower ON insider_transactions (lower(insider_name))",
+            "CREATE INDEX IF NOT EXISTS ix_insider_txn_owner_name_lower ON insider_transactions_normalized (lower(reporting_owner_name))",
             "CREATE INDEX IF NOT EXISTS ix_insider_txn_duplicate ON insider_transactions_normalized (is_duplicate)",
         )
         for statement in indexes:
@@ -1559,6 +1561,9 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         # on the same create-if-missing path unless a formal migration system is adopted.
         logger.info("institutional_activity_schema_ensure_start table_count=%s", len(tables))
         Base.metadata.create_all(bind=conn, tables=tables)
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_holders_holder_name_lower ON institutional_holders (lower(holder_name))"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_holders_cik_lower ON institutional_holders (lower(cik))"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_transactions_name_lower ON institutional_transactions (lower(institution_name))"))
         logger.info("institutional_activity_schema_ensure_complete table_count=%s", len(tables))
 
 

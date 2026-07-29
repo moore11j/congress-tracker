@@ -53,5 +53,10 @@ export function isHighConfidenceSearchResult(result: SearchSuggestResult | undef
     return companyBaseKey(result.label) === queryKey || normalizedKey(result.label) === queryKey;
   }
 
+  if (result.kind === "institution") {
+    const idKey = normalizedKey(result.id);
+    if (idKey && idKey === queryKey) return true;
+  }
+
   return normalizedKey(result.label) === queryKey;
 }

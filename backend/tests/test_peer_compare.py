@@ -51,7 +51,7 @@ def test_peer_compare_rejects_same_symbol():
     assert "different" in str(exc.value.detail).lower()
 
 
-def test_peer_compare_free_tier_excludes_locked_sources(monkeypatch):
+def test_peer_compare_free_tier_returns_teaser_only(monkeypatch):
     engine = _engine()
     with Session(engine) as db:
         db.add_all(
@@ -62,19 +62,20 @@ def test_peer_compare_free_tier_excludes_locked_sources(monkeypatch):
         )
         db.commit()
 
-        def price_volume(_db, symbol):
-            return {
-                "direction": "bullish" if symbol == "AAA" else "bearish",
-                "change_pct_1d": 2.0 if symbol == "AAA" else -1.0,
-                "volume_vs_avg": 1.4 if symbol == "AAA" else 0.8,
-            }
-
-        monkeypatch.setattr(main_module, "_ticker_price_volume_summary", price_volume)
-        monkeypatch.setattr(main_module, "get_government_contracts_summary", lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0})
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda *_args, **_kwargs: pytest.fail("locked compare should not load price/volume"),
+        )
+        monkeypatch.setattr(
+            main_module,
+            "get_government_contracts_summary",
+            lambda *_args, **_kwargs: pytest.fail("locked compare should not load government data"),
+        )
         monkeypatch.setattr(
             main_module,
             "_ticker_confirmation_context",
-            lambda *_args, **_kwargs: pytest.fail("locked confirmation context should not be loaded for free tier"),
+            lambda *_args, **_kwargs: pytest.fail("locked compare should not load confirmation context"),
         )
 
         payload = main_module._build_peer_compare_payload(
@@ -85,18 +86,21 @@ def test_peer_compare_free_tier_excludes_locked_sources(monkeypatch):
             authenticated=False,
         )
 
-    assert payload["call"]["winner"] == "left"
+    assert payload["status"] == "locked"
+    assert payload["access"]["required_plan"] == "premium"
+    assert payload["call"]["winner"] == "even"
+    assert payload["call"]["symbol"] is None
+    assert payload["call"]["score"] is None
+    assert payload["tradeoffs"] == []
     by_key = {category["key"]: category for category in payload["categories"]}
-    assert by_key["business_quality"]["edge"] == "left"
-    assert by_key["valuation"]["edge"] == "left"
-    assert by_key["price_volume"]["edge"] == "left"
-    assert by_key["confirmation_score"]["locked"] is True
-    assert by_key["institutional_activity"]["locked"] is True
-    assert by_key["options_flow"]["locked"] is True
-    assert any("excluded from the call" in note for note in payload["notes"])
-    gov_metrics = {metric["key"]: metric for metric in by_key["government_contracts"]["metrics"]}
-    assert gov_metrics["total_award_amount"]["left"] == "N/A"
-    assert gov_metrics["total_award_amount"]["right"] == "N/A"
+    for key in ("business_quality", "valuation", "price_volume", "confirmation_score"):
+        assert by_key[key]["locked"] is True
+        assert by_key[key]["required_plan"] == "premium"
+        assert by_key[key]["metrics"] == []
+        assert by_key[key]["edge"] == "even"
+        assert by_key[key]["score"] is None
+    assert by_key["institutional_activity"]["required_plan"] == "pro"
+    assert by_key["options_flow"]["required_plan"] == "pro"
 
 
 def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
@@ -136,8 +140,8 @@ def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
             db,
             "AAA",
             "BBB",
-            entitlements=ENTITLEMENTS["free"],
-            authenticated=False,
+            entitlements=ENTITLEMENTS["premium"],
+            authenticated=True,
         )
 
     by_key = {category["key"]: category for category in payload["categories"]}
@@ -147,6 +151,55 @@ def test_peer_compare_uses_financials_cache_for_forward_metrics(monkeypatch):
     assert business_metrics["eps_growth"]["right"] == 9
     assert valuation_metrics["forward_pe"]["left"] == 15
     assert valuation_metrics["forward_pe"]["right"] == 28
+
+
+def test_peer_compare_premium_unlocks_core_but_not_pro_sources(monkeypatch):
+    engine = _engine()
+    with Session(engine) as db:
+        db.add_all(
+            [
+                _fundamentals("AAA", revenue_growth=18, roe=24, forward_pe=20),
+                _fundamentals("BBB", revenue_growth=12, roe=18, forward_pe=24),
+            ]
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_price_volume_summary",
+            lambda _db, symbol: {"direction": "bullish" if symbol == "AAA" else "neutral", "change_pct_1d": 1.0, "volume_vs_avg": 1.2},
+        )
+        monkeypatch.setattr(main_module, "get_government_contracts_summary", lambda *_args, **_kwargs: {"status": "ok", "contract_count": 0, "total_award_amount": 0})
+        monkeypatch.setattr(
+            main_module,
+            "_ticker_confirmation_context",
+            lambda _db, symbol: {
+                "confirmation_score_bundle": {"score": 72 if symbol == "AAA" else 54, "direction": "bullish" if symbol == "AAA" else "neutral", "sources": {}},
+                "institutional_activity_summary": {"status": "ok", "direction": "bullish", "net_activity": 10_000_000},
+                "options_flow_summary": {"status": "ok", "direction": "bullish", "score": 80, "total_premium": 5_000_000},
+            },
+        )
+
+        payload = main_module._build_peer_compare_payload(
+            db,
+            "AAA",
+            "BBB",
+            entitlements=ENTITLEMENTS["premium"],
+            authenticated=True,
+        )
+
+    assert payload["status"] == "ok"
+    by_key = {category["key"]: category for category in payload["categories"]}
+    assert by_key["business_quality"].get("locked") is not True
+    assert by_key["valuation"].get("locked") is not True
+    assert by_key["price_volume"].get("locked") is not True
+    assert by_key["confirmation_score"].get("locked") is not True
+    assert by_key["institutional_activity"]["locked"] is True
+    assert by_key["institutional_activity"]["metrics"] == []
+    assert by_key["options_flow"]["locked"] is True
+    assert by_key["options_flow"]["metrics"] == []
+    assert "10000000" not in str(payload)
+    assert "5000000" not in str(payload)
 
 
 def test_peer_compare_pro_tier_unlocks_pro_sources(monkeypatch):

@@ -16,6 +16,8 @@ from app.models import (
     Event,
     InsiderTransaction,
     InsiderTransactionNormalized,
+    InstitutionalHolder,
+    InstitutionalTransaction,
     Member,
     PageViewEvent,
     SavedScreenEvent,
@@ -332,6 +334,8 @@ def _recent_path_entity(path: str | None) -> tuple[str, str] | None:
         return "href", clean_path
     if clean_path.startswith("/insider/") and len(clean_path) > len("/insider/"):
         return "href", clean_path
+    if clean_path.startswith("/institution/") and len(clean_path) > len("/institution/"):
+        return "href", clean_path
     return None
 
 
@@ -388,6 +392,7 @@ def _personalization_for_user(db: Session, user_id: int | None) -> SearchPersona
                 (PageViewEvent.path.like("/ticker/%"))
                 | (PageViewEvent.path.like("/member/%"))
                 | (PageViewEvent.path.like("/insider/%"))
+                | (PageViewEvent.path.like("/institution/%"))
             )
             .order_by(PageViewEvent.created_at.desc())
             .limit(60)
@@ -609,15 +614,19 @@ def _legacy_payload_role(row_role: object, payload: dict) -> str | None:
     return role_text
 
 
-def _insider_suggestions(db: Session, query: str, limit: int, personalization: SearchPersonalization | None = None) -> list[SearchSuggestItem]:
+def _insider_suggestions(
+    db: Session,
+    query: str,
+    limit: int,
+    personalization: SearchPersonalization | None = None,
+    *,
+    include_payload_search: bool = False,
+) -> list[SearchSuggestItem]:
     q_lower = query.casefold()
     pattern = f"{q_lower}%" if len(query) <= 1 else f"%{q_lower}%"
     fuzzy_contains = f"%{q_lower[:2]}%" if len(query) >= 3 else pattern
     tokens = [token for token in re.findall(r"[a-z0-9]+", q_lower) if len(token) >= 2]
-    payload_filters = [
-        func.lower(InsiderTransaction.payload_json).like(f"%{token}%")
-        for token in tokens[:3]
-    ]
+    payload_filters = [func.lower(InsiderTransaction.payload_json).like(f"%{token}%") for token in tokens[:3]] if include_payload_search else []
     legacy_rows = db.execute(
         select(
             InsiderTransaction.insider_name.label("insider_name"),
@@ -759,6 +768,97 @@ def _agency_suggestions(db: Session, query: str, limit: int) -> list[SearchSugge
     return items
 
 
+def _institution_suggestions(db: Session, query: str, limit: int, personalization: SearchPersonalization | None = None) -> list[SearchSuggestItem]:
+    q_lower = query.casefold()
+    pattern = f"{q_lower}%" if len(query) <= 1 else f"%{q_lower}%"
+    fuzzy_prefix = f"{q_lower[:2]}%" if len(query) >= 3 else pattern
+    holder_rows = db.execute(
+        select(
+            InstitutionalHolder.cik,
+            InstitutionalHolder.holder_name,
+            InstitutionalHolder.normalized_holder_name,
+            InstitutionalHolder.holder_type,
+            InstitutionalHolder.latest_report_year,
+            InstitutionalHolder.latest_report_quarter,
+            InstitutionalHolder.quality_score,
+            literal(None).label("latest_filing_date"),
+        )
+        .where(InstitutionalHolder.cik.is_not(None))
+        .where(
+            (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(pattern))
+            | (func.lower(func.coalesce(InstitutionalHolder.normalized_holder_name, "")).like(pattern))
+            | (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(fuzzy_prefix))
+            | (func.lower(func.coalesce(InstitutionalHolder.cik, "")).like(pattern))
+        )
+        .order_by(
+            func.coalesce(InstitutionalHolder.quality_score, 0).desc(),
+            func.lower(func.coalesce(InstitutionalHolder.holder_name, "")),
+            func.lower(InstitutionalHolder.cik),
+        )
+        .limit(max(limit * 4, 24))
+    ).all()
+    transaction_rows = db.execute(
+        select(
+            InstitutionalTransaction.institution_cik.label("cik"),
+            InstitutionalTransaction.institution_name.label("holder_name"),
+            literal(None).label("normalized_holder_name"),
+            literal(None).label("holder_type"),
+            literal(None).label("latest_report_year"),
+            literal(None).label("latest_report_quarter"),
+            literal(0).label("quality_score"),
+            func.max(InstitutionalTransaction.filing_date).label("latest_filing_date"),
+        )
+        .where(InstitutionalTransaction.institution_cik.is_not(None))
+        .where(
+            (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(pattern))
+            | (func.lower(func.coalesce(InstitutionalTransaction.institution_name, "")).like(fuzzy_prefix))
+            | (func.lower(func.coalesce(InstitutionalTransaction.institution_cik, "")).like(pattern))
+        )
+        .group_by(InstitutionalTransaction.institution_cik, InstitutionalTransaction.institution_name)
+        .order_by(func.max(InstitutionalTransaction.filing_date).desc())
+        .limit(max(limit * 4, 24))
+    ).all()
+    rows = [*transaction_rows, *holder_rows]
+
+    items: list[SearchSuggestItem] = []
+    seen: set[str] = set()
+    for row in rows:
+        cik = _clean(row.cik)
+        if not cik or cik in seen:
+            continue
+        label = _clean(row.holder_name) or f"Institution {cik}"
+        href = f"/institution/{cik}"
+        score = _score(
+            query,
+            symbol=cik,
+            label=label,
+            popularity=int(row.quality_score or 0),
+            context_boost=(personalization or SearchPersonalization()).href_boosts.get(href, 0.0),
+        ) + 20
+        if score <= 20:
+            continue
+        seen.add(cik)
+        period = None
+        if row.latest_report_year and row.latest_report_quarter:
+            period = f"Q{row.latest_report_quarter} {row.latest_report_year}"
+        latest_filing = _clean(getattr(row, "latest_filing_date", None))
+        subtitle = " - ".join(part for part in ["Institution", _clean(row.holder_type), "13F profile", period or latest_filing] if part)
+        items.append(
+            {
+                "kind": "institution",
+                "id": cik,
+                "symbol": None,
+                "label": label,
+                "subtitle": subtitle,
+                "href": href,
+                "score": score,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return sorted(items, key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
+
+
 def _event_suggestions(db: Session, query: str, limit: int) -> list[SearchSuggestItem]:
     if len(_compact_key(query)) < 3:
         return []
@@ -818,13 +918,58 @@ def _event_suggestions(db: Session, query: str, limit: int) -> list[SearchSugges
     return sorted(items, key=lambda item: (-(float(item.get("score") or 0)), str(item.get("label") or "")))[:limit]
 
 
-def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: int | None = None) -> dict[str, Any]:
+def _select_suggestion_items(results: list[SearchSuggestItem], limit: int) -> list[SearchSuggestItem]:
+    selected = results[:limit]
+    if not selected:
+        return selected
+    selected_keys = {f"{item.get('kind')}:{item.get('id') or item.get('href')}" for item in selected}
+    for priority_kind in ("institution",):
+        if any(item.get("kind") == priority_kind for item in selected):
+            continue
+        candidate = next((item for item in results[limit:] if item.get("kind") == priority_kind), None)
+        if candidate is None:
+            continue
+        candidate_key = f"{candidate.get('kind')}:{candidate.get('id') or candidate.get('href')}"
+        if candidate_key in selected_keys:
+            continue
+        selected[-1] = candidate
+        selected_keys.add(candidate_key)
+    return selected
+
+
+def _run_suggestion_loader(kind: str, query: str, loader: Any) -> list[SearchSuggestItem]:
+    started_at = perf_counter()
+    try:
+        items = loader()
+    except Exception:
+        logger.exception("search_suggest_loader_failed query_length=%s kind=%s", len(query), kind)
+        return []
+    logger.info(
+        "search_suggest_loader_timing kind=%s duration_ms=%.1f query_length=%s result_count=%s",
+        kind,
+        (perf_counter() - started_at) * 1000,
+        len(query),
+        len(items),
+    )
+    return items
+
+
+def search_suggestions(
+    db: Session,
+    q: str | None,
+    limit: int = 8,
+    *,
+    user_id: int | None = None,
+    include_events: bool = False,
+    mode: str = "fast",
+) -> dict[str, Any]:
     started_at = perf_counter()
     query = normalize_search_query(q)
     bounded_limit = max(1, min(int(limit or 8), MAX_SEARCH_SUGGEST_LIMIT))
     if not query:
         return {"items": [], "results": [], "query": query}
-    cache_key = (query.casefold(), bounded_limit)
+    normalized_mode = "deep" if str(mode or "").casefold() == "deep" else "fast"
+    cache_key = (query.casefold(), bounded_limit, bool(include_events), normalized_mode)
     if user_id is None:
         now = perf_counter()
         with _anonymous_suggestion_cache_lock:
@@ -834,15 +979,22 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
 
     exact_ticker = _exact_ticker_suggestion(db, query)
     if exact_ticker is not None:
-        item = {key: value for key, value in exact_ticker.items() if key != "score"}
-        payload = {"items": [item], "results": [item], "query": query}
+        scored_items = [exact_ticker]
+        if bounded_limit > 1:
+            try:
+                scored_items.extend(_institution_suggestions(db, str(exact_ticker.get("label") or query), bounded_limit - 1))
+            except Exception:
+                logger.exception("search_suggest_loader_failed query_length=%s kind=institution exact_ticker=1", len(query))
+        scored_items.sort(key=lambda result: (-(float(result.get("score") or 0)), str(result.get("kind") or ""), str(result.get("label") or "")))
+        items = [{key: value for key, value in item.items() if key != "score"} for item in scored_items[:bounded_limit]]
+        payload = {"items": items, "results": items, "query": query}
         duration_ms = (perf_counter() - started_at) * 1000
         context = get_request_context() or {}
         logger.info(
             "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s exact_ticker=1",
             duration_ms,
             len(query),
-            1,
+            len(items),
             context.get("db_query_count"),
             context.get("db_checkout_count"),
             context.get("db_checkout_slow_count"),
@@ -855,18 +1007,26 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
     results: list[SearchSuggestItem] = []
     per_kind_limit = max(bounded_limit, 8)
     personalization = _personalization_for_user(db, user_id)
-    loaders = (
-        lambda: _ticker_suggestions(db, query, per_kind_limit, personalization),
-        lambda: _member_suggestions(db, query, per_kind_limit, personalization),
-        lambda: _insider_suggestions(db, query, per_kind_limit, personalization),
-        lambda: _agency_suggestions(db, query, per_kind_limit),
-        lambda: _event_suggestions(db, query, per_kind_limit),
-    )
-    for loader in loaders:
-        try:
-            results.extend(loader())
-        except Exception:
-            logger.exception("search_suggest_loader_failed query_length=%s", len(query))
+    loaders = [
+        ("ticker", lambda: _ticker_suggestions(db, query, per_kind_limit, personalization)),
+        ("member", lambda: _member_suggestions(db, query, per_kind_limit, personalization)),
+        (
+            "insider",
+            lambda: _insider_suggestions(
+                db,
+                query,
+                per_kind_limit,
+                personalization,
+                include_payload_search=normalized_mode == "deep",
+            ),
+        ),
+        ("agency", lambda: _agency_suggestions(db, query, per_kind_limit)),
+        ("institution", lambda: _institution_suggestions(db, query, per_kind_limit, personalization)),
+    ]
+    if include_events:
+        loaders.append(("event", lambda: _event_suggestions(db, query, per_kind_limit)))
+    for kind, loader in loaders:
+        results.extend(_run_suggestion_loader(kind, query, loader))
 
     if not results:
         lightweight_ticker = _lightweight_ticker_suggestion(query)
@@ -874,14 +1034,16 @@ def search_suggestions(db: Session, q: str | None, limit: int = 8, *, user_id: i
             results.append(lightweight_ticker)
 
     results.sort(key=lambda item: (-(float(item.get("score") or 0)), str(item.get("kind") or ""), str(item.get("label") or "")))
-    items = [{key: value for key, value in item.items() if key != "score"} for item in results[:bounded_limit]]
+    selected_results = _select_suggestion_items(results, bounded_limit)
+    items = [{key: value for key, value in item.items() if key != "score"} for item in selected_results]
     duration_ms = (perf_counter() - started_at) * 1000
     context = get_request_context() or {}
     logger.info(
-        "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
+        "search_suggest_timing duration_ms=%.1f query_length=%s result_count=%s mode=%s db_query_count=%s db_checkout_count=%s db_checkout_slow_count=%s",
         duration_ms,
         len(query),
         len(items),
+        normalized_mode,
         context.get("db_query_count"),
         context.get("db_checkout_count"),
         context.get("db_checkout_slow_count"),

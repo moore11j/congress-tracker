@@ -141,7 +141,7 @@ export function LoginRegisterPanel({
           address_line1: addressLine1,
           address_line2: addressLine2,
         });
-        destination = "/account/settings?registered=1";
+        destination = nextPath.startsWith("/compare/") || nextPath.startsWith("/pricing") ? nextPath : "/account/settings?registered=1";
       } else {
         await login({ email, password });
       }

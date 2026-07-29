@@ -16,6 +16,7 @@ const CATEGORY_LABELS: Record<SearchSuggestResult["kind"], string> = {
   ticker: "Tickers",
   member: "Members",
   insider: "Insiders",
+  institution: "Institutions",
   event: "Events",
 };
 
@@ -24,6 +25,7 @@ const TYPE_LABELS: Record<SearchSuggestResult["kind"], string> = {
   ticker: "Ticker",
   member: "Member",
   insider: "Insider",
+  institution: "Institution",
   event: "Event",
 };
 
@@ -47,7 +49,7 @@ function dedupeResults(results: SearchSuggestResult[]): SearchSuggestResult[] {
 }
 
 function isSearchSuggestKind(value: unknown): value is SearchSuggestResult["kind"] {
-  return value === "agency" || value === "ticker" || value === "member" || value === "insider" || value === "event";
+  return value === "agency" || value === "ticker" || value === "member" || value === "insider" || value === "institution" || value === "event";
 }
 
 function readRecentSearchResults(): SearchSuggestResult[] {
@@ -92,7 +94,7 @@ function recentSearchMatches(query: string): SearchSuggestResult[] {
 }
 
 function groupedResults(results: SearchSuggestResult[]) {
-  return (["ticker", "member", "insider", "agency", "event"] as const)
+  return (["ticker", "institution", "member", "insider", "agency", "event"] as const)
     .map((kind) => ({
       kind,
       items: results.filter((result) => result.kind === kind),
@@ -299,7 +301,7 @@ export function GlobalSearch() {
           if (trimmedQuery.length >= MIN_QUERY_LENGTH) setOpen(true);
         }}
         onKeyDown={handleKeyDown}
-        placeholder="Search tickers, departments, members, insiders..."
+        placeholder="Search tickers, institutions, departments, members..."
         className="h-8 w-full rounded-lg border border-white/10 bg-slate-950/70 pl-9 pr-10 text-sm text-slate-100 outline-none transition placeholder:text-slate-500/40 focus:border-emerald-300/55 focus:bg-slate-950 focus:shadow-[0_0_0_1px_rgba(52,211,153,0.22)]"
         autoComplete="off"
         role="combobox"
@@ -339,7 +341,7 @@ export function GlobalSearch() {
               onChange={(event) => setQuery(event.target.value)}
               onFocus={() => setSearchFocused(true)}
               onKeyDown={handleKeyDown}
-              placeholder="Search tickers, departments, members, insiders..."
+              placeholder="Search tickers, institutions, departments, members..."
               className="h-10 w-full rounded-lg border border-white/10 bg-slate-950 pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500/40 focus:border-emerald-300/55"
               autoComplete="off"
               role="combobox"

@@ -27,6 +27,28 @@ test("peer compare page renders report and selector recovery", () => {
   assert.match(comparePage, /Our Call/);
 });
 
+test("peer compare page renders compact locked state and pricing return CTAs", () => {
+  assert.match(comparePage, /data\?\.status === "locked"/);
+  assert.match(comparePage, /function LockedCompareState/);
+  assert.match(comparePage, /Unlock Compare with Premium/);
+  assert.match(comparePage, /Premium unlocks the full comparison, Walnut verdict and proprietary confirmation-score analysis\./);
+  assert.match(comparePage, /Categories Walnut evaluates/);
+  assert.match(comparePage, /Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case\./);
+  assert.match(comparePage, /pricingHref\(currentPath\)/);
+  assert.match(comparePage, /\/login\?return_to=\$\{encodeURIComponent\(currentPath\)\}/);
+});
+
+test("peer compare premium pro locks stay contextual inside existing cards", () => {
+  assert.match(comparePage, /function proLockCopy/);
+  assert.match(comparePage, /See which ticker institutions are accumulating or reducing\./);
+  assert.match(comparePage, /See whether options positioning confirms or contradicts the comparison\./);
+  assert.match(comparePage, /Upgrade to Pro/);
+  assert.match(comparePage, /compare_pro_upgrade_click/);
+  assert.match(comparePage, /compare_premium_upgrade_click/);
+  assert.match(comparePage, /compare_locked_view/);
+  assert.match(comparePage, /compare_unlocked_after_upgrade/);
+});
+
 test("peer compare page forwards server auth to protected compare data", () => {
   assert.match(comparePage, /optionalPageAuthState/);
   assert.match(comparePage, /const authState = await optionalPageAuthState\(\)/);

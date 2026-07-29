@@ -4829,9 +4829,11 @@ def search_suggest(
     db: Session = Depends(get_db),
     q: str = "",
     limit: int = Query(8, ge=1, le=20),
+    include_events: bool = Query(False),
+    mode: str = Query("fast"),
 ):
     user = current_user(db, request, required=False)
-    return search_suggestions(db, q, limit=limit, user_id=user.id if user else None)
+    return search_suggestions(db, q, limit=limit, user_id=user.id if user else None, include_events=include_events, mode=mode)
 
 
 def _member_suggestions_query(prefix: str, limit: int):

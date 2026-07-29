@@ -21,6 +21,8 @@ function typeLabel(kind: SearchSuggestResult["kind"]) {
   if (kind === "agency") return "Department";
   if (kind === "ticker") return "Ticker";
   if (kind === "member") return "Member";
+  if (kind === "institution") return "Institution";
+  if (kind === "event") return "Event";
   return "Insider";
 }
 
@@ -90,7 +92,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
             onFocus={() => {
               if (trimmedQuery.length >= minQueryLength) setOpen(true);
             }}
-            placeholder="Search tickers, members, insiders, departments..."
+            placeholder="Search tickers, institutions, members, departments..."
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500/40"
             aria-label="Search Walnut Market Terminal"
           />

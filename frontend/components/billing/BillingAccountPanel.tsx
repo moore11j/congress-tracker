@@ -3,12 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, createCustomerPortalSession, deleteAccount, getAccountBillingHistory, getMe, refreshBillingSubscription, type AccountUser, type BillingHistoryItem } from "@/lib/api";
 import { accountPlanSummary, formatInteger } from "@/lib/accountDisplay";
+import { safeAppReturnPath } from "@/lib/returnPaths";
 import {
   defaultEntitlements,
   type Entitlements,
 } from "@/lib/entitlements";
 import { SkeletonBlock } from "@/components/ui/LoadingSkeleton";
 import { WalnutConfirmDialog } from "@/components/ui/WalnutConfirmDialog";
+
+function appendCompareUpgradeFlag(path: string) {
+  const [beforeHash, hash = ""] = path.split("#", 2);
+  const [pathname, query = ""] = beforeHash.split("?", 2);
+  const params = new URLSearchParams(query);
+  if (pathname.startsWith("/compare/")) params.set("compare_upgraded", "1");
+  const nextQuery = params.toString();
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
+}
 
 function BillingAccountSkeleton() {
   return (
@@ -108,6 +118,7 @@ export function BillingAccountPanel() {
     const fromCheckout = /[?&]checkout=success\b/.test(search);
     const fromPortal = /[?&]portal_return=1\b/.test(search);
     const fromReactivation = /[?&]reactivated=1\b/.test(search);
+    const returnTo = safeAppReturnPath(new URLSearchParams(search).get("returnTo"), "");
     if (fromReactivation) setReactivationNotice(true);
     if (!fromCheckout && !fromPortal) return;
     let cancelled = false;
@@ -134,6 +145,9 @@ export function BillingAccountPanel() {
           await loadBillingHistory();
           if ((fromCheckout && paidTier(response.user, response.entitlements.effective_tier ?? response.entitlements.tier)) || (!fromCheckout && refreshedFromStripe)) {
             setReturnSyncStatus("synced");
+            if (fromCheckout && returnTo && returnTo !== "/account/billing") {
+              window.location.href = appendCompareUpgradeFlag(returnTo);
+            }
             return;
           }
         } catch {
