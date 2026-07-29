@@ -433,8 +433,10 @@ function deltaClassName(value: number | null | undefined): string {
 
 function insightImageUrl(item: NewsItem): string | null {
   const record = item as NewsItem & Record<string, unknown>;
-  const candidate = [record.image_url, record.image, record.thumbnail, record.urlToImage].find((value): value is string => typeof value === "string" && value.trim().length > 0);
-  return candidate?.startsWith("http") ? candidate : null;
+  const candidate = [record.image_url, record.image, record.thumbnail, record.urlToImage]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim();
+  return candidate?.startsWith("http") || candidate?.startsWith("/") ? candidate : null;
 }
 
 function indexToInstrument(item: MacroSnapshotIndex): MarketInstrument {
@@ -805,7 +807,8 @@ function WhyWalnutIcon({ kind }: { kind: WhyWalnutIconKind }) {
 export default async function LandingPage() {
   const [latestInsights, planConfig, marketSnapshot, trendingTickers] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot(), loadTrendingTickers()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
-  const heroInsightImage = insightImageUrl(heroInsight);
+  const heroImageInsight = insightImageUrl(heroInsight) ? heroInsight : latestInsights.find((item) => insightImageUrl(item)) ?? heroInsight;
+  const heroInsightImage = insightImageUrl(heroImageInsight);
   const freePrice = landingPlanPriceDisplay(planConfig, "free");
   const premiumPrice = landingPlanPriceDisplay(planConfig, "premium");
   const proPrice = landingPlanPriceDisplay(planConfig, "pro");
@@ -862,7 +865,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              The market has tells, Walnut finds them.
+              The market has tells. Walnut finds them.
             </h1>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more data.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
@@ -893,7 +896,7 @@ export default async function LandingPage() {
               </div>
               <div className="border-b border-white/10 p-5">
                 <a href={insightHref(heroInsight)} className="group block" target={heroInsight.url.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-                  <LatestInsightImage src={heroInsightImage} alt={heroInsight.title} />
+                  <LatestInsightImage src={heroInsightImage} alt={heroImageInsight.title} />
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">{heroInsight.site || heroInsight.source || "Walnut"}</p>
                   <h2 className="mt-3 text-2xl font-semibold leading-tight text-white group-hover:text-emerald-100">{heroInsight.title}</h2>
                   {heroInsight.summary ? (
@@ -936,7 +939,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Ticker Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with all data that reinforces the case.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with data that reinforces the thesis.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
               Walnut shows when fundamentals, price action, insiders, Congress activity, government contracts, institutions and other relevant data are moving in the same direction
             </p>
@@ -1027,7 +1030,7 @@ export default async function LandingPage() {
           <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
             <div>
               <SectionEyebrow>Why Walnut</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Better investment decisions start with better data.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate all the data in one terminal before putting capital at risk.</h2>
               <p className="mt-5 text-base leading-7 text-slate-400">
                 Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
               </p>
@@ -1052,13 +1055,13 @@ export default async function LandingPage() {
               ))}
             </div>
           </div>
-          <div id="compare" className="mt-10 grid gap-6 rounded-lg border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-black/20 lg:grid-cols-[0.82fr_1.18fr] lg:items-center lg:p-6">
+          <div id="compare" className="mt-10 grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
             <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
             <div>
               <SectionEyebrow>Compare</SectionEyebrow>
               <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which case is stronger.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-400">
-                Walnut compares fundamentals, valuation, price action, catalysts, risks and our proprietary confirmation score to show which investment case has stronger support.
+                Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score to show which investment case has stronger support.
               </p>
               <div className="mt-5 grid gap-3">
                 <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-4">
@@ -1110,7 +1113,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Differentiation</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Generational investments require the full picture, not just the chart.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
               Market research usually starts with charts, screeners, data feeds, and alerts.
             </p>
@@ -1146,7 +1149,7 @@ export default async function LandingPage() {
       <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate all the data in one terminal before putting capital at risk.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Multi-dimensional data sets are available now, with more coming soon</h2>
           <div className="mt-8 grid gap-4">
             <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
               <h3 className="text-lg font-semibold text-white">Available Now</h3>

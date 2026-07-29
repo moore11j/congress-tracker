@@ -18,6 +18,8 @@ test("landing insights link keeps label and arrow on one line", () => {
 
 test("landing hero market brief uses the latest insights news item", () => {
   assert.match(landingPage, /const heroInsight = latestInsights\[0\] \?\? fallbackInsights\[0\]/);
+  assert.match(landingPage, /const heroImageInsight = insightImageUrl\(heroInsight\) \? heroInsight : latestInsights\.find\(\(item\) => insightImageUrl\(item\)\) \?\? heroInsight/);
+  assert.match(landingPage, /<LatestInsightImage src=\{heroInsightImage\} alt=\{heroImageInsight\.title\} \/>/);
   assert.doesNotMatch(landingPage, /getPublishedResearchBriefs|researchBriefToNewsItem|heroBrief/);
 });
 
@@ -56,14 +58,14 @@ test("landing SEO labels use insights and stock screener copy", () => {
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
-  assert.match(landingPage, /The market has tells, Walnut finds them\./);
+  assert.match(landingPage, /The market has tells\. Walnut finds them\./);
   assert.match(landingPage, /Find stronger opportunities\. Avoid weaker setups\. Make investment decisions with more data\./);
-  assert.match(landingPage, /Find stronger setups with all data that reinforces the case\./);
-  assert.match(landingPage, /Better investment decisions start with better data\./);
+  assert.match(landingPage, /Find stronger setups with data that reinforces the thesis\./);
+  assert.match(landingPage, /Evaluate all the data in one terminal before putting capital at risk\./);
   assert.match(landingPage, /What changed/);
   assert.match(landingPage, /function WhyWalnutIcon/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
-  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Generational investments require the full picture, not just the chart\.<\/h2>/);
+  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart\.<\/h2>/);
   assert.match(landingPage, /Higher-conviction opportunities\./);
   assert.match(landingPage, /Market research usually starts with charts, screeners, data feeds, and alerts/);
   assert.match(landingPage, /our proprietary confirmation score/);
@@ -82,7 +84,7 @@ test("landing page adds Compare under Why Walnut with real screenshot and plan p
   assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
   assert.match(landingPage, /<SectionEyebrow>Compare<\/SectionEyebrow>/);
   assert.match(landingPage, /Compare two stocks\. See which case is stronger\./);
-  assert.match(landingPage, /Walnut compares fundamentals, valuation, price action, catalysts, risks and our proprietary confirmation score/);
+  assert.match(landingPage, /Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score/);
   assert.match(landingPage, /Premium unlocks the full verdict and decision view\./);
   assert.match(landingPage, /Pro adds institutional activity and options-flow evidence\./);
   assert.match(landingPage, /\/landing\/compare-nvda-mu-production\.png/);
