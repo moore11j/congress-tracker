@@ -6,6 +6,7 @@ Allow: /pricing
 Allow: /faq
 Allow: /terms
 Allow: /privacy
+Allow: /research
 Allow: /congress-trades
 Allow: /insider-trading-tracker
 Allow: /government-contracts

@@ -63,3 +63,16 @@ test("generated research briefs render markdown links and bare urls as anchors",
   assert.match(generatedBriefPage, /<p key=\{block\.key\}>\{inlineMarkdown\(block\.text\)\}<\/p>/);
   assert.match(generatedBriefPage, /\{inlineMarkdown\(row\[cellIndex\] \|\| ""\)\}/);
 });
+
+test("generated research briefs expose stored-signal conversion and miss visuals", () => {
+  assert.match(generatedBriefPage, /signal_results/);
+  assert.match(generatedBriefPage, /price_move_charts/);
+  assert.match(generatedBriefPage, /function StoredSignalsHeroGraphic/);
+  assert.match(generatedBriefPage, /function StoredSignalResultsTable/);
+  assert.match(generatedBriefPage, /META moved against the signal/);
+  assert.match(generatedBriefPage, /row\.aligned \? "Aligned" : "Miss"/);
+  assert.match(generatedBriefPage, /function TickerLookupCard/);
+  assert.match(generatedBriefPage, /placeholder="Enter a ticker"/);
+  assert.match(generatedBriefPage, /function generatedResearchJsonLd/);
+  assert.match(generatedBriefPage, /walnut-intel-logo-mark\.png/);
+});

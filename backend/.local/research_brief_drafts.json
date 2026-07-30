@@ -1,0 +1,491 @@
+{
+  "audit": [
+    {
+      "action": "manual_audited_draft",
+      "admin_email": "local-draft-script",
+      "admin_id": null,
+      "draft_id": "rb_1785384404449",
+      "metadata": {
+        "audit_artifact": "C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\backend\\.local\\walnut-stored-signals-audit.json",
+        "slug": "walnut-stored-signals-before-five-major-stock-moves"
+      },
+      "ts": "2026-07-30T04:06:44.441446+00:00"
+    },
+    {
+      "action": "manual_audited_draft",
+      "admin_email": "local-draft-script",
+      "admin_id": null,
+      "draft_id": "rb_1785385925988",
+      "metadata": {
+        "audit_artifact": "C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\backend\\.local\\walnut-stored-signals-audit.json",
+        "local_db_saved": true,
+        "slug": "walnut-stored-signals-before-five-major-stock-moves"
+      },
+      "ts": "2026-07-30T04:32:05.967000+00:00"
+    }
+  ],
+  "drafts": [
+    {
+      "article": {
+        "audit_artifact": "C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\backend\\.local\\walnut-stored-signals-audit.json",
+        "catalysts": [
+          "Confirmation changes",
+          "Price and volume shifts",
+          "New filings and activity"
+        ],
+        "category": "Walnut Research",
+        "comparison_tickers": [
+          "INFQ",
+          "MU",
+          "SPCX",
+          "BMNR",
+          "META"
+        ],
+        "confidence": "medium",
+        "confirmation_score_included": true,
+        "current_data_as_of": "2026-07-29",
+        "data_freshness": [
+          "Historical audit through 2026-07-29",
+          "Draft generated 2026-07-30T04:32:05.967000+00:00"
+        ],
+        "hero_image": "/walnut-intel-logo-mark.png",
+        "judgment": "mixed",
+        "key_points": [
+          "Five audited stored signals aligned with subsequent same-direction moves.",
+          "META is included prominently as a miss.",
+          "The audit uses durable production records and stored closes only.",
+          "This is evidence for decision support, not proof of certainty."
+        ],
+        "missing_data_notes": [
+          "NBIS full historical component payload for the June 28 score was not preserved."
+        ],
+        "preview_body": "See what the data was showing before the move, and what it is showing now.",
+        "price_move_charts": [
+          {
+            "aligned": true,
+            "latestClose": 148.27,
+            "latestDate": "2026-07-29",
+            "returnPct": "-43.22%",
+            "startClose": 261.15,
+            "startDate": "2026-06-29",
+            "ticker": "NBIS"
+          },
+          {
+            "aligned": true,
+            "latestClose": 8.83,
+            "latestDate": "2026-07-29",
+            "returnPct": "-37.86%",
+            "startClose": 14.21,
+            "startDate": "2026-06-22",
+            "ticker": "INFQ"
+          },
+          {
+            "aligned": true,
+            "latestClose": 739.0,
+            "latestDate": "2026-07-29",
+            "returnPct": "-14.69%",
+            "startClose": 866.29,
+            "startDate": "2026-07-20",
+            "ticker": "MU"
+          },
+          {
+            "aligned": true,
+            "latestClose": 112.54,
+            "latestDate": "2026-07-29",
+            "returnPct": "-14.16%",
+            "startClose": 131.11,
+            "startDate": "2026-07-16",
+            "ticker": "SPCX"
+          },
+          {
+            "aligned": true,
+            "latestClose": 16.59,
+            "latestDate": "2026-07-29",
+            "returnPct": "+7.45%",
+            "startClose": 15.44,
+            "startDate": "2026-07-16",
+            "ticker": "BMNR"
+          },
+          {
+            "aligned": false,
+            "latestClose": 586.49,
+            "latestDate": "2026-07-29",
+            "returnPct": "-9.17%",
+            "startClose": 645.69,
+            "startDate": "2026-07-20",
+            "ticker": "META"
+          }
+        ],
+        "primary_ticker": "NBIS",
+        "reading_minutes": 10,
+        "risks": [
+          "Signals can fail",
+          "Signals can change",
+          "Historical component payloads may be incomplete"
+        ],
+        "sections": [
+          {
+            "body_markdown": "Walnut's durable production history captured five qualifying confirmation events that aligned with subsequent stock moves: four bearish signals followed declines, and one bullish signal followed a gain. The same audit found a clear miss in META, where a bullish signal was followed by a decline.\n\nThe audit used durable production confirmation events only. No historical signals were reconstructed, no missing component histories were invented, and no prices were selected from intraday highs or lows. The return math uses stored closes from `price_cache`, beginning with the next available production close after the event unless the event date itself had a valid close. Walnut did not predict exact returns.\n\n| Ticker | Stored signal | Start close | Latest close | Move |\n| --- | --- | --- | --- | --- |\n| [NBIS](/ticker/NBIS) | 73 strong bearish | $261.15 | $148.27 | -43.22% |\n| [INFQ](/ticker/INFQ) | 73 strong bearish | $14.21 | $8.83 | -37.86% |\n| [MU](/ticker/MU) | 74 strong bearish | $866.29 | $739.00 | -14.69% |\n| [SPCX](/ticker/SPCX) | 76 strong bearish | $131.11 | $112.54 | -14.16% |\n| [BMNR](/ticker/BMNR) | 60 strong bullish | $15.44 | $16.59 | +7.45% |\n| [META](/ticker/META) | 72 bullish miss | $645.69 | $586.49 | -9.17% |\n\nMETA is the miss in this table. Walnut was bullish. The stock fell. That belongs in the record.",
+            "heading": "Executive summary",
+            "key": "executive-summary"
+          },
+          {
+            "body_markdown": "Source table: `confirmation_monitoring_events`. Price source: `price_cache`. The audit included only durable production events where `score_after >= 60`, the event occurred before the measured move, and the stored direction matched the subsequent move for the five aligned case studies. Start price used the next available production `price_cache` close after the event, except where the event date itself had the qualifying close. End price used the latest stored close on 2026-07-29.\n\nNo signal reconstruction was performed. No backfilling was performed. No retrospective component substitution was performed. For NBIS, the durable historical record proves the score, direction, band, date, and subsequent price move, but it does not preserve the full historical component payload for the June 28 score.\n\nThese examples are not a complete performance study. They are audited case studies drawn from qualifying stored events.",
+            "heading": "Methodology",
+            "key": "methodology"
+          },
+          {
+            "body_markdown": "Stored event: 2026-06-28. Production rows 39 and 40 recorded NBIS moving from mixed to bearish, with the confirmation score increasing from 56 to 73 and the band moving from moderate to strong. The start close was $261.15 on 2026-06-29. The latest stored close was $148.27 on 2026-07-29. The recalculated move was -43.22%.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-06-29 | $261.15 | price_cache start close |\n| 2026-07-29 | $148.27 | price_cache latest stored close |\n| Move | -43.22% | Recalculated from closes |\n\nWalnut identified a strong bearish NBIS setup before the stock fell sharply. It did not predict the exact size of the decline, and the signal later changed as the evidence changed. The historical component payload for the June 28 score was not preserved, so this section does not reconstruct the component mix. Walnut also did not remain bearish every day afterward; the system moved between bearish, mixed, and neutral as new data entered.",
+            "heading": "NBIS: Strong bearish confirmation before a 43% decline",
+            "key": "nbis"
+          },
+          {
+            "body_markdown": "Stored event: 2026-06-19. Production row 35 recorded INFQ moving from mixed to bearish, with the confirmation score increasing from 59 to 73 and the band moving from moderate to strong. The start close was $14.21 on 2026-06-22. The latest stored close was $8.83 on 2026-07-29. The recalculated move was -37.86%.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-06-22 | $14.21 | price_cache start close |\n| 2026-07-29 | $8.83 | price_cache latest stored close |\n| Move | -37.86% | Recalculated from closes |\n\nThis case uses only verified historical information: the stored confirmation event, the stored score and direction, and the stored closing prices.",
+            "heading": "INFQ: Bearish confirmation before a 38% decline",
+            "key": "infq"
+          },
+          {
+            "body_markdown": "Stored event: 2026-07-20. Production row 92 recorded MU moving from mixed to bearish, with the confirmation score increasing from 59 to 74 and the band moving from moderate to strong. The qualifying event began on July 20. This audit does not imply that Walnut had this exact signal in late June.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-07-20 | $866.29 | price_cache start close |\n| 2026-07-29 | $739.00 | price_cache latest stored close |\n| Move | -14.69% | Recalculated from closes |\n\nThe start close was $866.29 on 2026-07-20. The latest stored close was $739.00 on 2026-07-29. The recalculated move was -14.69%. A valuation case can look attractive while price action and other confirmation weaken, but this section does not add unaudited component claims to the July 20 record.",
+            "heading": "MU: Bearish confirmation before a 15% decline",
+            "key": "mu"
+          },
+          {
+            "body_markdown": "Stored event: 2026-07-15. Production rows 75 and 76 recorded SPCX at 76 strong bearish after the setup upgraded from weak bearish confirmation. The event types were `new_multi_source_confirmation` and `price_volume_flip`, both stored at the same timestamp.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-07-16 | $131.11 | price_cache start close |\n| 2026-07-29 | $112.54 | price_cache latest stored close |\n| Move | -14.16% | Recalculated from closes |\n\nThe start close was $131.11 on 2026-07-16. The latest stored close was $112.54 on 2026-07-29. The recalculated move was -14.16%. The useful point is narrow: Walnut stored stronger bearish confirmation before the measured decline. This section does not speculate about components that were not audited.",
+            "heading": "SPCX: Strong bearish confirmation before a 14% decline",
+            "key": "spcx"
+          },
+          {
+            "body_markdown": "Stored event: 2026-07-16. Production row 77 recorded BMNR moving from mixed to bullish, with the confirmation score increasing from 56 to 60 and the band moving from moderate to strong. The start close was $15.44 on 2026-07-16. The latest stored close was $16.59 on 2026-07-29. The recalculated move was +7.45%.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-07-16 | $15.44 | price_cache start close |\n| 2026-07-29 | $16.59 | price_cache latest stored close |\n| Move | +7.45% | Recalculated from closes |\n\nThis bullish example matters because Walnut is not only a bearish-warning product. The system can surface constructive setups when the evidence improves. The 7.45% gain was not predicted; it was the observed move after the stored signal.",
+            "heading": "BMNR: Bullish confirmation before a 7% gain",
+            "key": "bmnr"
+          },
+          {
+            "body_markdown": "Stored event: 2026-07-20. Production rows 90 and 91 recorded META moving from mixed to bullish, with the confirmation score increasing from 59 to 72 and the band moving from moderate to strong. The start close was $645.69. The latest stored close was $586.49. The recalculated move was -9.17%.\n\n| Date | Close | Source |\n| --- | ---: | --- |\n| 2026-07-20 | $645.69 | price_cache start close |\n| 2026-07-29 | $586.49 | price_cache latest stored close |\n| Move | -9.17% | Recalculated from closes |\n\nWalnut was bullish. The stock fell. That belongs in the record.\n\nConfirmation is probabilistic, not certainty. New information can overwhelm a prior setup, strong signals can fail, and users still need position sizing, valuation discipline, diversification, and risk management. Walnut should be judged on complete records and long-run methodology, not selected screenshots.",
+            "heading": "META: The bullish signal that did not work",
+            "key": "meta-miss"
+          },
+          {
+            "body_markdown": "The audit shows that stored Walnut judgments sometimes aligned with meaningful subsequent moves. It shows that the system can surface risk before a bearish outcome becomes obvious, and it can also identify bullish setups. It also shows that signals can change, signals can fail, and historical evidence quality depends on what was actually stored at the time.\n\nThe practical value is decision support: a documented market judgment before the outcome is obvious, evidence-based confirmation, and a repeatable framework for monitoring when the setup changes.",
+            "heading": "What the audit shows",
+            "key": "what-the-audit-shows"
+          },
+          {
+            "body_markdown": "This is not a full backtest. It is not proof of predictive accuracy across the entire market. It does not establish causation, guarantee future results, or prove that users would have entered or exited at the measured closes. It does not prove Walnut stayed in the same direction throughout each period, and it does not reconstruct missing historical component data.",
+            "heading": "What the audit does not show",
+            "key": "what-the-audit-does-not-show"
+          },
+          {
+            "body_markdown": "Investors can use Walnut to see when confirmation turns bullish or bearish, monitor when a setup moves back to mixed or neutral, compare current evidence across price action, fundamentals, insiders, Congress, institutions, options, and macro positioning, save tickers, and track what changed. The goal is to identify where multiple sources agree or conflict instead of relying only on headlines or social sentiment.\n\nWalnut does not replace independent judgment. It helps investors organize the evidence before making the next decision.",
+            "heading": "Why this matters for investors",
+            "key": "why-this-matters"
+          },
+          {
+            "body_markdown": "These signals were stored before the moves occurred. Walnut continuously evaluates new evidence to show what is strengthening, what is weakening, and where the setup is conflicted.\n\nEnter a ticker in Walnut to see the current setup. The live product keeps current confirmation separate from the historical records reviewed in this brief.\n\n[See the current setup](/search) | [Research a ticker](/ticker/MU)",
+            "heading": "What is Walnut showing about your stocks now?",
+            "key": "current-data-conversion"
+          },
+          {
+            "body_markdown": "Premium positioning: Make better stock decisions. Premium gives users fuller confirmation context, fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, what changed, what to watch next, monitoring, saved workflows, and supported research workflows where entitlement allows.\n\nPro positioning: See the evidence most retail investors miss. Pro adds institutional activity, options flow, deeper positioning context, macro positioning, market pressure, and all applicable Premium capabilities.\n\nThe proprietary confirmation score remains separate from the underlying data categories. [Compare plans](/pricing)",
+            "heading": "Premium and Pro",
+            "key": "premium-pro"
+          },
+          {
+            "body_markdown": "Walnut helps investors see when the evidence is strengthening, weakening, or conflicting before making the next decision.\n\n[Research a ticker](/search) | [Compare plans](/pricing)\n\nDisclaimer: Walnut is for research and informational purposes only and is not investment advice. Historical outcomes do not guarantee future results. Confirmation scores can change as new evidence becomes available. Users should consider their own objectives and risk tolerance.",
+            "heading": "The next move will not come with a warning label",
+            "key": "final-cta"
+          }
+        ],
+        "seo": {
+          "description": "An audited review of five stored Walnut confirmation signals that preceded major stock moves, one clear miss, and what the historical record can honestly prove.",
+          "title": "What Walnut's Stored Signals Showed Before Five Major Stock Moves"
+        },
+        "signal_results": [
+          {
+            "aligned": true,
+            "eventDate": "2026-06-28",
+            "latestClose": "$148.27",
+            "returnPct": "-43.22%",
+            "signalDirection": "bearish",
+            "startClose": "$261.15",
+            "storedSignal": "73 strong bearish",
+            "ticker": "NBIS"
+          },
+          {
+            "aligned": true,
+            "eventDate": "2026-06-19",
+            "latestClose": "$8.83",
+            "returnPct": "-37.86%",
+            "signalDirection": "bearish",
+            "startClose": "$14.21",
+            "storedSignal": "73 strong bearish",
+            "ticker": "INFQ"
+          },
+          {
+            "aligned": true,
+            "eventDate": "2026-07-20",
+            "latestClose": "$739.00",
+            "returnPct": "-14.69%",
+            "signalDirection": "bearish",
+            "startClose": "$866.29",
+            "storedSignal": "74 strong bearish",
+            "ticker": "MU"
+          },
+          {
+            "aligned": true,
+            "eventDate": "2026-07-15",
+            "latestClose": "$112.54",
+            "returnPct": "-14.16%",
+            "signalDirection": "bearish",
+            "startClose": "$131.11",
+            "storedSignal": "76 strong bearish",
+            "ticker": "SPCX"
+          },
+          {
+            "aligned": true,
+            "eventDate": "2026-07-16",
+            "latestClose": "$16.59",
+            "returnPct": "+7.45%",
+            "signalDirection": "bullish",
+            "startClose": "$15.44",
+            "storedSignal": "60 strong bullish",
+            "ticker": "BMNR"
+          },
+          {
+            "aligned": false,
+            "eventDate": "2026-07-20",
+            "latestClose": "$586.49",
+            "returnPct": "-9.17%",
+            "signalDirection": "bullish",
+            "startClose": "$645.69",
+            "storedSignal": "72 strong bullish",
+            "ticker": "META"
+          }
+        ],
+        "slug": "walnut-stored-signals-before-five-major-stock-moves",
+        "source_links": [
+          {
+            "label": "Confirmation score methodology",
+            "source_type": "methodology",
+            "url": "/stock-confirmation-score"
+          },
+          {
+            "label": "NBIS ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/NBIS"
+          },
+          {
+            "label": "INFQ ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/INFQ"
+          },
+          {
+            "label": "MU ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/MU"
+          },
+          {
+            "label": "SPCX ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/SPCX"
+          },
+          {
+            "label": "BMNR ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/BMNR"
+          },
+          {
+            "label": "META ticker page",
+            "source_type": "ticker",
+            "url": "/ticker/META"
+          },
+          {
+            "label": "Pricing",
+            "source_type": "pricing",
+            "url": "/pricing"
+          }
+        ],
+        "structured_data_notes": {
+          "article_type": "Article",
+          "breadcrumb": [
+            "Insights",
+            "What Walnut's Stored Signals Showed Before Five Major Stock Moves"
+          ],
+          "canonical_url": "https://walnutmarkets.com/research/walnut-stored-signals-before-five-major-stock-moves",
+          "publisher": "Walnut Markets",
+          "publisher_logo": "https://walnutmarkets.com/walnut-intel-logo-mark.png"
+        },
+        "subtitle": "Five confirmed examples, one miss, and the limits of what the stored record can honestly prove.",
+        "suggested_card": {
+          "description": "An audited review of five stored Walnut confirmation signals that preceded major stock moves, one clear miss, and what the historical record can honestly prove.",
+          "judgment": "mixed",
+          "tickers": [
+            "NBIS",
+            "INFQ",
+            "MU",
+            "SPCX",
+            "BMNR",
+            "META"
+          ],
+          "title": "What Walnut's Stored Signals Showed Before Five Major Stock Moves"
+        },
+        "summary": "Walnut's durable production history captured five bullish or bearish confirmation events before same-direction stock moves. The same audit also found a clear miss in META. This brief examines both the useful evidence and the limitations.",
+        "title": "What Walnut's Stored Signals Showed Before Five Major Stock Moves",
+        "walnut_call": "Mixed",
+        "watch_items": [
+          "Current confirmation direction",
+          "Move back to mixed or neutral",
+          "Cross-source agreement or conflict"
+        ]
+      },
+      "comparison_ticker": "INFQ",
+      "comparison_tickers": [
+        "INFQ",
+        "MU",
+        "SPCX",
+        "BMNR",
+        "META"
+      ],
+      "config": {
+        "additional_context": "Audited production confirmation event case-study draft. Do not publish before review.",
+        "comparison_ticker": "INFQ",
+        "comparison_tickers": [
+          "INFQ",
+          "MU",
+          "SPCX",
+          "BMNR",
+          "META"
+        ],
+        "desired_angle": "Custom",
+        "external_research_mode": "Off",
+        "generate_thumbnail": false,
+        "hero_image": "/walnut-intel-logo-mark.png",
+        "include_charts": true,
+        "include_confirmation_score": true,
+        "include_cross_source_confirmations": true,
+        "include_sections": [
+          "Executive summary",
+          "Methodology",
+          "NBIS: Strong bearish confirmation before a 43% decline",
+          "INFQ: Bearish confirmation before a 38% decline",
+          "MU: Bearish confirmation before a 15% decline",
+          "SPCX: Strong bearish confirmation before a 14% decline",
+          "BMNR: Bullish confirmation before a 7% gain",
+          "META: The bullish signal that did not work",
+          "What the audit shows",
+          "What the audit does not show",
+          "Why this matters for investors",
+          "What is Walnut showing about your stocks now?",
+          "Premium and Pro",
+          "The next move will not come with a warning label"
+        ],
+        "include_source_links": true,
+        "intended_audience": "Walnut Research Brief",
+        "judgment_preference": "Balanced debate",
+        "length": "Deep dive: 3,000-5,000 words",
+        "manual_source_url": "",
+        "research_question": "What Walnut's Stored Signals Showed Before Five Major Stock Moves",
+        "section_format": "Walnut Research Brief",
+        "selected_model": "manual-audited-draft",
+        "ticker": "NBIS",
+        "time_horizon": "Near term",
+        "tone": "Walnut market-native"
+      },
+      "created_at": "2026-07-30T04:32:05.967000+00:00",
+      "created_by": null,
+      "created_by_email": "local-draft-script",
+      "diagnostics": {
+        "chart_source_dates": {
+          "BMNR": [
+            "2026-07-16",
+            "2026-07-29"
+          ],
+          "INFQ": [
+            "2026-06-22",
+            "2026-07-29"
+          ],
+          "META": [
+            "2026-07-20",
+            "2026-07-29"
+          ],
+          "MU": [
+            "2026-07-20",
+            "2026-07-29"
+          ],
+          "NBIS": [
+            "2026-06-29",
+            "2026-07-29"
+          ],
+          "SPCX": [
+            "2026-07-16",
+            "2026-07-29"
+          ]
+        },
+        "draft_version": "v1",
+        "elapsed_ms": 0,
+        "entitlement_copy_basis": {
+          "note": "Conversion copy avoids exact plan limits and mirrors current entitlement-gated source categories.",
+          "premium": [
+            "ticker_confirmation",
+            "signals",
+            "premium_feed_metrics"
+          ],
+          "pro": [
+            "institutional_activity",
+            "options_flow",
+            "macro_positioning"
+          ]
+        },
+        "official_logo_asset": "/walnut-intel-logo-mark.png",
+        "reviewer_status": "needs_review",
+        "storage": "local_json",
+        "usage": {}
+      },
+      "id": "rb_1785385925988",
+      "model": "manual-audited-draft",
+      "primary_ticker": "NBIS",
+      "prompt_version": "research_brief_v1",
+      "published_at": null,
+      "research_context": {
+        "audit_artifact": "C:\\Users\\Owner\\OneDrive\\Documents\\congress-tracker\\backend\\.local\\walnut-stored-signals-audit.json",
+        "comparison_tickers": [
+          "INFQ",
+          "MU",
+          "SPCX",
+          "BMNR",
+          "META"
+        ],
+        "generated_at": "2026-07-30T04:32:05.967000+00:00",
+        "primary": {
+          "identity": {
+            "company_name": "NBIS",
+            "symbol": "NBIS"
+          }
+        }
+      },
+      "research_context_timestamp": "2026-07-30T04:32:05.967000+00:00",
+      "status": "draft",
+      "updated_at": "2026-07-30T04:32:05.967000+00:00",
+      "validation": {
+        "estimated_reading_minutes": 10,
+        "labels": {
+          "internal_language": "passed",
+          "missing_data_language": "passed",
+          "source_support": "passed",
+          "structure": "passed"
+        },
+        "numeric_claims": [
+          "-43.22%",
+          "-37.86%",
+          "-14.69%",
+          "-14.16%",
+          "+7.45%",
+          "-9.17%"
+        ],
+        "source_link_count": 8,
+        "status": "passed",
+        "warnings": []
+      }
+    }
+  ],
+  "jobs": []
+}

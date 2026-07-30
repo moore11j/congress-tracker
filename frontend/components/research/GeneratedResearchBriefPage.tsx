@@ -1,10 +1,34 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { getGeneratedResearchBrief, type AdminResearchBriefDraft } from "@/lib/api";
-import { WalnutBrandMark } from "@/components/WalnutBrandMark";
+import type { AdminResearchBriefDraft } from "@/lib/api";
+import { WALNUT_MARKETING_URL, marketingCanonicalUrl } from "@/lib/marketingMetadata";
+
+type StoredSignalResult = {
+  ticker: string;
+  eventDate: string;
+  storedSignal: string;
+  startClose: string;
+  latestClose: string;
+  returnPct: string;
+  aligned: boolean;
+  signalDirection: "bullish" | "bearish" | "mixed" | "neutral" | string;
+};
+
+type PriceMovePoint = {
+  ticker: string;
+  startDate: string;
+  latestDate: string;
+  startClose: number;
+  latestClose: number;
+  returnPct: string;
+  aligned: boolean;
+};
+
+type GeneratedResearchArticleExtras = {
+  signal_results?: StoredSignalResult[];
+  price_move_charts?: PriceMovePoint[];
+  current_data_as_of?: string;
+};
 
 function paragraphs(markdown: string) {
   return markdown
@@ -126,59 +150,23 @@ function isMarkdownDivider(cells: string[]) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
 }
 
-export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
-  const [draft, setDraft] = useState<AdminResearchBriefDraft | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "missing" | "error">("loading");
-
-  useEffect(() => {
-    let alive = true;
-    getGeneratedResearchBrief(slug)
-      .then((payload) => {
-        if (!alive) return;
-        setDraft(payload);
-        setStatus("ready");
-      })
-      .catch((error) => {
-        if (!alive) return;
-        setStatus(error instanceof Error && error.message.toLowerCase().includes("not found") ? "missing" : "error");
-      });
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-
-  if (status === "loading") {
-    return (
-      <main className="min-h-screen bg-slate-950 px-4 py-12 text-slate-100">
-        <div className="mx-auto max-w-4xl rounded-lg border border-white/10 bg-slate-950/60 p-6">Loading research brief...</div>
-      </main>
-    );
-  }
-
-  if (status !== "ready" || !draft) {
-    return (
-      <main className="min-h-screen bg-slate-950 px-4 py-12 text-slate-100">
-        <div className="mx-auto max-w-4xl rounded-lg border border-white/10 bg-slate-950/60 p-6">
-          <h1 className="text-2xl font-semibold text-white">Research brief unavailable</h1>
-          <p className="mt-2 text-sm text-slate-400">This brief is not published or could not be loaded.</p>
-          <Link href="/insights" className="mt-5 inline-flex rounded-lg border border-white/10 px-4 py-2 text-sm font-semibold text-slate-100">
-            Back to Insights
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const article = draft.article;
+export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBriefDraft }) {
+  const article = draft.article as AdminResearchBriefDraft["article"] & GeneratedResearchArticleExtras;
   const tickerHref = `/ticker/${encodeURIComponent(article.primary_ticker || draft.primary_ticker)}`;
-  const signupHref = `/login?mode=register&return_to=${encodeURIComponent(tickerHref)}`;
+  const primaryCtaHref = `/login?mode=register&return_to=${encodeURIComponent(tickerHref)}`;
+  const canonicalUrl = marketingCanonicalUrl(`/research/${article.slug}`);
+  const jsonLd = generatedResearchJsonLd(draft, canonicalUrl);
+  const results = article.signal_results || [];
+  const chartByTicker = new Map((article.price_move_charts || []).map((chart) => [chart.ticker.toLowerCase(), chart]));
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.article) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd.breadcrumbs) }} />
       <section className="border-b border-white/10 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,0.18),transparent_28%),linear-gradient(180deg,rgba(2,6,23,0.96),rgba(2,6,23,1))]">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
           <Link href="/insights" className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-200">
-            <WalnutBrandMark className="h-6 w-6" />
+            <img src="/walnut-intel-logo-mark.png" alt="" className="h-6 w-6" />
             Walnut Research
           </Link>
           <div className="mt-10 max-w-3xl">
@@ -186,23 +174,26 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
             <h1 className="mt-3 text-4xl font-semibold leading-tight text-white sm:text-5xl">{cleanInlineText(article.title)}</h1>
             <p className="mt-5 text-lg leading-8 text-slate-300">{cleanInlineText(article.subtitle || article.summary)}</p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link href={signupHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-                Create a free account
+              <Link href={primaryCtaHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
+                See what Walnut is showing now
               </Link>
               <Link href={tickerHref} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-emerald-300/50 hover:text-emerald-100">
-                Open {article.primary_ticker || draft.primary_ticker} terminal
+                Research a ticker
               </Link>
             </div>
-            <p className="mt-4 text-xs leading-5 text-slate-500">Research only. Not investment advice. No buy or sell recommendation.</p>
+            <p className="mt-4 text-xs leading-5 text-slate-500">Research and informational purposes only. Not investment advice. Historical outcomes do not guarantee future results.</p>
           </div>
+          {results.length ? <StoredSignalsHeroGraphic results={results} /> : null}
         </div>
       </section>
 
       <section className="mx-auto grid max-w-5xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:px-8">
         <article className="min-w-0 space-y-8">
+          {results.length ? <StoredSignalResultsTable results={results} /> : null}
           {article.sections.map((section) => (
-            <section key={section.key} className="rounded-lg border border-white/10 bg-slate-950/50 p-5">
+            <section key={section.key} className={`rounded-lg border bg-slate-950/50 p-5 ${section.key === "meta-miss" ? "border-rose-300/35 shadow-[0_18px_60px_-42px_rgba(251,113,133,0.65)]" : "border-white/10"}`}>
               <h2 className="text-2xl font-semibold text-white">{cleanInlineText(section.heading)}</h2>
+              {chartByTicker.get(section.key) ? <PriceMoveChart chart={chartByTicker.get(section.key)!} /> : null}
               <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
                 {markdownBlocks(section.body_markdown).map((block) =>
                   block.type === "table" ? <ResearchDataTable key={block.key} header={block.header} rows={block.rows} /> : <p key={block.key}>{inlineMarkdown(block.text)}</p>,
@@ -221,9 +212,161 @@ export function GeneratedResearchBriefPage({ slug }: { slug: string }) {
           <SideList title="Catalysts" items={article.catalysts} />
           <SideList title="Risks" items={article.risks} />
           <SideList title="What to watch" items={article.watch_items} />
+          <SourceList items={article.source_links || []} />
+          <TickerLookupCard currentDataAsOf={article.current_data_as_of} />
         </aside>
       </section>
     </main>
+  );
+}
+
+export function generatedResearchJsonLd(draft: AdminResearchBriefDraft, canonicalUrl: string) {
+  const article = draft.article;
+  const logoUrl = `${WALNUT_MARKETING_URL}/walnut-intel-logo-mark.png`;
+  const imageUrl = absoluteMarketingAssetUrl(article.thumbnail_asset?.url || article.hero_image || logoUrl);
+  return {
+    article: {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: cleanInlineText(article.title),
+      description: article.seo?.description || article.summary,
+      datePublished: draft.published_at || draft.created_at,
+      dateModified: draft.updated_at,
+      mainEntityOfPage: canonicalUrl,
+      publisher: {
+        "@type": "Organization",
+        name: "Walnut Markets",
+        logo: {
+          "@type": "ImageObject",
+          url: logoUrl,
+        },
+      },
+      image: imageUrl,
+      about: [article.primary_ticker, ...(article.comparison_tickers || [])].filter(Boolean),
+    },
+    breadcrumbs: {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: "Insights",
+          item: marketingCanonicalUrl("/insights"),
+        },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: cleanInlineText(article.title),
+          item: canonicalUrl,
+        },
+      ],
+    },
+  };
+}
+
+function absoluteMarketingAssetUrl(value: string) {
+  if (value.startsWith("https://") || value.startsWith("http://")) return value;
+  return marketingCanonicalUrl(value.startsWith("/") ? value : `/${value}`);
+}
+
+function StoredSignalsHeroGraphic({ results }: { results: StoredSignalResult[] }) {
+  const alignedCount = results.filter((item) => item.aligned).length;
+  const missCount = results.length - alignedCount;
+  return (
+    <div className="mt-10 grid gap-3 sm:grid-cols-3">
+      <HeroMetric label="Aligned stored signals" value={`${alignedCount}`} detail="Audited case studies" />
+      <HeroMetric label="Clear miss" value={`${missCount}`} detail="META moved against the signal" tone="warn" />
+      <HeroMetric label="Latest close date" value="2026-07-29" detail="Stored price_cache closes" />
+    </div>
+  );
+}
+
+function HeroMetric({ label, value, detail, tone = "default" }: { label: string; value: string; detail: string; tone?: "default" | "warn" }) {
+  return (
+    <div className={`rounded-lg border p-4 ${tone === "warn" ? "border-rose-300/30 bg-rose-950/20" : "border-emerald-300/20 bg-emerald-300/10"}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className={`mt-2 text-3xl font-semibold ${tone === "warn" ? "text-rose-100" : "text-emerald-100"}`}>{value}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{detail}</p>
+    </div>
+  );
+}
+
+function StoredSignalResultsTable({ results }: { results: StoredSignalResult[] }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-slate-950/50 p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Audited stored signals</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Signal results table</h2>
+        </div>
+        <p className="text-xs leading-5 text-slate-500">Historical records only. Current data is separate.</p>
+      </div>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-white/10">
+        <table className="min-w-full border-collapse text-left text-sm">
+          <thead className="bg-emerald-300/10 text-slate-100">
+            <tr>
+              {["Ticker", "Event", "Stored signal", "Start close", "Latest close", "Move", "Result"].map((cell) => (
+                <th key={cell} className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em]">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((row) => (
+              <tr key={row.ticker} className={row.aligned ? "bg-slate-900/55" : "bg-rose-950/30"}>
+                <td className="border-t border-white/10 px-3 py-3 align-top font-semibold text-white">
+                  <Link href={`/ticker/${row.ticker}`} className={linkClassName()}>{row.ticker}</Link>
+                </td>
+                <td className="border-t border-white/10 px-3 py-3 align-top text-slate-300">{row.eventDate}</td>
+                <td className="border-t border-white/10 px-3 py-3 align-top text-slate-300">{row.storedSignal}</td>
+                <td className="border-t border-white/10 px-3 py-3 align-top text-slate-300">{row.startClose}</td>
+                <td className="border-t border-white/10 px-3 py-3 align-top text-slate-300">{row.latestClose}</td>
+                <td className={`border-t border-white/10 px-3 py-3 align-top font-semibold ${row.returnPct.startsWith("+") ? "text-emerald-200" : "text-rose-200"}`}>{row.returnPct}</td>
+                <td className="border-t border-white/10 px-3 py-3 align-top">
+                  <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${row.aligned ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-rose-300/40 bg-rose-300/10 text-rose-100"}`}>
+                    {row.aligned ? "Aligned" : "Miss"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PriceMoveChart({ chart }: { chart: PriceMovePoint }) {
+  const start = Number.isFinite(chart.startClose) ? chart.startClose : 0;
+  const latest = Number.isFinite(chart.latestClose) ? chart.latestClose : 0;
+  const high = Math.max(start, latest, 1);
+  const startHeight = Math.max(12, Math.round((start / high) * 96));
+  const latestHeight = Math.max(12, Math.round((latest / high) * 96));
+  return (
+    <div className={`mt-4 rounded-lg border p-4 ${chart.aligned ? "border-emerald-300/20 bg-emerald-300/5" : "border-rose-300/30 bg-rose-950/20"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{chart.ticker} stored-close move</p>
+        <p className={`text-sm font-semibold ${chart.returnPct.startsWith("+") ? "text-emerald-200" : "text-rose-200"}`}>{chart.returnPct}</p>
+      </div>
+      <div className="mt-4 flex h-32 items-end gap-5">
+        <ChartBar label={chart.startDate} value={`$${chart.startClose.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} height={startHeight} />
+        <ChartBar label={chart.latestDate} value={`$${chart.latestClose.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} height={latestHeight} />
+      </div>
+    </div>
+  );
+}
+
+function ChartBar({ label, value, height }: { label: string; value: string; height: number }) {
+  return (
+    <div className="flex min-w-24 flex-1 flex-col items-center gap-2">
+      <div className="flex h-24 w-full items-end justify-center">
+        <div className="w-full max-w-24 rounded-t-md bg-emerald-300/55" style={{ height }} />
+      </div>
+      <p className="text-xs font-semibold text-slate-200">{value}</p>
+      <p className="text-[11px] text-slate-500">{label}</p>
+    </div>
   );
 }
 
@@ -242,7 +385,7 @@ function ResearchDataTable({ header, rows }: { header: string[]; rows: string[][
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={`${rowIndex}-${row.join("|")}`} className={rowIndex % 2 === 0 ? "bg-slate-900/55" : "bg-slate-800/35"}>
+            <tr key={`${rowIndex}-${row.join("|")}`} className={row.some((cell) => /\bMETA\b|miss/i.test(cell)) ? "bg-rose-950/30" : rowIndex % 2 === 0 ? "bg-slate-900/55" : "bg-slate-800/35"}>
               {header.map((_, cellIndex) => (
                 <td key={`${rowIndex}-${cellIndex}`} className="border-t border-white/10 px-3 py-3 align-top text-slate-300">
                   {inlineMarkdown(row[cellIndex] || "")}
@@ -263,6 +406,39 @@ function SideList({ title, items }: { title: string; items: string[] }) {
       <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
         {(items || []).slice(0, 5).map((item) => (
           <li key={item}>{inlineMarkdown(item)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function TickerLookupCard({ currentDataAsOf }: { currentDataAsOf?: string }) {
+  return (
+    <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/10 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Current setup</p>
+      {currentDataAsOf ? <p className="mt-2 text-xs leading-5 text-slate-400">Current data should be read separately from this historical audit. Current as of {currentDataAsOf}.</p> : null}
+      <form action="/search" className="mt-4 flex gap-2">
+        <input name="q" placeholder="Enter a ticker" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-300/50" />
+        <button type="submit" className="rounded-lg bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
+          See setup
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function SourceList({ items }: { items: Array<{ label: string; url: string; source_type: string }> }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Sources</p>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+        {items.slice(0, 6).map((item) => (
+          <li key={`${item.label}:${item.url}`}>
+            <a href={safeLinkHref(item.url)} className={linkClassName()}>
+              {cleanInlineText(item.label)}
+            </a>
+          </li>
         ))}
       </ul>
     </div>

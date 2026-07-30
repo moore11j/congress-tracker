@@ -1,0 +1,251 @@
+{
+  "audit_timestamp": "2026-07-30T04:32:05.967000+00:00",
+  "source_tables": [
+    "confirmation_monitoring_events",
+    "price_cache"
+  ],
+  "query": "Redacted production audit: select non-sensitive confirmation_monitoring_events fields and price_cache closes for NBIS, INFQ, MU, SPCX, BMNR, META; no user_id, watchlist_id, body, or payload_json.",
+  "calculation_methodology": "return_pct = round((latest_close - start_close) / start_close * 100, 2)",
+  "rows": [
+    {
+      "ticker": "NBIS",
+      "event_date": "2026-06-28",
+      "event_rows": [
+        {
+          "id": 39,
+          "ticker": "NBIS",
+          "event_type": "direction_flipped",
+          "score_before": 56,
+          "score_after": 73,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bearish",
+          "source_count_before": 2,
+          "source_count_after": 2,
+          "created_at": "2026-06-28 04:55:57.744607+00:00"
+        },
+        {
+          "id": 40,
+          "ticker": "NBIS",
+          "event_type": "direction_flipped",
+          "score_before": 56,
+          "score_after": 73,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bearish",
+          "source_count_before": 2,
+          "source_count_after": 2,
+          "created_at": "2026-06-28 04:55:57.744607+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "NBIS",
+        "date": "2026-06-29",
+        "close": 261.15,
+        "updated_at": "2026-07-16 00:15:37.934455+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "NBIS",
+        "date": "2026-07-29",
+        "close": 148.27,
+        "updated_at": "2026-07-29 20:07:43.363915+00:00"
+      },
+      "calculated_return_pct": -43.22
+    },
+    {
+      "ticker": "INFQ",
+      "event_date": "2026-06-19",
+      "event_rows": [
+        {
+          "id": 35,
+          "ticker": "INFQ",
+          "event_type": "direction_flipped",
+          "score_before": 59,
+          "score_after": 73,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bearish",
+          "source_count_before": 3,
+          "source_count_after": 3,
+          "created_at": "2026-06-19 05:27:10.323434+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "INFQ",
+        "date": "2026-06-22",
+        "close": 14.21,
+        "updated_at": "2026-07-30 03:15:12.984209+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "INFQ",
+        "date": "2026-07-29",
+        "close": 8.83,
+        "updated_at": "2026-07-30 03:15:13.072757+00:00"
+      },
+      "calculated_return_pct": -37.86
+    },
+    {
+      "ticker": "MU",
+      "event_date": "2026-07-20",
+      "event_rows": [
+        {
+          "id": 92,
+          "ticker": "MU",
+          "event_type": "direction_flipped",
+          "score_before": 59,
+          "score_after": 74,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bearish",
+          "source_count_before": 6,
+          "source_count_after": 6,
+          "created_at": "2026-07-20 04:07:09.280516+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "MU",
+        "date": "2026-07-20",
+        "close": 866.29,
+        "updated_at": "2026-07-20 20:07:58.393537+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "MU",
+        "date": "2026-07-29",
+        "close": 739.0,
+        "updated_at": "2026-07-29 20:07:33.775438+00:00"
+      },
+      "calculated_return_pct": -14.69
+    },
+    {
+      "ticker": "SPCX",
+      "event_date": "2026-07-15",
+      "event_rows": [
+        {
+          "id": 75,
+          "ticker": "SPCX",
+          "event_type": "new_multi_source_confirmation",
+          "score_before": 37,
+          "score_after": 76,
+          "band_before": "weak",
+          "band_after": "strong",
+          "direction_before": "bearish",
+          "direction_after": "bearish",
+          "source_count_before": 1,
+          "source_count_after": 2,
+          "created_at": "2026-07-15 10:19:21.354049+00:00"
+        },
+        {
+          "id": 76,
+          "ticker": "SPCX",
+          "event_type": "price_volume_flip",
+          "score_before": 37,
+          "score_after": 76,
+          "band_before": "weak",
+          "band_after": "strong",
+          "direction_before": "bearish",
+          "direction_after": "bearish",
+          "source_count_before": 1,
+          "source_count_after": 2,
+          "created_at": "2026-07-15 10:19:21.354049+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "SPCX",
+        "date": "2026-07-16",
+        "close": 131.11,
+        "updated_at": "2026-07-16 20:08:06.747072+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "SPCX",
+        "date": "2026-07-29",
+        "close": 112.54,
+        "updated_at": "2026-07-29 20:07:43.363915+00:00"
+      },
+      "calculated_return_pct": -14.16
+    },
+    {
+      "ticker": "BMNR",
+      "event_date": "2026-07-16",
+      "event_rows": [
+        {
+          "id": 77,
+          "ticker": "BMNR",
+          "event_type": "direction_flipped",
+          "score_before": 56,
+          "score_after": 60,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bullish",
+          "source_count_before": 4,
+          "source_count_after": 3,
+          "created_at": "2026-07-16 03:42:01.522732+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "BMNR",
+        "date": "2026-07-16",
+        "close": 15.44,
+        "updated_at": "2026-07-30 00:15:07.700335+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "BMNR",
+        "date": "2026-07-29",
+        "close": 16.59,
+        "updated_at": "2026-07-30 00:15:07.546296+00:00"
+      },
+      "calculated_return_pct": 7.45
+    },
+    {
+      "ticker": "META",
+      "event_date": "2026-07-20",
+      "event_rows": [
+        {
+          "id": 90,
+          "ticker": "META",
+          "event_type": "direction_flipped",
+          "score_before": 59,
+          "score_after": 72,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bullish",
+          "source_count_before": 5,
+          "source_count_after": 6,
+          "created_at": "2026-07-20 04:07:09.280516+00:00"
+        },
+        {
+          "id": 91,
+          "ticker": "META",
+          "event_type": "fundamentals_flip",
+          "score_before": 59,
+          "score_after": 72,
+          "band_before": "moderate",
+          "band_after": "strong",
+          "direction_before": "mixed",
+          "direction_after": "bullish",
+          "source_count_before": 5,
+          "source_count_after": 6,
+          "created_at": "2026-07-20 04:07:09.280516+00:00"
+        }
+      ],
+      "start_price_row": {
+        "symbol": "META",
+        "date": "2026-07-20",
+        "close": 645.69,
+        "updated_at": "2026-07-20 20:07:58.393537+00:00"
+      },
+      "latest_price_row": {
+        "symbol": "META",
+        "date": "2026-07-29",
+        "close": 586.49,
+        "updated_at": "2026-07-29 20:07:33.775438+00:00"
+      },
+      "calculated_return_pct": -9.17
+    }
+  ]
+}

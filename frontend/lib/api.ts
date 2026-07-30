@@ -5755,6 +5755,26 @@ export type AdminResearchBriefArticle = {
   category: string;
   reading_minutes: number;
   hero_image?: string | null;
+  current_data_as_of?: string;
+  signal_results?: Array<{
+    ticker: string;
+    eventDate: string;
+    storedSignal: string;
+    startClose: string;
+    latestClose: string;
+    returnPct: string;
+    aligned: boolean;
+    signalDirection: string;
+  }>;
+  price_move_charts?: Array<{
+    ticker: string;
+    startDate: string;
+    latestDate: string;
+    startClose: number;
+    latestClose: number;
+    returnPct: string;
+    aligned: boolean;
+  }>;
   sections: Array<{ key: string; heading: string; body_markdown: string }>;
   key_points: string[];
   catalysts: string[];
