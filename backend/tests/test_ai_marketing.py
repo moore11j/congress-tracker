@@ -977,6 +977,90 @@ def test_manual_url_generic_openai_failure_returns_safe_message(monkeypatch):
         db.close()
 
 
+def test_growth_draft_unavailable_model_returns_warning(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("AI_MARKETING_MODEL", "gpt-5.4-mini")
+
+    class FakeResponse:
+        status_code = 404
+
+        def json(self):
+            return {
+                "error": {
+                    "message": "The model `gpt-5.4-mini` does not exist or you do not have access to it.",
+                    "code": "model_not_found",
+                    "type": "invalid_request_error",
+                }
+            }
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="Reddit",
+                title="Reddit Research Thread: The AI Bubble has not burst",
+                ticker_theme="The AI Bubble has not burst",
+                audience="r/wallstreetbets",
+                inputs={
+                    "subreddit": "wallstreetbets",
+                    "post_type": "research guide",
+                    "disclosure_style": "founder disclosure",
+                },
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] == "Configured AI Growth model is not available. Set AI_MARKETING_MODEL to a supported model, then regenerate."
+        assert result["opportunity"]["suggestion"] is None
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_code"] == "model_config"
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_status_code"] == 404
+    finally:
+        db.close()
+
+
+def test_growth_draft_malformed_openai_response_returns_warning(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": ""}}]}
+
+    monkeypatch.setattr("app.services.ai_marketing.requests.post", lambda *args, **kwargs: FakeResponse())
+    db = _session()
+    try:
+        admin = _user(db, "admin@example.com", role="admin")
+
+        result = admin_ai_growth_create_draft(
+            GrowthDraftPayload(
+                campaign_type="reddit_research_thread",
+                content_type="reddit_thread",
+                source_platform="Reddit",
+                title="Reddit Research Thread: AI capex",
+                ticker_theme="AI capex",
+                audience="r/wallstreetbets",
+                inputs={"subreddit": "wallstreetbets", "post_type": "research guide"},
+                generate=True,
+            ),
+            _request_for_user(admin),
+            db,
+        )
+
+        assert result["warning"] == "OpenAI suggestion request failed. Check OpenAI status and the configured model, then regenerate."
+        assert result["opportunity"]["suggestion"] is None
+        assert result["opportunity"]["metadata"]["ai_suggestion_error_code"] == "malformed_response"
+    finally:
+        db.close()
+
+
 def test_campaign_run_dedupes_source_items(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 

@@ -448,7 +448,7 @@ def test_model_uses_default_when_env_missing_and_db_ignored(monkeypatch):
         payload = admin_ai_marketing_settings(_request_for_user(admin), db)
         item = _items_by_key(payload)[AI_MARKETING_MODEL]
 
-        assert resolved_setting_value(db, AI_MARKETING_MODEL) == "gpt-5.6"
+        assert resolved_setting_value(db, AI_MARKETING_MODEL) == "gpt-5.6-sol"
         assert item["configured"] is True
         assert item["source"] == "default"
         assert item["source_label"] == "Default"

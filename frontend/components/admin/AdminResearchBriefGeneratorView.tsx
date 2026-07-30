@@ -205,6 +205,43 @@ function markdownToSections(markdown: string): AdminResearchBriefArticle["sectio
   });
 }
 
+function sectionKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+const optionalSectionHeadingKeys: Record<string, Set<string>> = {
+  "Catalysts": new Set(["catalysts"]),
+  "Risks": new Set(["risks"]),
+  "What to watch next": new Set(["what_to_watch_next", "what_to_watch"]),
+  "Final Walnut judgment": new Set(["final_walnut_judgment", "walnut_judgment", "the_call"]),
+};
+
+function applySectionSelections(article: AdminResearchBriefArticle, includeSections: string[]): AdminResearchBriefArticle {
+  const included = new Set(includeSections);
+  const excludedHeadingKeys = new Set<string>();
+  Object.entries(optionalSectionHeadingKeys).forEach(([section, headingKeys]) => {
+    if (included.has(section)) return;
+    headingKeys.forEach((key) => excludedHeadingKeys.add(key));
+  });
+
+  const next: AdminResearchBriefArticle = {
+    ...article,
+    sections: (article.sections || []).filter((section) => !excludedHeadingKeys.has(sectionKey(section.heading || section.key || ""))),
+  };
+
+  if (!included.has("Catalysts")) next.catalysts = [];
+  if (!included.has("Risks")) next.risks = [];
+  if (!included.has("What to watch next")) next.watch_items = [];
+  if (!included.has("Final Walnut judgment")) {
+    next.judgment = "";
+    next.suggested_card = {
+      ...next.suggested_card,
+      judgment: "",
+    };
+  }
+  return next;
+}
+
 function parseComparisonTickers(value: string | string[] | null | undefined) {
   const values = Array.isArray(value) ? value : [value || ""];
   const seen = new Set<string>();
@@ -586,7 +623,7 @@ export function AdminResearchBriefGeneratorView({ showToast }: { showToast?: Toa
 
   function currentEditedArticle() {
     if (!articleDraft) return null;
-    return { ...articleDraft, sections: markdownToSections(bodyMarkdown) };
+    return applySectionSelections({ ...articleDraft, sections: markdownToSections(bodyMarkdown) }, config.include_sections);
   }
 
   function closeDeleteDialog() {

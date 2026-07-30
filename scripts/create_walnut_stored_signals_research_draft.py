@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -213,16 +214,16 @@ def move(value: float) -> str:
 
 def result_table() -> str:
     lines = [
-        "| Ticker | Stored signal | Start close | Latest close | Move |",
+        "| Ticker | Stored signal | Start close | July 29 close | Move |",
         "| --- | --- | --- | --- | --- |",
     ]
     labels = {
-        "NBIS": "73 strong bearish",
-        "INFQ": "73 strong bearish",
-        "MU": "74 strong bearish",
-        "SPCX": "76 strong bearish",
-        "BMNR": "60 strong bullish",
-        "META": "72 bullish miss",
+        "NBIS": "73/100 strong bearish",
+        "INFQ": "73/100 strong bearish",
+        "MU": "74/100 strong bearish",
+        "SPCX": "76/100 strong bearish",
+        "BMNR": "60/100 strong bullish",
+        "META": "72/100 bullish miss",
     }
     for row in AUDIT_ROWS:
         lines.append(
@@ -234,12 +235,12 @@ def result_table() -> str:
 
 def signal_results() -> list[dict]:
     labels = {
-        "NBIS": "73 strong bearish",
-        "INFQ": "73 strong bearish",
-        "MU": "74 strong bearish",
-        "SPCX": "76 strong bearish",
-        "BMNR": "60 strong bullish",
-        "META": "72 strong bullish",
+        "NBIS": "73/100 strong bearish",
+        "INFQ": "73/100 strong bearish",
+        "MU": "74/100 strong bearish",
+        "SPCX": "76/100 strong bearish",
+        "BMNR": "60/100 strong bullish",
+        "META": "72/100 strong bullish",
     }
     aligned = {"NBIS", "INFQ", "MU", "SPCX", "BMNR"}
     return [
@@ -290,20 +291,29 @@ def sections() -> list[dict[str, str]]:
     return [
         {
             "key": "executive-summary",
-            "heading": "Executive summary",
+            "heading": "Five signals that lined up with the move that followed, plus one that did not",
             "body_markdown": (
-                "Walnut's durable production history captured five qualifying confirmation events that aligned with subsequent stock moves: four bearish signals followed declines, and one bullish signal followed a gain. The same audit found a clear miss in META, where a bullish signal was followed by a decline.\n\n"
-                "The audit used durable production confirmation events only. No historical signals were reconstructed, no missing component histories were invented, and no prices were selected from intraday highs or lows. The return math uses stored closes from `price_cache`, beginning with the next available production close after the event unless the event date itself had a valid close. Walnut did not predict exact returns.\n\n"
+                "Market commentary is full of confident calls made after the fact. A stock drops, someone posts the bearish screenshot they saved. A stock rallies, someone says they saw it coming. The misses usually disappear.\n\n"
+                "We reviewed Walnut's durable production records to see what the confirmation system had actually stored before several recent moves. The audit found five qualifying examples where the stored direction matched what the stock did next. It also found one clear miss in Meta.\n\n"
+                "The purpose of this review is not to claim that Walnut can predict exact returns. It is to show how the confirmation system can identify when the available evidence is leaning bullish, bearish, or conflicted, and how that judgment changes as new information enters the model.\n\n"
                 + result_table()
-                + "\n\nMETA is the miss in this table. Walnut was bullish. The stock fell. That belongs in the record."
+                + "\n\nThe first five examples moved in the same direction as the stored signal. Meta moved the other way."
             ),
         },
         {
             "key": "methodology",
-            "heading": "Methodology",
+            "heading": "How the audit was done",
             "body_markdown": (
-                "Source table: `confirmation_monitoring_events`. Price source: `price_cache`. The audit included only durable production events where `score_after >= 60`, the event occurred before the measured move, and the stored direction matched the subsequent move for the five aligned case studies. Start price used the next available production `price_cache` close after the event, except where the event date itself had the qualifying close. End price used the latest stored close on 2026-07-29.\n\n"
-                "No signal reconstruction was performed. No backfilling was performed. No retrospective component substitution was performed. For NBIS, the durable historical record proves the score, direction, band, date, and subsequent price move, but it does not preserve the full historical component payload for the June 28 score.\n\n"
+                "The review used durable production records from `confirmation_monitoring_events` and closing prices from `price_cache`.\n\n"
+                "| Rule | How this audit applied it |\n"
+                "| --- | --- |\n"
+                "| Minimum score | The stored score had to be at least 60. |\n"
+                "| Timing | The event had to occur before the measured price move. |\n"
+                "| Direction | The direction had to be recorded in production at the time. |\n"
+                "| Start price | The starting price came from the next available stored close, except when the event date itself had the qualifying close. |\n"
+                "| End price | The ending price came from the latest stored close on July 29, 2026. |\n"
+                "| Reconstruction | Old signals were not rebuilt using current data, and missing component histories were not filled in. |\n\n"
+                "The audit did not use intraday highs or lows to improve the result. For NBIS, the durable historical record proves the score, direction, band, date, and subsequent price move, but it does not preserve the full historical component payload for the June 28 score.\n\n"
                 "These examples are not a complete performance study. They are audited case studies drawn from qualifying stored events."
             ),
         },
@@ -311,105 +321,161 @@ def sections() -> list[dict[str, str]]:
             "key": "nbis",
             "heading": "NBIS: Strong bearish confirmation before a 43% decline",
             "body_markdown": (
-                "Stored event: 2026-06-28. Production rows 39 and 40 recorded NBIS moving from mixed to bearish, with the confirmation score increasing from 56 to 73 and the band moving from moderate to strong. The start close was $261.15 on 2026-06-29. The latest stored close was $148.27 on 2026-07-29. The recalculated move was -43.22%.\n\n"
+                "On June 28, Walnut recorded NBIS moving from mixed to bearish. The score increased from 56 to 73, which placed the setup in the strong bearish range.\n\n"
+                "The next available closing price was $261.15 on June 29. By July 29, NBIS had closed at $148.27. The measured move was -43.22%.\n\n"
                 + price_move_table("NBIS")
-                + "\n\nWalnut identified a strong bearish NBIS setup before the stock fell sharply. It did not predict the exact size of the decline, and the signal later changed as the evidence changed. The historical component payload for the June 28 score was not preserved, so this section does not reconstruct the component mix. Walnut also did not remain bearish every day afterward; the system moved between bearish, mixed, and neutral as new data entered."
+                + "\n\nThe stored record proves that Walnut had a strong bearish judgment before the larger decline. It does not prove that Walnut expected a 43% drop, and it does not show that the signal stayed bearish every day afterward.\n\n"
+                "The historical component payload for the June 28 snapshot was not preserved, so we cannot accurately recreate the exact mix of inputs behind that score. The score, direction, date, and subsequent price move are all supported by the production record.\n\n"
+                "NBIS is still useful as a case study because the warning appeared while the stock was trading above $260, before the decline was complete."
             ),
         },
         {
             "key": "infq",
             "heading": "INFQ: Bearish confirmation before a 38% decline",
             "body_markdown": (
-                "Stored event: 2026-06-19. Production row 35 recorded INFQ moving from mixed to bearish, with the confirmation score increasing from 59 to 73 and the band moving from moderate to strong. The start close was $14.21 on 2026-06-22. The latest stored close was $8.83 on 2026-07-29. The recalculated move was -37.86%.\n\n"
+                "On June 19, Walnut recorded INFQ moving from mixed to bearish. The score rose from 59 to 73.\n\n"
+                "The next available close was $14.21 on June 22. By July 29, the stock had fallen to $8.83. The measured move was -37.86%.\n\n"
                 + price_move_table("INFQ")
-                + "\n\nThis case uses only verified historical information: the stored confirmation event, the stored score and direction, and the stored closing prices."
+                + "\n\nThis example shows how a material change in confirmation can appear before a much larger price adjustment. The system had already moved to a strong bearish judgment while the stock was still trading above $14."
             ),
         },
         {
             "key": "mu",
             "heading": "MU: Bearish confirmation before a 15% decline",
             "body_markdown": (
-                "Stored event: 2026-07-20. Production row 92 recorded MU moving from mixed to bearish, with the confirmation score increasing from 59 to 74 and the band moving from moderate to strong. The qualifying event began on July 20. This audit does not imply that Walnut had this exact signal in late June.\n\n"
+                "Micron's qualifying signal came later in the period. On July 20, Walnut recorded MU moving from mixed to bearish. The score increased from 59 to 74.\n\n"
+                "MU closed at $866.29 on July 20. By July 29, it had fallen to $739.00. The measured move was -14.69%.\n\n"
                 + price_move_table("MU")
-                + "\n\nThe start close was $866.29 on 2026-07-20. The latest stored close was $739.00 on 2026-07-29. The recalculated move was -14.69%. A valuation case can look attractive while price action and other confirmation weaken, but this section does not add unaudited component claims to the July 20 record."
+                + "\n\nThis signal should only be discussed from July 20 onward. The stored production record does not support saying that Walnut held the same bearish view in late June.\n\n"
+                "The Micron example also shows why a low or falling valuation multiple cannot be read in isolation. In cyclical sectors, earnings, margins, pricing, and market expectations can change quickly. Walnut's confirmation system is intended to show when the broader setup is weakening even when part of the valuation story still appears attractive."
             ),
         },
         {
             "key": "spcx",
-            "heading": "SPCX: Strong bearish confirmation before a 14% decline",
+            "heading": "SPCX: Stronger bearish confirmation before another leg lower",
             "body_markdown": (
-                "Stored event: 2026-07-15. Production rows 75 and 76 recorded SPCX at 76 strong bearish after the setup upgraded from weak bearish confirmation. The event types were `new_multi_source_confirmation` and `price_volume_flip`, both stored at the same timestamp.\n\n"
+                "On July 15, Walnut recorded SPCX at 76/100 strong bearish after the setup upgraded from weaker bearish confirmation.\n\n"
+                "The next available closing price was $131.11 on July 16. By July 29, SPCX had closed at $112.54. The measured move was -14.16%.\n\n"
                 + price_move_table("SPCX")
-                + "\n\nThe start close was $131.11 on 2026-07-16. The latest stored close was $112.54 on 2026-07-29. The recalculated move was -14.16%. The useful point is narrow: Walnut stored stronger bearish confirmation before the measured decline. This section does not speculate about components that were not audited."
+                + "\n\nThe stored event shows that bearish confirmation strengthened before the measured decline. The case study does not rely on reconstructed component data or a retrospective explanation of what the model should have seen."
             ),
         },
         {
             "key": "bmnr",
             "heading": "BMNR: Bullish confirmation before a 7% gain",
             "body_markdown": (
-                "Stored event: 2026-07-16. Production row 77 recorded BMNR moving from mixed to bullish, with the confirmation score increasing from 56 to 60 and the band moving from moderate to strong. The start close was $15.44 on 2026-07-16. The latest stored close was $16.59 on 2026-07-29. The recalculated move was +7.45%.\n\n"
+                "On July 16, Walnut recorded BMNR moving from mixed to bullish. The score increased from 56 to 60.\n\n"
+                "BMNR closed at $15.44 that day. By July 29, it had reached $16.59. The measured move was +7.45%.\n\n"
                 + price_move_table("BMNR")
-                + "\n\nThis bullish example matters because Walnut is not only a bearish-warning product. The system can surface constructive setups when the evidence improves. The 7.45% gain was not predicted; it was the observed move after the stored signal."
+                + "\n\nThis was a smaller move than the bearish examples, but it shows that Walnut's system can also turn constructive when the evidence improves.\n\n"
+                "The 7.45% gain was not forecast in advance. It was the observed return after the bullish event was stored."
             ),
         },
         {
             "key": "meta-miss",
-            "heading": "META: The bullish signal that did not work",
+            "heading": "META: A bullish signal followed by a decline",
             "body_markdown": (
-                "Stored event: 2026-07-20. Production rows 90 and 91 recorded META moving from mixed to bullish, with the confirmation score increasing from 59 to 72 and the band moving from moderate to strong. The start close was $645.69. The latest stored close was $586.49. The recalculated move was -9.17%.\n\n"
+                "On July 20, Walnut recorded Meta moving from mixed to bullish. The score increased from 59 to 72.\n\n"
+                "Meta closed at $645.69 on July 20. By July 29, it had fallen to $586.49. The measured move was -9.17%.\n\n"
                 + price_move_table("META")
-                + "\n\nWalnut was bullish. The stock fell. That belongs in the record.\n\n"
-                "Confirmation is probabilistic, not certainty. New information can overwhelm a prior setup, strong signals can fail, and users still need position sizing, valuation discipline, diversification, and risk management. Walnut should be judged on complete records and long-run methodology, not selected screenshots."
+                + "\n\nThis was a miss.\n\n"
+                "A confirmation score reflects the evidence available at the time. It does not remove market risk, and it does not guarantee that price will move in the same direction. New information can change the setup quickly, and even a strong score can be wrong.\n\n"
+                "Meta is included because any serious review of Walnut's historical signals should include both successful and unsuccessful examples."
             ),
         },
         {
             "key": "what-the-audit-shows",
-            "heading": "What the audit shows",
+            "heading": "What these examples suggest",
             "body_markdown": (
-                "The audit shows that stored Walnut judgments sometimes aligned with meaningful subsequent moves. It shows that the system can surface risk before a bearish outcome becomes obvious, and it can also identify bullish setups. It also shows that signals can change, signals can fail, and historical evidence quality depends on what was actually stored at the time.\n\n"
-                "The practical value is decision support: a documented market judgment before the outcome is obvious, evidence-based confirmation, and a repeatable framework for monitoring when the setup changes."
+                "The audit shows that Walnut's stored judgments sometimes appeared before meaningful moves in the same direction.\n\n"
+                "| Observed pattern | What it means |\n"
+                "| --- | --- |\n"
+                "| Four strong bearish setups preceded material declines. | Walnut can surface risk when multiple sources weaken. |\n"
+                "| One bullish setup preceded a gain. | The system can turn constructive when the evidence improves. |\n"
+                "| One bullish signal failed. | Confirmation is useful, but it is not certainty. |\n"
+                "| Judgments updated as new evidence entered the model. | Users should monitor changes instead of treating any one score as permanent. |\n\n"
+                "For investors, the practical use is not a promise of certainty. It is having a documented view of whether the evidence is improving, weakening, or conflicted before making a decision.\n\n"
+                "| Investor use | Why it matters |\n"
+                "| --- | --- |\n"
+                "| Recognize when a popular story is losing support. | A stock narrative can stay confident after the data starts weakening. |\n"
+                "| See when several sources of evidence point the same way. | Agreement across sources can make a setup easier to evaluate. |\n"
+                "| Notice when fundamentals and price action disagree. | Conflicts can flag situations that deserve more caution. |\n"
+                "| Monitor when a prior thesis has materially changed. | A useful signal is one that can update. |\n"
+                "| Compare setups across stocks using a consistent framework. | Consistency makes decisions easier to review later. |"
             ),
         },
         {
             "key": "what-the-audit-does-not-show",
-            "heading": "What the audit does not show",
+            "heading": "What these examples do not prove",
             "body_markdown": (
-                "This is not a full backtest. It is not proof of predictive accuracy across the entire market. It does not establish causation, guarantee future results, or prove that users would have entered or exited at the measured closes. It does not prove Walnut stayed in the same direction throughout each period, and it does not reconstruct missing historical component data."
-            ),
-        },
-        {
-            "key": "why-this-matters",
-            "heading": "Why this matters for investors",
-            "body_markdown": (
-                "Investors can use Walnut to see when confirmation turns bullish or bearish, monitor when a setup moves back to mixed or neutral, compare current evidence across price action, fundamentals, insiders, Congress, institutions, options, and macro positioning, save tickers, and track what changed. The goal is to identify where multiple sources agree or conflict instead of relying only on headlines or social sentiment.\n\n"
-                "Walnut does not replace independent judgment. It helps investors organize the evidence before making the next decision."
+                "This review is not a full performance study.\n\n"
+                "| Limitation | Why it matters |\n"
+                "| --- | --- |\n"
+                "| It does not establish Walnut's overall hit rate across every ticker or signal. | A complete backtest would need a larger fixed sample. |\n"
+                "| It does not prove a user would have entered or exited at the measured prices. | Case-study returns are not portfolio returns. |\n"
+                "| It does not establish causation. | A stored signal can align with a move without causing it. |\n"
+                "| It does not guarantee future results. | Historical outcomes do not remove market risk. |\n"
+                "| It does not prove Walnut held the same direction throughout each period. | Scores and judgments changed as new information entered the system. |\n\n"
+                "A full performance study would require a larger sample, fixed methodology, complete historical component storage, benchmark comparisons, and analysis across different market conditions."
             ),
         },
         {
             "key": "current-data-conversion",
-            "heading": "What is Walnut showing about your stocks now?",
+            "heading": "What Walnut is showing now",
             "body_markdown": (
-                "These signals were stored before the moves occurred. Walnut continuously evaluates new evidence to show what is strengthening, what is weakening, and where the setup is conflicted.\n\n"
-                "Enter a ticker in Walnut to see the current setup. The live product keeps current confirmation separate from the historical records reviewed in this brief.\n\n"
-                "[See the current setup](/search) | [Research a ticker](/ticker/MU)"
+                "Historical examples are useful, but investors make decisions with current data. Walnut continuously updates its view as price action, fundamentals, insider activity, Congress activity, institutional positioning, options flow, and macro evidence change.\n\n"
+                "The current setup may look very different from the original historical signal.\n\n"
+                "| Current view | What to check |\n"
+                "| --- | --- |\n"
+                "| Confirmation score | Whether evidence is bullish, bearish, mixed, or neutral now. |\n"
+                "| What changed | The data categories that moved the judgment. |\n"
+                "| Evidence | The support behind the current setup. |\n"
+                "| Risks | What could invalidate the thesis. |\n"
+                "| Watch items | What to monitor next. |\n\n"
+                "[See the current setup](/search)"
             ),
         },
         {
-            "key": "premium-pro",
-            "heading": "Premium and Pro",
+            "key": "premium",
+            "heading": "Premium",
             "body_markdown": (
-                "Premium positioning: Make better stock decisions. Premium gives users fuller confirmation context, fundamentals, price and volume, Congress activity, insider activity, catalysts, risks, what changed, what to watch next, monitoring, saved workflows, and supported research workflows where entitlement allows.\n\n"
-                "Pro positioning: See the evidence most retail investors miss. Pro adds institutional activity, options flow, deeper positioning context, macro positioning, market pressure, and all applicable Premium capabilities.\n\n"
-                "The proprietary confirmation score remains separate from the underlying data categories. [Compare plans](/pricing)"
+                "Walnut Premium is built for investors who want a clearer view of the full setup before making a decision.\n\n"
+                "| Premium includes | Research use |\n"
+                "| --- | --- |\n"
+                "| Confirmation context | Understand the current judgment and why it changed. |\n"
+                "| Fundamentals | Compare price action with business and valuation context. |\n"
+                "| Price and volume | Track market behavior around the thesis. |\n"
+                "| Congress and insider activity | See whether notable activity supports or conflicts with the setup. |\n"
+                "| Catalysts, risks, and watch items | Keep the decision tied to what may change next. |\n"
+                "| Monitoring and saved workflows where available | Revisit the setup as new evidence arrives. |"
+            ),
+        },
+        {
+            "key": "pro",
+            "heading": "Pro",
+            "body_markdown": (
+                "Walnut Pro adds deeper positioning data for investors who want to see more of what is happening beneath the headline.\n\n"
+                "| Pro includes | Research use |\n"
+                "| --- | --- |\n"
+                "| Institutional activity | See how larger holders are moving. |\n"
+                "| Options flow | Track positioning that may not appear in headline fundamentals. |\n"
+                "| Deeper positioning context | Compare the signal with broader market behavior. |\n"
+                "| Macro positioning | Understand how the setup fits the larger backdrop. |\n"
+                "| Market Pressure | Evaluate pressure beneath the surface. |\n"
+                "| Applicable Premium capabilities | Keep the deeper data connected to the full research workflow. |\n\n"
+                "The confirmation score remains separate from the underlying data categories. It is Walnut's judgment layer, not a replacement for the data supporting it.\n\n"
+                "[Compare plans](/pricing)"
             ),
         },
         {
             "key": "final-cta",
-            "heading": "The next move will not come with a warning label",
+            "heading": "See what the data is showing now",
             "body_markdown": (
-                "Walnut helps investors see when the evidence is strengthening, weakening, or conflicting before making the next decision.\n\n"
-                "[Research a ticker](/search) | [Compare plans](/pricing)\n\n"
-                "Disclaimer: Walnut is for research and informational purposes only and is not investment advice. Historical outcomes do not guarantee future results. Confirmation scores can change as new evidence becomes available. Users should consider their own objectives and risk tolerance."
+                "The next important move may already be developing somewhere in the market.\n\n"
+                "Walnut helps investors see where the evidence is strengthening, weakening, or becoming conflicted before they make the next decision.\n\n"
+                "[Research a ticker](/search)\n\n"
+                "[Compare plans](/pricing)\n\n"
+                "Disclaimer: Walnut is for research and informational purposes only and is not investment advice. Historical outcomes do not guarantee future results. Confirmation scores can change as new evidence becomes available. Investors should consider their own objectives, financial circumstances, and risk tolerance."
             ),
         },
     ]
@@ -421,10 +487,10 @@ def article(now: str) -> dict:
         "slug": SLUG,
         "subtitle": "Five confirmed examples, one miss, and the limits of what the stored record can honestly prove.",
         "summary": (
-            "Walnut's durable production history captured five bullish or bearish confirmation events before same-direction stock moves. "
-            "The same audit also found a clear miss in META. This brief examines both the useful evidence and the limitations."
+            "Walnut's durable production history captured five qualifying confirmation events that lined up with subsequent stock moves. "
+            "The same audit also found a clear miss in META, where a bullish signal was followed by a decline."
         ),
-        "preview_body": "See what the data was showing before the move, and what it is showing now.",
+        "preview_body": "Five signals that lined up with the move that followed, plus one that did not.",
         "judgment": "mixed",
         "walnut_call": "Mixed",
         "confidence": "medium",
@@ -439,10 +505,10 @@ def article(now: str) -> dict:
         "price_move_charts": price_move_charts(),
         "sections": sections(),
         "key_points": [
-            "Five audited stored signals aligned with subsequent same-direction moves.",
+            "Five audited stored signals lined up with subsequent same-direction moves.",
             "META is included prominently as a miss.",
             "The audit uses durable production records and stored closes only.",
-            "This is evidence for decision support, not proof of certainty.",
+            "This is decision-support evidence, not proof of certainty.",
         ],
         "catalysts": ["Confirmation changes", "Price and volume shifts", "New filings and activity"],
         "risks": ["Signals can fail", "Signals can change", "Historical component payloads may be incomplete"],
@@ -478,8 +544,9 @@ def article(now: str) -> dict:
 
 
 def draft_payload(now: str) -> dict:
+    draft_id = os.environ.get("WALNUT_RESEARCH_DRAFT_ID") or f"rb_{int(time.time() * 1000)}"
     return {
-        "id": f"rb_{int(time.time() * 1000)}",
+        "id": draft_id,
         "status": "draft",
         "created_by": None,
         "created_by_email": "local-draft-script",

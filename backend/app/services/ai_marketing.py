@@ -56,7 +56,7 @@ AI_GROWTH_DIGEST_RECIPIENT = "AI_GROWTH_DIGEST_RECIPIENT"
 AI_MARKETING_TEMPLATE_KEY = "ai_marketing.digest"
 AI_MARKETING_PROMPT_VERSION = "ai_growth_v2"
 DEFAULT_DESTINATION_URL = "https://walnutmarkets.com"
-DEFAULT_AI_MARKETING_MODEL = "gpt-5.6"
+DEFAULT_AI_MARKETING_MODEL = "gpt-5.6-sol"
 DEFAULT_AI_MARKETING_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_AI_MARKETING_IMAGE_SIZE = "1536x1024"
 DEFAULT_AI_MARKETING_IMAGE_QUALITY = "high"
@@ -294,6 +294,9 @@ OPENAI_BILLING_CREDITS_MESSAGE = (
 )
 OPENAI_RATE_LIMIT_MESSAGE = "OpenAI API rate limit reached. Wait a moment, then regenerate."
 OPENAI_GENERIC_SUGGESTION_MESSAGE = "OpenAI suggestion request failed. Check OpenAI status and the configured model, then regenerate."
+OPENAI_MODEL_CONFIG_MESSAGE = (
+    "Configured AI Growth model is not available. Set AI_MARKETING_MODEL to a supported model, then regenerate."
+)
 
 _TICKER_PATTERN = re.compile(r"(?<![A-Za-z0-9])\$?([A-Z]{1,5})(?![A-Za-z0-9])")
 _CASHTAG_TICKER_PATTERN = re.compile(
@@ -4694,17 +4697,22 @@ def generate_suggestion(
         message, code, status_code = _classify_openai_suggestion_error(response)
         _record_suggestion_failure(db, opportunity, message, code=code, status_code=response.status_code)
         raise OpenAISuggestionError(message, status_code=status_code)
-    data = response.json()
-    _record_openai_usage_cost(db, model=model, data=data, feature="ai_growth_suggestion")
-    content = _extract_chat_completion_content(data)
-    structured = _normalize_suggestion_payload(
-        json.loads(content),
-        destination_hint,
-        platform,
-        campaign.id if campaign else 0,
-        opportunity=opportunity,
-        openai_api_key=api_key,
-    )
+    try:
+        data = response.json()
+        _record_openai_usage_cost(db, model=model, data=data, feature="ai_growth_suggestion")
+        content = _extract_chat_completion_content(data)
+        structured = _normalize_suggestion_payload(
+            json.loads(content),
+            destination_hint,
+            platform,
+            campaign.id if campaign else 0,
+            opportunity=opportunity,
+            openai_api_key=api_key,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        logger.warning("ai_growth_openai_suggestion_malformed_response model=%s error=%s", model, exc)
+        _record_suggestion_failure(db, opportunity, OPENAI_GENERIC_SUGGESTION_MESSAGE, code="malformed_response")
+        raise OpenAISuggestionError(OPENAI_GENERIC_SUGGESTION_MESSAGE, status_code=502) from exc
     suggestion = AiMarketingSuggestion(
         opportunity_id=opportunity.id,
         campaign_id=campaign.id if campaign else opportunity.campaign_id,
@@ -7028,6 +7036,18 @@ def _classify_openai_suggestion_error(response: requests.Response) -> tuple[str,
         return OPENAI_INVALID_KEY_MESSAGE, "invalid_key", 422
     if response.status_code == 429 or any(term in haystack for term in ("rate_limit", "rate limit")):
         return OPENAI_RATE_LIMIT_MESSAGE, "rate_limit", 429
+    if any(
+        term in haystack
+        for term in (
+            "model_not_found",
+            "invalid_model",
+            "unsupported model",
+            "does not exist",
+            "not found",
+            "not available",
+        )
+    ):
+        return OPENAI_MODEL_CONFIG_MESSAGE, "model_config", 422
     return OPENAI_GENERIC_SUGGESTION_MESSAGE, "openai_error", 502
 
 

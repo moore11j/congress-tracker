@@ -158,6 +158,7 @@ export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBrie
   const jsonLd = generatedResearchJsonLd(draft, canonicalUrl);
   const results = article.signal_results || [];
   const chartByTicker = new Map((article.price_move_charts || []).map((chart) => [chart.ticker.toLowerCase(), chart]));
+  const showWalnutJudgment = Boolean(String(article.judgment || "").trim());
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -204,11 +205,13 @@ export function GeneratedResearchBriefPage({ draft }: { draft: AdminResearchBrie
         </article>
 
         <aside className="space-y-4">
-          <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Walnut Judgment</p>
-            <p className="mt-2 text-lg font-semibold capitalize text-white">{article.judgment}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-400">{cleanInlineText(article.summary)}</p>
-          </div>
+          {showWalnutJudgment ? (
+            <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Walnut Judgment</p>
+              <p className="mt-2 text-lg font-semibold capitalize text-white">{article.judgment}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">{cleanInlineText(article.summary)}</p>
+            </div>
+          ) : null}
           <SideList title="Catalysts" items={article.catalysts} />
           <SideList title="Risks" items={article.risks} />
           <SideList title="What to watch" items={article.watch_items} />
@@ -399,7 +402,8 @@ function ResearchDataTable({ header, rows }: { header: string[]; rows: string[][
   );
 }
 
-function SideList({ title, items }: { title: string; items: string[] }) {
+function SideList({ title, items }: { title: string; items?: string[] }) {
+  if (!items?.length) return null;
   return (
     <div className="rounded-lg border border-white/10 bg-slate-950/60 p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>

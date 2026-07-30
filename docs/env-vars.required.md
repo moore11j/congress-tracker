@@ -40,7 +40,7 @@ Required for production runtime:
 | `EMAIL_DIGEST_SCHEDULE_ENABLED` | Enables scheduled digest cron sends | Required only if scheduled sends should run. |
 | `EMAIL_ALERT_INTRADAY_ENABLED` | Enables intraday alert sends | Required only if intraday sends should run. |
 | `OPENAI_API_KEY` | AI Outreach suggestion generation | Server env/Fly secret only. Required to generate suggested replies; do not store in admin DB settings. |
-| `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6`; do not store in admin DB settings. |
+| `AI_MARKETING_MODEL` | AI Outreach model override | Server env only. Optional; defaults to `gpt-5.6-sol`; do not store in admin DB settings. |
 | `RESEARCH_BRIEF_MODEL_DEFAULT` | Research Brief Generator default model | Optional. Overrides the legacy `RESEARCH_BRIEF_GENERATOR_MODEL` for admin research briefs. Defaults to `gpt-5.6-terra`. |
 | `RESEARCH_BRIEF_MODEL_OPTIONS` | Research Brief Generator selectable models | Optional comma-separated allowlist shown in the admin model selector. Defaults to `gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol`. |
 | `RESEARCH_BRIEF_JOB_STALE_SECONDS` | Research Brief Generator stale-job timeout | Optional. Defaults to `300`; running jobs without a heartbeat past this window fail safely so the admin UI can retry. |
