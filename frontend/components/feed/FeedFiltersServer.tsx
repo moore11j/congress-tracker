@@ -225,15 +225,24 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
     sort_dir: normalizeSortDir(params.sort_dir),
   };
   const formKey = JSON.stringify({ mode, ...normalizedParams });
+  const modeLabel = feedModeOptions.find(([value]) => value === mode)?.[1] ?? "All";
 
   return (
-    <section className={`${cardClassName} relative z-30 overflow-visible`}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <details className={`${cardClassName} group relative z-30 overflow-visible`}>
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60 [&::-webkit-details-marker]:hidden">
         <div>
           <h2 className="text-lg font-semibold text-white">Feed mode & filters</h2>
-          <p className="text-sm text-slate-400">Filter the live feed with mode-aware controls.</p>
+          <p className="text-sm text-slate-400">Collapsed. Current mode: {modeLabel}.</p>
         </div>
+        <span className="inline-flex h-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-slate-200 transition group-open:hidden">
+          Expand
+        </span>
+        <span className="hidden h-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold text-slate-200 transition group-open:inline-flex">
+          Collapse
+        </span>
+      </summary>
 
+      <div className="mt-4 flex flex-wrap items-start justify-between gap-4 border-t border-slate-800 pt-4">
         <div className="min-w-[280px] max-w-full rounded-2xl bg-slate-900/35 p-2 sm:ml-auto">
           <SavedViewsBar
             surface="feed"
@@ -352,6 +361,6 @@ export function FeedFiltersServer({ mode, params }: FeedFiltersServerProps) {
         </div>
       </form>
       <FeedFilterAutoSubmit formId="feed-filters-form" />
-    </section>
+    </details>
   );
 }

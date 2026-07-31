@@ -5,6 +5,7 @@ import { FeedEntitledResultsClient } from "@/components/feed/FeedEntitledResults
 import { FeedFiltersServer } from "@/components/feed/FeedFiltersServer";
 import { FeedMountLogger } from "@/components/feed/FeedMountLogger";
 import { FeedShellFallback } from "@/components/feed/FeedShellFallback";
+import { LandingSearch } from "@/components/landing/LandingSearch";
 import { isCompactFeedFilterMode, isValidFeedMode, type FeedMode } from "@/lib/feedModes";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -24,6 +25,7 @@ const feedParamKeys = [
 ] as const;
 
 const DEFAULT_FEED_PAGE_SIZE = 25;
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
 type FeedParamKey = (typeof feedParamKeys)[number];
 
@@ -192,8 +194,9 @@ export function FeedPageClient() {
             </div>
           ) : null}
           <div className="flex flex-col gap-2">
+            <LandingSearch appUrl={appUrl} />
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
-            <h1 className="text-4xl font-semibold text-white sm:text-5xl">Unified disclosure and market intelligence feed.</h1>
+            <h1 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades.</h1>
             <p className="max-w-2xl text-sm text-slate-400">
               One intelligence workflow: switch between All, Congress, Insider, Government Contracts, and Institutional Activity with mode-aware filters.
             </p>
