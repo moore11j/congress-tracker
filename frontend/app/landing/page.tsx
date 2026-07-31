@@ -748,10 +748,10 @@ export default async function LandingPage() {
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <a
-                href={`${loginUrl}?mode=register`}
+                href={`${appUrl}/feed`}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Create free account
+                Try for free
               </a>
             </div>
             <LandingSearch appUrl={appUrl} />
