@@ -891,7 +891,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <SectionEyebrow>Stock Research &amp; Analysis Platform</SectionEyebrow>
             <h1 className="mt-3 max-w-4xl text-[2.08rem] font-semibold leading-[1.06] text-white sm:mt-5 sm:text-5xl lg:text-6xl">
-              See whether a stock's investment thesis is strengthening or weakening.
+              Find stocks worth buying—and when to make a move.
             </h1>
             <p className="mt-3 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:mt-5 sm:text-xl">
               The market has tells. Walnut finds them.
