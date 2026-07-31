@@ -53,6 +53,14 @@ _anonymous_suggestion_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]]
 _anonymous_suggestion_cache_lock = threading.Lock()
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _TICKER_QUERY_RE = re.compile(r"^[A-Z][A-Z0-9]{0,5}(?:[./-][A-Z])?$")
+_STATIC_TICKER_META: dict[str, tuple[str, str | None]] = {
+    "AAPL": ("Apple Inc.", "NASDAQ"),
+    "LMT": ("Lockheed Martin", None),
+    "NOW": ("ServiceNow Inc.", None),
+    "NVDA": ("NVIDIA Corporation", "NASDAQ"),
+    "PLTR": ("Palantir Technologies Inc.", None),
+    "TSLA": ("Tesla Inc.", "NASDAQ"),
+}
 
 
 def normalize_search_query(q: str | None) -> str:
@@ -519,6 +527,17 @@ def _ticker_suggestions(db: Session, query: str, limit: int, personalization: Se
         existing = by_symbol.get(symbol)
         if existing is None or float(existing.get("score") or 0) < score:
             by_symbol[symbol] = item
+
+    for symbol, (label, exchange) in _STATIC_TICKER_META.items():
+        boost = personalization.symbol_boosts.get(symbol, 0.0)
+        score = _score(query, symbol=symbol, label=label, context_boost=boost)
+        if score <= 0:
+            continue
+        item = _ticker_item(symbol, label, exchange, score)
+        existing = by_symbol.get(symbol)
+        if existing is None or float(existing.get("score") or 0) < score:
+            by_symbol[symbol] = item
+
     return sorted(by_symbol.values(), key=lambda item: (-(float(item.get("score") or 0)), str(item.get("symbol") or "")))[:limit]
 
 

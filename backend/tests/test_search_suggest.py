@@ -174,6 +174,41 @@ def test_search_suggest_company_name_uses_profile_cache_without_security_rows():
         db.close()
 
 
+def test_search_suggest_apple_company_query_does_not_return_unknown_apple_ticker(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
+    try:
+        items = search_suggestions(db, "apple", limit=5)["items"]
+
+        assert items[0]["kind"] == "ticker"
+        assert items[0]["symbol"] == "AAPL"
+        assert items[0]["label"] == "Apple Inc."
+        assert all(item["symbol"] != "APPLE" for item in items if item["kind"] == "ticker")
+        assert calls == []
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_appl_company_query_resolves_to_aapl_before_raw_fallback(monkeypatch):
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
+    try:
+        items = search_suggestions(db, "appl", limit=5)["items"]
+
+        assert items[0]["kind"] == "ticker"
+        assert items[0]["symbol"] == "AAPL"
+        assert all(item["symbol"] != "APPL" for item in items if item["kind"] == "ticker")
+        assert calls == []
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
 def test_search_suggest_member_name_beats_lightweight_ticker_fallback():
     db = _db()
     search_suggest_module._anonymous_suggestion_cache.clear()

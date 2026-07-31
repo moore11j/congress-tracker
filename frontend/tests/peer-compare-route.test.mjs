@@ -85,6 +85,12 @@ test("peer compare selector reuses symbol suggestions", () => {
   assert.match(selectorSource, /const \[active, setActive\]/);
   assert.match(selectorSource, /if \(!active \|\| trimmed\.length < 1\)/);
   assert.match(selectorSource, /suggestSymbols\(trimmed, "all"/);
+  assert.match(selectorSource, /function bestSuggestionForQuery/);
+  assert.match(selectorSource, /function canCommitRawTicker/);
+  assert.match(selectorSource, /async function commitQuery/);
+  assert.match(selectorSource, /source: "PeerCompareSelectorCommit"/);
+  assert.match(selectorSource, /void commitQuery\(\)/);
+  assert.doesNotMatch(selectorSource, /commit\(items\[0\]\?\.symbol \|\| normalized\)/);
   assert.match(selectorSource, /return symbol === "_" \? "" : symbol/);
   assert.match(selectorSource, /placeholder="Search ticker or company"/);
   assert.match(selectorSource, /onCommit=\{\(symbol\) => navigate\(symbol, right \|\| "_"\)\}/);

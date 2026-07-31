@@ -13,6 +13,34 @@ function cleanSymbol(value: string) {
   return value.trim().toUpperCase().replace(/\./g, "-");
 }
 
+function suggestionName(item: SymbolSuggestion) {
+  return (item.name || item.label || "").trim();
+}
+
+function isPlaceholderTickerSuggestion(item: SymbolSuggestion) {
+  const symbol = cleanSymbol(item.symbol);
+  return Boolean(symbol && suggestionName(item).toUpperCase() === `TICKER: ${symbol}`);
+}
+
+function bestSuggestionForQuery(items: SymbolSuggestion[], query: string) {
+  const normalized = cleanSymbol(query);
+  const queryText = query.trim().toLowerCase();
+  const realItems = items.filter((item) => !isPlaceholderTickerSuggestion(item));
+  return (
+    realItems.find((item) => cleanSymbol(item.symbol) === normalized) ||
+    realItems.find((item) => suggestionName(item).toLowerCase() === queryText) ||
+    realItems.find((item) => suggestionName(item).toLowerCase().startsWith(queryText)) ||
+    realItems[0] ||
+    null
+  );
+}
+
+function canCommitRawTicker(query: string) {
+  const raw = query.trim();
+  const symbol = cleanSymbol(raw);
+  return Boolean(symbol && (symbol.length <= 4 || /[.$/-]/.test(raw)));
+}
+
 function SuggestInput({
   label,
   value,
@@ -28,6 +56,7 @@ function SuggestInput({
   const [items, setItems] = useState<SymbolSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [active, setActive] = useState(false);
   const requestId = useRef(0);
   const normalized = cleanSymbol(query);
@@ -74,6 +103,36 @@ function SuggestInput({
     onCommit(next);
   }
 
+  async function commitQuery() {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const currentBest = bestSuggestionForQuery(items, trimmed);
+    if (currentBest) {
+      commit(currentBest.symbol);
+      return;
+    }
+
+    setResolving(true);
+    try {
+      const response = await suggestSymbols(trimmed, "all", 8, { source: "PeerCompareSelectorCommit" });
+      const nextItems = (response.items || []).filter((item) => item.type !== "government_agency");
+      setItems(nextItems);
+      setOpen(nextItems.length > 0);
+      const nextBest = bestSuggestionForQuery(nextItems, trimmed);
+      if (nextBest) {
+        commit(nextBest.symbol);
+        return;
+      }
+    } catch {
+      setItems([]);
+    } finally {
+      setResolving(false);
+    }
+
+    if (canCommitRawTicker(trimmed)) commit(normalized);
+  }
+
   return (
     <label className="relative block min-w-0 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
       {label}
@@ -90,7 +149,7 @@ function SuggestInput({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            commit(items[0]?.symbol || normalized);
+            void commitQuery();
           }
         }}
         className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 text-sm font-semibold tracking-normal text-white outline-none transition focus:border-cyan-300/60"
@@ -98,8 +157,8 @@ function SuggestInput({
       />
       {open ? (
         <div className="absolute z-40 mt-2 max-h-72 w-full overflow-auto rounded-lg border border-white/10 bg-slate-950/95 p-1 shadow-2xl shadow-black/50">
-          {loading && items.length === 0 ? <div className="px-3 py-2 text-sm normal-case tracking-normal text-slate-400">Searching...</div> : null}
-          {!loading && items.length === 0 ? <div className="px-3 py-2 text-sm normal-case tracking-normal text-slate-400">No matching tickers.</div> : null}
+          {(loading || resolving) && items.length === 0 ? <div className="px-3 py-2 text-sm normal-case tracking-normal text-slate-400">Searching...</div> : null}
+          {!loading && !resolving && items.length === 0 ? <div className="px-3 py-2 text-sm normal-case tracking-normal text-slate-400">No matching tickers.</div> : null}
           {items.map((item) => (
             <button
               key={`${item.symbol}-${item.id ?? item.name ?? ""}`}
