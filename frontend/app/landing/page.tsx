@@ -967,7 +967,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Stock Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See what strengthens—or weakens—the investment thesis.</h2>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See which way the data is pointing.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
               Walnut brings fundamentals, price action, Congress and insider activity, government contracts, institutional filings and macro positioning into one view—so you can see what supports the thesis, what conflicts with it and what changed.
             </p>
@@ -1000,7 +1000,7 @@ export default async function LandingPage() {
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <SectionEyebrow>Daily Insights</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Curated insights to keep you informed with what really matters.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Keep informed with the news that moves the market.</h2>
             </div>
             <a href={`${appUrl}/insights`} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm font-semibold text-emerald-200 hover:text-emerald-100 md:ml-4">
               <span>Open insights</span>
