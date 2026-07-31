@@ -144,53 +144,6 @@ const signalCards = [
   },
 ] as const;
 
-const whyWalnut = [
-  {
-    title: "Bullish trends",
-    icon: "trendUp",
-    cardClassName: "border-emerald-300/20 bg-emerald-300/[0.045]",
-    iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-200",
-    glowClassName: "bg-emerald-300/15",
-  },
-  {
-    title: "Bearish trends",
-    icon: "trendDown",
-    cardClassName: "border-rose-300/20 bg-rose-300/[0.04]",
-    iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-200",
-    glowClassName: "bg-rose-300/15",
-  },
-  {
-    title: "Data confirmation",
-    icon: "confirmedTrend",
-    cardClassName: "border-lime-300/20 bg-lime-300/[0.04]",
-    iconClassName: "border-lime-300/25 bg-lime-300/10 text-lime-200",
-    glowClassName: "bg-lime-300/15",
-  },
-  {
-    title: "Conflicting data",
-    icon: "splitData",
-    cardClassName: "border-cyan-300/20 bg-cyan-300/[0.04]",
-    iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-200",
-    glowClassName: "bg-cyan-300/15",
-  },
-  {
-    title: "Thesis risks",
-    icon: "warning",
-    cardClassName: "border-amber-300/20 bg-amber-300/[0.04]",
-    iconClassName: "border-amber-300/25 bg-amber-300/10 text-amber-200",
-    glowClassName: "bg-amber-300/15",
-  },
-  {
-    title: "What changed",
-    icon: "alarm",
-    cardClassName: "border-violet-300/20 bg-violet-300/[0.04]",
-    iconClassName: "border-violet-300/25 bg-violet-300/10 text-violet-200",
-    glowClassName: "bg-violet-300/15",
-  },
-] as const;
-
-type WhyWalnutIconKind = (typeof whyWalnut)[number]["icon"];
-
 const marketToolCategories = [
   {
     name: "Market snapshots",
@@ -757,79 +710,6 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">{children}</p>;
 }
 
-function WhyWalnutIcon({ kind }: { kind: WhyWalnutIconKind }) {
-  const commonProps = {
-    viewBox: "0 0 96 96",
-    fill: "none",
-    className: "h-14 w-14",
-    "aria-hidden": true,
-  };
-
-  if (kind === "trendUp") {
-    return (
-      <svg {...commonProps}>
-        <path d="M17 75h62" stroke="currentColor" strokeWidth="4" strokeLinecap="round" opacity="0.7" />
-        <path d="M22 66l15-17 13 9 26-32" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M61 26h15v15" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M26 75V63M45 75V58M65 75V42" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.55" />
-      </svg>
-    );
-  }
-
-  if (kind === "trendDown") {
-    return (
-      <svg {...commonProps}>
-        <path d="M17 75h62" stroke="currentColor" strokeWidth="4" strokeLinecap="round" opacity="0.7" />
-        <path d="M22 30l15 17 13-9 26 32" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M61 70h15V55" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M26 75V43M45 75V54M65 75V66" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.55" />
-      </svg>
-    );
-  }
-
-  if (kind === "confirmedTrend") {
-    return (
-      <svg {...commonProps}>
-        <path d="M18 72h62" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-        <path d="M22 64l14-16 12 9 22-28" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M60 28h12v12" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M24 33l8 8 17-19" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M25 72V58M45 72V60M66 72V42" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
-      </svg>
-    );
-  }
-
-  if (kind === "splitData") {
-    return (
-      <svg {...commonProps}>
-        <path d="M20 48h21" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
-        <path d="M41 48c13 0 17-20 31-20h7" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M41 48c13 0 17 20 31 20h7" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M72 20l8 8-8 8M72 60l8 8-8 8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M18 76h19M18 20h19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.55" />
-      </svg>
-    );
-  }
-
-  if (kind === "warning") {
-    return (
-      <svg {...commonProps}>
-        <path d="M48 17 83 78H13L48 17Z" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M48 39v17M48 67h.1" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
-        <path d="M31 78h34" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.65" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg {...commonProps}>
-      <path d="M31 21 20 31M65 21l11 10M48 29a25 25 0 1 1 0 50 25 25 0 0 1 0-50Z" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M48 44v15l11 7M34 83l-5 6M62 83l5 6" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M35 14c-6 0-11 5-11 11M61 14c6 0 11 5 11 11" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.75" />
-    </svg>
-  );
-}
-
 export default async function LandingPage() {
   const [latestInsights, planConfig, marketSnapshot, trendingTickers] = await Promise.all([loadLatestInsights(), loadPlanConfig(), loadMarketSnapshot(), loadTrendingTickers()]);
   const heroInsight = latestInsights[0] ?? fallbackInsights[0];
@@ -1027,7 +907,7 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <SectionEyebrow>Congress &amp; Insider Profiles</SectionEyebrow>
-            <h2 className="mt-3 text-[1.72rem] font-semibold leading-tight text-white sm:text-4xl">See who is trading—and whether their activity is worth following.</h2>
+            <h2 className="mt-3 text-[1.72rem] font-semibold leading-tight text-white sm:text-4xl">Follow the insider trades</h2>
             <p className="mt-4 text-sm leading-6 text-slate-400">Explore disclosure histories, portfolio simulations, insider profiles, ticker charts and trade analytics to understand whose activity has historically provided useful market context.</p>
           </div>
 
@@ -1055,35 +935,7 @@ export default async function LandingPage() {
 
       <section className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
         <div className="mx-auto max-w-7xl">
-          <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
-            <div>
-              <SectionEyebrow>Why Walnut</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate the full investment case before putting capital at risk.</h2>
-              <p className="mt-5 text-base leading-7 text-slate-400">
-                Walnut brings technicals, fundamentals, Congress and insider activity, government contracts, institutional filings, options flow, news and our proprietary confirmation score into one decision workflow—so you can see what supports the thesis, what conflicts with it and what changed.
-              </p>
-              <a href="/stock-research-app" className="mt-5 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">
-                Explore Walnut's stock research app
-              </a>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {whyWalnut.map((item) => (
-                <div key={item.title} className={`relative min-h-[150px] overflow-hidden rounded-lg border p-5 ${item.cardClassName}`}>
-                  <div className={`pointer-events-none absolute -bottom-8 -right-8 h-28 w-28 rounded-full blur-2xl ${item.glowClassName}`} />
-                  <div className="relative flex h-full min-h-[110px] flex-col justify-between gap-5">
-                    <div className="flex items-start justify-between gap-4">
-                      <h3 className="max-w-[9rem] text-sm font-semibold leading-6 text-slate-100">{item.title}</h3>
-                      <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border ${item.iconClassName}`}>
-                        <WhyWalnutIcon kind={item.icon} />
-                      </div>
-                    </div>
-                    <div className="h-px w-full bg-gradient-to-r from-white/15 via-white/5 to-transparent" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div id="compare" className="mt-10 grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div id="compare" className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
             <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
             <div>
               <SectionEyebrow>Compare</SectionEyebrow>

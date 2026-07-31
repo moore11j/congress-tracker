@@ -61,10 +61,6 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /The market has tells\. Walnut finds them\./);
   assert.match(landingPage, /Find stocks worth buying—and when to make a move\./);
   assert.match(landingPage, /See which way the data is pointing\./);
-  assert.match(landingPage, /Evaluate the full investment case before putting capital at risk\./);
-  assert.match(landingPage, /Explore Walnut's stock research app/);
-  assert.match(landingPage, /What changed/);
-  assert.match(landingPage, /function WhyWalnutIcon/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
   assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart\.<\/h2>/);
   assert.match(landingPage, /Higher-conviction opportunities\./);
@@ -72,15 +68,13 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
   assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
-  assert.match(landingPage, /icon: "trendUp"/);
-  assert.match(landingPage, /icon: "trendDown"/);
-  assert.match(landingPage, /icon: "confirmedTrend"/);
-  assert.match(landingPage, /icon: "splitData"/);
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
-  assert.equal((landingPage.match(/<SectionEyebrow>Why Walnut<\/SectionEyebrow>/g) ?? []).length, 1);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Why Walnut<\/SectionEyebrow>/);
+  assert.doesNotMatch(landingPage, /Evaluate the full investment case before putting capital at risk\./);
+  assert.doesNotMatch(landingPage, /Explore Walnut's stock research app/);
 });
 
-test("landing page adds Compare under Why Walnut with real screenshot and plan positioning", () => {
+test("landing page adds Compare with real screenshot and plan positioning", () => {
   assert.match(landingPage, /const compareSamplePath = "\/compare\/NVDA\/MU"/);
   assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
   assert.match(landingPage, /<SectionEyebrow>Compare<\/SectionEyebrow>/);
