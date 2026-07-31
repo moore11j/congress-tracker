@@ -59,7 +59,7 @@ test("landing SEO labels use insights and stock screener copy", () => {
 
 test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /The market has tells\. Walnut finds them\./);
-  assert.match(landingPage, /Find stocks worth buying—and when to make a move\./);
+  assert.match(landingPage, /Find stocks worth buying\. Know when to make a move\./);
   assert.match(landingPage, /See which way the data is pointing\./);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
   assert.match(landingPage, /our proprietary confirmation score/);
