@@ -16,7 +16,6 @@ const seoRoutes = [
   "/government-contracts",
   "/institutional-filings",
   "/stock-confirmation-score",
-  "/market-intelligence-terminal",
 ];
 
 function readAppPage(route) {
@@ -41,6 +40,7 @@ test("public marketing pages define self-referencing canonical metadata", () => 
   for (const route of seoRoutes) {
     assert.match(readAppPage(route.slice(1)), /marketingSeoPageMetadata\(page\.pathname/);
   }
+  assert.match(readAppPage("market-intelligence-terminal"), /permanentRedirect\("\/"\)/);
 });
 
 test("sitemap contains canonical URLs and no www or http variants", () => {
@@ -53,6 +53,7 @@ test("sitemap contains canonical URLs and no www or http variants", () => {
   for (const route of seoRoutes) {
     assert.ok(urls.includes(`https://walnutmarkets.com${route}`));
   }
+  assert.ok(!urls.includes("https://walnutmarkets.com/market-intelligence-terminal"));
   assert.ok(urls.every((url) => url.startsWith("https://walnutmarkets.com/")));
   assert.doesNotMatch(sitemap, /https?:\/\/www\.walnutmarkets\.com/);
   assert.doesNotMatch(sitemap, /http:\/\/walnutmarkets\.com/);
@@ -67,6 +68,13 @@ test("robots points crawlers to the canonical sitemap without blocking marketing
   for (const route of seoRoutes) {
     assert.doesNotMatch(robots, new RegExp(`Disallow: ${route}`));
   }
+});
+
+test("obsolete market intelligence terminal route redirects permanently to homepage", () => {
+  assert.match(middleware, /pathname === "\/market-intelligence-terminal"/);
+  assert.match(middleware, /canonicalUrl\.pathname = "\/"/);
+  assert.match(middleware, /canonicalUrl\.search = ""/);
+  assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 308\)/);
 });
 
 test("http and www marketing requests redirect permanently while preserving path and query", () => {

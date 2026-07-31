@@ -15,8 +15,8 @@ const publicSeoRoutes = [
   "/government-contracts",
   "/institutional-filings",
   "/stock-confirmation-score",
-  "/market-intelligence-terminal",
 ];
+const redirectedMarketingRoutes = ["/market-intelligence-terminal"];
 const publicLandingRoutes = [
   "/",
   "/landing",
@@ -55,6 +55,9 @@ test("marketing robots keep marketing and public ticker pages indexable", () => 
   assert.match(middleware, /Allow: \//);
   for (const route of publicSeoRoutes) {
     assert.match(middleware, new RegExp(`"${route}"`));
+  }
+  for (const route of redirectedMarketingRoutes) {
+    assert.match(middleware, new RegExp(`pathname === "${route}"`));
   }
   assert.match(middleware, /Sitemap: https:\/\/walnutmarkets\.com\/sitemap\.xml/);
   assert.match(middleware, /Sitemap: https:\/\/app\.walnutmarkets\.com\/sitemap-index\.xml/);

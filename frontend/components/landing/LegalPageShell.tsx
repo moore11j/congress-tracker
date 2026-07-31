@@ -77,7 +77,7 @@ export function LegalPageShell({ eyebrow, title, description, lastUpdated, chrom
               Walnut Market Terminal is operated by Walnut Intelligence Inc.
             </p>
             <p className="mt-1 text-xs leading-5 text-slate-400">
-              Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
+              Walnut is a stock research and analysis platform operated by Walnut Intelligence Inc. It is provided for research and informational purposes only and does not provide investment advice.
             </p>
           </div>
           <nav className="flex flex-wrap gap-4" aria-label="Legal footer">

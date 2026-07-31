@@ -16,7 +16,6 @@ import {
   walnutMarketingMetadata,
 } from "@/lib/marketingMetadata";
 import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
-import { publicResearchTools } from "@/lib/publicResearchTools";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +73,31 @@ const navLinks = [
   ["Stock Screener", "#screener"],
   ["About", "/about"],
   ["Pricing", "#pricing"],
+] as const;
+
+const platformFooterLinks = [
+  { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
+  { label: "Stock Screener", href: `${appUrl}/screener` },
+  { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },
+  { label: "Research Briefs", href: `${appUrl}/insights` },
+  { label: "Pricing", href: publicPricingUrl },
+] as const;
+
+const researchDataFooterLinks = [
+  { label: "Congress Trades", href: "/congress-trades" },
+  { label: "Insider Trading", href: "/insider-trading-tracker" },
+  { label: "Government Contracts", href: "/government-contracts" },
+  { label: "Institutional Filings", href: "/institutional-filings" },
+  { label: "Confirmation Score", href: "/stock-confirmation-score" },
+  { label: "Macro Positioning", href: `${appUrl}/insights#macro-positioning` },
+] as const;
+
+const companyFooterLinks = [
+  { label: "About", href: "/about" },
+  { label: "FAQ", href: "/faq" },
+  { label: "Contact", href: "mailto:support@walnutmarkets.com" },
+  { label: "Terms", href: "/terms" },
+  { label: "Privacy", href: "/privacy" },
 ] as const;
 
 const signalCards = [
@@ -863,18 +887,17 @@ export default async function LandingPage() {
       </header>
 
       <section className="relative border-b border-white/10">
-        <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
+        <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 pb-4 pt-8 sm:px-6 sm:pb-6 sm:pt-16 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
           <div className="max-w-3xl">
             <SectionEyebrow>Stock Research &amp; Analysis Platform</SectionEyebrow>
-            <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              Stock research that shows whether the investment thesis is strengthening or weakening.
+            <h1 className="mt-3 max-w-4xl text-[2.08rem] font-semibold leading-[1.06] text-white sm:mt-5 sm:text-5xl lg:text-6xl">
+              See whether a stock's investment thesis is strengthening or weakening.
             </h1>
-            <p className="mt-5 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">
+            <p className="mt-3 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:mt-5 sm:text-xl">
               The market has tells. Walnut finds them.
             </p>
-            <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more data.</p>
-            <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Analyze stocks across fundamentals, technicals, Congress and insider activity, government contracts, institutional filings, macro positioning and Walnut's proprietary confirmation score, all in one research workflow.
+            <p className="mt-3 max-w-2xl text-base leading-6 text-slate-300 sm:mt-6 sm:text-lg sm:leading-7">
+              Analyze fundamentals, technicals, Congress and insider activity, institutional filings, government contracts, macro positioning and Walnut's proprietary confirmation score&mdash;all in one research workflow.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -882,7 +905,7 @@ export default async function LandingPage() {
                 href={appUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Find your next high-conviction setup
+                Find your next stock opportunity
               </a>
             </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
@@ -940,13 +963,13 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section id="signals" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section id="signals" className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Ticker Research Data</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Find stronger setups with data that reinforces the thesis.</h2>
+            <SectionEyebrow>Stock Research Data</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See what strengthens—or weakens—the investment thesis.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut shows when fundamentals, price action, insiders, Congress activity, government contracts, institutions and other relevant data are moving in the same direction
+              Walnut brings fundamentals, price action, Congress and insider activity, government contracts, institutional filings and macro positioning into one view—so you can see what supports the thesis, what conflicts with it and what changed.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -959,11 +982,11 @@ export default async function LandingPage() {
                 </>
               );
               return "href" in card ? (
-                <a key={card.title} href={card.href} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 transition hover:border-emerald-300/35 hover:bg-white/[0.055]">
+                <a key={card.title} href={card.href} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 transition hover:border-emerald-300/35 hover:bg-white/[0.055] sm:p-5">
                   {content}
                 </a>
               ) : (
-                <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+                <article key={card.title} className="rounded-lg border border-white/10 bg-white/[0.035] p-4 sm:p-5">
                   {content}
                 </article>
               );
@@ -1000,12 +1023,12 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <SectionEyebrow>Congress and Insider Trade Profiles</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate the people behind the public disclosures.</h2>
-            <p className="mt-4 text-sm leading-6 text-slate-400">Portfolio simulations, insider profiles, ticker charts, and and trade analytics help you find who you should be following.</p>
+            <SectionEyebrow>Congress &amp; Insider Profiles</SectionEyebrow>
+            <h2 className="mt-3 text-[1.72rem] font-semibold leading-tight text-white sm:text-4xl">See who is trading—and whether their activity is worth following.</h2>
+            <p className="mt-4 text-sm leading-6 text-slate-400">Explore disclosure histories, portfolio simulations, insider profiles, ticker charts and trade analytics to understand whose activity has historically provided useful market context.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
@@ -1030,18 +1053,18 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
+      <section className="border-b border-white/10 px-4 pb-14 pt-7 sm:px-6 sm:pb-16 sm:pt-9 lg:px-8 lg:py-16">
         <div className="mx-auto max-w-7xl">
           <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
             <div>
               <SectionEyebrow>Why Walnut</SectionEyebrow>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate all the data in one terminal before putting capital at risk.</h2>
+              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Evaluate the full investment case before putting capital at risk.</h2>
               <p className="mt-5 text-base leading-7 text-slate-400">
-                Walnut brings technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into one decision workflow.
+                Walnut brings technicals, fundamentals, Congress and insider activity, government contracts, institutional filings, options flow, news and our proprietary confirmation score into one decision workflow—so you can see what supports the thesis, what conflicts with it and what changed.
               </p>
-              <p className="mt-4 text-base leading-7 text-slate-400">
-                We help investors identify stronger setups, avoid weaker entries, recognize conflicting data, and monitor whether the thesis is strengthening or weakening.
-              </p>
+              <a href="/stock-research-app" className="mt-5 inline-flex text-sm font-semibold text-emerald-200 hover:text-emerald-100">
+                Explore Walnut's stock research app
+              </a>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {whyWalnut.map((item) => (
@@ -1277,54 +1300,45 @@ export default async function LandingPage() {
       </section>
 
       <footer className="px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-8 text-sm text-slate-400 lg:grid-cols-[1fr_1fr_1fr]">
+        <div className="mx-auto grid max-w-7xl gap-8 text-sm text-slate-400 lg:grid-cols-[1.1fr_2fr]">
           <div>
-            <p className="font-semibold text-white">Walnut Market Terminal</p>
-            <p className="mt-1">Walnut Market Terminal is operated by Walnut Intelligence Inc.</p>
+            <p className="font-semibold text-white">Walnut Markets</p>
             <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-400">
-              Walnut is a market intelligence terminal for research and informational purposes only. Walnut does not provide investment advice.
+              Walnut is a stock research and analysis platform operated by Walnut Intelligence Inc. It is provided for research and informational purposes only and does not provide investment advice.
             </p>
           </div>
-          <nav className="grid gap-2" aria-label="Research tools footer">
-            <p className="font-semibold text-slate-300">Research tools</p>
-            {publicResearchTools.map((tool) => (
-              <a key={tool.href} href={tool.href} className="hover:text-white">
-                {tool.label}
+          <div className="grid gap-6 sm:grid-cols-3">
+            <nav className="grid content-start gap-2" aria-label="Platform footer">
+              <p className="font-semibold text-slate-300">Platform</p>
+              {platformFooterLinks.map((link) => (
+                <a key={link.href} href={link.href} className="hover:text-white">
+                  {link.label}
+                </a>
+              ))}
+            </nav>
+            <nav className="grid content-start gap-2" aria-label="Research data footer">
+              <p className="font-semibold text-slate-300">Research data</p>
+              {researchDataFooterLinks.map((link) => (
+                <a key={link.href} href={link.href} className="hover:text-white">
+                  {link.label}
+                </a>
+              ))}
+            </nav>
+            <nav className="grid content-start gap-2" aria-label="Company footer">
+              <p className="font-semibold text-slate-300">Company</p>
+              {companyFooterLinks.map((link) => (
+                <a key={link.href} href={link.href} className="hover:text-white">
+                  {link.label}
+                </a>
+              ))}
+              <a href={WALNUT_X_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+                X / {WALNUT_X_HANDLE}
               </a>
-            ))}
-          </nav>
-          <nav className="flex flex-wrap gap-4 lg:justify-end" aria-label="Company footer">
-            <a href={appUrl} className="hover:text-white">
-              App
-            </a>
-            <a href={pricingUrl} className="hover:text-white">
-              Pricing
-            </a>
-            <a href={loginUrl} className="hover:text-white">
-              Login / Register
-            </a>
-            <a href="/about" className="hover:text-white">
-              About
-            </a>
-            <a href="/faq" className="hover:text-white">
-              FAQ
-            </a>
-            <a href="/terms" className="hover:text-white">
-              Terms
-            </a>
-            <a href="/privacy" className="hover:text-white">
-              Privacy
-            </a>
-            <a href="mailto:support@walnutmarkets.com" className="hover:text-white">
-              Contact / support@walnutmarkets.com
-            </a>
-            <a href={WALNUT_X_URL} target="_blank" rel="noreferrer" className="hover:text-white">
-              X / {WALNUT_X_HANDLE}
-            </a>
-            <a href={WALNUT_REDDIT_URL} target="_blank" rel="noreferrer" className="hover:text-white">
-              Reddit / r/walnutmarkets
-            </a>
-          </nav>
+              <a href={WALNUT_REDDIT_URL} target="_blank" rel="noreferrer" className="hover:text-white">
+                Reddit / r/walnutmarkets
+              </a>
+            </nav>
+          </div>
         </div>
       </footer>
     </main>

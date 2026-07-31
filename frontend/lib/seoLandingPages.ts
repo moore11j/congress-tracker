@@ -5,6 +5,7 @@ import {
   WALNUT_SOCIAL_URLS,
   marketingCanonicalUrl,
 } from "@/lib/marketingMetadata";
+import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 
 export type SeoLandingPageKey =
   | "stockResearchApp"
@@ -13,12 +14,19 @@ export type SeoLandingPageKey =
   | "insiderTradingTracker"
   | "governmentContracts"
   | "institutionalFilings"
-  | "stockConfirmationScore"
-  | "marketIntelligenceTerminal";
+  | "stockConfirmationScore";
+
+export type SeoLandingPageCard = {
+  title: string;
+  body: string;
+  href?: string;
+  label?: string;
+};
 
 export type SeoLandingPageSection = {
   title: string;
-  paragraphs: string[];
+  paragraphs?: string[];
+  cards?: SeoLandingPageCard[];
 };
 
 export type SeoLandingPageFaq = {
@@ -30,6 +38,7 @@ export type SeoLandingPage = {
   pathname: string;
   title: string;
   description: string;
+  breadcrumbLabel: string;
   eyebrow: string;
   h1: string;
   intro: string;
@@ -41,110 +50,368 @@ export type SeoLandingPage = {
     label: string;
     href: string;
   };
+  secondaryCta?: {
+    label: string;
+    href: string;
+  };
 };
 
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 const loginUrl = `${appUrl}/login`;
 
+function titleCaseTier(tier: string): string {
+  return tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
+function requiredTierLabel(featureKey: string): string {
+  const gate = defaultPlanConfig.feature_gates.find((item) => item.feature_key === featureKey);
+  return gate ? titleCaseTier(gate.required_tier) : "Free";
+}
+
+const planAccessCards: SeoLandingPageCard[] = defaultPlanConfig.tiers.map((tier) => ({
+  title: tier.name,
+  body: tier.description,
+  href: "/pricing",
+  label: "Plan access",
+}));
+
 export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
   stockResearchApp: {
     pathname: "/stock-research-app",
-    title: "Stock Research App | Walnut Markets",
+    title: "Stock Research App for Better Investment Research | Walnut Markets",
     description:
-      "Use Walnut Markets to research stocks across fundamentals, technicals, Congress trades, insider activity, contracts, filings, and confirmation-score context.",
-    eyebrow: "Stock research software",
-    h1: "Stock research app for checking whether the thesis is strengthening or weakening.",
+      "Use Walnut to research stocks, track thesis changes, compare companies, review disclosures and organize technical, fundamental and alternative data in one investment research workflow.",
+    breadcrumbLabel: "Stock Research App",
+    eyebrow: "Stock research app",
+    h1: "A stock research app built around the investment thesis.",
     intro:
-      "Walnut Markets brings data, interpretation, judgment, and action-ready research into one workflow for investors who need more than a quote page or a watchlist.",
+      "Walnut helps investors move from a ticker to an organized thesis review, then keep monitoring what changed across watchlists, screens, comparisons, alerts, and research briefs.",
     highlights: [
-      "Ticker research across technical, fundamental, and alternative data",
-      "Congress trades, insider activity, government contracts, and 13F context",
-      "Research-only workflow with no buy or sell recommendations",
+      "Start from a ticker and review the current stock context",
+      "Build a research case across technical, fundamental, disclosure, contract, filing, catalyst, and risk inputs",
+      "Track thesis changes with watchlists, saved screens, alerts, comparisons, and briefs",
     ],
     sections: [
       {
-        title: "Built for ticker-first research",
-        paragraphs: [
-          "Walnut starts with the stock and gathers the surrounding evidence: price and volume, fundamentals, public disclosures, government contract exposure, institutional filings, catalysts, risks, and Walnut's proprietary confirmation score.",
-          "The workflow is designed to help investors see what supports a thesis, what contradicts it, and what changed since the last review.",
+        title: "Start with a ticker",
+        cards: [
+          {
+            title: "Search or open a stock",
+            body: "Begin with a symbol, then move directly into the ticker page instead of stitching context together from separate quote pages.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Ticker page",
+          },
+          {
+            title: "Review current context",
+            body: "Scan price action, volume, fundamentals, disclosures, contract exposure, filings, catalysts, and risks from the same research surface.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Research workflow",
+          },
+          {
+            title: "See what changed",
+            body: "Use freshness, source activity, and thesis-change context to decide what deserves a deeper review.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Thesis review",
+          },
         ],
       },
       {
-        title: "From data to judgment",
-        paragraphs: [
-          "Raw data is useful only when it can be interpreted. Walnut organizes each source into context the investor can inspect before deciding what deserves more work.",
-          "The confirmation score is an interpretive research metric. It does not replace the underlying data or provide investment advice.",
+        title: "Build the investment case",
+        cards: [
+          {
+            title: "Technicals",
+            body: "Inspect trend state, price and volume behavior, liquidity, momentum, and market setup from the ticker view.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Ticker research",
+          },
+          {
+            title: "Fundamentals",
+            body: "Review valuation, growth, margins, leverage, cash flow, returns, earnings quality, and business context.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Fundamental context",
+          },
+          {
+            title: "Public disclosures",
+            body: "Connect Congress disclosures and corporate insider filings to the ticker without treating either source as a standalone signal.",
+            href: "/congress-trades",
+            label: "Disclosure research",
+          },
+          {
+            title: "Institutions and contracts",
+            body: "Add reported institutional filings and government contract exposure where those data points are material to the stock story.",
+            href: "/institutional-filings",
+            label: "Alternative data",
+          },
+          {
+            title: "Catalysts and risks",
+            body: "Keep thesis drivers, risk flags, and open questions visible as the evidence changes.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Thesis context",
+          },
         ],
       },
       {
-        title: "Examples to start with",
-        paragraphs: [
-          "Researchers can open public ticker examples such as NVDA, AAPL, MSFT, TSLA, PLTR, and LMT, then move into related Congress, insider, institutional, contract, and comparison workflows.",
+        title: "Monitor the thesis",
+        cards: [
+          {
+            title: "Watchlists",
+            body: "Save companies you want to revisit and monitor as disclosures, prices, and source activity change.",
+            href: `${appUrl}/watchlists`,
+            label: requiredTierLabel("watchlists"),
+          },
+          {
+            title: "Screens",
+            body: "Use screens and saved screen workflows to surface new candidates without losing your original research criteria.",
+            href: `${appUrl}/screener`,
+            label: requiredTierLabel("screener"),
+          },
+          {
+            title: "Alerts and inbox updates",
+            body: "Track monitored sources and inbox updates from watchlists and saved screens as new activity appears.",
+            href: `${appUrl}/monitoring`,
+            label: requiredTierLabel("inbox_alerts"),
+          },
+          {
+            title: "Confirmation changes",
+            body: "Use Walnut's proprietary confirmation score as a separate research metric next to the underlying evidence.",
+            href: "/stock-confirmation-score",
+            label: requiredTierLabel("ticker_confirmation"),
+          },
+          {
+            title: "Research briefs",
+            body: "Use briefs to turn a ticker question into a structured research review when a short quote page is not enough.",
+            href: `${appUrl}/insights`,
+            label: "Research workflow",
+          },
         ],
       },
       {
-        title: "Plan access",
+        title: "Compare opportunities",
         paragraphs: [
-          "Free users can explore core ticker research and public disclosure context. Premium adds deeper confirmation and comparison workflows. Pro adds institutional activity, macro positioning, market pressure, and higher research limits.",
+          "When two companies compete for capital, Walnut's compare workflow helps investors place the investment cases side by side and see which one has stronger current support.",
         ],
+        cards: [
+          {
+            title: "Compare stocks",
+            body: "Compare fundamentals, price action, disclosures, catalysts, risks, and Walnut's confirmation score between two tickers.",
+            href: `${appUrl}/compare/NVDA/MU`,
+            label: requiredTierLabel("peer_compare"),
+          },
+          {
+            title: "Example workflow",
+            body: "Open NVDA versus MU to see how the comparison experience organizes competing investment cases.",
+            href: `${appUrl}/compare/NVDA/MU`,
+            label: "Example",
+          },
+        ],
+      },
+      {
+        title: "Access and plans",
+        paragraphs: [
+          "Free access supports a focused starter workflow. Premium and Pro expand the research surface, monitoring capacity, comparison depth, and higher-limit data sets according to the current plan configuration.",
+        ],
+        cards: planAccessCards,
       },
     ],
     popularTickers: ["NVDA", "AAPL", "MSFT", "TSLA", "PLTR", "LMT"],
     faq: [
       {
-        question: "Is Walnut a stock research app or an investment adviser?",
+        question: "Who is Walnut built for?",
         answer:
-          "Walnut is a stock research app for informational use. It does not provide personalized investment advice or buy and sell recommendations.",
+          "Walnut is built for investors who want a repeatable workflow for researching stocks, monitoring thesis changes, comparing opportunities, and reviewing public market context.",
       },
       {
-        question: "Does Walnut predict stock returns?",
+        question: "Why use Walnut instead of a simple quote page?",
         answer:
-          "No. Walnut helps investors inspect evidence and risk context; it does not guarantee outcomes or predict market returns.",
+          "A quote page shows price context. Walnut connects the ticker to workflow tools for screens, watchlists, comparisons, disclosures, filings, contracts, and research briefs.",
       },
     ],
     primaryCta: {
       label: "Research NVDA in Walnut",
       href: `${appUrl}/ticker/NVDA`,
     },
+    secondaryCta: {
+      label: "View Walnut's stock analysis tools",
+      href: "/stock-analysis-tools",
+    },
   },
   stockAnalysisTools: {
     pathname: "/stock-analysis-tools",
-    title: "Stock Analysis Tools | Walnut Markets",
+    title: "Stock Analysis Tools for Investors | Walnut Markets",
     description:
-      "Analyze stocks with technical indicators, fundamentals, disclosures, contracts, filings, comparisons, and Walnut's proprietary confirmation score.",
-    eyebrow: "Stock market analysis tools",
-    h1: "Stock analysis tools that connect data, interpretation, judgment, and action-ready research.",
+      "Explore Walnut's stock analysis tools for technicals, fundamentals, stock screening, comparisons, Congress trades, insider activity, institutional filings, government contracts and confirmation research.",
+    breadcrumbLabel: "Stock Analysis Tools",
+    eyebrow: "Stock analysis tools",
+    h1: "Stock analysis tools for evaluating the full investment case.",
     intro:
-      "Walnut Markets combines stock analysis tools for investors who want to compare the chart, the business, public disclosures, alternative data, and thesis risk in one place.",
+      "Use this directory to open Walnut tools by research job: ticker research, disclosure review, institutional and contract data, discovery, comparison, and decision context.",
     highlights: [
-      "Technical and fundamental analysis in ticker context",
-      "Disclosure, contract, institutional, and comparison tools",
-      "Confirmation-score context for stronger, weaker, and mixed setups",
+      "Open the right tool for the research question",
+      "Inspect technicals, fundamentals, disclosures, filings, contracts, and comparisons",
+      "Keep Walnut's confirmation score separate from the data that informs it",
     ],
     sections: [
       {
-        title: "Technicals and fundamentals together",
-        paragraphs: [
-          "Walnut helps investors evaluate price action, relative volume, liquidity, trend state, valuation, margins, growth, leverage, cash flow, returns on capital, and earnings quality without separating the chart from the business case.",
+        title: "Ticker research",
+        cards: [
+          {
+            title: "Ticker pages",
+            body: "Open a company page to review the stock, source activity, thesis context, and related research tools.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Free starter access",
+          },
+          {
+            title: "Price and volume",
+            body: "Inspect recent price action, volume behavior, trend context, and liquidity from the ticker workflow.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Ticker context",
+          },
+          {
+            title: "Technical indicators",
+            body: "Use technical filters and ticker-level context to evaluate setup quality and trend state.",
+            href: `${appUrl}/screener`,
+            label: "Screener",
+          },
+          {
+            title: "Fundamentals",
+            body: "Review valuation, margins, growth, leverage, cash flow, returns, and earnings quality.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Ticker context",
+          },
+          {
+            title: "Catalysts, risks, and what changed",
+            body: "Keep the current thesis drivers and open questions visible while reviewing the underlying data.",
+            href: `${appUrl}/ticker/NVDA`,
+            label: "Research workflow",
+          },
         ],
       },
       {
-        title: "Alternative data that still needs context",
-        paragraphs: [
-          "Congress disclosures, reported insider activity, government contracts, institutional filings, macro positioning, and market pressure can all matter, but each source has timing and interpretation limits.",
-          "Walnut keeps those sources visible as research inputs rather than turning them into unsupported recommendations.",
+        title: "Disclosure research",
+        cards: [
+          {
+            title: "Congress trades tracker",
+            body: "Review reported congressional disclosures with timing, ticker, filer, and transaction context.",
+            href: "/congress-trades",
+            label: "Public disclosures",
+          },
+          {
+            title: "Insider trading tracker",
+            body: "Track reported corporate insider filings from public disclosure data without implying illegal activity.",
+            href: "/insider-trading-tracker",
+            label: "SEC filings",
+          },
+          {
+            title: "Member and insider profiles",
+            body: "Open profiles to inspect disclosure histories, ticker context, and activity patterns.",
+            href: `${appUrl}/member/nancy-pelosi`,
+            label: "Profiles",
+          },
+          {
+            title: "Portfolio simulations",
+            body: "Review historical simulated disclosure portfolios where Walnut has enough data to model the activity.",
+            href: `${appUrl}/member/nancy-pelosi`,
+            label: requiredTierLabel("leaderboards"),
+          },
+          {
+            title: "Disclosure timing context",
+            body: "Separate transaction dates from filing dates so historical disclosures are interpreted with the correct timing.",
+            href: "/congress-trades",
+            label: "Research context",
+          },
         ],
       },
       {
-        title: "Compare and screen",
-        paragraphs: [
-          "Use the stock screener to find candidates, open ticker pages for deeper context, and compare stocks when two investment cases need to be weighed side by side.",
+        title: "Institutional and contract data",
+        cards: [
+          {
+            title: "Institutional filings",
+            body: "Inspect reported institutional activity, 13F timing, filing dates, and quarter-end holdings context.",
+            href: "/institutional-filings",
+            label: requiredTierLabel("institutional_feed"),
+          },
+          {
+            title: "Government contracts",
+            body: "Review contract awards and modifications that may matter to a public company's investment case.",
+            href: "/government-contracts",
+            label: requiredTierLabel("government_contracts_feed"),
+          },
+          {
+            title: "Department profiles",
+            body: "Use department-level context when contract exposure matters to the ticker story.",
+            href: `${appUrl}/departments/department-of-defense`,
+            label: "Contract context",
+          },
+          {
+            title: "Institution profiles",
+            body: "Open institution pages when a reported filer deserves closer review.",
+            href: "/institutional-filings",
+            label: "Filing context",
+          },
         ],
       },
       {
-        title: "Research-only analysis",
+        title: "Discovery and comparison",
+        cards: [
+          {
+            title: "Stock screener",
+            body: "Filter stocks by technical, fundamental, and research-context criteria.",
+            href: `${appUrl}/screener`,
+            label: requiredTierLabel("screener"),
+          },
+          {
+            title: "Saved screens",
+            body: "Save useful discovery setups and revisit the same screen as new market data arrives.",
+            href: `${appUrl}/screener`,
+            label: requiredTierLabel("screener_saved_screens"),
+          },
+          {
+            title: "Compare stocks",
+            body: "Place two investment cases side by side when capital has to choose between alternatives.",
+            href: `${appUrl}/compare/NVDA/MU`,
+            label: requiredTierLabel("peer_compare"),
+          },
+          {
+            title: "Research briefs",
+            body: "Use structured briefs when a ticker question needs a concise, source-aware research review.",
+            href: `${appUrl}/insights`,
+            label: "Research workflow",
+          },
+        ],
+      },
+      {
+        title: "Decision context",
+        cards: [
+          {
+            title: "Confirmation score",
+            body: "Review Walnut's proprietary confirmation score as a separate research metric next to the data that informs it.",
+            href: "/stock-confirmation-score",
+            label: requiredTierLabel("ticker_confirmation"),
+          },
+          {
+            title: "Macro positioning",
+            body: "Inspect institutional futures positioning as broader context, separate from the confirmation score.",
+            href: `${appUrl}/feed/macro-positioning`,
+            label: requiredTierLabel("macro_positioning"),
+          },
+          {
+            title: "Market pressure",
+            body: "Use sector-organized pressure maps to understand where price movement and confirmation context are concentrated.",
+            href: `${appUrl}/market-pressure`,
+            label: requiredTierLabel("market_pressure"),
+          },
+          {
+            title: "Options flow",
+            body: "Options flow access is planned as a Pro-level data layer and should be treated as availability-gated.",
+            href: "/pricing",
+            label: requiredTierLabel("options_flow_feed"),
+          },
+        ],
+      },
+      {
+        title: "Methodology note",
         paragraphs: [
-          "Walnut Markets provides stock analysis software for informational research. Users remain responsible for their own investment decisions and should verify important information independently.",
+          "Walnut keeps underlying data categories visible and separate from interpretive metrics. The confirmation score summarizes research context, but users should still inspect the source data behind any thesis review.",
         ],
       },
     ],
@@ -153,17 +420,21 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       {
         question: "What stock analysis tools does Walnut include?",
         answer:
-          "Walnut includes ticker research, technicals, fundamentals, public disclosures, contracts, institutional filings, comparisons, screening, and confirmation-score context.",
+          "Walnut includes ticker pages, technical and fundamental context, the stock screener, comparisons, Congress and insider disclosure research, institutional filings, government contracts, macro positioning, market pressure, and confirmation research.",
       },
       {
-        question: "Is the confirmation score investment advice?",
+        question: "How do I open a tool from this page?",
         answer:
-          "No. The confirmation score is a proprietary research metric that summarizes cross-source context. It is not investment advice.",
+          "Use the card links to open the most relevant public product page, ticker example, screener, comparison, disclosure page, or plan page.",
       },
     ],
     primaryCta: {
-      label: "Compare NVDA and MU",
-      href: `${appUrl}/compare/NVDA/MU`,
+      label: "Open Stock Screener",
+      href: `${appUrl}/screener`,
+    },
+    secondaryCta: {
+      label: "Explore Walnut's stock research app",
+      href: "/stock-research-app",
     },
   },
   congressTrades: {
@@ -171,6 +442,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     title: "Congress Trades Tracker | Walnut Markets",
     description:
       "Track reported U.S. Congress stock trades, disclosure dates, tickers, transaction types, and related market data with Walnut Markets.",
+    breadcrumbLabel: "Congress Trades",
     eyebrow: "Public disclosure research",
     h1: "Congress Trades Tracker",
     intro:
@@ -245,6 +517,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     title: "Insider Trading Tracker | Walnut Markets",
     description:
       "Track reported insider buying and selling activity, Form 4 disclosures, ticker context, and market data with Walnut Markets.",
+    breadcrumbLabel: "Insider Trading",
     eyebrow: "SEC disclosure research",
     h1: "Insider Trading Tracker",
     intro:
@@ -303,6 +576,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     title: "Government Contracts Tracker | Walnut Markets",
     description:
       "Track government contract awards, public disclosure activity, and ticker context in Walnut Markets.",
+    breadcrumbLabel: "Government Contracts",
     eyebrow: "Contract award research",
     h1: "Government Contracts Tracker",
     intro:
@@ -360,6 +634,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     title: "Institutional Filings Tracker | Walnut Markets",
     description:
       "Track reported institutional filings, 13F activity, ticker context, and market data in Walnut Markets.",
+    breadcrumbLabel: "Institutional Filings",
     eyebrow: "13F filing research",
     h1: "Institutional Filings Tracker",
     intro:
@@ -417,6 +692,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     title: "Stock Confirmation Score | Walnut Markets",
     description:
       "Learn how Walnut's proprietary confirmation score helps investors interpret market data across price/volume, fundamentals, public disclosures, and ticker context.",
+    breadcrumbLabel: "Confirmation Score",
     eyebrow: "Proprietary research metric",
     h1: "Stock Confirmation Score",
     intro:
@@ -468,63 +744,6 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     primaryCta: {
       label: "Explore Confirmation Score",
       href: `${appUrl}/ticker/NVDA`,
-    },
-  },
-  marketIntelligenceTerminal: {
-    pathname: "/market-intelligence-terminal",
-    title: "Market Intelligence Terminal | Walnut Markets",
-    description:
-      "Walnut Markets is a stock market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, and ticker context.",
-    eyebrow: "Walnut Market Terminal",
-    h1: "Market Intelligence Terminal",
-    intro:
-      "Walnut Markets is a stock market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, ticker context, watchlists, screeners, and proprietary confirmation data.",
-    highlights: [
-      "Technicals, fundamentals, disclosures, and ticker research",
-      "Congress trades, insider activity, contracts, and filings in context",
-      "Built for research and informational use",
-    ],
-    sections: [
-      {
-        title: "What Walnut Markets is",
-        paragraphs: [
-          "Walnut Markets is the public brand for Walnut Market Terminal, a research platform operated by Walnut Intelligence Inc. The product brings market data and public disclosure context into a single workflow for ticker research.",
-        ],
-      },
-      {
-        title: "What investors can research",
-        paragraphs: [
-          "Users can research technicals, fundamentals, Congress trades, reported insider activity, government contracts, reported institutional filings, market pressure, event context, and proprietary confirmation data.",
-        ],
-      },
-      {
-        title: "How Walnut supports ticker research",
-        paragraphs: [
-          "Walnut is designed to help researchers move from a ticker to the surrounding evidence. The terminal emphasizes source context, dates, issuer details, and cross-source confirmation without presenting those signals as personalized advice.",
-        ],
-      },
-      {
-        title: "Research only. Not investment advice.",
-        paragraphs: [
-          "Walnut Markets provides stock market intelligence tools for informational research. Walnut does not provide investment advice, brokerage services, or recommendations to buy or sell securities.",
-        ],
-      },
-    ],
-    faq: [
-      {
-        question: "Who operates Walnut Markets?",
-        answer:
-          "Walnut Markets and Walnut Market Terminal are operated by Walnut Intelligence Inc.",
-      },
-      {
-        question: "Is Walnut a brokerage or investment adviser?",
-        answer:
-          "No. Walnut is a stock market intelligence terminal for research and informational purposes only.",
-      },
-    ],
-    primaryCta: {
-      label: "Launch Terminal",
-      href: appUrl,
     },
   },
 };
@@ -585,7 +804,7 @@ export function seoLandingPageJsonLd(page: SeoLandingPage) {
       {
         "@type": "ListItem",
         position: 2,
-        name: page.h1,
+        name: page.breadcrumbLabel,
         item: canonicalUrl,
       },
     ],

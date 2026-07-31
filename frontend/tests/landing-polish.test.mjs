@@ -52,16 +52,17 @@ test("landing SEO labels use insights and stock screener copy", () => {
   assert.doesNotMatch(landingPage, /View Congress Trades/);
   assert.doesNotMatch(landingPage, /Explore Signals/);
   assert.match(landingPage, /<SectionEyebrow>Daily Insights<\/SectionEyebrow>/);
-  assert.match(landingPage, /<SectionEyebrow>Congress and Insider Trade Profiles<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Congress &amp; Insider Profiles<\/SectionEyebrow>/);
   assert.match(landingPage, /\["Stock Screener", "#screener"\]/);
   assert.match(landingPage, /<SectionEyebrow>Stock Screener<\/SectionEyebrow>/);
 });
 
 test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /The market has tells\. Walnut finds them\./);
-  assert.match(landingPage, /Find stronger opportunities\. Avoid weaker setups\. Make investment decisions with more data\./);
-  assert.match(landingPage, /Find stronger setups with data that reinforces the thesis\./);
-  assert.match(landingPage, /Evaluate all the data in one terminal before putting capital at risk\./);
+  assert.match(landingPage, /See whether a stock's investment thesis is strengthening or weakening\./);
+  assert.match(landingPage, /See what strengthens—or weakens—the investment thesis\./);
+  assert.match(landingPage, /Evaluate the full investment case before putting capital at risk\./);
+  assert.match(landingPage, /Explore Walnut's stock research app/);
   assert.match(landingPage, /What changed/);
   assert.match(landingPage, /function WhyWalnutIcon/);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
@@ -117,7 +118,7 @@ test("landing macro rows resolve Core CPI by label variants", () => {
 });
 
 test("public legal navigation includes FAQ across landing and legal shell", () => {
-  assert.match(landingPage, /href="\/faq"[\s\S]*?FAQ/);
+  assert.match(landingPage, /\{ label: "FAQ", href: "\/faq" \}/);
   assert.match(legalShell, /href="\/faq"[\s\S]*?FAQ/);
   assert.match(legalShell, /chrome\?: "public" \| "embedded"/);
   assert.match(legalShell, /if \(chrome === "embedded"\)/);

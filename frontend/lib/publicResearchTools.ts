@@ -34,9 +34,4 @@ export const publicResearchTools = [
     label: "Confirmation score",
     shortLabel: "Confirmation score",
   },
-  {
-    href: "/market-intelligence-terminal",
-    label: "Market intelligence terminal",
-    shortLabel: "Market terminal",
-  },
 ] as const;

@@ -17,7 +17,6 @@ const publicStaticPaths = new Set([
   "/government-contracts",
   "/institutional-filings",
   "/stock-confirmation-score",
-  "/market-intelligence-terminal",
   "/stock-research-app",
   "/stock-analysis-tools",
 ]);
@@ -211,6 +210,16 @@ export async function middleware(request: NextRequest) {
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const requestProto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
   const isHttpCanonicalMarketingRequest = host === canonicalMarketingHost && requestProto === "http";
+
+  if (pathname === "/market-intelligence-terminal") {
+    const canonicalUrl = request.nextUrl.clone();
+    canonicalUrl.protocol = "https:";
+    canonicalUrl.hostname = canonicalMarketingHost;
+    canonicalUrl.port = "";
+    canonicalUrl.pathname = "/";
+    canonicalUrl.search = "";
+    return NextResponse.redirect(canonicalUrl, 308);
+  }
 
   if (legacyMarketingHosts.has(host) || isHttpCanonicalMarketingRequest) {
     const canonicalUrl = request.nextUrl.clone();
