@@ -746,15 +746,15 @@ export default async function LandingPage() {
             <p className="mt-3 max-w-2xl text-base leading-6 text-slate-300 sm:mt-6 sm:text-lg sm:leading-7">
               Analyze fundamentals, technicals, Congress and insider activity, institutional filings, government contracts, macro positioning and Walnut's proprietary confirmation score&mdash;all in one research workflow.
             </p>
-            <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <a
-                href={appUrl}
+                href={`${loginUrl}?mode=register`}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Try for free
+                Create free account
               </a>
             </div>
+            <LandingSearch appUrl={appUrl} />
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
               Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more data, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
             </p>
