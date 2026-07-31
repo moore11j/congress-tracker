@@ -1,34 +1,9 @@
 User-agent: *
 Allow: /
-Allow: /landing
-Allow: /about
-Allow: /pricing
-Allow: /faq
-Allow: /terms
-Allow: /privacy
-Allow: /research
-Allow: /congress-trades
-Allow: /insider-trading-tracker
-Allow: /government-contracts
-Allow: /institutional-filings
-Allow: /stock-confirmation-score
-Allow: /market-intelligence-terminal
-Allow: /ticker/
-
-Disallow: /insider/
-Disallow: /member/
-Disallow: /institution/
-Disallow: /signals
-Disallow: /screener
-Disallow: /watchlists
-Disallow: /monitoring
-Disallow: /feed
+Disallow: /api/
 Disallow: /account
 Disallow: /billing
+Disallow: /settings
 Disallow: /admin
-Disallow: /login
-Disallow: /register
-Disallow: /api/
-Disallow: /leaderboards
 
 Sitemap: https://walnutmarkets.com/sitemap.xml

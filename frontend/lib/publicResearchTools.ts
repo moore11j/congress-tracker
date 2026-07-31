@@ -1,5 +1,15 @@
 export const publicResearchTools = [
   {
+    href: "/stock-research-app",
+    label: "Stock research app",
+    shortLabel: "Stock research",
+  },
+  {
+    href: "/stock-analysis-tools",
+    label: "Stock analysis tools",
+    shortLabel: "Analysis tools",
+  },
+  {
     href: "/congress-trades",
     label: "Congress trades tracker",
     shortLabel: "Congress trades",

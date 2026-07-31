@@ -7,6 +7,8 @@ import {
 } from "@/lib/marketingMetadata";
 
 export type SeoLandingPageKey =
+  | "stockResearchApp"
+  | "stockAnalysisTools"
   | "congressTrades"
   | "insiderTradingTracker"
   | "governmentContracts"
@@ -45,6 +47,125 @@ const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.co
 const loginUrl = `${appUrl}/login`;
 
 export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
+  stockResearchApp: {
+    pathname: "/stock-research-app",
+    title: "Stock Research App | Walnut Markets",
+    description:
+      "Use Walnut Markets to research stocks across fundamentals, technicals, Congress trades, insider activity, contracts, filings, and confirmation-score context.",
+    eyebrow: "Stock research software",
+    h1: "Stock research app for checking whether the thesis is strengthening or weakening.",
+    intro:
+      "Walnut Markets brings data, interpretation, judgment, and action-ready research into one workflow for investors who need more than a quote page or a watchlist.",
+    highlights: [
+      "Ticker research across technical, fundamental, and alternative data",
+      "Congress trades, insider activity, government contracts, and 13F context",
+      "Research-only workflow with no buy or sell recommendations",
+    ],
+    sections: [
+      {
+        title: "Built for ticker-first research",
+        paragraphs: [
+          "Walnut starts with the stock and gathers the surrounding evidence: price and volume, fundamentals, public disclosures, government contract exposure, institutional filings, catalysts, risks, and Walnut's proprietary confirmation score.",
+          "The workflow is designed to help investors see what supports a thesis, what contradicts it, and what changed since the last review.",
+        ],
+      },
+      {
+        title: "From data to judgment",
+        paragraphs: [
+          "Raw data is useful only when it can be interpreted. Walnut organizes each source into context the investor can inspect before deciding what deserves more work.",
+          "The confirmation score is an interpretive research metric. It does not replace the underlying data or provide investment advice.",
+        ],
+      },
+      {
+        title: "Examples to start with",
+        paragraphs: [
+          "Researchers can open public ticker examples such as NVDA, AAPL, MSFT, TSLA, PLTR, and LMT, then move into related Congress, insider, institutional, contract, and comparison workflows.",
+        ],
+      },
+      {
+        title: "Plan access",
+        paragraphs: [
+          "Free users can explore core ticker research and public disclosure context. Premium adds deeper confirmation and comparison workflows. Pro adds institutional activity, macro positioning, market pressure, and higher research limits.",
+        ],
+      },
+    ],
+    popularTickers: ["NVDA", "AAPL", "MSFT", "TSLA", "PLTR", "LMT"],
+    faq: [
+      {
+        question: "Is Walnut a stock research app or an investment adviser?",
+        answer:
+          "Walnut is a stock research app for informational use. It does not provide personalized investment advice or buy and sell recommendations.",
+      },
+      {
+        question: "Does Walnut predict stock returns?",
+        answer:
+          "No. Walnut helps investors inspect evidence and risk context; it does not guarantee outcomes or predict market returns.",
+      },
+    ],
+    primaryCta: {
+      label: "Research NVDA in Walnut",
+      href: `${appUrl}/ticker/NVDA`,
+    },
+  },
+  stockAnalysisTools: {
+    pathname: "/stock-analysis-tools",
+    title: "Stock Analysis Tools | Walnut Markets",
+    description:
+      "Analyze stocks with technical indicators, fundamentals, disclosures, contracts, filings, comparisons, and Walnut's proprietary confirmation score.",
+    eyebrow: "Stock market analysis tools",
+    h1: "Stock analysis tools that connect data, interpretation, judgment, and action-ready research.",
+    intro:
+      "Walnut Markets combines stock analysis tools for investors who want to compare the chart, the business, public disclosures, alternative data, and thesis risk in one place.",
+    highlights: [
+      "Technical and fundamental analysis in ticker context",
+      "Disclosure, contract, institutional, and comparison tools",
+      "Confirmation-score context for stronger, weaker, and mixed setups",
+    ],
+    sections: [
+      {
+        title: "Technicals and fundamentals together",
+        paragraphs: [
+          "Walnut helps investors evaluate price action, relative volume, liquidity, trend state, valuation, margins, growth, leverage, cash flow, returns on capital, and earnings quality without separating the chart from the business case.",
+        ],
+      },
+      {
+        title: "Alternative data that still needs context",
+        paragraphs: [
+          "Congress disclosures, reported insider activity, government contracts, institutional filings, macro positioning, and market pressure can all matter, but each source has timing and interpretation limits.",
+          "Walnut keeps those sources visible as research inputs rather than turning them into unsupported recommendations.",
+        ],
+      },
+      {
+        title: "Compare and screen",
+        paragraphs: [
+          "Use the stock screener to find candidates, open ticker pages for deeper context, and compare stocks when two investment cases need to be weighed side by side.",
+        ],
+      },
+      {
+        title: "Research-only analysis",
+        paragraphs: [
+          "Walnut Markets provides stock analysis software for informational research. Users remain responsible for their own investment decisions and should verify important information independently.",
+        ],
+      },
+    ],
+    popularTickers: ["NVDA", "AAPL", "MSFT", "TSLA", "PLTR", "LMT"],
+    faq: [
+      {
+        question: "What stock analysis tools does Walnut include?",
+        answer:
+          "Walnut includes ticker research, technicals, fundamentals, public disclosures, contracts, institutional filings, comparisons, screening, and confirmation-score context.",
+      },
+      {
+        question: "Is the confirmation score investment advice?",
+        answer:
+          "No. The confirmation score is a proprietary research metric that summarizes cross-source context. It is not investment advice.",
+      },
+    ],
+    primaryCta: {
+      label: "Compare NVDA and MU",
+      href: `${appUrl}/compare/NVDA/MU`,
+    },
+  },
   congressTrades: {
     pathname: "/congress-trades",
     title: "Congress Trades Tracker | Walnut Markets",
@@ -77,7 +198,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       {
         title: "How Walnut tracks reported Congress activity",
         paragraphs: [
-          "Walnut collects reported and disclosed Congress activity, resolves ticker context where possible, and presents the information in a searchable market research workflow. Users can review members, symbols, transaction categories, filing dates, and the market context surrounding the public disclosure.",
+          "Walnut collects reported and disclosed Congress activity, resolves ticker context where possible, and presents the information in a searchable stock research workflow. Users can review members, symbols, transaction categories, filing dates, and the market context surrounding the public disclosure.",
           "Walnut is designed for verification. It treats Congress disclosures as one category of public data, not as instructions to trade.",
         ],
       },
@@ -185,11 +306,11 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     eyebrow: "Contract award research",
     h1: "Government Contracts Tracker",
     intro:
-      "Walnut Markets helps investors research government contract awards, public disclosure activity, issuer exposure, and ticker context in one market intelligence workflow.",
+      "Walnut Markets helps investors research government contract awards, public disclosure activity, issuer exposure, and ticker context in one stock market intelligence workflow.",
     highlights: [
       "Government contract awards and modifications",
       "Ticker context for public companies with contract exposure",
-      "Research-only market intelligence, not investment advice",
+      "Research-only stock market intelligence, not investment advice",
     ],
     sections: [
       {
@@ -353,11 +474,11 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
     pathname: "/market-intelligence-terminal",
     title: "Market Intelligence Terminal | Walnut Markets",
     description:
-      "Walnut Markets is a market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, and ticker context.",
+      "Walnut Markets is a stock market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, and ticker context.",
     eyebrow: "Walnut Market Terminal",
     h1: "Market Intelligence Terminal",
     intro:
-      "Walnut Markets is a market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, ticker context, watchlists, screeners, and proprietary confirmation data.",
+      "Walnut Markets is a stock market intelligence terminal for investors tracking technicals, fundamentals, public disclosures, ticker context, watchlists, screeners, and proprietary confirmation data.",
     highlights: [
       "Technicals, fundamentals, disclosures, and ticker research",
       "Congress trades, insider activity, contracts, and filings in context",
@@ -385,7 +506,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       {
         title: "Research only. Not investment advice.",
         paragraphs: [
-          "Walnut Markets provides market intelligence tools for informational research. Walnut does not provide investment advice, brokerage services, or recommendations to buy or sell securities.",
+          "Walnut Markets provides stock market intelligence tools for informational research. Walnut does not provide investment advice, brokerage services, or recommendations to buy or sell securities.",
         ],
       },
     ],
@@ -398,7 +519,7 @@ export const seoLandingPages: Record<SeoLandingPageKey, SeoLandingPage> = {
       {
         question: "Is Walnut a brokerage or investment adviser?",
         answer:
-          "No. Walnut is a market intelligence terminal for research and informational purposes only.",
+          "No. Walnut is a stock market intelligence terminal for research and informational purposes only.",
       },
     ],
     primaryCta: {

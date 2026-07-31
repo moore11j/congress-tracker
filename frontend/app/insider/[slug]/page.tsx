@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { getInsiderAlphaSummary, getInsiderSummary, getInsiderTrades } from "@/lib/api";
 import { Badge } from "@/components/Badge";
 import { InsiderAnalyticsClient } from "@/components/insider/InsiderAnalyticsClient";
@@ -14,6 +15,7 @@ import {
   shouldRedirectToCanonicalInsiderSlug,
 } from "@/lib/insider";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,7 +28,6 @@ type Props = {
 type Lookback = "30" | "90" | "180" | "365" | "1095";
 type InsiderSummaryData = Awaited<ReturnType<typeof getInsiderSummary>>;
 type InsiderTradesData = Awaited<ReturnType<typeof getInsiderTrades>>;
-const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
 
 const LOOKBACK_OPTIONS = [
   { label: "30D", value: "30" },
@@ -152,7 +153,7 @@ function buildInsiderBacktestHref(reportingCik: string, lookbackDays: number) {
 }
 
 function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+  return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
 function buildInsiderSharePath(
@@ -171,6 +172,10 @@ function buildInsiderSharePath(
   return `/insider/${encodeURIComponent(canonicalSlug)}${suffix ? `?${suffix}` : ""}`;
 }
 
+function cleanInsiderCanonicalPath(canonicalSlug: string) {
+  return `/insider/${encodeURIComponent(canonicalSlug)}`;
+}
+
 function initialsForName(name: string) {
   const parts = name.split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "I";
@@ -186,6 +191,50 @@ function VerifiedBadge() {
       </svg>
     </span>
   );
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const reportingCik = reportingCikFromInsiderSlug(slug);
+  if (!reportingCik) {
+    return {
+      metadataBase: new URL(WALNUT_APP_URL),
+      title: "Insider Trading Activity | Walnut Markets",
+      robots: { index: false, follow: true },
+    };
+  }
+
+  const summary = await getInsiderSummary(reportingCik, 90, undefined, { source: "InsiderMetadata" }).catch(() => null);
+  const insiderName = getInsiderDisplayName(summary?.insider_name, insiderDisplayNameFromSlug(slug)) ?? "Insider";
+  const companyName = firstText(summary?.primary_company_name, summary?.primary_symbol);
+  const canonicalSlug = insiderSlug(insiderName, reportingCik) ?? slug;
+  const canonicalPath = cleanInsiderCanonicalPath(canonicalSlug);
+  const title = companyName
+    ? `${insiderName} Insider Trading Activity at ${companyName} | Walnut Markets`
+    : `${insiderName} Insider Trading Activity | Walnut Markets`;
+  const description = companyName
+    ? `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ${companyName} ticker context in Walnut Markets.`
+    : `Research ${insiderName}'s reported insider trading activity, ownership changes, transaction history, and ticker context in Walnut Markets.`;
+
+  return {
+    metadataBase: new URL(WALNUT_APP_URL),
+    title,
+    description,
+    alternates: {
+      canonical: appCanonicalUrl(canonicalPath),
+    },
+    openGraph: {
+      type: "profile",
+      title,
+      description,
+      url: appCanonicalUrl(canonicalPath),
+    },
+    twitter: {
+      card: "summary",
+      title,
+      description,
+    },
+  };
 }
 
 export default async function InsiderPage({ params, searchParams }: Props) {
@@ -210,8 +259,8 @@ export default async function InsiderPage({ params, searchParams }: Props) {
   const fallbackSlugName = insiderDisplayNameFromSlug(slug);
   const insiderName = getInsiderDisplayName(resolvedInsiderName, fallbackSlugName) ?? "Unknown Insider";
   const canonicalSlug = insiderSlug(resolvedInsiderName, reportingCik) ?? reportingCik;
-  const canonicalInsiderPath = buildInsiderSharePath(canonicalSlug, lookback, issuer, chartSymbol, recentTradesPage);
-  const canonicalInsiderUrl = new URL(canonicalInsiderPath, getSiteUrl()).toString();
+  const shareInsiderPath = buildInsiderSharePath(canonicalSlug, lookback, issuer, chartSymbol, recentTradesPage);
+  const shareInsiderUrl = new URL(shareInsiderPath, getSiteUrl()).toString();
 
   if (shouldRedirectToCanonicalInsiderSlug(slug, canonicalSlug)) {
     const query = new URLSearchParams();
@@ -292,7 +341,7 @@ export default async function InsiderPage({ params, searchParams }: Props) {
           </Link>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end lg:absolute lg:right-5 lg:top-3">
             <AddWatchlistTarget targetType="insider" targetValue={reportingCik} targetLabel={insiderName} buttonLabel="Follow Insider" className={actionClassName} />
-            <ShareLinks canonicalUrl={canonicalInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
+            <ShareLinks canonicalUrl={shareInsiderUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildInsiderBacktestHref(reportingCik, lookbackDays)} prefetch={false} className={primaryActionClassName}>
               Backtest this Insider
             </Link>

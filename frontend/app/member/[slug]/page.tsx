@@ -21,13 +21,13 @@ import {
   isPortfolioLookbackDays,
 } from "@/lib/portfolioPerformance.mjs";
 import { resolveWikipediaHeadshot } from "@/lib/wikipediaHeadshot";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ slug: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
 const MEMBER_ACTIVITY_TREND_INITIAL_LOOKBACK_DAYS = 730;
 const MEMBER_ACTIVITY_TREND_LIMIT = 200;
 const MEMBER_NAV_ITEMS = [
@@ -55,7 +55,7 @@ const MEMBER_COMMITTEE_ASSIGNMENTS: Record<string, { headline: string; committee
 };
 
 function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+  return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
 function getParam(sp: Record<string, string | string[] | undefined>, key: string) {
@@ -181,23 +181,20 @@ async function resolveMetadataMemberSlug(slug: string) {
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
-  const lbParam = getLookbackParam(sp);
-  const siteUrl = getSiteUrl();
-  const fallbackName = slug.replace(/-/g, " ");
-  const chartMetric = getChartMetricParam(sp);
-  const portfolioLookbackDays = getPortfolioLookbackParam(sp);
-  const portfolioMode = getPortfolioModeParam(sp);
   const prettySlug = await resolveMetadataMemberSlug(slug);
-  const canonicalPath = buildMemberPath(prettySlug, lbParam, chartMetric, portfolioLookbackDays, portfolioMode);
-  const canonicalUrl = new URL(canonicalPath, siteUrl).toString();
-  const title = `${fallbackName || "Member"} - Member Profile`;
+  const canonicalPath = `/member/${prettySlug}`;
+  const member = await getMemberProfileBySlug(prettySlug, { include_trades: false, source: "MemberMetadata" }).catch(() => null);
+  const memberName = profileMemberName(member?.member?.name, prettySlug);
+  const title = `${memberName} Stock Trades & Portfolio Performance | Walnut Markets`;
+  const description = `Research ${memberName}'s reported stock trades, portfolio simulation, performance context, recent disclosures, and ticker exposure in Walnut Markets.`;
 
   return {
-    metadataBase: new URL(siteUrl),
+    metadataBase: new URL(WALNUT_APP_URL),
     title,
-    alternates: { canonical: canonicalPath },
-    openGraph: { title, type: "website", url: canonicalUrl },
-    twitter: { card: "summary", title },
+    description,
+    alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    openGraph: { title, description, type: "profile", url: appCanonicalUrl(canonicalPath) },
+    twitter: { card: "summary", title, description },
   };
 }
 
@@ -226,8 +223,8 @@ export default async function MemberPage({ params, searchParams }: Props) {
     redirect(`/member/${canonicalSlug}${query ? `?${query}` : ""}`);
   }
 
-  const canonicalPath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays, portfolioMode);
-  const canonicalUrl = new URL(canonicalPath, getSiteUrl()).toString();
+  const sharePath = buildMemberPath(canonicalSlug, lbRaw, chartMetric, portfolioLookbackDays, portfolioMode);
+  const shareUrl = new URL(sharePath, getSiteUrl()).toString();
   const canonicalMemberId = data.member.bioguide_id;
   const portfolioLookbackLinks = PORTFOLIO_LOOKBACK_OPTIONS.map((option) => ({
     ...option,
@@ -293,7 +290,7 @@ export default async function MemberPage({ params, searchParams }: Props) {
               <span className="hidden sm:inline">Back to feed</span>
             </span>
             <AddWatchlistTarget targetType="member" targetValue={canonicalMemberId} targetLabel={memberName} buttonLabel="Follow Member" className={actionClassName} />
-            <ShareLinks canonicalUrl={canonicalUrl} showCopyButton={false} buttonClassName={actionClassName} />
+            <ShareLinks canonicalUrl={shareUrl} showCopyButton={false} buttonClassName={actionClassName} />
             <Link href={buildMemberBacktestHref(canonicalMemberId, lb)} prefetch={false} className={primaryActionClassName}>
               Backtest this Member
             </Link>

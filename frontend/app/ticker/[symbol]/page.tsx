@@ -51,7 +51,7 @@ import {
 import { resolveCongressActivityPrice, resolveInsiderActivityDisplay } from "@/lib/tradeDisplay";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { gainLossLabel, tickerGainLossTooltip } from "@/lib/gainLossCopy";
-import { WALNUT_MARKETING_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL } from "@/lib/marketingMetadata";
+import { WALNUT_APP_URL, WALNUT_SOCIAL_IMAGE_ALT, WALNUT_SOCIAL_IMAGE_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ symbol: string }>;
@@ -242,15 +242,15 @@ function canonicalTickerPathForSymbol(symbol: string): string {
 }
 
 function canonicalTickerUrlForSymbol(symbol: string): string {
-  return new URL(canonicalTickerPathForSymbol(symbol), WALNUT_MARKETING_URL).toString();
+  return appCanonicalUrl(canonicalTickerPathForSymbol(symbol));
 }
 
 function publicTickerMetadataTitle(symbol: string, companyName?: string | null): string {
   const cleanedCompanyName = formatCompanyName(companyName);
   const hasDistinctName = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase();
   return hasDistinctName
-    ? `${symbol} ${cleanedCompanyName} | Walnut Markets Ticker Intelligence`
-    : `${symbol} | Walnut Markets Ticker Intelligence`;
+    ? `${symbol} Stock Analysis, Fundamentals & Alternative Data | Walnut Markets`
+    : `${symbol} Stock Analysis, Fundamentals & Alternative Data | Walnut Markets`;
 }
 
 function publicTickerMetadataDescription(symbol: string, companyName?: string | null): string {
@@ -258,20 +258,21 @@ function publicTickerMetadataDescription(symbol: string, companyName?: string | 
   const identity = cleanedCompanyName && cleanedCompanyName.toUpperCase() !== symbol.toUpperCase()
     ? `${cleanedCompanyName} (${symbol})`
     : symbol;
-  return `${TICKER_METADATA_DESCRIPTION} Current page: ${identity}. Built for research, not investment advice.`;
+  return `Research ${identity} using price and volume, fundamentals, Congress trades, insider activity, institutional filings, government contracts, catalysts, risks and Walnut's confirmation score.`;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { symbol } = await params;
   const normalizedSymbol = normalizedTickerSymbolForRoute(symbol);
   const canonicalUrl = canonicalTickerUrlForSymbol(normalizedSymbol);
-  const companyName: string | null = null;
+  const profile = await getTickerProfile(normalizedSymbol, { source: "TickerMetadata" }).catch(() => null);
+  const companyName = profile?.ticker?.name ?? null;
 
   const title = publicTickerMetadataTitle(normalizedSymbol, companyName);
   const description = publicTickerMetadataDescription(normalizedSymbol, companyName);
 
   return {
-    metadataBase: new URL(WALNUT_MARKETING_URL),
+    metadataBase: new URL(WALNUT_APP_URL),
     title,
     description,
     alternates: {

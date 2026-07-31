@@ -1,8 +1,17 @@
 import Link from "next/link";
 import { VerifiedSessionGuard } from "@/components/auth/VerifiedSessionGuard";
 import { AdminSettingsPanel } from "@/components/admin/AdminSettingsPanel";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Admin Settings | Walnut Markets",
+  robots: {
+    index: false,
+    follow: true,
+  },
+};
 
 export default function AdminPanelPage() {
   return (

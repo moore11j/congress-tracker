@@ -8,6 +8,8 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata.ts"), "utf8");
 const publicSeoRoutes = [
+  "/stock-research-app",
+  "/stock-analysis-tools",
   "/congress-trades",
   "/insider-trading-tracker",
   "/government-contracts",
@@ -31,16 +33,10 @@ function escapeRegex(value) {
 }
 
 const disallowedRoutes = [
-  "/insider/",
-  "/member/",
-  "/institution/",
-  "/signals",
-  "/screener",
-  "/watchlists",
-  "/monitoring",
-  "/feed",
+  "/api/",
   "/account",
   "/billing",
+  "/settings",
   "/admin",
 ];
 
@@ -57,27 +53,20 @@ test("app and marketing robots disallow private terminal app routes", () => {
 
 test("marketing robots keep marketing and public ticker pages indexable", () => {
   assert.match(middleware, /Allow: \//);
-  assert.match(middleware, /Allow: \/landing/);
-  assert.match(middleware, /Allow: \/about/);
-  assert.match(middleware, /Allow: \/pricing/);
-  assert.match(middleware, /Allow: \/faq/);
-  assert.match(middleware, /Allow: \/terms/);
-  assert.match(middleware, /Allow: \/privacy/);
   for (const route of publicSeoRoutes) {
-    assert.match(middleware, new RegExp(`Allow: ${route}`));
+    assert.match(middleware, new RegExp(`"${route}"`));
   }
-  assert.match(middleware, /Allow: \/ticker\//);
   assert.match(middleware, /Sitemap: https:\/\/walnutmarkets\.com\/sitemap\.xml/);
-  assert.match(robots, /Allow: \/landing/);
-  assert.match(robots, /Allow: \/about/);
-  assert.match(robots, /Allow: \/pricing/);
-  assert.match(robots, /Allow: \/terms/);
-  assert.match(robots, /Allow: \/privacy/);
+  assert.match(middleware, /Sitemap: https:\/\/app\.walnutmarkets\.com\/sitemap-index\.xml/);
+  assert.match(robots, /Allow: \//);
   for (const route of publicSeoRoutes) {
-    assert.match(robots, new RegExp(`Allow: ${route}`));
+    assert.doesNotMatch(robots, new RegExp(`Disallow: ${route}`));
   }
-  assert.match(robots, /Allow: \/ticker\//);
   assert.doesNotMatch(robots, /Disallow: \/ticker\//);
+  assert.doesNotMatch(robots, /Disallow: \/member\//);
+  assert.doesNotMatch(robots, /Disallow: \/insider\//);
+  assert.doesNotMatch(robots, /Disallow: \/institution\//);
+  assert.doesNotMatch(robots, /Disallow: \/departments\//);
 });
 
 test("landing pages are not noindexed or disallowed", () => {
@@ -105,13 +94,18 @@ test("landing pages are not noindexed or disallowed", () => {
   assert.match(marketingMetadata, /robots:\s*{\s*index:\s*true,\s*follow:\s*true,/);
 });
 
-test("app terminal routes receive noindex without blocking real users", () => {
+test("private app routes receive noindex without blocking real users", () => {
   assert.match(middleware, /const noindexAppRoutePrefixes = \[/);
   assert.match(middleware, /host === appHost && isNoindexAppRoute\(pathname\)/);
   assert.match(middleware, /function withNoindex\(response: NextResponse\): NextResponse/);
-  assert.match(middleware, /response\.headers\.set\("x-robots-tag", "noindex, nofollow"\)/);
+  assert.match(middleware, /response\.headers\.set\("x-robots-tag", "noindex, follow"\)/);
   assert.match(middleware, /return shouldNoindex \? withNoindex\(response\) : response/);
   assert.match(middleware, /if \(!protectedRoute \|\| hasBackendSession \|\| hasAuthHint\)/);
+  assert.match(middleware, /if \(prefix === "\/"\) return normalized === "\/"/);
+  const noindexList = middleware.match(/const noindexAppRoutePrefixes = \[([\s\S]*?)\];/)?.[1] ?? "";
+  for (const publicRoute of ["/ticker/", "/member/", "/insider/", "/institution/", "/departments/"]) {
+    assert.doesNotMatch(noindexList, new RegExp(`"${escapeRegex(publicRoute)}"`));
+  }
 });
 
 test("legacy marketing domains redirect permanently and public ticker pages remain crawlable", () => {
@@ -120,6 +114,7 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
     assert.match(middleware, new RegExp(`"${route}"`));
   }
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
+  assert.match(middleware, /legacyAppHosts = new Set\(\["app\.walnut-intel\.com"\]\)/);
   assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /canonicalUrl\.hostname = canonicalMarketingHost/);
   assert.match(middleware, /canonicalUrl\.port = ""/);

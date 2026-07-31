@@ -20,31 +20,48 @@ import { withServerTimeout } from "@/lib/serverTimeout";
 import { tickerHref } from "@/lib/ticker";
 import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/styles";
 import { formatCurrency, formatDateShort } from "@/lib/format";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ cik: string }>;
 };
 
-const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
-
 function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+  return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { cik: rawCik } = await params;
   const cik = normalizeInstitutionCik(rawCik);
   if (!cik) {
-    return { title: "Institution | Walnut Market Terminal" };
+    return {
+      metadataBase: new URL(WALNUT_APP_URL),
+      title: "Institutional Holdings | Walnut Markets",
+      robots: { index: false, follow: true },
+    };
   }
+  const canonicalPath = `/institution/${encodeURIComponent(cik)}`;
   try {
     const profile = await getInstitutionProfile(cik, { source: "InstitutionMetadata" });
+    const name = profile.holder_name ?? "Institution";
+    const title = `${name} 13F Holdings & Portfolio Changes | Walnut Markets`;
+    const description = `Research ${name} 13F holdings, reported portfolio changes, filing history, and public-company exposure in Walnut Markets.`;
     return {
-      title: `${profile.holder_name ?? "Institution"} 13F Profile | Walnut Market Terminal`,
-      description: "Reported 13F holdings, filing history, and quarter-over-quarter institutional activity.",
+      metadataBase: new URL(WALNUT_APP_URL),
+      title,
+      description,
+      alternates: { canonical: appCanonicalUrl(canonicalPath) },
+      openGraph: { type: "profile", title, description, url: appCanonicalUrl(canonicalPath) },
+      twitter: { card: "summary", title, description },
     };
   } catch {
-    return { title: "Institution | Walnut Market Terminal" };
+    const title = "Institutional Holdings & Portfolio Changes | Walnut Markets";
+    return {
+      metadataBase: new URL(WALNUT_APP_URL),
+      title,
+      description: "Research reported 13F holdings, filing history, and institutional portfolio changes in Walnut Markets.",
+      alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    };
   }
 }
 

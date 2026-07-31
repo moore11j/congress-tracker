@@ -15,6 +15,7 @@ import {
   WALNUT_X_URL,
   walnutMarketingMetadata,
 } from "@/lib/marketingMetadata";
+import { defaultPlanConfig } from "@/lib/defaultPlanConfig";
 import { publicResearchTools } from "@/lib/publicResearchTools";
 import type { InsightsNewsResponse, MacroSnapshotIndex, MacroSnapshotPoint, MacroSnapshotResponse, NewsItem } from "@/lib/types";
 
@@ -521,6 +522,7 @@ function planOffer(price: PlanPrice, name: string) {
 }
 
 function landingPlanOffers(config: PlanConfig | null) {
+  const effectiveConfig = config ?? defaultPlanConfig;
   const offers: Array<Record<string, unknown>> = [
     {
       "@type": "Offer",
@@ -534,8 +536,8 @@ function landingPlanOffers(config: PlanConfig | null) {
 
   for (const tier of ["premium", "pro"] as const) {
     const label = tier === "premium" ? "Premium" : "Pro";
-    const monthly = planPriceFor(config, tier, "monthly");
-    const annual = planPriceFor(config, tier, "annual");
+    const monthly = planPriceFor(effectiveConfig, tier, "monthly");
+    const annual = planPriceFor(effectiveConfig, tier, "annual");
     if (monthly) offers.push(planOffer(monthly, `${label} monthly plan`));
     if (annual) offers.push(planOffer(annual, `${label} annual plan`));
   }
@@ -552,7 +554,7 @@ function landingJsonLd(config: PlanConfig | null) {
     alternateName: "Walnut Markets",
     url: WALNUT_MARKETING_URL,
     logo: `${WALNUT_MARKETING_URL}/walnut-intel-logo-mark.png`,
-    description: WALNUT_MARKETING_DESCRIPTION,
+    description: "Stock research and stock analysis software for technicals, fundamentals, public disclosures, alternative data, and confirmation-score context.",
     sameAs: WALNUT_SOCIAL_URLS,
   };
 
@@ -560,8 +562,8 @@ function landingJsonLd(config: PlanConfig | null) {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "Walnut Markets",
-    url: WALNUT_MARKETING_URL,
-    description: WALNUT_MARKETING_DESCRIPTION,
+    url: appUrl,
+    description: "Stock research and stock analysis software for technicals, fundamentals, public disclosures, alternative data, and confirmation-score context.",
     publisher: {
       "@type": "Organization",
       name: "Walnut Intelligence Inc.",
@@ -863,13 +865,16 @@ export default async function LandingPage() {
       <section className="relative border-b border-white/10">
         <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.02fr_0.98fr] lg:px-8 lg:py-20">
           <div className="max-w-3xl">
-            <SectionEyebrow>Walnut Market Terminal</SectionEyebrow>
+            <SectionEyebrow>Stock Research &amp; Analysis Platform</SectionEyebrow>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.04] text-white sm:text-5xl lg:text-6xl">
-              The market has tells. Walnut finds them.
+              Stock research that shows whether the investment thesis is strengthening or weakening.
             </h1>
+            <p className="mt-5 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">
+              The market has tells. Walnut finds them.
+            </p>
             <p className="mt-6 max-w-2xl text-lg font-semibold leading-7 text-emerald-100 sm:text-xl">Find stronger opportunities. Avoid weaker setups. Make investment decisions with more data.</p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              Walnut brings macro, fundamental, technical, and alternative data together into one terminal. Quickly find the setups that are strengthening, what is weakening, and discover hidden gems.
+              Analyze stocks across fundamentals, technicals, Congress and insider activity, government contracts, institutional filings, macro positioning and Walnut's proprietary confirmation score, all in one research workflow.
             </p>
             <LandingSearch appUrl={appUrl} />
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -885,7 +890,7 @@ export default async function LandingPage() {
             </p>
           </div>
 
-          <div className="relative">
+          <div className="relative" data-nosnippet>
             <div className="rounded-lg border border-white/10 bg-slate-950/90 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div>
@@ -979,7 +984,7 @@ export default async function LandingPage() {
               <span aria-hidden="true">→</span>
             </a>
           </div>
-          <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="mt-8 grid gap-5 lg:grid-cols-[1.05fr_0.95fr]" data-nosnippet>
             <div className="rounded-lg border border-white/10 bg-slate-950/80 p-5">
               <div className="mt-5 divide-y divide-white/10">
                 {latestInsights.slice(0, 5).map((item) => (
@@ -1115,7 +1120,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Differentiation</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart.</h2>
             <p className="mt-5 text-base leading-7 text-slate-400">
-              Market research usually starts with charts, screeners, data feeds, and alerts.
+              Investment research usually starts with charts, screeners, data feeds, and alerts.
             </p>
             <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut helps investors judge whether the data supports the opportunity, contradicts it, or points to risks that deserve attention.</p>
           </div>

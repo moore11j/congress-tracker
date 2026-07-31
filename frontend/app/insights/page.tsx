@@ -2,14 +2,17 @@ import { InsightsMarketSnapshotClient } from "@/components/insights/InsightsMark
 import { InsightsMacroPositioningPanel } from "@/components/insights/InsightsMacroPositioningPanel";
 import { InsightsNewsClient } from "@/components/insights/InsightsNewsClient";
 import { ResearchBriefsSection } from "@/components/insights/ResearchBriefsSection";
+import { appPageMetadata } from "@/lib/marketingMetadata";
 
 type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export const metadata = {
-  title: "Insights | Walnut Market Terminal",
-  description: "Market headlines and company-level news connected to your intelligence workflow.",
+  ...appPageMetadata("/insights", {
+    title: "Stock Market Insights & Research Briefs | Walnut Markets",
+    description: "Market headlines, company-level news, macro context, and Walnut research briefs connected to a stock research workflow.",
+  }),
 };
 
 function one(sp: Record<string, string | string[] | undefined>, key: string): string {

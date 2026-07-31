@@ -8,28 +8,38 @@ import { cardClassName, ghostButtonClassName, tickerLinkClassName } from "@/lib/
 import { formatCurrency, formatDateShort } from "@/lib/format";
 import { tickerHref } from "@/lib/ticker";
 import { departmentHref } from "@/lib/departments";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ slug: string }>;
 };
 
-const DEFAULT_SITE_URL = "https://congress-tracker-two.vercel.app";
-
 function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? DEFAULT_SITE_URL;
+  return process.env.NEXT_PUBLIC_SITE_URL ?? WALNUT_APP_URL;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
+  const fallbackCanonicalPath = `/departments/${encodeURIComponent(slug)}`;
   try {
     const department = await getDepartmentProfile(slug, { limit: 1 });
+    const canonicalPath = departmentHref(department.name) ?? fallbackCanonicalPath;
+    const title = `${department.name} Government Contracts by Public Company | Walnut Markets`;
+    const description = `Research ${department.name} contract awards, linked public companies, ticker exposure, award timing, and recipient concentration in Walnut Markets.`;
     return {
-      title: `${department.name} Contract Awards | Walnut Market Terminal`,
-      description: `Public-market contract exposure from ${department.name} awards.`,
+      metadataBase: new URL(WALNUT_APP_URL),
+      title,
+      description,
+      alternates: { canonical: appCanonicalUrl(canonicalPath) },
+      openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
+      twitter: { card: "summary", title, description },
     };
   } catch {
     return {
-      title: "Government Department | Walnut Market Terminal",
+      metadataBase: new URL(WALNUT_APP_URL),
+      title: "Government Department Contracts by Public Company | Walnut Markets",
+      description: "Research government department contract awards, linked public companies, and ticker exposure in Walnut Markets.",
+      alternates: { canonical: appCanonicalUrl(fallbackCanonicalPath) },
     };
   }
 }

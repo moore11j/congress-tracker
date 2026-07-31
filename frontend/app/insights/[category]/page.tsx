@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MarketSnapshotCategoryClient } from "@/components/insights/MarketSnapshotCategoryClient";
 import { MARKET_SNAPSHOT_CATEGORIES, marketSnapshotCategory } from "@/lib/marketSnapshot";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ category: string }>;
@@ -16,17 +17,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const category = marketSnapshotCategory(slug);
   if (!category) {
     return {
-      title: "Insights | Walnut Market Terminal",
+      metadataBase: new URL(WALNUT_APP_URL),
+      title: "Stock Market Insights | Walnut Markets",
+      robots: { index: false, follow: true },
     };
   }
 
+  const title = `${category.title} Stock Market Insights | Walnut Markets`;
   return {
-    title: `${category.title} | Walnut Market Terminal`,
+    metadataBase: new URL(WALNUT_APP_URL),
+    title,
     description: category.description,
+    alternates: { canonical: appCanonicalUrl(`/insights/${category.slug}`) },
     openGraph: {
-      title: `${category.title} | Walnut Market Terminal`,
+      title,
       description: category.description,
+      url: appCanonicalUrl(`/insights/${category.slug}`),
     },
+    twitter: { card: "summary", title, description: category.description },
   };
 }
 

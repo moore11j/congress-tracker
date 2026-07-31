@@ -67,7 +67,7 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
   assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart\.<\/h2>/);
   assert.match(landingPage, /Higher-conviction opportunities\./);
-  assert.match(landingPage, /Market research usually starts with charts, screeners, data feeds, and alerts/);
+  assert.match(landingPage, /Investment research usually starts with charts, screeners, data feeds, and alerts/);
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
   assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
@@ -130,9 +130,9 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
     assert.match(middleware, new RegExp(`"${route}"`));
   }
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
-  assert.match(middleware, /const isMarketingStaticPage = publicStaticPaths\.has\(pathname\) && publicLandingHosts\.has\(host\)/);
+  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isPublicResearchRoute\(pathname\)\) && publicLandingHosts\.has\(host\)/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
-  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
+  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
   assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
@@ -157,5 +157,5 @@ test("terminal app routes log request intent and bypass anonymous bot prefetch S
   assert.match(middleware, /terminalShellResponse\(pathname, host, prefetch \? "prefetch" : bot \? "bot" : "inactive"\)/);
   assert.match(middleware, /reason === "prefetch"\s+\?\s+null/);
   assert.match(middleware, /"x-walnut-terminal-shell": reason/);
-  assert.match(middleware, /"x-robots-tag": "noindex, nofollow"/);
+  assert.match(middleware, /"x-robots-tag": "noindex, follow"/);
 });

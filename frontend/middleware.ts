@@ -18,6 +18,8 @@ const publicStaticPaths = new Set([
   "/institutional-filings",
   "/stock-confirmation-score",
   "/market-intelligence-terminal",
+  "/stock-research-app",
+  "/stock-analysis-tools",
 ]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
 const API_BASE =
@@ -31,25 +33,19 @@ const canonicalMarketingHosts = new Set([canonicalMarketingHost]);
 const legacyMarketingHosts = new Set(["walnut-intel.com", "www.walnut-intel.com", "www.walnutmarkets.com"]);
 const publicLandingHosts = new Set([canonicalMarketingHost]);
 const appHost = "app.walnutmarkets.com";
+const legacyAppHosts = new Set(["app.walnut-intel.com"]);
 const terminalRouteFamilies = ["ticker", "insider", "member", "institution"] as const;
 const robotsDisallowPaths = [
-  "/insider/",
-  "/member/",
-  "/institution/",
-  "/signals",
-  "/screener",
-  "/watchlists",
-  "/monitoring",
-  "/feed",
+  "/api/",
   "/account",
   "/billing",
+  "/settings",
   "/admin",
 ];
 const noindexAppRoutePrefixes = [
-  "/ticker/",
-  "/insider/",
-  "/member/",
-  "/institution/",
+  "/",
+  "/login",
+  "/reset-password",
   "/signals",
   "/screener",
   "/watchlists",
@@ -58,6 +54,9 @@ const noindexAppRoutePrefixes = [
   "/account",
   "/billing",
   "/admin",
+  "/backtesting",
+  "/leaderboards",
+  "/search",
 ];
 
 function routeFamily(pathname: string): string {
@@ -96,23 +95,25 @@ function isPublicResearchRoute(pathname: string): boolean {
 function isNoindexAppRoute(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return noindexAppRoutePrefixes.some((prefix) => {
+    if (prefix === "/") return normalized === "/";
     const exact = prefix.replace(/\/$/, "");
     return normalized === exact || normalized.startsWith(`${exact}/`);
   });
 }
 
 function withNoindex(response: NextResponse): NextResponse {
-  response.headers.set("x-robots-tag", "noindex, nofollow");
+  response.headers.set("x-robots-tag", "noindex, follow");
   return response;
 }
 
 function robotsTxtResponse(host: string): NextResponse {
   const disallow = robotsDisallowPaths.map((path) => `Disallow: ${path}`).join("\n");
-  const marketingAllow = publicLandingHosts.has(host)
-    ? "\nAllow: /\nAllow: /landing\nAllow: /about\nAllow: /pricing\nAllow: /faq\nAllow: /terms\nAllow: /privacy\nAllow: /congress-trades\nAllow: /insider-trading-tracker\nAllow: /government-contracts\nAllow: /institutional-filings\nAllow: /stock-confirmation-score\nAllow: /market-intelligence-terminal\nAllow: /ticker/\n"
-    : "\n";
-  const sitemap = publicLandingHosts.has(host) ? "\nSitemap: https://walnutmarkets.com/sitemap.xml\n" : "";
-  return new NextResponse(`User-agent: *${marketingAllow}${disallow}${sitemap}`, {
+  const sitemap = publicLandingHosts.has(host)
+    ? "Sitemap: https://walnutmarkets.com/sitemap.xml"
+    : host === appHost
+      ? "Sitemap: https://app.walnutmarkets.com/sitemap-index.xml"
+      : "";
+  return new NextResponse(`User-agent: *\nAllow: /\n${disallow}\n${sitemap ? `\n${sitemap}\n` : ""}`, {
     status: 200,
     headers: {
       "cache-control": "public, max-age=300",
@@ -156,12 +157,12 @@ function terminalShellResponse(pathname: string, host: string, reason: "bot" | "
   const family = routeFamily(pathname);
   const body = reason === "prefetch"
     ? null
-    : `<!doctype html><html><head><meta name="robots" content="noindex,nofollow"><title>Walnut Market Terminal</title></head><body><main><h1>Walnut Market Terminal</h1><p>This app page is available to interactive users.</p></main></body></html>`;
+    : `<!doctype html><html><head><meta name="robots" content="noindex,follow"><title>Walnut Market Terminal</title></head><body><main><h1>Walnut Market Terminal</h1><p>This app page is available to interactive users.</p></main></body></html>`;
   const response = new NextResponse(body, {
     status: reason === "prefetch" ? 204 : 200,
     headers: {
       "cache-control": "no-store",
-      "x-robots-tag": "noindex, nofollow",
+      "x-robots-tag": "noindex, follow",
       "x-walnut-terminal-shell": reason,
     },
   });
@@ -215,6 +216,14 @@ export async function middleware(request: NextRequest) {
     const canonicalUrl = request.nextUrl.clone();
     canonicalUrl.protocol = "https:";
     canonicalUrl.hostname = canonicalMarketingHost;
+    canonicalUrl.port = "";
+    return NextResponse.redirect(canonicalUrl, 301);
+  }
+
+  if (legacyAppHosts.has(host)) {
+    const canonicalUrl = request.nextUrl.clone();
+    canonicalUrl.protocol = "https:";
+    canonicalUrl.hostname = appHost;
     canonicalUrl.port = "";
     return NextResponse.redirect(canonicalUrl, 301);
   }

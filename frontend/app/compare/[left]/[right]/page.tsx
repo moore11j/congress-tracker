@@ -8,6 +8,7 @@ import { PeerCompareSelector } from "@/components/compare/PeerCompareSelector";
 import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
 import { optionalPageAuthState } from "@/lib/serverAuth";
 import { isAdminEntitlement } from "@/lib/entitlements";
+import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type PageProps = {
   params: Promise<{ left: string; right: string }>;
@@ -19,12 +20,32 @@ const TICKER_COLORS = {
   right: "#a78bfa",
 } as const;
 
-export const metadata: Metadata = {
-  title: "Peer Compare | Walnut",
-};
-
 function cleanSymbol(value: string) {
   return decodeURIComponent(value || "").trim().toUpperCase().replace(/\./g, "-");
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const routeParams = await params;
+  const left = cleanSymbol(routeParams.left);
+  const right = cleanSymbol(routeParams.right);
+  const hasBoth = left !== "_" && right !== "_";
+  const canonicalPath = hasBoth ? `/compare/${encodeURIComponent(left)}/${encodeURIComponent(right)}` : "/compare/_/_";
+  const title = hasBoth
+    ? `${left} vs ${right} Stock Comparison Tool | Walnut Markets`
+    : "Stock Comparison Tool | Walnut Markets";
+  const description = hasBoth
+    ? `Compare ${left} and ${right} across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.`
+    : "Compare stocks across fundamentals, price action, catalysts, risks, disclosures, and Walnut's confirmation score.";
+
+  return {
+    metadataBase: new URL(WALNUT_APP_URL),
+    title,
+    description,
+    robots: hasBoth ? { index: true, follow: true } : { index: false, follow: true },
+    alternates: { canonical: appCanonicalUrl(canonicalPath) },
+    openGraph: { type: "website", title, description, url: appCanonicalUrl(canonicalPath) },
+    twitter: { card: "summary", title, description },
+  };
 }
 
 function firstSearchParam(value: string | string[] | undefined) {
@@ -208,9 +229,9 @@ function CompareReport({ data, upgradeHref }: { data: PeerCompareResponse; upgra
         <SideHeader side={data.left} winner={leftWinner} tone={TICKER_COLORS.left} />
         <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300">Our Call</p>
-          <h1 className="mt-2 text-2xl font-semibold text-white">
+          <h2 className="mt-2 text-2xl font-semibold text-white">
             {winner === "even" ? "Too close to call" : `${data.call.symbol} leads`}
-          </h1>
+          </h2>
           <p className="mt-2 text-sm leading-6 text-slate-300">{data.call.summary}</p>
           {data.call.drivers.length ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -316,7 +337,7 @@ function LockedCompareState({ data, authenticated, upgradeHref, signInHref }: { 
 function CompareError({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-amber-300/20 bg-amber-300/10 p-4">
-      <h1 className="text-lg font-semibold text-white">Choose a valid peer</h1>
+      <h2 className="text-lg font-semibold text-white">Choose a valid peer</h2>
       <p className="mt-2 text-sm text-amber-100">{message}</p>
     </div>
   );
@@ -361,8 +382,8 @@ export default async function PeerComparePage({ params, searchParams }: PageProp
   }
 
   return (
-    <main className="min-h-screen bg-[#06111f] px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-5">
+    <main className="min-h-screen bg-[#06111f] py-6 text-slate-100">
+      <div className="mx-auto w-full max-w-none space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Peer Compare</p>

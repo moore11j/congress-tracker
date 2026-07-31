@@ -7,6 +7,8 @@ const root = process.cwd();
 const apiSource = fs.readFileSync(path.join(root, "lib/api.ts"), "utf8");
 const tickerPage = fs.readFileSync(path.join(root, "app/ticker/[symbol]/page.tsx"), "utf8");
 const comparePage = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/page.tsx"), "utf8");
+const compareLoading = fs.readFileSync(path.join(root, "app/compare/[left]/[right]/loading.tsx"), "utf8");
+const globalStyles = fs.readFileSync(path.join(root, "app/globals.css"), "utf8");
 const selectorSource = fs.readFileSync(path.join(root, "components/compare/PeerCompareSelector.tsx"), "utf8");
 
 test("peer compare API client targets the shareable two-symbol route", () => {
@@ -29,6 +31,23 @@ test("peer compare page renders report and selector recovery", () => {
   assert.match(comparePage, /Search for a first ticker to compare\./);
   assert.match(comparePage, /Compare tickers to see which setup has stronger evidence/);
   assert.match(comparePage, /Our Call/);
+});
+
+test("peer compare uses the full app width and shared loading treatment", () => {
+  assert.match(comparePage, /min-h-screen bg-\[#06111f\] py-6 text-slate-100/);
+  assert.match(compareLoading, /min-h-screen bg-\[#06111f\] py-6 text-slate-100/);
+  assert.doesNotMatch(comparePage, /px-4 py-6 text-slate-100 sm:px-6 lg:px-8/);
+  assert.doesNotMatch(compareLoading, /px-4 py-6 text-slate-100 sm:px-6 lg:px-8/);
+  assert.match(comparePage, /mx-auto w-full max-w-none space-y-5/);
+  assert.match(compareLoading, /mx-auto w-full max-w-none space-y-5/);
+  assert.match(compareLoading, /terminal-loading-progress-fill/);
+  assert.match(compareLoading, /from-emerald-500 via-emerald-300 to-lime-100/);
+  assert.match(compareLoading, /terminal-loading-progress-percent/);
+  assert.match(compareLoading, /terminal-loading-message/);
+  assert.doesNotMatch(compareLoading, /from-cyan-300 via-emerald-300 to-violet-300/);
+  assert.match(globalStyles, /\.terminal-loading-progress-fill/);
+  assert.match(globalStyles, /\.terminal-loading-message/);
+  assert.doesNotMatch(globalStyles, /peer-compare-progress-fill/);
 });
 
 test("peer compare page renders compact locked state and pricing return CTAs", () => {

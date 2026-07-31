@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 
 export const WALNUT_MARKETING_URL = "https://walnutmarkets.com";
-export const WALNUT_MARKETING_TITLE = "Walnut Markets | Market Intelligence Terminal";
+export const WALNUT_APP_URL = "https://app.walnutmarkets.com";
+export const WALNUT_MARKETING_TITLE = "Stock Research & Analysis Platform | Walnut Markets";
 export const WALNUT_MARKETING_DESCRIPTION =
-  "Walnut Markets helps investors find stronger investment opportunities, avoid weaker setups, and make stock decisions with more market, fundamental, and alternative data.";
+  "Research stocks using technicals, fundamentals, Congress trades, insider activity, government contracts, institutional filings and Walnut's confirmation score.";
 export const WALNUT_OG_DESCRIPTION =
-  "Find stronger opportunities, avoid weaker setups, and make investment decisions with more data.";
+  "Analyze stocks across fundamentals, technicals, public disclosures, alternative data, and Walnut's confirmation score.";
 export const WALNUT_TWITTER_DESCRIPTION =
   "We help investors understand what the data says, what changed, and what could weaken the thesis. Built for research. Not investment advice.";
 export const WALNUT_SOCIAL_IMAGE_URL = `${WALNUT_MARKETING_URL}/og/walnut-og-v1.png`;
-export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets - Find stronger opportunities with more data.";
+export const WALNUT_SOCIAL_IMAGE_ALT = "Walnut Markets stock research and analysis platform.";
 export const WALNUT_X_HANDLE = "@Walnutmarkets";
 export const WALNUT_X_URL = "https://x.com/Walnutmarkets";
 export const WALNUT_REDDIT_URL = "https://www.reddit.com/r/walnutmarkets/";
@@ -18,6 +19,31 @@ export const WALNUT_SOCIAL_URLS = [WALNUT_X_URL, WALNUT_REDDIT_URL] as const;
 export function marketingCanonicalUrl(pathname: string): string {
   const normalizedPath = pathname === "/" ? "/" : `/${pathname.replace(/^\/+/, "").replace(/\/+$/, "")}`;
   return new URL(normalizedPath, `${WALNUT_MARKETING_URL}/`).toString();
+}
+
+export function appCanonicalUrl(pathname: string): string {
+  const normalizedPath = pathname === "/" ? "/" : `/${pathname.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  return new URL(normalizedPath, `${WALNUT_APP_URL}/`).toString();
+}
+
+export function appPageMetadata(pathname: string, metadata: Metadata): Metadata {
+  const canonicalUrl = appCanonicalUrl(pathname);
+  return {
+    ...metadata,
+    metadataBase: new URL(WALNUT_APP_URL),
+    robots: metadata.robots ?? {
+      index: true,
+      follow: true,
+    },
+    alternates: {
+      ...metadata.alternates,
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      ...metadata.openGraph,
+      url: canonicalUrl,
+    },
+  };
 }
 
 export function marketingPageMetadata(pathname: string, metadata: Metadata): Metadata {

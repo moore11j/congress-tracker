@@ -9,6 +9,8 @@ const middleware = fs.readFileSync(path.join(root, "middleware.ts"), "utf8");
 const sitemap = fs.readFileSync(path.join(root, "public/sitemap.xml"), "utf8");
 const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
 const seoRoutes = [
+  "/stock-research-app",
+  "/stock-analysis-tools",
   "/congress-trades",
   "/insider-trading-tracker",
   "/government-contracts",
@@ -23,9 +25,11 @@ function readAppPage(route) {
 
 test("marketing metadata uses non-www HTTPS canonicals", () => {
   assert.match(marketingMetadata, /WALNUT_MARKETING_URL = "https:\/\/walnutmarkets\.com"/);
+  assert.match(marketingMetadata, /WALNUT_APP_URL = "https:\/\/app\.walnutmarkets\.com"/);
   assert.match(marketingMetadata, /new URL\(normalizedPath, `\$\{WALNUT_MARKETING_URL\}\/`\)\.toString\(\)/);
   assert.match(marketingMetadata, /canonical: marketingCanonicalUrl\("\/"\)/);
   assert.match(marketingMetadata, /url: marketingCanonicalUrl\("\/"\)/);
+  assert.match(marketingMetadata, /function appCanonicalUrl\(pathname: string\)/);
   assert.doesNotMatch(marketingMetadata, /https?:\/\/www\.walnutmarkets\.com/);
 });
 
@@ -58,15 +62,16 @@ test("robots points crawlers to the canonical sitemap without blocking marketing
   assert.match(robots, /Sitemap: https:\/\/walnutmarkets\.com\/sitemap\.xml/);
   assert.doesNotMatch(robots, /Disallow: \/$/m);
   for (const route of ["/faq", "/pricing", "/terms", "/privacy"]) {
-    assert.match(robots, new RegExp(`Allow: ${route}`));
+    assert.doesNotMatch(robots, new RegExp(`Disallow: ${route}`));
   }
   for (const route of seoRoutes) {
-    assert.match(robots, new RegExp(`Allow: ${route}`));
+    assert.doesNotMatch(robots, new RegExp(`Disallow: ${route}`));
   }
 });
 
 test("http and www marketing requests redirect permanently while preserving path and query", () => {
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
+  assert.match(middleware, /legacyAppHosts = new Set\(\["app\.walnut-intel\.com"\]\)/);
   assert.match(middleware, /const forwardedProto = request\.headers\.get\("x-forwarded-proto"\)/);
   assert.match(middleware, /const requestProto = forwardedProto \|\| request\.nextUrl\.protocol\.replace\(/);
   assert.match(middleware, /host === canonicalMarketingHost && requestProto === "http"/);
@@ -75,6 +80,14 @@ test("http and www marketing requests redirect permanently while preserving path
   assert.match(redirectBlock, /const canonicalUrl = request\.nextUrl\.clone\(\)/);
   assert.match(redirectBlock, /canonicalUrl\.protocol = "https:"/);
   assert.match(redirectBlock, /canonicalUrl\.hostname = canonicalMarketingHost/);
+  assert.match(redirectBlock, /canonicalUrl\.port = ""/);
+  assert.doesNotMatch(redirectBlock, /canonicalUrl\.(pathname|search) =/);
+});
+
+test("legacy app domain redirects permanently to canonical app host", () => {
+  const redirectBlock = middleware.match(/if \(legacyAppHosts\.has\(host\)\) \{[\s\S]*?return NextResponse\.redirect\(canonicalUrl, 301\);[\r\n\s]*\}/)?.[0] ?? "";
+  assert.match(redirectBlock, /canonicalUrl\.protocol = "https:"/);
+  assert.match(redirectBlock, /canonicalUrl\.hostname = appHost/);
   assert.match(redirectBlock, /canonicalUrl\.port = ""/);
   assert.doesNotMatch(redirectBlock, /canonicalUrl\.(pathname|search) =/);
 });
