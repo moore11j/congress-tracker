@@ -44,6 +44,7 @@ def backfill_price_cache(
     start_date: str,
     end_date: str,
     dry_run: bool,
+    require_adjusted: bool = False,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_price_cache_volume_columns(engine)
@@ -61,10 +62,15 @@ def backfill_price_cache(
             provider_symbol = None
             failure = None
             try:
-                provider_bars, provider_symbol = _fetch_provider_eod_price_bars(symbol, start, end)
+                provider_bars, provider_symbol = _fetch_provider_eod_price_bars(
+                    symbol,
+                    start,
+                    end,
+                    require_adjusted=require_adjusted,
+                )
                 provider_map = {day: bar.close for day, bar in provider_bars.items()}
                 volume_map = {day: bar.volume for day, bar in provider_bars.items() if bar.volume is not None}
-                if not provider_map:
+                if not provider_map and not require_adjusted:
                     provider_map, volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start, end)
             except Exception as exc:
                 volume_map = {}
@@ -104,6 +110,7 @@ def backfill_price_cache(
                     "start_date": start,
                     "end_date": end,
                     "dry_run": dry_run,
+                    "require_adjusted": require_adjusted,
                     "rows_existing": len(existing),
                     "rows_provider": len(provider_map),
                     "rows_provider_volume": len(volume_map),
@@ -124,6 +131,7 @@ def backfill_price_cache(
 
     return {
         "dry_run": dry_run,
+        "require_adjusted": require_adjusted,
         "symbols": symbols,
         "start_date": start,
         "end_date": end,
@@ -138,6 +146,7 @@ def main() -> None:
     parser.add_argument("--end-date", required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--require-adjusted", action="store_true", help="Only accept provider rows with adjusted-close semantics.")
     args = parser.parse_args()
 
     if not args.dry_run and not args.apply:
@@ -151,6 +160,7 @@ def main() -> None:
         start_date=args.start_date,
         end_date=args.end_date,
         dry_run=args.dry_run,
+        require_adjusted=args.require_adjusted,
     )
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
 

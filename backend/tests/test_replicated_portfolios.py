@@ -4992,7 +4992,7 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     monkeypatch.setattr(
         backfill_module,
         "_fetch_provider_eod_price_bars",
-        lambda symbol, start, end: (
+        lambda symbol, start, end, require_adjusted=False: (
             {
                 "2026-01-02": EodPriceBar(
                     date="2026-01-02",
@@ -5061,3 +5061,44 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     assert dry["rows"][0]["rows_provider_ohlc"] == 2
     assert dry["rows"][0]["rows_inserted_or_updated"] == 0
     assert applied["rows"][0]["rows_inserted_or_updated"] == 2
+
+
+def test_backfill_price_cache_can_require_adjusted_rows(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(backfill_module, "engine", engine)
+    monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
+    calls = []
+
+    def fake_bars(symbol, start, end, require_adjusted=False):
+        calls.append(require_adjusted)
+        return (
+            {
+                "2026-01-02": EodPriceBar(
+                    date="2026-01-02",
+                    close=100.0,
+                    volume=1_000_000.0,
+                    adjusted_close=100.0,
+                    price_source="massive",
+                    provider_symbol=symbol,
+                    adjustment_status="adjusted",
+                )
+            },
+            symbol,
+        )
+
+    monkeypatch.setattr(backfill_module, "_fetch_provider_eod_price_bars", fake_bars)
+
+    report = backfill_module.backfill_price_cache(
+        symbols=["SPY"],
+        start_date="2026-01-02",
+        end_date="2026-01-02",
+        dry_run=True,
+        require_adjusted=True,
+    )
+
+    assert calls == [True]
+    row = report["rows"][0]
+    assert report["require_adjusted"] is True
+    assert row["require_adjusted"] is True
+    assert row["rows_provider"] == 1
+    assert row["rows_provider_adjusted"] == 1

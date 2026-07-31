@@ -1349,6 +1349,45 @@ def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_dat
     return best_map, best_volume_map, best_symbol
 
 
+def _fetch_massive_eod_price_bars(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, EodPriceBar], str | None]:
+    api_key = (os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY") or "").strip()
+    if not api_key:
+        return {}, None
+    base_url = (
+        os.getenv("MASSIVE_BASE_URL")
+        or os.getenv("POLYGON_BASE_URL")
+        or "https://api.massive.com"
+    ).rstrip("/")
+
+    best_bars: dict[str, EodPriceBar] = {}
+    best_symbol: str | None = None
+    for candidate_symbol in symbol_variants(symbol):
+        path_symbol = quote(candidate_symbol, safe="")
+        response = _fetch_with_backoff(
+            f"{base_url}/v2/aggs/ticker/{path_symbol}/range/1/day/{start_date}/{end_date}",
+            {
+                "adjusted": "true",
+                "sort": "asc",
+                "limit": 50000,
+                "apiKey": api_key,
+            },
+            retries=1,
+        )
+        if response is None or response.status_code != 200:
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            continue
+        bars = _extract_price_bars_from_massive_payload(payload, start_date, end_date, provider_symbol=candidate_symbol)
+        if len(bars) > len(best_bars):
+            best_bars = bars
+            best_symbol = candidate_symbol
+        if bars and not is_sparse_daily_close_series({day: bar.close for day, bar in bars.items()}, start_date, end_date):
+            return bars, candidate_symbol
+    return best_bars, best_symbol
+
+
 def _fetch_massive_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:
     price_map, _volume_map, provider_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
     return price_map, provider_symbol
@@ -1435,11 +1474,17 @@ def _fetch_provider_eod_price_bars(
     end_date: str,
     *,
     allow_user_request: bool = False,
+    require_adjusted: bool = False,
 ) -> tuple[dict[str, EodPriceBar], str | None]:
     api_key = os.getenv("FMP_API_KEY", "").strip()
 
     best_bars: dict[str, EodPriceBar] = {}
     best_symbol: str | None = None
+    if require_adjusted:
+        massive_bars, massive_symbol = _fetch_massive_eod_price_bars(symbol, start_date, end_date)
+        if massive_bars:
+            return massive_bars, massive_symbol
+
     if api_key:
         for candidate_symbol in symbol_variants(symbol):
             for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
@@ -1460,28 +1505,16 @@ def _fetch_provider_eod_price_bars(
                     price_source=f"fmp:{endpoint}",
                     provider_symbol=candidate_symbol,
                 )
+                if require_adjusted:
+                    bars = {day: bar for day, bar in bars.items() if bar.adjusted_close is not None}
                 if len(bars) > len(best_bars):
                     best_bars = bars
                     best_symbol = candidate_symbol
                 if bars and not _series_has_stale_tail({day: bar.close for day, bar in bars.items()}, end_date):
                     return bars, candidate_symbol
 
-    massive_map, massive_volume_map, massive_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
-    if massive_map:
-        # Re-fetching the massive payload would cost another provider request, so preserve the
-        # adjusted close guarantee and volume captured by the legacy path.
-        massive_bars = {
-            day: EodPriceBar(
-                date=day,
-                close=close,
-                volume=massive_volume_map.get(day),
-                adjusted_close=close,
-                price_source="massive",
-                provider_symbol=massive_symbol,
-                adjustment_status="adjusted",
-            )
-            for day, close in massive_map.items()
-        }
+    if not require_adjusted:
+        massive_bars, massive_symbol = _fetch_massive_eod_price_bars(symbol, start_date, end_date)
         if len(massive_bars) > len(best_bars):
             return massive_bars, massive_symbol
     return best_bars, best_symbol
