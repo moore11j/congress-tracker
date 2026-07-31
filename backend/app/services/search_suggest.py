@@ -61,6 +61,10 @@ _STATIC_TICKER_META: dict[str, tuple[str, str | None]] = {
     "PLTR": ("Palantir Technologies Inc.", None),
     "TSLA": ("Tesla Inc.", "NASDAQ"),
 }
+_STATIC_COMPANY_QUERY_SYMBOLS: dict[str, str] = {
+    "appl": "AAPL",
+    "apple": "AAPL",
+}
 
 
 def normalize_search_query(q: str | None) -> str:
@@ -226,7 +230,20 @@ def _best_variant_row(rows: list[Any], variants: list[str]) -> Any | None:
     return rows[0] if rows else None
 
 
+def _static_company_query_suggestion(query: str, personalization: SearchPersonalization | None = None) -> SearchSuggestItem | None:
+    symbol = _STATIC_COMPANY_QUERY_SYMBOLS.get(_compact_key(query))
+    if not symbol:
+        return None
+    label, exchange = _STATIC_TICKER_META[symbol]
+    boost = (personalization or SearchPersonalization()).symbol_boosts.get(symbol, 0.0)
+    return _ticker_item(symbol, label, exchange, 5100.0 + boost)
+
+
 def _exact_ticker_suggestion(db: Session, query: str, personalization: SearchPersonalization | None = None) -> SearchSuggestItem | None:
+    static_company = _static_company_query_suggestion(query, personalization)
+    if static_company is not None:
+        return static_company
+
     symbol = _ticker_query_symbol(query)
     if not symbol:
         return None

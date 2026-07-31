@@ -180,6 +180,9 @@ def test_search_suggest_apple_company_query_does_not_return_unknown_apple_ticker
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
     try:
+        db.add(TickerMeta(symbol="APPLE", company_name=None, exchange=None))
+        db.commit()
+
         items = search_suggestions(db, "apple", limit=5)["items"]
 
         assert items[0]["kind"] == "ticker"
@@ -198,6 +201,9 @@ def test_search_suggest_appl_company_query_resolves_to_aapl_before_raw_fallback(
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(search_suggest_module, "enqueue_data_enrichment_job", lambda **kwargs: calls.append(kwargs) or True)
     try:
+        db.add(TickerMeta(symbol="APPL", company_name="Appleseed Fund", exchange="NASDAQ"))
+        db.commit()
+
         items = search_suggestions(db, "appl", limit=5)["items"]
 
         assert items[0]["kind"] == "ticker"
