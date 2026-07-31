@@ -9,7 +9,13 @@ from sqlalchemy import select
 
 from app.db import Base, SessionLocal, engine, ensure_price_cache_volume_columns
 from app.models import PriceCache
-from app.services.price_lookup import _fetch_provider_eod_price_bars, _fetch_provider_eod_price_volume_series, _safe_cache_upsert
+from app.services.price_lookup import (
+    _fetch_provider_corporate_actions,
+    _fetch_provider_eod_price_bars,
+    _fetch_provider_eod_price_volume_series,
+    _safe_cache_upsert,
+    reconstruct_adjusted_price_bars,
+)
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -45,6 +51,7 @@ def backfill_price_cache(
     end_date: str,
     dry_run: bool,
     require_adjusted: bool = False,
+    reconstruct_adjusted: bool = False,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_price_cache_volume_columns(engine)
@@ -59,18 +66,31 @@ def backfill_price_cache(
             existing = _existing_dates(db, symbol=symbol, start_date=start, end_date=end)
             provider_map: dict[str, float] = {}
             provider_bars = {}
+            dividends = {}
+            split_factors = {}
             provider_symbol = None
             failure = None
+            adjustment_method = "provider_adjusted" if require_adjusted else "provider_close"
             try:
-                provider_bars, provider_symbol = _fetch_provider_eod_price_bars(
-                    symbol,
-                    start,
-                    end,
-                    require_adjusted=require_adjusted,
-                )
+                if reconstruct_adjusted:
+                    raw_bars, provider_symbol = _fetch_provider_eod_price_bars(symbol, start, end, require_adjusted=False)
+                    dividends, split_factors = _fetch_provider_corporate_actions(provider_symbol or symbol, start, end)
+                    provider_bars = reconstruct_adjusted_price_bars(
+                        raw_bars,
+                        dividends=dividends,
+                        split_factors=split_factors,
+                    )
+                    adjustment_method = "reconstructed_adjusted"
+                else:
+                    provider_bars, provider_symbol = _fetch_provider_eod_price_bars(
+                        symbol,
+                        start,
+                        end,
+                        require_adjusted=require_adjusted,
+                    )
                 provider_map = {day: bar.close for day, bar in provider_bars.items()}
                 volume_map = {day: bar.volume for day, bar in provider_bars.items() if bar.volume is not None}
-                if not provider_map and not require_adjusted:
+                if not provider_map and not require_adjusted and not reconstruct_adjusted:
                     provider_map, volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start, end)
             except Exception as exc:
                 volume_map = {}
@@ -111,6 +131,8 @@ def backfill_price_cache(
                     "end_date": end,
                     "dry_run": dry_run,
                     "require_adjusted": require_adjusted,
+                    "reconstruct_adjusted": reconstruct_adjusted,
+                    "adjustment_method": adjustment_method,
                     "rows_existing": len(existing),
                     "rows_provider": len(provider_map),
                     "rows_provider_volume": len(volume_map),
@@ -121,6 +143,8 @@ def backfill_price_cache(
                         for bar in provider_bars.values()
                         if bar.open_price is not None and bar.high_price is not None and bar.low_price is not None
                     ),
+                    "rows_provider_dividends": len(dividends),
+                    "rows_provider_splits": len(split_factors),
                     "rows_missing": len(missing_provider_dates),
                     "rows_inserted_or_updated": inserted_or_updated,
                     "first_provider_date": min(provider_dates) if provider_dates else None,
@@ -132,6 +156,7 @@ def backfill_price_cache(
     return {
         "dry_run": dry_run,
         "require_adjusted": require_adjusted,
+        "reconstruct_adjusted": reconstruct_adjusted,
         "symbols": symbols,
         "start_date": start,
         "end_date": end,
@@ -147,6 +172,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--require-adjusted", action="store_true", help="Only accept provider rows with adjusted-close semantics.")
+    parser.add_argument("--reconstruct-adjusted", action="store_true", help="Reconstruct adjusted closes from raw OHLCV plus provider dividends/splits.")
     args = parser.parse_args()
 
     if not args.dry_run and not args.apply:
@@ -161,6 +187,7 @@ def main() -> None:
         end_date=args.end_date,
         dry_run=args.dry_run,
         require_adjusted=args.require_adjusted,
+        reconstruct_adjusted=args.reconstruct_adjusted,
     )
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
 

@@ -5102,3 +5102,62 @@ def test_backfill_price_cache_can_require_adjusted_rows(monkeypatch):
     assert row["require_adjusted"] is True
     assert row["rows_provider"] == 1
     assert row["rows_provider_adjusted"] == 1
+
+
+def test_backfill_price_cache_reconstructs_adjusted_rows(monkeypatch):
+    engine, SessionLocal = _session_factory()
+    monkeypatch.setattr(backfill_module, "engine", engine)
+    monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(
+        backfill_module,
+        "_fetch_provider_eod_price_bars",
+        lambda symbol, start, end, require_adjusted=False: (
+            {
+                "2026-01-02": EodPriceBar(
+                    date="2026-01-02",
+                    close=100.0,
+                    volume=1_000_000.0,
+                    raw_close=100.0,
+                    price_source="fmp:historical-price-eod/full",
+                    provider_symbol=symbol,
+                ),
+                "2026-01-05": EodPriceBar(
+                    date="2026-01-05",
+                    close=99.0,
+                    volume=1_100_000.0,
+                    raw_close=99.0,
+                    price_source="fmp:historical-price-eod/full",
+                    provider_symbol=symbol,
+                ),
+            },
+            symbol,
+        ),
+    )
+    monkeypatch.setattr(
+        backfill_module,
+        "_fetch_provider_corporate_actions",
+        lambda symbol, start, end: ({"2026-01-05": 1.0}, {}),
+    )
+
+    applied = backfill_module.backfill_price_cache(
+        symbols=["SPY"],
+        start_date="2026-01-02",
+        end_date="2026-01-05",
+        dry_run=False,
+        reconstruct_adjusted=True,
+    )
+
+    with SessionLocal() as db:
+        first = db.get(PriceCache, ("SPY", "2026-01-02"))
+        second = db.get(PriceCache, ("SPY", "2026-01-05"))
+        assert first.close == 99.0
+        assert first.adjusted_close == 99.0
+        assert first.raw_close == 100.0
+        assert first.adjustment_status == "reconstructed_adjusted"
+        assert second.close == 99.0
+        assert second.dividend_amount == 1.0
+
+    row = applied["rows"][0]
+    assert row["adjustment_method"] == "reconstructed_adjusted"
+    assert row["rows_provider_adjusted"] == 2
+    assert row["rows_provider_dividends"] == 1

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
@@ -1305,6 +1305,145 @@ def _extract_price_bars_from_massive_payload(
             adjustment_status="adjusted",
         )
     return dict(sorted(bars.items()))
+
+
+def _extract_dividend_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    dividends: dict[str, float] = {}
+    for row in _rows_from_series_payload(payload):
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or row.get("exDividendDate") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date < start_date or row_date > end_date:
+            continue
+        dividend = _float_or_none(row.get("adjDividend") or row.get("dividend") or row.get("cashAmount"))
+        if dividend is not None:
+            dividends[row_date] = dividends.get(row_date, 0.0) + dividend
+    return dict(sorted(dividends.items()))
+
+
+def _split_price_adjustment_factor(row: dict[str, Any]) -> float | None:
+    numerator = _float_or_none(row.get("numerator"))
+    denominator = _float_or_none(row.get("denominator"))
+    if numerator and denominator:
+        return denominator / numerator
+
+    ratio = str(row.get("ratio") or row.get("splitRatio") or "").strip()
+    if not ratio:
+        return None
+    for separator in (":", "/"):
+        if separator not in ratio:
+            continue
+        left, right = [part.strip() for part in ratio.split(separator, 1)]
+        numerator = _float_or_none(left)
+        denominator = _float_or_none(right)
+        if numerator and denominator:
+            return denominator / numerator
+    return _float_or_none(row.get("splitCoefficient") or row.get("split_coefficient"))
+
+
+def _extract_split_factor_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
+    split_factors: dict[str, float] = {}
+    for row in _rows_from_series_payload(payload):
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or row.get("splitDate") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date < start_date or row_date > end_date:
+            continue
+        factor = _split_price_adjustment_factor(row)
+        if factor is not None and factor > 0 and abs(factor - 1.0) > 0.0000001:
+            split_factors[row_date] = split_factors.get(row_date, 1.0) * factor
+    return dict(sorted(split_factors.items()))
+
+
+def _fetch_provider_corporate_actions(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    allow_user_request: bool = False,
+) -> tuple[dict[str, float], dict[str, float]]:
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+    if not api_key:
+        return {}, {}
+
+    for candidate_symbol in symbol_variants(symbol):
+        dividend_payload = _fetch_provider_eod_payload(
+            "dividends",
+            candidate_symbol,
+            start_date,
+            end_date,
+            api_key,
+            allow_user_request=allow_user_request,
+        )
+        split_payload = _fetch_provider_eod_payload(
+            "splits",
+            candidate_symbol,
+            start_date,
+            end_date,
+            api_key,
+            allow_user_request=allow_user_request,
+        )
+        dividends = _extract_dividend_series_from_payload(dividend_payload, start_date, end_date)
+        split_factors = _extract_split_factor_series_from_payload(split_payload, start_date, end_date)
+        if dividends or split_factors:
+            return dividends, split_factors
+    return {}, {}
+
+
+def reconstruct_adjusted_price_bars(
+    raw_bars: dict[str, EodPriceBar],
+    *,
+    dividends: dict[str, float] | None = None,
+    split_factors: dict[str, float] | None = None,
+) -> dict[str, EodPriceBar]:
+    days = sorted(raw_bars)
+    if not days:
+        return {}
+
+    dividends = dividends or {}
+    split_factors = split_factors or {}
+    factors_by_prior_index: dict[int, float] = {}
+
+    for action_date, factor in split_factors.items():
+        prior_index = bisect_left(days, action_date) - 1
+        if prior_index >= 0 and factor > 0:
+            factors_by_prior_index[prior_index] = factors_by_prior_index.get(prior_index, 1.0) * factor
+
+    for action_date, dividend in dividends.items():
+        prior_index = bisect_left(days, action_date) - 1
+        if prior_index < 0 or dividend <= 0:
+            continue
+        prior_bar = raw_bars[days[prior_index]]
+        prior_close = prior_bar.raw_close or prior_bar.close
+        if prior_close <= 0 or dividend >= prior_close:
+            continue
+        factors_by_prior_index[prior_index] = factors_by_prior_index.get(prior_index, 1.0) * ((prior_close - dividend) / prior_close)
+
+    reconstructed: dict[str, EodPriceBar] = {}
+    cumulative_factor = 1.0
+    for index in range(len(days) - 1, -1, -1):
+        if index in factors_by_prior_index:
+            cumulative_factor *= factors_by_prior_index[index]
+        day = days[index]
+        bar = raw_bars[day]
+        raw_close = bar.raw_close or bar.close
+        adjusted_close = raw_close * cumulative_factor
+        reconstructed[day] = EodPriceBar(
+            date=day,
+            close=adjusted_close,
+            volume=bar.volume,
+            adjusted_close=adjusted_close,
+            raw_close=raw_close,
+            open_price=(bar.open_price * cumulative_factor) if bar.open_price is not None else None,
+            high_price=(bar.high_price * cumulative_factor) if bar.high_price is not None else None,
+            low_price=(bar.low_price * cumulative_factor) if bar.low_price is not None else None,
+            split_coefficient=split_factors.get(day),
+            dividend_amount=dividends.get(day),
+            price_source=f"{bar.price_source or 'provider'}+corporate_actions",
+            provider_symbol=bar.provider_symbol,
+            adjustment_status="reconstructed_adjusted",
+        )
+    return dict(sorted(reconstructed.items()))
 
 
 def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
