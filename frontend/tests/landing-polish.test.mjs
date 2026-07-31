@@ -62,12 +62,13 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.match(landingPage, /Find stocks worth buying—and when to make a move\./);
   assert.match(landingPage, /See which way the data is pointing\./);
   assert.doesNotMatch(landingPage, /More data is not the edge|Cross-source context|cross-source|Stock research that explains the move|buy signals|sell signals/);
-  assert.match(landingPage, /<h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart\.<\/h2>/);
-  assert.match(landingPage, /Higher-conviction opportunities\./);
-  assert.match(landingPage, /Investment research usually starts with charts, screeners, data feeds, and alerts/);
   assert.match(landingPage, /our proprietary confirmation score/);
   assert.match(landingPage, /Free tier available\./);
   assert.doesNotMatch(landingPage, /Finviz|TradingView|Quiver|Unusual Whales/);
+  assert.doesNotMatch(landingPage, /<SectionEyebrow>Differentiation<\/SectionEyebrow>/);
+  assert.doesNotMatch(landingPage, /Strong investments require the full picture, not just the chart\./);
+  assert.doesNotMatch(landingPage, /Higher-conviction opportunities\./);
+  assert.doesNotMatch(landingPage, /Investment research usually starts with charts, screeners, data feeds, and alerts/);
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Why Walnut<\/SectionEyebrow>/);
   assert.doesNotMatch(landingPage, /Evaluate the full investment case before putting capital at risk\./);
@@ -78,7 +79,7 @@ test("landing page adds Compare with real screenshot and plan positioning", () =
   assert.match(landingPage, /const compareSamplePath = "\/compare\/NVDA\/MU"/);
   assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
   assert.match(landingPage, /<SectionEyebrow>Compare<\/SectionEyebrow>/);
-  assert.match(landingPage, /Compare two stocks\. See which case is stronger\./);
+  assert.match(landingPage, /Compare two stocks\. See which is the stronger buy\./);
   assert.match(landingPage, /Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score/);
   assert.match(landingPage, /Premium unlocks the full verdict and decision view\./);
   assert.match(landingPage, /Pro adds institutional activity and options-flow evidence\./);

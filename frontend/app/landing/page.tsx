@@ -144,39 +144,6 @@ const signalCards = [
   },
 ] as const;
 
-const marketToolCategories = [
-  {
-    name: "Market snapshots",
-    body: "Point-in-time price, valuation, liquidity, and fundamental context.",
-  },
-  {
-    name: "Charting workspaces",
-    body: "Technical views that show price action but leave the broader case to the investor.",
-  },
-  {
-    name: "Public data trackers",
-    body: "Disclosure feeds and alternative data that still need thesis-level interpretation.",
-  },
-  {
-    name: "Flow and activity feeds",
-    body: "Activity signals that are more useful when weighed against fundamentals and risk.",
-  },
-] as const;
-
-const availableNowColumns = [
-  ["Congress trades", "Insider trades", "Ticker intelligence", "Confirmation score"],
-  ["Government contracts", "Watchlists", "Screener", "Member/insider performance"],
-  ["Institutional Activity", "Macro Positioning", "Market pressure"],
-  ["Portfolio backtesting", "Congress leaderboards", "Earnings and event calendar overlays"],
-] as const;
-
-const comingSoon = [
-  "Options Flow",
-  "AI analyst briefs",
-  "Social Sentiment",
-  "API and webhooks",
-] as const;
-
 const fallbackTrending: TrendingTicker[] = [
   { symbol: "NVDA", companyName: "NVIDIA Corp", price: null, dayChangePct: null },
   { symbol: "AAPL", companyName: "Apple Inc", price: null, dayChangePct: null },
@@ -939,7 +906,7 @@ export default async function LandingPage() {
             <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
             <div>
               <SectionEyebrow>Compare</SectionEyebrow>
-              <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which case is stronger.</h3>
+              <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which is the stronger buy.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-400">
                 Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score to show which investment case has stronger support.
               </p>
@@ -983,79 +950,6 @@ export default async function LandingPage() {
                   Real Walnut comparison workflow
                 </span>
                 <span>Premium comparison shown. Pro adds institutional and options evidence.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="max-w-3xl">
-            <SectionEyebrow>Differentiation</SectionEyebrow>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Strong investments require the full picture, not just the chart.</h2>
-            <p className="mt-5 text-base leading-7 text-slate-400">
-              Investment research usually starts with charts, screeners, data feeds, and alerts.
-            </p>
-            <p className="mt-4 text-lg font-semibold leading-7 text-emerald-100">Walnut helps investors judge whether the data supports the opportunity, contradicts it, or points to risks that deserve attention.</p>
-          </div>
-          <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1fr_1.05fr]">
-            <div className="grid gap-4 sm:grid-cols-2">
-              {marketToolCategories.map((card) => (
-                <article key={card.name} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
-                  <h3 className="text-lg font-semibold text-white">{card.name}</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-400">{card.body}</p>
-                </article>
-              ))}
-            </div>
-            <article className="rounded-lg border border-emerald-300/30 bg-emerald-300/[0.06] p-6 shadow-2xl shadow-emerald-950/15">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">Walnut</p>
-              <h3 className="mt-4 text-2xl font-semibold text-white">Higher-conviction opportunities.</h3>
-              <p className="mt-4 text-sm leading-6 text-slate-300">
-                We connect technical analysis, fundamentals, Congress trades, insider activity, government contracts, reported institutional activity, options flow, news, filings, and our proprietary confirmation score into a clearer read on whether the investment case is strengthening, weakening, or mixed.
-              </p>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {["What changed", "Supporting data", "Confirmation", "Risks", "What could weaken the thesis", "What to watch next"].map((item) => (
-                  <div key={item} className="rounded-lg border border-emerald-300/20 bg-slate-950/55 px-4 py-3 text-sm font-semibold text-emerald-50">
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <SectionEyebrow>The Walnut data</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Multi-dimensional data sets are available now, with more coming soon</h2>
-          <div className="mt-8 grid gap-4">
-            <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.04] p-6">
-              <h3 className="text-lg font-semibold text-white">Available Now</h3>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {availableNowColumns.map((column, columnIndex) => (
-                  <div key={`available-column-${columnIndex}`} className="grid content-start gap-3">
-                    {column.map((item) => (
-                      <div key={item} className="rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200">
-                        {item}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.035] p-6">
-              <h3 className="text-lg font-semibold text-white">Coming Soon</h3>
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                {comingSoon.map((item) => (
-                  <div key={item} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-slate-950/70 px-4 py-3 text-sm font-medium text-slate-200">
-                    <span>{item}</span>
-                    <span className="shrink-0 rounded border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
-                      Coming Soon
-                    </span>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
