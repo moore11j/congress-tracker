@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { LandingSearch } from "@/components/landing/LandingSearch";
 import { LatestInsightImage } from "@/components/landing/LatestInsightImage";
 import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 import { CompareEventOnMount, CompareTrackedLink } from "@/components/compare/CompareAnalytics";
@@ -754,7 +753,6 @@ export default async function LandingPage() {
                 Try for free
               </a>
             </div>
-            <LandingSearch appUrl={appUrl} />
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">
               Free users can explore core ticker research, price/volume context, Congress disclosures, insider activity, and government contract data. Paid tiers help investors evaluate more data, including our proprietary confirmation score, reported institutional activity, and options flow. Built for research. Not investment advice.
             </p>
@@ -993,7 +991,7 @@ export default async function LandingPage() {
       <section id="pricing" className="border-b border-white/10 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>Pricing</SectionEyebrow>
-          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to trade like an insider. Cancel anytime.</h2>
+          <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Start free. Upgrade to trade like a pro. Cancel anytime.</h2>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-400">
             <span className="font-semibold text-emerald-200">Free tier available.</span> Explore core ticker research, Congress disclosures, insider activity, government contracts, and price/volume context before upgrading.
           </p>
