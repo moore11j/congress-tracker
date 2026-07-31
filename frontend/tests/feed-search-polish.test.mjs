@@ -56,6 +56,27 @@ test("feed autosuggest popovers render above result cards", () => {
   }
 });
 
+test("feed page adds compact search intro above global search", () => {
+  const pageClient = read("components/feed/FeedPageClient.tsx");
+  const fallback = read("components/feed/FeedShellFallback.tsx");
+
+  assert.match(pageClient, /Search Walnut Markets/);
+  assert.match(pageClient, /<h1 className="mt-3 max-w-2xl text-2xl/);
+  assert.match(pageClient, /Search stocks\. Follow the insiders\./);
+  assert.match(pageClient, /Find tickers, Congress members, insiders, institutions and government departments/);
+
+  assert.match(pageClient, /Search stocks\. Follow the insiders\.[\s\S]*<LandingSearch appUrl=\{appUrl\} \/>[\s\S]*Live Market Flow/);
+  assert.match(pageClient, /className="pt-1 sm:pt-0"/);
+  assert.match(pageClient, /className="mt-8 flex flex-col gap-2 sm:mt-9 lg:mt-10"/);
+  assert.doesNotMatch(pageClient, /<h1 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
+  assert.match(pageClient, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
+
+  assert.match(fallback, /Search Walnut Markets/);
+  assert.match(fallback, /Search stocks\. Follow the insiders\./);
+  assert.match(fallback, /sm:mt-8/);
+  assert.match(fallback, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
+});
+
 test("visible feed results load client-side with bounded gain/loss enrichment", () => {
   const page = read("app/page.tsx");
   const pageClient = read("components/feed/FeedPageClient.tsx");
