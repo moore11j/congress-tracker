@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from bisect import bisect_right
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import quote
@@ -58,6 +59,23 @@ _DEFAULT_RECENT_REFRESH_TRADING_DAYS = 15
 _DEFAULT_EOD_READY_HOUR_ET = 18
 
 
+@dataclass(frozen=True)
+class EodPriceBar:
+    date: str
+    close: float
+    volume: float | None = None
+    adjusted_close: float | None = None
+    raw_close: float | None = None
+    open_price: float | None = None
+    high_price: float | None = None
+    low_price: float | None = None
+    split_coefficient: float | None = None
+    dividend_amount: float | None = None
+    price_source: str | None = None
+    provider_symbol: str | None = None
+    adjustment_status: str | None = None
+
+
 def _max_prior_fallback_days() -> int:
     raw = os.getenv("PRICE_LOOKUP_MAX_PRIOR_FALLBACK_DAYS", "").strip()
     try:
@@ -89,15 +107,44 @@ def _safe_cache_upsert(
     close_value: float,
     volume_value: float | None = None,
     day_volume_value: float | None = None,
+    *,
+    adjusted_close_value: float | None = None,
+    raw_close_value: float | None = None,
+    open_price_value: float | None = None,
+    high_price_value: float | None = None,
+    low_price_value: float | None = None,
+    split_coefficient_value: float | None = None,
+    dividend_amount_value: float | None = None,
+    price_source: str | None = None,
+    provider_symbol: str | None = None,
+    adjustment_status: str | None = None,
 ) -> bool:
     values: dict[str, Any] = {"symbol": symbol, "date": day, "close": close_value}
     now = datetime.now(timezone.utc)
     update_values: dict[str, Any] = {"close": close_value, "updated_at": now}
+    optional_values = {
+        "adjusted_close": adjusted_close_value,
+        "raw_close": raw_close_value,
+        "open_price": open_price_value,
+        "high_price": high_price_value,
+        "low_price": low_price_value,
+        "split_coefficient": split_coefficient_value,
+        "dividend_amount": dividend_amount_value,
+        "price_source": price_source,
+        "provider_symbol": provider_symbol,
+        "adjustment_status": adjustment_status,
+    }
+    for column_name, column_value in optional_values.items():
+        if column_value is not None:
+            values[column_name] = column_value
+            update_values[column_name] = column_value
     if volume_value is not None:
         values["volume"] = volume_value
         update_values["volume"] = volume_value
         values["day_volume"] = volume_value if day_volume_value is None else day_volume_value
         update_values["day_volume"] = values["day_volume"]
+        values["dollar_volume"] = close_value * volume_value
+        update_values["dollar_volume"] = values["dollar_volume"]
 
     stmt = _price_cache_insert(db).values(**values)
     stmt = stmt.on_conflict_do_update(index_elements=["symbol", "date"], set_=update_values)
@@ -229,6 +276,53 @@ def _extract_close_series_from_payload(payload: Any, start_date: str, end_date: 
             continue
         price_map[row_date] = close_value
     return dict(sorted(price_map.items()))
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _extract_price_bars_from_payload(
+    payload: Any,
+    start_date: str,
+    end_date: str,
+    *,
+    price_source: str,
+    provider_symbol: str | None = None,
+) -> dict[str, EodPriceBar]:
+    bars: dict[str, EodPriceBar] = {}
+    for row in _rows_from_series_payload(payload):
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or "").strip()[:10]
+        if not _is_valid_yyyy_mm_dd(row_date) or row_date < start_date or row_date > end_date:
+            continue
+        raw_close = _float_or_none(row.get("close") or row.get("price"))
+        adjusted_close = _float_or_none(row.get("adjClose") or row.get("adj_close") or row.get("adjustedClose"))
+        close_value = adjusted_close or raw_close
+        if close_value is None:
+            continue
+        adjustment_status = "adjusted" if adjusted_close is not None else "raw"
+        bars[row_date] = EodPriceBar(
+            date=row_date,
+            close=close_value,
+            volume=_float_or_none(row.get("volume")),
+            adjusted_close=adjusted_close,
+            raw_close=raw_close,
+            open_price=_float_or_none(row.get("open")),
+            high_price=_float_or_none(row.get("high")),
+            low_price=_float_or_none(row.get("low")),
+            split_coefficient=_float_or_none(row.get("splitCoefficient") or row.get("split_coefficient")),
+            dividend_amount=_float_or_none(row.get("dividend") or row.get("dividendAmount") or row.get("dividend_amount")),
+            price_source=price_source,
+            provider_symbol=provider_symbol,
+            adjustment_status=adjustment_status,
+        )
+    return dict(sorted(bars.items()))
 
 
 def _extract_volume_series_from_payload(payload: Any, start_date: str, end_date: str) -> dict[str, float]:
@@ -1170,6 +1264,49 @@ def _extract_volume_series_from_massive_payload(payload: Any, start_date: str, e
     return dict(sorted(volume_map.items()))
 
 
+def _extract_price_bars_from_massive_payload(
+    payload: Any,
+    start_date: str,
+    end_date: str,
+    *,
+    provider_symbol: str | None = None,
+) -> dict[str, EodPriceBar]:
+    if not isinstance(payload, dict):
+        return {}
+    rows = payload.get("results")
+    if not isinstance(rows, list):
+        return {}
+
+    bars: dict[str, EodPriceBar] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            day = datetime.fromtimestamp(float(row.get("t")) / 1000, tz=timezone.utc).date().isoformat()
+        except (TypeError, ValueError, OSError):
+            continue
+        if day < start_date or day > end_date:
+            continue
+        close_value = _float_or_none(row.get("c"))
+        if close_value is None:
+            continue
+        volume_value = _float_or_none(row.get("v"))
+        bars[day] = EodPriceBar(
+            date=day,
+            close=close_value,
+            volume=volume_value,
+            adjusted_close=close_value,
+            raw_close=None,
+            open_price=_float_or_none(row.get("o")),
+            high_price=_float_or_none(row.get("h")),
+            low_price=_float_or_none(row.get("l")),
+            price_source="massive",
+            provider_symbol=provider_symbol,
+            adjustment_status="adjusted",
+        )
+    return dict(sorted(bars.items()))
+
+
 def _fetch_massive_eod_price_volume_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], dict[str, float], str | None]:
     api_key = (os.getenv("MASSIVE_API_KEY") or os.getenv("POLYGON_API_KEY") or "").strip()
     if not api_key:
@@ -1290,6 +1427,64 @@ def _fetch_provider_eod_price_volume_series(
     ):
         return massive_map, massive_volume_map, massive_symbol
     return best_map, best_volume_map, best_symbol
+
+
+def _fetch_provider_eod_price_bars(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    allow_user_request: bool = False,
+) -> tuple[dict[str, EodPriceBar], str | None]:
+    api_key = os.getenv("FMP_API_KEY", "").strip()
+
+    best_bars: dict[str, EodPriceBar] = {}
+    best_symbol: str | None = None
+    if api_key:
+        for candidate_symbol in symbol_variants(symbol):
+            for endpoint in ("historical-price-eod/full", "historical-price-eod/light"):
+                provider_payload = _fetch_provider_eod_payload(
+                    endpoint,
+                    candidate_symbol,
+                    start_date,
+                    end_date,
+                    api_key,
+                    allow_user_request=allow_user_request,
+                )
+                if provider_payload is None or getattr(provider_payload, "status_code", 200) != 200:
+                    continue
+                bars = _extract_price_bars_from_payload(
+                    provider_payload,
+                    start_date,
+                    end_date,
+                    price_source=f"fmp:{endpoint}",
+                    provider_symbol=candidate_symbol,
+                )
+                if len(bars) > len(best_bars):
+                    best_bars = bars
+                    best_symbol = candidate_symbol
+                if bars and not _series_has_stale_tail({day: bar.close for day, bar in bars.items()}, end_date):
+                    return bars, candidate_symbol
+
+    massive_map, massive_volume_map, massive_symbol = _fetch_massive_eod_price_volume_series(symbol, start_date, end_date)
+    if massive_map:
+        # Re-fetching the massive payload would cost another provider request, so preserve the
+        # adjusted close guarantee and volume captured by the legacy path.
+        massive_bars = {
+            day: EodPriceBar(
+                date=day,
+                close=close,
+                volume=massive_volume_map.get(day),
+                adjusted_close=close,
+                price_source="massive",
+                provider_symbol=massive_symbol,
+                adjustment_status="adjusted",
+            )
+            for day, close in massive_map.items()
+        }
+        if len(massive_bars) > len(best_bars):
+            return massive_bars, massive_symbol
+    return best_bars, best_symbol
 
 
 def _fetch_provider_eod_close_series(symbol: str, start_date: str, end_date: str) -> tuple[dict[str, float], str | None]:

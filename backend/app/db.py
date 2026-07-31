@@ -437,6 +437,21 @@ def ensure_index_membership_metadata_schema(bind=engine) -> None:
 
 
 def ensure_price_cache_volume_columns(bind=engine) -> None:
+    columns = {
+        "volume": "FLOAT",
+        "day_volume": "FLOAT",
+        "adjusted_close": "FLOAT",
+        "raw_close": "FLOAT",
+        "open_price": "FLOAT",
+        "high_price": "FLOAT",
+        "low_price": "FLOAT",
+        "dollar_volume": "FLOAT",
+        "split_coefficient": "FLOAT",
+        "dividend_amount": "FLOAT",
+        "price_source": "TEXT",
+        "provider_symbol": "TEXT",
+        "adjustment_status": "TEXT",
+    }
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
         _set_postgres_ddl_timeouts(conn, statement_timeout="5s")
@@ -451,9 +466,9 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
                 for row in conn.execute(text("PRAGMA table_info(price_cache)")).fetchall()
                 if len(row) > 1
             }
-            for name in ("volume", "day_volume"):
+            for name, column_type in columns.items():
                 if name not in existing:
-                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} FLOAT"))
+                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} {column_type}"))
             return
 
         if dialect_name == "postgresql":
@@ -469,19 +484,18 @@ def ensure_price_cache_volume_columns(bind=engine) -> None:
                         FROM information_schema.columns
                         WHERE table_schema = 'public'
                           AND table_name = 'price_cache'
-                          AND column_name IN ('volume', 'day_volume')
                         """
                     )
                 ).fetchall()
             }
-            missing = [name for name in ("volume", "day_volume") if name not in existing]
+            missing = [name for name in columns if name not in existing]
             if not missing:
                 return
             try:
                 conn.execute(text("SET LOCAL lock_timeout = '2s'"))
                 conn.execute(text("SET LOCAL statement_timeout = '5s'"))
                 for name in missing:
-                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} FLOAT"))
+                    conn.execute(text(f"ALTER TABLE price_cache ADD COLUMN {name} {columns[name]}"))
             except SQLAlchemyError as exc:
                 logger.warning("price_cache_volume_schema_update_skipped reason=%s", exc.__class__.__name__)
 

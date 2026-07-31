@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 import app.compute_replicated_portfolios as compute_module
 import app.backfill_price_cache as backfill_module
+from app.services.price_lookup import EodPriceBar
 from app.db import Base
 from app.models import (
     CongressMemberAlias,
@@ -4990,10 +4991,36 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
     monkeypatch.setattr(
         backfill_module,
-        "_fetch_provider_eod_price_volume_series",
+        "_fetch_provider_eod_price_bars",
         lambda symbol, start, end: (
-            {"2026-01-02": 100.0, "2026-01-03": 101.0},
-            {"2026-01-02": 1_000_000.0, "2026-01-03": 1_100_000.0},
+            {
+                "2026-01-02": EodPriceBar(
+                    date="2026-01-02",
+                    close=100.0,
+                    volume=1_000_000.0,
+                    adjusted_close=100.0,
+                    raw_close=101.0,
+                    open_price=99.0,
+                    high_price=102.0,
+                    low_price=98.0,
+                    price_source="fmp:historical-price-eod/full",
+                    provider_symbol=symbol,
+                    adjustment_status="adjusted",
+                ),
+                "2026-01-03": EodPriceBar(
+                    date="2026-01-03",
+                    close=101.0,
+                    volume=1_100_000.0,
+                    adjusted_close=101.0,
+                    raw_close=102.0,
+                    open_price=100.0,
+                    high_price=103.0,
+                    low_price=99.0,
+                    price_source="fmp:historical-price-eod/full",
+                    provider_symbol=symbol,
+                    adjustment_status="adjusted",
+                ),
+            },
             symbol,
         ),
     )
@@ -5015,9 +5042,22 @@ def test_backfill_price_cache_dry_run_and_apply(monkeypatch):
     )
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(PriceCache)) == 2
-        assert db.get(PriceCache, ("SPY", "2026-01-02")).volume == 1_000_000.0
+        row = db.get(PriceCache, ("SPY", "2026-01-02"))
+        assert row.volume == 1_000_000.0
+        assert row.adjusted_close == 100.0
+        assert row.raw_close == 101.0
+        assert row.open_price == 99.0
+        assert row.high_price == 102.0
+        assert row.low_price == 98.0
+        assert row.dollar_volume == 100_000_000.0
+        assert row.price_source == "fmp:historical-price-eod/full"
+        assert row.provider_symbol == "SPY"
+        assert row.adjustment_status == "adjusted"
 
     assert dry["rows"][0]["rows_missing"] == 2
     assert dry["rows"][0]["rows_provider_volume"] == 2
+    assert dry["rows"][0]["rows_provider_adjusted"] == 2
+    assert dry["rows"][0]["rows_provider_raw_close"] == 2
+    assert dry["rows"][0]["rows_provider_ohlc"] == 2
     assert dry["rows"][0]["rows_inserted_or_updated"] == 0
     assert applied["rows"][0]["rows_inserted_or_updated"] == 2

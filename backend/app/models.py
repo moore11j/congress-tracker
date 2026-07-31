@@ -1524,8 +1524,19 @@ class PriceCache(Base):
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
     date: Mapped[str] = mapped_column(Text, primary_key=True)
     close: Mapped[float]
+    adjusted_close: Mapped[Optional[float]] = mapped_column(nullable=True)
+    raw_close: Mapped[Optional[float]] = mapped_column(nullable=True)
+    open_price: Mapped[Optional[float]] = mapped_column(nullable=True)
+    high_price: Mapped[Optional[float]] = mapped_column(nullable=True)
+    low_price: Mapped[Optional[float]] = mapped_column(nullable=True)
     volume: Mapped[Optional[float]] = mapped_column(nullable=True)
     day_volume: Mapped[Optional[float]] = mapped_column(nullable=True)
+    dollar_volume: Mapped[Optional[float]] = mapped_column(nullable=True)
+    split_coefficient: Mapped[Optional[float]] = mapped_column(nullable=True)
+    dividend_amount: Mapped[Optional[float]] = mapped_column(nullable=True)
+    price_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    provider_symbol: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    adjustment_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

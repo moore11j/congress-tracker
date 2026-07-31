@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.db import Base, SessionLocal, engine, ensure_price_cache_volume_columns
 from app.models import PriceCache
-from app.services.price_lookup import _fetch_provider_eod_price_volume_series, _safe_cache_upsert
+from app.services.price_lookup import _fetch_provider_eod_price_bars, _fetch_provider_eod_price_volume_series, _safe_cache_upsert
 from app.utils.symbols import normalize_symbol
 
 logger = logging.getLogger(__name__)
@@ -57,10 +57,15 @@ def backfill_price_cache(
         for symbol in symbols:
             existing = _existing_dates(db, symbol=symbol, start_date=start, end_date=end)
             provider_map: dict[str, float] = {}
+            provider_bars = {}
             provider_symbol = None
             failure = None
             try:
-                provider_map, volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start, end)
+                provider_bars, provider_symbol = _fetch_provider_eod_price_bars(symbol, start, end)
+                provider_map = {day: bar.close for day, bar in provider_bars.items()}
+                volume_map = {day: bar.volume for day, bar in provider_bars.items() if bar.volume is not None}
+                if not provider_map:
+                    provider_map, volume_map, provider_symbol = _fetch_provider_eod_price_volume_series(symbol, start, end)
             except Exception as exc:
                 volume_map = {}
                 failure = exc.__class__.__name__
@@ -71,7 +76,24 @@ def backfill_price_cache(
             inserted_or_updated = 0
             if not dry_run and provider_map:
                 for day, close in sorted(provider_map.items()):
-                    if _safe_cache_upsert(db, provider_symbol or symbol, day, close, volume_map.get(day)):
+                    bar = provider_bars.get(day)
+                    if _safe_cache_upsert(
+                        db,
+                        provider_symbol or symbol,
+                        day,
+                        close,
+                        volume_map.get(day),
+                        adjusted_close_value=bar.adjusted_close if bar else None,
+                        raw_close_value=bar.raw_close if bar else None,
+                        open_price_value=bar.open_price if bar else None,
+                        high_price_value=bar.high_price if bar else None,
+                        low_price_value=bar.low_price if bar else None,
+                        split_coefficient_value=bar.split_coefficient if bar else None,
+                        dividend_amount_value=bar.dividend_amount if bar else None,
+                        price_source=bar.price_source if bar else None,
+                        provider_symbol=bar.provider_symbol if bar else provider_symbol,
+                        adjustment_status=bar.adjustment_status if bar else None,
+                    ):
                         inserted_or_updated += 1
                 db.commit()
 
@@ -85,6 +107,13 @@ def backfill_price_cache(
                     "rows_existing": len(existing),
                     "rows_provider": len(provider_map),
                     "rows_provider_volume": len(volume_map),
+                    "rows_provider_adjusted": sum(1 for bar in provider_bars.values() if bar.adjusted_close is not None),
+                    "rows_provider_raw_close": sum(1 for bar in provider_bars.values() if bar.raw_close is not None),
+                    "rows_provider_ohlc": sum(
+                        1
+                        for bar in provider_bars.values()
+                        if bar.open_price is not None and bar.high_price is not None and bar.low_price is not None
+                    ),
                     "rows_missing": len(missing_provider_dates),
                     "rows_inserted_or_updated": inserted_or_updated,
                     "first_provider_date": min(provider_dates) if provider_dates else None,
