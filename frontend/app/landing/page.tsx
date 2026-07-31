@@ -752,7 +752,7 @@ export default async function LandingPage() {
                 href={appUrl}
                 className="inline-flex items-center justify-center rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-200"
               >
-                Find your next stock opportunity
+                Try for free
               </a>
             </div>
             <p className="mt-5 max-w-2xl text-xs leading-5 text-slate-400">

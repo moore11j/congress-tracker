@@ -97,7 +97,7 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
             aria-label="Search Walnut Market Terminal"
           />
         </label>
-        <button type="submit" className="rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
+        <button type="submit" className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-300/15">
           Search
         </button>
       </form>
