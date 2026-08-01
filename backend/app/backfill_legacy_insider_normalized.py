@@ -23,6 +23,12 @@ PARSER_VERSION = "legacy_fmp_insider_v1"
 ACCESSION_RE = re.compile(r"(\d{10}-\d{2}-\d{6})")
 
 
+def _chunks(items: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        size = 1000
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
 def _parse_date_value(value: Any) -> date | None:
     if value is None:
         return None
@@ -250,6 +256,7 @@ def backfill_legacy_insider_normalized(
         if limit is not None:
             query = query.limit(limit)
         rows = db.execute(query).scalars().all()
+        pending_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for row in rows:
             report["scanned"] += 1
             try:
@@ -257,34 +264,89 @@ def backfill_legacy_insider_normalized(
                 if not normalized_payload["normalized_hash"] or not normalized_payload["ticker_normalized"]:
                     report["skipped_unusable"] += 1
                     continue
-                existing = db.execute(
-                    select(InsiderTransactionNormalized.id)
-                    .where(InsiderTransactionNormalized.normalized_hash == normalized_payload["normalized_hash"])
-                    .limit(1)
-                ).scalar_one_or_none()
-                if existing is not None:
-                    report["skipped_existing"] += 1
-                    continue
-                filing_before = db.execute(
-                    select(SecForm4Filing.id).where(SecForm4Filing.accession_number == filing_payload["accession_number"]).limit(1)
-                ).scalar_one_or_none()
-                filing = _get_or_create_filing(db, filing_payload, apply=apply)
-                if apply and filing_before is None and filing is not None:
-                    report["inserted_filings"] += 1
-                if apply:
-                    db.add(
-                        InsiderTransactionNormalized(
-                            form4_filing_id=filing.id if filing else None,
-                            **normalized_payload,
-                        )
-                    )
-                report["inserted_transactions"] += 1
-                if apply and int(report["inserted_transactions"]) % max(batch_size, 1) == 0:
-                    db.commit()
+                pending_rows.append((filing_payload, normalized_payload))
             except Exception:
                 report["errors"] += 1
                 logger.exception("Failed to normalize legacy insider row id=%s", getattr(row, "id", None))
-        if apply:
+        if not pending_rows:
+            return report
+
+        existing_hashes: set[str] = set()
+        hashes = [row[1]["normalized_hash"] for row in pending_rows]
+        for chunk in _chunks(hashes, 5000):
+            existing_hashes.update(
+                str(value)
+                for value in db.execute(
+                    select(InsiderTransactionNormalized.normalized_hash)
+                    .where(InsiderTransactionNormalized.normalized_hash.in_(chunk))
+                ).scalars()
+            )
+        filtered_rows = [row for row in pending_rows if row[1]["normalized_hash"] not in existing_hashes]
+        report["skipped_existing"] += len(pending_rows) - len(filtered_rows)
+        report["inserted_transactions"] += len(filtered_rows)
+        if not apply or not filtered_rows:
+            return report
+
+        filing_payload_by_accession: dict[str, dict[str, Any]] = {}
+        for filing_payload, _normalized_payload in filtered_rows:
+            filing_payload_by_accession.setdefault(filing_payload["accession_number"], filing_payload)
+        accessions = list(filing_payload_by_accession)
+        existing_accessions: set[str] = set()
+        for chunk in _chunks(accessions, 5000):
+            existing_accessions.update(
+                str(value)
+                for value in db.execute(
+                    select(SecForm4Filing.accession_number)
+                    .where(SecForm4Filing.accession_number.in_(chunk))
+                ).scalars()
+            )
+
+        new_filings = [
+            SecForm4Filing(
+                accession_number=payload["accession_number"],
+                issuer_cik=payload["issuer_cik"],
+                issuer_name=payload["issuer_name"],
+                issuer_trading_symbol=payload["issuer_trading_symbol"],
+                reporting_owner_cik=payload["reporting_owner_cik"],
+                reporting_owner_name=payload["reporting_owner_name"],
+                filing_date=payload["filing_date"],
+                source_url=payload["source_url"],
+                xml_url=payload["xml_url"],
+                raw_metadata_json=payload["raw_metadata_json"],
+                parser_status=payload["parser_status"],
+                parser_version=payload["parser_version"],
+                parser_confidence=payload["parser_confidence"],
+                parsed_at=datetime.now(timezone.utc),
+            )
+            for accession, payload in filing_payload_by_accession.items()
+            if accession not in existing_accessions
+        ]
+        for chunk in _chunks(new_filings, batch_size):
+            db.add_all(chunk)
+            db.flush()
+        report["inserted_filings"] += len(new_filings)
+
+        filing_id_by_accession: dict[str, int] = {}
+        for chunk in _chunks(accessions, 5000):
+            filing_id_by_accession.update(
+                {
+                    str(accession): int(filing_id)
+                    for accession, filing_id in db.execute(
+                        select(SecForm4Filing.accession_number, SecForm4Filing.id)
+                        .where(SecForm4Filing.accession_number.in_(chunk))
+                    ).all()
+                }
+            )
+
+        transaction_objects = [
+            InsiderTransactionNormalized(
+                form4_filing_id=filing_id_by_accession.get(normalized_payload["accession_number"]),
+                **normalized_payload,
+            )
+            for _filing_payload, normalized_payload in filtered_rows
+        ]
+        for chunk in _chunks(transaction_objects, batch_size):
+            db.add_all(chunk)
             db.commit()
     return report
 
