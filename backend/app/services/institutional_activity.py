@@ -1932,7 +1932,6 @@ def _derived_activity_payload(
     report_price = _per_share_value(curr_value, curr_shares)
     if report_price is None and change_type == "exit":
         report_price = _per_share_value(prev_value, prev_shares)
-    activity_price = _per_share_value(abs(float(value_delta)), abs(float(shares_delta))) if value_delta is not None and shares_delta else None
     current_price = current_prices.get(symbol or "")
     current_market_value_usd = None
     if current_price is not None and curr_shares is not None and change_type != "exit":
@@ -1958,7 +1957,7 @@ def _derived_activity_payload(
         "current_ownership_pct": current.ownership_pct if current else None,
         "prior_ownership_pct": prior.ownership_pct if prior else None,
         "ownership_pct_delta": _round_optional(_delta(current.ownership_pct if current else None, prior.ownership_pct if prior else None), 6),
-        "activity_price": _round_optional(activity_price or report_price, 4),
+        "activity_price": _round_optional(report_price, 4),
         "report_price": _round_optional(report_price, 4),
         "current_price": _round_optional(current_price, 4),
         "price_since_report_pct": _round_optional(_pct_delta(current_price, report_price), 4),
@@ -1983,7 +1982,6 @@ def activity_change_payload(
     report_price = _per_share_value(current_value_usd, row.curr_shares)
     if report_price is None and row.change_type == "exit":
         report_price = _per_share_value(row.prev_value_usd, row.prev_shares)
-    activity_price = _per_share_value(abs(float(row.value_delta_usd)), abs(float(row.shares_delta))) if row.value_delta_usd is not None and row.shares_delta else None
     current_price = current_prices.get(symbol or "") if current_prices else None
     current_market_value_usd = None
     if current_price is not None and row.curr_shares is not None and row.change_type != "exit":
@@ -2009,7 +2007,7 @@ def activity_change_payload(
         "current_ownership_pct": row.curr_ownership_pct,
         "prior_ownership_pct": row.prev_ownership_pct,
         "ownership_pct_delta": row.ownership_pct_delta,
-        "activity_price": _round_optional(activity_price or report_price, 4),
+        "activity_price": _round_optional(report_price, 4),
         "report_price": _round_optional(report_price, 4),
         "current_price": _round_optional(current_price, 4),
         "price_since_report_pct": _round_optional(_pct_delta(current_price, report_price), 4),

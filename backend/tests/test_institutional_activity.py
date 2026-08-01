@@ -1911,7 +1911,7 @@ def test_holder_activity_payload_includes_activity_prices_units_and_cached_curre
         item = activity["items"][0]
         assert item["current_shares"] == 15
         assert item["shares_delta"] == 5
-        assert item["activity_price"] == 40
+        assert item["activity_price"] == 20
         assert item["report_price"] == 20
         assert item["current_price"] == 30
         assert item["price_since_report_pct"] == 50
@@ -1955,7 +1955,7 @@ def test_holder_activity_derives_latest_position_changes_when_materialized_rows_
         assert activity["derived"] is True
         by_symbol = {item["symbol"]: item for item in activity["items"]}
         assert by_symbol["NVDA"]["change_type"] == "increase"
-        assert by_symbol["NVDA"]["activity_price"] == 40
+        assert by_symbol["NVDA"]["activity_price"] == 20
         assert by_symbol["NVDA"]["report_price"] == 20
         assert by_symbol["NVDA"]["current_price"] == 30
         assert by_symbol["MSFT"]["change_type"] == "new_position"
