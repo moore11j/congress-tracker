@@ -41,6 +41,9 @@ FundamentalRule = Literal[
     "strong_profitability",
     "low_leverage",
     "dividend_growth_proxy",
+    "growth_margin_proxy",
+    "cash_flow_growth_proxy",
+    "eps_revenue_growth_proxy",
 ]
 FundamentalDataMode = Literal["snapshots", "current_cache_proxy"]
 
@@ -90,6 +93,19 @@ def _less_or_missing(value: float | None, threshold: float) -> bool:
 
 def _at_or_below(value: float | None, threshold: float) -> bool:
     return value is not None and value <= threshold
+
+
+def _percent_like(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if -1.5 <= value <= 1.5:
+        return value * 100.0
+    return value
+
+
+def _percent_like_at_least(value: float | None, threshold: float) -> bool:
+    parsed = _percent_like(value)
+    return parsed is not None and parsed >= threshold
 
 
 def _pe(state: FundamentalState) -> float | None:
@@ -149,8 +165,8 @@ def fundamental_rule_matches(state: FundamentalState, rule: FundamentalRule) -> 
     if rule == "strong_profitability":
         return (
             ((state.roe is not None and state.roe >= 15.0) or (state.roic is not None and state.roic >= 12.0))
-            and (state.gross_margin is None or state.gross_margin >= 25.0)
-            and (state.operating_margin is None or state.operating_margin >= 10.0)
+            and (state.gross_margin is None or _percent_like_at_least(state.gross_margin, 25.0))
+            and (state.operating_margin is None or _percent_like_at_least(state.operating_margin, 10.0))
         )
     if rule == "low_leverage":
         return _at_or_below(state.net_debt_to_ebitda, 2.5) or _at_or_below(state.debt_to_equity, 2.0)
@@ -160,6 +176,26 @@ def fundamental_rule_matches(state: FundamentalState, rule: FundamentalRule) -> 
             and state.dividend_yield >= 1.0
             and ((state.fcf_growth is not None and state.fcf_growth > 0) or (state.eps_growth is not None and state.eps_growth > 0))
             and _less_or_missing(state.net_debt_to_ebitda, 3.5)
+        )
+    if rule == "growth_margin_proxy":
+        return (
+            ((state.revenue_growth is not None and state.revenue_growth >= 8.0) or (state.eps_growth is not None and state.eps_growth >= 8.0))
+            and (
+                state.gross_margin is None
+                or _percent_like_at_least(state.gross_margin, 25.0)
+                or _percent_like_at_least(state.operating_margin, 8.0)
+            )
+        )
+    if rule == "cash_flow_growth_proxy":
+        return (
+            (state.revenue_growth is not None and state.revenue_growth >= 5.0)
+            and _positive(state.free_cash_flow)
+            and (state.fcf_growth is None or state.fcf_growth >= 0.0)
+        )
+    if rule == "eps_revenue_growth_proxy":
+        return (
+            (state.revenue_growth is not None and state.revenue_growth >= 8.0)
+            and (state.eps_growth is not None and state.eps_growth >= 8.0)
         )
     return False
 
@@ -470,6 +506,9 @@ def main() -> None:
             "strong_profitability",
             "low_leverage",
             "dividend_growth_proxy",
+            "growth_margin_proxy",
+            "cash_flow_growth_proxy",
+            "eps_revenue_growth_proxy",
         ),
         required=True,
     )

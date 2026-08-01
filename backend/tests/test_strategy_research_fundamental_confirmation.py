@@ -95,6 +95,34 @@ def test_fundamental_rules_cover_growth_value_and_leverage():
     assert not fundamental_rule_matches(FundamentalState(status="ok"), "low_leverage")
 
 
+def test_proxy_rules_use_available_historical_statement_fields():
+    state = FundamentalState(
+        status="ok",
+        revenue_growth=12.0,
+        eps_growth=20.0,
+        gross_margin=0.42,
+        operating_margin=0.12,
+        free_cash_flow=5_000_000.0,
+        fcf_growth=3.0,
+    )
+
+    assert fundamental_rule_matches(state, "growth_margin_proxy")
+    assert fundamental_rule_matches(state, "cash_flow_growth_proxy")
+    assert fundamental_rule_matches(state, "eps_revenue_growth_proxy")
+
+    weak_state = FundamentalState(
+        status="ok",
+        revenue_growth=2.0,
+        eps_growth=-10.0,
+        gross_margin=0.10,
+        free_cash_flow=-1.0,
+    )
+
+    assert not fundamental_rule_matches(weak_state, "growth_margin_proxy")
+    assert not fundamental_rule_matches(weak_state, "cash_flow_growth_proxy")
+    assert not fundamental_rule_matches(weak_state, "eps_revenue_growth_proxy")
+
+
 def test_fundamental_state_uses_snapshot_fields():
     snapshot = _snapshot("MSFT", date(2026, 8, 1), revenue_growth=9.0, roe=16.0, forward_pe=18.0)
 

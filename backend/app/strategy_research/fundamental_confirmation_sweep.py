@@ -27,6 +27,9 @@ DEFAULT_RULES: tuple[FundamentalRule, ...] = (
     "strong_profitability",
     "low_leverage",
     "dividend_growth_proxy",
+    "growth_margin_proxy",
+    "cash_flow_growth_proxy",
+    "eps_revenue_growth_proxy",
 )
 DEFAULT_SOURCES: tuple[PrimarySource, ...] = ("congress", "insider")
 DEFAULT_INSIDER_ROLES: tuple[InsiderRole, ...] = ("all", "director", "officer", "ceo", "cfo")
