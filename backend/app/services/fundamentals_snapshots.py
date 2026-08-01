@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import FundamentalsCache, FundamentalsSnapshot
 from app.services.fundamentals_cache import CACHE_ROW_FIELDS
-from app.utils.symbols import normalize_symbol
+from app.utils.symbols import classify_symbol, normalize_symbol
 
 METHODOLOGY_VERSION = "fundamentals_snapshot_v1"
 SNAPSHOT_COPY_FIELDS = tuple(
@@ -26,6 +26,21 @@ SNAPSHOT_COPY_FIELDS = tuple(
         "error",
     }
 )
+SNAPSHOT_EXCLUDED_SYMBOL_SUBSTRINGS = ("RESEARCH", "WALNUT", "CHART=", "%")
+
+
+def snapshot_symbol_rejection_reason(raw_symbol: str | None) -> tuple[str | None, str | None]:
+    status, normalized, reason = classify_symbol(raw_symbol)
+    symbol_text = normalized or normalize_symbol(raw_symbol) or str(raw_symbol or "").strip().upper() or None
+    if symbol_text and any(marker in symbol_text for marker in SNAPSHOT_EXCLUDED_SYMBOL_SUBSTRINGS):
+        return symbol_text, "symbol_contains_non_ticker_artifact"
+    if status != "eligible" or not normalized:
+        return normalized, status
+    if any(marker in normalized for marker in SNAPSHOT_EXCLUDED_SYMBOL_SUBSTRINGS):
+        return normalized, "symbol_contains_non_ticker_artifact"
+    if normalized.endswith(")") or "(" in normalized or ")" in normalized:
+        return normalized, "symbol_contains_parentheses"
+    return normalized, None
 
 
 def _utc_now() -> datetime:
@@ -41,7 +56,15 @@ def _snapshot_date(observed_at: datetime) -> date:
 def _normalized_symbols(symbols: Iterable[str] | None) -> list[str] | None:
     if symbols is None:
         return None
-    normalized = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
+    normalized = sorted(
+        {
+            symbol
+            for raw in symbols
+            if (result := snapshot_symbol_rejection_reason(raw))
+            and (symbol := result[0])
+            and result[1] is None
+        }
+    )
     return normalized
 
 
@@ -91,7 +114,9 @@ def upsert_fundamentals_snapshot(
     observed_at: datetime | None = None,
 ) -> FundamentalsSnapshot:
     observed = observed_at or _utc_now()
-    symbol = normalize_symbol(row.symbol) or row.symbol
+    symbol, rejection_reason = snapshot_symbol_rejection_reason(row.symbol)
+    if rejection_reason or not symbol:
+        raise ValueError(f"Cannot snapshot invalid fundamentals symbol {row.symbol!r}: {rejection_reason}")
     provider = row.provider or "fmp"
     snapshot_day = _snapshot_date(observed)
     snapshot = db.execute(
@@ -136,13 +161,19 @@ def snapshot_current_fundamentals(
     rows = db.execute(statement).scalars().all()
     observed = observed_at or _utc_now()
     written_symbols: list[str] = []
+    skipped_invalid_symbols: dict[str, int] = {}
     for row in rows:
+        _, rejection_reason = snapshot_symbol_rejection_reason(row.symbol)
+        if rejection_reason:
+            skipped_invalid_symbols[rejection_reason] = skipped_invalid_symbols.get(rejection_reason, 0) + 1
+            continue
         snapshot = upsert_fundamentals_snapshot(db, row, observed_at=observed)
         written_symbols.append(snapshot.symbol)
     return {
         "status": "ok",
         "rows_seen": len(rows),
-        "snapshots_written": len(rows),
+        "snapshots_written": len(written_symbols),
+        "skipped_invalid_symbols": dict(sorted(skipped_invalid_symbols.items())),
         "snapshot_date": _snapshot_date(observed).isoformat(),
         "observed_at": observed.isoformat(),
         "provider": provider,

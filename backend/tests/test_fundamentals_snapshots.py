@@ -10,6 +10,7 @@ from app.models import FundamentalsCache, FundamentalsSnapshot
 from app.services.fundamentals_snapshots import (
     latest_fundamentals_snapshot_on_or_before,
     snapshot_current_fundamentals,
+    snapshot_symbol_rejection_reason,
 )
 
 
@@ -106,3 +107,57 @@ def test_latest_snapshot_on_or_before_returns_historical_state_not_current_cache
         assert newer.revenue_growth == -5.0
     finally:
         db.close()
+
+
+def test_snapshot_current_fundamentals_skips_invalid_symbols():
+    SessionLocal, _ = _session()
+    db = SessionLocal()
+    try:
+        db.add(
+            _fundamentals(
+                "AAPL",
+                fetched_at=datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
+                revenue_growth=12.0,
+                roe=30.0,
+            )
+        )
+        db.add(
+            _fundamentals(
+                "META))",
+                fetched_at=datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
+                revenue_growth=12.0,
+                roe=30.0,
+            )
+        )
+        db.add(
+            _fundamentals(
+                "TXNRESEARCH",
+                fetched_at=datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
+                revenue_growth=12.0,
+                roe=30.0,
+            )
+        )
+        db.commit()
+
+        result = snapshot_current_fundamentals(db, observed_at=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc))
+        db.commit()
+
+        assert result["rows_seen"] == 3
+        assert result["snapshots_written"] == 1
+        assert result["skipped_invalid_symbols"] == {
+            "symbol_contains_non_ticker_artifact": 1,
+            "unsupported_symbol": 1,
+        }
+        assert [row.symbol for row in db.query(FundamentalsSnapshot).all()] == ["AAPL"]
+    finally:
+        db.close()
+
+
+def test_snapshot_symbol_hygiene_allows_class_share_aliases_and_rejects_artifacts():
+    assert snapshot_symbol_rejection_reason("BRK.B") == ("BRK.B", None)
+    assert snapshot_symbol_rejection_reason("BRK-B") == ("BRK-B", None)
+    assert snapshot_symbol_rejection_reason("[SYMBOL]")[1] is not None
+    assert snapshot_symbol_rejection_reason("AAPLU0026CHART=STOCK") == (
+        "AAPLU0026CHART=STOCK",
+        "symbol_contains_non_ticker_artifact",
+    )
