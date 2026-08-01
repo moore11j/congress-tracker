@@ -76,6 +76,8 @@ const navLinks = [
 
 const platformFooterLinks = [
   { label: "Compare Walnut", href: "/compare" },
+  { label: "Stock Research Software", href: "/stock-research-software" },
+  { label: "Stock Analysis Platform", href: "/stock-analysis-platform" },
   { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },
@@ -86,8 +88,11 @@ const platformFooterLinks = [
 const researchDataFooterLinks = [
   { label: "Congress Trades", href: "/congress-trades" },
   { label: "Insider Trading", href: "/insider-trading-tracker" },
+  { label: "Insider Analysis Software", href: "/insider-trading-analysis-software" },
+  { label: "Alternative Data", href: "/alternative-data-stock-analysis" },
   { label: "Government Contracts", href: "/government-contracts" },
   { label: "Institutional Filings", href: "/institutional-filings" },
+  { label: "Institutional Activity", href: "/institutional-activity-tracker" },
   { label: "Confirmation Score", href: "/stock-confirmation-score" },
   { label: "Macro Positioning", href: `${appUrl}/insights#macro-positioning` },
 ] as const;

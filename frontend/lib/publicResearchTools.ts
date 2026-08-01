@@ -1,5 +1,15 @@
 export const publicResearchTools = [
   {
+    href: "/stock-research-software",
+    label: "Stock research software",
+    shortLabel: "Research software",
+  },
+  {
+    href: "/stock-analysis-platform",
+    label: "Stock analysis platform",
+    shortLabel: "Analysis platform",
+  },
+  {
     href: "/stock-research-app",
     label: "Stock research app",
     shortLabel: "Stock research",
@@ -25,6 +35,16 @@ export const publicResearchTools = [
     shortLabel: "Insider activity",
   },
   {
+    href: "/insider-trading-analysis-software",
+    label: "Insider analysis software",
+    shortLabel: "Insider analysis",
+  },
+  {
+    href: "/alternative-data-stock-analysis",
+    label: "Alternative data stock analysis",
+    shortLabel: "Alternative data",
+  },
+  {
     href: "/government-contracts",
     label: "Government contracts tracker",
     shortLabel: "Government contracts",
@@ -33,6 +53,11 @@ export const publicResearchTools = [
     href: "/institutional-filings",
     label: "Institutional filings tracker",
     shortLabel: "Institutional filings",
+  },
+  {
+    href: "/institutional-activity-tracker",
+    label: "Institutional activity tracker",
+    shortLabel: "Institutional activity",
   },
   {
     href: "/stock-confirmation-score",
