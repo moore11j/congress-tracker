@@ -111,3 +111,23 @@ def test_backfill_legacy_insider_normalized_is_idempotent(monkeypatch):
     assert second["skipped_existing"] == 1
     with SessionLocal() as db:
         assert db.query(InsiderTransactionNormalized).count() == 1
+
+
+def test_backfill_legacy_insider_normalized_filters_id_range(monkeypatch):
+    SessionLocal = _session_factory(monkeypatch)
+    with SessionLocal() as db:
+        db.add(_legacy_row(1))
+        second = _legacy_row(2)
+        second.external_id = "legacy-2"
+        second.payload_json = second.payload_json.replace("000285", "000286")
+        db.add(second)
+        db.commit()
+
+    report = backfill_legacy_insider_normalized(apply=True, min_id=2, max_id=2)
+
+    assert report["scanned"] == 1
+    assert report["min_id"] == 2
+    assert report["max_id"] == 2
+    with SessionLocal() as db:
+        row = db.query(InsiderTransactionNormalized).one()
+        assert row.accession_number == "0001046179-26-000286"

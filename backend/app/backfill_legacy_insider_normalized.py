@@ -221,7 +221,14 @@ def _get_or_create_filing(db, filing_payload: dict[str, Any], *, apply: bool) ->
     return filing
 
 
-def backfill_legacy_insider_normalized(*, apply: bool, limit: int | None = None, batch_size: int = 1000) -> dict[str, int | bool]:
+def backfill_legacy_insider_normalized(
+    *,
+    apply: bool,
+    limit: int | None = None,
+    batch_size: int = 1000,
+    min_id: int | None = None,
+    max_id: int | None = None,
+) -> dict[str, int | bool | None]:
     Base.metadata.create_all(bind=engine)
     report = {
         "apply": apply,
@@ -231,9 +238,15 @@ def backfill_legacy_insider_normalized(*, apply: bool, limit: int | None = None,
         "skipped_existing": 0,
         "skipped_unusable": 0,
         "errors": 0,
+        "min_id": min_id,
+        "max_id": max_id,
     }
     with SessionLocal() as db:
         query = select(InsiderTransaction).order_by(InsiderTransaction.id.asc())
+        if min_id is not None:
+            query = query.where(InsiderTransaction.id >= min_id)
+        if max_id is not None:
+            query = query.where(InsiderTransaction.id <= max_id)
         if limit is not None:
             query = query.limit(limit)
         rows = db.execute(query).scalars().all()
@@ -281,12 +294,26 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--min-id", type=int)
+    parser.add_argument("--max-id", type=int)
     parser.add_argument("--batch-size", type=int, default=1000)
     args = parser.parse_args()
     if args.apply == args.dry_run:
         raise SystemExit("Pass exactly one of --dry-run or --apply.")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    print(json.dumps(backfill_legacy_insider_normalized(apply=args.apply, limit=args.limit, batch_size=args.batch_size), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            backfill_legacy_insider_normalized(
+                apply=args.apply,
+                limit=args.limit,
+                batch_size=args.batch_size,
+                min_id=args.min_id,
+                max_id=args.max_id,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
