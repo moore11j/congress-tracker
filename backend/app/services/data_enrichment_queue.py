@@ -676,7 +676,14 @@ def _check_enrichment_queue_pressure(db: Session) -> Any:
     return check_background_job_guard("enrichment-queue", db=db)
 
 
-def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = None) -> dict[str, Any]:
+def process_data_enrichment_jobs(
+    *,
+    limit: int = 25,
+    max_seconds: int | None = None,
+    job_type: str | None = None,
+    reason: str | None = None,
+    symbols: list[str] | None = None,
+) -> dict[str, Any]:
     if os.getenv("ENRICHMENT_QUEUE_ENABLED", "false").strip().lower() in {"0", "false", "no", "off", ""}:
         logger.info("data_enrichment_queue_skipped reason=enrichment_queue_disabled")
         return {"processed": 0, "succeeded": 0, "failed": 0, "skipped": 1}
@@ -693,13 +700,22 @@ def process_data_enrichment_jobs(*, limit: int = 25, max_seconds: int | None = N
     deadline = time.monotonic() + max_seconds if max_seconds and max_seconds > 0 else None
     try:
         now = datetime.now(timezone.utc)
-        jobs = db.execute(
+        statement = (
             select(DataEnrichmentJob)
             .where(DataEnrichmentJob.status == "queued")
             .where(DataEnrichmentJob.next_run_at <= now)
             .order_by(DataEnrichmentJob.priority.asc(), DataEnrichmentJob.created_at.asc(), DataEnrichmentJob.id.asc())
             .limit(max(1, int(limit)))
-        ).scalars().all()
+        )
+        if job_type:
+            statement = statement.where(DataEnrichmentJob.job_type == job_type)
+        if reason:
+            statement = statement.where(DataEnrichmentJob.reason == reason)
+        if symbols:
+            normalized_symbols = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
+            if normalized_symbols:
+                statement = statement.where(DataEnrichmentJob.symbol.in_(normalized_symbols))
+        jobs = db.execute(statement).scalars().all()
         for index, job in enumerate(jobs):
             if deadline is not None and time.monotonic() >= deadline:
                 skipped = len(jobs) - processed

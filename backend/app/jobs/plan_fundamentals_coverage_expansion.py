@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import DataEnrichmentJob, Event, InsiderTransactionNormalized, PriceCache, TickerFinancialsCache
 from app.services.backtesting.queries import first_text, parse_iso_date, parse_payload
-from app.services.data_enrichment_queue import ACTIVE_STATUSES, enqueue_data_enrichment_job
+from app.services.data_enrichment_queue import ACTIVE_STATUSES, enqueue_data_enrichment_job, process_data_enrichment_jobs
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import normalize_symbol
 
@@ -397,6 +397,32 @@ def fundamentals_coverage_queue_status(*, reason: str, symbols: list[str] | None
     }
 
 
+def process_fundamentals_coverage_batch(
+    *,
+    reason: str,
+    symbols: list[str] | None = None,
+    limit: int = 25,
+    max_seconds: int = 180,
+) -> dict[str, Any]:
+    normalized_symbols = sorted({symbol for raw in (symbols or []) if (symbol := normalize_symbol(raw))})
+    result = process_data_enrichment_jobs(
+        limit=max(1, int(limit)),
+        max_seconds=max(1, int(max_seconds)),
+        job_type="ticker_financials",
+        reason=reason,
+        symbols=normalized_symbols or None,
+    )
+    status = fundamentals_coverage_queue_status(reason=reason, symbols=normalized_symbols)
+    return {
+        "status": "ok",
+        "mode": "process_batch",
+        "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "process_result": result,
+        "queue_status": status,
+    }
+
+
 def _parse_symbols(value: str | None) -> list[str]:
     if not value:
         return []
@@ -415,9 +441,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--apply", action="store_true", help="Enqueue ticker_financials jobs for the selected uncached symbols.")
     parser.add_argument("--queue-status", action="store_true", help="Report ticker_financials queue/cache status for a reason.")
+    parser.add_argument("--process-reason", action="store_true", help="Process queued ticker_financials jobs for the selected reason only.")
     parser.add_argument("--priority", type=int, default=70)
     parser.add_argument("--reason", default="strategies_fundamentals_coverage_expansion")
     parser.add_argument("--symbols")
+    parser.add_argument("--max-seconds", type=int, default=180)
     args = parser.parse_args()
 
     parsed_start = parse_iso_date(args.start_date) if args.start_date else None
@@ -426,6 +454,16 @@ def main() -> None:
         result = fundamentals_coverage_queue_status(
             reason=str(args.reason or ""),
             symbols=_parse_symbols(args.symbols),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+
+    if args.process_reason:
+        result = process_fundamentals_coverage_batch(
+            reason=str(args.reason or ""),
+            symbols=_parse_symbols(args.symbols),
+            limit=max(1, int(args.limit)),
+            max_seconds=max(1, int(args.max_seconds)),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return

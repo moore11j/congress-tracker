@@ -277,3 +277,39 @@ def test_fundamentals_coverage_queue_status_reports_jobs_and_cache(monkeypatch):
     assert result["cache_status_counts"] == {"ok": 1}
     assert result["cache_row_count"] == 1
     assert [job["symbol"] for job in result["jobs"]] == ["AAPL", "MSFT"]
+
+
+def test_process_fundamentals_coverage_batch_filters_to_reason_and_symbols(monkeypatch):
+    calls = []
+
+    def fake_process(**kwargs):
+        calls.append(("process", kwargs))
+        return {"processed": 2, "succeeded": 2, "failed": 0, "skipped": 0}
+
+    def fake_status(**kwargs):
+        calls.append(("status", kwargs))
+        return {"job_status_counts": {"done": 2}, "cache_row_count": 2}
+
+    monkeypatch.setattr(planner, "process_data_enrichment_jobs", fake_process)
+    monkeypatch.setattr(planner, "fundamentals_coverage_queue_status", fake_status)
+
+    result = planner.process_fundamentals_coverage_batch(
+        reason="batch1",
+        symbols=["aapl", "MSFT"],
+        limit=2,
+        max_seconds=30,
+    )
+
+    assert result["mode"] == "process_batch"
+    assert result["process_result"]["processed"] == 2
+    assert calls[0] == (
+        "process",
+        {
+            "limit": 2,
+            "max_seconds": 30,
+            "job_type": "ticker_financials",
+            "reason": "batch1",
+            "symbols": ["AAPL", "MSFT"],
+        },
+    )
+    assert calls[1] == ("status", {"reason": "batch1", "symbols": ["AAPL", "MSFT"]})
