@@ -7,7 +7,7 @@ import pytest
 import requests
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
 from app.db import Base
@@ -291,6 +291,42 @@ def test_holder_backfill_positions_only_passes_through_and_counts_rows(monkeypat
     assert result["positions_only"] == 1
     assert all(call["positions_only"] is True for call in calls)
     assert [(call["year"], call["quarter"]) for call in calls] == [(2026, 1), (2025, 4)]
+
+
+def test_positions_only_specific_ingest_skips_period_with_existing_positions(monkeypatch):
+    engine = _engine()
+    db = _session(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    cik = "0002012383"
+    row = _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1)
+
+    candidate = parse_latest_filing(row)
+    assert candidate is not None
+    upsert_institutional_holder(db, candidate)
+    filing, _ = upsert_institutional_filing(db, candidate)
+    db.flush()
+    upsert_positions_for_filing(db, filing=filing, rows=[{"symbol": "AAPL", "shares": 10, "value": 1000}])
+    db.commit()
+    db.close()
+
+    monkeypatch.setattr(ingest_module, "ensure_institutional_activity_schema", lambda _engine: None)
+    monkeypatch.setattr(ingest_module, "SessionLocal", Session)
+    monkeypatch.setattr(ingest_module, "fetch_institutional_filing_dates", lambda *, cik: [row])
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_extract",
+        lambda **_kwargs: pytest.fail("existing positions-only period should not fetch extract again"),
+    )
+
+    result = ingest_module.ingest_institutional_filing(cik=cik, year=2026, quarter=1, positions_only=True)
+
+    assert result == {
+        "status": "ok",
+        "processed_filings": 0,
+        "skipped": 1,
+        "position_rows": 0,
+        "positions_only": 1,
+    }
 
 
 def test_latest_ingest_max_filings_counts_rows_that_reach_extraction(monkeypatch):

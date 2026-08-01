@@ -301,6 +301,16 @@ def ingest_institutional_filing(
                 db.commit()
                 return {"status": "ok", "processed_filings": 0, "skipped": 1}
 
+        if positions_only and not force and _count_filing_positions(db, filing) > 0:
+            db.commit()
+            return {
+                "status": "ok",
+                "processed_filings": 0,
+                "skipped": 1,
+                "position_rows": 0,
+                "positions_only": 1,
+            }
+
         extract_rows = fetch_institutional_filing_extract(cik=candidate.cik, year=candidate.report_year, quarter=candidate.report_quarter)
         if not extract_rows:
             metric = _mark_empty_extract_outcome(db, filing, raw_extract_rows=0)
