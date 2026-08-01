@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import DataEnrichmentJob, Event, InsiderTransactionNormalized, PriceCache, TickerFinancialsCache
 from app.services.backtesting.queries import first_text, parse_iso_date, parse_payload
-from app.services.data_enrichment_queue import ACTIVE_STATUSES
+from app.services.data_enrichment_queue import ACTIVE_STATUSES, enqueue_data_enrichment_job
 from app.services.trade_outcome_display import normalize_trade_side
 from app.utils.symbols import normalize_symbol
 
@@ -278,8 +278,71 @@ def plan_fundamentals_coverage_expansion(
     }
 
 
+def enqueue_fundamentals_coverage_batch(
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    min_adjusted_price_rows: int = 60,
+    min_avg_dollar_volume: float = 1_000_000.0,
+    limit: int = 25,
+    batch_size: int = 25,
+    priority: int = 70,
+    reason: str = "strategies_fundamentals_coverage_expansion",
+) -> dict[str, Any]:
+    plan = plan_fundamentals_coverage_expansion(
+        start_date=start_date,
+        end_date=end_date,
+        min_adjusted_price_rows=min_adjusted_price_rows,
+        min_avg_dollar_volume=min_avg_dollar_volume,
+        include_cached=False,
+        include_queued=False,
+        limit=limit,
+        batch_size=batch_size,
+    )
+    selected_symbols = [row["symbol"] for row in plan["symbols"]]
+    enqueued: list[str] = []
+    skipped: list[str] = []
+    for index, symbol in enumerate(selected_symbols):
+        did_enqueue = enqueue_data_enrichment_job(
+            job_type="ticker_financials",
+            symbol=symbol,
+            source="strategy_research",
+            reason=reason,
+            priority=priority + index,
+            payload={
+                "planner": "plan_fundamentals_coverage_expansion",
+                "run_timestamp": plan["run_timestamp"],
+                "min_adjusted_price_rows": min_adjusted_price_rows,
+                "min_avg_dollar_volume": min_avg_dollar_volume,
+            },
+            max_attempts=3,
+        )
+        if did_enqueue:
+            enqueued.append(symbol)
+        else:
+            skipped.append(symbol)
+
+    return {
+        "status": "ok",
+        "mode": "apply_enqueue",
+        "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "parameters": {
+            **plan["parameters"],
+            "priority_start": priority,
+            "reason": reason,
+        },
+        "coverage": plan["coverage"],
+        "selected_symbols": selected_symbols,
+        "enqueued_symbols": enqueued,
+        "skipped_symbols": skipped,
+        "enqueued_count": len(enqueued),
+        "skipped_count": len(skipped),
+        "planner_run_timestamp": plan["run_timestamp"],
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Read-only planner for expanding historical fundamentals coverage.")
+    parser = argparse.ArgumentParser(description="Planner for expanding historical fundamentals coverage.")
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
     parser.add_argument("--min-adjusted-price-rows", type=int, default=60)
@@ -288,11 +351,30 @@ def main() -> None:
     parser.add_argument("--include-queued", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=25)
+    parser.add_argument("--apply", action="store_true", help="Enqueue ticker_financials jobs for the selected uncached symbols.")
+    parser.add_argument("--priority", type=int, default=70)
+    parser.add_argument("--reason", default="strategies_fundamentals_coverage_expansion")
     args = parser.parse_args()
 
+    parsed_start = parse_iso_date(args.start_date) if args.start_date else None
+    parsed_end = parse_iso_date(args.end_date) if args.end_date else None
+    if args.apply:
+        result = enqueue_fundamentals_coverage_batch(
+            start_date=parsed_start,
+            end_date=parsed_end,
+            min_adjusted_price_rows=max(0, int(args.min_adjusted_price_rows)),
+            min_avg_dollar_volume=max(0.0, float(args.min_avg_dollar_volume)),
+            limit=max(0, int(args.limit)),
+            batch_size=max(1, int(args.batch_size)),
+            priority=int(args.priority),
+            reason=str(args.reason or "strategies_fundamentals_coverage_expansion"),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+
     result = plan_fundamentals_coverage_expansion(
-        start_date=parse_iso_date(args.start_date) if args.start_date else None,
-        end_date=parse_iso_date(args.end_date) if args.end_date else None,
+        start_date=parsed_start,
+        end_date=parsed_end,
         min_adjusted_price_rows=max(0, int(args.min_adjusted_price_rows)),
         min_avg_dollar_volume=max(0.0, float(args.min_avg_dollar_volume)),
         include_cached=bool(args.include_cached),

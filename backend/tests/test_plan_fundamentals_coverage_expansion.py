@@ -178,3 +178,53 @@ def test_plan_excludes_illiquid_symbols_by_default(monkeypatch):
     )
 
     assert relaxed["symbols"][0]["symbol"] == "LOWV"
+
+
+def test_enqueue_fundamentals_coverage_batch_uses_planned_uncached_symbols(monkeypatch):
+    plan = {
+        "run_timestamp": "2026-08-01T00:00:00+00:00",
+        "parameters": {
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "min_adjusted_price_rows": 60,
+            "min_avg_dollar_volume": 1_000_000,
+            "include_cached": False,
+            "include_queued": False,
+            "limit": 2,
+            "batch_size": 2,
+        },
+        "coverage": {"eligible_selected": 2},
+        "symbols": [{"symbol": "AAPL"}, {"symbol": "MSFT"}],
+    }
+    calls = []
+
+    def fake_plan(**kwargs):
+        calls.append(("plan", kwargs))
+        return plan
+
+    def fake_enqueue(**kwargs):
+        calls.append(("enqueue", kwargs))
+        return kwargs["symbol"] == "AAPL"
+
+    monkeypatch.setattr(planner, "plan_fundamentals_coverage_expansion", fake_plan)
+    monkeypatch.setattr(planner, "enqueue_data_enrichment_job", fake_enqueue)
+
+    result = planner.enqueue_fundamentals_coverage_batch(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        limit=2,
+        batch_size=2,
+        priority=70,
+        reason="test_reason",
+    )
+
+    assert result["mode"] == "apply_enqueue"
+    assert result["selected_symbols"] == ["AAPL", "MSFT"]
+    assert result["enqueued_symbols"] == ["AAPL"]
+    assert result["skipped_symbols"] == ["MSFT"]
+    assert calls[0][0] == "plan"
+    assert calls[1][1]["job_type"] == "ticker_financials"
+    assert calls[1][1]["symbol"] == "AAPL"
+    assert calls[1][1]["priority"] == 70
+    assert calls[2][1]["symbol"] == "MSFT"
+    assert calls[2][1]["priority"] == 71
