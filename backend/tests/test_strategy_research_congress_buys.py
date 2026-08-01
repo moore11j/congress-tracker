@@ -9,9 +9,13 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.models import Event, PriceCache
 from app.strategy_research.congress_buys import (
+    Lot,
+    PriceBar,
     ResearchConfig,
+    Signal,
     load_congress_purchase_signals,
     run_research,
+    simulate_active_lot_portfolio,
 )
 
 
@@ -184,3 +188,55 @@ def test_run_research_reports_net_cost_adjusted_metrics():
         assert result["metadata"]["execution_timing"] == "first trading day strictly after public disclosure date"
     finally:
         db.close()
+
+
+def test_transaction_value_weighting_charges_normalized_turnover_costs():
+    days = [date(2024, 1, day) for day in (2, 3, 4, 5)]
+    price_maps = {
+        "AAPL": {day: PriceBar(day=day, close=100.0, dollar_volume=None) for day in days},
+        "MSFT": {day: PriceBar(day=day, close=100.0, dollar_volume=None) for day in days},
+    }
+    benchmark_prices = {day: PriceBar(day=day, close=100.0, dollar_volume=None) for day in days}
+    small_signal = Signal(
+        event_id=1,
+        symbol="AAPL",
+        disclosure_date=date(2024, 1, 1),
+        raw_entry_date=date(2024, 1, 2),
+        amount_min=1,
+        amount_max=1,
+        member_name=None,
+        member_bioguide_id=None,
+        chamber=None,
+        party=None,
+        source_filing_id=None,
+        source_document_url=None,
+    )
+    large_signal = Signal(
+        event_id=2,
+        symbol="MSFT",
+        disclosure_date=date(2024, 1, 2),
+        raw_entry_date=date(2024, 1, 3),
+        amount_min=1_000_000_000_000,
+        amount_max=1_000_000_000_000,
+        member_name=None,
+        member_bioguide_id=None,
+        chamber=None,
+        party=None,
+        source_filing_id=None,
+        source_document_url=None,
+    )
+    lots = [
+        Lot(small_signal, date(2024, 1, 2), date(2024, 1, 5), 100.0, 100.0, 0.0, 0.0),
+        Lot(large_signal, date(2024, 1, 3), date(2024, 1, 5), 100.0, 100.0, 0.0, 0.0),
+    ]
+
+    simulation = simulate_active_lot_portfolio(
+        lots,
+        price_maps,
+        benchmark_prices,
+        weighting="transaction_value",
+        per_side_cost_rate=0.0005,
+    )
+
+    assert min(simulation["daily_returns"]) > -0.01
+    assert min(simulation["strategy_curve"]) > 99.0

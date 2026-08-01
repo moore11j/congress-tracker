@@ -446,6 +446,19 @@ def _lot_weight(lot: Lot, weighting: WeightingMode) -> float:
     return 1.0
 
 
+def _normalized_lot_weights(active_lots: list[Lot], weighting: WeightingMode) -> dict[int, float]:
+    raw_weights = {id(lot): _lot_weight(lot, weighting) for lot in active_lots}
+    total_weight = sum(raw_weights.values())
+    if total_weight <= 0:
+        return {}
+    return {lot_key: raw_weight / total_weight for lot_key, raw_weight in raw_weights.items()}
+
+
+def _portfolio_turnover_fraction(previous_weights: dict[int, float], current_weights: dict[int, float]) -> float:
+    lot_keys = set(previous_weights) | set(current_weights)
+    return sum(abs(current_weights.get(lot_key, 0.0) - previous_weights.get(lot_key, 0.0)) for lot_key in lot_keys)
+
+
 def simulate_active_lot_portfolio(
     lots: list[Lot],
     price_maps: dict[str, dict[date, PriceBar]],
@@ -463,12 +476,10 @@ def simulate_active_lot_portfolio(
         return {"timeline": [], "daily_returns": [], "benchmark_daily_returns": []}
 
     dates_by_symbol = {symbol: sorted(prices) for symbol, prices in price_maps.items()}
-    active_by_previous_day: dict[date, list[Lot]] = {}
-    entry_costs_by_day: dict[date, float] = defaultdict(float)
-    exit_costs_by_day: dict[date, float] = defaultdict(float)
+    active_by_day: dict[date, list[Lot]] = {}
 
-    for day in calendar[:-1]:
-        active_by_previous_day[day] = [lot for lot in lots if lot.entry_date <= day < lot.exit_date]
+    for day in calendar:
+        active_by_day[day] = [lot for lot in lots if lot.entry_date <= day < lot.exit_date]
 
     strategy_curve = [100.0]
     benchmark_curve = [100.0]
@@ -479,12 +490,10 @@ def simulate_active_lot_portfolio(
     turnover_events = 0
 
     for lot in lots:
-        entry_costs_by_day[lot.entry_date] += _lot_weight(lot, weighting)
-        exit_costs_by_day[lot.exit_date] += _lot_weight(lot, weighting)
         turnover_events += 2
 
     for previous_day, current_day in zip(calendar, calendar[1:]):
-        active_lots = active_by_previous_day.get(previous_day, [])
+        active_lots = active_by_day.get(previous_day, [])
         holdings_counts.append(len(active_lots))
         weighted_returns: list[tuple[float, float]] = []
         for lot in active_lots:
@@ -503,11 +512,15 @@ def simulate_active_lot_portfolio(
             else 0.0
         )
         if total_weight > 0:
-            cost_weight = (entry_costs_by_day.get(current_day, 0.0) + exit_costs_by_day.get(current_day, 0.0)) / total_weight
-            net_daily = gross_daily - (per_side_cost_rate * cost_weight)
+            previous_weights = _normalized_lot_weights(active_lots, weighting)
+            current_weights = _normalized_lot_weights(active_by_day.get(current_day, []), weighting)
+            turnover_fraction = _portfolio_turnover_fraction(previous_weights, current_weights)
+            net_daily = gross_daily - (per_side_cost_rate * turnover_fraction)
             largest_position_weights.append(max(weight for _, weight in weighted_returns) / total_weight)
         else:
-            net_daily = 0.0
+            current_weights = _normalized_lot_weights(active_by_day.get(current_day, []), weighting)
+            turnover_fraction = _portfolio_turnover_fraction({}, current_weights)
+            net_daily = -(per_side_cost_rate * turnover_fraction)
             largest_position_weights.append(0.0)
 
         previous_benchmark = benchmark_prices[previous_day].close
