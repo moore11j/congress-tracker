@@ -9,6 +9,7 @@ from app.db import Base
 from app.models import InsiderTransactionNormalized, PriceCache
 from app.strategy_research.insider_price_universe import (
     load_insider_purchase_price_coverage,
+    run,
     rows_needing_adjusted_backfill,
 )
 
@@ -93,3 +94,27 @@ def test_coverage_uses_normalized_nonduplicate_open_market_purchases_only():
     assert rows[0].adjusted_rows == 1
     assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=2) == rows
     assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=1) == []
+
+
+def test_run_can_exclude_known_provider_misses(monkeypatch):
+    db = _session()
+    _insider_row(db, row_id=1, symbol="AXIA3")
+    _insider_row(db, row_id=2, symbol="AAPL")
+    db.commit()
+    monkeypatch.setattr("app.strategy_research.insider_price_universe.SessionLocal", lambda: db)
+
+    result = run(
+        start_date=date(2024, 1, 1),
+        end_date=date(2026, 7, 31),
+        apply=False,
+        min_purchase_count=1,
+        min_adjusted_rows=1,
+        max_symbols=None,
+        symbols_per_batch=10,
+        sleep_seconds=0,
+        exclude_symbols=("AXIA3",),
+    )
+
+    assert result["symbols_needing_backfill"] == 1
+    assert result["exclude_symbols"] == ["AXIA3"]
+    assert result["selected_preview"][0]["symbol"] == "AAPL"

@@ -148,6 +148,7 @@ def run(
     symbols_per_batch: int,
     sleep_seconds: float,
     symbols: Iterable[str] | None = None,
+    exclude_symbols: Iterable[str] | None = None,
 ) -> dict[str, object]:
     with SessionLocal() as db:
         coverage = load_insider_purchase_price_coverage(
@@ -158,6 +159,9 @@ def run(
             symbols=symbols,
         )
     all_needing_backfill = rows_needing_adjusted_backfill(coverage, min_adjusted_rows=min_adjusted_rows)
+    exclude_set = set(_normalize_symbols(exclude_symbols or ()))
+    if exclude_set:
+        all_needing_backfill = [row for row in all_needing_backfill if row.symbol not in exclude_set]
     needs_backfill = all_needing_backfill
     if max_symbols is not None:
         needs_backfill = needs_backfill[: max(int(max_symbols), 0)]
@@ -172,6 +176,7 @@ def run(
         "total_purchase_symbols": len(coverage),
         "symbols_needing_backfill": len(all_needing_backfill),
         "symbols_selected": len(symbols_to_backfill),
+        "exclude_symbols": sorted(exclude_set),
         "selected_preview": [asdict(row) for row in needs_backfill[:50]],
         "batches": [],
     }
@@ -221,6 +226,7 @@ def main() -> None:
     parser.add_argument("--symbols-per-batch", type=int, default=25)
     parser.add_argument("--sleep-seconds", type=float, default=0.0)
     parser.add_argument("--symbols")
+    parser.add_argument("--exclude-symbols")
     args = parser.parse_args()
 
     if args.apply == args.dry_run:
@@ -236,6 +242,7 @@ def main() -> None:
         symbols_per_batch=int(args.symbols_per_batch),
         sleep_seconds=float(args.sleep_seconds),
         symbols=_parse_symbols(args.symbols),
+        exclude_symbols=_parse_symbols(args.exclude_symbols),
     )
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 
