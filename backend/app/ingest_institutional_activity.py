@@ -25,6 +25,7 @@ from app.services.institutional_activity import (
     process_filing_changes_and_events,
     cleanup_overbroad_institutional_feed_events,
     get_canonical_filing_for_holder_period,
+    seed_canonical_institutional_holders,
     upsert_holder_industry_breakdown_rows,
     upsert_holder_performance_rows,
     upsert_industry_summary_rows,
@@ -387,6 +388,17 @@ def ingest_industry_summary(*, year: int, quarter: int) -> dict[str, int | str]:
         db.close()
 
 
+def seed_canonical_holder_universe() -> dict[str, int]:
+    ensure_institutional_activity_schema(engine)
+    db = SessionLocal()
+    try:
+        result = seed_canonical_institutional_holders(db)
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
 def institutional_activity_ingest_run(*, pages: int, limit: int, max_filings: int = 25, start_page: int = 0) -> dict[str, int | str | None]:
     return ingest_latest_institutional_filings(start_page=start_page, pages=pages, limit=limit, max_filings=max_filings)
 
@@ -417,6 +429,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--quarter", type=int)
     parser.add_argument("--holder-enrichment", action="store_true")
     parser.add_argument("--industry-summary", action="store_true")
+    parser.add_argument("--seed-canonical-holders", action="store_true")
     parser.add_argument("--cleanup-feed-events", action="store_true")
     parser.add_argument("--apply-cleanup", action="store_true")
     parser.add_argument("--job-init", action="store_true", help="Initialize durable latest-filings job state without running ingestion.")
@@ -465,6 +478,8 @@ def main() -> None:
             if args.year is None or args.quarter is None:
                 raise SystemExit("--industry-summary requires --year and --quarter")
             result = ingest_industry_summary(year=args.year, quarter=args.quarter)
+        elif args.seed_canonical_holders:
+            result = seed_canonical_holder_universe()
         elif args.holder_enrichment:
             if not args.cik:
                 raise SystemExit("--holder-enrichment requires --cik")

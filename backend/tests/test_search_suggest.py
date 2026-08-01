@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Event, InsiderTransaction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
+from app.models import CikMeta, Event, InsiderTransaction, InsiderTransactionNormalized, InstitutionalHolder, InstitutionalTransaction, Member, Security, TickerMeta, Watchlist, WatchlistItem
 import app.services.search_suggest as search_suggest_module
 from app.services.search_suggest import search_suggestions
 
@@ -334,6 +334,39 @@ def test_search_suggest_uses_institutional_transaction_name_when_holder_name_mis
         items = search_suggestions(db, "blackrock", limit=5)["items"]
 
         assert any(item["kind"] == "institution" and item["label"] == "BlackRock Inc." and item["href"] == "/institution/0001364742" for item in items)
+    finally:
+        search_suggest_module._anonymous_suggestion_cache.clear()
+        db.close()
+
+
+def test_search_suggest_uses_cik_meta_name_when_holder_name_missing():
+    db = _db()
+    search_suggest_module._anonymous_suggestion_cache.clear()
+    try:
+        db.add_all(
+            [
+                InstitutionalHolder(
+                    cik="0002012383",
+                    holder_name=None,
+                    normalized_holder_name=None,
+                    holder_type="investment_manager",
+                    latest_report_year=2026,
+                    latest_report_quarter=1,
+                    quality_score=100,
+                ),
+                CikMeta(cik="0002012383", company_name="BlackRock, Inc."),
+            ]
+        )
+        db.commit()
+
+        items = search_suggestions(db, "blackrock", limit=5)["items"]
+
+        assert any(
+            item["kind"] == "institution"
+            and item["label"] == "BlackRock, Inc."
+            and item["href"] == "/institution/0002012383"
+            for item in items
+        )
     finally:
         search_suggest_module._anonymous_suggestion_cache.clear()
         db.close()

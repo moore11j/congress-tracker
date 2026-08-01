@@ -76,6 +76,26 @@ PASSIVE_HOLDER_PATTERNS = (
     "northern trust",
     "ssga",
 )
+CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE: tuple[dict[str, Any], ...] = (
+    {"cik": "0002012383", "holder_name": "BlackRock, Inc."},
+    {"cik": "0002100119", "holder_name": "VANGUARD CAPITAL MANAGEMENT LLC"},
+    {"cik": "0002100121", "holder_name": "VANGUARD PORTFOLIO MANAGEMENT LLC"},
+    {"cik": "0000093751", "holder_name": "STATE STREET CORP"},
+    {"cik": "0000315066", "holder_name": "FMR LLC"},
+    {"cik": "0001214717", "holder_name": "GEODE CAPITAL MANAGEMENT, LLC"},
+    {"cik": "0000895421", "holder_name": "MORGAN STANLEY"},
+    {"cik": "0000019617", "holder_name": "JPMORGAN CHASE & CO"},
+    {"cik": "0000070858", "holder_name": "BANK OF AMERICA CORP /DE/"},
+    {"cik": "0000914208", "holder_name": "INVESCO LTD."},
+    {"cik": "0001446194", "holder_name": "SUSQUEHANNA INTERNATIONAL GROUP, LLP"},
+    {"cik": "0000886982", "holder_name": "GOLDMAN SACHS GROUP INC"},
+    {"cik": "0000080255", "holder_name": "PRICE T ROWE ASSOCIATES INC /MD/"},
+    {"cik": "0001595888", "holder_name": "JANE STREET GROUP, LLC"},
+    {"cik": "0000073124", "holder_name": "NORTHERN TRUST CORP"},
+    {"cik": "0001610520", "holder_name": "UBS GROUP AG"},
+    {"cik": "0000884546", "holder_name": "CHARLES SCHWAB INVESTMENT MANAGEMENT INC"},
+    {"cik": "0001423053", "holder_name": "CITADEL ADVISORS LLC"},
+)
 
 
 @dataclass(frozen=True)
@@ -130,6 +150,41 @@ def normalize_holder_name(value: Any) -> str | None:
 def is_passive_like_holder(holder_name: str | None) -> bool:
     normalized = normalize_holder_name(holder_name) or ""
     return any(pattern in normalized for pattern in PASSIVE_HOLDER_PATTERNS)
+
+
+def seed_canonical_institutional_holders(
+    db: Session,
+    *,
+    holders: tuple[dict[str, Any], ...] = CANONICAL_INSTITUTIONAL_HOLDER_UNIVERSE,
+) -> dict[str, int]:
+    inserted = 0
+    updated = 0
+    skipped = 0
+    for row in holders:
+        cik = normalize_cik(row.get("cik"))
+        holder_name = str(row.get("holder_name") or "").strip()
+        if not cik or not holder_name:
+            skipped += 1
+            continue
+        holder = db.get(InstitutionalHolder, cik)
+        if holder is None:
+            holder = InstitutionalHolder(cik=cik)
+            db.add(holder)
+            inserted += 1
+        else:
+            updated += 1
+        holder.holder_name = holder_name
+        holder.normalized_holder_name = normalize_holder_name(holder_name)
+        holder.holder_type = str(row.get("holder_type") or "investment_manager")
+        holder.is_passive_like = is_passive_like_holder(holder_name)
+        quality_score = row.get("quality_score", 100.0)
+        try:
+            holder.quality_score = max(float(holder.quality_score or 0.0), float(quality_score))
+        except (TypeError, ValueError):
+            holder.quality_score = holder.quality_score or 100.0
+        holder.updated_at = datetime.now(timezone.utc)
+    db.flush()
+    return {"inserted": inserted, "updated": updated, "skipped": skipped, "total": inserted + updated}
 
 
 def recency_decay_30d(filing_date: date | datetime | None, *, now: date | datetime | None = None) -> float:

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Event,
+    CikMeta,
     InsiderTransaction,
     InsiderTransactionNormalized,
     InstitutionalHolder,
@@ -812,6 +813,7 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
         select(
             InstitutionalHolder.cik,
             InstitutionalHolder.holder_name,
+            CikMeta.company_name.label("cik_company_name"),
             InstitutionalHolder.normalized_holder_name,
             InstitutionalHolder.holder_type,
             InstitutionalHolder.latest_report_year,
@@ -819,11 +821,15 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
             InstitutionalHolder.quality_score,
             literal(None).label("latest_filing_date"),
         )
+        .select_from(InstitutionalHolder)
+        .outerjoin(CikMeta, CikMeta.cik == InstitutionalHolder.cik)
         .where(InstitutionalHolder.cik.is_not(None))
         .where(
             (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(pattern))
             | (func.lower(func.coalesce(InstitutionalHolder.normalized_holder_name, "")).like(pattern))
+            | (func.lower(func.coalesce(CikMeta.company_name, "")).like(pattern))
             | (func.lower(func.coalesce(InstitutionalHolder.holder_name, "")).like(fuzzy_prefix))
+            | (func.lower(func.coalesce(CikMeta.company_name, "")).like(fuzzy_prefix))
             | (func.lower(func.coalesce(InstitutionalHolder.cik, "")).like(pattern))
         )
         .order_by(
@@ -837,6 +843,7 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
         select(
             InstitutionalTransaction.institution_cik.label("cik"),
             InstitutionalTransaction.institution_name.label("holder_name"),
+            literal(None).label("cik_company_name"),
             literal(None).label("normalized_holder_name"),
             literal(None).label("holder_type"),
             literal(None).label("latest_report_year"),
@@ -862,7 +869,7 @@ def _institution_suggestions(db: Session, query: str, limit: int, personalizatio
         cik = _clean(row.cik)
         if not cik or cik in seen:
             continue
-        label = _clean(row.holder_name) or f"Institution {cik}"
+        label = _clean(row.holder_name) or _clean(getattr(row, "cik_company_name", None)) or f"Institution {cik}"
         href = f"/institution/{cik}"
         score = _score(
             query,

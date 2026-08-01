@@ -1575,9 +1575,29 @@ def ensure_institutional_activity_schema(bind=engine) -> None:
         # on the same create-if-missing path unless a formal migration system is adopted.
         logger.info("institutional_activity_schema_ensure_start table_count=%s", len(tables))
         Base.metadata.create_all(bind=conn, tables=tables)
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_holders_holder_name_lower ON institutional_holders (lower(holder_name))"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_holders_cik_lower ON institutional_holders (lower(cik))"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_institutional_transactions_name_lower ON institutional_transactions (lower(institution_name))"))
+        for index_name, statement in (
+            (
+                "ix_institutional_holders_holder_name_lower",
+                "CREATE INDEX IF NOT EXISTS ix_institutional_holders_holder_name_lower ON institutional_holders (lower(holder_name))",
+            ),
+            (
+                "ix_institutional_holders_cik_lower",
+                "CREATE INDEX IF NOT EXISTS ix_institutional_holders_cik_lower ON institutional_holders (lower(cik))",
+            ),
+            (
+                "ix_institutional_transactions_name_lower",
+                "CREATE INDEX IF NOT EXISTS ix_institutional_transactions_name_lower ON institutional_transactions (lower(institution_name))",
+            ),
+        ):
+            try:
+                with conn.begin_nested():
+                    conn.execute(text(statement))
+            except SQLAlchemyError as exc:
+                logger.warning(
+                    "institutional_activity_optional_index_skipped index=%s reason=%s",
+                    index_name,
+                    _optional_index_skip_reason(exc),
+                )
         logger.info("institutional_activity_schema_ensure_complete table_count=%s", len(tables))
 
 

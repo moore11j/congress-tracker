@@ -32,6 +32,7 @@ from app.services.institutional_activity import (
     parse_position,
     positions_for_holder,
     process_filing_changes_and_events,
+    seed_canonical_institutional_holders,
     upsert_institutional_filing,
     upsert_institutional_holder,
     upsert_positions_for_filing,
@@ -112,6 +113,24 @@ def _process_single_change(
         upsert_positions_for_filing(db, filing=current_filing, rows=[{**current_row, "symbol": symbol}])
 
     return process_filing_changes_and_events(db, current_filing)
+
+
+def test_seed_canonical_institutional_holders_creates_searchable_top_managers():
+    engine = _engine()
+    db = _session(engine)
+    try:
+        result = seed_canonical_institutional_holders(db)
+        db.commit()
+
+        assert result["inserted"] >= 10
+        blackrock = db.get(InstitutionalHolder, "0002012383")
+        vanguard = db.get(InstitutionalHolder, "0002100119")
+        state_street = db.get(InstitutionalHolder, "0000093751")
+        assert blackrock and blackrock.holder_name == "BlackRock, Inc."
+        assert vanguard and vanguard.holder_name == "VANGUARD CAPITAL MANAGEMENT LLC"
+        assert state_street and state_street.is_passive_like is True
+    finally:
+        db.close()
 
 
 def test_parse_latest_filing_normalizes_13f_metadata():
