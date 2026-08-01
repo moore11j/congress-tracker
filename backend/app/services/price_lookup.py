@@ -1395,6 +1395,7 @@ def reconstruct_adjusted_price_bars(
     *,
     dividends: dict[str, float] | None = None,
     split_factors: dict[str, float] | None = None,
+    apply_split_factors: bool = False,
 ) -> dict[str, EodPriceBar]:
     days = sorted(raw_bars)
     if not days:
@@ -1404,10 +1405,11 @@ def reconstruct_adjusted_price_bars(
     split_factors = split_factors or {}
     factors_by_prior_index: dict[int, float] = {}
 
-    for action_date, factor in split_factors.items():
-        prior_index = bisect_left(days, action_date) - 1
-        if prior_index >= 0 and factor > 0:
-            factors_by_prior_index[prior_index] = factors_by_prior_index.get(prior_index, 1.0) * factor
+    if apply_split_factors:
+        for action_date, factor in split_factors.items():
+            prior_index = bisect_left(days, action_date) - 1
+            if prior_index >= 0 and factor > 0:
+                factors_by_prior_index[prior_index] = factors_by_prior_index.get(prior_index, 1.0) * factor
 
     for action_date, dividend in dividends.items():
         prior_index = bisect_left(days, action_date) - 1
@@ -1441,7 +1443,7 @@ def reconstruct_adjusted_price_bars(
             dividend_amount=dividends.get(day),
             price_source=f"{bar.price_source or 'provider'}+corporate_actions",
             provider_symbol=bar.provider_symbol,
-            adjustment_status="reconstructed_adjusted",
+            adjustment_status="reconstructed_adjusted" if not apply_split_factors else "reconstructed_adjusted_with_splits",
         )
     return dict(sorted(reconstructed.items()))
 

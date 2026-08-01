@@ -5161,3 +5161,47 @@ def test_backfill_price_cache_reconstructs_adjusted_rows(monkeypatch):
     assert row["adjustment_method"] == "reconstructed_adjusted"
     assert row["rows_provider_adjusted"] == 2
     assert row["rows_provider_dividends"] == 1
+
+
+def test_reconstructed_adjustment_preserves_split_adjusted_provider_close_without_double_split():
+    bars = {
+        "2024-06-07": EodPriceBar(
+            date="2024-06-07",
+            close=120.0,
+            raw_close=120.0,
+            price_source="fmp:historical-price-eod/full",
+        ),
+        "2024-06-10": EodPriceBar(
+            date="2024-06-10",
+            close=121.0,
+            raw_close=121.0,
+            price_source="fmp:historical-price-eod/full",
+        ),
+    }
+
+    reconstructed = backfill_module.reconstruct_adjusted_price_bars(
+        bars,
+        dividends={},
+        split_factors={"2024-06-10": 0.1},
+    )
+
+    assert reconstructed["2024-06-07"].adjusted_close == 120.0
+    assert reconstructed["2024-06-07"].adjustment_status == "reconstructed_adjusted"
+    assert reconstructed["2024-06-10"].split_coefficient == 0.1
+
+
+def test_reconstructed_adjustment_can_apply_split_factors_for_truly_raw_sources():
+    bars = {
+        "2024-06-07": EodPriceBar(date="2024-06-07", close=1200.0, raw_close=1200.0),
+        "2024-06-10": EodPriceBar(date="2024-06-10", close=121.0, raw_close=121.0),
+    }
+
+    reconstructed = backfill_module.reconstruct_adjusted_price_bars(
+        bars,
+        dividends={},
+        split_factors={"2024-06-10": 0.1},
+        apply_split_factors=True,
+    )
+
+    assert reconstructed["2024-06-07"].adjusted_close == 120.0
+    assert reconstructed["2024-06-07"].adjustment_status == "reconstructed_adjusted_with_splits"

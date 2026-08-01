@@ -52,6 +52,7 @@ def backfill_price_cache(
     dry_run: bool,
     require_adjusted: bool = False,
     reconstruct_adjusted: bool = False,
+    apply_split_factors: bool = False,
 ) -> dict:
     Base.metadata.create_all(bind=engine)
     ensure_price_cache_volume_columns(engine)
@@ -79,8 +80,9 @@ def backfill_price_cache(
                         raw_bars,
                         dividends=dividends,
                         split_factors=split_factors,
+                        apply_split_factors=apply_split_factors,
                     )
-                    adjustment_method = "reconstructed_adjusted"
+                    adjustment_method = "reconstructed_adjusted" if not apply_split_factors else "reconstructed_adjusted_with_splits"
                 else:
                     provider_bars, provider_symbol = _fetch_provider_eod_price_bars(
                         symbol,
@@ -132,6 +134,7 @@ def backfill_price_cache(
                     "dry_run": dry_run,
                     "require_adjusted": require_adjusted,
                     "reconstruct_adjusted": reconstruct_adjusted,
+                    "apply_split_factors": apply_split_factors,
                     "adjustment_method": adjustment_method,
                     "rows_existing": len(existing),
                     "rows_provider": len(provider_map),
@@ -157,6 +160,7 @@ def backfill_price_cache(
         "dry_run": dry_run,
         "require_adjusted": require_adjusted,
         "reconstruct_adjusted": reconstruct_adjusted,
+        "apply_split_factors": apply_split_factors,
         "symbols": symbols,
         "start_date": start,
         "end_date": end,
@@ -173,6 +177,7 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--require-adjusted", action="store_true", help="Only accept provider rows with adjusted-close semantics.")
     parser.add_argument("--reconstruct-adjusted", action="store_true", help="Reconstruct adjusted closes from raw OHLCV plus provider dividends/splits.")
+    parser.add_argument("--apply-split-factors", action="store_true", help="Also apply split factors during reconstruction. Leave off for FMP historical close rows, which are already split-adjusted.")
     args = parser.parse_args()
 
     if not args.dry_run and not args.apply:
@@ -188,6 +193,7 @@ def main() -> None:
         dry_run=args.dry_run,
         require_adjusted=args.require_adjusted,
         reconstruct_adjusted=args.reconstruct_adjusted,
+        apply_split_factors=args.apply_split_factors,
     )
     print(json.dumps(report, indent=2, sort_keys=True, default=str))
 
