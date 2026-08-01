@@ -50,14 +50,6 @@ const riskChecks = [
   "The stock prices in too much cycle durability before the next data point.",
 ] as const;
 
-const productHooks = [
-  "Live MU ticker context",
-  "Congress and insider activity",
-  "Fundamental and technical checkpoints",
-  "Peer compare against NVDA",
-  "Research workflow built for follow-up",
-] as const;
-
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="rounded-lg border border-white/10 bg-slate-950/65 p-4">
@@ -143,35 +135,6 @@ export default function MuDdLandingPage() {
               </li>
             ))}
           </ul>
-        </div>
-      </section>
-
-      <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1fr_0.9fr] lg:px-8">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Follow The Evidence</p>
-          <h2 className="mt-3 text-2xl font-semibold text-white">Use Walnut to keep the MU setup updated.</h2>
-          <p className="mt-4 text-sm leading-7 text-slate-400">
-            A Reddit post is a starting point. Walnut gives you the ongoing terminal view: the ticker page, peer comparison, market context, and public-data trends you can re-check as the cycle evolves.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link href={signupHref} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200">
-              Sign up to track MU
-            </Link>
-            <Link href={muTickerHref} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-white/25 hover:text-white">
-              Preview MU data
-            </Link>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-white/10 bg-slate-950/55 p-4">
-          <p className="text-sm font-semibold text-white">What users get after signup</p>
-          <div className="mt-4 grid gap-2">
-            {productHooks.map((hook) => (
-              <div key={hook} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
-                {hook}
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
