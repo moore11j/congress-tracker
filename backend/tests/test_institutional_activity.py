@@ -15,12 +15,14 @@ from app import ingest_institutional_activity as ingest_module
 from app.clients.fmp import fetch_shares_float
 from app.request_priority import reset_request_context, set_request_context
 from app.services import institutional_activity as institutional_service
-from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary
+from app.models import CikMeta, Event, InstitutionalActivityEvent, InstitutionalFiling, InstitutionalHolder, InstitutionalPosition, InstitutionalPositionChange, InstitutionalSymbolSummary, PriceCache, QuoteCache
 from app.routers.institutional import institution_activity, institution_filings, institution_holdings, institution_profile, ticker_institutional_activity, ticker_ownership
 from app.services.institutional_activity import (
     INSTITUTIONAL_EVENT_SOURCE,
+    activity_for_holder,
     cleanup_overbroad_institutional_feed_events,
     get_canonical_filing_for_holder_period,
+    holder_performance_summary,
     institutional_confirmation_contribution,
     get_institutional_activity_summaries_for_symbols,
     institutional_filing_duplicate_report,
@@ -1857,6 +1859,99 @@ def test_amended_filing_supersedes_original_and_replaces_user_facing_activity():
             "total_period_duplicates": 1,
             "active_period_duplicates": 0,
         }
+
+
+def test_holder_positions_compute_missing_portfolio_weight_from_period_total():
+    engine = _engine()
+    today = date.today()
+    cik = "0003333333"
+
+    with _session(engine) as db:
+        candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today, year=2026, quarter=1))
+        assert candidate is not None
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": "NVDA", "shares": 10, "marketValue": 300, "cusip": "67066G104"},
+                {"symbol": "MSFT", "shares": 10, "marketValue": 100, "cusip": "594918104"},
+            ],
+        )
+        db.commit()
+
+        holdings = positions_for_holder(db, cik, year=2026, quarter=1, page=0, limit=10)
+        weights = {item["symbol"]: item["portfolio_weight"] for item in holdings["items"]}
+        assert weights["NVDA"] == 75
+        assert weights["MSFT"] == 25
+
+        profile = holder_profile(db, cik)
+        assert profile is not None
+        profile_weights = {item["symbol"]: item["portfolio_weight"] for item in profile["top_holdings"]}
+        assert profile_weights["NVDA"] == 75
+
+
+def test_holder_activity_payload_includes_activity_prices_units_and_cached_current_price():
+    engine = _engine()
+    cik = "0001234567"
+
+    with _session(engine) as db:
+        _process_single_change(
+            db,
+            symbol="NVDA",
+            prior_row={"shares": 10, "marketValue": 100, "cusip": "67066G104"},
+            current_row={"shares": 15, "marketValue": 300, "cusip": "67066G104"},
+        )
+        db.add(QuoteCache(symbol="NVDA", price=30.0, asof_ts=datetime.now(timezone.utc).replace(tzinfo=None)))
+        db.commit()
+
+        activity = activity_for_holder(db, cik, page=0, limit=10)
+        item = activity["items"][0]
+        assert item["current_shares"] == 15
+        assert item["shares_delta"] == 5
+        assert item["activity_price"] == 40
+        assert item["report_price"] == 20
+        assert item["current_price"] == 30
+        assert item["price_since_report_pct"] == 50
+        assert item["current_market_value_usd"] == 450
+
+
+def test_holder_performance_summary_uses_cached_eod_prices_for_weighted_returns():
+    engine = _engine()
+    today = datetime.now(timezone.utc).date()
+    cik = "0004444444"
+
+    with _session(engine) as db:
+        candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today, year=today.year, quarter=1))
+        assert candidate is not None
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": "AAA", "shares": 60, "marketValue": 600, "cusip": "000000001"},
+                {"symbol": "BBB", "shares": 40, "marketValue": 400, "cusip": "000000002"},
+            ],
+        )
+        start = date(today.year, 1, 1)
+        db.add_all(
+            [
+                PriceCache(symbol="AAA", date=start.isoformat(), close=100.0),
+                PriceCache(symbol="AAA", date=today.isoformat(), close=110.0),
+                PriceCache(symbol="BBB", date=start.isoformat(), close=100.0),
+                PriceCache(symbol="BBB", date=today.isoformat(), close=90.0),
+            ]
+        )
+        db.commit()
+
+        summary = holder_performance_summary(db, cik)
+        ytd = next(item for item in summary["items"] if item["key"] == "ytd")
+        assert ytd["coverage_pct"] == 100
+        assert ytd["return_pct"] == 2
 
 
 def test_multiple_amendments_choose_latest_amendment_as_canonical():

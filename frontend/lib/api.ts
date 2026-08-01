@@ -211,12 +211,49 @@ export type InstitutionActivityItem = {
   prior_value_usd?: number | null;
   value_delta_usd?: number | null;
   value_delta_pct?: number | null;
+  current_shares?: number | null;
+  prior_shares?: number | null;
+  shares_delta?: number | null;
+  shares_delta_pct?: number | null;
+  current_portfolio_weight?: number | null;
+  prior_portfolio_weight?: number | null;
   portfolio_weight_delta?: number | null;
+  current_ownership_pct?: number | null;
+  prior_ownership_pct?: number | null;
+  ownership_pct_delta?: number | null;
+  activity_price?: number | null;
+  report_price?: number | null;
+  current_price?: number | null;
+  price_since_report_pct?: number | null;
+  current_market_value_usd?: number | null;
   filing_date?: string | null;
   report_period?: string | null;
   report_year?: number | null;
   report_quarter?: number | null;
   materiality_score?: number | null;
+};
+
+export type InstitutionPerformanceItem = {
+  key?: string | null;
+  label?: string | null;
+  return_pct?: number | null;
+  coverage_pct?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  status?: string | null;
+};
+
+export type InstitutionPerformanceResponse = {
+  status?: string;
+  cik?: string | null;
+  holder_name?: string | null;
+  report_period?: string | null;
+  basis?: string | null;
+  position_count?: number | null;
+  covered_value_usd?: number | null;
+  quality_score?: number | null;
+  note?: string | null;
+  items?: InstitutionPerformanceItem[];
 };
 
 export type InstitutionFilingItem = {
@@ -6256,6 +6293,22 @@ export async function getInstitutionActivity(
       next: { revalidate: 0 },
       signal: params?.signal,
       source: params?.source ?? "InstitutionActivity",
+    },
+  );
+}
+
+export async function getInstitutionPerformance(
+  cik: string,
+  params?: { authToken?: string | null; signal?: AbortSignal; source?: string },
+): Promise<InstitutionPerformanceResponse> {
+  return fetchJson<InstitutionPerformanceResponse>(
+    buildApiUrl(`/api/institutions/${encodeURIComponent(cik)}/performance`),
+    {
+      headers: authHeaders(params?.authToken ?? undefined),
+      cache: "no-store",
+      next: { revalidate: 0 },
+      signal: params?.signal,
+      source: params?.source ?? "InstitutionPerformance",
     },
   );
 }

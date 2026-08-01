@@ -22,6 +22,8 @@ from app.models import (
     InstitutionalPosition,
     InstitutionalPositionChange,
     InstitutionalSymbolSummary,
+    PriceCache,
+    QuoteCache,
 )
 from app.utils.symbols import normalize_symbol
 
@@ -1664,11 +1666,19 @@ def holder_profile(db: Session, cik: str) -> dict[str, Any] | None:
         "source_label": INSTITUTIONAL_SOURCE_LABEL,
         "availability_status": "ok" if holdings_count else "unavailable",
         "locked": False,
-        "top_holdings": [position_payload(position) for position in latest_positions[:10]],
+        "top_holdings": [position_payload(position, total_reported_value=total_reported_value) for position in latest_positions[:10]],
     }
 
 
-def position_payload(position: InstitutionalPosition) -> dict[str, Any]:
+def position_payload(position: InstitutionalPosition, *, total_reported_value: float | None = None) -> dict[str, Any]:
+    portfolio_weight = position.portfolio_weight
+    if portfolio_weight is None and total_reported_value and position.value_usd is not None:
+        try:
+            total_value = float(total_reported_value)
+            if total_value > 0:
+                portfolio_weight = (float(position.value_usd) / total_value) * 100.0
+        except (TypeError, ValueError):
+            portfolio_weight = None
     return {
         "id": position.id,
         "cik": position.cik,
@@ -1677,7 +1687,7 @@ def position_payload(position: InstitutionalPosition) -> dict[str, Any]:
         "issuer_name": position.issuer_name,
         "shares": position.shares,
         "value_usd": position.value_usd,
-        "portfolio_weight": position.portfolio_weight,
+        "portfolio_weight": _round_optional(portfolio_weight, 6),
         "ownership_pct": position.ownership_pct,
         "report_year": position.report_year,
         "report_quarter": position.report_quarter,
@@ -1714,7 +1724,38 @@ def positions_for_holder(db: Session, cik: str, *, year: int | None = None, quar
         .limit(bounded_limit + 1)
     ).scalars().all()
     rows = fetched_rows[:bounded_limit]
-    return {"items": [position_payload(row) for row in rows], "page": page, "limit": bounded_limit, "has_next": len(fetched_rows) > bounded_limit}
+    period_totals = _holder_period_totals(db, normalized, rows)
+    return {
+        "items": [
+            position_payload(row, total_reported_value=period_totals.get((row.report_year, row.report_quarter)))
+            for row in rows
+        ],
+        "page": page,
+        "limit": bounded_limit,
+        "has_next": len(fetched_rows) > bounded_limit,
+    }
+
+
+def _holder_period_totals(db: Session, cik: str, rows: list[InstitutionalPosition]) -> dict[tuple[int, int], float]:
+    periods = sorted({(row.report_year, row.report_quarter) for row in rows if row.report_year and row.report_quarter})
+    totals: dict[tuple[int, int], float] = {}
+    for report_year, report_quarter in periods:
+        filters = [
+            InstitutionalPosition.cik == cik,
+            InstitutionalPosition.report_year == int(report_year),
+            InstitutionalPosition.report_quarter == int(report_quarter),
+        ]
+        active_filing_ids = _active_filing_ids_for_period(
+            db,
+            cik=cik,
+            report_year=int(report_year),
+            report_quarter=int(report_quarter),
+        )
+        if active_filing_ids:
+            filters.append(InstitutionalPosition.filing_id.in_(active_filing_ids))
+        total = db.execute(select(func.coalesce(func.sum(InstitutionalPosition.value_usd), 0.0)).where(*filters)).scalar_one()
+        totals[(int(report_year), int(report_quarter))] = float(total or 0.0)
+    return totals
 
 
 def _reported_action_label(change_type: str | None, value_delta_usd: float | None = None) -> str:
@@ -1769,32 +1810,107 @@ def activity_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50
         ).all()
         for symbol, issuer_name in positions:
             issuer_names.setdefault(symbol, issuer_name)
+    current_prices = _cached_current_prices(db, symbols)
     return {
         "items": [
-            {
-                "id": row.id,
-                "symbol": row.normalized_symbol or row.symbol,
-                "issuer_name": issuer_names.get(row.normalized_symbol or ""),
-                "action": _reported_action_label(row.change_type, row.value_delta_usd),
-                "change_type": row.change_type,
-                "direction": row.direction,
-                "current_value_usd": 0 if row.change_type == "exit" else row.curr_value_usd,
-                "prior_value_usd": row.prev_value_usd,
-                "value_delta_usd": row.value_delta_usd,
-                "value_delta_pct": row.value_delta_pct,
-                "portfolio_weight_delta": row.portfolio_weight_delta,
-                "filing_date": row.filing_date.isoformat() if row.filing_date else None,
-                "report_period": f"Q{row.report_quarter} {row.report_year}",
-                "report_year": row.report_year,
-                "report_quarter": row.report_quarter,
-                "materiality_score": row.materiality_score,
-            }
+            activity_change_payload(row, issuer_names=issuer_names, current_prices=current_prices)
             for row in rows
         ],
         "page": page,
         "limit": bounded_limit,
         "has_next": len(fetched_rows) > bounded_limit,
     }
+
+
+def activity_change_payload(
+    row: InstitutionalPositionChange,
+    *,
+    issuer_names: dict[str, str | None] | None = None,
+    current_prices: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    symbol = row.normalized_symbol or row.symbol
+    current_value_usd = 0 if row.change_type == "exit" else row.curr_value_usd
+    report_price = _per_share_value(current_value_usd, row.curr_shares)
+    if report_price is None and row.change_type == "exit":
+        report_price = _per_share_value(row.prev_value_usd, row.prev_shares)
+    activity_price = _per_share_value(abs(float(row.value_delta_usd)), abs(float(row.shares_delta))) if row.value_delta_usd is not None and row.shares_delta else None
+    current_price = current_prices.get(symbol or "") if current_prices else None
+    current_market_value_usd = None
+    if current_price is not None and row.curr_shares is not None and row.change_type != "exit":
+        current_market_value_usd = float(current_price) * float(row.curr_shares)
+    return {
+        "id": row.id,
+        "symbol": symbol,
+        "issuer_name": (issuer_names or {}).get(row.normalized_symbol or ""),
+        "action": _reported_action_label(row.change_type, row.value_delta_usd),
+        "change_type": row.change_type,
+        "direction": row.direction,
+        "current_value_usd": current_value_usd,
+        "prior_value_usd": row.prev_value_usd,
+        "value_delta_usd": row.value_delta_usd,
+        "value_delta_pct": row.value_delta_pct,
+        "current_shares": row.curr_shares,
+        "prior_shares": row.prev_shares,
+        "shares_delta": row.shares_delta,
+        "shares_delta_pct": row.shares_delta_pct,
+        "current_portfolio_weight": row.curr_portfolio_weight,
+        "prior_portfolio_weight": row.prev_portfolio_weight,
+        "portfolio_weight_delta": row.portfolio_weight_delta,
+        "current_ownership_pct": row.curr_ownership_pct,
+        "prior_ownership_pct": row.prev_ownership_pct,
+        "ownership_pct_delta": row.ownership_pct_delta,
+        "activity_price": _round_optional(activity_price or report_price, 4),
+        "report_price": _round_optional(report_price, 4),
+        "current_price": _round_optional(current_price, 4),
+        "price_since_report_pct": _round_optional(_pct_delta(current_price, report_price), 4),
+        "current_market_value_usd": _round_optional(current_market_value_usd, 2),
+        "filing_date": row.filing_date.isoformat() if row.filing_date else None,
+        "report_period": f"Q{row.report_quarter} {row.report_year}",
+        "report_year": row.report_year,
+        "report_quarter": row.report_quarter,
+        "materiality_score": row.materiality_score,
+    }
+
+
+def _per_share_value(value_usd: float | None, shares: float | None) -> float | None:
+    if value_usd is None or shares is None:
+        return None
+    try:
+        share_count = float(shares)
+        if abs(share_count) < 1e-9:
+            return None
+        return float(value_usd) / share_count
+    except (TypeError, ValueError):
+        return None
+
+
+def _cached_current_prices(db: Session, symbols: list[str]) -> dict[str, float]:
+    normalized_symbols = sorted({symbol for raw in symbols if (symbol := normalize_symbol(raw))})
+    if not normalized_symbols:
+        return {}
+    prices: dict[str, float] = {}
+    quote_rows = db.execute(
+        select(QuoteCache.symbol, QuoteCache.price).where(QuoteCache.symbol.in_(normalized_symbols))
+    ).all()
+    for symbol, price in quote_rows:
+        parsed = _round_optional(price, 6)
+        if symbol and parsed is not None:
+            prices[str(symbol).upper()] = parsed
+    missing_symbols = [symbol for symbol in normalized_symbols if symbol not in prices]
+    if missing_symbols:
+        eod_rows = db.execute(
+            select(PriceCache.symbol, PriceCache.close)
+            .where(PriceCache.symbol.in_(missing_symbols))
+            .order_by(PriceCache.symbol.asc(), PriceCache.date.desc())
+        ).all()
+        for symbol, close in eod_rows:
+            normalized = str(symbol).upper() if symbol else None
+            if not normalized or normalized in prices:
+                continue
+            parsed = _round_optional(close, 6)
+            if parsed is not None:
+                prices[normalized] = parsed
+    return prices
 
 
 def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50) -> dict[str, Any]:
@@ -1843,6 +1959,141 @@ def filings_for_holder(db: Session, cik: str, *, page: int = 0, limit: int = 50)
         "limit": bounded_limit,
         "has_next": len(fetched_rows) > bounded_limit,
     }
+
+
+def holder_performance_summary(db: Session, cik: str, *, position_limit: int = 250) -> dict[str, Any]:
+    normalized = normalize_cik(cik)
+    if not normalized:
+        return {"status": "invalid_cik", "cik": None, "items": []}
+    profile = holder_profile(db, normalized)
+    if profile is None:
+        return {"status": "no_data", "cik": normalized, "items": []}
+    report_year = profile.get("latest_report_year")
+    report_quarter = profile.get("latest_report_quarter")
+    if not report_year or not report_quarter:
+        return {"status": "no_data", "cik": normalized, "holder_name": profile.get("holder_name"), "items": []}
+
+    active_filing_ids = _active_filing_ids_for_period(
+        db,
+        cik=normalized,
+        report_year=int(report_year),
+        report_quarter=int(report_quarter),
+    )
+    filters = [
+        InstitutionalPosition.cik == normalized,
+        InstitutionalPosition.report_year == int(report_year),
+        InstitutionalPosition.report_quarter == int(report_quarter),
+        InstitutionalPosition.value_usd.is_not(None),
+        InstitutionalPosition.value_usd > 0,
+        InstitutionalPosition.normalized_symbol.is_not(None),
+    ]
+    if active_filing_ids:
+        filters.append(InstitutionalPosition.filing_id.in_(active_filing_ids))
+    positions = db.execute(
+        select(InstitutionalPosition.normalized_symbol, InstitutionalPosition.value_usd)
+        .where(*filters)
+        .order_by(InstitutionalPosition.value_usd.desc())
+        .limit(max(25, min(int(position_limit or 250), 500)))
+    ).all()
+    total_value = sum(float(value or 0.0) for _symbol, value in positions)
+    if total_value <= 0:
+        return {"status": "no_data", "cik": normalized, "holder_name": profile.get("holder_name"), "items": []}
+
+    today = datetime.now(timezone.utc).date()
+    periods = [
+        {"key": "ytd", "label": "YTD Return", "start_date": date(today.year, 1, 1), "end_date": today},
+        {"key": "year_2025", "label": "2025 Return", "start_date": date(2025, 1, 1), "end_date": date(2025, 12, 31)},
+        {"key": "three_year", "label": "3Yr Return", "start_date": today - timedelta(days=365 * 3), "end_date": today},
+    ]
+    symbols = sorted({symbol for symbol, _value in positions if symbol})
+    prices = _cached_price_history(db, symbols, min(period["start_date"] for period in periods), max(period["end_date"] for period in periods))
+    items = [
+        _weighted_snapshot_return(period, positions, total_value=total_value, prices=prices)
+        for period in periods
+    ]
+    return {
+        "status": "ok",
+        "cik": normalized,
+        "holder_name": profile.get("holder_name"),
+        "report_period": f"Q{report_quarter} {report_year}",
+        "basis": "latest_reported_holdings_price_cache",
+        "position_count": len(positions),
+        "covered_value_usd": round(total_value, 2),
+        "items": items,
+    }
+
+
+def _cached_price_history(
+    db: Session,
+    symbols: list[str],
+    start_date: date,
+    end_date: date,
+) -> dict[str, list[tuple[date, float]]]:
+    if not symbols:
+        return {}
+    rows = db.execute(
+        select(PriceCache.symbol, PriceCache.date, PriceCache.close)
+        .where(PriceCache.symbol.in_(symbols))
+        .where(PriceCache.date >= start_date.isoformat())
+        .where(PriceCache.date <= end_date.isoformat())
+        .order_by(PriceCache.symbol.asc(), PriceCache.date.asc())
+    ).all()
+    history: dict[str, list[tuple[date, float]]] = {}
+    for symbol, day, close in rows:
+        normalized = normalize_symbol(symbol)
+        parsed_date = _parse_date(day)
+        parsed_close = _round_optional(close, 6)
+        if not normalized or parsed_date is None or parsed_close is None or parsed_close <= 0:
+            continue
+        history.setdefault(normalized, []).append((parsed_date, parsed_close))
+    return history
+
+
+def _weighted_snapshot_return(
+    period: dict[str, Any],
+    positions: list[tuple[str | None, float | None]],
+    *,
+    total_value: float,
+    prices: dict[str, list[tuple[date, float]]],
+) -> dict[str, Any]:
+    start_date = period["start_date"]
+    end_date = period["end_date"]
+    covered_weight = 0.0
+    weighted_return = 0.0
+    for symbol, value_usd in positions:
+        normalized = normalize_symbol(symbol)
+        if not normalized or not value_usd:
+            continue
+        start_price, end_price = _price_pair_for_period(prices.get(normalized, []), start_date, end_date)
+        if start_price is None or end_price is None:
+            continue
+        weight = float(value_usd) / total_value
+        covered_weight += weight
+        weighted_return += weight * ((end_price / start_price) - 1.0)
+    coverage_pct = round(covered_weight * 100.0, 2)
+    return_pct = round((weighted_return / covered_weight) * 100.0, 2) if covered_weight >= 0.65 else None
+    return {
+        "key": period["key"],
+        "label": period["label"],
+        "return_pct": return_pct,
+        "coverage_pct": coverage_pct,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "status": "ok" if return_pct is not None else "insufficient_price_coverage",
+    }
+
+
+def _price_pair_for_period(rows: list[tuple[date, float]], start_date: date, end_date: date) -> tuple[float | None, float | None]:
+    start_price = None
+    end_price = None
+    for day, close in rows:
+        if start_price is None and day >= start_date:
+            start_price = close
+        if day <= end_date:
+            end_price = close
+        if day > end_date:
+            break
+    return start_price, end_price
 
 
 def industry_summary_payload(db: Session, *, year: int | None = None, quarter: int | None = None, limit: int = 50) -> dict[str, Any]:

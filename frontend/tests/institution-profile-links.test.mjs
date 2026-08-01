@@ -48,7 +48,7 @@ test("institution profile page uses clean 13F copy and no source plumbing terms"
   assert.doesNotMatch(chart, forbidden);
 });
 
-test("institution profile renders holdings allocation before activity and holdings tables", () => {
+test("institution profile renders allocation before the holdings/activity tab section", () => {
   const page = read("app/institution/[cik]/page.tsx");
 
   assert.match(page, /import \{ HoldingsAllocationChart \}/);
@@ -58,9 +58,12 @@ test("institution profile renders holdings allocation before activity and holdin
   assert.match(page, /getInstitutionHoldings\(cik, \{[\s\S]*authToken/);
   assert.match(page, /getInstitutionActivity\(cik, \{ limit: 25, authToken/);
   assert.match(page, /getInstitutionFilings\(cik, \{ limit: 25, authToken/);
+  assert.match(page, /getInstitutionPerformance\(cik, \{ authToken/);
   assert.match(page, /<HoldingsAllocationChart/);
-  assert.ok(page.indexOf("<HoldingsAllocationChart") < page.indexOf("<ActivitySection"));
-  assert.ok(page.indexOf("<ActivitySection") < page.indexOf("<HoldingsSection"));
+  assert.match(page, /<HoldingsActivitySection/);
+  assert.match(page, /tab="holdings"/);
+  assert.match(page, /tab="activity"/);
+  assert.ok(page.indexOf("<HoldingsAllocationChart") < page.indexOf("<HoldingsActivitySection"));
 });
 
 test("institution profile API helpers accept server auth tokens", () => {
@@ -69,9 +72,22 @@ test("institution profile API helpers accept server auth tokens", () => {
   assert.match(api, /getInstitutionProfile\(cik: string, options\?: \{ authToken\?: string \| null/);
   assert.match(api, /getInstitutionHoldings\([\s\S]*authToken\?: string \| null/);
   assert.match(api, /getInstitutionActivity\([\s\S]*authToken\?: string \| null/);
+  assert.match(api, /getInstitutionPerformance\([\s\S]*authToken\?: string \| null/);
   assert.match(api, /getInstitutionFilings\([\s\S]*authToken\?: string \| null/);
   assert.match(api, /headers: authHeaders\(options\?\.authToken \?\? undefined\)/);
   assert.match(api, /headers: authHeaders\(params\?\.authToken \?\? undefined\)/);
+});
+
+test("institution profile exposes activity detail columns and trillion formatting", () => {
+  const page = read("app/institution/[cik]/page.tsx");
+  const chart = read("components/institution/HoldingsAllocationChart.tsx");
+
+  assert.match(page, /Report Date Price/);
+  assert.match(page, /Price Current/);
+  assert.match(page, /% Since Report/);
+  assert.match(page, /current_market_value_usd/);
+  assert.match(page, /1_000_000_000_000\)/);
+  assert.match(chart, /1_000_000_000_000\)/);
 });
 
 test("holdings allocation chart uses top ten plus other and compact dark responsive layout", () => {

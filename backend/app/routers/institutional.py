@@ -19,6 +19,7 @@ from app.services.institutional_activity import (
     list_institutional_holders,
     filings_for_holder,
     get_ticker_institutional_activity,
+    holder_performance_summary,
     positions_for_holder,
     ticker_ownership_payload,
     unavailable_institutional_summary,
@@ -306,12 +307,13 @@ def institution_performance(cik: str, request: Request, db: Session = Depends(ge
     profile = holder_profile(db, cik)
     if profile is None:
         return {"status": "no_data", "cik": normalize_cik(cik), "items": []}
+    summary = holder_performance_summary(db, cik)
     return {
-        "status": "ok",
+        **summary,
         "cik": profile["cik"],
         "holder_name": profile["holder_name"],
         "quality_score": profile["quality_score"],
-        "note": "Performance is derived from institutional holder analytics when available.",
+        "note": "Performance is calculated from reported holdings and cached end-of-day prices when coverage is sufficient.",
     }
 
 

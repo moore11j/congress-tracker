@@ -5,10 +5,13 @@ import {
   getInstitutionActivity,
   getInstitutionFilings,
   getInstitutionHoldings,
+  getInstitutionPerformance,
   getInstitutionProfile,
   type InstitutionActivityItem,
   type InstitutionFilingItem,
   type InstitutionHoldingItem,
+  type InstitutionPerformanceItem,
+  type InstitutionPerformanceResponse,
   type InstitutionProfileResponse,
 } from "@/lib/api";
 import { HoldingsAllocationChart } from "@/components/institution/HoldingsAllocationChart";
@@ -24,6 +27,7 @@ import { WALNUT_APP_URL, appCanonicalUrl } from "@/lib/marketingMetadata";
 
 type Props = {
   params: Promise<{ cik: string }>;
+  searchParams?: Promise<{ tab?: string | string[] }>;
 };
 
 function getSiteUrl() {
@@ -65,8 +69,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-export default async function InstitutionPage({ params }: Props) {
+export default async function InstitutionPage({ params, searchParams }: Props) {
   const { cik: rawCik } = await params;
+  const sp = await searchParams;
   const cik = normalizeInstitutionCik(rawCik);
   if (!cik) notFound();
 
@@ -81,7 +86,7 @@ export default async function InstitutionPage({ params }: Props) {
     return <LockedInstitutionProfile cik={cik} />;
   }
 
-  const [holdings, activity, filings] = await Promise.all([
+  const [holdings, activity, filings, performance] = await Promise.all([
     withServerTimeout(
       getInstitutionHoldings(cik, {
         year: profile.latest_report_year ?? undefined,
@@ -103,6 +108,11 @@ export default async function InstitutionPage({ params }: Props) {
       "institution:filings",
       8000,
     ).catch(() => ({ items: [] })),
+    withServerTimeout(
+      getInstitutionPerformance(cik, { authToken, source: "InstitutionProfilePerformance" }),
+      "institution:performance",
+      8000,
+    ).catch(() => unavailableInstitutionPerformance(cik)),
   ]);
 
   const unavailable = profile.availability_status === "unavailable" || profile.status === "no_data";
@@ -112,6 +122,7 @@ export default async function InstitutionPage({ params }: Props) {
   const reportPeriod = profile.latest_report_year && profile.latest_report_quarter
     ? `Q${profile.latest_report_quarter} ${profile.latest_report_year}`
     : "Unavailable";
+  const activeTab = normalizeInstitutionTab(Array.isArray(sp?.tab) ? sp?.tab[0] : sp?.tab);
   const allocationHoldings = profile.top_holdings?.length ? profile.top_holdings : (holdings.items ?? []);
   const hasRetryableFiling = (filings.items ?? []).some((item) => (item.status ?? "").toLowerCase() === "retryable");
 
@@ -150,6 +161,7 @@ export default async function InstitutionPage({ params }: Props) {
           <StatCard label="Holdings" value={formatCount(profile.holdings_count)} />
           <StatCard label="Source" value={profile.source_label ?? "Institutional Activity"} compact />
         </div>
+        <PerformanceStrip items={performance.items ?? []} />
       </section>
 
       <HoldingsAllocationChart
@@ -160,8 +172,7 @@ export default async function InstitutionPage({ params }: Props) {
         filingDate={profile.latest_filing_date}
         hasRetryableFiling={hasRetryableFiling}
       />
-      <ActivitySection items={activity.items ?? []} />
-      <HoldingsSection items={holdings.items ?? []} />
+      <HoldingsActivitySection cik={cik} activeTab={activeTab} holdings={holdings.items ?? []} activity={activity.items ?? []} />
       <FilingsSection items={filings.items ?? []} />
     </div>
   );
@@ -219,84 +230,100 @@ function UnavailableProfile() {
   );
 }
 
-function ActivitySection({ items }: { items: InstitutionActivityItem[] }) {
+function unavailableInstitutionPerformance(cik: string): InstitutionPerformanceResponse {
+  return {
+    status: "temporarily_unavailable",
+    cik,
+    items: [],
+  };
+}
+
+function PerformanceStrip({ items }: { items: InstitutionPerformanceItem[] }) {
+  const byKey = new Map(items.map((item) => [item.key ?? "", item]));
+  const rows = [
+    byKey.get("ytd") ?? { key: "ytd", label: "YTD Return", return_pct: null },
+    byKey.get("year_2025") ?? { key: "year_2025", label: "2025 Return", return_pct: null },
+    byKey.get("three_year") ?? { key: "three_year", label: "3Yr Return", return_pct: null },
+  ];
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {rows.map((item) => (
+        <div key={item.key ?? item.label ?? "return"} className="min-w-0 rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label ?? "Return"}</p>
+          <p className={`mt-2 text-xl font-semibold tabular-nums ${returnTextClass(item.return_pct)}`}>{formatSignedPct(item.return_pct)}</p>
+          <p className="mt-1 text-xs text-slate-500">Coverage {formatPct(item.coverage_pct)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HoldingsActivitySection({
+  cik,
+  activeTab,
+  holdings,
+  activity,
+}: {
+  cik: string;
+  activeTab: "holdings" | "activity";
+  holdings: InstitutionHoldingItem[];
+  activity: InstitutionActivityItem[];
+}) {
   return (
     <section className={`${cardClassName} min-w-0`}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">Recent Institutional Activity</h2>
-          <p className="text-sm text-slate-400">Quarter-over-quarter changes reported by filing date.</p>
+          <h2 className="text-lg font-semibold text-white">{activeTab === "activity" ? "Institutional Activity" : "Most Recent Reported Holdings"}</h2>
+          <p className="text-sm text-slate-400">{activeTab === "activity" ? "Quarter-over-quarter position changes by filing date." : "Sorted by reported value."}</p>
         </div>
-        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">13F filing activity</span>
+        <div className="inline-flex rounded-full border border-white/10 bg-slate-950/45 p-1 text-sm">
+          <TabLink cik={cik} tab="holdings" active={activeTab === "holdings"}>Holdings</TabLink>
+          <TabLink cik={cik} tab="activity" active={activeTab === "activity"}>Activity</TabLink>
+        </div>
       </div>
-      {items.length === 0 ? (
-        <EmptyState>No recent institutional activity available.</EmptyState>
-      ) : (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <div key={`${item.id}-${item.symbol}`} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    {item.symbol && tickerHref(item.symbol) ? (
-                      <Link href={tickerHref(item.symbol)!} className={tickerLinkClassName} prefetch={false}>
-                        {item.symbol}
-                      </Link>
-                    ) : (
-                      <span className="font-mono text-sm font-semibold text-slate-100">{item.symbol ?? "-"}</span>
-                    )}
-                    <span className={`text-xs font-semibold uppercase tracking-[0.12em] ${actionTextClass(normalizeActivityAction(item.action))}`}>
-                      {normalizeActivityAction(item.action)}
-                    </span>
-                  </div>
-                  <p className="mt-1 truncate text-sm text-slate-400">{item.issuer_name ?? "Company unavailable"}</p>
-                </div>
-                <div className="text-sm text-slate-300 md:text-right">
-                  <p>Filing date: <span className="text-slate-100">{formatDateShort(item.filing_date ?? null)}</span></p>
-                  <p>Report period: <span className="text-slate-100">{item.report_period ?? "Unavailable"}</span></p>
-                </div>
-                <div className="text-left md:text-right">
-                  <p className="text-base font-semibold tabular-nums text-white">{formatCompactCurrency(item.current_value_usd)}</p>
-                  <p className={`mt-1 text-xs tabular-nums ${deltaTextClass(item.value_delta_usd)}`}>
-                    Change {formatSignedMoneyCompact(item.value_delta_usd ?? 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {activeTab === "activity" ? <ActivityTable items={activity} /> : <HoldingsTable items={holdings} />}
     </section>
   );
 }
 
-function HoldingsSection({ items }: { items: InstitutionHoldingItem[] }) {
+function TabLink({ cik, tab, active, children }: { cik: string; tab: "holdings" | "activity"; active: boolean; children: string }) {
+  const href = tab === "holdings" ? `/institution/${encodeURIComponent(cik)}` : `/institution/${encodeURIComponent(cik)}?tab=activity`;
   return (
-    <section className={`${cardClassName} min-w-0`}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-white">Most Recent Reported Holdings</h2>
-          <p className="text-sm text-slate-400">Sorted by reported value.</p>
-        </div>
-      </div>
-      {items.length === 0 ? (
-        <EmptyState>No reported holdings available for this period.</EmptyState>
+    <Link
+      href={href}
+      className={`rounded-full px-3 py-1.5 font-semibold transition ${
+        active ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"
+      }`}
+      prefetch={false}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function ActivityTable({ items }: { items: InstitutionActivityItem[] }) {
+  return items.length === 0 ? (
+        <EmptyState>No recent institutional activity available.</EmptyState>
       ) : (
         <div className="min-w-0 overflow-x-auto">
           <table className="min-w-full divide-y divide-white/10 text-left text-sm">
             <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
               <tr>
-                <th className="py-3 pr-4 font-semibold">Symbol</th>
-                <th className="px-4 py-3 font-semibold">Company</th>
-                <th className="px-4 py-3 text-right font-semibold">Reported Value</th>
-                <th className="px-4 py-3 text-right font-semibold">Shares</th>
-                <th className="px-4 py-3 text-right font-semibold">Weight %</th>
-                <th className="px-4 py-3 text-right font-semibold">Ownership %</th>
+                <th className="py-3 pr-4 font-semibold">Ticker</th>
+                <th className="px-4 py-3 font-semibold">Activity</th>
+                <th className="px-4 py-3 text-right font-semibold">Activity Price</th>
+                <th className="px-4 py-3 text-right font-semibold">Units</th>
+                <th className="px-4 py-3 text-right font-semibold">+/- Units</th>
+                <th className="px-4 py-3 text-right font-semibold">Report Date Price</th>
+                <th className="px-4 py-3 text-right font-semibold">Price Current</th>
+                <th className="px-4 py-3 text-right font-semibold">% Since Report</th>
+                <th className="px-4 py-3 text-right font-semibold">Total Value</th>
+                <th className="px-4 py-3 text-right font-semibold">Filing Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {items.map((item) => (
-                <tr key={`${item.id}-${item.symbol}-${item.cusip}`} className="align-top text-slate-300">
+                <tr key={`${item.id}-${item.symbol}`} className="align-top text-slate-300">
                   <td className="py-3 pr-4">
                     {item.symbol && tickerHref(item.symbol) ? (
                       <Link href={tickerHref(item.symbol)!} className={tickerLinkClassName} prefetch={false}>
@@ -305,19 +332,66 @@ function HoldingsSection({ items }: { items: InstitutionHoldingItem[] }) {
                     ) : (
                       <span className="font-mono font-semibold text-slate-100">{item.symbol ?? "-"}</span>
                     )}
+                    <p className="mt-1 max-w-[180px] truncate text-xs text-slate-500">{item.issuer_name ?? "Company unavailable"}</p>
                   </td>
-                  <td className="px-4 py-3 font-medium text-slate-100">{item.issuer_name ?? "Company unavailable"}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-white">{formatCompactCurrency(item.value_usd)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatNumber(item.shares)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatPct(item.portfolio_weight)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatPct(item.ownership_pct)}</td>
+                  <td className={`px-4 py-3 font-semibold ${actionTextClass(normalizeActivityAction(item.action))}`}>
+                    <span className="block whitespace-nowrap">{normalizeActivityAction(item.action)}</span>
+                    <span className="mt-1 block text-xs font-normal tabular-nums text-slate-500">{formatSignedPct(item.value_delta_pct)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatPrice(item.activity_price)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatNumber(item.current_shares)}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${deltaTextClass(item.shares_delta)}`}>{formatSignedNumber(item.shares_delta)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatPrice(item.report_price)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatPrice(item.current_price)}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${deltaTextClass(item.price_since_report_pct)}`}>{formatSignedPct(item.price_since_report_pct)}</td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-white">{formatCompactCurrency(item.current_market_value_usd ?? item.current_value_usd)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">{formatDateShort(item.filing_date ?? null)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      )}
-    </section>
+      );
+}
+
+function HoldingsTable({ items }: { items: InstitutionHoldingItem[] }) {
+  return items.length === 0 ? (
+    <EmptyState>No reported holdings available for this period.</EmptyState>
+  ) : (
+    <div className="min-w-0 overflow-x-auto">
+      <table className="min-w-full divide-y divide-white/10 text-left text-sm">
+        <thead className="text-xs uppercase tracking-[0.14em] text-slate-500">
+          <tr>
+            <th className="py-3 pr-4 font-semibold">Symbol</th>
+            <th className="px-4 py-3 font-semibold">Company</th>
+            <th className="px-4 py-3 text-right font-semibold">Reported Value</th>
+            <th className="px-4 py-3 text-right font-semibold">Shares</th>
+            <th className="px-4 py-3 text-right font-semibold">Weight %</th>
+            <th className="px-4 py-3 text-right font-semibold">Ownership %</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {items.map((item) => (
+            <tr key={`${item.id}-${item.symbol}-${item.cusip}`} className="align-top text-slate-300">
+              <td className="py-3 pr-4">
+                {item.symbol && tickerHref(item.symbol) ? (
+                  <Link href={tickerHref(item.symbol)!} className={tickerLinkClassName} prefetch={false}>
+                    {item.symbol}
+                  </Link>
+                ) : (
+                  <span className="font-mono font-semibold text-slate-100">{item.symbol ?? "-"}</span>
+                )}
+              </td>
+              <td className="px-4 py-3 font-medium text-slate-100">{item.issuer_name ?? "Company unavailable"}</td>
+              <td className="px-4 py-3 text-right font-semibold tabular-nums text-white">{formatCompactCurrency(item.value_usd)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatNumber(item.shares)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatPct(item.portfolio_weight)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatPct(item.ownership_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -380,16 +454,16 @@ function EmptyState({ children }: { children: string }) {
 function formatCompactCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
   if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}B`;
   if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
   if (abs >= 1_000) return `$${(value / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
   return formatCurrency(value);
 }
 
-function formatSignedMoneyCompact(value: number): string {
-  if (value > 0) return `+${formatCompactCurrency(value)}`;
-  if (value < 0) return `-${formatCompactCurrency(Math.abs(value))}`;
-  return "$0";
+function formatPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return formatCurrency(value);
 }
 
 function formatCount(value: number | null | undefined): string {
@@ -402,9 +476,26 @@ function formatNumber(value: number | null | undefined): string {
   return Math.round(value).toLocaleString();
 }
 
+function formatSignedNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  const rounded = Math.round(value);
+  if (rounded > 0) return `+${rounded.toLocaleString()}`;
+  return rounded.toLocaleString();
+}
+
 function formatPct(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return `${value.toFixed(2)}%`;
+}
+
+function formatSignedPct(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(2)}%`;
+}
+
+function normalizeInstitutionTab(value?: string | null): "holdings" | "activity" {
+  return value === "activity" ? "activity" : "holdings";
 }
 
 function actionTextClass(action?: string | null): string {
@@ -430,4 +521,11 @@ function deltaTextClass(value?: number | null): string {
   if (value < 0) return "text-rose-300";
   if (value > 0) return "text-emerald-300";
   return "text-slate-400";
+}
+
+function returnTextClass(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "text-slate-400";
+  if (value < 0) return "text-rose-300";
+  if (value > 0) return "text-emerald-300";
+  return "text-slate-100";
 }
