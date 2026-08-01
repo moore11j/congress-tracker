@@ -50,8 +50,9 @@ def load_insider_purchase_price_coverage(
 ) -> list[InsiderPriceCoverageRow]:
     symbol_filter = _normalize_symbols(symbols or ())
     params: dict[str, object] = {
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
+        "price_start_date": start_date.isoformat(),
+        "price_end_date": end_date.isoformat(),
+        "filing_end_date": end_date,
         "min_purchase_count": int(min_purchase_count),
     }
     symbol_clause = ""
@@ -72,8 +73,8 @@ def load_insider_purchase_price_coverage(
                   and transaction_type_normalized = 'open_market_purchase'
                   and ticker_normalized is not null
                   and filing_date is not null
-                  and filing_date <= :end_date
-                  and (transaction_date is null or transaction_date <= :end_date)
+                  and filing_date <= :filing_end_date
+                  and (transaction_date is null or transaction_date <= :filing_end_date)
                   {symbol_clause}
                 group by upper(ticker_normalized)
                 having count(*) >= :min_purchase_count
@@ -86,8 +87,8 @@ def load_insider_purchase_price_coverage(
                     min(date) as first_price_date,
                     max(date) as last_price_date
                 from price_cache
-                where date >= :start_date
-                  and date <= :end_date
+                where date >= :price_start_date
+                  and date <= :price_end_date
                 group by upper(symbol)
             )
             select
