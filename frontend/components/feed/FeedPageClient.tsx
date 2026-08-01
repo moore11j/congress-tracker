@@ -194,19 +194,19 @@ export function FeedPageClient() {
             </div>
           ) : null}
           <div>
-            <div className="pt-4 sm:pt-5">
+            <div className="pt-4 text-center sm:pt-5">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Search Walnut Markets</p>
-              <h1 className="mt-3 max-w-2xl text-2xl font-semibold leading-tight text-white sm:text-3xl">
+              <h1 className="mx-auto mt-3 max-w-2xl text-2xl font-semibold leading-tight text-white sm:text-3xl">
                 Search stocks. Follow the insiders.
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-400">
                 Find tickers, Congress members, insiders, institutions and government departments or browse the latest disclosed activity below.
               </p>
             </div>
             <div className="pt-1 sm:pt-0">
               <LandingSearch appUrl={appUrl} />
             </div>
-            <div className="mt-8 flex flex-col gap-2 sm:mt-9 lg:mt-10">
+            <div className="mt-8 flex flex-col items-center gap-2 text-center sm:mt-9 lg:mt-10">
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-300">Live Market Flow</p>
               <h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades.</h2>
               <p className="max-w-2xl text-sm text-slate-400">

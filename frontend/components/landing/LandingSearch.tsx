@@ -82,8 +82,8 @@ export function LandingSearch({ appUrl }: LandingSearchProps) {
   }
 
   return (
-    <div ref={rootRef} className="relative mt-4 max-w-2xl sm:mt-8">
-      <form onSubmit={submit} className="grid gap-3 rounded-lg border border-white/10 bg-slate-950/80 p-2 shadow-2xl shadow-black/25 sm:grid-cols-[1fr_auto]">
+    <div ref={rootRef} className="relative mx-auto mt-4 w-full max-w-2xl sm:mt-8">
+      <form onSubmit={submit} className="grid gap-3 rounded-lg border border-emerald-300/25 bg-slate-950/80 p-2 shadow-2xl shadow-black/25 ring-1 ring-white/10 sm:grid-cols-[1fr_auto]">
         <label className="flex min-w-0 items-center gap-3 rounded-md bg-white/[0.035] px-3 py-3">
           <SearchIcon />
           <input

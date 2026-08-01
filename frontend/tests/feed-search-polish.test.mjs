@@ -61,13 +61,14 @@ test("feed page adds compact search intro above global search", () => {
   const fallback = read("components/feed/FeedShellFallback.tsx");
 
   assert.match(pageClient, /Search Walnut Markets/);
-  assert.match(pageClient, /<h1 className="mt-3 max-w-2xl text-2xl/);
+  assert.match(pageClient, /<div className="pt-4 text-center sm:pt-5">/);
+  assert.match(pageClient, /<h1 className="mx-auto mt-3 max-w-2xl text-2xl/);
   assert.match(pageClient, /Search stocks\. Follow the insiders\./);
   assert.match(pageClient, /Find tickers, Congress members, insiders, institutions and government departments/);
 
   assert.match(pageClient, /Search stocks\. Follow the insiders\.[\s\S]*<LandingSearch appUrl=\{appUrl\} \/>[\s\S]*Live Market Flow/);
   assert.match(pageClient, /className="pt-1 sm:pt-0"/);
-  assert.match(pageClient, /className="mt-8 flex flex-col gap-2 sm:mt-9 lg:mt-10"/);
+  assert.match(pageClient, /className="mt-8 flex flex-col items-center gap-2 text-center sm:mt-9 lg:mt-10"/);
   assert.doesNotMatch(pageClient, /<h1 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h1>/);
   assert.match(pageClient, /<h2 className="text-4xl font-semibold text-white sm:text-5xl">Recent Congress and insider trades\.<\/h2>/);
 
@@ -165,15 +166,8 @@ test("feed list defaults to compact table while preserving card view", () => {
   assert.match(list, /<FeedCard key=\{item\.id\}/);
   assert.match(list, /Table/);
   assert.match(list, /Cards/);
-  assert.match(table, /Date/);
-  assert.match(table, /Source/);
-  assert.match(table, /Ticker/);
-  assert.match(table, /Person \/ Entity/);
-  assert.match(table, /Action/);
-  assert.match(table, /Amount/);
-  assert.match(table, /G\/L/);
-  assert.match(table, /Signal/);
-  assert.match(table, /Disclosure/);
+  assert.match(table, /Date[\s\S]*Ticker[\s\S]*Person \/ Entity[\s\S]*Source[\s\S]*Action[\s\S]*Amount[\s\S]*G\/L[\s\S]*Signal[\s\S]*Disclosure/);
+  assert.match(table, /\{dateLabel\(item\)\}[\s\S]*<AddTickerToWatchlist[\s\S]*\{entityLabel\(item\)\}[\s\S]*\{sourceLabel\(item\)\}[\s\S]*\{actionLabel\(item\)\}[\s\S]*\{amountLabel\(item\)\}/);
   assert.match(table, /lg:hidden/);
   assert.match(table, /hidden lg:block/);
   assert.match(table, /table-fixed/);

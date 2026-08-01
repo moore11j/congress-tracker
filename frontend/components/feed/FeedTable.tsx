@@ -369,9 +369,9 @@ export function FeedTable({
         <table className="w-full table-fixed border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[9%]" />
-            <col className="w-[10%]" />
             <col className="w-[12%]" />
             <col className="w-[20%]" />
+            <col className="w-[10%]" />
             <col className="w-[12%]" />
             <col className="w-[10%]" />
             <col className="w-[10%]" />
@@ -381,9 +381,9 @@ export function FeedTable({
           <thead className="border-b border-white/10 bg-white/[0.03] text-xs uppercase tracking-[0.14em] text-slate-400">
             <tr>
               <th className="px-3 py-3 font-semibold">Date</th>
-              <th className="px-3 py-3 font-semibold">Source</th>
               <th className="px-3 py-3 font-semibold">Ticker</th>
               <th className="px-3 py-3 font-semibold">Person / Entity</th>
+              <th className="px-3 py-3 font-semibold">Source</th>
               <th className="px-3 py-3 font-semibold">Action</th>
               <th className="px-3 py-3 text-right font-semibold">Amount</th>
               <th className="px-3 py-3 text-right font-semibold">G/L</th>
@@ -411,7 +411,6 @@ export function FeedTable({
                     aria-expanded={expanded}
                   >
                     <td className="px-3 py-3 text-slate-300">{dateLabel(item)}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-100">{sourceLabel(item)}</td>
                     <td className="px-3 py-3">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
@@ -439,6 +438,7 @@ export function FeedTable({
                       )}
                       {roleLabel(item) ? <div className="mt-0.5 text-xs font-medium leading-4 text-slate-500">{roleLabel(item)}</div> : null}
                     </td>
+                    <td className="px-3 py-3 font-semibold text-slate-100">{sourceLabel(item)}</td>
                     <td className={`break-words px-3 py-3 font-semibold uppercase tracking-[0.08em] ${actionTone(item)}`}>
                       {actionLabel(item)}
                       {isGovernmentContract(item) ? <div className="mt-1 normal-case tracking-normal text-xs font-medium leading-4 text-slate-500">{contractDescription(item)}</div> : null}
