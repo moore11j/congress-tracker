@@ -166,8 +166,10 @@ def test_apply_writes_proxy_rows_once_with_metadata(monkeypatch):
     assert first["rows_written"] == 5
     assert first["existing_snapshot_key_conflicts"] == 0
     assert first["new_snapshot_key_candidates"] == 5
+    assert first["warnings"][0] == "Proxy historical fundamentals rows were written: 5."
     assert second["rows_written"] == 0
     assert second["existing_snapshot_key_conflicts"] == 5
+    assert second["warnings"][0] == "Apply mode requested; no new proxy rows were written."
 
     db = SessionLocal()
     try:

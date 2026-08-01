@@ -306,6 +306,13 @@ def dry_run_historical_fundamentals_snapshot_backfill(
             }
             for candidate in candidates[: max(0, int(sample_limit))]
         ]
+        write_warning = "No rows were written."
+        if apply:
+            write_warning = (
+                f"Proxy historical fundamentals rows were written: {rows_written}."
+                if rows_written
+                else "Apply mode requested; no new proxy rows were written."
+            )
         return {
             "status": "ok",
             "mode": "apply" if apply else "dry_run",
@@ -318,7 +325,7 @@ def dry_run_historical_fundamentals_snapshot_backfill(
             "availability_basis": _availability_basis(lag_days),
             "data_quality_confidence": DATA_QUALITY_CONFIDENCE,
             "warnings": [
-                "No rows were written." if not apply else "Proxy historical fundamentals rows were written.",
+                write_warning,
                 "Availability date is a conservative proxy because cached normalized financial payloads do not retain filing acceptance timestamps.",
                 "Do not publish these as final historical fundamentals until filing/acceptance dates are backfilled or disclosed as proxy methodology.",
             ],
