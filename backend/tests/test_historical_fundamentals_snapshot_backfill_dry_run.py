@@ -81,6 +81,9 @@ def test_dry_run_reports_new_rows_and_existing_snapshot_conflicts(monkeypatch):
     result = backfill_module.dry_run_historical_fundamentals_snapshot_backfill(symbols=["AAPL"], sample_limit=2)
 
     assert result["mode"] == "dry_run"
+    assert result["rows_written"] == 0
+    assert result["source_kind"] == "ticker_financials_cache_statement_proxy"
+    assert result["data_quality_confidence"] == "medium_proxy"
     assert result["as_of_date"]
     assert result["cache_rows_seen"] == 1
     assert result["raw_candidate_rows"] == 5
@@ -134,3 +137,45 @@ def test_dry_run_excludes_future_proxy_availability_dates(monkeypatch):
     assert result["future_availability_candidate_rows_excluded"] == 4
     assert result["candidate_rows"] == 1
     assert result["snapshot_date_range"] == {"start": "2025-05-15", "end": "2025-05-15"}
+
+
+def test_apply_writes_proxy_rows_once_with_metadata(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_cache_row("AAPL"))
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(backfill_module, "SessionLocal", SessionLocal)
+
+    first = backfill_module.dry_run_historical_fundamentals_snapshot_backfill(
+        symbols=["AAPL"],
+        apply=True,
+        sample_limit=1,
+    )
+    second = backfill_module.dry_run_historical_fundamentals_snapshot_backfill(
+        symbols=["AAPL"],
+        apply=True,
+        sample_limit=1,
+    )
+
+    assert first["mode"] == "apply"
+    assert first["candidate_rows"] == 5
+    assert first["rows_written"] == 5
+    assert first["existing_snapshot_key_conflicts"] == 0
+    assert first["new_snapshot_key_candidates"] == 5
+    assert second["rows_written"] == 0
+    assert second["existing_snapshot_key_conflicts"] == 5
+
+    db = SessionLocal()
+    try:
+        rows = db.query(FundamentalsSnapshot).order_by(FundamentalsSnapshot.snapshot_date.asc()).all()
+        assert len(rows) == 5
+        assert rows[0].source_kind == "ticker_financials_cache_statement_proxy"
+        assert rows[0].data_quality_confidence == "medium_proxy"
+        assert "statement period date plus 45 calendar days" in rows[0].availability_basis
+        assert rows[0].methodology_version == backfill_module.METHODOLOGY_VERSION
+    finally:
+        db.close()

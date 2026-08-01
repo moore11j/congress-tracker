@@ -16,6 +16,8 @@ from app.utils.symbols import normalize_symbol
 METHODOLOGY_VERSION = "historical_fundamentals_statement_proxy_v1"
 DEFAULT_PROVIDER = "fmp"
 DEFAULT_QUARTERLY_AVAILABILITY_LAG_DAYS = 45
+SOURCE_KIND = "ticker_financials_cache_statement_proxy"
+DATA_QUALITY_CONFIDENCE = "medium_proxy"
 
 
 @dataclass(frozen=True)
@@ -211,12 +213,64 @@ def _candidate_json_size(candidate: HistoricalFundamentalsCandidate) -> int:
     return len(json.dumps(asdict(candidate), sort_keys=True, default=str, separators=(",", ":")).encode("utf-8"))
 
 
+def _availability_basis(lag_days: int) -> str:
+    return (
+        f"statement period date plus {max(0, int(lag_days))} calendar days; "
+        "proxy because cached financial payloads do not retain filing acceptance timestamps"
+    )
+
+
+def _snapshot_from_candidate(candidate: HistoricalFundamentalsCandidate, *, observed_at: datetime, lag_days: int) -> FundamentalsSnapshot:
+    return FundamentalsSnapshot(
+        symbol=candidate.symbol,
+        provider=candidate.provider,
+        snapshot_date=candidate.snapshot_date,
+        observed_at=observed_at,
+        source_fetched_at=candidate.source_fetched_at,
+        period_date=candidate.period_date,
+        status="ok",
+        source_payload_hash=candidate.source_payload_hash,
+        source_kind=SOURCE_KIND,
+        availability_basis=_availability_basis(lag_days),
+        data_quality_confidence=DATA_QUALITY_CONFIDENCE,
+        methodology_version=candidate.methodology_version,
+        revenue_growth=candidate.revenue_growth,
+        eps_growth=candidate.eps_growth,
+        gross_margin=candidate.gross_margin,
+        operating_margin=candidate.operating_margin,
+        free_cash_flow=candidate.free_cash_flow,
+        fcf_growth=candidate.fcf_growth,
+        eps_ttm=candidate.eps_ttm,
+    )
+
+
+def _apply_candidates(
+    db,
+    candidates: list[HistoricalFundamentalsCandidate],
+    *,
+    existing_keys: set[tuple[str, str, date]],
+    lag_days: int,
+) -> int:
+    observed_at = datetime.now(timezone.utc)
+    written = 0
+    for candidate in candidates:
+        key = (candidate.symbol, candidate.provider, candidate.snapshot_date)
+        if key in existing_keys:
+            continue
+        db.add(_snapshot_from_candidate(candidate, observed_at=observed_at, lag_days=lag_days))
+        existing_keys.add(key)
+        written += 1
+    db.commit()
+    return written
+
+
 def dry_run_historical_fundamentals_snapshot_backfill(
     *,
     symbols: Iterable[str] | None = None,
     lag_days: int = DEFAULT_QUARTERLY_AVAILABILITY_LAG_DAYS,
     provider: str = DEFAULT_PROVIDER,
     as_of: date | None = None,
+    apply: bool = False,
     sample_limit: int = 12,
 ) -> dict[str, Any]:
     normalized_symbols = _normalize_symbols(symbols)
@@ -234,12 +288,15 @@ def dry_run_historical_fundamentals_snapshot_backfill(
         future_candidates = [candidate for candidate in all_candidates if candidate.snapshot_date > as_of_date]
         candidates = [candidate for candidate in all_candidates if candidate.snapshot_date <= as_of_date]
         existing_keys = _existing_snapshot_keys(db, candidates)
+        existing_conflict_count = len(existing_keys)
+        new_candidate_count = max(len(candidates) - existing_conflict_count, 0)
         dates = [candidate.snapshot_date for candidate in candidates]
         period_dates = [candidate.period_date for candidate in candidates]
         symbol_counts: dict[str, int] = {}
         for candidate in candidates:
             symbol_counts[candidate.symbol] = symbol_counts.get(candidate.symbol, 0) + 1
         estimated_payload_bytes = sum(_candidate_json_size(candidate) for candidate in candidates)
+        rows_written = _apply_candidates(db, candidates, existing_keys=existing_keys, lag_days=lag_days) if apply else 0
         sample = [
             {
                 **asdict(candidate),
@@ -251,15 +308,17 @@ def dry_run_historical_fundamentals_snapshot_backfill(
         ]
         return {
             "status": "ok",
-            "mode": "dry_run",
+            "mode": "apply" if apply else "dry_run",
             "run_timestamp": datetime.now(timezone.utc).isoformat(),
             "methodology_version": METHODOLOGY_VERSION,
             "provider": provider,
             "as_of_date": as_of_date.isoformat(),
             "source": "ticker_financials_cache.quarterly_statement_rows",
-            "availability_basis": f"statement period date plus {max(0, int(lag_days))} calendar days; proxy only",
+            "source_kind": SOURCE_KIND,
+            "availability_basis": _availability_basis(lag_days),
+            "data_quality_confidence": DATA_QUALITY_CONFIDENCE,
             "warnings": [
-                "No rows were written.",
+                "No rows were written." if not apply else "Proxy historical fundamentals rows were written.",
                 "Availability date is a conservative proxy because cached normalized financial payloads do not retain filing acceptance timestamps.",
                 "Do not publish these as final historical fundamentals until filing/acceptance dates are backfilled or disclosed as proxy methodology.",
             ],
@@ -268,8 +327,9 @@ def dry_run_historical_fundamentals_snapshot_backfill(
             "future_availability_candidate_rows_excluded": len(future_candidates),
             "candidate_rows": len(candidates),
             "candidate_symbols": len(symbol_counts),
-            "existing_snapshot_key_conflicts": len(existing_keys),
-            "new_snapshot_key_candidates": len(candidates) - len(existing_keys),
+            "existing_snapshot_key_conflicts": existing_conflict_count,
+            "new_snapshot_key_candidates": new_candidate_count,
+            "rows_written": rows_written,
             "snapshot_date_range": {
                 "start": min(dates).isoformat() if dates else None,
                 "end": max(dates).isoformat() if dates else None,
@@ -306,6 +366,7 @@ def main() -> None:
     parser.add_argument("--lag-days", type=int, default=DEFAULT_QUARTERLY_AVAILABILITY_LAG_DAYS)
     parser.add_argument("--provider", default=DEFAULT_PROVIDER)
     parser.add_argument("--as-of-date", help="Exclude proxy snapshot dates after this YYYY-MM-DD date. Defaults to today UTC.")
+    parser.add_argument("--apply", action="store_true", help="Write candidate rows. Defaults to dry-run/no writes.")
     parser.add_argument("--sample-limit", type=int, default=12)
     args = parser.parse_args()
     print(
@@ -315,6 +376,7 @@ def main() -> None:
                 lag_days=args.lag_days,
                 provider=args.provider,
                 as_of=_parse_date(args.as_of_date),
+                apply=bool(args.apply),
                 sample_limit=args.sample_limit,
             ),
             indent=2,

@@ -1671,6 +1671,9 @@ class FundamentalsSnapshot(Base):
     status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_payload_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    availability_basis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    data_quality_confidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     methodology_version: Mapped[str] = mapped_column(
         Text,
         default="fundamentals_snapshot_v1",

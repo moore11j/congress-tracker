@@ -42,9 +42,11 @@ def test_fundamentals_snapshot_schema_creates_table_and_indexes():
     _, engine = _session()
 
     inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("fundamentals_snapshots")}
 
     assert "fundamentals_snapshots" in inspector.get_table_names()
     assert any(index["name"] == "ix_fundamentals_snapshots_symbol_date" for index in inspector.get_indexes("fundamentals_snapshots"))
+    assert {"source_kind", "availability_basis", "data_quality_confidence"} <= columns
 
 
 def test_snapshot_current_fundamentals_is_idempotent_per_symbol_provider_day():
@@ -74,6 +76,9 @@ def test_snapshot_current_fundamentals_is_idempotent_per_symbol_provider_day():
         assert snapshot.snapshot_date == date(2026, 8, 1)
         assert snapshot.revenue_growth == 12.0
         assert snapshot.roe == 30.0
+        assert snapshot.source_kind == "fundamentals_cache_current_snapshot"
+        assert snapshot.availability_basis == "current fundamentals cache row observed at snapshot time"
+        assert snapshot.data_quality_confidence == "high"
     finally:
         db.close()
 

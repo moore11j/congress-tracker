@@ -14,6 +14,9 @@ from app.services.fundamentals_cache import CACHE_ROW_FIELDS
 from app.utils.symbols import classify_symbol, normalize_symbol
 
 METHODOLOGY_VERSION = "fundamentals_snapshot_v1"
+CURRENT_SNAPSHOT_SOURCE_KIND = "fundamentals_cache_current_snapshot"
+CURRENT_SNAPSHOT_AVAILABILITY_BASIS = "current fundamentals cache row observed at snapshot time"
+CURRENT_SNAPSHOT_CONFIDENCE = "high"
 SNAPSHOT_COPY_FIELDS = tuple(
     field
     for field in CACHE_ROW_FIELDS
@@ -106,6 +109,9 @@ def _apply_cache_row_to_snapshot(
     snapshot.status = row.status or "ok"
     snapshot.error = row.error
     snapshot.source_payload_hash = _payload_hash(row)
+    snapshot.source_kind = CURRENT_SNAPSHOT_SOURCE_KIND
+    snapshot.availability_basis = CURRENT_SNAPSHOT_AVAILABILITY_BASIS
+    snapshot.data_quality_confidence = CURRENT_SNAPSHOT_CONFIDENCE
     snapshot.methodology_version = METHODOLOGY_VERSION
     for field in SNAPSHOT_COPY_FIELDS:
         setattr(snapshot, field, getattr(row, field))
