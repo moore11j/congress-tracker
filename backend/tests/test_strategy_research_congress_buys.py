@@ -34,10 +34,17 @@ def _price(db, symbol: str, day: str, adjusted_close: float) -> None:
     )
 
 
-def _event(db, *, payload: dict, event_date: datetime | None = None, trade_type: str = "purchase") -> None:
+def _event(
+    db,
+    *,
+    event_id: int = 1,
+    payload: dict,
+    event_date: datetime | None = None,
+    trade_type: str = "purchase",
+) -> None:
     db.add(
         Event(
-            id=1,
+            id=event_id,
             event_type="congress_trade",
             ts=datetime(2024, 1, 5, 12, 0, tzinfo=timezone.utc),
             event_date=event_date,
@@ -76,6 +83,31 @@ def test_congress_signal_uses_filing_date_not_transaction_date():
         assert len(signals) == 1
         assert signals[0].disclosure_date == date(2024, 1, 5)
         assert signals[0].raw_entry_date == date(2024, 1, 6)
+    finally:
+        db.close()
+
+
+def test_congress_signals_dedupe_duplicate_event_rows_without_doc_ids():
+    db = _session()
+    try:
+        payload = {
+            "symbol": "AAPL",
+            "filing_date": "2024-01-05",
+            "transaction_date": "2024-01-02",
+        }
+        _event(db, event_id=1, payload=payload)
+        _event(db, event_id=2, payload=payload)
+        db.commit()
+
+        signals = load_congress_purchase_signals(
+            db,
+            universe=("AAPL",),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 31),
+        )
+
+        assert len(signals) == 1
+        assert signals[0].event_id == 1
     finally:
         db.close()
 

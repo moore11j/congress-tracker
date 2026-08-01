@@ -254,7 +254,6 @@ def _signal_key(signal: Signal) -> tuple[object, ...]:
         signal.disclosure_date,
         signal.amount_min,
         signal.amount_max,
-        signal.source_filing_id or signal.source_document_url or signal.event_id,
     )
 
 
