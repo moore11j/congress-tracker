@@ -94,7 +94,8 @@ def test_coverage_uses_normalized_nonduplicate_open_market_purchases_only():
     assert rows[0].adjusted_rows == 1
     assert rows[0].reconstructed_rows == 0
     assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=2) == rows
-    assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=1) == rows
+    assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=1) == []
+    assert rows_needing_adjusted_backfill(rows, min_adjusted_rows=1, max_unadjusted_gap=0) == rows
 
 
 def test_run_can_exclude_known_provider_misses(monkeypatch):
@@ -110,6 +111,7 @@ def test_run_can_exclude_known_provider_misses(monkeypatch):
         apply=False,
         min_purchase_count=1,
         min_adjusted_rows=1,
+        max_unadjusted_gap=5,
         max_symbols=None,
         symbols_per_batch=10,
         sleep_seconds=0,

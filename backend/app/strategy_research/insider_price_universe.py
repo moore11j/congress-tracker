@@ -131,10 +131,12 @@ def rows_needing_adjusted_backfill(
     rows: Iterable[InsiderPriceCoverageRow],
     *,
     min_adjusted_rows: int,
+    max_unadjusted_gap: int = 5,
 ) -> list[InsiderPriceCoverageRow]:
     needs_backfill: list[InsiderPriceCoverageRow] = []
     for row in rows:
-        has_raw_or_unadjusted_rows = row.price_rows > row.adjusted_rows
+        unadjusted_gap = max(row.price_rows - row.adjusted_rows, 0)
+        has_raw_or_unadjusted_rows = unadjusted_gap > max_unadjusted_gap
         has_never_been_reconstructed = row.reconstructed_rows == 0
         has_too_few_adjusted_rows = row.adjusted_rows < min_adjusted_rows
         has_no_prices = row.price_rows == 0
@@ -194,6 +196,7 @@ def run(
     apply: bool,
     min_purchase_count: int,
     min_adjusted_rows: int,
+    max_unadjusted_gap: int,
     max_symbols: int | None,
     symbols_per_batch: int,
     sleep_seconds: float,
@@ -209,7 +212,11 @@ def run(
             min_purchase_count=min_purchase_count,
             symbols=symbols,
         )
-    all_needing_backfill = rows_needing_adjusted_backfill(coverage, min_adjusted_rows=min_adjusted_rows)
+    all_needing_backfill = rows_needing_adjusted_backfill(
+        coverage,
+        min_adjusted_rows=min_adjusted_rows,
+        max_unadjusted_gap=max_unadjusted_gap,
+    )
     exclude_set = set(_normalize_symbols(exclude_symbols or ()))
     if exclude_set:
         all_needing_backfill = [row for row in all_needing_backfill if row.symbol not in exclude_set]
@@ -224,6 +231,7 @@ def run(
         "end_date": end_date.isoformat(),
         "min_purchase_count": min_purchase_count,
         "min_adjusted_rows": min_adjusted_rows,
+        "max_unadjusted_gap": max_unadjusted_gap,
         "total_purchase_symbols": len(coverage),
         "symbols_needing_backfill": len(all_needing_backfill),
         "symbols_selected": len(symbols_to_backfill),
@@ -273,6 +281,7 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--min-purchase-count", type=int, default=1)
     parser.add_argument("--min-adjusted-rows", type=int, default=250)
+    parser.add_argument("--max-unadjusted-gap", type=int, default=5)
     parser.add_argument("--max-symbols", type=int)
     parser.add_argument("--symbols-per-batch", type=int, default=25)
     parser.add_argument("--sleep-seconds", type=float, default=0.0)
@@ -290,6 +299,7 @@ def main() -> None:
         apply=args.apply,
         min_purchase_count=int(args.min_purchase_count),
         min_adjusted_rows=int(args.min_adjusted_rows),
+        max_unadjusted_gap=int(args.max_unadjusted_gap),
         max_symbols=args.max_symbols,
         symbols_per_batch=int(args.symbols_per_batch),
         sleep_seconds=float(args.sleep_seconds),
