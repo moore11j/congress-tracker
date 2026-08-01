@@ -27,6 +27,7 @@ class InsiderPriceCoverageRow:
     last_filing_date: str | None
     price_rows: int
     adjusted_rows: int
+    reconstructed_rows: int
     first_price_date: str | None
     last_price_date: str | None
 
@@ -84,6 +85,7 @@ def load_insider_purchase_price_coverage(
                     upper(symbol) as symbol,
                     count(*) as price_rows,
                     count(adjusted_close) as adjusted_rows,
+                    count(*) filter (where adjustment_status like 'reconstructed_adjusted%') as reconstructed_rows,
                     min(date) as first_price_date,
                     max(date) as last_price_date
                 from price_cache
@@ -98,6 +100,7 @@ def load_insider_purchase_price_coverage(
                 p.last_filing_date,
                 coalesce(c.price_rows, 0) as price_rows,
                 coalesce(c.adjusted_rows, 0) as adjusted_rows,
+                coalesce(c.reconstructed_rows, 0) as reconstructed_rows,
                 c.first_price_date,
                 c.last_price_date
             from purchase_symbols p
@@ -116,6 +119,7 @@ def load_insider_purchase_price_coverage(
             last_filing_date=str(row.last_filing_date) if row.last_filing_date is not None else None,
             price_rows=int(row.price_rows or 0),
             adjusted_rows=int(row.adjusted_rows or 0),
+            reconstructed_rows=int(row.reconstructed_rows or 0),
             first_price_date=str(row.first_price_date) if row.first_price_date is not None else None,
             last_price_date=str(row.last_price_date) if row.last_price_date is not None else None,
         )
@@ -128,7 +132,53 @@ def rows_needing_adjusted_backfill(
     *,
     min_adjusted_rows: int,
 ) -> list[InsiderPriceCoverageRow]:
-    return [row for row in rows if row.adjusted_rows < min_adjusted_rows]
+    needs_backfill: list[InsiderPriceCoverageRow] = []
+    for row in rows:
+        has_raw_or_unadjusted_rows = row.price_rows > row.adjusted_rows
+        has_never_been_reconstructed = row.reconstructed_rows == 0
+        has_too_few_adjusted_rows = row.adjusted_rows < min_adjusted_rows
+        has_no_prices = row.price_rows == 0
+        if has_raw_or_unadjusted_rows or (has_too_few_adjusted_rows and (has_never_been_reconstructed or has_no_prices)):
+            needs_backfill.append(row)
+    return needs_backfill
+
+
+def _compact_backfill_rows(rows: object) -> dict[str, object]:
+    if not isinstance(rows, list):
+        return {"rows_available": False}
+    failures = []
+    provider_zero = []
+    short_adjusted = []
+    inserted_or_updated = 0
+    provider_adjusted = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = row.get("symbol")
+        inserted_or_updated += int(row.get("rows_inserted_or_updated") or 0)
+        provider_adjusted += int(row.get("rows_provider_adjusted") or 0)
+        if row.get("failure"):
+            failures.append({"symbol": symbol, "failure": row.get("failure")})
+        if int(row.get("rows_provider") or 0) == 0:
+            provider_zero.append(symbol)
+        elif int(row.get("rows_provider_adjusted") or 0) < 250:
+            short_adjusted.append(
+                {
+                    "symbol": symbol,
+                    "rows_provider_adjusted": int(row.get("rows_provider_adjusted") or 0),
+                    "first_provider_date": row.get("first_provider_date"),
+                    "last_provider_date": row.get("last_provider_date"),
+                }
+            )
+    return {
+        "rows_available": True,
+        "symbols_attempted": len(rows),
+        "rows_inserted_or_updated": inserted_or_updated,
+        "rows_provider_adjusted": provider_adjusted,
+        "failures": failures,
+        "provider_zero": provider_zero,
+        "short_adjusted": short_adjusted,
+    }
 
 
 def _chunks(values: list[str], size: int) -> Iterable[list[str]]:
@@ -149,6 +199,7 @@ def run(
     sleep_seconds: float,
     symbols: Iterable[str] | None = None,
     exclude_symbols: Iterable[str] | None = None,
+    compact: bool = False,
 ) -> dict[str, object]:
     with SessionLocal() as db:
         coverage = load_insider_purchase_price_coverage(
@@ -199,7 +250,7 @@ def run(
             {
                 "batch": batch_index,
                 "symbols": batch_symbols,
-                "rows": rows,
+                "rows": _compact_backfill_rows(rows) if compact else rows,
             }
         )
         if sleep_seconds > 0:
@@ -227,6 +278,7 @@ def main() -> None:
     parser.add_argument("--sleep-seconds", type=float, default=0.0)
     parser.add_argument("--symbols")
     parser.add_argument("--exclude-symbols")
+    parser.add_argument("--compact", action="store_true")
     args = parser.parse_args()
 
     if args.apply == args.dry_run:
@@ -243,6 +295,7 @@ def main() -> None:
         sleep_seconds=float(args.sleep_seconds),
         symbols=_parse_symbols(args.symbols),
         exclude_symbols=_parse_symbols(args.exclude_symbols),
+        compact=bool(args.compact),
     )
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 
