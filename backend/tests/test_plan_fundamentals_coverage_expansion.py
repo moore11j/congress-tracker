@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timezone
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+import app.jobs.plan_fundamentals_coverage_expansion as planner
+from app.db import Base
+from app.models import DataEnrichmentJob, Event, InsiderTransactionNormalized, PriceCache, TickerFinancialsCache
+
+
+def _session():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    return SessionLocal
+
+
+def _event(symbol: str, event_id: int) -> Event:
+    return Event(
+        id=event_id,
+        event_type="congress_trade",
+        ts=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        symbol=symbol,
+        source="test",
+        impact_score=0.0,
+        payload_json=json.dumps({"transactionType": "Purchase"}),
+        trade_type="purchase",
+        amount_max=10000,
+    )
+
+
+def _insider(symbol: str, row_id: int, *, director: bool = False, officer: bool = False) -> InsiderTransactionNormalized:
+    return InsiderTransactionNormalized(
+        id=row_id,
+        accession_number=f"0000000000-26-{row_id:06d}",
+        normalized_hash=f"hash-{row_id}",
+        ticker_raw=symbol,
+        ticker_normalized=symbol,
+        reporting_owner_cik=f"owner-{row_id}",
+        reporting_owner_name="Owner",
+        issuer_cik=f"issuer-{row_id}",
+        issuer_name=symbol,
+        transaction_date=date(2026, 6, 30),
+        filing_date=date(2026, 7, 1),
+        transaction_type_normalized="open_market_purchase",
+        value=5000,
+        is_duplicate=False,
+        is_director=director,
+        is_officer=officer,
+    )
+
+
+def _prices(symbol: str, count: int) -> list[PriceCache]:
+    return [
+        PriceCache(
+            symbol=symbol,
+            date=f"2026-01-{index + 1:02d}",
+            close=100.0 + index,
+            adjusted_close=100.0 + index,
+        )
+        for index in range(count)
+    ]
+
+
+def test_plan_prioritizes_missing_financial_cache_with_price_coverage(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_event("AAPL", 1))
+        db.add(_event("AAPL", 2))
+        db.add(_insider("AAPL", 1, director=True))
+        db.add(_insider("MSFT", 2))
+        db.add_all(_prices("AAPL", 65))
+        db.add_all(_prices("MSFT", 65))
+        db.add(
+            TickerFinancialsCache(
+                symbol="MSFT",
+                status="ok",
+                payload_json="{}",
+                fetched_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    monkeypatch.setattr(planner, "SessionLocal", SessionLocal)
+
+    result = planner.plan_fundamentals_coverage_expansion(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        min_adjusted_price_rows=60,
+        limit=10,
+    )
+
+    assert result["coverage"]["strategy_signal_symbols"] == 2
+    assert result["coverage"]["symbols_missing_financial_cache"] == 1
+    assert result["symbols"][0]["symbol"] == "AAPL"
+    assert result["symbols"][0]["congress_purchases"] == 2
+    assert result["symbols"][0]["insider_director_purchases"] == 1
+    assert result["batches"] == [["AAPL"]]
+
+
+def test_plan_excludes_active_financial_jobs_unless_requested(monkeypatch):
+    SessionLocal = _session()
+    db = SessionLocal()
+    try:
+        db.add(_insider("NVDA", 1))
+        db.add_all(_prices("NVDA", 65))
+        db.add(
+            DataEnrichmentJob(
+                job_type="ticker_financials",
+                symbol="NVDA",
+                dedupe_key="ticker_financials:NVDA",
+                priority=100,
+                status="queued",
+                source="test",
+                reason="test",
+                next_run_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+    monkeypatch.setattr(planner, "SessionLocal", SessionLocal)
+
+    result = planner.plan_fundamentals_coverage_expansion(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        min_adjusted_price_rows=60,
+        limit=10,
+    )
+    assert result["symbols"] == []
+    assert result["coverage"]["symbols_with_active_financial_jobs"] == 1
+
+    with_queued = planner.plan_fundamentals_coverage_expansion(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+        min_adjusted_price_rows=60,
+        include_queued=True,
+        limit=10,
+    )
+    assert with_queued["symbols"][0]["symbol"] == "NVDA"
