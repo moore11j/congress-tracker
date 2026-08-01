@@ -71,18 +71,19 @@ test("landing page explains Walnut differentiation and free tier", () => {
   assert.doesNotMatch(landingPage, /Investment research usually starts with charts, screeners, data feeds, and alerts/);
   assert.doesNotMatch(landingPage, /bullOutline|bearOutline|icon: "bull"|icon: "bear"/);
   assert.doesNotMatch(landingPage, /<SectionEyebrow>Why Walnut<\/SectionEyebrow>/);
-  assert.doesNotMatch(landingPage, /Evaluate the full investment case before putting capital at risk\./);
+  assert.doesNotMatch(landingPage, /Evaluate all the data|Evaluate the full setup before putting capital at risk\./);
   assert.doesNotMatch(landingPage, /Explore Walnut's stock research app/);
 });
 
 test("landing page adds Compare with real screenshot and plan positioning", () => {
   assert.match(landingPage, /const compareSamplePath = "\/compare\/NVDA\/MU"/);
   assert.match(landingPage, /const comparePricingUrl = `\$\{pricingUrl\}\?returnTo=\$\{encodeURIComponent\(compareSamplePath\)\}`/);
-  assert.match(landingPage, /<SectionEyebrow>Compare<\/SectionEyebrow>/);
+  assert.match(landingPage, /<SectionEyebrow>Stock Comparison Tool<\/SectionEyebrow>/);
   assert.match(landingPage, /Compare two stocks\. See which is the stronger buy\./);
-  assert.match(landingPage, /Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score/);
+  assert.match(landingPage, /Compare fundamentals, price action, positioning and alternative data to see which stock has stronger support\./);
   assert.match(landingPage, /Premium unlocks the full verdict and decision view\./);
-  assert.match(landingPage, /Pro adds institutional activity and options-flow evidence\./);
+  assert.match(landingPage, /Pro adds institutional activity and options-flow data\./);
+  assert.match(landingPage, /Walnut's proprietary confirmation score measures how strongly the available data supports or contradicts a stock's current trend\./);
   assert.match(landingPage, /\/landing\/compare-nvda-mu-production\.png/);
   assert.match(landingPage, /\/walnut-intel-logo-mark\.png/);
   assert.match(landingPage, /landing_compare_section_view/);

@@ -102,7 +102,7 @@ const companyFooterLinks = [
 const signalCards = [
   {
     title: "Congress Activity",
-    body: "See when public officials' activity adds support, conflict, or useful context to the investment case.",
+    body: "See whether Congress activity supports the stock, conflicts with the trend, or adds useful context.",
     label: "Public disclosures",
   },
   {
@@ -112,17 +112,17 @@ const signalCards = [
   },
   {
     title: "Institutional Activity",
-    body: "See whether newly filed institutional positioning suggests conviction is building, fading, or still unclear.",
+    body: "See whether newly filed institutional activity shows buyers building, cutting, or standing aside.",
     label: "Pro layer",
   },
   {
     title: "Options Flow",
-    body: "Options activity will add another data layer when flow supports or contradicts the setup.",
+    body: "Options activity will add another view of whether traders support or question the setup.",
     label: "Coming soon",
   },
   {
     title: "Macro Positioning",
-    body: "Understand whether institutional futures positioning strengthens or weakens the broader investment backdrop.",
+    body: "See whether broader market positioning is adding pressure or giving the setup more room.",
     label: "Pro layer",
     href: `${appUrl}/insights#macro-positioning`,
   },
@@ -814,7 +814,7 @@ export default async function LandingPage() {
             <SectionEyebrow>Stock Research Data</SectionEyebrow>
             <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">See which way the data is pointing.</h2>
             <p className="mt-4 text-base leading-7 text-slate-400">
-              Walnut brings fundamentals, price action, Congress and insider activity, government contracts, institutional filings and macro positioning into one view—so you can see what supports the thesis, what conflicts with it and what changed.
+              Walnut brings the key data into one view so you can see whether it supports the stock, conflicts with the move, or changed recently.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -881,7 +881,7 @@ export default async function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Congress portfolio simulation</p>
               <h3 className="mt-3 text-2xl font-semibold text-white">Nancy Pelosi disclosure portfolio</h3>
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and thesis-change context.
+                Open the member profile with simulated holdings, benchmark comparison, recent disclosures, and what changed over time.
               </p>
               <span className="mt-5 inline-flex rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100">Open portfolio -&gt;</span>
             </a>
@@ -903,21 +903,21 @@ export default async function LandingPage() {
           <div id="compare" className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
             <CompareEventOnMount eventName="landing_compare_section_view" path="/landing" properties={{ ticker_pair: "NVDA/MU", cta_location: "why_walnut_compare" }} />
             <div>
-              <SectionEyebrow>Compare</SectionEyebrow>
+              <SectionEyebrow>Stock Comparison Tool</SectionEyebrow>
               <h3 className="mt-3 text-3xl font-semibold text-white">Compare two stocks. See which is the stronger buy.</h3>
               <p className="mt-4 text-sm leading-6 text-slate-400">
-                Compare ticker fundamentals, price action, macro positioning, institutional activity, congress and insider activity, catalysts, risks and our proprietary confirmation score to show which investment case has stronger support.
+                Compare fundamentals, price action, positioning and alternative data to see which stock has stronger support.
               </p>
               <div className="mt-5 grid gap-3">
                 <div className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-4">
                   <p className="text-sm font-semibold text-emerald-100">Premium unlocks the full verdict and decision view.</p>
                 </div>
                 <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.045] p-4">
-                  <p className="text-sm font-semibold text-cyan-100">Pro adds institutional activity and options-flow evidence.</p>
+                  <p className="text-sm font-semibold text-cyan-100">Pro adds institutional activity and options-flow data.</p>
                 </div>
               </div>
               <p className="mt-5 text-sm leading-6 text-slate-400">
-                Walnut's proprietary confirmation score measures how strongly the available evidence supports or contradicts each investment case.
+                Walnut's proprietary confirmation score measures how strongly the available data supports or contradicts a stock's current trend.
               </p>
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <CompareTrackedLink
@@ -947,7 +947,7 @@ export default async function LandingPage() {
                   <img src="/walnut-intel-logo-mark.png" alt="" className="h-5 w-5 rounded" />
                   Real Walnut comparison workflow
                 </span>
-                <span>Premium comparison shown. Pro adds institutional and options evidence.</span>
+                <span>Premium comparison shown. Pro adds institutional and options data.</span>
               </div>
             </div>
           </div>
@@ -961,7 +961,7 @@ export default async function LandingPage() {
               <SectionEyebrow>Stock Screener</SectionEyebrow>
               <h2 className="mt-3 text-3xl font-semibold text-white">An advanced stock screener built to find new opportunities.</h2>
               <p className="mt-5 text-sm leading-6 text-slate-400">
-                Screen across multiple data sets: disclosure activity, government contracts, technical indicators, fundamentals, liquidity, valuation, trend, quality, and confirmation data to identify the next big opportunity.
+                Screen for stocks with stronger support, fresh activity, cleaner trends, and risk factors worth checking before you act.
               </p>
             </div>
             <div>
@@ -1022,7 +1022,7 @@ export default async function LandingPage() {
               </div>
               <LandingPlanPrice display={proPrice} />
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                See the data most retail investors miss: institutional activity, options flow, and deeper positioning information that can show where conviction is building or weakening.
+                See the data most retail investors miss, including institutional activity, options flow, and deeper positioning that can show whether buying interest is building or fading.
               </p>
             </article>
           </div>
