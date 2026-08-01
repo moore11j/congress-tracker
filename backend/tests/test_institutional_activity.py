@@ -266,6 +266,33 @@ def test_latest_ingest_start_page_and_pages_fetches_contiguous_window(monkeypatc
     assert result["scanned"] == 2
 
 
+def test_holder_backfill_positions_only_passes_through_and_counts_rows(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        ingest_module,
+        "fetch_institutional_filing_dates",
+        lambda *, cik: [
+            _filing_row(cik=cik, filing_date=date(2026, 5, 15), year=2026, quarter=1),
+            _filing_row(cik=cik, filing_date=date(2026, 2, 14), year=2025, quarter=4),
+        ],
+    )
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return {"status": "ok", "processed_filings": 1, "position_rows": 10}
+
+    monkeypatch.setattr(ingest_module, "ingest_institutional_filing", fake_ingest)
+
+    result = ingest_module.backfill_institutional_holder(cik="0002012383", max_filings=2, positions_only=True)
+
+    assert result["processed_filings"] == 2
+    assert result["position_rows"] == 20
+    assert result["positions_only"] == 1
+    assert all(call["positions_only"] is True for call in calls)
+    assert [(call["year"], call["quarter"]) for call in calls] == [(2026, 1), (2025, 4)]
+
+
 def test_latest_ingest_max_filings_counts_rows_that_reach_extraction(monkeypatch):
     engine = _engine()
     latest_rows = [
@@ -387,8 +414,8 @@ def test_latest_ingest_stops_window_on_database_error(monkeypatch):
 def test_start_page_arg_does_not_change_specific_cik_ingest_path(monkeypatch, capsys):
     calls = []
 
-    def fake_specific_ingest(*, cik: str, year: int, quarter: int, force: bool = False):
-        calls.append({"cik": cik, "year": year, "quarter": quarter, "force": force})
+    def fake_specific_ingest(*, cik: str, year: int, quarter: int, force: bool = False, positions_only: bool = False):
+        calls.append({"cik": cik, "year": year, "quarter": quarter, "force": force, "positions_only": positions_only})
         return {"status": "ok", "processed_filings": 1}
 
     monkeypatch.setattr(ingest_module.sys, "argv", ["prog", "--start-page", "3", "--cik", "0001067983", "--year", "2026", "--quarter", "1"])
@@ -401,7 +428,7 @@ def test_start_page_arg_does_not_change_specific_cik_ingest_path(monkeypatch, ca
 
     ingest_module.main()
 
-    assert calls == [{"cik": "0001067983", "year": 2026, "quarter": 1, "force": False}]
+    assert calls == [{"cik": "0001067983", "year": 2026, "quarter": 1, "force": False, "positions_only": False}]
     assert "processed_filings" in capsys.readouterr().out
 
 

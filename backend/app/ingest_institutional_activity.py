@@ -260,6 +260,7 @@ def ingest_institutional_filing(
     year: int,
     quarter: int,
     force: bool = False,
+    positions_only: bool = False,
 ) -> dict[str, int | str]:
     ensure_institutional_activity_schema(engine)
     db = SessionLocal()
@@ -317,6 +318,21 @@ def ingest_institutional_filing(
             db.commit()
             return _empty_extract_result(metric)
 
+        if positions_only:
+            db.commit()
+            return {
+                "status": "ok",
+                "processed_filings": 1,
+                "empty_extract_retryable": 0,
+                "empty_extract_processed_no_holdings": 0,
+                "position_rows": position_row_count,
+                "position_changes": 0,
+                "summaries": 0,
+                "activity_events": 0,
+                "feed_events": 0,
+                "positions_only": 1,
+            }
+
         process_counts = process_filing_changes_and_events(db, filing)
         db.commit()
         return {
@@ -339,11 +355,19 @@ def backfill_institutional_holder(
     cik: str,
     force: bool = False,
     max_filings: int | None = None,
+    positions_only: bool = False,
 ) -> dict[str, int | str]:
     rows = fetch_institutional_filing_dates(cik=cik)
     candidates = [candidate for row in rows if (candidate := parse_latest_filing({**row, "cik": cik}))]
     candidates.sort(key=lambda item: (item.report_year, item.report_quarter, item.filing_date), reverse=True)
-    counts: dict[str, int | str] = {"status": "ok", "processed_filings": 0, "skipped": 0, "errors": 0}
+    counts: dict[str, int | str] = {
+        "status": "ok",
+        "processed_filings": 0,
+        "skipped": 0,
+        "errors": 0,
+        "position_rows": 0,
+        "positions_only": 1 if positions_only else 0,
+    }
     for candidate in candidates[: max_filings or len(candidates)]:
         try:
             result = ingest_institutional_filing(
@@ -351,9 +375,11 @@ def backfill_institutional_holder(
                 year=candidate.report_year,
                 quarter=candidate.report_quarter,
                 force=force,
+                positions_only=positions_only,
             )
             counts["processed_filings"] = int(counts["processed_filings"]) + int(result.get("processed_filings", 0))
             counts["skipped"] = int(counts["skipped"]) + int(result.get("skipped", 0))
+            counts["position_rows"] = int(counts["position_rows"]) + int(result.get("position_rows", 0))
         except Exception:
             counts["errors"] = int(counts["errors"]) + 1
             logger.exception("Failed to backfill 13F filing cik=%s Q%s %s", candidate.cik, candidate.report_quarter, candidate.report_year)
@@ -424,6 +450,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_LIMIT", "100")))
     parser.add_argument("--max-filings", type=int, default=int(os.getenv("INGEST_INSTITUTIONAL_MAX_FILINGS", "25")))
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--positions-only", action="store_true", help="Load filing holdings snapshots without generating change/activity/feed events.")
     parser.add_argument("--cik")
     parser.add_argument("--year", type=int)
     parser.add_argument("--quarter", type=int)
@@ -485,9 +512,20 @@ def main() -> None:
                 raise SystemExit("--holder-enrichment requires --cik")
             result = ingest_holder_enrichment(cik=args.cik, year=args.year, quarter=args.quarter)
         elif args.cik and args.year and args.quarter:
-            result = ingest_institutional_filing(cik=args.cik, year=args.year, quarter=args.quarter, force=args.force)
+            result = ingest_institutional_filing(
+                cik=args.cik,
+                year=args.year,
+                quarter=args.quarter,
+                force=args.force,
+                positions_only=args.positions_only,
+            )
         elif args.cik:
-            result = backfill_institutional_holder(cik=args.cik, force=args.force, max_filings=args.max_filings)
+            result = backfill_institutional_holder(
+                cik=args.cik,
+                force=args.force,
+                max_filings=args.max_filings,
+                positions_only=args.positions_only,
+            )
         else:
             result = ingest_latest_institutional_filings(
                 start_page=args.start_page,
