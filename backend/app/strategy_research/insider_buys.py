@@ -24,6 +24,7 @@ from app.strategy_research.congress_buys import (
     simulate_active_lot_portfolio,
     _normalize_universe,
 )
+from app.strategy_research.insider_price_universe import load_insider_purchase_price_coverage
 from app.services.ticker_meta import normalize_cik
 from app.utils.symbols import normalize_symbol
 
@@ -446,6 +447,29 @@ def _parse_symbols(value: str | None) -> tuple[str, ...]:
     return _normalize_universe(part.strip() for part in value.split(","))
 
 
+def _parse_exclude_symbols(value: str | None) -> set[str]:
+    if not value:
+        return set()
+    return set(_normalize_universe(part.strip() for part in value.split(",")))
+
+
+def load_normalized_purchase_universe(
+    db: Session,
+    *,
+    start_date: date,
+    end_date: date,
+    exclude_symbols: Iterable[str] | None = None,
+) -> tuple[str, ...]:
+    excluded = set(_normalize_universe(exclude_symbols or ()))
+    rows = load_insider_purchase_price_coverage(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        min_purchase_count=1,
+    )
+    return tuple(row.symbol for row in rows if row.symbol not in excluded)
+
+
 def _parse_holds(value: str) -> tuple[int, ...]:
     return tuple(int(part.strip()) for part in value.split(",") if part.strip())
 
@@ -483,6 +507,13 @@ def _print_text_report(result: dict[str, object]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only insider open-market buys strategy research runner.")
     parser.add_argument("--symbols", help="Comma-separated universe. Defaults to the approved 24-symbol research universe.")
+    parser.add_argument(
+        "--universe-source",
+        choices=("explicit", "normalized_insider_purchases"),
+        default="explicit",
+        help="Use explicit --symbols/default universe, or query all normalized insider purchase tickers.",
+    )
+    parser.add_argument("--exclude-symbols", help="Comma-separated symbols to exclude from the selected universe.")
     parser.add_argument("--benchmark", default="SPY")
     parser.add_argument("--start-date")
     parser.add_argument("--end-date", required=True)
@@ -500,22 +531,37 @@ def main() -> None:
 
     role = args.role
     label = "Insider Open-Market Buys" if role == "all" else f"Insider Open-Market Buys - {role.replace('_', ' ').title()}"
-    config = ResearchConfig(
-        strategy_name=label,
-        universe=_parse_symbols(args.symbols),
-        benchmark=normalize_symbol(args.benchmark) or "SPY",
-        start_date=parse_iso_date(args.start_date) if args.start_date else None,
-        end_date=parse_iso_date(args.end_date) or date.today(),
-        hold_days=_parse_holds(args.hold_days),
-        weighting=args.weighting,
-        rebalance_frequency=args.rebalance_frequency,
-        slippage_bps=float(args.slippage_bps),
-        fee_bps=float(args.fee_bps),
-        require_adjusted=not args.allow_raw_prices,
-        min_lots=int(args.min_lots),
-    )
+    end_date = parse_iso_date(args.end_date) or date.today()
+    start_date = parse_iso_date(args.start_date) if args.start_date else None
+    exclude_symbols = _parse_exclude_symbols(args.exclude_symbols)
+    universe = _parse_symbols(args.symbols)
     with SessionLocal() as db:
-        result = run_research(db, config, role=role, source=args.source)
+        if args.universe_source == "normalized_insider_purchases":
+            universe = load_normalized_purchase_universe(
+                db,
+                start_date=start_date or date(1990, 1, 1),
+                end_date=end_date,
+                exclude_symbols=exclude_symbols,
+            )
+        result = run_research(
+            db,
+            ResearchConfig(
+                strategy_name=label,
+                universe=universe,
+                benchmark=normalize_symbol(args.benchmark) or "SPY",
+                start_date=start_date,
+                end_date=end_date,
+                hold_days=_parse_holds(args.hold_days),
+                weighting=args.weighting,
+                rebalance_frequency=args.rebalance_frequency,
+                slippage_bps=float(args.slippage_bps),
+                fee_bps=float(args.fee_bps),
+                require_adjusted=not args.allow_raw_prices,
+                min_lots=int(args.min_lots),
+            ),
+            role=role,
+            source=args.source,
+        )
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:

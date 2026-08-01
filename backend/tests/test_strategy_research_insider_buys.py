@@ -11,6 +11,7 @@ from app.strategy_research.congress_buys import ResearchConfig
 from app.strategy_research.insider_buys import (
     load_legacy_insider_purchase_signals,
     load_insider_open_market_purchase_signals,
+    load_normalized_purchase_universe,
     run_research,
 )
 
@@ -103,6 +104,23 @@ def _legacy_insider_row(
             payload_json="{}",
         )
     )
+
+
+def test_load_normalized_purchase_universe_uses_open_market_purchase_symbols():
+    db = _session()
+    _insider_row(db, row_id=1, symbol="AAPL")
+    _insider_row(db, row_id=2, symbol="MSFT")
+    _insider_row(db, row_id=3, symbol="TSLA", transaction_type="open_market_sale")
+    db.commit()
+
+    universe = load_normalized_purchase_universe(
+        db,
+        start_date=date(2024, 1, 1),
+        end_date=date(2026, 7, 31),
+        exclude_symbols=("MSFT",),
+    )
+
+    assert universe == ("AAPL",)
 
 
 def test_insider_signals_use_form4_filing_date_and_open_market_purchase_only():
