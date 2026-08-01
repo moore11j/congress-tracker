@@ -774,6 +774,218 @@ def ensure_fundamentals_cache_schema(bind=engine) -> None:
         )
 
 
+def ensure_fundamentals_snapshot_schema(bind=engine) -> None:
+    text_columns = (
+        "error",
+        "source_payload_hash",
+        "methodology_version",
+        "company_name",
+        "sector",
+        "industry",
+        "country",
+        "exchange",
+    )
+    numeric_columns = (
+        "market_cap",
+        "price",
+        "volume",
+        "avg_volume",
+        "beta",
+        "dividend_yield",
+        "trailing_pe",
+        "forward_pe",
+        "price_to_sales",
+        "ev_to_ebitda",
+        "gross_margin",
+        "operating_margin",
+        "operating_margin_expansion",
+        "net_margin",
+        "roe",
+        "roic",
+        "revenue_growth",
+        "eps_growth",
+        "ebitda_growth",
+        "free_cash_flow",
+        "fcf_yield",
+        "fcf_margin",
+        "fcf_growth",
+        "debt_to_equity",
+        "current_ratio",
+        "net_debt_to_ebitda",
+        "eps_ttm",
+        "earnings_yield",
+    )
+    with bind.begin() as conn:
+        dialect_name = conn.dialect.name
+        _set_postgres_ddl_timeouts(conn)
+        if dialect_name == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fundamentals_snapshots (
+                        id INTEGER PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        snapshot_date DATE NOT NULL,
+                        observed_at TIMESTAMP NOT NULL,
+                        source_fetched_at TIMESTAMP NOT NULL,
+                        period_date DATE,
+                        status TEXT NOT NULL DEFAULT 'ok',
+                        error TEXT,
+                        source_payload_hash TEXT,
+                        methodology_version TEXT NOT NULL DEFAULT 'fundamentals_snapshot_v1',
+                        company_name TEXT,
+                        sector TEXT,
+                        industry TEXT,
+                        country TEXT,
+                        exchange TEXT,
+                        market_cap FLOAT,
+                        price FLOAT,
+                        volume FLOAT,
+                        avg_volume FLOAT,
+                        beta FLOAT,
+                        dividend_yield FLOAT,
+                        trailing_pe FLOAT,
+                        forward_pe FLOAT,
+                        price_to_sales FLOAT,
+                        ev_to_ebitda FLOAT,
+                        gross_margin FLOAT,
+                        operating_margin FLOAT,
+                        operating_margin_expansion FLOAT,
+                        net_margin FLOAT,
+                        roe FLOAT,
+                        roic FLOAT,
+                        revenue_growth FLOAT,
+                        eps_growth FLOAT,
+                        ebitda_growth FLOAT,
+                        free_cash_flow FLOAT,
+                        fcf_yield FLOAT,
+                        fcf_margin FLOAT,
+                        fcf_growth FLOAT,
+                        debt_to_equity FLOAT,
+                        current_ratio FLOAT,
+                        net_debt_to_ebitda FLOAT,
+                        eps_ttm FLOAT,
+                        earnings_yield FLOAT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            existing = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(fundamentals_snapshots)")).fetchall()
+                if len(row) > 1
+            }
+            columns = {
+                "provider": "TEXT NOT NULL DEFAULT 'fmp'",
+                "snapshot_date": "DATE",
+                "observed_at": "TIMESTAMP",
+                "source_fetched_at": "TIMESTAMP",
+                "period_date": "DATE",
+                "status": "TEXT NOT NULL DEFAULT 'ok'",
+                "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                **{name: "TEXT" for name in text_columns},
+                **{name: "FLOAT" for name in numeric_columns},
+            }
+            for name, column_type in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE fundamentals_snapshots ADD COLUMN {name} {column_type}"))
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS fundamentals_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        provider TEXT NOT NULL DEFAULT 'fmp',
+                        snapshot_date DATE NOT NULL,
+                        observed_at TIMESTAMPTZ NOT NULL,
+                        source_fetched_at TIMESTAMPTZ NOT NULL,
+                        period_date DATE,
+                        status TEXT NOT NULL DEFAULT 'ok',
+                        error TEXT,
+                        source_payload_hash TEXT,
+                        methodology_version TEXT NOT NULL DEFAULT 'fundamentals_snapshot_v1',
+                        company_name TEXT,
+                        sector TEXT,
+                        industry TEXT,
+                        country TEXT,
+                        exchange TEXT,
+                        market_cap DOUBLE PRECISION,
+                        price DOUBLE PRECISION,
+                        volume DOUBLE PRECISION,
+                        avg_volume DOUBLE PRECISION,
+                        beta DOUBLE PRECISION,
+                        dividend_yield DOUBLE PRECISION,
+                        trailing_pe DOUBLE PRECISION,
+                        forward_pe DOUBLE PRECISION,
+                        price_to_sales DOUBLE PRECISION,
+                        ev_to_ebitda DOUBLE PRECISION,
+                        gross_margin DOUBLE PRECISION,
+                        operating_margin DOUBLE PRECISION,
+                        operating_margin_expansion DOUBLE PRECISION,
+                        net_margin DOUBLE PRECISION,
+                        roe DOUBLE PRECISION,
+                        roic DOUBLE PRECISION,
+                        revenue_growth DOUBLE PRECISION,
+                        eps_growth DOUBLE PRECISION,
+                        ebitda_growth DOUBLE PRECISION,
+                        free_cash_flow DOUBLE PRECISION,
+                        fcf_yield DOUBLE PRECISION,
+                        fcf_margin DOUBLE PRECISION,
+                        fcf_growth DOUBLE PRECISION,
+                        debt_to_equity DOUBLE PRECISION,
+                        current_ratio DOUBLE PRECISION,
+                        net_debt_to_ebitda DOUBLE PRECISION,
+                        eps_ttm DOUBLE PRECISION,
+                        earnings_yield DOUBLE PRECISION,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+            )
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'fmp'"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS snapshot_date DATE"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS source_fetched_at TIMESTAMPTZ"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS period_date DATE"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()"))
+            conn.execute(text("ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+            for name in text_columns:
+                conn.execute(text(f"ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS {name} TEXT"))
+            for name in numeric_columns:
+                conn.execute(text(f"ALTER TABLE fundamentals_snapshots ADD COLUMN IF NOT EXISTS {name} DOUBLE PRECISION"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_fundamentals_snapshots_symbol_provider_date "
+                "ON fundamentals_snapshots (symbol, provider, snapshot_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_fundamentals_snapshots_symbol_date "
+                "ON fundamentals_snapshots (symbol, snapshot_date)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_fundamentals_snapshots_provider_observed "
+                "ON fundamentals_snapshots (provider, observed_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_fundamentals_snapshots_period_date "
+                "ON fundamentals_snapshots (period_date)"
+            )
+        )
+
+
 def ensure_search_and_insights_schema(bind=engine) -> None:
     with bind.begin() as conn:
         dialect_name = conn.dialect.name
