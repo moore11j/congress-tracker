@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
 from app.db import Base
+from app import backfill_institutional_ownership_pct as ownership_backfill
 from app import ingest_institutional_activity as ingest_module
 from app.clients.fmp import fetch_shares_float
 from app.request_priority import reset_request_context, set_request_context
@@ -1891,6 +1892,54 @@ def test_holder_positions_compute_missing_portfolio_weight_from_period_total():
         assert profile is not None
         profile_weights = {item["symbol"]: item["portfolio_weight"] for item in profile["top_holdings"]}
         assert profile_weights["NVDA"] == 75
+
+
+def test_institutional_ownership_backfill_updates_positions_from_shares_float(monkeypatch):
+    engine = _engine()
+    today = date.today()
+    cik = "0003333333"
+
+    with _session(engine) as db:
+        candidate = parse_latest_filing(_filing_row(cik=cik, filing_date=today, year=2026, quarter=1))
+        assert candidate is not None
+        upsert_institutional_holder(db, candidate)
+        filing, _ = upsert_institutional_filing(db, candidate)
+        db.flush()
+        upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {"symbol": "NVDA", "shares": 10, "marketValue": 300, "cusip": "67066G104"},
+                {"symbol": "MSFT", "shares": 4, "marketValue": 100, "cusip": "594918104"},
+            ],
+        )
+        db.commit()
+
+    monkeypatch.setattr(ownership_backfill, "SessionLocal", lambda: _session(engine))
+    monkeypatch.setattr(
+        ownership_backfill,
+        "fetch_shares_float",
+        lambda *, symbol: [{"floatShares": 1000 if symbol == "NVDA" else 200}],
+    )
+
+    result = ownership_backfill.run_backfill(
+        limit_symbols=None,
+        calls_per_minute=500,
+        cik=cik,
+        latest_only=False,
+        overwrite=False,
+        dry_run=False,
+    )
+
+    assert result["symbols_updated"] == 2
+    assert result["positions_updated"] == 2
+    with _session(engine) as db:
+        positions = {
+            row.normalized_symbol: row.ownership_pct
+            for row in db.execute(select(InstitutionalPosition)).scalars().all()
+        }
+        assert positions["NVDA"] == 1
+        assert positions["MSFT"] == 2
 
 
 def test_holder_activity_payload_includes_activity_prices_units_and_cached_current_price():
