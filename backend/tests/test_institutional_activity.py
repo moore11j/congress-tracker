@@ -958,6 +958,40 @@ def test_upsert_positions_for_filing_is_idempotent_for_cusip_put_call_identity()
         assert {position.put_call or "common" for position in positions} == {"common", "put"}
 
 
+def test_upsert_positions_for_filing_matches_existing_rows_in_bulk(monkeypatch):
+    engine = _engine()
+    rows = [
+        {"symbol": "MSFT", "securityCusip": "594918104", "nameOfIssuer": "MICROSOFT CORP", "shares": 10, "value": 1000},
+        {"symbol": "AAPL", "securityCusip": "037833100", "nameOfIssuer": "APPLE INC", "shares": 20, "value": 2000},
+    ]
+    with _session(engine) as db:
+        filing = _seed_institutional_filing(db)
+        first = upsert_positions_for_filing(db, filing=filing, rows=rows)
+        db.flush()
+
+        monkeypatch.setattr(
+            institutional_service,
+            "_find_position",
+            lambda *_args, **_kwargs: pytest.fail("upsert should preload existing positions once"),
+        )
+
+        second = upsert_positions_for_filing(
+            db,
+            filing=filing,
+            rows=[
+                {**rows[0], "shares": 11, "value": 1100},
+                {**rows[1], "shares": 21, "value": 2100},
+            ],
+        )
+        db.flush()
+
+        positions = db.execute(select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)).scalars().all()
+        assert first["inserted_positions"] == 2
+        assert second["updated_positions"] == 2
+        assert len(positions) == 2
+        assert {position.cusip: position.shares for position in positions} == {"594918104": 11, "037833100": 21}
+
+
 def test_position_changes_do_not_double_count_aggregated_rows():
     engine = _engine()
     with _session(engine) as db:

@@ -540,8 +540,15 @@ def upsert_positions_for_filing(
         existing_payload = payloads_by_key.get(key)
         payloads_by_key[key] = _merge_position_payloads(existing_payload, payload) if existing_payload else payload
 
+    existing_by_key = {
+        _position_row_identity_key(position): position
+        for position in db.execute(
+            select(InstitutionalPosition).where(InstitutionalPosition.filing_id == filing.id)
+        ).scalars().all()
+    }
+
     for payload in payloads_by_key.values():
-        existing = _find_position(db, filing.id, payload.normalized_symbol, payload.cusip, payload.put_call)
+        existing = existing_by_key.get(_position_payload_identity_key(payload))
         if existing is None:
             existing = InstitutionalPosition(
                 filing_id=filing.id,
@@ -2362,6 +2369,13 @@ def _position_payload_identity_key(payload: InstitutionalPositionPayload) -> tup
     if payload.cusip:
         return ("cusip", payload.cusip, put_call)
     return ("symbol", payload.normalized_symbol or "", put_call)
+
+
+def _position_row_identity_key(position: InstitutionalPosition) -> tuple[str, str, str]:
+    put_call = position.put_call or ""
+    if position.cusip:
+        return ("cusip", position.cusip, put_call)
+    return ("symbol", normalize_symbol(position.normalized_symbol or position.symbol) or "", put_call)
 
 
 def _position_payload_fingerprint(payload: InstitutionalPositionPayload) -> str:
