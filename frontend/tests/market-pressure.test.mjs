@@ -15,7 +15,7 @@ const middleware = read("middleware.ts");
 
 test("Compare appears between Backtesting and Maps in the shared top navigation", () => {
   const backtestingIndex = nav.indexOf('{ href: "/backtesting", label: "Backtesting" }');
-  const compareIndex = nav.indexOf('{ href: "/compare/_/_", label: "Compare" }');
+  const compareIndex = nav.indexOf('{ href: "/compare", label: "Compare" }');
   const marketPressureIndex = nav.indexOf('{ href: "/market-pressure", label: "Maps" }');
   const pricingIndex = nav.indexOf('{ href: "/pricing", label: "Pricing" }');
   assert.ok(backtestingIndex > -1, "Backtesting nav item is missing");
@@ -25,7 +25,7 @@ test("Compare appears between Backtesting and Maps in the shared top navigation"
   assert.ok(backtestingIndex < compareIndex, "Compare should appear after Backtesting");
   assert.ok(compareIndex < marketPressureIndex, "Compare should appear before Maps");
   assert.ok(marketPressureIndex < pricingIndex, "Maps should appear before Pricing");
-  assert.match(nav, /basePath === "\/compare\/_\/_"/);
+  assert.match(nav, /basePath === "\/compare"/);
   assert.match(nav, /usePathname/);
 });
 

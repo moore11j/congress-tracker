@@ -538,7 +538,7 @@ export const defaultPlanConfig: PlanConfig = {
     {
       tier: "free",
       name: "Free",
-      description: "For casual research and a focused starter watchlist.",
+      description: "Best for checking a few tickers, following core feeds, and keeping a focused starter watchlist.",
       limits: defaultLimits.free,
       prices: {
         monthly: priceFor("free", "monthly"),
@@ -548,7 +548,7 @@ export const defaultPlanConfig: PlanConfig = {
     {
       tier: "premium",
       name: "Premium",
-      description: "For daily monitoring, premium research signals, alerts, and deeper market-political intelligence.",
+      description: "Best for daily research with confirmation scoring, alerts, comparisons, watchlists, and disclosure context.",
       limits: defaultLimits.premium,
       prices: {
         monthly: priceFor("premium", "monthly"),
@@ -558,7 +558,7 @@ export const defaultPlanConfig: PlanConfig = {
     {
       tier: "pro",
       name: "Pro",
-      description: "For serious investors and operators who need higher limits, Pro-only data sets, and workflow automation readiness.",
+      description: "Best for deeper research with higher limits, institutional activity, market pressure, and Pro data layers.",
       limits: defaultLimits.pro,
       prices: {
         monthly: priceFor("pro", "monthly"),

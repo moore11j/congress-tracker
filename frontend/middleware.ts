@@ -19,6 +19,7 @@ const publicStaticPaths = new Set([
   "/stock-confirmation-score",
   "/stock-research-app",
   "/stock-analysis-tools",
+  "/compare",
   "/reddit/stock-research",
 ]);
 const publicAccountPaths = new Set(["/account/verify-email", "/account/reactivate"]);
@@ -90,6 +91,11 @@ function isPublicMarketingAsset(pathname: string): boolean {
 function isPublicResearchRoute(pathname: string): boolean {
   const normalized = (pathname || "/").toLowerCase();
   return normalized === "/research" || normalized.startsWith("/research/");
+}
+
+function isPublicComparisonRoute(pathname: string): boolean {
+  const normalized = (pathname || "/").toLowerCase();
+  return normalized === "/compare" || normalized.startsWith("/compare/walnut-markets-vs-");
 }
 
 function isNoindexAppRoute(pathname: string): boolean {
@@ -258,7 +264,7 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isPublicResearchRoute(pathname)) && publicLandingHosts.has(host);
+  const isMarketingStaticPage = (publicStaticPaths.has(pathname) || isPublicResearchRoute(pathname) || isPublicComparisonRoute(pathname)) && publicLandingHosts.has(host);
   if (isMarketingStaticPage || publicAccountPaths.has(pathname)) {
     requestHeaders.set(landingHeaderName, "1");
     const response = NextResponse.next({
@@ -288,7 +294,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !isPublicResearchRoute(pathname) && !publicAccountPaths.has(pathname)) {
+  if (publicLandingHosts.has(host) && !publicStaticPaths.has(pathname) && !isPublicResearchRoute(pathname) && !isPublicComparisonRoute(pathname) && !publicAccountPaths.has(pathname)) {
     const appUrl = request.nextUrl.clone();
     appUrl.protocol = "https:";
     appUrl.host = appHost;

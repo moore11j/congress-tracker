@@ -127,9 +127,9 @@ test("public legal navigation includes FAQ across landing and legal shell", () =
     assert.match(middleware, new RegExp(`"${route}"`));
   }
   assert.match(middleware, /appHost = "app\.walnutmarkets\.com"/);
-  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isPublicResearchRoute\(pathname\)\) && publicLandingHosts\.has\(host\)/);
+  assert.match(middleware, /const isMarketingStaticPage = \(publicStaticPaths\.has\(pathname\) \|\| isPublicResearchRoute\(pathname\) \|\| isPublicComparisonRoute\(pathname\)\) && publicLandingHosts\.has\(host\)/);
   assert.match(middleware, /if \(isMarketingStaticPage \|\| publicAccountPaths\.has\(pathname\)\)/);
-  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
+  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !isPublicComparisonRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /legacyMarketingHosts = new Set\(\["walnut-intel\.com", "www\.walnut-intel\.com", "www\.walnutmarkets\.com"\]\)/);
   assert.match(middleware, /return NextResponse\.redirect\(canonicalUrl, 301\)/);
   assert.match(middleware, /appUrl\.host = appHost/);

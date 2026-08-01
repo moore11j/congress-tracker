@@ -10,6 +10,7 @@ const marketingMetadata = fs.readFileSync(path.join(root, "lib/marketingMetadata
 const publicSeoRoutes = [
   "/stock-research-app",
   "/stock-analysis-tools",
+  "/compare",
   "/congress-trades",
   "/insider-trading-tracker",
   "/government-contracts",
@@ -127,7 +128,7 @@ test("legacy marketing domains redirect permanently and public ticker pages rema
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicMarketingAsset\(pathname\)/);
   assert.match(middleware, /canonicalMarketingHosts\.has\(host\) && isPublicTickerRoute\(pathname\)/);
   assert.match(middleware, /const shouldNoindex = host === appHost && isNoindexAppRoute\(pathname\)/);
-  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
+  assert.match(middleware, /publicLandingHosts\.has\(host\) && !publicStaticPaths\.has\(pathname\) && !isPublicResearchRoute\(pathname\) && !isPublicComparisonRoute\(pathname\) && !publicAccountPaths\.has\(pathname\)/);
   assert.match(middleware, /appUrl\.host = appHost/);
   assert.match(middleware, /return NextResponse\.redirect\(appUrl, 307\)/);
   assert.match(middleware, /isTerminalRoute\(pathname\) && !isPublicTickerRoute\(pathname\) && !hasBackendSession/);

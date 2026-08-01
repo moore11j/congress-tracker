@@ -191,7 +191,9 @@ test("pricing page renders a static public shell and refreshes live config clien
   assert.match(pricingPage, /export const dynamic = "force-static"/);
   assert.match(pricingPage, /export const revalidate = false/);
   assert.doesNotMatch(pricingPage, /withServerTimeout\(getPlanConfig\(\), "pricing:plan-config"\)/);
-  assert.doesNotMatch(pricingPage, /defaultPlanConfig/);
+  assert.match(pricingPage, /pricingJsonLd/);
+  assert.match(pricingPage, /Pricing FAQ/);
+  assert.match(pricingPage, /defaultPlanConfig\.plan_prices/);
   assert.match(pricingPage, /<PricingPlannerDeferred \/>/);
   assert.match(pricingDeferred, /dynamic\(/);
   assert.match(pricingDeferred, /ssr: false/);

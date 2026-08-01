@@ -6,6 +6,7 @@ import { WalnutBrandMark } from "@/components/WalnutBrandMark";
 const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "https://app.walnutmarkets.com").replace(/\/+$/, "");
 
 const platformFooterLinks = [
+  { label: "Compare Walnut", href: "/compare" },
   { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },

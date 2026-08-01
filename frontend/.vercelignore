@@ -1,5 +1,6 @@
 .next
 node_modules
+.codex-screenshots
 *.log
 playwright-report
 test-results

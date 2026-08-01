@@ -75,6 +75,7 @@ const navLinks = [
 ] as const;
 
 const platformFooterLinks = [
+  { label: "Compare Walnut", href: "/compare" },
   { label: "Stock Analysis Tools", href: "/stock-analysis-tools" },
   { label: "Stock Screener", href: `${appUrl}/screener` },
   { label: "Compare Stocks", href: `${appUrl}/compare/NVDA/MU` },

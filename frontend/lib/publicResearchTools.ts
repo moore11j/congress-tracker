@@ -10,6 +10,11 @@ export const publicResearchTools = [
     shortLabel: "Analysis tools",
   },
   {
+    href: "/compare",
+    label: "Platform comparisons",
+    shortLabel: "Comparisons",
+  },
+  {
     href: "/congress-trades",
     label: "Congress trades tracker",
     shortLabel: "Congress trades",
