@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
@@ -27,6 +28,7 @@ SNAPSHOT_COPY_FIELDS = tuple(
     }
 )
 SNAPSHOT_EXCLUDED_SYMBOL_SUBSTRINGS = ("RESEARCH", "WALNUT", "CHART=", "%")
+SNAPSHOT_MUTUAL_FUND_LIKE_RE = re.compile(r"^[A-Z]{4}X$")
 
 
 def snapshot_symbol_rejection_reason(raw_symbol: str | None) -> tuple[str | None, str | None]:
@@ -36,6 +38,8 @@ def snapshot_symbol_rejection_reason(raw_symbol: str | None) -> tuple[str | None
         return symbol_text, "symbol_contains_non_ticker_artifact"
     if status != "eligible" or not normalized:
         return normalized, status
+    if SNAPSHOT_MUTUAL_FUND_LIKE_RE.match(normalized):
+        return normalized, "likely_mutual_fund"
     if any(marker in normalized for marker in SNAPSHOT_EXCLUDED_SYMBOL_SUBSTRINGS):
         return normalized, "symbol_contains_non_ticker_artifact"
     if normalized.endswith(")") or "(" in normalized or ")" in normalized:

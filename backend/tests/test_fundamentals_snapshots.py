@@ -137,14 +137,23 @@ def test_snapshot_current_fundamentals_skips_invalid_symbols():
                 roe=30.0,
             )
         )
+        db.add(
+            _fundamentals(
+                "ABALX",
+                fetched_at=datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
+                revenue_growth=12.0,
+                roe=30.0,
+            )
+        )
         db.commit()
 
         result = snapshot_current_fundamentals(db, observed_at=datetime(2026, 8, 1, 18, 0, tzinfo=timezone.utc))
         db.commit()
 
-        assert result["rows_seen"] == 3
+        assert result["rows_seen"] == 4
         assert result["snapshots_written"] == 1
         assert result["skipped_invalid_symbols"] == {
+            "likely_mutual_fund": 1,
             "symbol_contains_non_ticker_artifact": 1,
             "unsupported_symbol": 1,
         }
@@ -156,6 +165,7 @@ def test_snapshot_current_fundamentals_skips_invalid_symbols():
 def test_snapshot_symbol_hygiene_allows_class_share_aliases_and_rejects_artifacts():
     assert snapshot_symbol_rejection_reason("BRK.B") == ("BRK.B", None)
     assert snapshot_symbol_rejection_reason("BRK-B") == ("BRK-B", None)
+    assert snapshot_symbol_rejection_reason("ABALX") == ("ABALX", "likely_mutual_fund")
     assert snapshot_symbol_rejection_reason("[SYMBOL]")[1] is not None
     assert snapshot_symbol_rejection_reason("AAPLU0026CHART=STOCK") == (
         "AAPLU0026CHART=STOCK",

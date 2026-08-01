@@ -20,6 +20,7 @@ def main() -> None:
     parser.add_argument("--provider", default="fmp")
     parser.add_argument("--observed-at", help="Optional ISO timestamp for reproducible backfill/testing.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verbose-symbols", action="store_true")
     args = parser.parse_args()
 
     observed_at = datetime.fromisoformat(args.observed_at) if args.observed_at else datetime.now(timezone.utc)
@@ -40,6 +41,12 @@ def main() -> None:
         else:
             db.commit()
             result = {**result, "dry_run": False, "committed": True}
+    if not args.verbose_symbols:
+        result = {
+            **result,
+            "symbols_sample": result.get("symbols", [])[:25],
+            "symbols": f"{len(result.get('symbols', []))} symbols omitted; pass --verbose-symbols to print all",
+        }
     print(json.dumps(result, sort_keys=True))
 
 
